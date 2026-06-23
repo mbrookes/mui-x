@@ -5,12 +5,8 @@ import type { StudioFilterState } from '../models';
  * Returns the subset of `filters` that applies to a specific widget.
  *
  * Single source of truth for all three data paths (async adapter, sync in-memory,
- * non-React pipeline):
- * - disabled guard
- * - isDashboardDateRange + filterSourceId scope guard — prevents a date-range
- *   filter created for source A from leaking into source B queries
- * - scope partitioning (page / widget / cross-filter / interactive)
- * - resolveDateRangePresets — concrete {from, to} computation for preset filters
+ * non-React pipeline). Filters without `scopeV2` are silently skipped — all
+ * filter-creation sites in `StudioController` now emit `scopeV2`.
  *
  * @param include
  *   'all' (default) — page + widget + cross-filter + interactive
@@ -38,88 +34,49 @@ export function selectFiltersForWidget(
       continue;
     }
 
-    if (f.scopeV2) {
-      // Typed path — scopeV2 encodes all scope information; legacy fields are ignored.
-      const sv2 = f.scopeV2;
-      switch (sv2.kind) {
-        case 'page':
-          if (!sv2.pageId || sv2.pageId === activePageId) {
-            result.push(f);
-          }
-          break;
-        case 'widget':
-          if (sv2.widgetId === widgetId && f.filterMode !== 'rank') {
-            result.push(f);
-          }
-          break;
-        case 'cross-filter':
-          if (
-            include === 'all' &&
-            sv2.sourceWidgetId !== widgetId &&
-            (activePageId === undefined || sv2.pageId === activePageId)
-          ) {
-            result.push(f);
-          }
-          break;
-        case 'interactive':
-          if (
-            include !== 'no-cross' &&
-            sv2.sourceWidgetId !== widgetId &&
-            (activePageId === undefined || sv2.pageId === activePageId)
-          ) {
-            result.push(f);
-          }
-          break;
-        case 'dashboard-date-range':
-          if (
-            sv2.sourceId === widgetSourceId &&
-            (activePageId === undefined || sv2.pageId === activePageId)
-          ) {
-            result.push(f);
-          }
-          break;
-        default:
-          break;
-      }
-    } else {
-      // Legacy path — fall back to the flat fields present on all existing filters.
-      // Dashboard date-range filters are scoped to their own source. A filter
-      // created for source A must not apply to widgets on source B — it would
-      // either target a non-existent field or trigger a spurious semi-join.
-      if (f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
-        continue;
-      }
-
-      switch (f.scope) {
-        case 'page':
+    const sv2 = f.scopeV2;
+    if (!sv2) {
+      continue;
+    }
+    switch (sv2.kind) {
+      case 'page':
+        if (!sv2.pageId || sv2.pageId === activePageId) {
           result.push(f);
-          break;
-        case 'widget':
-          if (f.widgetId === widgetId && f.filterMode !== 'rank') {
-            result.push(f);
-          }
-          break;
-        case 'cross-filter':
-          if (
-            include === 'all' &&
-            f.sourceWidgetId !== widgetId &&
-            (activePageId === undefined || f.pageId === activePageId)
-          ) {
-            result.push(f);
-          }
-          break;
-        case 'interactive':
-          if (
-            include !== 'no-cross' &&
-            f.sourceWidgetId !== widgetId &&
-            (activePageId === undefined || f.pageId === activePageId)
-          ) {
-            result.push(f);
-          }
-          break;
-        default:
-          break;
-      }
+        }
+        break;
+      case 'widget':
+        if (sv2.widgetId === widgetId && f.filterMode !== 'rank') {
+          result.push(f);
+        }
+        break;
+      case 'cross-filter':
+        if (
+          include === 'all' &&
+          sv2.sourceWidgetId !== widgetId &&
+          (activePageId === undefined || sv2.pageId === activePageId)
+        ) {
+          result.push(f);
+        }
+        break;
+      case 'interactive':
+        if (
+          include !== 'no-cross' &&
+          sv2.sourceWidgetId !== widgetId &&
+          (activePageId === undefined || sv2.pageId === activePageId)
+        ) {
+          result.push(f);
+        }
+        break;
+      case 'dashboard-date-range':
+        if (
+          sv2.sourceId === widgetSourceId &&
+          (activePageId === undefined || sv2.pageId === activePageId)
+        ) {
+          result.push(f);
+        }
+        break;
+      default:
+        break;
     }
   }
 

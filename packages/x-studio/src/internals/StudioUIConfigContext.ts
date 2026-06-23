@@ -72,6 +72,12 @@ export interface StudioLocaleText {
   quickFilterBarFiltered: string;
   dateRangeBarFieldLabel: string;
 
+  // ── Cross-filter mode bar ─────────────────────────────────────────────────
+  crossFilterBarModeFilter: string;
+  crossFilterBarModeHighlight: string;
+  crossFilterBarModePerChart: string;
+  crossFilterBarAllPages: string;
+
   // ── Widget card actions ────────────────────────────────────────────────────
   widgetEditTooltip: string;
   widgetExportCsvTooltip: string;
@@ -1054,6 +1060,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   quickFilterBarFiltered: 'Filtered',
   dateRangeBarFieldLabel: 'Date range',
 
+  // Cross-filter mode bar
+  crossFilterBarModeFilter: 'Filter',
+  crossFilterBarModeHighlight: 'Highlight',
+  crossFilterBarModePerChart: 'Per chart',
+  crossFilterBarAllPages: 'All pages',
+
   // Widget card actions
   widgetEditTooltip: 'Edit widget',
   widgetExportCsvTooltip: 'Export as CSV',
@@ -2028,6 +2040,7 @@ export interface ResolvedStudioFeatures {
   compose: boolean;
   filters: boolean;
   quickFilter: boolean;
+  crossFilterBar: boolean;
   savedFilterViews: boolean;
   dataManagement: boolean;
   relationships: boolean;
@@ -2086,6 +2099,7 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
     compose: featureFlags.compose ?? true,
     filters: featureFlags.filters ?? true,
     quickFilter: featureFlags.quickFilter ?? false,
+    crossFilterBar: featureFlags.crossFilterBar ?? false,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
     relationships: featureFlags.relationships ?? true,

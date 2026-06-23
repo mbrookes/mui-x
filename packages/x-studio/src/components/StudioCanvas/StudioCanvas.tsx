@@ -24,6 +24,7 @@ import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
 import type { StudioMode } from '../../models/baseTypes';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
+import { StudioCrossFilterBar } from './StudioCrossFilterBar';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
   DRAG_TYPE_COMPOSE_WIDGET,
@@ -618,6 +619,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     >
       {/* Date range bar — shown in both modes when the page has date/datetime fields */}
       {features.quickFilter && <StudioDateRangeBar />}
+
+      {/* Cross-filter mode bar — shown when the crossFilterBar feature flag is enabled */}
+      {features.crossFilterBar && <StudioCrossFilterBar />}
 
       {/* Quick filter bar — view mode only, shown when page filters are active */}
       {mode !== 'edit' && <StudioQuickFilterBar />}

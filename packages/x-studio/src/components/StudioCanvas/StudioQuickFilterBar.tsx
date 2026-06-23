@@ -133,16 +133,12 @@ export function StudioQuickFilterBar() {
             key={filter.id}
             label={label}
             size="small"
-            variant="filled"
-            onDelete={
-              filter.sourceWidgetId
-                ? (event: React.MouseEvent) => {
-                    event.stopPropagation();
-                    controller.clearCrossFilter(filter.sourceWidgetId!);
-                  }
-                : undefined
-            }
-            sx={{ maxWidth: 220 }}
+            variant={filter.disabled ? 'outlined' : 'filled'}
+            onClick={(event) => {
+              event.stopPropagation();
+              controller.toggleFilter(filter.id);
+            }}
+            sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
           />
         );
       })}

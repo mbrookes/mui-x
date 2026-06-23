@@ -77,7 +77,10 @@ export default function App() {
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('left');
   const [tableSourceMode, setTableSourceMode] = React.useState<TableSourceMode>('explicit');
   const [stackBreakpoint, setStackBreakpoint] = React.useState(600);
-  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({ quickFilter: true });
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({
+    quickFilter: false,
+    crossFilterBar: true,
+  });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
   const t = localeBundle.appLocaleText;

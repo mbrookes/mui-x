@@ -112,6 +112,28 @@ export class StudioController {
     });
   };
 
+  setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
+    const state = this.store.state;
+    this.commitState(
+      {
+        ...state,
+        dashboard: { ...state.dashboard, globalCrossFilterMode: mode },
+      },
+      { undoable: false },
+    );
+  };
+
+  setCrossFilterAllPages = (allPages: boolean) => {
+    const state = this.store.state;
+    this.commitState(
+      {
+        ...state,
+        dashboard: { ...state.dashboard, crossFilterAllPages: allPages },
+      },
+      { undoable: false },
+    );
+  };
+
   toggleDrawer = (drawer: StudioDrawer) => {
     const { shell } = this.store.state;
 

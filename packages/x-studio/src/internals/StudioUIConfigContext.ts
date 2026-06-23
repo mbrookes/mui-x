@@ -1056,7 +1056,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',
-  quickFilterBarClearAll: 'Clear all page filters',
+  quickFilterBarClearAll: 'Clear all filters',
   quickFilterBarFiltered: 'Filtered',
   dateRangeBarFieldLabel: 'Date range',
 

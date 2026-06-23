@@ -51,7 +51,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Filterbereich öffnen',
-  quickFilterBarClearAll: 'Alle Seitenfilter löschen',
+  quickFilterBarClearAll: 'Alle Filter löschen',
   quickFilterBarFiltered: 'Gefiltert',
   dateRangeBarFieldLabel: 'Datumsbereich',
 

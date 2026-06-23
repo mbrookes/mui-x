@@ -947,6 +947,85 @@ describe('handleBatchQuery — HAVING predicates', () => {
       }),
     ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
   });
+
+  it('DB error from an expression-field aggregation column is returned in the widget result, not thrown', async () => {
+    // Simulate a DB that fails when SUM-ing a virtual/expression column.
+    // The HAVING alias is valid (matches the aggregation alias), but the DB
+    // cannot resolve the underlying column — the error must surface in
+    // result.error, not as an unhandled rejection.
+    const failingDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.then = (_resolve: unknown, reject?: (err: Error) => void) => {
+        reject?.(new Error('no such column: computed_revenue'));
+      };
+      return qb;
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'computed_revenue', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'total', operator: 'gt', value: 0 }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: failingDb,
+      schemaAllowlist: ['sales'],
+    });
+
+    expect(result.results[0].rows).toEqual([]);
+    expect(result.results[0].error).toMatch('no such column: computed_revenue');
+  });
+});
+
+// ─── handleBatchQuery — JOIN with ambiguous column names ─────────────────────
+
+describe('handleBatchQuery — JOIN with ambiguous column names', () => {
+  it('db-tier aggregation with a JOIN qualifies column references to avoid ambiguity', async () => {
+    // Regression for dd2e96b5: without qualify(), SUM(amount) would be ambiguous
+    // when a JOIN introduces a second table that also has an `amount` column.
+    // executeForTier() in preflight.ts uses qualify() to prefix every unqualified
+    // column with the primary table name (e.g. amount → sales.amount).
+    //
+    // The mock adds leftJoin support (no-op) to verify the full code path runs
+    // without throwing and returns the primary table's aggregated values.
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.leftJoin = () => qb;
+      return qb;
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          joins: [{ table: 'regions', type: 'left', on: [['sales.region', 'regions.name']] }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: joinCapableDb,
+      schemaAllowlist: ['sales', 'regions'],
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // ACME rows: west(100+150=250), east(200), north(75)
+    expect(rows).toHaveLength(3);
+    const west = rows.find((r) => r.region === 'west');
+    expect(west?.total).toBe(250);
+  });
 });
 
 // ─── handleBatchQuery — partial batch failure recovery ───────────────────────

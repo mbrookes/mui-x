@@ -27,6 +27,9 @@ import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 import { AppLocaleProvider } from './locales/AppLocaleContext';
 import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
 import { SURVEY_DASHBOARD } from './config/surveyReport';
+import { dividerWidgetDef } from './components/DividerWidget';
+
+const CUSTOM_WIDGETS = [dividerWidgetDef];
 
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
@@ -220,6 +223,7 @@ export default function App() {
                   stackBreakpoint={stackBreakpoint}
                   featureFlags={featureFlags}
                   localeText={localeBundle.studioLocaleText}
+                  customWidgets={CUSTOM_WIDGETS}
                 />
               )}
             </Box>

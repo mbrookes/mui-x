@@ -512,10 +512,9 @@ const PAGE_THEME: StudioPageTheme = {
 function qDividerWidget(n: number): StudioWidget {
   return {
     id: `${qId(n)}-divider`,
-    kind: 'text',
+    kind: 'survey-divider',
     title: '',
-    titleMode: 'manual',
-    config: { textBody: '---' },
+    config: {},
   };
 }
 

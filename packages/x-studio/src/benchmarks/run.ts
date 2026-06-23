@@ -139,7 +139,7 @@ for (const n of SCALES) {
     runBench(`L3 resolveRows (cold) @ ${scale}`, () => {
       const filter: StudioFilterState = {
         id: 'f1',
-        scope: 'page',
+        scopeV2: { kind: 'page' },
         field: 'status',
         fieldType: 'string',
         operator: 'equals',
@@ -160,7 +160,7 @@ for (const n of SCALES) {
   {
     const stableFilter: StudioFilterState = {
       id: 'f-cache',
-      scope: 'page',
+      scopeV2: { kind: 'page' },
       field: 'status',
       fieldType: 'string',
       operator: 'equals',
@@ -276,7 +276,7 @@ function makeKpiWidget(): StudioWidget {
 function makePageFilter(id: string, value = 'completed'): StudioFilterState {
   return {
     id,
-    scope: 'page',
+    scopeV2: { kind: 'page' },
     field: 'status',
     fieldType: 'string',
     operator: 'equals',

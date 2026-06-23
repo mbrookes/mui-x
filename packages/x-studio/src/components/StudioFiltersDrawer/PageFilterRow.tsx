@@ -79,7 +79,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const hasAnotherRankFilter = filters.some(
     (candidate) =>
       candidate.id !== filter.id &&
-      candidate.scope !== 'cross-filter' &&
+      candidate.scopeV2.kind !== 'cross-filter' &&
       candidate.filterMode === 'rank',
   );
   const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';

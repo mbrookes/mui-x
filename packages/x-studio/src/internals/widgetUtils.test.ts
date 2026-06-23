@@ -566,9 +566,9 @@ function relDateFilter(
     field: 'date',
     fieldType: 'date',
     operator,
-    scope: 'page',
+    scopeV2: { kind: 'page' },
     value: { relative: true, direction, amount, unit },
-  };
+  } as StudioFilterState;
 }
 
 describe('formatDateFilterLabel — default EN tokens', () => {
@@ -600,11 +600,10 @@ describe('formatDateFilterLabel — dashboard date range presets', () => {
       field: 'date',
       fieldType: 'date',
       operator: 'between',
-      scope: 'page',
+      scopeV2: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
       value: null,
-      isDashboardDateRange: true,
       dateRangePreset: preset as any,
-    };
+    } as StudioFilterState;
   }
 
   it('returns "Last 12 months" for last_12_months preset', () => {

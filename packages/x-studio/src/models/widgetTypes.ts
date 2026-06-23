@@ -346,6 +346,8 @@ export interface StudioWidgetConfig {
   crossFilterMode?: StudioCrossFilterMode;
   /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
   titleFontSize?: number;
+  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
+  cardExpandTitle?: string;
   // Text config
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;

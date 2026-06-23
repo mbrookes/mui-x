@@ -469,6 +469,7 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
     sourceId: SRC,
     config: {
       titleFontSize: 11,
+      cardExpandTitle: `${meta.n}. ${meta.question}`,
       chartType: 'bar',
       xField: meta.field,
       yField: meta.field,
@@ -495,6 +496,7 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
     sourceId: SRC,
     config: {
       titleFontSize: 11,
+      cardExpandTitle: `${meta.n}. ${meta.question}`,
       chartType: 'donut',
       xField: meta.field,
       yField: meta.field,

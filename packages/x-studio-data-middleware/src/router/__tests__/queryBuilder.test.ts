@@ -146,6 +146,18 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'whereIn', args: ['product', ['a', 'b']] });
     });
 
+    it('skips an empty "in" list (autoRemove) rather than emitting WHERE x IN ()', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          filters: [{ column: 'product', operator: 'in', value: [] }],
+        }),
+      );
+      expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
+    });
+
     it('maps "like" to whereLike', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(

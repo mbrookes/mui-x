@@ -233,9 +233,14 @@ async function processWidget(
     }
 
     // ── 5. Populate data cache for client + server tiers ──────────────────
-    // DB push-down returns aggregated rows — not suitable for re-filtering
+    // DB push-down returns aggregated rows — not suitable for re-filtering.
+    // Tag with the primary table so host apps can call deleteByTag(table) after a write.
     if (tier !== 'db') {
-      await cacheProvider.set(cacheKey, { rows, cachedAt: Date.now() });
+      await cacheProvider.set(
+        cacheKey,
+        { rows, cachedAt: Date.now() },
+        { tags: [descriptor.table] },
+      );
     }
 
     return {

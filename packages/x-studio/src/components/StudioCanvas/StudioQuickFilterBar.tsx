@@ -41,7 +41,12 @@ export function StudioQuickFilterBar() {
       (!f.pageId || f.pageId === activePageId),
   );
 
-  if (pageFilters.length === 0) {
+  // Chart-click cross-filters for the active page, excluding the source widget's own filter.
+  const crossFilters = (filters as StudioFilterState[]).filter(
+    (f) => f.scope === 'cross-filter' && f.pageId === activePageId,
+  );
+
+  if (pageFilters.length === 0 && crossFilters.length === 0) {
     return null;
   }
 
@@ -64,7 +69,16 @@ export function StudioQuickFilterBar() {
     for (const f of pageFilters) {
       controller.removeFilter(f.id);
     }
+    const clearedWidgets = new Set<string>();
+    for (const f of crossFilters) {
+      if (f.sourceWidgetId && !clearedWidgets.has(f.sourceWidgetId)) {
+        clearedWidgets.add(f.sourceWidgetId);
+        controller.clearCrossFilter(f.sourceWidgetId);
+      }
+    }
   };
+
+  const totalCount = pageFilters.length + crossFilters.length;
 
   return (
     <Box
@@ -110,7 +124,30 @@ export function StudioQuickFilterBar() {
         );
       })}
 
-      {pageFilters.length > 1 && (
+      {crossFilters.map((filter) => {
+        const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
+        const summary = String(filter.value ?? '');
+        const label = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        return (
+          <Chip
+            key={filter.id}
+            label={label}
+            size="small"
+            variant="filled"
+            onDelete={
+              filter.sourceWidgetId
+                ? (event: React.MouseEvent) => {
+                    event.stopPropagation();
+                    controller.clearCrossFilter(filter.sourceWidgetId!);
+                  }
+                : undefined
+            }
+            sx={{ maxWidth: 220 }}
+          />
+        );
+      })}
+
+      {totalCount > 1 && (
         <Tooltip title={localeText.quickFilterBarClearAll}>
           <IconButton
             size="small"
@@ -123,11 +160,7 @@ export function StudioQuickFilterBar() {
         </Tooltip>
       )}
 
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ ml: pageFilters.length > 1 ? 0 : 'auto' }}
-      >
+      <Typography variant="caption" color="text.secondary" sx={{ ml: totalCount > 1 ? 0 : 'auto' }}>
         {localeText.quickFilterBarFiltered}
       </Typography>
     </Box>

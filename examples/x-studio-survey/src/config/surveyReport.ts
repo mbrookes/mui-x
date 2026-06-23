@@ -609,6 +609,7 @@ const pages: Record<string, StudioPage> = {
 
 /** The full survey report dashboard config (data sources are injected at load time). */
 export const SURVEY_DASHBOARD: Partial<StudioState> = {
+  mode: 'view',
   dashboard: {
     id: 'dashboard-survey-2025',
     title: 'MUI · 2025 Annual Developer Survey',

@@ -83,7 +83,7 @@ export interface StudioFilterState {
    * Typed scope — a discriminated union that encodes scope and all
    * scope-dependent identifiers in a single, exhaustive field.
    */
-  scopeV2: StudioFilterScope;
+  scope: StudioFilterScope;
 }
 
 export interface StudioShellState {

@@ -120,7 +120,7 @@ describe('UI render performance', () => {
       field: 'category',
       operator: 'equals',
       value: 'A',
-      scopeV2: { kind: 'page' },
+      scope: { kind: 'page' },
     });
     syncState();
     const state2 = controller.getState();
@@ -146,7 +146,7 @@ describe('UI render performance', () => {
       field: 'category',
       operator: 'equals',
       value: 'B',
-      scopeV2: { kind: 'page' },
+      scope: { kind: 'page' },
     });
 
     // Switch back to page-1
@@ -196,7 +196,7 @@ describe('UI render performance', () => {
       field: 'category',
       operator: 'equals',
       value: 'A',
-      scopeV2: { kind: 'page' },
+      scope: { kind: 'page' },
     });
     syncState();
     const state1 = controller.getState();
@@ -276,7 +276,7 @@ describe('UI render performance', () => {
         field: 'category',
         operator: 'equals',
         value: 'A',
-        scopeV2: { kind: 'page' },
+        scope: { kind: 'page' },
       });
       syncState();
     });

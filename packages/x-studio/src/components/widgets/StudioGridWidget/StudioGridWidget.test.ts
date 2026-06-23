@@ -97,7 +97,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   it('cross-source multi-select filter returns only orders fulfilled by selected carrier', () => {
     const interactiveFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL'],
@@ -122,7 +122,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     // a native filter on orders rows, which have no carrier field → empty result.
     const badFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL'],
@@ -144,7 +144,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   it('selecting all carriers returns all orders', () => {
     const interactiveFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL', 'FedEx'],

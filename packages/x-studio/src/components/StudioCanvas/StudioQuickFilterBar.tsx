@@ -34,8 +34,8 @@ export function StudioQuickFilterBar() {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
-      (f.scopeV2.kind === 'page' || (f.scopeV2.kind === 'dashboard-date-range' && !features.quickFilter)) &&
-      ('pageId' in f.scopeV2 ? (!f.scopeV2.pageId || f.scopeV2.pageId === activePageId) : true),
+      (f.scope.kind === 'page' || (f.scope.kind === 'dashboard-date-range' && !features.quickFilter)) &&
+      ('pageId' in f.scope ? (!f.scope.pageId || f.scope.pageId === activePageId) : true),
   );
 
   if (pageFilters.length === 0) {

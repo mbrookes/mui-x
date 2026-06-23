@@ -5,8 +5,8 @@ import type { StudioFilterState } from '../models';
  * Returns the subset of `filters` that applies to a specific widget.
  *
  * Single source of truth for all three data paths (async adapter, sync in-memory,
- * non-React pipeline). Filters without `scopeV2` are silently skipped — all
- * filter-creation sites in `StudioController` now emit `scopeV2`.
+ * non-React pipeline). Filters without `scope` are silently skipped — all
+ * filter-creation sites in `StudioController` now emit `scope`.
  *
  * @param include
  *   'all' (default) — page + widget + cross-filter + interactive
@@ -34,7 +34,7 @@ export function selectFiltersForWidget(
       continue;
     }
 
-    const sv2 = f.scopeV2;
+    const sv2 = f.scope;
     if (!sv2) {
       continue;
     }

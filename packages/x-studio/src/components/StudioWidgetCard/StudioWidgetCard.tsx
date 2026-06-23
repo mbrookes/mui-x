@@ -611,6 +611,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   sx={{
                     minWidth: 0,
                     flexShrink: 1,
+                    ...(widget.config.titleFontSize && {
+                      fontSize: widget.config.titleFontSize,
+                    }),
                     ...(widget.kind === 'text' && {
                       flexGrow: 1,
                       ...(widget.config.textTitleColor && {

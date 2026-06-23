@@ -344,6 +344,8 @@ export interface StudioWidgetConfig {
    * @default 'cross-highlight'
    */
   crossFilterMode?: StudioCrossFilterMode;
+  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
+  titleFontSize?: number;
   // Text config
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;

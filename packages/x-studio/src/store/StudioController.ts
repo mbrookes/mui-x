@@ -972,6 +972,7 @@ export class StudioController {
       filterMode: 'condition',
       operator: 'between',
       value,
+      scopeV2: { kind: 'widget', widgetId },
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -1001,6 +1002,7 @@ export class StudioController {
       scope: 'interactive',
       sourceWidgetId,
       pageId: state.dashboard.activePageId,
+      scopeV2: { kind: 'interactive', sourceWidgetId, pageId: state.dashboard.activePageId },
       ...(options?.filterMode && { filterMode: options.filterMode }),
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
@@ -1056,6 +1058,7 @@ export class StudioController {
       scope: 'cross-filter',
       sourceWidgetId,
       pageId: state.dashboard.activePageId,
+      scopeV2: { kind: 'cross-filter', sourceWidgetId, pageId: state.dashboard.activePageId },
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };

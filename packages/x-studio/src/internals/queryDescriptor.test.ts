@@ -16,8 +16,30 @@ function makeWidget(config: Partial<StudioWidgetConfig> = {}): StudioWidget {
   };
 }
 
+function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
+  if (f.scopeV2) {
+    return f.scopeV2;
+  }
+  switch (f.scope ?? 'page') {
+    case 'page':
+      return { kind: 'page', pageId: f.pageId };
+    case 'widget':
+      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
+    case 'cross-filter':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    case 'interactive':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  return {
+  const base: Partial<StudioFilterState> = {
     id: 'f1',
     field: 'status',
     operator: 'equals',
@@ -25,6 +47,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     scope: 'page',
     ...overrides,
   };
+  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
 }
 
 const PAGE_ID = 'page-1';
@@ -156,14 +179,20 @@ describe('buildQueryDescriptor', () => {
   };
 
   it('expands an expression KPI value field to its native dependencies in select', () => {
-    const widget = { ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }), kind: 'kpi' as const };
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.select).toEqual(expect.arrayContaining(['price', 'cost']));
     expect(desc.select).not.toContain('expr-margin');
   });
 
   it('drops expression-field aggregations (cannot be computed server-side)', () => {
-    const widget = { ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }), kind: 'kpi' as const };
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.aggregations?.some((a) => a.field === 'expr-margin')).not.toBe(true);
   });
@@ -171,7 +200,10 @@ describe('buildQueryDescriptor', () => {
   it('leaves native value fields untouched when expression fields are supplied', () => {
     // KPI aggregates client-side — but the native field must still appear in select so the
     // server returns the raw values the client needs to aggregate.
-    const widget = { ...makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' }), kind: 'kpi' as const };
+    const widget = {
+      ...makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.select).toContain('revenue');
     expect(desc.aggregations == null || desc.aggregations.length === 0).toBe(true);
@@ -180,7 +212,10 @@ describe('buildQueryDescriptor', () => {
   it('end-to-end: a server returning the native columns yields a non-zero expression KPI (BL-201)', () => {
     // Reproduces the adapter/server path: the descriptor selects native deps (no expression
     // column), a "server" projects those raw columns, then the client enriches + aggregates.
-    const widget = { ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }), kind: 'kpi' as const };
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
 
     // Simulated server: returns only the requested physical columns (no expr-margin).

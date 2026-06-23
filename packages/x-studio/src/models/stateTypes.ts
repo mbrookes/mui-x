@@ -130,7 +130,7 @@ export interface StudioFilterPreset {
 }
 
 export interface StudioState {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1;
   mode: StudioMode;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
@@ -157,7 +157,7 @@ const defaultPageId = 'page-1';
 
 export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
   const baseState: StudioState = {
-    schemaVersion: 2,
+    schemaVersion: 1,
     mode: 'edit',
     dashboard: {
       id: 'dashboard-1',

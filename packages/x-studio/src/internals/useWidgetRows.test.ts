@@ -92,8 +92,33 @@ function makeDataSource(rows: Row[], overrides: Partial<StudioDataSource> = {}):
   };
 }
 
+function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
+  if (f.scopeV2) {
+    return f.scopeV2;
+  }
+  if (f.isDashboardDateRange && f.filterSourceId && f.pageId) {
+    return { kind: 'dashboard-date-range', sourceId: f.filterSourceId, pageId: f.pageId };
+  }
+  switch (f.scope ?? 'page') {
+    case 'page':
+      return { kind: 'page', pageId: f.pageId };
+    case 'widget':
+      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
+    case 'cross-filter':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    case 'interactive':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  return {
+  const base: Partial<StudioFilterState> = {
     id: 'f1',
     scope: 'page',
     field: 'region',
@@ -101,7 +126,8 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     value: 'EU',
     filterMode: 'filter',
     ...overrides,
-  } as StudioFilterState;
+  };
+  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
 }
 
 // ── Test data ───────────────────────────────────────────────────────────────
@@ -619,6 +645,7 @@ describe('sync vs async parity', () => {
       value: { from: '2024-01-01', to: '2024-12-31' },
       isDashboardDateRange: true,
       filterSourceId: 'src1',
+      pageId: 'page-1',
       fieldType: 'date',
     });
 

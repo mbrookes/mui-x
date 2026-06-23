@@ -843,6 +843,7 @@ function createFilters(sourceIds) {
     fieldType: 'date',
     operator: 'greater_than_or_equal',
     value: '2024-12-01',
+    scopeV2: { kind: 'page', pageId: page.id },
   })).concat({
     id: 'os-return-reasons-returned',
     scope: 'widget',
@@ -852,6 +853,7 @@ function createFilters(sourceIds) {
     fieldType: 'boolean',
     operator: 'equals',
     value: true,
+    scopeV2: { kind: 'widget', widgetId: 'return-reasons' },
   });
 }
 

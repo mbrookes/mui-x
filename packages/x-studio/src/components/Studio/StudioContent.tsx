@@ -17,6 +17,8 @@ import {
   selectShell,
   selectWidgets,
   selectDataSources,
+  selectFilters,
+  selectActivePageId,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
@@ -26,6 +28,8 @@ import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
+import { StudioCrossFilterBar } from '../StudioCanvas/StudioCrossFilterBar';
+import { StudioQuickFilterBar } from '../StudioCanvas/StudioQuickFilterBar';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
@@ -73,6 +77,12 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
+
+  const filters = useStudioSelector(selectFilters);
+  const activePageId = useStudioSelector(selectActivePageId);
+  const hasCrossFilters = filters.some(
+    (f) => f.scope === 'cross-filter' && !f.disabled && f.pageId === activePageId,
+  );
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
@@ -251,35 +261,54 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
           <CanvasScrollContext.Provider value={canvasScrollRef}>
             {sidebarSide === 'left' && sidebar}
 
+            {/* Canvas column: pinned filter bars + scrollable canvas */}
             <Box
-              ref={canvasScrollRef}
-              component="main"
-              aria-label={localeText.canvasRegionAriaLabel}
               sx={{
+                display: 'flex',
+                flexDirection: 'column',
                 flexGrow: 1,
                 minWidth: 0,
-                overflow: 'auto',
+                overflow: 'hidden',
                 bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
               }}
             >
-              <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-                {canvas ?? (
-                  <StudioCanvas
-                    stackBreakpoint={stackBreakpoint}
-                    {...slotProps?.canvas}
-                    onBackgroundClick={() => setChatOpen(false)}
-                    slotProps={{
-                      ...slotProps?.canvas?.slotProps,
-                      widgetCard: {
-                        ...slotProps?.canvas?.slotProps?.widgetCard,
-                        onInsightRequest:
-                          features.aiChat && aiConfig?.endpoint
-                            ? handleWidgetInsightRequest
-                            : undefined,
-                      },
-                    }}
-                  />
-                )}
+              {/* Cross-filter mode toggle — only while cross-filters are active */}
+              {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
+                <StudioCrossFilterBar />
+              )}
+
+              {/* Active page-filter chips */}
+              {mode !== 'edit' && <StudioQuickFilterBar />}
+
+              <Box
+                ref={canvasScrollRef}
+                component="main"
+                aria-label={localeText.canvasRegionAriaLabel}
+                sx={{
+                  flexGrow: 1,
+                  minWidth: 0,
+                  overflow: 'auto',
+                }}
+              >
+                <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+                  {canvas ?? (
+                    <StudioCanvas
+                      stackBreakpoint={stackBreakpoint}
+                      {...slotProps?.canvas}
+                      onBackgroundClick={() => setChatOpen(false)}
+                      slotProps={{
+                        ...slotProps?.canvas?.slotProps,
+                        widgetCard: {
+                          ...slotProps?.canvas?.slotProps?.widgetCard,
+                          onInsightRequest:
+                            features.aiChat && aiConfig?.endpoint
+                              ? handleWidgetInsightRequest
+                              : undefined,
+                        },
+                      }}
+                    />
+                  )}
+                </Box>
               </Box>
             </Box>
 

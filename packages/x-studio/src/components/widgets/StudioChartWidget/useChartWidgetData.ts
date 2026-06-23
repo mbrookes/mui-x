@@ -87,7 +87,7 @@ export function useChartWidgetData(
   const widgetRankFilter = React.useMemo(
     () =>
       filters.find(
-        (f) => f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widget.id && f.filterMode === 'rank',
+        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id && f.filterMode === 'rank',
       ) ?? null,
     [filters, widget.id],
   );
@@ -176,7 +176,7 @@ export function useChartWidgetData(
   // blended series. Widget-specific, cross-filter and rank filters are tied to the
   // primary widget/source and are not applied to a foreign source's aggregation.
   const pageFilters = React.useMemo(
-    () => filters.filter((f) => (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range') && f.filterMode !== 'rank'),
+    () => filters.filter((f) => (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') && f.filterMode !== 'rank'),
     [filters],
   );
 

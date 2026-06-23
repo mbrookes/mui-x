@@ -179,7 +179,7 @@ describe('<StudioChartWidget />', () => {
           field: 'month',
           operator: 'equals',
           value: 'Feb',
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
         },
       ],
     });
@@ -329,7 +329,7 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'customers',
-          scopeV2: {
+          scope: {
             kind: 'cross-filter',
             sourceWidgetId: 'top-customers-chart',
             pageId: 'page-1',
@@ -410,7 +410,7 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'customers',
-          scopeV2: {
+          scope: {
             kind: 'cross-filter',
             sourceWidgetId: 'top-customers-chart',
             pageId: 'page-1',
@@ -509,7 +509,7 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'orders',
-          scopeV2: {
+          scope: {
             kind: 'cross-filter',
             sourceWidgetId: 'top-customers-chart',
             pageId: 'page-1',
@@ -606,7 +606,7 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'orders',
-          scopeV2: {
+          scope: {
             kind: 'cross-filter',
             sourceWidgetId: 'top-customers-chart',
             pageId: 'page-1',
@@ -885,7 +885,7 @@ describe('<StudioChartWidget />', () => {
           field: 'bucket',
           operator: 'equals',
           value: 2,
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -934,7 +934,7 @@ describe('<StudioChartWidget />', () => {
           field: 'category',
           operator: 'equals',
           value: 'B',
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -983,7 +983,7 @@ describe('<StudioChartWidget />', () => {
           field: 'bucket',
           operator: 'equals',
           value: 2,
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -1479,7 +1479,7 @@ describe('<StudioChartWidget />', () => {
         operator: 'equals' as const,
         value: 'Supplies',
         filterSourceId: 'source-order-items',
-        scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-category', pageId: 'page-1' },
+        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-category', pageId: 'page-1' },
       },
       {
         id: 'cf-date',
@@ -1488,7 +1488,7 @@ describe('<StudioChartWidget />', () => {
         value: { from: '2024-01-01', to: '2024-03-31' },
         filterSourceId: 'source-orders',
         fieldType: 'date' as const,
-        scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-quarterly', pageId: 'page-1' },
+        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-quarterly', pageId: 'page-1' },
       },
     ];
 
@@ -1657,24 +1657,24 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    // A chart-click cross-filter (scopeV2.kind: 'cross-filter') from another widget
+    // A chart-click cross-filter (scope.kind: 'cross-filter') from another widget
     const chartClickFilter = {
       id: 'cf-country',
       field: 'country',
       operator: 'equals' as const,
       value: 'Germany',
       filterSourceId: 'source-orders',
-      scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 'other-widget', pageId: 'page-1' },
     };
 
-    // An interactive filter (scopeV2.kind: 'interactive') from a StudioFilterWidget
+    // An interactive filter (scope.kind: 'interactive') from a StudioFilterWidget
     const interactiveFilter = {
       id: 'int-country',
       field: 'country',
       operator: 'equals' as const,
       value: 'Germany',
       filterSourceId: 'source-orders',
-      scopeV2: { kind: 'interactive' as const, sourceWidgetId: 'filter-widget', pageId: 'page-1' },
+      scope: { kind: 'interactive' as const, sourceWidgetId: 'filter-widget', pageId: 'page-1' },
     };
 
     function makeBarWidget(

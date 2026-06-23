@@ -163,16 +163,16 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) =>
-      f.scopeV2.kind === 'page' && (!f.scopeV2.pageId || f.scopeV2.pageId === activePageId),
+      f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
   );
   const widgetFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === selectedWidgetId,
+    (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === selectedWidgetId,
   );
   const crossFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scopeV2.kind === 'cross-filter',
+    (f: StudioFilterState) => f.scope.kind === 'cross-filter',
   );
   const interactiveFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scopeV2.kind === 'interactive',
+    (f: StudioFilterState) => f.scope.kind === 'interactive',
   );
 
   // Build a map of field id → label for search matching
@@ -209,7 +209,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       field: '',
       operator: 'equals',
       value: '',
-      scopeV2: { kind: 'page' },
+      scope: { kind: 'page' },
     });
   };
 
@@ -222,7 +222,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       field: '',
       operator: 'equals',
       value: '',
-      scopeV2: { kind: 'widget', widgetId: selectedWidgetId },
+      scope: { kind: 'widget', widgetId: selectedWidgetId },
     });
   };
 

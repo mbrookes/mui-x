@@ -60,6 +60,32 @@ type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
  * 4. Write a test in statePersistence.test.ts that calls migrateState() with a v(N) fixture
  *    and asserts the output matches the v(N+1) shape.
  *
+ * NAMING POLICY — never suffix field names with version numbers (e.g. fooV2, barNew).
+ * ───────────────────────────────────────────────────────────────────────────────────
+ * When a field's shape needs to change (rename, restructure, add a required property):
+ *   - Keep the clean target name in the TypeScript interface (e.g. `scope`).
+ *   - Bump CURRENT_SCHEMA_VERSION and write a migration that rewrites persisted
+ *     state from the old shape to the new shape.
+ *   - The running code only ever reads the new shape; old stored state is upgraded
+ *     on load before it reaches any application code.
+ *
+ * This is the correct alternative to adding a parallel `fooV2` field — that pattern
+ * forces a second cleanup refactor and leaves dead fields in both code and stored state
+ * until someone gets around to it.
+ *
+ * Example — bumping 1→2 (reshape `filters[].scope` from a string to a discriminated union):
+ *
+ *   1: (state) => {
+ *     const filters = (state['filters'] as Record<string, unknown>[]) ?? [];
+ *     for (const f of filters) {
+ *       if (typeof f['scope'] === 'string') {
+ *         f['scope'] = { kind: f['scope'], widgetId: f['widgetId'] };
+ *         delete f['widgetId'];
+ *       }
+ *     }
+ *     return { ...state, schemaVersion: 2 };
+ *   },
+ *
  * Example — bumping 1→2 (add a required `layout` field to every widget):
  *
  *   1: (state) => {
@@ -180,7 +206,7 @@ export function serializeState(state: StudioState): SerializedStudioState {
     dashboard: state.dashboard,
     pages: state.pages,
     widgets: state.widgets,
-    filters: state.filters.filter((f) => f.scopeV2.kind !== 'cross-filter'),
+    filters: state.filters.filter((f) => f.scope.kind !== 'cross-filter'),
     relationships: state.relationships,
     expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
     filterPresets: (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,

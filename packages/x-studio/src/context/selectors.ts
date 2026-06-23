@@ -43,7 +43,7 @@ export const selectActivePage = (state: StudioState) => state.pages[state.dashbo
  */
 export function makeSelectActiveInteractiveFilter(widgetId: string) {
   return (state: StudioState) =>
-    state.filters.find((f) => f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId === widgetId) ?? null;
+    state.filters.find((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) ?? null;
 }
 
 /**
@@ -165,22 +165,22 @@ export const selectPartitionedFilters = createSelectorMemoized(
     const interactive: StudioFilterState[] = [];
 
     for (const f of filters) {
-      if (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scopeV2 ? f.scopeV2.pageId : undefined;
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
         if (!scopePageId || scopePageId === activePageId) {
           page.push(f);
         }
-      } else if (f.scopeV2.kind === 'widget') {
-        const key = f.scopeV2.widgetId;
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
           byWidgetId.set(key, bucket);
         }
         bucket.push(f);
-      } else if (f.scopeV2.kind === 'cross-filter') {
+      } else if (f.scope.kind === 'cross-filter') {
         cross.push(f);
-      } else if (f.scopeV2.kind === 'interactive') {
+      } else if (f.scope.kind === 'interactive') {
         interactive.push(f);
       }
     }
@@ -223,13 +223,13 @@ export const selectPartitionedBaseFilters = (state: StudioState): BasePartitione
   const byWidgetId = new Map<string, StudioFilterState[]>();
 
   for (const f of filters) {
-    if (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range') {
-      const scopePageId = 'pageId' in f.scopeV2 ? f.scopeV2.pageId : undefined;
+    if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+      const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
       if (!scopePageId || scopePageId === activePageId) {
         page.push(f);
       }
-    } else if (f.scopeV2.kind === 'widget') {
-      const key = f.scopeV2.widgetId;
+    } else if (f.scope.kind === 'widget') {
+      const key = f.scope.widgetId;
       let bucket = byWidgetId.get(key);
       if (!bucket) {
         bucket = [];
@@ -295,22 +295,22 @@ export function makeSelectPartitionedFiltersForPage(pageId: string) {
     const interactive: StudioFilterState[] = [];
 
     for (const f of filters) {
-      if (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scopeV2 ? f.scopeV2.pageId : undefined;
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
         if (!scopePageId || scopePageId === pageId) {
           page.push(f);
         }
-      } else if (f.scopeV2.kind === 'widget') {
-        const key = f.scopeV2.widgetId;
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
           byWidgetId.set(key, bucket);
         }
         bucket.push(f);
-      } else if (f.scopeV2.kind === 'cross-filter') {
+      } else if (f.scope.kind === 'cross-filter') {
         cross.push(f);
-      } else if (f.scopeV2.kind === 'interactive') {
+      } else if (f.scope.kind === 'interactive') {
         interactive.push(f);
       }
     }
@@ -370,13 +370,13 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
     const byWidgetId = new Map<string, StudioFilterState[]>();
 
     for (const f of filters) {
-      if (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scopeV2 ? f.scopeV2.pageId : undefined;
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
         if (!scopePageId || scopePageId === pageId) {
           page.push(f);
         }
-      } else if (f.scopeV2.kind === 'widget') {
-        const key = f.scopeV2.widgetId;
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
@@ -434,7 +434,7 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
 export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
     state.filters.find(
-      (f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId === widgetId && f.scopeV2.pageId === pageId,
+      (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
     ) ?? null;
 }
 
@@ -463,7 +463,7 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
       return lastResult;
     }
     const filtered = filters.filter(
-      (f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId !== widgetId && f.scopeV2.pageId === pageId,
+      (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widgetId && f.scope.pageId === pageId,
     );
     if (
       lastResult !== undefined &&
@@ -541,8 +541,8 @@ export function makeSelectWidgetRankFilter(
     return (
       state.filters.find(
         (f) =>
-          f.scopeV2.kind === 'widget' &&
-          f.scopeV2.widgetId === widgetId &&
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
           f.filterMode === 'rank' &&
           typeof f.value === 'number' &&
           f.value > 0,
@@ -566,7 +566,7 @@ export function makeSelectWidgetSliderFilter(
     }
     return (
       state.filters.find(
-        (f) => f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId === widgetId && f.scopeV2.pageId === pageId,
+        (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
       ) ?? null
     );
   };
@@ -588,7 +588,7 @@ export function makeSelectWidgetActiveCrossFilter(
     }
     return (
       state.filters.find(
-        (f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId === widgetId && f.scopeV2.pageId === pageId,
+        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
       ) ?? null
     );
   };

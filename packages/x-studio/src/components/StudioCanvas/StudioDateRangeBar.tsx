@@ -88,7 +88,7 @@ export function StudioDateRangeBar() {
   // the same preset, so the first match is sufficient.
   const activePreset: StudioDateRangePreset | 'all_time' = React.useMemo(() => {
     const f = (filters as StudioFilterState[]).find(
-      (filter) => filter.scopeV2.kind === 'dashboard-date-range' && filter.scopeV2.pageId === activePageId,
+      (filter) => filter.scope.kind === 'dashboard-date-range' && filter.scope.pageId === activePageId,
     );
     return f?.dateRangePreset ?? 'all_time';
   }, [filters, activePageId]);
@@ -101,8 +101,8 @@ export function StudioDateRangeBar() {
     }
     const coveredSourceIds = new Set(
       (filters as StudioFilterState[])
-        .filter((f) => f.scopeV2?.kind === 'dashboard-date-range' && f.scopeV2.pageId === activePageId)
-        .map((f) => (f.scopeV2 as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId),
+        .filter((f) => f.scope?.kind === 'dashboard-date-range' && f.scope.pageId === activePageId)
+        .map((f) => (f.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId),
     );
     const missing = sourceDateFields.filter(({ sourceId }) => !coveredSourceIds.has(sourceId));
     if (missing.length > 0) {

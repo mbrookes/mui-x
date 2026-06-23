@@ -71,26 +71,26 @@ describe('serializeState', () => {
   it('strips cross-filter scoped filters from the output', () => {
     const state = createDefaultStudioState({
       filters: [
-        { id: 'page-f', field: 'date', operator: 'equals', value: '', scopeV2: { kind: 'page' } },
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
         {
           id: 'cross-f',
           field: 'category',
           operator: 'equals',
           value: 'A',
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
         },
       ],
     });
     const serialized = serializeState(state);
-    expect(serialized.filters.some((f) => f.scopeV2?.kind === 'cross-filter')).toBe(false);
+    expect(serialized.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
     expect(serialized.filters.some((f) => f.id === 'page-f')).toBe(true);
   });
 
   it('retains page-scoped and widget-scoped filters', () => {
     const state = createDefaultStudioState({
       filters: [
-        { id: 'p', field: 'date', operator: 'equals', value: '', scopeV2: { kind: 'page' } },
-        { id: 'w', field: 'status', operator: 'equals', value: 'active', scopeV2: { kind: 'widget', widgetId: 'w1' } },
+        { id: 'p', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+        { id: 'w', field: 'status', operator: 'equals', value: 'active', scope: { kind: 'widget', widgetId: 'w1' } },
       ],
     });
     const { filters } = serializeState(state);
@@ -252,7 +252,7 @@ describe('serializeState / deserializeState roundtrip', () => {
           field: 'cat',
           operator: 'equals',
           value: 'A',
-          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
         },
       ],
     });
@@ -260,7 +260,7 @@ describe('serializeState / deserializeState roundtrip', () => {
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
     expect(
-      restored?.filters.filter((f: { scopeV2?: { kind: string } }) => f.scopeV2?.kind === 'cross-filter'),
+      restored?.filters.filter((f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter'),
     ).toHaveLength(0);
   });
 

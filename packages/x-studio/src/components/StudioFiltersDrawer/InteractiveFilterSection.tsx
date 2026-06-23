@@ -24,7 +24,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
       ) : (
         <Stack spacing={1} sx={{ pb: 0.5 }}>
           {filters.map((filter: StudioFilterState) => {
-            const sourceWidgetId = filter.scopeV2.kind === 'interactive' ? filter.scopeV2.sourceWidgetId : undefined;
+            const sourceWidgetId = filter.scope.kind === 'interactive' ? filter.scope.sourceWidgetId : undefined;
             const widgetTitle = sourceWidgetId
               ? (widgets[sourceWidgetId]?.title ?? sourceWidgetId)
               : null;

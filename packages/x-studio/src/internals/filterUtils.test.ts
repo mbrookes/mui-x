@@ -10,7 +10,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scopeV2: { kind: 'widget', widgetId: 'w1' },
+    scope: { kind: 'widget', widgetId: 'w1' },
     ...overrides,
   } as StudioFilterState;
 }
@@ -582,7 +582,7 @@ function makePresetFilter(overrides: Partial<StudioFilterState>): StudioFilterSt
     field: 'orderDate',
     operator: 'between',
     value: null,
-    scopeV2: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
+    scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
     fieldType: 'date',
     ...overrides,
   } as StudioFilterState;

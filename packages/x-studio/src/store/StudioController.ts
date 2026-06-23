@@ -570,8 +570,8 @@ export class StudioController {
       filters: (() => {
         const nextFilters = state.filters.filter(
           (f: StudioFilterState) =>
-            !(f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId === widgetId) &&
-            !(f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId),
+            !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
+            !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
         );
         // Preserve reference stability when no filters were removed (avoids re-renders)
         return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
@@ -686,12 +686,12 @@ export class StudioController {
 
     // Clone widget-scoped filters (including managed date range filters) for the duplicate.
     const widgetScopeFilters = state.filters.filter(
-      (f: StudioFilterState) => f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId,
+      (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId,
     );
     const clonedFilters = widgetScopeFilters.map((f: StudioFilterState) => ({
       ...f,
       id: `${f.id}-copy-${Date.now()}`,
-      scopeV2: { kind: 'widget' as const, widgetId: newId },
+      scope: { kind: 'widget' as const, widgetId: newId },
     }));
 
     this.commitState({
@@ -720,8 +720,8 @@ export class StudioController {
     // Stamp page filters with the current active page so they don't bleed
     // across pages when the user switches pages.
     const stampedFilter =
-      filter.scopeV2.kind === 'page'
-        ? { ...filter, scopeV2: { kind: 'page' as const, pageId: state.dashboard.activePageId } }
+      filter.scope.kind === 'page'
+        ? { ...filter, scope: { kind: 'page' as const, pageId: state.dashboard.activePageId } }
         : filter;
     this.commitState({
       ...state,
@@ -759,7 +759,7 @@ export class StudioController {
     const state = this.store.state;
     const hasExistingRankFilter = state.filters.some(
       (filter: StudioFilterState) =>
-        filter.id !== filterId && filter.scopeV2.kind !== 'cross-filter' && filter.filterMode === 'rank',
+        filter.id !== filterId && filter.scope.kind !== 'cross-filter' && filter.filterMode === 'rank',
     );
 
     this.commitState({
@@ -830,7 +830,7 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const withoutExisting = state.filters.filter(
-      (f: StudioFilterState) => !(f.scopeV2.kind === 'dashboard-date-range' && f.scopeV2.pageId === pageId),
+      (f: StudioFilterState) => !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
     if (!preset || !fieldId || !sourceId) {
@@ -859,7 +859,7 @@ export class StudioController {
       filterMode: 'condition',
       operator: 'between',
       value,
-      scopeV2: { kind: 'dashboard-date-range', sourceId, pageId },
+      scope: { kind: 'dashboard-date-range', sourceId, pageId },
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -880,7 +880,7 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const withoutExisting = state.filters.filter(
-      (f: StudioFilterState) => !(f.scopeV2.kind === 'dashboard-date-range' && f.scopeV2.pageId === pageId),
+      (f: StudioFilterState) => !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
     if (fields.length === 0) {
@@ -907,7 +907,7 @@ export class StudioController {
         filterMode: 'condition' as const,
         operator: 'between' as const,
         value,
-        scopeV2: { kind: 'dashboard-date-range' as const, sourceId, pageId },
+        scope: { kind: 'dashboard-date-range' as const, sourceId, pageId },
       }),
     );
 
@@ -964,7 +964,7 @@ export class StudioController {
       filterMode: 'condition',
       operator: 'between',
       value,
-      scopeV2: { kind: 'widget', widgetId },
+      scope: { kind: 'widget', widgetId },
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -983,7 +983,7 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const existingFilters = state.filters.filter(
-      (f: StudioFilterState) => !(f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId === sourceWidgetId),
+      (f: StudioFilterState) => !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
     );
 
     const interactiveFilter: StudioFilterState = {
@@ -991,7 +991,7 @@ export class StudioController {
       field,
       operator,
       value,
-      scopeV2: { kind: 'interactive', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'interactive', sourceWidgetId, pageId: state.dashboard.activePageId },
       ...(options?.filterMode && { filterMode: options.filterMode }),
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
@@ -1013,7 +1013,7 @@ export class StudioController {
         ...state,
         filters: state.filters.filter(
           (f: StudioFilterState) =>
-            !(f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId === sourceWidgetId),
+            !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
         ),
       },
       { undoable: false },
@@ -1036,7 +1036,7 @@ export class StudioController {
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.filters.filter(
       (f: StudioFilterState) =>
-        !(f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId === sourceWidgetId),
+        !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
     );
 
     const crossFilter: StudioFilterState = {
@@ -1044,7 +1044,7 @@ export class StudioController {
       field,
       operator,
       value,
-      scopeV2: { kind: 'cross-filter', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.dashboard.activePageId },
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };
@@ -1065,7 +1065,7 @@ export class StudioController {
       ...state,
       filters: state.filters.filter(
         (f: StudioFilterState) =>
-          !(f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId === sourceWidgetId),
+          !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
       ),
     });
   };
@@ -1078,7 +1078,7 @@ export class StudioController {
     const activePageId = state.dashboard.activePageId;
     // Only save filters for the current active page.
     const pageFilters = state.filters.filter(
-      (f: StudioFilterState) => f.scopeV2.kind === 'page' && (!f.scopeV2.pageId || f.scopeV2.pageId === activePageId),
+      (f: StudioFilterState) => f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
     );
     const id = `preset-${Date.now()}`;
     const preset: StudioFilterPreset = {
@@ -1102,7 +1102,7 @@ export class StudioController {
     this.commitState({
       ...state,
       filters: state.filters.filter(
-        (f: StudioFilterState) => f.scopeV2.kind !== 'page' || (f.scopeV2.pageId != null && f.scopeV2.pageId !== activePageId),
+        (f: StudioFilterState) => f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
     });
   };
@@ -1122,10 +1122,10 @@ export class StudioController {
       filters: [
         // Keep all non-page filters, and keep page filters for OTHER pages.
         ...state.filters.filter(
-          (f: StudioFilterState) => f.scopeV2.kind !== 'page' || (f.scopeV2.pageId != null && f.scopeV2.pageId !== activePageId),
+          (f: StudioFilterState) => f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
         ),
         // Apply preset filters scoped to the current page.
-        ...preset.filters.map((f: StudioFilterState) => ({ ...f, scopeV2: { kind: 'page' as const, pageId: activePageId } })),
+        ...preset.filters.map((f: StudioFilterState) => ({ ...f, scope: { kind: 'page' as const, pageId: activePageId } })),
       ],
     });
   };
@@ -1164,7 +1164,7 @@ export class StudioController {
 
     this.commitState({
       ...state,
-      filters: state.filters.filter((f: StudioFilterState) => f.scopeV2.kind !== 'cross-filter'),
+      filters: state.filters.filter((f: StudioFilterState) => f.scope.kind !== 'cross-filter'),
     });
   };
 
@@ -1242,7 +1242,7 @@ export class StudioController {
 
     // Remove filters scoped to this page
     const remainingFilters = state.filters.filter((f: StudioFilterState) => {
-        const p = 'pageId' in f.scopeV2 ? f.scopeV2.pageId : undefined;
+        const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
         return p !== pageId;
       });
 
@@ -1326,7 +1326,7 @@ export class StudioController {
     const targetRows = [...(targetPage.widgetRows ?? []), [widgetId]];
 
     // Re-scope widget-level filters to the target page
-    // (widget-scoped filters have no pageId in scopeV2, so no re-scoping needed)
+    // (widget-scoped filters have no pageId in scope, so no re-scoping needed)
     const updatedFilters = state.filters;
 
     this.commitState({

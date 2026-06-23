@@ -75,7 +75,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const widgetFilters = React.useMemo(
     () =>
       allFilters.filter(
-        (f) => f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId && f.dateRangePreset === undefined,
+        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.dateRangePreset === undefined,
       ),
     [allFilters, widgetId],
   );
@@ -91,7 +91,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       fieldType: firstField.type,
       operator: 'equals',
       value: '',
-      scopeV2: { kind: 'widget', widgetId },
+      scope: { kind: 'widget', widgetId },
     });
   }, [controller, ownFields, widgetId]);
 

@@ -274,10 +274,10 @@ export function useWidgetRows(
     () =>
       !hasAdapter &&
       (deferredPartitioned.cross.some(
-        (f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId !== widget.id && f.scopeV2.pageId === pageId,
+        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId,
       ) ||
         deferredPartitioned.interactive.some(
-          (f) => f.scopeV2.kind === 'interactive' && f.scopeV2.sourceWidgetId !== widget.id && f.scopeV2.pageId === pageId,
+          (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId,
         )),
     [hasAdapter, deferredPartitioned, widget.id, pageId],
   );
@@ -287,7 +287,7 @@ export function useWidgetRows(
   const hasChartCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      deferredPartitioned.cross.some((f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId !== widget.id && f.scopeV2.pageId === pageId),
+      deferredPartitioned.cross.some((f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId),
     [hasAdapter, deferredPartitioned, widget.id, pageId],
   );
 

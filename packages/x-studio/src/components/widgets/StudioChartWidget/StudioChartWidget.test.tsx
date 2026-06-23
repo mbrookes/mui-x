@@ -182,6 +182,7 @@ describe('<StudioChartWidget />', () => {
           field: 'month',
           operator: 'equals',
           value: 'Feb',
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
         },
       ],
     });
@@ -334,6 +335,11 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'customers',
+          scopeV2: {
+            kind: 'cross-filter',
+            sourceWidgetId: 'top-customers-chart',
+            pageId: 'page-1',
+          },
         },
       ],
     });
@@ -413,6 +419,11 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'customers',
+          scopeV2: {
+            kind: 'cross-filter',
+            sourceWidgetId: 'top-customers-chart',
+            pageId: 'page-1',
+          },
         },
       ],
     });
@@ -510,6 +521,11 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'orders',
+          scopeV2: {
+            kind: 'cross-filter',
+            sourceWidgetId: 'top-customers-chart',
+            pageId: 'page-1',
+          },
         },
       ],
     });
@@ -605,6 +621,11 @@ describe('<StudioChartWidget />', () => {
           operator: 'equals',
           value: 'Tech Systems',
           filterSourceId: 'orders',
+          scopeV2: {
+            kind: 'cross-filter',
+            sourceWidgetId: 'top-customers-chart',
+            pageId: 'page-1',
+          },
         },
       ],
     });
@@ -882,6 +903,7 @@ describe('<StudioChartWidget />', () => {
           field: 'bucket',
           operator: 'equals',
           value: 2,
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -933,6 +955,7 @@ describe('<StudioChartWidget />', () => {
           field: 'category',
           operator: 'equals',
           value: 'B',
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -984,6 +1007,7 @@ describe('<StudioChartWidget />', () => {
           field: 'bucket',
           operator: 'equals',
           value: 2,
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
         },
       ],
     });
@@ -1671,6 +1695,7 @@ describe('<StudioChartWidget />', () => {
       operator: 'equals' as const,
       value: 'Germany',
       filterSourceId: 'source-orders',
+      scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'other-widget', pageId: 'page-1' },
     };
 
     // An interactive filter (scope: 'interactive') from a StudioFilterWidget
@@ -1683,6 +1708,7 @@ describe('<StudioChartWidget />', () => {
       operator: 'equals' as const,
       value: 'Germany',
       filterSourceId: 'source-orders',
+      scopeV2: { kind: 'interactive' as const, sourceWidgetId: 'filter-widget', pageId: 'page-1' },
     };
 
     function makeBarWidget(

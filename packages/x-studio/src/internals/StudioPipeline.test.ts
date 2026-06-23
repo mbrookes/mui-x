@@ -24,8 +24,30 @@ function makeSource(id: string, rows: Record<string, unknown>[]): StudioDataSour
   return { id, label: id, fields: [], rows };
 }
 
+function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
+  if (f.scopeV2) {
+    return f.scopeV2;
+  }
+  switch (f.scope ?? 'page') {
+    case 'page':
+      return { kind: 'page', pageId: f.pageId };
+    case 'widget':
+      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
+    case 'cross-filter':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    case 'interactive':
+      return f.sourceWidgetId && f.pageId
+        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  return {
+  const base: Partial<StudioFilterState> = {
     id: 'f1',
     field: 'region',
     operator: 'equals',
@@ -33,6 +55,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     scope: 'page',
     ...overrides,
   };
+  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
 }
 
 const ROWS = [

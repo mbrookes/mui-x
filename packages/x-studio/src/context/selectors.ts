@@ -432,7 +432,11 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
 export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
     state.filters.find(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === pageId,
+      (f) =>
+        f.scope === 'cross-filter' &&
+        f.sourceWidgetId === widgetId &&
+        f.pageId === pageId &&
+        !f.disabled,
     ) ?? null;
 }
 
@@ -461,7 +465,11 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
       return lastResult;
     }
     const filtered = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widgetId && f.pageId === pageId,
+      (f) =>
+        f.scope === 'cross-filter' &&
+        f.sourceWidgetId !== widgetId &&
+        f.pageId === pageId &&
+        !f.disabled,
     );
     if (
       lastResult !== undefined &&

@@ -42,26 +42,38 @@ function makeRedisClient() {
 /** Redis mock with optional SET commands for tag-based invalidation. */
 function makeRedisClientWithTags() {
   const base = makeRedisClient();
-  const tagSets = new Map<string, Set<string>>();
+  const sets = new Map<string, Set<string>>();
   return {
     ...base,
+    sets,
     async sadd(key: string, ...members: string[]) {
-      let set = tagSets.get(key);
+      let set = sets.get(key);
       if (!set) {
         set = new Set<string>();
-        tagSets.set(key, set);
+        sets.set(key, set);
       }
       for (const m of members) {
         set.add(m);
       }
     },
     async smembers(key: string) {
-      return [...(tagSets.get(key) ?? [])];
+      return [...(sets.get(key) ?? [])];
+    },
+    async srem(key: string, ...members: string[]) {
+      const set = sets.get(key);
+      if (set) {
+        for (const m of members) {
+          set.delete(m);
+        }
+        if (set.size === 0) {
+          sets.delete(key);
+        }
+      }
     },
     async del(...keys: string[]) {
       for (const key of keys) {
         base.store.delete(key);
-        tagSets.delete(key);
+        sets.delete(key);
       }
     },
   };
@@ -193,6 +205,24 @@ describe('RedisCacheProvider', () => {
       await provider.invalidatePrefix('acme:');
       expect(await provider.get('acme:a')).toBeUndefined();
       expect(await provider.get('globex:a')).toEqual(ENTRY);
+    });
+
+    it('cleans up the tag forward index when a tagged key is removed by prefix', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      await provider.set('studio:v1:acme:q1', ENTRY, { tags: ['sales'] });
+      await provider.set('studio:v1:acme:q2', ENTRY, { tags: ['sales'] });
+      await provider.set('studio:v1:globex:q1', ENTRY, { tags: ['sales'] });
+
+      await provider.invalidatePrefix('studio:v1:acme:');
+
+      // Acme keys gone; globex key still present
+      expect(await provider.get('studio:v1:acme:q1')).toBeUndefined();
+      expect(await provider.get('studio:v1:globex:q1')).toEqual(ENTRY);
+
+      // After deleteByTag, only the globex key should have been in the forward index
+      await provider.deleteByTag('sales');
+      expect(await provider.get('studio:v1:globex:q1')).toBeUndefined();
     });
   });
 });

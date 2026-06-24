@@ -759,7 +759,9 @@ export class StudioController {
     const state = this.store.state;
     const hasExistingRankFilter = state.filters.some(
       (filter: StudioFilterState) =>
-        filter.id !== filterId && filter.scope.kind !== 'cross-filter' && filter.filterMode === 'rank',
+        filter.id !== filterId &&
+        filter.scope.kind !== 'cross-filter' &&
+        filter.filterMode === 'rank',
     );
 
     this.commitState({
@@ -816,8 +818,8 @@ export class StudioController {
    *   to apply a custom date range.
    * - For all other presets the date boundaries are computed from the current date.
    *
-   * The filter is stored as a special page-level `StudioFilterState` tagged with
-   * `isDashboardDateRange: true` so the filters drawer and quick-filter bar can hide it.
+   * The filter is stored as a page-level `StudioFilterState` with
+   * `scope.kind === 'dashboard-date-range'` so the filters drawer and quick-filter bar can hide it.
    */
   setDashboardDateRange = (
     pageId: string,
@@ -830,7 +832,8 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const withoutExisting = state.filters.filter(
-      (f: StudioFilterState) => !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+      (f: StudioFilterState) =>
+        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
     if (!preset || !fieldId || !sourceId) {
@@ -867,7 +870,7 @@ export class StudioController {
 
   /**
    * Sets the dashboard-level date range across every provided source at once.
-   * Creates one `isDashboardDateRange` filter per source so each widget is
+   * Creates one `scope.kind === 'dashboard-date-range'` filter per source so each widget is
    * filtered by its own source's date field — not by a field from another source.
    * Replaces any previously active dashboard date-range filters for the page.
    */
@@ -880,7 +883,8 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const withoutExisting = state.filters.filter(
-      (f: StudioFilterState) => !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+      (f: StudioFilterState) =>
+        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
     if (fields.length === 0) {
@@ -920,8 +924,8 @@ export class StudioController {
    * - Pass `null` for `preset` (or `fieldId`) to remove the widget date range filter.
    * - Pass `'custom'` as `preset` with explicit `customFrom` / `customTo` ISO strings.
    *
-   * The filter is stored as a widget-scoped `StudioFilterState` tagged with
-   * `isDashboardDateRange: true` so the filters drawer hides it (it is managed
+   * The filter is stored as a widget-scoped `StudioFilterState` with
+   * `scope.kind === 'widget'` so the filters drawer hides it (it is managed
    * exclusively via the KPI setup panel).
    */
   setWidgetDateRange = (
@@ -983,7 +987,8 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     const existingFilters = state.filters.filter(
-      (f: StudioFilterState) => !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
+      (f: StudioFilterState) =>
+        !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
     );
 
     const interactiveFilter: StudioFilterState = {
@@ -1078,7 +1083,8 @@ export class StudioController {
     const activePageId = state.dashboard.activePageId;
     // Only save filters for the current active page.
     const pageFilters = state.filters.filter(
-      (f: StudioFilterState) => f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
+      (f: StudioFilterState) =>
+        f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
     );
     const id = `preset-${Date.now()}`;
     const preset: StudioFilterPreset = {
@@ -1102,7 +1108,8 @@ export class StudioController {
     this.commitState({
       ...state,
       filters: state.filters.filter(
-        (f: StudioFilterState) => f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
+        (f: StudioFilterState) =>
+          f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
     });
   };
@@ -1122,10 +1129,14 @@ export class StudioController {
       filters: [
         // Keep all non-page filters, and keep page filters for OTHER pages.
         ...state.filters.filter(
-          (f: StudioFilterState) => f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
+          (f: StudioFilterState) =>
+            f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
         ),
         // Apply preset filters scoped to the current page.
-        ...preset.filters.map((f: StudioFilterState) => ({ ...f, scope: { kind: 'page' as const, pageId: activePageId } })),
+        ...preset.filters.map((f: StudioFilterState) => ({
+          ...f,
+          scope: { kind: 'page' as const, pageId: activePageId },
+        })),
       ],
     });
   };
@@ -1242,9 +1253,9 @@ export class StudioController {
 
     // Remove filters scoped to this page
     const remainingFilters = state.filters.filter((f: StudioFilterState) => {
-        const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        return p !== pageId;
-      });
+      const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
+      return p !== pageId;
+    });
 
     const pageIds = Object.keys(remainingPages);
     const nextActivePageId =

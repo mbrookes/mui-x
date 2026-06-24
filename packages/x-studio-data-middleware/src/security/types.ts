@@ -201,6 +201,103 @@ export interface BatchQueryResponse {
   results: WidgetQueryResult[];
 }
 
+// ─── Mutation types ───────────────────────────────────────────────────────────
+
+/**
+ * A single row mutation — insert, update, or delete.
+ *
+ * SECURITY: The host app controls which tables and columns are writable via
+ * `HandleMutationOptions.writableColumns`. The tenant column is always set by the
+ * server for inserts, and added unconditionally to WHERE for updates and deletes.
+ * Values are bound as Knex parameterized bindings, never string-concatenated.
+ */
+export interface MutationDescriptor {
+  /** Client-supplied correlation ID — echoed back in the result */
+  id: string;
+  /** Mutation type */
+  operation: 'insert' | 'update' | 'delete';
+  /** Target table — must appear in HandleMutationOptions.schemaAllowlist */
+  table: string;
+  /**
+   * Column-value pairs to write (insert/update).
+   * Keys are validated against `writableColumns` before reaching the DB.
+   * Values are bound via Knex parameterized bindings.
+   */
+  values?: Record<string, unknown>;
+  /**
+   * Row-match predicates for update/delete operations.
+   *
+   * Tenant isolation is unconditionally enforced alongside these predicates —
+   * the server appends `WHERE <tenantColumn> = claims.tenantId` regardless of
+   * what the client sends. At least one predicate is required for update/delete
+   * to prevent accidental full-table mutations.
+   */
+  where?: FilterPredicate[];
+}
+
+/** Per-mutation result */
+export interface MutationResult {
+  /** Echoed from MutationDescriptor.id */
+  id: string;
+  /** True when the mutation completed without error */
+  ok: boolean;
+  /** Number of rows affected (undefined on error) */
+  rowsAffected?: number;
+  /** Error message when ok=false */
+  error?: string;
+}
+
+/** Batch mutation request body */
+export interface BatchMutationRequest {
+  mutations: MutationDescriptor[];
+}
+
+/** Batch mutation response */
+export interface BatchMutationResponse {
+  results: MutationResult[];
+}
+
+/**
+ * Options passed to handleMutation(). Mirrors HandleBatchQueryOptions for
+ * framework-agnostic usage — no HTTP imports required.
+ */
+export interface HandleMutationOptions {
+  /** Knex instance configured by the host app */
+  db: any; // Knex.Knex — typed as any to avoid hard Knex dependency at import time
+  /**
+   * Allowlist of tables the middleware may write to.
+   * Any table not in this list is rejected before a query is built.
+   */
+  schemaAllowlist: string[];
+  /**
+   * Per-table column allowlist for write operations.
+   *
+   * Only columns listed here may appear in `MutationDescriptor.values`.
+   * If omitted, no column-level validation is applied (not recommended for production).
+   *
+   * @example
+   * writableColumns: { orders: ['status', 'notes'], customers: ['name', 'email'] }
+   */
+  writableColumns?: Record<string, string[]>;
+  /**
+   * Column name used for tenant isolation.
+   *
+   * - INSERT: the tenant value from `claims.tenantId` is set unconditionally.
+   * - UPDATE/DELETE: `WHERE <tenantColumn> = claims.tenantId` is appended unconditionally.
+   *   Clients cannot override or remove this predicate.
+   */
+  tenantColumn?: string;
+  /**
+   * Cache provider for post-mutation invalidation.
+   *
+   * When provided, a successful mutation calls `cacheProvider.deleteByTag(table)`
+   * to evict all cached query results for the affected table. This keeps the
+   * data cache coherent with the DB state without requiring the host app to
+   * call `/api/invalidate` manually.
+   */
+  cacheProvider?: import('../cache/types').CacheProvider;
+}
+
 /**
  * Options passed to handleBatchQuery(). The host app provides a configured
  * Knex instance; the x-studio-data-middleware package never creates DB connections.

@@ -121,6 +121,38 @@ export interface StudioQueryDescriptor {
   cacheKey: string;
 }
 
+// ── Client-side mutation types ────────────────────────────────────────────────
+// These mirror MutationDescriptor / MutationResult from @mui/x-studio-data-middleware
+// but are defined here to keep x-studio free of a server-package dependency.
+
+/**
+ * A single row mutation to send to the server via `adapter.submitMutation()`.
+ * Mirrors `MutationDescriptor` from `@mui/x-studio-data-middleware`.
+ */
+export interface ClientMutationDescriptor {
+  operation: 'insert' | 'update' | 'delete';
+  /** Target table name (same value as `StudioDataSource.tableName ?? id`). */
+  table: string;
+  /** Column values to write (insert/update). */
+  values?: Record<string, unknown>;
+  /**
+   * Row-match predicates (update/delete).
+   * At least one predicate is required for update/delete.
+   */
+  where?: Array<{
+    column: string;
+    operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
+    value: unknown;
+  }>;
+}
+
+/** Result of a single mutation from `adapter.submitMutation()`. */
+export interface ClientMutationResult {
+  ok: boolean;
+  rowsAffected?: number;
+  error?: string;
+}
+
 // Async data source adapter — developer implements this
 export interface StudioDataSourceAdapter {
   /**
@@ -129,6 +161,15 @@ export interface StudioDataSourceAdapter {
    * or raw filtered rows otherwise.
    */
   getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult>;
+  /**
+   * Optional write-back method. Present only when the adapter was created
+   * with a `mutationEndpoint` option in `createBatchingAdapter()`.
+   *
+   * Grid widgets call this from `processRowUpdate` to send INSERT/UPDATE/DELETE
+   * mutations to the server. The server automatically evicts cached query results
+   * for the affected table after a successful mutation.
+   */
+  submitMutation?(descriptor: ClientMutationDescriptor): Promise<ClientMutationResult>;
 }
 
 export interface StudioDataSource {

@@ -62,6 +62,16 @@ export interface StudioWidgetConfig {
   gridHeight?: number;
   /** Conditional formatting rules applied to grid cells. */
   gridConditionalFormats?: StudioConditionalFormat[];
+  /**
+   * Primary key field for write-back mutations.
+   *
+   * When set together with a data source adapter that implements `submitMutation`,
+   * grid cells become editable and changes are persisted to the server via
+   * `adapter.submitMutation()`. The PK field itself is always read-only.
+   *
+   * @example 'id'
+   */
+  gridPkField?: string;
   // Chart config
   /** Chart sub-type. Determines which other config keys are relevant. @default 'bar' */
   chartType?: StudioChartType;

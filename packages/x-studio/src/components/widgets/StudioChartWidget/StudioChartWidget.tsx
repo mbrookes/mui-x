@@ -1945,6 +1945,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const selectedDataIndex = pieMaxSlices ? -1 : getSelectedDataIndex(chartData.labels);
 
+    // Value formatter for pie y-field — seriesValueFormatter isn't in scope here (declared after early return)
+    const pieYFieldDef =
+      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
+      expressionFields.find((ef) => ef.id === activeYFields[0]);
+    const pieValueFormatter = makeValueFormatter(
+      pieYFieldDef?.format,
+      pieYFieldDef?.currencyCode,
+      pieYFieldDef?.precision,
+    );
+
     // When cross-highlight is active: build filtered values parallel to displayLabels
     // (handles "Other" grouping by summing filtered values of ungrouped labels)
     let filteredDisplayValues: number[] | null = null;
@@ -1976,8 +1986,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           const idx = (item as { id?: number; value: number }).id ?? 0;
           const fv = filteredDisplayValues![idx] ?? 0;
           const bv = item.value;
-          if (fv === bv) return seriesValueFormatter(bv);
-          return `${seriesValueFormatter(fv)} / ${seriesValueFormatter(bv)}`;
+          if (fv === bv) return pieValueFormatter(bv);
+          return `${pieValueFormatter(fv)} / ${pieValueFormatter(bv)}`;
         };
       } else {
         singleArcLabel = 'value';
@@ -2044,8 +2054,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       const idx = item.id as number;
                       const fv = filteredDisplayValues[idx] ?? 0;
                       const bv = item.value;
-                      if (fv === bv) return seriesValueFormatter(bv);
-                      return `${seriesValueFormatter(fv)} / ${seriesValueFormatter(bv)}`;
+                      if (fv === bv) return pieValueFormatter(bv);
+                      return `${pieValueFormatter(fv)} / ${pieValueFormatter(bv)}`;
                     },
                   }
                 : {}),

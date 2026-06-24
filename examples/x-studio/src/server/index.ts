@@ -26,6 +26,7 @@ import knexLib from 'knex';
 import {
   extractSecurityClaims,
   handleBatchQuery,
+  LRUCacheProvider,
   MapTierCacheProvider,
 } from '@mui/x-studio-data-middleware';
 import type { BatchQueryRequest } from '@mui/x-studio-data-middleware';
@@ -55,8 +56,12 @@ log('Seeding in-memory SQLite database…');
 await seedDatabase(db);
 log('Database ready.\n');
 
-// ── Tier cache (shared across requests, resets on process restart) ─────────────
+// ── Data + tier caches (shared across requests, reset on process restart) ──────
 
+// Hold an explicit reference so /api/invalidate can call deleteByTag() after
+// a mutation — e.g. after a form POST updates the 'orders' table, call
+// POST /api/invalidate { table: 'orders' } to evict all cached queries for it.
+const dataCache = new LRUCacheProvider();
 const tierCache = new MapTierCacheProvider();
 
 // ── Approval gate (shared across chat + approval routes) ───────────────────────
@@ -198,6 +203,33 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
+  // ── POST /api/invalidate — evict cached queries for a table after a write ───
+  // Call this from your mutation handlers after any INSERT/UPDATE/DELETE.
+  // Example: after writing to 'orders', POST { table: 'orders' } here to
+  // force the next widget batch to re-fetch fresh rows from the DB.
+  if (req.url === '/api/invalidate') {
+    log(`→ POST /api/invalidate`);
+    try {
+      const rawBody = await readBody(req);
+      const { table } = JSON.parse(rawBody) as { table: string };
+      if (!table || !SCHEMA_ALLOWLIST.includes(table)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Unknown table: ${table}` }));
+        return;
+      }
+      await dataCache.deleteByTag(table);
+      log(`← 200 /api/invalidate (table=${table})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, table }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      error(`← 500 /api/invalidate ${message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
   if (req.url !== '/api/sales-data') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
@@ -224,6 +256,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const result = await handleBatchQuery(body, claims, {
       db,
       schemaAllowlist: SCHEMA_ALLOWLIST,
+      cacheProvider: dataCache,
       tierCacheProvider: tierCache,
     });
 

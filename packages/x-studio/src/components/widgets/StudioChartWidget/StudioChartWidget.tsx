@@ -64,6 +64,7 @@ const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EMPTY_LE
 import {
   alignFilteredToAllLabels,
   makeCrossFilterValueFormatter,
+  makeCrossHighlightLineFormatter,
   densifyBarLabels,
   createLineXAxisConfig,
   makeValueFormatter,
@@ -848,6 +849,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     () => ({ ratioByIndex: pieRatioByIndex, isActive: isPieHighlightActive, skipAnimation }),
     [pieRatioByIndex, isPieHighlightActive, skipAnimation],
   );
+
+  // Filtered values by label string for pie tooltip/legend/arc labels when highlight is active
+  const pieFilteredValueByLabel = React.useMemo((): Map<string, number> => {
+    if (!isPieHighlightActive || !chartData) {
+      return new Map();
+    }
+    return new Map(chartData.labels.map((l, i) => [String(l), chartData.values[i] ?? 0]));
+  }, [isPieHighlightActive, chartData]);
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.
@@ -1936,14 +1945,58 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const selectedDataIndex = pieMaxSlices ? -1 : getSelectedDataIndex(chartData.labels);
 
+    // When cross-highlight is active: build filtered values parallel to displayLabels
+    // (handles "Other" grouping by summing filtered values of ungrouped labels)
+    let filteredDisplayValues: number[] | null = null;
+    if (isPieHighlightActive && pieFilteredValueByLabel.size > 0) {
+      const keepSet = new Set(displayLabels.filter((l) => String(l) !== 'Other').map(String));
+      filteredDisplayValues = displayLabels.map((label) => {
+        if (String(label) === 'Other') {
+          let sum = 0;
+          for (const [lbl, fv] of pieFilteredValueByLabel) {
+            if (!keepSet.has(lbl)) {
+              sum += fv;
+            }
+          }
+          return sum;
+        }
+        return pieFilteredValueByLabel.get(String(label)) ?? 0;
+      });
+    }
+
     // Compute arc label props for single-series pie/donut
     const singlePieTotal = displayValues.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+    const filteredPieTotal = filteredDisplayValues
+      ? filteredDisplayValues.reduce((s, v) => s + v, 0)
+      : 0;
     let singleArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
     if (pieArcLabelCfg === 'value') {
-      singleArcLabel = 'value';
+      if (filteredDisplayValues) {
+        singleArcLabel = (item) => {
+          const idx = (item as { id?: number; value: number }).id ?? 0;
+          const fv = filteredDisplayValues![idx] ?? 0;
+          const bv = item.value;
+          if (fv === bv) return seriesValueFormatter(bv);
+          return `${seriesValueFormatter(fv)} / ${seriesValueFormatter(bv)}`;
+        };
+      } else {
+        singleArcLabel = 'value';
+      }
     } else if (pieArcLabelCfg === 'percent' && singlePieTotal > 0) {
       const total = singlePieTotal;
-      singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
+      if (filteredDisplayValues && filteredPieTotal > 0) {
+        const fTotal = filteredPieTotal;
+        singleArcLabel = (item) => {
+          const idx = (item as { id?: number; value: number }).id ?? 0;
+          const fv = filteredDisplayValues![idx] ?? 0;
+          const filtPct = `${((fv / fTotal) * 100).toFixed(1)}%`;
+          const basePct = `${((item.value / total) * 100).toFixed(1)}%`;
+          if (fv === item.value) return basePct;
+          return `${filtPct} / ${basePct}`;
+        };
+      } else {
+        singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
+      }
     }
 
     // Resolve the colour palette for both the arc slices and the custom legend so
@@ -1985,6 +2038,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 value: displayValues[i] ?? 0,
               })),
               highlightScope: { highlight: 'item', fade: 'global' },
+              ...(filteredDisplayValues
+                ? {
+                    valueFormatter: (item: { id?: unknown; value: number }) => {
+                      const idx = item.id as number;
+                      const fv = filteredDisplayValues[idx] ?? 0;
+                      const bv = item.value;
+                      if (fv === bv) return seriesValueFormatter(bv);
+                      return `${seriesValueFormatter(fv)} / ${seriesValueFormatter(bv)}`;
+                    },
+                  }
+                : {}),
             },
           ]}
           colors={pieColors}
@@ -2009,7 +2073,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <Box sx={{ px: 1.5, pb: 1 }}>
           {displayLabels.map((label, i) => {
             const value = displayValues[i] ?? 0;
-            const pct = singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
+            const basePct =
+              singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
+            const filteredPct =
+              filteredDisplayValues && filteredPieTotal > 0
+                ? `${(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100).toFixed(1)}%`
+                : null;
+            const pct =
+              filteredPct && filteredPct !== basePct ? `${filteredPct} / ${basePct}` : basePct;
             const color = pieColors[i % pieColors.length];
             return (
               <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}>
@@ -2640,7 +2711,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               area: false,
               connectNulls: true,
               highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: seriesValueFormatter,
+              valueFormatter: ghostLineValues
+                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
+                : seriesValueFormatter,
             },
             // Forecast trend line (dashed, no marks, excluded from legend)
             ...(forecastData
@@ -2772,7 +2845,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               area: true,
               connectNulls: true,
               highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: seriesValueFormatter,
+              valueFormatter: ghostLineValues
+                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
+                : seriesValueFormatter,
             },
             ...(forecastData
               ? [

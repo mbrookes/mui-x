@@ -10,6 +10,8 @@ import {
   selectFilters,
   selectDataSources,
   selectActivePageId,
+  selectPages,
+  selectCrossFilterAllPages,
   selectShell,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
@@ -30,6 +32,8 @@ export function StudioQuickFilterBar() {
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
+  const pages = useStudioSelector(selectPages);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
   const features = useStudioFeatures();
   const shell = useStudioSelector(selectShell);
@@ -44,9 +48,10 @@ export function StudioQuickFilterBar() {
       (!f.pageId || f.pageId === activePageId),
   );
 
-  // Chart-click cross-filters for the active page, excluding the source widget's own filter.
+  // Chart-click cross-filters. When cross-page filtering is enabled, show all pages;
+  // otherwise restrict to the active page only.
   const crossFilters = (filters as StudioFilterState[]).filter(
-    (f) => f.scope === 'cross-filter' && f.pageId === activePageId,
+    (f) => f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
   );
 
   if (pageFilters.length === 0 && crossFilters.length === 0) {
@@ -140,7 +145,10 @@ export function StudioQuickFilterBar() {
       {crossFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
         const summary = String(filter.value ?? '');
-        const label = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        const isFromOtherPage = filter.pageId && filter.pageId !== activePageId;
+        const pageTitle = isFromOtherPage ? (pages[filter.pageId!]?.title ?? '') : '';
+        const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        const label = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (
           <Chip
             key={filter.id}
@@ -151,7 +159,7 @@ export function StudioQuickFilterBar() {
               event.stopPropagation();
               controller.toggleFilter(filter.id);
             }}
-            sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
+            sx={{ maxWidth: 260, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
           />
         );
       })}

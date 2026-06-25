@@ -32,6 +32,8 @@ import {
   selectRelationships,
   selectWidgets,
   selectActivePageId,
+  selectPages,
+  selectCrossFilterAllPages,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../../models';
@@ -61,6 +63,8 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   const widgets = useStudioSelector(selectWidgets);
   const relationships = useStudioSelector(selectRelationships);
   const activePageId = useStudioSelector(selectActivePageId);
+  const pages = useStudioSelector(selectPages);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
 
@@ -166,7 +170,8 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
   );
   const crossFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope === 'cross-filter',
+    (f: StudioFilterState) =>
+      f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
   );
   const interactiveFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'interactive',
@@ -295,7 +300,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       {crossFilters.length > 0 && (
         <React.Fragment>
           <Divider />
-          <CrossFilterSection filters={crossFilters} />
+          <CrossFilterSection filters={crossFilters} pages={pages} activePageId={activePageId} />
         </React.Fragment>
       )}
 

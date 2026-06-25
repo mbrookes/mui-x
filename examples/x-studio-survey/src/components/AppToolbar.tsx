@@ -306,7 +306,10 @@ export function AppToolbar(props: AppToolbarProps) {
         <StudioWordmark height={30} />
         {title && (
           <React.Fragment>
-            <Box sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0 }} aria-hidden />
+            <Box
+              sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0, display: { xs: 'none', md: 'block' } }}
+              aria-hidden
+            />
             <Typography
               variant="body1"
               sx={{
@@ -316,6 +319,7 @@ export function AppToolbar(props: AppToolbarProps) {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                display: { xs: 'none', md: 'block' },
               }}
             >
               {title}

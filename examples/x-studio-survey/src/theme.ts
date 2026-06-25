@@ -16,16 +16,6 @@ export const theme = createTheme({
         },
       },
     },
-    dark: {
-      palette: {
-        primary: { main: '#94a3b8' },
-        secondary: { main: '#f59e0b' },
-        background: {
-          default: '#0f172a',
-          paper: '#1e293b',
-        },
-      },
-    },
   },
   typography: {
     fontFamily: '"JetBrains Mono", ui-monospace, monospace',

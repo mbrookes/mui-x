@@ -54,7 +54,9 @@ export function StudioQuickFilterBar() {
     (f) => f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
   );
 
-  if (pageFilters.length === 0 && crossFilters.length === 0) {
+  // When cross-page mode is on, keep the bar visible on every page so the filter icon is
+  // always reachable even if there happen to be no active filters on the current page.
+  if (pageFilters.length === 0 && crossFilters.length === 0 && !crossFilterAllPages) {
     return null;
   }
 
@@ -128,17 +130,26 @@ export function StudioQuickFilterBar() {
         const summary = summarizeFilter(filter);
         const label = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         return (
-          <Chip
+          <Tooltip
             key={filter.id}
-            label={label}
-            size="small"
-            variant={filter.disabled ? 'outlined' : 'filled'}
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.toggleFilter(filter.id);
-            }}
-            sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
-          />
+            title={
+              filter.disabled
+                ? localeText.quickFilterBarEnableFilter
+                : localeText.quickFilterBarDisableFilter
+            }
+          >
+            <Chip
+              label={label}
+              size="small"
+              color={filter.disabled ? undefined : 'primary'}
+              variant={filter.disabled ? 'outlined' : 'filled'}
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.toggleFilter(filter.id);
+              }}
+              sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
+            />
+          </Tooltip>
         );
       })}
 
@@ -150,17 +161,26 @@ export function StudioQuickFilterBar() {
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         const label = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (
-          <Chip
+          <Tooltip
             key={filter.id}
-            label={label}
-            size="small"
-            variant={filter.disabled ? 'outlined' : 'filled'}
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.toggleFilter(filter.id);
-            }}
-            sx={{ maxWidth: 260, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
-          />
+            title={
+              filter.disabled
+                ? localeText.quickFilterBarEnableFilter
+                : localeText.quickFilterBarDisableFilter
+            }
+          >
+            <Chip
+              label={label}
+              size="small"
+              color={filter.disabled ? undefined : 'primary'}
+              variant={filter.disabled ? 'outlined' : 'filled'}
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.toggleFilter(filter.id);
+              }}
+              sx={{ maxWidth: 260, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
+            />
+          </Tooltip>
         );
       })}
 
@@ -177,9 +197,15 @@ export function StudioQuickFilterBar() {
         </Tooltip>
       )}
 
-      <Typography variant="caption" color="text.secondary" sx={{ ml: totalCount > 1 ? 0 : 'auto' }}>
-        {localeText.quickFilterBarFiltered}
-      </Typography>
+      {totalCount > 0 && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ ml: totalCount > 1 ? 0 : 'auto' }}
+        >
+          {localeText.quickFilterBarFiltered}
+        </Typography>
+      )}
     </Box>
   );
 }

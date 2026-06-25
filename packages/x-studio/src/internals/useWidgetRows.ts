@@ -11,6 +11,7 @@ import {
   makeSelectPartitionedFiltersForPage,
   makeSelectPartitionedBaseFiltersForPage,
   selectGlobalCrossFilterMode,
+  selectCrossFilterAllPages,
 } from '../context';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
@@ -159,6 +160,7 @@ export function useWidgetRows(
   const expressionFields = useStudioSelector(selectExprFields);
 
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
 
   // ── Async adapter path ──────────────────────────────────────────────────
   const hasAdapter = Boolean(dataSource?.adapter);
@@ -276,12 +278,15 @@ export function useWidgetRows(
   const hasCrossFilters = React.useMemo(
     () =>
       deferredPartitioned.cross.some(
-        (f) => !f.disabled && f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          !f.disabled &&
+          f.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.pageId === pageId),
       ) ||
       deferredPartitioned.interactive.some(
         (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
       ),
-    [deferredPartitioned, widget.id, pageId],
+    [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
 
   // Separate boolean for chart-click cross-filters only — interactive (filter widget)
@@ -289,9 +294,12 @@ export function useWidgetRows(
   const hasChartCrossFilters = React.useMemo(
     () =>
       deferredPartitioned.cross.some(
-        (f) => !f.disabled && f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          !f.disabled &&
+          f.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.pageId === pageId),
       ),
-    [deferredPartitioned, widget.id, pageId],
+    [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
 
   const crossFilterMode =
@@ -337,7 +345,10 @@ export function useWidgetRows(
       // For in-memory adapters (e.g. Excel) that return all rows, this is where
       // cross-filtering is actually enforced.
       const crossFilters = deferredPartitioned.cross.filter(
-        (f) => !f.disabled && f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          !f.disabled &&
+          f.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.pageId === pageId),
       );
       const interactiveFilters = deferredPartitioned.interactive.filter(
         (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
@@ -364,7 +375,10 @@ export function useWidgetRows(
       (f) => f.filterMode !== 'rank',
     );
     const crossFilters = deferredPartitioned.cross.filter(
-      (f) => !f.disabled && f.sourceWidgetId !== widget.id && f.pageId === pageId,
+      (f) =>
+        !f.disabled &&
+        f.sourceWidgetId !== widget.id &&
+        (crossFilterAllPages || f.pageId === pageId),
     );
     const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
@@ -395,6 +409,7 @@ export function useWidgetRows(
     widget.id,
     widget.sourceId,
     pageId,
+    crossFilterAllPages,
     usedFieldIds,
   ]);
 

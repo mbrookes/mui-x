@@ -31,6 +31,8 @@ export const selectDashboard = (state: StudioState) => state.dashboard;
 export const selectActivePage = (state: StudioState) => state.pages[state.dashboard.activePageId];
 export const selectGlobalCrossFilterMode = (state: StudioState) =>
   state.dashboard.globalCrossFilterMode ?? null;
+export const selectCrossFilterAllPages = (state: StudioState) =>
+  state.dashboard.crossFilterAllPages ?? false;
 
 /**
  * Returns a stable memoized selector for the active interactive filter

@@ -272,10 +272,8 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
               }}
             >
-              {/* Cross-filter mode toggle — only while cross-filters are active */}
-              {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
-                <StudioCrossFilterBar />
-              )}
+              {/* Cross-filter mode toggle */}
+              {mode !== 'edit' && features.crossFilterBar && <StudioCrossFilterBar />}
 
               {/* Active page-filter chips */}
               {mode !== 'edit' && <StudioQuickFilterBar />}

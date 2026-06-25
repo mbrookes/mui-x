@@ -49,6 +49,8 @@ jobs:
 
       - name: Build survey example
         working-directory: examples/x-studio-survey
+        env:
+          STUDIO_SERVER_URL: ${{ secrets.STUDIO_SERVER_URL }}
         run: npx vite build --base=/mui-x/
 
       - name: Deploy to GitHub Pages

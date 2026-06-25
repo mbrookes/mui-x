@@ -11,6 +11,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio } from '@mui/x-studio';
 import type {
+  StudioAIConfig,
   StudioHandle,
   StudioMode,
   StudioPage,
@@ -81,6 +82,18 @@ export default function App() {
     quickFilter: false,
     crossFilterBar: true,
   });
+
+  const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (!serverUrl) {
+      return undefined;
+    }
+    const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+    return {
+      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai`,
+      headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
+    };
+  }, []);
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
   const t = localeBundle.appLocaleText;
@@ -227,6 +240,7 @@ export default function App() {
                   featureFlags={featureFlags}
                   localeText={localeBundle.studioLocaleText}
                   customWidgets={CUSTOM_WIDGETS}
+                  aiConfig={aiConfig}
                 />
               )}
             </Box>

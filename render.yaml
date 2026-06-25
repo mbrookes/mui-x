@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: x-studio-survey-api
+    runtime: node
+    buildCommand: pnpm install --frozen-lockfile
+    startCommand: pnpm --filter "x-studio-survey-example" server
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false # set manually in the Render dashboard
+      - key: JWT_SECRET
+        generateValue: true

@@ -77,7 +77,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 7,
     question: "What's the benefit you get from wrapping the library?",
-    field: FIELDS.wrapBenefit,
+    field: FIELDS.wrapBenefitG,
     plotted: 199,
     categories: 15,
     type: 'Open question',
@@ -104,7 +104,7 @@ const QUESTIONS: QuestionMeta[] = [
     n: 10,
     question:
       'When considering UI components that rely on MUI backend services, like the AI Assistant, what are the factors that influence your decision (if any)?',
-    field: FIELDS.backendServiceFactors,
+    field: FIELDS.backendServiceFactorsG,
     plotted: 123,
     categories: 15,
     type: 'Open question',
@@ -122,7 +122,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 12,
     question: 'Which Scheduler features are must-haves for you?',
-    field: FIELDS.schedulerMustHaves,
+    field: FIELDS.schedulerMustHavesG,
     plotted: 65,
     categories: 10,
     type: 'Open question',
@@ -164,7 +164,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 17,
     question: 'Where did you migrate from and what was the decisive factor?',
-    field: FIELDS.chartsMigrationFrom,
+    field: FIELDS.chartsMigrationFromG,
     plotted: 11,
     categories: 8,
     type: 'Open question',
@@ -274,7 +274,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 30,
     question: "What's your main use case or biggest pain point with Data Grid?",
-    field: FIELDS.gridUseCase,
+    field: FIELDS.gridUseCaseG,
     plotted: 101,
     categories: 15,
     type: 'Open question',
@@ -316,7 +316,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 35,
     question: 'What gets in the way during design -> development hands off?',
-    field: FIELDS.designDevHandoff,
+    field: FIELDS.designDevHandoffG,
     plotted: 40,
     categories: 15,
     type: 'Open question',
@@ -324,7 +324,7 @@ const QUESTIONS: QuestionMeta[] = [
   {
     n: 36,
     question: 'If we could improve one thing about the MUI Figma Kit, what should it be?',
-    field: FIELDS.figmaKitImprovement,
+    field: FIELDS.figmaKitImprovementG,
     plotted: 33,
     categories: 15,
     type: 'Open question',
@@ -335,7 +335,7 @@ const QUESTIONS: QuestionMeta[] = [
     n: 37,
     question:
       'Describe the last time you used AI with any MUI project. Did you accomplish your goal, how did it turn out?',
-    field: FIELDS.aiExperience,
+    field: FIELDS.aiExperienceG,
     plotted: 199,
     categories: 15,
     type: 'Open question',
@@ -360,7 +360,7 @@ const QUESTIONS: QuestionMeta[] = [
     n: 40,
     question:
       'Which tools or services are involved when incorporating AI into your front-end work?',
-    field: FIELDS.aiTools,
+    field: FIELDS.aiToolsG,
     plotted: 183,
     categories: 15,
     type: 'Open question',

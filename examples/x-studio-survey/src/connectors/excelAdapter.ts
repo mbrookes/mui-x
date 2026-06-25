@@ -234,17 +234,24 @@ function parseMultiSelectValue(value: string): string[] {
  * that set, each cell value is split on `, ` (paren-aware) and the row is
  * duplicated once per option — giving correct per-option counts for multi-select
  * survey questions.
+ *
+ * When `fieldValueTransforms` is provided, the transform for the `groupBy` field
+ * (if any) is applied to each value after multi-select splitting — useful for
+ * collapsing long-tail verbatim values into a named bucket (e.g. "Other").
  */
 export function createExcelAdapter(
   rowsBySourceId: Map<string, Record<string, unknown>[]>,
   multiSelectFields?: ReadonlySet<string>,
+  fieldValueTransforms?: Record<string, (value: string) => string>,
 ): StudioDataSourceAdapter {
   return {
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       const baseRows = rowsBySourceId.get(descriptor.sourceId) ?? [];
+      const groupBy = descriptor.groupBy;
+      const transform = groupBy && fieldValueTransforms ? fieldValueTransforms[groupBy] : undefined;
 
-      if (multiSelectFields && descriptor.groupBy && multiSelectFields.has(descriptor.groupBy)) {
-        const field = descriptor.groupBy;
+      if (multiSelectFields && groupBy && multiSelectFields.has(groupBy)) {
+        const field = groupBy;
         const expandedRows: Record<string, unknown>[] = [];
         for (const row of baseRows) {
           const rawValue = row[field];
@@ -253,10 +260,22 @@ export function createExcelAdapter(
           }
           const options = parseMultiSelectValue(String(rawValue));
           for (const option of options) {
-            expandedRows.push({ ...row, [field]: option });
+            expandedRows.push({ ...row, [field]: transform ? transform(option) : option });
           }
         }
         return { rows: expandedRows, totalCount: expandedRows.length };
+      }
+
+      if (transform && groupBy) {
+        const field = groupBy;
+        const transformedRows = baseRows.map((row) => {
+          const rawValue = row[field];
+          if (rawValue == null) {
+            return row;
+          }
+          return { ...row, [field]: transform(String(rawValue)) };
+        });
+        return { rows: transformedRows, totalCount: transformedRows.length };
       }
 
       return { rows: baseRows, totalCount: baseRows.length };
@@ -285,6 +304,14 @@ export interface LoadExcelOptions {
    * correct.  Commas inside `(…)` are not treated as delimiters.
    */
   multiSelectFields?: string[];
+  /**
+   * Per-field value transforms applied at query time when that field is used as
+   * `groupBy`. For multi-select fields the transform runs on each individual
+   * option after splitting; for regular fields it runs on the whole cell value.
+   * Useful for collapsing long-tail verbatim responses into a named bucket —
+   * e.g. `(v) => v.startsWith('Specific request:') ? 'Other' : v`.
+   */
+  fieldValueTransforms?: Record<string, (value: string) => string>;
 }
 
 /**
@@ -342,5 +369,8 @@ export function parseExcelWorkbook(
     ? new Set(options.multiSelectFields)
     : undefined;
 
-  return { sources, adapter: createExcelAdapter(rowsBySourceId, multiSelectSet) };
+  return {
+    sources,
+    adapter: createExcelAdapter(rowsBySourceId, multiSelectSet, options.fieldValueTransforms),
+  };
 }

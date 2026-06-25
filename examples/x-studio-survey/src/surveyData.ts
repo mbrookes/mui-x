@@ -44,6 +44,8 @@ export const FIELDS = {
   docsSetup: 'which-documentation-setup-does-your-team-primarily-use',
   // Q07
   wrapBenefit: 'what-s-the-benefit-you-get-from-wrapping-the-library',
+  // Q07 — coded bins (G column)
+  wrapBenefitG: 'g-what-s-the-benefit-you-get-from-wrapping-the-library',
   // Q08
   plan: 'which-mui-x-plan-are-you-using',
   // Q09 — note the "winth" typo is in the original column header
@@ -51,10 +53,15 @@ export const FIELDS = {
   // Q10
   backendServiceFactors:
     'when-considering-ui-components-that-rely-on-mui-backend-services-like-the-ai-assistant-what-are-the-factors-that-influence-your-decision-if-any',
+  // Q10 — coded bins (G column)
+  backendServiceFactorsG:
+    'g-when-considering-ui-components-that-rely-on-mui-backend-services-like-the-ai-assistant-what-are-the-factors-that-influence-your-decision-if-any',
   // Q11
   advancedComponentsFeedback: 'which-advanced-components-are-you-interested-in-giving-feedback-on',
   // Q12
   schedulerMustHaves: 'which-scheduler-features-are-must-haves-for-you',
+  // Q12 — coded bins (G column)
+  schedulerMustHavesG: 'g-which-scheduler-features-are-must-haves-for-you',
   // Q13
   schedulerBackend: 'how-would-you-like-the-scheduler-to-handle-backend-and-integrations',
   // Q14
@@ -66,6 +73,8 @@ export const FIELDS = {
   usingCharts: 'are-you-using-mui-x-charts',
   // Q17
   chartsMigrationFrom: 'where-did-you-migrate-from-and-what-was-the-decisive-factor',
+  // Q17 — coded bins (G column)
+  chartsMigrationFromG: 'g-where-did-you-migrate-from-and-what-was-the-decisive-factor',
   // Q18
   chartsBlocker: 'what-s-stopping-you-from-using-mui-x-charts',
   // Q19
@@ -94,6 +103,8 @@ export const FIELDS = {
     'rank-the-following-criteria-by-their-importance-when-choosing-a-data-grid-component',
   // Q30
   gridUseCase: 'what-s-your-main-use-case-or-biggest-pain-point-with-data-grid',
+  // Q30 — coded bins (G column)
+  gridUseCaseG: 'g-what-s-your-main-use-case-or-biggest-pain-point-with-data-grid',
   // Q31
   gridDatasetSize: 'how-large-are-your-typical-data-grid-datasets',
   // Q32
@@ -104,18 +115,29 @@ export const FIELDS = {
   figmaKitMatch: 'how-well-does-the-figma-kit-match-the-components-you-implement-in-code',
   // Q35
   designDevHandoff: 'what-gets-in-the-way-during-design-development-hands-off',
+  // Q35 — coded bins (G column; &gt; in original header → -gt- after slugify)
+  designDevHandoffG: 'g-what-gets-in-the-way-during-design-gt-development-hands-off',
   // Q36
   figmaKitImprovement:
     'if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
+  // Q36 — coded bins (G column)
+  figmaKitImprovementG:
+    'g-if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
   // Q37
   aiExperience:
     'describe-the-last-time-you-used-ai-with-any-mui-project-did-you-accomplish-your-goal-how-did-it-turn-out',
+  // Q37 — coded bins (G column)
+  aiExperienceG:
+    'g-describe-the-last-time-you-used-ai-with-any-mui-project-did-you-accomplish-your-goal-how-did-it-turn-out',
   // Q38
   aiUsage: 'on-a-scale-from-1-to-10-how-would-rate-how-often-do-you-use-ai-in-front-end-work',
   // Q39
   aiWorkflow: 'where-does-ai-fit-into-your-workflow',
   // Q40
   aiTools: 'which-tools-or-services-are-involved-when-incorporating-ai-into-your-front-end-work',
+  // Q40 — coded bins (G column)
+  aiToolsG:
+    'g-which-tools-or-services-are-involved-when-incorporating-ai-into-your-front-end-work',
   // Q41 (email) — omitted
   // Q42
   heardAbout: 'where-did-you-first-hear-about-mui',
@@ -206,7 +228,36 @@ export async function loadSurveyWorkbooks(): Promise<LoadedSurvey> {
         FIELDS.gridAIUseCases,          // Q32
         FIELDS.aiWorkflow,              // Q39
         FIELDS.productBuilding,         // Q47
+        // G-column coded bins for open questions (comma-separated when multi-coded)
+        FIELDS.wrapBenefitG,            // Q07 G
+        FIELDS.backendServiceFactorsG,  // Q10 G
+        FIELDS.schedulerMustHavesG,     // Q12 G
+        FIELDS.chartsMigrationFromG,    // Q17 G
+        FIELDS.gridUseCaseG,            // Q30 G
+        FIELDS.designDevHandoffG,       // Q35 G
+        FIELDS.figmaKitImprovementG,    // Q36 G
+        FIELDS.aiExperienceG,           // Q37 G
+        FIELDS.aiToolsG,                // Q40 G
       ],
+      // Collapse "Specific request: <verbatim>" entries into a generic "Other" bucket.
+      // The G columns use this prefix to tag unique verbatim responses that didn't
+      // fit an existing bin; grouping them all as "Other" keeps charts readable.
+      fieldValueTransforms: Object.fromEntries(
+        [
+          FIELDS.wrapBenefitG,
+          FIELDS.backendServiceFactorsG,
+          FIELDS.schedulerMustHavesG,
+          FIELDS.chartsMigrationFromG,
+          FIELDS.gridUseCaseG,
+          FIELDS.designDevHandoffG,
+          FIELDS.figmaKitImprovementG,
+          FIELDS.aiExperienceG,
+          FIELDS.aiToolsG,
+        ].map((fieldId) => [
+          fieldId,
+          (v: string) => (v.startsWith('Specific request:') ? 'Other' : v),
+        ]),
+      ),
     }),
     loadExcelWorkbook(SURVEY_2023_URL, { idPrefix: 'survey-2023', labelPrefix: '2023 Survey' }),
   ]);

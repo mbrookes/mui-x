@@ -2919,6 +2919,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       : chartHeight;
 
   if (isHorizontal) {
+    // When bandLabelWrap splits labels across multiple lines, 'auto' only measures the first
+    // SVG tspan and produces a width too narrow for longer subsequent lines. Compute an
+    // explicit pixel width from the longest single line across all formatted+wrapped labels.
+    // 0.65rem at 16px base ≈ 10.4px; JetBrains Mono ≈ 0.6× em → ~6.3px/char. Use 6.5px
+    // with a small margin and cap to reasonable bounds.
+    const longestHBarLabelLine = displayXAxisData.reduce((max, v) => {
+      const wrapped = wrapBandLabel(formatLabel(String(v)));
+      const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+      return Math.max(max, lineMax);
+    }, 0);
+    const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
+
     return (
       <CrossFilterBarContext.Provider value={singleBarContext}>
         <div style={{ height: effectiveHBarHeight }}>
@@ -2938,7 +2950,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 id: CROSS_FILTER_AXIS_ID,
                 data: displayXAxisData,
                 scaleType: 'band',
-                width: 'auto',
+                width: hBarYAxisWidth,
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                 tickLabelStyle: { fontSize: '0.65rem' },
                 ...(config.barCategoryGapRatio !== undefined

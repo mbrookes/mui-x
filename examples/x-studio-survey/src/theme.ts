@@ -19,7 +19,7 @@ export const theme = createTheme({
     },
     dark: {
       palette: {
-        primary: { main: '#94a3b8' },
+        primary: { main: '#2563eb' },
         secondary: { main: '#f59e0b' },
         background: {
           default: '#0f172a',

@@ -95,8 +95,8 @@ export interface StudioWidgetConfig {
    */
   barMaxCategories?: number;
   /**
-   * Font size in rem for axis tick labels across all chart types.
-   * @default undefined (inherits theme font size)
+   * Font size in px for axis tick labels across all chart types.
+   * When undefined, the chart inherits the default theme font size.
    */
   axisTickFontSize?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */

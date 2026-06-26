@@ -1720,7 +1720,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                             ),
                         ...(is100 && { min: 0, max: 100 }),
                         ...(config.axisTickFontSize !== undefined
-                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                           : {}),
                       },
                     ]
@@ -1746,7 +1746,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         valueFormatter: (v: string | number) =>
                           wrapBandLabel(formatLabel(String(v))),
                         ...(config.axisTickFontSize !== undefined
-                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                           : {}),
                         ...(config.barCategoryGapRatio !== undefined
                           ? { categoryGapRatio: config.barCategoryGapRatio }
@@ -2315,7 +2315,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                           ),
                       ...(is100 && { min: 0, max: 100 }),
                       ...(config.axisTickFontSize !== undefined
-                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                         : {}),
                     },
                   ]
@@ -2344,7 +2344,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       valueFormatter: (v: string | number) =>
                         wrapBandLabel(formatLabel(String(v))),
                       ...(config.axisTickFontSize !== undefined
-                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                         : {}),
                       ...(config.barCategoryGapRatio !== undefined
                         ? { categoryGapRatio: config.barCategoryGapRatio }
@@ -3012,7 +3012,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 height: 'auto',
                 valueFormatter: seriesValueFormatter,
                 ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                   : {}),
               },
             ]}
@@ -3024,7 +3024,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 width: hBarYAxisWidth,
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                 ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'rem' } }
+                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                   : {}),
                 ...(config.barCategoryGapRatio !== undefined
                   ? { categoryGapRatio: config.barCategoryGapRatio }

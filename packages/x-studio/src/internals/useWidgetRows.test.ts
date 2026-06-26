@@ -410,7 +410,7 @@ describe('async adapter path', () => {
     unmount2();
   });
 
-  it('hasCrossFilters is always false for adapter sources', async () => {
+  it('applies cross-filters client-side on adapter rows', async () => {
     mockState = createState({
       filters: [
         makeFilter({
@@ -436,10 +436,13 @@ describe('async adapter path', () => {
       await vi.waitFor(() => !result.current.isLoading);
     });
 
-    // Descriptor already bakes in cross-filters; hasCrossFilters must be false
-    expect(result.current.hasCrossFilters).toBe(false);
-    // filteredRowsNoCross === filteredRows (same reference)
-    expect(result.current.filteredRowsNoCross).toBe(result.current.filteredRows);
+    // Cross-filters are now applied client-side on adapter rows
+    expect(result.current.hasCrossFilters).toBe(true);
+    // filteredRows has the cross-filter applied (EU rows only)
+    expect(result.current.filteredRows).toHaveLength(2);
+    // filteredRowsNoCross is the full adapter row set without cross-filter
+    expect(result.current.filteredRowsNoCross).toHaveLength(3);
+    expect(result.current.filteredRowsNoCross).not.toBe(result.current.filteredRows);
   });
 
   it('sets isLoading=false when adapter rejects', async () => {

@@ -136,6 +136,13 @@ export interface StudioFeatureFlags {
    */
   quickFilter?: boolean;
   /**
+   * Show the cross-filter mode bar above the widget canvas.
+   * This bar lets viewers select a global interaction mode (cross-filter,
+   * cross-highlight, or per-chart) and toggle cross-filtering across all pages.
+   * @default false
+   */
+  crossFilterBar?: boolean;
+  /**
    * Allow saving and loading named filter presets ("Saved Views") in the filters panel.
    * @default true
    */

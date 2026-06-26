@@ -37,6 +37,25 @@ export function makeCrossFilterValueFormatter(
     return `${baseFormatter(fv)} / ${base}`;
   };
 }
+
+/**
+ * Wraps a base valueFormatter for line/area chart main series (which holds filtered values)
+ * to show "filtered / baseline" when a cross-highlight ghost series is active.
+ * @param {(number | null)[]} baselineValues - Array of baseline (all-data) values aligned to the x-axis.
+ * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
+ */
+export function makeCrossHighlightLineFormatter(
+  baselineValues: (number | null)[],
+  baseFormatter: (arg: number | null) => string,
+): (value: number | null, context: { dataIndex: number }) => string {
+  return (value, { dataIndex }) => {
+    const baseline = baselineValues[dataIndex] ?? null;
+    if (value == null) return `${baseFormatter(baseline)} (filtered out)`;
+    if (value === baseline || baseline == null) return baseFormatter(value);
+    return `${baseFormatter(value)} / ${baseFormatter(baseline)}`;
+  };
+}
+
 export function densifyBarLabels(labels: (string | number)[]) {
   return fillTemporalLabelGaps(labels);
 }

@@ -14,7 +14,8 @@ import {
 } from '../../context';
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
-import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
+import FilterListIcon from '@mui/icons-material/FilterList';
 
 /**
  * Compact row of chips pinned above the canvas showing active page filters.
@@ -27,6 +28,7 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
  */
 export function StudioQuickFilterBar() {
   const controller = useStudioController();
+  const { onOpenFilterPanel } = useStudioUIConfig();
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
@@ -91,6 +93,19 @@ export function StudioQuickFilterBar() {
         backgroundColor: 'action.hover',
       }}
     >
+      {onOpenFilterPanel && (
+        <Tooltip title={localeText.quickFilterBarOpenFilters}>
+          <IconButton
+            size="small"
+            onClick={onOpenFilterPanel}
+            aria-label={localeText.quickFilterBarOpenFilters}
+            sx={{ flexShrink: 0 }}
+          >
+            <FilterListIcon fontSize="small" color="action" />
+          </IconButton>
+        </Tooltip>
+      )}
+
       {pageFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field;
         const summary = summarizeFilter(filter);

@@ -74,6 +74,11 @@ export interface StudioWidgetConfig {
    */
   barBandLabelWrap?: number;
   /**
+   * Maximum number of lines for wrapped band labels.
+   * @default 2
+   */
+  wrapBandLabelMaxLines?: number;
+  /**
    * Ratio of band width reserved for the gap between categories (0–1).
    * Maps to `categoryGapRatio` on the band axis. Default is 0.2.
    */
@@ -89,6 +94,11 @@ export interface StudioWidgetConfig {
    * The top N−1 categories by value are shown; remaining values are summed into an "Other" bar.
    */
   barMaxCategories?: number;
+  /**
+   * Font size in px for axis tick labels across all chart types.
+   * When undefined, the chart inherits the default theme font size.
+   */
+  axisTickFontSize?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */

@@ -10,6 +10,7 @@ import {
   type StudioExpressionField,
   type StudioFilterPreset,
   type StudioFilterState,
+  type StudioCrossFilterMode,
   type StudioMode,
   type StudioPage,
   type StudioRelationship,
@@ -112,7 +113,7 @@ export class StudioController {
     });
   };
 
-  setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
+  setGlobalCrossFilterMode = (mode: StudioCrossFilterMode | null) => {
     const state = this.store.state;
     this.commitState(
       {

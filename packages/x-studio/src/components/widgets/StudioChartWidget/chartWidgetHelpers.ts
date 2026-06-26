@@ -37,6 +37,7 @@ export function makeCrossFilterValueFormatter(
     return `${baseFormatter(fv)} / ${base}`;
   };
 }
+
 /**
  * Wraps a base valueFormatter for line/area chart main series (which holds filtered values)
  * to show "filtered / baseline" when a cross-highlight ghost series is active.

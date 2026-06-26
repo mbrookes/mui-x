@@ -74,6 +74,9 @@ import { canDetectAnomalies, detectChartDataAnomalies } from '../../../internals
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
+const EMPTY_LEGEND = () => null;
+const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EMPTY_LEGEND } as const;
+
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
   noDataOverlay?: React.ElementType<React.HTMLAttributes<HTMLDivElement>>;
@@ -260,9 +263,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   const bandLabelWrap = config.barBandLabelWrap ?? 0;
+  const bandLabelWrapMaxLines = config.wrapBandLabelMaxLines ?? 2;
   const wrapBandLabel = React.useCallback(
     (label: string): string => {
-      const MAX_LINES = 3;
+      const MAX_LINES = bandLabelWrapMaxLines;
       if (!bandLabelWrap || label.length <= bandLabelWrap) return label;
       const words = label.split(' ');
       const lines: string[] = [];
@@ -284,7 +288,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       if (current) lines.push(current);
       return lines.join('\n');
     },
-    [bandLabelWrap],
+    [bandLabelWrap, bandLabelWrapMaxLines],
   );
 
   const getFieldDependencySource = React.useCallback(
@@ -1694,9 +1698,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           valueFormatter,
         };
       });
+      const multiYEffectiveHeight =
+        isHorizontalBarLayout && config.barMinBandSize
+          ? Math.max(chartHeight, xAxisData.length * config.barMinBandSize + 40)
+          : chartHeight;
       return (
         <CrossFilterBarContext.Provider value={multiYBarContext}>
-          <div style={{ height: chartHeight }}>
+          <div style={{ height: multiYEffectiveHeight }}>
             <BarChart
               {...slotProps?.barChart}
               skipAnimation={skipAnimation}
@@ -1714,7 +1722,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                               multiYBarFieldDefs[0]?.precision,
                             ),
                         ...(is100 && { min: 0, max: 100 }),
-                        tickLabelStyle: { fontSize: '0.65rem' },
+                        ...(config.axisTickFontSize !== undefined
+                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                          : {}),
                       },
                     ]
                   : [
@@ -1738,7 +1748,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         width: 'auto',
                         valueFormatter: (v: string | number) =>
                           wrapBandLabel(formatLabel(String(v))),
-                        tickLabelStyle: { fontSize: '0.65rem' },
+                        ...(config.axisTickFontSize !== undefined
+                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                          : {}),
+                        ...(config.barCategoryGapRatio !== undefined
+                          ? { categoryGapRatio: config.barCategoryGapRatio }
+                          : {}),
                       },
                     ]
                   : yAxes
@@ -1874,7 +1889,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               legend: {
                 direction: 'vertical' as const,
                 position: { vertical: 'bottom' as const, horizontal: 'center' as const },
-                sx: { fontSize: '0.65rem' },
               },
             },
           })}
@@ -1988,15 +2002,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const filteredPieTotal = filteredDisplayValues
       ? filteredDisplayValues.reduce((s, v) => s + v, 0)
       : 0;
+    // Capture local copy to avoid TDZ in valueFormatter closures
+    const localPieValueFormatter = pieValueFormatter;
     let singleArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
     if (pieArcLabelCfg === 'value') {
       if (filteredDisplayValues) {
+        const localFilteredDisplayValues = filteredDisplayValues;
         singleArcLabel = (item) => {
           const idx = (item as { id?: number; value: number }).id ?? 0;
-          const fv = filteredDisplayValues![idx] ?? 0;
+          const fv = localFilteredDisplayValues[idx] ?? 0;
           const bv = item.value;
-          if (fv === bv) return pieValueFormatter(bv);
-          return `${pieValueFormatter(fv)} / ${pieValueFormatter(bv)}`;
+          if (fv === bv) return localPieValueFormatter(bv);
+          return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
         };
       } else {
         singleArcLabel = 'value';
@@ -2005,9 +2022,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       const total = singlePieTotal;
       if (filteredDisplayValues && filteredPieTotal > 0) {
         const fTotal = filteredPieTotal;
+        const localFilteredDisplayValues = filteredDisplayValues;
         singleArcLabel = (item) => {
           const idx = (item as { id?: number; value: number }).id ?? 0;
-          const fv = filteredDisplayValues![idx] ?? 0;
+          const fv = localFilteredDisplayValues[idx] ?? 0;
           const filtPct = `${((fv / fTotal) * 100).toFixed(1)}%`;
           const basePct = `${((item.value / total) * 100).toFixed(1)}%`;
           if (fv === item.value) return basePct;
@@ -2057,8 +2075,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 const idx = item.id as number;
                 const fv = filteredDisplayValues[idx] ?? 0;
                 const bv = item.value;
-                if (fv === bv) return pieValueFormatter(bv);
-                return `${pieValueFormatter(fv)} / ${pieValueFormatter(bv)}`;
+                if (fv === bv) return localPieValueFormatter(bv);
+                return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
               },
             }
           : {}),
@@ -2299,7 +2317,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                             yFieldDef?.precision,
                           ),
                       ...(is100 && { min: 0, max: 100 }),
-                      tickLabelStyle: { fontSize: '0.65rem' },
+                      ...(config.axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                        : {}),
                     },
                   ]
                 : [
@@ -2324,7 +2344,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       scaleType: 'band',
                       width: 'auto',
                       valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                      tickLabelStyle: { fontSize: '0.65rem' },
+                      ...(config.axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                        : {}),
                       ...(config.barCategoryGapRatio !== undefined
                         ? { categoryGapRatio: config.barCategoryGapRatio }
                         : {}),
@@ -2699,14 +2721,22 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Apply top-N + "Other" grouping for bar charts
   const barMaxCats = isBar ? (config.barMaxCategories ?? undefined) : undefined;
-  let displayXAxisData: (string | number)[] = xAxisData;
-  let displayBarValues: (number | null)[] = (effectiveSingleSeriesData?.values ?? []).map(
-    (v) => v ?? null,
+  // Filter out empty x-axis values before applying max-categories grouping
+  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
+    (acc, label, i) => {
+      if (label !== null && label !== undefined && label !== '') {
+        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
+      }
+      return acc;
+    },
+    [],
   );
-  if (barMaxCats && xAxisData.length > barMaxCats) {
+  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
+  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
+  if (barMaxCats && displayXAxisData.length > barMaxCats) {
     const topN = barMaxCats - 1;
     const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    const topLabels = xAxisData.slice(0, topN);
+    const topLabels = displayXAxisData.slice(0, topN);
     const topValues = displayBarValues.slice(0, topN);
     const existingOtherIdx = topLabels.findIndex((l) => l === 'Other');
     if (existingOtherIdx >= 0) {
@@ -2966,8 +2996,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // When bandLabelWrap splits labels across multiple lines, 'auto' only measures the first
     // SVG tspan and produces a width too narrow for longer subsequent lines. Compute an
     // explicit pixel width from the longest single line across all formatted+wrapped labels.
-    // 0.65rem at 16px base ≈ 10.4px; JetBrains Mono ≈ 0.6× em → ~6.3px/char. Use 6.5px
-    // with a small margin and cap to reasonable bounds.
     const longestHBarLabelLine = displayXAxisData.reduce((max: number, v) => {
       const wrapped = wrapBandLabel(formatLabel(String(v)));
       const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
@@ -2986,7 +3014,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               {
                 height: 'auto',
                 valueFormatter: seriesValueFormatter,
-                tickLabelStyle: { fontSize: '0.65rem' },
+                ...(config.axisTickFontSize !== undefined
+                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                  : {}),
               },
             ]}
             yAxis={[
@@ -2996,7 +3026,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 scaleType: 'band',
                 width: hBarYAxisWidth,
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                tickLabelStyle: { fontSize: '0.65rem' },
+                ...(config.axisTickFontSize !== undefined
+                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                  : {}),
                 ...(config.barCategoryGapRatio !== undefined
                   ? { categoryGapRatio: config.barCategoryGapRatio }
                   : {}),

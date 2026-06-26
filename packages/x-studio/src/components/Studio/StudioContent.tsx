@@ -18,7 +18,6 @@ import {
   selectWidgets,
   selectDataSources,
   selectFilters,
-  selectActivePageId,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
@@ -79,7 +78,6 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const localeText = useStudioLocaleText();
 
   const filters = useStudioSelector(selectFilters);
-  const activePageId = useStudioSelector(selectActivePageId);
   const hasCrossFilters = filters.some((f) => f.scope === 'cross-filter' && !f.disabled);
 
   const shell = useStudioSelector(selectShell);

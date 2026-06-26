@@ -1982,6 +1982,13 @@ interface StudioUIConfig {
    * ```
    */
   geographies?: Record<string, StudioMapGeographyDefinition>;
+  /**
+   * Optional callback invoked when the user clicks the filter panel button in the quick filter bar.
+   * When provided, a filter icon button appears in the bar. Use this in composed apps where the
+   * filter side panel is replaced by a modal dialog or other custom UI.
+   * When omitted, no filter icon button is shown.
+   */
+  onOpenFilterPanel?: () => void;
 }
 
 /** Pre-built map from `kind` → `StudioCustomWidgetDef` for fast lookup. */

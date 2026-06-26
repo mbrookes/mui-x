@@ -58,9 +58,6 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
-
-const EMPTY_LEGEND = () => null;
-const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EMPTY_LEGEND } as const;
 import {
   alignFilteredToAllLabels,
   makeCrossFilterValueFormatter,

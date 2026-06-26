@@ -260,7 +260,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   const bandLabelWrap = config.barBandLabelWrap ?? 0;
-  const bandLabelWrapMaxLines = config.wrapBandLabelMaxLines ?? 2;
+  const bandLabelWrapMaxLines = Math.max(1, config.wrapBandLabelMaxLines ?? 2);
   const wrapBandLabel = React.useCallback(
     (label: string): string => {
       const MAX_LINES = bandLabelWrapMaxLines;

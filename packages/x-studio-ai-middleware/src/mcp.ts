@@ -1044,14 +1044,12 @@ export function buildStudioMcpServer(
             };
           }
 
-          const contentItems: { type: 'text'; text: string }[] = [
-            { type: 'text', text: `## ${pageLabel}` },
-          ];
-          for (const section of sections) {
-            contentItems.push({ type: 'text', text: section.text });
-          }
+          // Return the page summary as a single coherent text block: a heading
+          // followed by one section per widget. (Splitting into separate content
+          // items fragments the summary for MCP clients that render only the first.)
+          const summaryText = [`## ${pageLabel}`, ...sections.map((s) => s.text)].join('\n\n');
 
-          return { content: contentItems };
+          return { content: [{ type: 'text' as const, text: summaryText }] };
         }
       }
 

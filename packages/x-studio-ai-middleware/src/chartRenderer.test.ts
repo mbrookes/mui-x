@@ -171,6 +171,6 @@ describe('renderChartSvg — pie', () => {
 
 describe('renderChartSvg — errors', () => {
   it('throws for an unknown chart type', () => {
-    expect(() => renderChartSvg({ type: 'scatter' as never })).toThrow(/unknown chart type/i);
+    expect(() => renderChartSvg({ type: 'radar' as never })).toThrow(/unknown chart type/i);
   });
 });

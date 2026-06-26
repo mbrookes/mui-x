@@ -18,6 +18,7 @@ import {
   selectWidgets,
   selectDataSources,
   selectFilters,
+  selectActivePageId,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';

@@ -1,4 +1,4 @@
-import type { StudioMode, StudioDrawer, StudioFilterOperator } from './baseTypes';
+import type { StudioMode, StudioDrawer, StudioFilterOperator, StudioCrossFilterMode } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
 import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
@@ -99,6 +99,14 @@ export interface StudioDashboardState {
   activePageId: string;
   /** Default theme applied to all pages unless overridden by a page-level theme. */
   defaultTheme?: StudioPageTheme;
+  /**
+   * Global cross-filter mode override; null means each widget uses its own crossFilterMode.
+   */
+  globalCrossFilterMode?: StudioCrossFilterMode | null;
+  /**
+   * When true, cross-filters apply to widgets on all pages.
+   */
+  crossFilterAllPages?: boolean;
 }
 
 export interface StudioFilterPreset {

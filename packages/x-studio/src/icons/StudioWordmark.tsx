@@ -1,6 +1,5 @@
 'use client';
 import * as React from 'react';
-import { useTheme } from '@mui/material/styles';
 
 export interface StudioWordmarkProps {
   /** Height of the wordmark in px. Width scales proportionally. @default 28 */
@@ -19,8 +18,6 @@ const FALLBACK_VB_WIDTH = 150;
  * regardless of which fallback font is active.
  */
 export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
   const textRef = React.useRef<SVGTextElement>(null);
   const [vbWidth, setVbWidth] = React.useState(FALLBACK_VB_WIDTH);
 
@@ -42,7 +39,6 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
 
   const width = Math.round((height * vbWidth) / CANVAS_HEIGHT);
 
-  const muiXColor = isDark ? '#ffffff' : '#1C2025';
   const studioColor = '#0079f5';
 
   return (
@@ -75,7 +71,7 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
         fontSize={17}
         letterSpacing="-0.2"
       >
-        <tspan fontWeight={700} fill={muiXColor}>
+        <tspan fontWeight={700} style={{ fill: 'var(--mui-palette-text-primary)' }}>
           MUI X
         </tspan>
         <tspan fontWeight={400} fill={studioColor}>

@@ -29,6 +29,10 @@ export const selectActivePageId = (state: StudioState) => state.dashboard.active
 export const selectPages = (state: StudioState) => state.pages;
 export const selectDashboard = (state: StudioState) => state.dashboard;
 export const selectActivePage = (state: StudioState) => state.pages[state.dashboard.activePageId];
+export const selectGlobalCrossFilterMode = (state: StudioState) =>
+  state.dashboard.globalCrossFilterMode ?? null;
+export const selectCrossFilterAllPages = (state: StudioState) =>
+  state.dashboard.crossFilterAllPages ?? false;
 
 /**
  * Returns a stable memoized selector for the active interactive filter
@@ -434,7 +438,11 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
 export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
     state.filters.find(
-      (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
+      (f) =>
+        f.scope.kind === 'cross-filter' &&
+        f.scope.sourceWidgetId === widgetId &&
+        f.scope.pageId === pageId &&
+        !f.disabled,
     ) ?? null;
 }
 
@@ -463,7 +471,11 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
       return lastResult;
     }
     const filtered = filters.filter(
-      (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widgetId && f.scope.pageId === pageId,
+      (f) =>
+        f.scope.kind === 'cross-filter' &&
+        f.scope.sourceWidgetId !== widgetId &&
+        f.scope.pageId === pageId &&
+        !f.disabled,
     );
     if (
       lastResult !== undefined &&

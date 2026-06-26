@@ -611,6 +611,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   sx={{
                     minWidth: 0,
                     flexShrink: 1,
+                    ...(widget.config?.titleFontSize && {
+                      fontSize: widget.config.titleFontSize,
+                    }),
                     ...(widget.kind === 'text' && {
                       flexGrow: 1,
                       ...(widget.config.textTitleColor && {
@@ -823,7 +826,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="h6" noWrap>
-                  {widget.title || 'Chart'}
+                  {widget.config?.cardExpandTitle || widget.title || 'Chart'}
                 </Typography>
                 {effectiveSubtitle && (
                   <Typography

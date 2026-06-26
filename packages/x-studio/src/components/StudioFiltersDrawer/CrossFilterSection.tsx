@@ -9,10 +9,18 @@ import {
   selectExpressionFields,
   selectDataSources,
 } from '../../context';
-import type { StudioFilterState } from '../../models';
+import type { StudioFilterState, StudioPage } from '../../models';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
 
-export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
+export function CrossFilterSection({
+  filters,
+  pages,
+  activePageId,
+}: {
+  filters: StudioFilterState[];
+  pages?: Record<string, StudioPage>;
+  activePageId?: string;
+}) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
   const widgets = useStudioSelector(selectWidgets);
@@ -66,6 +74,9 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
             const widgetTitle = sourceWidgetId
               ? (widgets[sourceWidgetId]?.title ?? sourceWidgetId)
               : null;
+            const isFromOtherPage =
+              pages && activePageId && filter.pageId && filter.pageId !== activePageId;
+            const pageTitle = isFromOtherPage ? (pages[filter.pageId!]?.title ?? null) : null;
             return (
               <Box
                 key={filter.id}
@@ -84,6 +95,11 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
                 {widgetTitle && (
                   <Typography variant="caption" color="text.secondary">
                     {localeText.filterSectionSourcePrefix(widgetTitle)}
+                  </Typography>
+                )}
+                {pageTitle && (
+                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+                    {pageTitle}
                   </Typography>
                 )}
                 <Tooltip title={localeText.filterRemoveCrossFilter}>

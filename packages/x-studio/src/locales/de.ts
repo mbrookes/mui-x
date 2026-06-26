@@ -51,7 +51,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Filterbereich öffnen',
-  quickFilterBarClearAll: 'Alle Seitenfilter löschen',
+  quickFilterBarCloseFilters: 'Filterbereich schließen',
+  quickFilterBarClearAll: 'Alle Filter löschen',
   quickFilterBarFiltered: 'Gefiltert',
   dateRangeBarFieldLabel: 'Datumsbereich',
 
@@ -157,6 +158,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignCenterAriaLabel: 'Zentralisieren',
   textFormatAlignRightAriaLabel: 'Richtig ausrichten',
   textFormatDefaultFont: 'Standard (Thema)',
+  textFormatSansSerifFont: 'Serifenlos',
   textFormatSerifFont: 'Serife',
   textFormatMonospaceFont: 'Monospaced',
   textFormatDefaultSize: 'Standard',

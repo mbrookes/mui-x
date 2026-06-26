@@ -68,9 +68,19 @@ export interface StudioLocaleText {
 
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
+  quickFilterBarCloseFilters: string;
   quickFilterBarClearAll: string;
   quickFilterBarFiltered: string;
+  quickFilterBarEnableFilter: string;
+  quickFilterBarDisableFilter: string;
+  quickFilterBarRemoveFilter: string;
   dateRangeBarFieldLabel: string;
+
+  // ── Cross-filter mode bar ─────────────────────────────────────────────────
+  crossFilterBarModeFilter: string;
+  crossFilterBarModeHighlight: string;
+  crossFilterBarModePerChart: string;
+  crossFilterBarAllPages: string;
 
   // ── Widget card actions ────────────────────────────────────────────────────
   widgetEditTooltip: string;
@@ -183,6 +193,7 @@ export interface StudioLocaleText {
   textFormatAlignCenterAriaLabel: string;
   textFormatAlignRightAriaLabel: string;
   textFormatDefaultFont: string;
+  textFormatSansSerifFont: string;
   textFormatSerifFont: string;
   textFormatMonospaceFont: string;
   textFormatDefaultSize: string;
@@ -1049,9 +1060,19 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',
-  quickFilterBarClearAll: 'Clear all page filters',
+  quickFilterBarCloseFilters: 'Close filters panel',
+  quickFilterBarClearAll: 'Clear all filters',
   quickFilterBarFiltered: 'Filtered',
+  quickFilterBarEnableFilter: 'Enable filter',
+  quickFilterBarDisableFilter: 'Disable filter',
+  quickFilterBarRemoveFilter: 'Remove filter',
   dateRangeBarFieldLabel: 'Date range',
+
+  // Cross-filter mode bar
+  crossFilterBarModeFilter: 'Filter',
+  crossFilterBarModeHighlight: 'Highlight',
+  crossFilterBarModePerChart: 'Per chart',
+  crossFilterBarAllPages: 'All pages',
 
   // Widget card actions
   widgetEditTooltip: 'Edit widget',
@@ -1155,6 +1176,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textFormatAlignCenterAriaLabel: 'Align center',
   textFormatAlignRightAriaLabel: 'Align right',
   textFormatDefaultFont: 'Default (theme)',
+  textFormatSansSerifFont: 'Sans-serif',
   textFormatSerifFont: 'Serif',
   textFormatMonospaceFont: 'Monospace',
   textFormatDefaultSize: 'Default',
@@ -2026,6 +2048,7 @@ export interface ResolvedStudioFeatures {
   compose: boolean;
   filters: boolean;
   quickFilter: boolean;
+  crossFilterBar: boolean;
   savedFilterViews: boolean;
   dataManagement: boolean;
   relationships: boolean;
@@ -2084,6 +2107,7 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
     compose: featureFlags.compose ?? true,
     filters: featureFlags.filters ?? true,
     quickFilter: featureFlags.quickFilter ?? false,
+    crossFilterBar: featureFlags.crossFilterBar ?? false,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
     relationships: featureFlags.relationships ?? true,

@@ -67,6 +67,38 @@ export interface StudioWidgetConfig {
   chartType?: StudioChartType;
   /** Bar orientation. `'horizontal'` — prefer for >5 categories, long labels, or ranking lists. */
   barLayout?: StudioBarLayout;
+  /**
+   * Maximum characters per line for horizontal bar chart category labels.
+   * Long labels are word-wrapped at this width (inserting `\n`).
+   * `0` or omitted means no wrapping.
+   */
+  barBandLabelWrap?: number;
+  /**
+   * Maximum number of lines for wrapped band labels.
+   * @default 2
+   */
+  wrapBandLabelMaxLines?: number;
+  /**
+   * Ratio of band width reserved for the gap between categories (0–1).
+   * Maps to `categoryGapRatio` on the band axis. Default is 0.2.
+   */
+  barCategoryGapRatio?: number;
+  /**
+   * Minimum height (px) per band row for horizontal bar charts.
+   * When set, the chart container expands so every row is at least this tall,
+   * giving wrapped multi-line labels enough vertical room.
+   */
+  barMinBandSize?: number;
+  /**
+   * Maximum number of categories shown in a bar chart.
+   * The top N−1 categories by value are shown; remaining values are summed into an "Other" bar.
+   */
+  barMaxCategories?: number;
+  /**
+   * Font size in rem for axis tick labels across all chart types.
+   * @default undefined (inherits theme font size)
+   */
+  axisTickFontSize?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
@@ -245,6 +277,18 @@ export interface StudioWidgetConfig {
    * Slices smaller than this will not be labelled. @default 20
    */
   pieArcLabelMinAngle?: number;
+  /**
+   * Pie/donut chart: maximum number of slices to show before grouping the remainder
+   * into an "Other" slice. @default undefined (no grouping)
+   */
+  pieMaxSlices?: number;
+  /**
+   * Pie/donut chart: place the legend below the chart and render percentages alongside
+   * labels. When false (default) the built-in MUI X Charts legend is used, which
+   * appears to the right of the chart.
+   * @default false
+   */
+  pieLegendBelow?: boolean;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
@@ -317,6 +361,10 @@ export interface StudioWidgetConfig {
    * @default 'cross-highlight'
    */
   crossFilterMode?: StudioCrossFilterMode;
+  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
+  titleFontSize?: number;
+  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
+  cardExpandTitle?: string;
   // Text config
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;
@@ -328,7 +376,7 @@ export interface StudioWidgetConfig {
   textAiEnabled?: boolean;
   // Text formatting — undefined means "use the default" and is never persisted
   /** Font family for the title section. undefined = theme default. */
-  textTitleFontFamily?: 'serif' | 'monospace';
+  textTitleFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the title section. undefined = variant default (~20px). */
   textTitleFontSize?: number;
   /** CSS colour for the title section. undefined = theme text.primary. */
@@ -336,7 +384,7 @@ export interface StudioWidgetConfig {
   /** Text alignment for the title section. undefined = left. */
   textTitleAlign?: 'left' | 'center' | 'right';
   /** Font family for the subtitle section. undefined = theme default. */
-  textSubtitleFontFamily?: 'serif' | 'monospace';
+  textSubtitleFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the subtitle section. undefined = variant default (~16px). */
   textSubtitleFontSize?: number;
   /** CSS colour for the subtitle section. undefined = theme text.secondary. */
@@ -344,7 +392,7 @@ export interface StudioWidgetConfig {
   /** Text alignment for the subtitle section. undefined = left. */
   textSubtitleAlign?: 'left' | 'center' | 'right';
   /** Font family for the body section. undefined = theme default. */
-  textBodyFontFamily?: 'serif' | 'monospace';
+  textBodyFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the body section. undefined = variant default (~14px). */
   textBodyFontSize?: number;
   /** CSS colour for the body section. undefined = theme text.primary. */

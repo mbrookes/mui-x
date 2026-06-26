@@ -54,9 +54,7 @@ export function StudioQuickFilterBar() {
     (f) => f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
   );
 
-  // When cross-page mode is on, keep the bar visible on every page so the filter icon is
-  // always reachable even if there happen to be no active filters on the current page.
-  if (pageFilters.length === 0 && crossFilters.length === 0 && !crossFilterAllPages) {
+  if (pageFilters.length === 0 && crossFilters.length === 0) {
     return null;
   }
 

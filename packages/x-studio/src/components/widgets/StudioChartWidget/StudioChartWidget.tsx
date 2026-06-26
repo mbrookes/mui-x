@@ -262,16 +262,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const bandLabelWrap = config.barBandLabelWrap ?? 0;
   const wrapBandLabel = React.useCallback(
     (label: string): string => {
+      const MAX_LINES = 2;
       if (!bandLabelWrap || label.length <= bandLabelWrap) return label;
       const words = label.split(' ');
       const lines: string[] = [];
       let current = '';
       for (const word of words) {
-        if (current && current.length + 1 + word.length > bandLabelWrap) {
+        const joined = current ? `${current} ${word}` : word;
+        if (current && joined.length > bandLabelWrap) {
+          if (lines.length >= MAX_LINES - 1) {
+            // Hit line limit — append ellipsis to current line and stop
+            lines.push(`${current}…`);
+            return lines.join('\n');
+          }
           lines.push(current);
           current = word;
         } else {
-          current = current ? `${current} ${word}` : word;
+          current = joined;
         }
       }
       if (current) lines.push(current);

@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Chip, IconButton, Tooltip, Typography } from '@mui/material';
-import FilterListIcon from '@mui/icons-material/FilterList';
+import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
@@ -12,7 +11,6 @@ import {
   selectActivePageId,
   selectPages,
   selectCrossFilterAllPages,
-  selectShell,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
@@ -36,8 +34,6 @@ export function StudioQuickFilterBar() {
   const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
   const features = useStudioFeatures();
-  const shell = useStudioSelector(selectShell);
-  const filtersDrawerOpen = shell.openDrawers.filters;
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
@@ -67,10 +63,6 @@ export function StudioQuickFilterBar() {
       }
     }
   }
-
-  const toggleFiltersDrawer = () => {
-    controller.toggleDrawer('filters');
-  };
 
   const handleClearAll = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -102,27 +94,6 @@ export function StudioQuickFilterBar() {
         backgroundColor: 'action.hover',
       }}
     >
-      <Tooltip
-        title={
-          filtersDrawerOpen
-            ? localeText.quickFilterBarCloseFilters
-            : localeText.quickFilterBarOpenFilters
-        }
-      >
-        <IconButton
-          size="small"
-          onClick={toggleFiltersDrawer}
-          aria-label={
-            filtersDrawerOpen
-              ? localeText.quickFilterBarCloseFilters
-              : localeText.quickFilterBarOpenFilters
-          }
-          sx={{ flexShrink: 0 }}
-        >
-          <FilterListIcon fontSize="small" color={filtersDrawerOpen ? 'primary' : 'action'} />
-        </IconButton>
-      </Tooltip>
-
       {pageFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field;
         const summary = summarizeFilter(filter);
@@ -193,16 +164,6 @@ export function StudioQuickFilterBar() {
             <CloseIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-      )}
-
-      {totalCount > 0 && (
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ ml: totalCount > 1 ? 0 : 'auto' }}
-        >
-          {localeText.quickFilterBarFiltered}
-        </Typography>
       )}
     </Box>
   );

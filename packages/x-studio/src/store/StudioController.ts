@@ -15,6 +15,7 @@ import {
   type StudioRelationship,
   type StudioState,
   type StudioWidget,
+  type StudioAIRecentMutation,
 } from '../models/index';
 
 import {
@@ -35,10 +36,15 @@ const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
 
 const MAX_UNDO_HISTORY = 100;
 
+/** Cap on the recent-mutation log surfaced to the AI assistant. */
+const MAX_MUTATION_LOG = 20;
+
 export class StudioController {
   readonly store: Store<StudioState>;
   private undoStack: StudioState[] = [];
   private redoStack: StudioState[] = [];
+  /** Compact, labeled log of recent user-driven mutations (oldest first). */
+  private mutationLog: StudioAIRecentMutation[] = [];
 
   constructor(initialState?: Partial<StudioState>) {
     const state = createDefaultStudioState(initialState);
@@ -70,9 +76,16 @@ export class StudioController {
     options?: {
       undoable?: boolean;
       resetHistory?: boolean;
+      /**
+       * Short semantic label (e.g. `"addFilter:revenue"`) recorded in the
+       * recent-mutation log surfaced to the AI assistant. Only labeled,
+       * undoable commits are logged — internal/transient commits are skipped
+       * so the log stays compact and meaningful.
+       */
+      label?: string;
     },
   ) => {
-    const { undoable = true, resetHistory = false } = options ?? {};
+    const { undoable = true, resetHistory = false, label } = options ?? {};
 
     if (nextState === this.store.state) {
       return;
@@ -81,6 +94,7 @@ export class StudioController {
     if (resetHistory) {
       this.undoStack = [];
       this.redoStack = [];
+      this.mutationLog = [];
     } else if (undoable) {
       this.undoStack.push(this.store.state);
       // Any new action clears the redo stack
@@ -89,10 +103,24 @@ export class StudioController {
       if (this.undoStack.length > MAX_UNDO_HISTORY) {
         this.undoStack.shift();
       }
+
+      if (label) {
+        this.mutationLog.push({ label, at: new Date().toISOString() });
+        if (this.mutationLog.length > MAX_MUTATION_LOG) {
+          this.mutationLog.shift();
+        }
+      }
     }
 
     this.store.setState(nextState);
   };
+
+  /**
+   * Returns a copy of the recent labeled mutations (oldest first), capped at
+   * {@link MAX_MUTATION_LOG}. Consumed by the AI chat adapter to give the model
+   * a sense of what the user changed recently.
+   */
+  getRecentMutations = (): StudioAIRecentMutation[] => [...this.mutationLog];
 
   setState = (state: StudioState) => {
     this.commitState(state);
@@ -332,24 +360,27 @@ export class StudioController {
     const widgetRows = activePage.widgetRows || [];
     // Add new widget as a new row by default
     const newWidgetRows = [...widgetRows, [widget.id]];
-    this.commitState({
-      ...state,
-      widgets: {
-        ...state.widgets,
-        [widget.id]: widget,
-      },
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetRows: newWidgetRows,
+    this.commitState(
+      {
+        ...state,
+        widgets: {
+          ...state.widgets,
+          [widget.id]: widget,
+        },
+        pages: {
+          ...state.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetRows: newWidgetRows,
+          },
+        },
+        shell: {
+          ...state.shell,
+          selectedWidgetId: widget.id,
         },
       },
-      shell: {
-        ...state.shell,
-        selectedWidgetId: widget.id,
-      },
-    });
+      { label: `addWidget:${widget.kind}:${widget.id}` },
+    );
   };
 
   /**
@@ -391,13 +422,16 @@ export class StudioController {
     // Filter out any empty rows (defensive)
     const sanitisedRows = newRows.filter((row) => row.length > 0);
 
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: { ...activePage, widgetRows: sanitisedRows },
+    this.commitState(
+      {
+        ...state,
+        pages: {
+          ...state.pages,
+          [activePage.id]: { ...activePage, widgetRows: sanitisedRows },
+        },
       },
-    });
+      { label: 'setWidgetLayout' },
+    );
   };
 
   /**
@@ -556,32 +590,35 @@ export class StudioController {
         delete remainingSpans[row[0]];
       }
     }
-    this.commitState({
-      ...state,
-      widgets: remainingWidgets,
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetRows: newWidgetRows,
-          widgetColSpans: Object.keys(remainingSpans).length > 0 ? remainingSpans : undefined,
+    this.commitState(
+      {
+        ...state,
+        widgets: remainingWidgets,
+        pages: {
+          ...state.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetRows: newWidgetRows,
+            widgetColSpans: Object.keys(remainingSpans).length > 0 ? remainingSpans : undefined,
+          },
+        },
+        filters: (() => {
+          const nextFilters = state.filters.filter(
+            (f: StudioFilterState) =>
+              !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
+              !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
+          );
+          // Preserve reference stability when no filters were removed (avoids re-renders)
+          return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
+        })(),
+        shell: {
+          ...state.shell,
+          selectedWidgetId:
+            state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
         },
       },
-      filters: (() => {
-        const nextFilters = state.filters.filter(
-          (f: StudioFilterState) =>
-            !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
-            !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
-        );
-        // Preserve reference stability when no filters were removed (avoids re-renders)
-        return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
-      })(),
-      shell: {
-        ...state.shell,
-        selectedWidgetId:
-          state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
-      },
-    });
+      { label: `removeWidget:${widgetId}` },
+    );
   };
 
   updateWidget = (widgetId: string, changes: Partial<Omit<StudioWidget, 'id'>>) => {
@@ -635,13 +672,16 @@ export class StudioController {
     };
     const withTitles = this.applyInferredTitles(updated, state.dataSources);
 
-    this.commitState({
-      ...state,
-      widgets: {
-        ...state.widgets,
-        [widgetId]: withTitles,
+    this.commitState(
+      {
+        ...state,
+        widgets: {
+          ...state.widgets,
+          [widgetId]: withTitles,
+        },
       },
-    });
+      { label: `updateWidgetConfig:${widgetId}` },
+    );
   };
 
   duplicateWidget = (widgetId: string) => {
@@ -723,10 +763,13 @@ export class StudioController {
       filter.scope.kind === 'page'
         ? { ...filter, scope: { kind: 'page' as const, pageId: state.dashboard.activePageId } }
         : filter;
-    this.commitState({
-      ...state,
-      filters: [...state.filters, stampedFilter],
-    });
+    this.commitState(
+      {
+        ...state,
+        filters: [...state.filters, stampedFilter],
+      },
+      { label: `addFilter:${filter.field}` },
+    );
   };
 
   addRelationship = (relationship: import('../models').StudioRelationship) => {
@@ -764,40 +807,46 @@ export class StudioController {
         filter.filterMode === 'rank',
     );
 
-    this.commitState({
-      ...state,
-      filters: state.filters.map((filter: StudioFilterState) => {
-        if (filter.id !== filterId) {
-          return filter;
-        }
-
-        const nextFilter = { ...filter, ...changes };
-        if (
-          changes.filterMode === 'rank' &&
-          filter.filterMode !== 'rank' &&
-          hasExistingRankFilter
-        ) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.warn(
-              'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
-                'The rank filter change was rejected.',
-            );
+    this.commitState(
+      {
+        ...state,
+        filters: state.filters.map((filter: StudioFilterState) => {
+          if (filter.id !== filterId) {
+            return filter;
           }
-          return filter;
-        }
 
-        return nextFilter;
-      }),
-    });
+          const nextFilter = { ...filter, ...changes };
+          if (
+            changes.filterMode === 'rank' &&
+            filter.filterMode !== 'rank' &&
+            hasExistingRankFilter
+          ) {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn(
+                'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+                  'The rank filter change was rejected.',
+              );
+            }
+            return filter;
+          }
+
+          return nextFilter;
+        }),
+      },
+      { label: `updateFilter:${filterId}` },
+    );
   };
 
   removeFilter = (filterId: string) => {
     const state = this.store.state;
 
-    this.commitState({
-      ...state,
-      filters: state.filters.filter((f: StudioFilterState) => f.id !== filterId),
-    });
+    this.commitState(
+      {
+        ...state,
+        filters: state.filters.filter((f: StudioFilterState) => f.id !== filterId),
+      },
+      { label: `removeFilter:${filterId}` },
+    );
   };
 
   toggleFilter = (filterId: string) => {
@@ -1054,10 +1103,13 @@ export class StudioController {
       ...(fieldType && { fieldType }),
     };
 
-    this.commitState({
-      ...state,
-      filters: [...existingFilters, crossFilter],
-    });
+    this.commitState(
+      {
+        ...state,
+        filters: [...existingFilters, crossFilter],
+      },
+      { label: `applyCrossFilter:${sourceWidgetId}:${field}` },
+    );
   };
 
   /**
@@ -1066,13 +1118,16 @@ export class StudioController {
   clearCrossFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
 
-    this.commitState({
-      ...state,
-      filters: state.filters.filter(
-        (f: StudioFilterState) =>
-          !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
-      ),
-    });
+    this.commitState(
+      {
+        ...state,
+        filters: state.filters.filter(
+          (f: StudioFilterState) =>
+            !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
+        ),
+      },
+      { label: `clearCrossFilter:${sourceWidgetId}` },
+    );
   };
 
   /**
@@ -1221,11 +1276,14 @@ export class StudioController {
     const state = this.store.state;
     const id = `page-${Date.now()}`;
     const newPage: StudioPage = { id, title, widgetRows: [] };
-    this.commitState({
-      ...state,
-      pages: { ...state.pages, [id]: newPage },
-      dashboard: { ...state.dashboard, activePageId: id },
-    });
+    this.commitState(
+      {
+        ...state,
+        pages: { ...state.pages, [id]: newPage },
+        dashboard: { ...state.dashboard, activePageId: id },
+      },
+      { label: `addPage:${id}` },
+    );
     return id;
   };
 
@@ -1261,13 +1319,16 @@ export class StudioController {
     const nextActivePageId =
       state.dashboard.activePageId === pageId ? (pageIds[0] ?? '') : state.dashboard.activePageId;
 
-    this.commitState({
-      ...state,
-      pages: remainingPages,
-      widgets: remainingWidgets,
-      filters: remainingFilters,
-      dashboard: { ...state.dashboard, activePageId: nextActivePageId },
-    });
+    this.commitState(
+      {
+        ...state,
+        pages: remainingPages,
+        widgets: remainingWidgets,
+        filters: remainingFilters,
+        dashboard: { ...state.dashboard, activePageId: nextActivePageId },
+      },
+      { label: `removePage:${pageId}` },
+    );
   };
 
   /**
@@ -1280,10 +1341,13 @@ export class StudioController {
     if (!page) {
       return;
     }
-    this.commitState({
-      ...state,
-      pages: { ...state.pages, [pageId]: { ...page, title } },
-    });
+    this.commitState(
+      {
+        ...state,
+        pages: { ...state.pages, [pageId]: { ...page, title } },
+      },
+      { label: `renamePage:${pageId}` },
+    );
   };
 
   /**
@@ -1364,13 +1428,16 @@ export class StudioController {
   setDashboardTitle = (title: string) => {
     const state = this.store.state;
 
-    this.commitState({
-      ...state,
-      dashboard: {
-        ...state.dashboard,
-        title,
+    this.commitState(
+      {
+        ...state,
+        dashboard: {
+          ...state.dashboard,
+          title,
+        },
       },
-    });
+      { label: 'setDashboardTitle' },
+    );
   };
 
   subscribe = (listener: (state: StudioState) => void) => this.store.subscribe(listener);

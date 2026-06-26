@@ -575,3 +575,65 @@ describe('privateMode', () => {
     expect(prompt).not.toContain('</dashboard_state>');
   });
 });
+
+// ── Rich context blocks ───────────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: rich context', () => {
+  const state = makeState();
+
+  const richContext = {
+    fieldStats: {
+      'src1.revenue': { type: 'number' as const, min: 10, max: 99, mean: 50, sampledRows: 3 },
+      'src1.region': { type: 'string' as const, distinctCount: 4, sampledRows: 3 },
+    },
+    pageLayout: {
+      pageId: PAGE_ID,
+      rows: [[{ widgetId: 'w1', kind: 'chart', title: 'Revenue', chartType: 'bar', colSpan: 6 }]],
+      crossFilters: [
+        { sourceWidgetId: 'w1', field: 'region', scope: 'cross-filter' as const },
+      ],
+    },
+    recentMutations: [{ label: 'addFilter:revenue', at: '2026-01-01T00:00:00.000Z' }],
+    omitted: ['pageLayout'],
+  };
+
+  const enrichedContext = {
+    rowCounts: { region: { US: 120, EU: 80 } },
+    schemaComments: { 'src1.revenue': 'Gross revenue in USD' },
+    notes: 'Refreshed nightly.',
+  };
+
+  it('renders a dashboard_context block from richContext', () => {
+    const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, { richContext });
+    expect(prompt).toContain('<dashboard_context>');
+    expect(prompt).toContain('src1.revenue: min=10, max=99, mean=50');
+    expect(prompt).toContain('src1.region: 4 distinct');
+    expect(prompt).toContain('filters by `region` (cross-filter)');
+    expect(prompt).toContain('addFilter:revenue');
+    expect(prompt).toContain('omitted to fit the token budget: pageLayout');
+  });
+
+  it('renders a server_context block from enrichedContext', () => {
+    const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, { enrichedContext });
+    expect(prompt).toContain('<server_context>');
+    expect(prompt).toContain('region: US=120, EU=80');
+    expect(prompt).toContain('Gross revenue in USD');
+    expect(prompt).toContain('Refreshed nightly.');
+  });
+
+  it('omits both blocks in private mode', () => {
+    const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+      privateMode: true,
+      richContext,
+      enrichedContext,
+    });
+    expect(prompt).not.toContain('<dashboard_context>');
+    expect(prompt).not.toContain('<server_context>');
+  });
+
+  it('renders nothing when no rich context is provided', () => {
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).not.toContain('<dashboard_context>');
+    expect(prompt).not.toContain('<server_context>');
+  });
+});

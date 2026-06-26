@@ -179,4 +179,41 @@ describe('handleAIChat', () => {
     expect(errorEvent?.message).toContain('network down');
     expect(events.map((event) => event.type)).not.toContain('finish');
   });
+
+  it('runs contextEnricher and injects its output into the system prompt', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const contextEnricher = vi.fn().mockResolvedValue({ notes: 'Enriched by the server.' });
+
+    await readAll(handleAIChat(makeBody(), { ...OPTIONS, contextEnricher }));
+
+    expect(contextEnricher).toHaveBeenCalledOnce();
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const systemMessage = sentBody.messages.find((m) => m.role === 'system');
+    expect(systemMessage?.content).toContain('<server_context>');
+    expect(systemMessage?.content).toContain('Enriched by the server.');
+  });
+
+  it('skips contextEnricher in private mode', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const contextEnricher = vi.fn().mockResolvedValue({ notes: 'secret' });
+
+    await readAll(handleAIChat(makeBody({ privateMode: true }), { ...OPTIONS, contextEnricher }));
+
+    expect(contextEnricher).not.toHaveBeenCalled();
+  });
+
+  it('continues the chat when contextEnricher throws', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const onToolError = vi.fn();
+    const contextEnricher = vi.fn().mockRejectedValue(new Error('enricher boom'));
+
+    const events = parseEvents(
+      await readAll(handleAIChat(makeBody(), { ...OPTIONS, contextEnricher, onToolError })),
+    );
+
+    expect(onToolError).toHaveBeenCalledWith('contextEnricher', expect.any(Error));
+    expect(events.at(-1)?.type).toBe('finish');
+  });
 });

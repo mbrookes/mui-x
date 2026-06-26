@@ -16,6 +16,7 @@ function makeController(): StudioController {
 
   return {
     getState: vi.fn(() => state),
+    getRecentMutations: vi.fn(() => []),
     setState: vi.fn(),
     setDashboardTitle: vi.fn(),
     addPage: vi.fn(),
@@ -659,6 +660,7 @@ describe('createBackendChatAdapter: POST body', () => {
 
     const controller = {
       getState: vi.fn(() => stateWithData),
+      getRecentMutations: vi.fn(() => []),
       setState: vi.fn(),
       setDashboardTitle: vi.fn(),
       addPage: vi.fn(),

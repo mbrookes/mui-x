@@ -25,7 +25,11 @@
  */
 
 export { handleAIChat } from './handleAIChat';
-export type { StudioAIHandlerOptions } from './handleAIChat';
+export type {
+  StudioAIHandlerOptions,
+  StudioAIContextEnricher,
+  StudioAIContextEnricherArgs,
+} from './handleAIChat';
 export { handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
 export type {
   GenerateInsightOptions,
@@ -46,6 +50,13 @@ export type {
   StudioDataResolverResult,
   StudioAIRateLimit,
   StudioAIUsage,
+  StudioAIRichContext,
+  StudioAIFieldStat,
+  StudioAILayoutWidget,
+  StudioAICrossFilterEdge,
+  StudioAIPageLayout,
+  StudioAIRecentMutation,
+  StudioAIEnrichedContext,
 } from './models/aiTypes';
 
 // Prompt builder and tool definitions — consumed by the server

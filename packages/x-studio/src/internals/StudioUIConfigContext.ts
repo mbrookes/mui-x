@@ -73,6 +73,7 @@ export interface StudioLocaleText {
   quickFilterBarFiltered: string;
   quickFilterBarEnableFilter: string;
   quickFilterBarDisableFilter: string;
+  quickFilterBarRemoveFilter: string;
   dateRangeBarFieldLabel: string;
 
   // ── Cross-filter mode bar ─────────────────────────────────────────────────
@@ -1064,6 +1065,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   quickFilterBarFiltered: 'Filtered',
   quickFilterBarEnableFilter: 'Enable filter',
   quickFilterBarDisableFilter: 'Disable filter',
+  quickFilterBarRemoveFilter: 'Remove filter',
   dateRangeBarFieldLabel: 'Date range',
 
   // Cross-filter mode bar

@@ -2924,7 +2924,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // explicit pixel width from the longest single line across all formatted+wrapped labels.
     // 0.65rem at 16px base ≈ 10.4px; JetBrains Mono ≈ 0.6× em → ~6.3px/char. Use 6.5px
     // with a small margin and cap to reasonable bounds.
-    const longestHBarLabelLine = displayXAxisData.reduce((max, v) => {
+    const longestHBarLabelLine = displayXAxisData.reduce((max: number, v) => {
       const wrapped = wrapBandLabel(formatLabel(String(v)));
       const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
       return Math.max(max, lineMax);

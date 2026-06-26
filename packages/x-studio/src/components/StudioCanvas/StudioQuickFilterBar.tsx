@@ -97,7 +97,7 @@ export function StudioQuickFilterBar() {
       {pageFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field;
         const summary = summarizeFilter(filter);
-        const label = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        const chipLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         return (
           <Tooltip
             key={filter.id}
@@ -108,7 +108,6 @@ export function StudioQuickFilterBar() {
             }
           >
             <Chip
-              label={label}
               size="small"
               color={filter.disabled ? undefined : 'primary'}
               variant={filter.disabled ? 'outlined' : 'filled'}
@@ -116,7 +115,47 @@ export function StudioQuickFilterBar() {
                 event.stopPropagation();
                 controller.toggleFilter(filter.id);
               }}
-              sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
+              sx={{
+                maxWidth: 240,
+                opacity: filter.disabled ? 0.55 : 1,
+                cursor: 'pointer',
+                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
+              }}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                      maxWidth: 190,
+                    }}
+                  >
+                    {chipLabel}
+                  </Box>
+                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
+                    <Box
+                      component="span"
+                      role="button"
+                      aria-label={localeText.quickFilterBarRemoveFilter}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        controller.removeFilter(filter.id);
+                      }}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
+                    </Box>
+                  </Tooltip>
+                </Box>
+              }
             />
           </Tooltip>
         );
@@ -128,7 +167,7 @@ export function StudioQuickFilterBar() {
         const isFromOtherPage = filter.pageId && filter.pageId !== activePageId;
         const pageTitle = isFromOtherPage ? (pages[filter.pageId!]?.title ?? '') : '';
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
-        const label = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
+        const chipLabel = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (
           <Tooltip
             key={filter.id}
@@ -139,7 +178,6 @@ export function StudioQuickFilterBar() {
             }
           >
             <Chip
-              label={label}
               size="small"
               color={filter.disabled ? undefined : 'primary'}
               variant={filter.disabled ? 'outlined' : 'filled'}
@@ -147,7 +185,51 @@ export function StudioQuickFilterBar() {
                 event.stopPropagation();
                 controller.toggleFilter(filter.id);
               }}
-              sx={{ maxWidth: 260, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
+              sx={{
+                maxWidth: 280,
+                opacity: filter.disabled ? 0.55 : 1,
+                cursor: 'pointer',
+                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
+              }}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                      maxWidth: 230,
+                    }}
+                  >
+                    {chipLabel}
+                  </Box>
+                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
+                    <Box
+                      component="span"
+                      role="button"
+                      aria-label={localeText.quickFilterBarRemoveFilter}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (filter.sourceWidgetId) {
+                          controller.clearCrossFilter(filter.sourceWidgetId);
+                        } else {
+                          controller.removeFilter(filter.id);
+                        }
+                      }}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
+                    </Box>
+                  </Tooltip>
+                </Box>
+              }
             />
           </Tooltip>
         );

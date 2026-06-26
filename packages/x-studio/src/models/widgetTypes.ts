@@ -289,6 +289,10 @@ export interface StudioWidgetConfig {
    * @default false
    */
   pieLegendBelow?: boolean;
+  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
+  titleFontSize?: number;
+  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
+  cardExpandTitle?: string;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
@@ -361,10 +365,6 @@ export interface StudioWidgetConfig {
    * @default 'cross-highlight'
    */
   crossFilterMode?: StudioCrossFilterMode;
-  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
-  titleFontSize?: number;
-  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
-  cardExpandTitle?: string;
   // Text config
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;

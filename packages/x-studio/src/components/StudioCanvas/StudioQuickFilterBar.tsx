@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import {
   useStudioController,
   useStudioSelector,
@@ -15,7 +16,6 @@ import {
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
-import FilterListIcon from '@mui/icons-material/FilterList';
 
 /**
  * Compact row of chips pinned above the canvas showing active page filters.

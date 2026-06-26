@@ -56,7 +56,17 @@ export function shortenLabels(
           width: maxWidth,
           height,
           angle,
-          measureText: (string: string) => getStringSize(string, tickLabelStyle),
+          measureText: (string: string) => {
+            if (!string.includes('\n')) {
+              return getStringSize(string, tickLabelStyle);
+            }
+            // Multi-line label: measure the longest single line for width,
+            // and estimate total height as n_lines × single-line height.
+            const lines = string.split('\n');
+            const longestLine = lines.reduce((a, b) => (a.length >= b.length ? a : b), '');
+            const lineSize = getStringSize(longestLine, tickLabelStyle);
+            return { width: lineSize.width, height: lineSize.height * lines.length };
+          },
         });
 
       shortenedLabels.set(item, ellipsize(item.formattedValue.toString(), doesTextFit));

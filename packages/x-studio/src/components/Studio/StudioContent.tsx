@@ -261,14 +261,15 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
 
             {/* Canvas column: pinned filter bars + scrollable canvas */}
             <Box
-              sx={{
+              sx={(theme) => ({
                 display: 'flex',
                 flexDirection: 'column',
                 flexGrow: 1,
                 minWidth: 0,
                 overflow: 'hidden',
-                bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
-              }}
+                bgcolor: 'grey.100',
+                ...theme.applyStyles('dark', { bgcolor: 'grey.900' }),
+              })}
             >
               {/* Cross-filter mode toggle — visible on all pages while any cross-filter is active */}
               {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (

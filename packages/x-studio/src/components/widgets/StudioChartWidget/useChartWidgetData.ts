@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
-import { useTheme } from '@mui/material';
+import { useTheme, useColorScheme } from '@mui/material';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -82,6 +82,9 @@ export function useChartWidgetData(
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const muiTheme = useTheme();
+  const { colorScheme } = useColorScheme();
+  // In CSS variables mode, palette.mode is always 'light'; use colorScheme for the real value.
+  const resolvedMode = (colorScheme ?? muiTheme.palette.mode) as 'light' | 'dark';
 
   // Separate rank widget filters (applied post-aggregation) from row-level filters
   const widgetRankFilter = React.useMemo(
@@ -473,8 +476,8 @@ export function useChartWidgetData(
     if (chartColors) {
       return chartColors;
     }
-    return blueberryTwilightPalette(muiTheme.palette.mode);
-  }, [chartColors, muiTheme.palette.mode]);
+    return blueberryTwilightPalette(resolvedMode);
+  }, [chartColors, resolvedMode]);
 
   // Whether this widget has incoming cross-filters (from another widget on the same page)
   // NOTE: hasCrossFilters is declared earlier in the file (before filteredRowsNoCross) so that

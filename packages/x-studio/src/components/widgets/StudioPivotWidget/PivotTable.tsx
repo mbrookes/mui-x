@@ -27,9 +27,8 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
   const theme = useTheme();
   const localeText = useStudioLocaleText();
 
-  const headerBg =
-    theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100];
-  const totalBg = theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[50];
+  const headerBg = theme.palette.action.selected;
+  const totalBg = theme.palette.action.hover;
   const borderColor = theme.palette.divider;
   const cellStyle: React.CSSProperties = {
     border: `1px solid ${borderColor}`,
@@ -94,7 +93,7 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
             const rowCells = matrix.cells.get(rv);
             let rowBg = theme.palette.background.paper;
             if (ri % 2 === 1) {
-              rowBg = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+              rowBg = theme.palette.action.hover;
             }
             return (
               <tr key={rv}>

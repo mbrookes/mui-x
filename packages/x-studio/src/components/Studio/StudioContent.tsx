@@ -80,9 +80,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
 
   const filters = useStudioSelector(selectFilters);
   const activePageId = useStudioSelector(selectActivePageId);
-  const hasCrossFilters = filters.some(
-    (f) => f.scope === 'cross-filter' && !f.disabled && f.pageId === activePageId,
-  );
+  const hasCrossFilters = filters.some((f) => f.scope === 'cross-filter' && !f.disabled);
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
@@ -272,8 +270,10 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
               }}
             >
-              {/* Cross-filter mode toggle */}
-              {mode !== 'edit' && features.crossFilterBar && <StudioCrossFilterBar />}
+              {/* Cross-filter mode toggle — visible on all pages while any cross-filter is active */}
+              {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
+                <StudioCrossFilterBar />
+              )}
 
               {/* Active page-filter chips */}
               {mode !== 'edit' && <StudioQuickFilterBar />}

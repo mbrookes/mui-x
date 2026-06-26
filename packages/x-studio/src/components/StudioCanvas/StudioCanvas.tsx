@@ -22,7 +22,6 @@ import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
 import type { StudioMode } from '../../models/baseTypes';
-import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
@@ -618,9 +617,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     >
       {/* Date range bar — shown in both modes when the page has date/datetime fields */}
       {features.quickFilter && <StudioDateRangeBar />}
-
-      {/* Quick filter bar — view mode only, shown when page filters are active */}
-      {mode !== 'edit' && <StudioQuickFilterBar />}
 
       {Object.values(pages).map((page) => {
         if (!mountedPageIds.has(page.id)) {

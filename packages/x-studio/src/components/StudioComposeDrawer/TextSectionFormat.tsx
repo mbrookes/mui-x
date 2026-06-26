@@ -18,11 +18,11 @@ import { ColorInput } from './ColorInput';
 
 interface TextSectionFormatProps {
   label: string;
-  fontFamily?: 'serif' | 'monospace';
+  fontFamily?: 'serif' | 'monospace' | 'sans-serif';
   fontSize?: number;
   color?: string;
   align?: 'left' | 'center' | 'right';
-  onFontFamilyChange: (v: 'serif' | 'monospace' | undefined) => void;
+  onFontFamilyChange: (v: 'serif' | 'monospace' | 'sans-serif' | undefined) => void;
   onFontSizeChange: (v: number | undefined) => void;
   onColorChange: (v: string | undefined) => void;
   onAlignChange: (v: 'left' | 'center' | 'right' | undefined) => void;
@@ -52,10 +52,13 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
             value={fontFamily ?? ''}
             onChange={(event) => {
               const v = event.target.value as string;
-              onFontFamilyChange(v === '' ? undefined : (v as 'serif' | 'monospace'));
+              onFontFamilyChange(
+                v === '' ? undefined : (v as 'serif' | 'monospace' | 'sans-serif'),
+              );
             }}
           >
             <MenuItem value="">{localeText.textFormatDefaultFont}</MenuItem>
+            <MenuItem value="sans-serif">{localeText.textFormatSansSerifFont}</MenuItem>
             <MenuItem value="serif">{localeText.textFormatSerifFont}</MenuItem>
             <MenuItem value="monospace">{localeText.textFormatMonospaceFont}</MenuItem>
           </Select>

@@ -49,7 +49,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir panel de filtros',
-  quickFilterBarClearAll: 'Borrar todos los filtros de página',
+  quickFilterBarCloseFilters: 'Cerrar panel de filtros',
+  quickFilterBarClearAll: 'Borrar todos los filtros',
   quickFilterBarFiltered: 'Filtrado',
   dateRangeBarFieldLabel: 'Rango de fechas',
 
@@ -156,6 +157,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignCenterAriaLabel: 'Centralizar',
   textFormatAlignRightAriaLabel: 'Alinear a la derecha',
   textFormatDefaultFont: 'Predeterminado (tema)',
+  textFormatSansSerifFont: 'Sin serifa',
   textFormatSerifFont: 'Serifa',
   textFormatMonospaceFont: 'monoespaciado',
   textFormatDefaultSize: 'Estándar',

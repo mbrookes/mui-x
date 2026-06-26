@@ -45,8 +45,7 @@ export function CollapsibleFeatureSection({
   return (
     <Box
       sx={{
-        bgcolor: (theme) =>
-          theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+        bgcolor: 'action.hover',
         borderRadius: 1,
         overflow: 'hidden',
       }}

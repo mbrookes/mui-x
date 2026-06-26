@@ -68,6 +68,80 @@ export type StateMutation =
       args: { name: string };
     };
 
+// ── Rich AI context ─────────────────────────────────────────────────────────
+// Mirrors the rich-context types in @mui/x-studio. The client computes these
+// from live pipeline rows and sends them in `StudioAIRequest.richContext`.
+
+/**
+ * Summary statistics for a single data-source field, computed client-side from
+ * pipeline-filtered rows. Numeric fields carry `min`/`max`/`mean`; all other
+ * field types carry a `distinctCount`.
+ */
+export interface StudioAIFieldStat {
+  type: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
+  min?: number;
+  max?: number;
+  mean?: number;
+  distinctCount?: number;
+  sampledRows: number;
+}
+
+/** A single widget entry in the active-page layout snapshot. */
+export interface StudioAILayoutWidget {
+  widgetId: string;
+  kind: string;
+  title: string;
+  chartType?: string;
+  colSpan?: number;
+}
+
+/** An edge in the cross-filter graph: a widget whose selection filters the page. */
+export interface StudioAICrossFilterEdge {
+  sourceWidgetId: string;
+  field: string;
+  scope: 'cross-filter' | 'interactive';
+}
+
+/** Active-page widget layout plus its cross-filter graph. */
+export interface StudioAIPageLayout {
+  pageId: string;
+  rows: StudioAILayoutWidget[][];
+  crossFilters: StudioAICrossFilterEdge[];
+}
+
+/** A compact record of one user-driven state mutation. */
+export interface StudioAIRecentMutation {
+  label: string;
+  at: string;
+}
+
+/**
+ * Extra client-derived context attached to each AI chat request. Every section
+ * is optional; the client drops lower-priority sections to stay under a token
+ * budget, recording dropped section names in `omitted`. Never sent in
+ * `privateMode` — field statistics expose real data values.
+ */
+export interface StudioAIRichContext {
+  fieldStats?: Record<string, StudioAIFieldStat>;
+  pageLayout?: StudioAIPageLayout;
+  recentMutations?: StudioAIRecentMutation[];
+  omitted?: string[];
+}
+
+/**
+ * Optional DB-side metadata produced by the host's `contextEnricher` callback
+ * and rendered into a `<server_context>` block in the system prompt. All fields
+ * are optional; large values should be bounded by the host before returning.
+ */
+export interface StudioAIEnrichedContext {
+  /** Row counts per dimension value, keyed by field id then value. */
+  rowCounts?: Record<string, Record<string, number>>;
+  /** Free-text schema comments keyed by `${sourceId}.${fieldId}` or table name. */
+  schemaComments?: Record<string, string>;
+  /** Any additional free-text notes to surface to the model. */
+  notes?: string;
+}
+
 /**
  * Names of the built-in AI tools. Mirrors `StudioAIToolName` in @mui/x-studio.
  */

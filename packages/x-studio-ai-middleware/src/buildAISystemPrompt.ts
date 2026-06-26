@@ -5,7 +5,11 @@ import type {
   StudioWidget,
   StudioFilterState,
 } from './models/studioTypes';
-import type { SerializableSkill } from './models/aiTypes';
+import type {
+  SerializableSkill,
+  StudioAIRichContext,
+  StudioAIEnrichedContext,
+} from './models/aiTypes';
 import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './widgetConfigMeta';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -630,6 +634,108 @@ export interface BuildAISystemPromptOptions {
    * @default undefined (section omitted)
    */
   availableDataTools?: string[];
+  /**
+   * Extra client-derived context (per-field statistics, active-page layout and
+   * cross-filter graph, recent user mutations). Rendered as a `<dashboard_context>`
+   * block. Omitted when `privateMode` is `true`.
+   */
+  richContext?: StudioAIRichContext;
+  /**
+   * Server-side metadata from the host's `contextEnricher` (row counts, schema
+   * comments, notes). Rendered as a `<server_context>` block. Omitted when
+   * `privateMode` is `true`.
+   */
+  enrichedContext?: StudioAIEnrichedContext;
+}
+
+/**
+ * Renders the optional `<dashboard_context>` and `<server_context>` blocks from
+ * the richer client/server context. Returns an empty string when there is
+ * nothing to render. Callers must gate this on `privateMode` themselves.
+ */
+function buildRichContextBlock(
+  richContext?: StudioAIRichContext,
+  enrichedContext?: StudioAIEnrichedContext,
+): string {
+  const blocks: string[] = [];
+
+  if (richContext) {
+    const inner: string[] = [];
+    if (richContext.fieldStats && Object.keys(richContext.fieldStats).length > 0) {
+      const lines = Object.entries(richContext.fieldStats).map(([key, s]) =>
+        s.min !== undefined || s.max !== undefined
+          ? `  - ${key}: min=${s.min}, max=${s.max}, mean=${s.mean} (n=${s.sampledRows})`
+          : `  - ${key}: ${s.distinctCount} distinct (n=${s.sampledRows})`,
+      );
+      inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
+    }
+    if (richContext.pageLayout) {
+      const { pageId, rows, crossFilters } = richContext.pageLayout;
+      const rowLines = rows
+        .map(
+          (row, i) =>
+            `  Row ${i + 1}: ${row
+              .map(
+                (w) =>
+                  `${w.title || w.widgetId} [${w.kind}${w.chartType ? `:${w.chartType}` : ''}${
+                    w.colSpan ? `, span ${w.colSpan}` : ''
+                  }]`,
+              )
+              .join(', ')}`,
+        )
+        .join('\n');
+      const layout = [`Active page \`${pageId}\` layout:\n${rowLines}`];
+      if (crossFilters.length > 0) {
+        layout.push(
+          `Cross-filter graph:\n${crossFilters
+            .map((c) => `  - ${c.sourceWidgetId} filters by \`${c.field}\` (${c.scope})`)
+            .join('\n')}`,
+        );
+      }
+      inner.push(layout.join('\n'));
+    }
+    if (richContext.recentMutations && richContext.recentMutations.length > 0) {
+      inner.push(
+        `Recent user changes (oldest first):\n${richContext.recentMutations
+          .map((m) => `  - ${m.label}`)
+          .join('\n')}`,
+      );
+    }
+    if (richContext.omitted && richContext.omitted.length > 0) {
+      inner.push(`Note: context omitted to fit the token budget: ${richContext.omitted.join(', ')}.`);
+    }
+    if (inner.length > 0) {
+      blocks.push(`<dashboard_context>\n${inner.join('\n\n')}\n</dashboard_context>`);
+    }
+  }
+
+  if (enrichedContext) {
+    const inner: string[] = [];
+    if (enrichedContext.rowCounts && Object.keys(enrichedContext.rowCounts).length > 0) {
+      const lines = Object.entries(enrichedContext.rowCounts).map(([field, counts]) => {
+        const pairs = Object.entries(counts)
+          .map(([value, count]) => `${value}=${count}`)
+          .join(', ');
+        return `  - ${field}: ${pairs}`;
+      });
+      inner.push(`Row counts per dimension value:\n${lines.join('\n')}`);
+    }
+    if (enrichedContext.schemaComments && Object.keys(enrichedContext.schemaComments).length > 0) {
+      inner.push(
+        `Schema comments:\n${Object.entries(enrichedContext.schemaComments)
+          .map(([k, v]) => `  - ${k}: ${v}`)
+          .join('\n')}`,
+      );
+    }
+    if (enrichedContext.notes) {
+      inner.push(enrichedContext.notes);
+    }
+    if (inner.length > 0) {
+      blocks.push(`<server_context>\n${inner.join('\n\n')}\n</server_context>`);
+    }
+  }
+
+  return blocks.length > 0 ? `\n\n${blocks.join('\n\n')}` : '';
 }
 
 /**
@@ -649,7 +755,7 @@ export function buildAISystemPrompt(
   skills?: SerializableSkill[],
   options?: BuildAISystemPromptOptions,
 ): string {
-  const { privateMode = false, availableDataTools } = options ?? {};
+  const { privateMode = false, availableDataTools, richContext, enrichedContext } = options ?? {};
   const dataToolSection =
     availableDataTools && availableDataTools.length > 0
       ? `\n\n## Available data tools\n${availableDataTools.map((t) => `- \`${t}\``).join('\n')}\nUse these to answer data questions. Call describe_data_source first if you need to understand a source's schema and statistics.`
@@ -658,6 +764,7 @@ export function buildAISystemPrompt(
     STUDIO_AI_INSTRUCTIONS +
     buildSkillSection(skills) +
     dataToolSection +
-    (privateMode ? '' : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId)}`)
+    (privateMode ? '' : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId)}`) +
+    (privateMode ? '' : buildRichContextBlock(richContext, enrichedContext))
   );
 }

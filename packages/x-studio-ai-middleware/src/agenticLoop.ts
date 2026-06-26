@@ -16,6 +16,8 @@ import type {
   StudioDataResolver,
   StudioAIRateLimit,
   StudioAIUsage,
+  StudioAIRichContext,
+  StudioAIEnrichedContext,
 } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';
@@ -165,6 +167,17 @@ export interface AgenticLoopOptions {
    * tool so the model can produce business-focused data summaries.
    */
   pageSnapshot?: string;
+  /**
+   * Extra client-derived context (field statistics, layout + cross-filter graph,
+   * recent mutations). Rendered into a `<dashboard_context>` block in the system
+   * prompt unless `privateMode` is set.
+   */
+  richContext?: StudioAIRichContext;
+  /**
+   * Server-side metadata produced by the host's `contextEnricher`. Rendered into a
+   * `<server_context>` block in the system prompt unless `privateMode` is set.
+   */
+  enrichedContext?: StudioAIEnrichedContext;
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -197,6 +210,8 @@ export async function* runAgenticLoop(
     rateLimit,
     approvalPending,
     pageSnapshot,
+    richContext,
+    enrichedContext,
   } = options;
 
   // Tools that pause for user approval before execution.
@@ -204,6 +219,8 @@ export async function* runAgenticLoop(
 
   const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills, {
     privateMode,
+    richContext,
+    enrichedContext,
   });
 
   // Build effective tool list.

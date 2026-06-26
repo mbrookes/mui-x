@@ -156,6 +156,26 @@ function aggregateRows(
   };
 }
 
+/**
+ * Computes min / max / mean / median for a list of finite numbers.
+ * Returns `null` for an empty input. Shared between the per-widget data summary
+ * and the richer AI context builder so there is a single implementation.
+ */
+export function numericStats(
+  values: number[],
+): { min: number; max: number; mean: number; median: number } | null {
+  if (values.length === 0) {
+    return null;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { min, max, mean, median };
+}
+
 function buildNumericStats(
   rows: Record<string, unknown>[],
   fieldIds: string[],
@@ -171,17 +191,12 @@ function buildNumericStats(
     const values = rows
       .map((r) => r[id])
       .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-    if (values.length === 0) {
+    const stats = numericStats(values);
+    if (!stats) {
       continue;
     }
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     parts.push(
-      `${field.label ?? id}: min=${min}, max=${max}, mean=${Math.round(avg)}, median=${Math.round(median)}`,
+      `${field.label ?? id}: min=${stats.min}, max=${stats.max}, mean=${Math.round(stats.mean)}, median=${Math.round(stats.median)}`,
     );
   }
   return parts.join(' | ');

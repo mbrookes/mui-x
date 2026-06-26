@@ -6,7 +6,7 @@
  * each encoded as `data: <JSON>\n\n`.
  */
 import type { StudioState, StudioCustomWidgetDef } from './studioTypes';
-import type { StateMutation, SerializableSkill } from './aiTypes';
+import type { StateMutation, SerializableSkill, StudioAIRichContext } from './aiTypes';
 
 // Re-exported so consumers only need to import from @mui/x-studio-ai-middleware
 export type { StateMutation, SerializableSkill } from './aiTypes';
@@ -45,6 +45,13 @@ export interface StudioAIRequest {
    * so it can write a business-focused data summary instead of a structural description.
    */
   pageSnapshot?: string;
+  /**
+   * Extra client-derived context (per-field summary statistics, active-page
+   * layout + cross-filter graph, and recent user mutations) used to give the
+   * model more signal. Computed client-side from live pipeline rows and bounded
+   * by a token budget. Omitted entirely in `privateMode`.
+   */
+  richContext?: StudioAIRichContext;
 }
 
 // ── SSE events ────────────────────────────────────────────────────────────────

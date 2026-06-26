@@ -1006,3 +1006,57 @@ describe('StudioController.loadSerializedState', () => {
     expect(controller.getState().dashboard.title).toBe('Untitled Dashboard'); // unchanged
   });
 });
+
+describe('StudioController.getRecentMutations', () => {
+  it('starts empty', () => {
+    const controller = new StudioController();
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+
+  it('records labeled mutations oldest-first', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' }));
+    controller.removeFilter('a');
+
+    const log = controller.getRecentMutations();
+    expect(log.map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+      'removeFilter:a',
+    ]);
+    expect(typeof log[0].at).toBe('string');
+    expect(Number.isNaN(Date.parse(log[0].at))).toBe(false);
+  });
+
+  it('does not record non-undoable navigation (setActivePage)', () => {
+    const controller = new StudioController({
+      pages: {
+        'page-1': { id: 'page-1', title: 'One', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'Two', widgetRows: [] },
+      },
+      dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+    });
+    controller.setActivePage('page-2');
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+
+  it('caps the log at 20 entries, keeping the newest', () => {
+    const controller = new StudioController();
+    for (let i = 0; i < 25; i += 1) {
+      controller.addFilter(makeFilter({ id: `f-${i}`, field: `field-${i}` }));
+    }
+    const log = controller.getRecentMutations();
+    expect(log).toHaveLength(20);
+    expect(log[0].label).toBe('addFilter:field-5');
+    expect(log[19].label).toBe('addFilter:field-24');
+  });
+
+  it('returns a defensive copy', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    const log = controller.getRecentMutations();
+    log.push({ label: 'tampered', at: 'now' });
+    expect(controller.getRecentMutations()).toHaveLength(1);
+  });
+});

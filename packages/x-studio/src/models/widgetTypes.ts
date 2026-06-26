@@ -272,6 +272,13 @@ export interface StudioWidgetConfig {
    * into an "Other" slice. @default undefined (no grouping)
    */
   pieMaxSlices?: number;
+  /**
+   * Pie/donut chart: place the legend below the chart and render percentages alongside
+   * labels. When false (default) the built-in MUI X Charts legend is used, which
+   * appears to the right of the chart.
+   * @default false
+   */
+  pieLegendBelow?: boolean;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */

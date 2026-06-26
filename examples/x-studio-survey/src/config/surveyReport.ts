@@ -503,6 +503,7 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
       yAggregation: 'count',
       pieArcLabel: 'percent',
       pieMaxSlices: 8,
+      pieLegendBelow: true,
     },
   };
 }

@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Chip, IconButton, Tooltip, Typography } from '@mui/material';
-import FilterListIcon from '@mui/icons-material/FilterList';
+import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
@@ -10,6 +9,8 @@ import {
   selectFilters,
   selectDataSources,
   selectActivePageId,
+  selectPages,
+  selectCrossFilterAllPages,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
@@ -29,6 +30,8 @@ export function StudioQuickFilterBar() {
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
+  const pages = useStudioSelector(selectPages);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
   const features = useStudioFeatures();
 
@@ -38,7 +41,13 @@ export function StudioQuickFilterBar() {
       ('pageId' in f.scope ? (!f.scope.pageId || f.scope.pageId === activePageId) : true),
   );
 
-  if (pageFilters.length === 0) {
+  // Chart-click cross-filters. When cross-page filtering is enabled, show all pages;
+  // otherwise restrict to the active page only.
+  const crossFilters = (filters as StudioFilterState[]).filter(
+    (f) => f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
+  );
+
+  if (pageFilters.length === 0 && crossFilters.length === 0) {
     return null;
   }
 
@@ -52,16 +61,21 @@ export function StudioQuickFilterBar() {
     }
   }
 
-  const openFiltersDrawer = () => {
-    controller.setDrawerOpen('filters', true);
-  };
-
   const handleClearAll = (event: React.MouseEvent) => {
     event.stopPropagation();
     for (const f of pageFilters) {
       controller.removeFilter(f.id);
     }
+    const clearedWidgets = new Set<string>();
+    for (const f of crossFilters) {
+      if (f.sourceWidgetId && !clearedWidgets.has(f.sourceWidgetId)) {
+        clearedWidgets.add(f.sourceWidgetId);
+        controller.clearCrossFilter(f.sourceWidgetId);
+      }
+    }
   };
+
+  const totalCount = pageFilters.length + crossFilters.length;
 
   return (
     <Box
@@ -77,37 +91,148 @@ export function StudioQuickFilterBar() {
         backgroundColor: 'action.hover',
       }}
     >
-      <Tooltip title={localeText.quickFilterBarOpenFilters}>
-        <IconButton
-          size="small"
-          onClick={openFiltersDrawer}
-          aria-label={localeText.quickFilterBarOpenFilters}
-          sx={{ flexShrink: 0 }}
-        >
-          <FilterListIcon fontSize="small" color="action" />
-        </IconButton>
-      </Tooltip>
-
       {pageFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field;
         const summary = summarizeFilter(filter);
-        const label = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        const chipLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         return (
-          <Chip
+          <Tooltip
             key={filter.id}
-            label={label}
-            size="small"
-            variant={filter.disabled ? 'outlined' : 'filled'}
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.toggleFilter(filter.id);
-            }}
-            sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
-          />
+            title={
+              filter.disabled
+                ? localeText.quickFilterBarEnableFilter
+                : localeText.quickFilterBarDisableFilter
+            }
+          >
+            <Chip
+              size="small"
+              color={filter.disabled ? undefined : 'primary'}
+              variant={filter.disabled ? 'outlined' : 'filled'}
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.toggleFilter(filter.id);
+              }}
+              sx={{
+                maxWidth: 240,
+                opacity: filter.disabled ? 0.55 : 1,
+                cursor: 'pointer',
+                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
+              }}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                      maxWidth: 190,
+                    }}
+                  >
+                    {chipLabel}
+                  </Box>
+                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
+                    <Box
+                      component="span"
+                      role="button"
+                      aria-label={localeText.quickFilterBarRemoveFilter}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        controller.removeFilter(filter.id);
+                      }}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
+                    </Box>
+                  </Tooltip>
+                </Box>
+              }
+            />
+          </Tooltip>
         );
       })}
 
-      {pageFilters.length > 1 && (
+      {crossFilters.map((filter) => {
+        const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
+        const summary = String(filter.value ?? '');
+        const isFromOtherPage = filter.pageId && filter.pageId !== activePageId;
+        const pageTitle = isFromOtherPage ? (pages[filter.pageId!]?.title ?? '') : '';
+        const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
+        const chipLabel = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
+        return (
+          <Tooltip
+            key={filter.id}
+            title={
+              filter.disabled
+                ? localeText.quickFilterBarEnableFilter
+                : localeText.quickFilterBarDisableFilter
+            }
+          >
+            <Chip
+              size="small"
+              color={filter.disabled ? undefined : 'primary'}
+              variant={filter.disabled ? 'outlined' : 'filled'}
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.toggleFilter(filter.id);
+              }}
+              sx={{
+                maxWidth: 280,
+                opacity: filter.disabled ? 0.55 : 1,
+                cursor: 'pointer',
+                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
+              }}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box
+                    component="span"
+                    sx={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                      maxWidth: 230,
+                    }}
+                  >
+                    {chipLabel}
+                  </Box>
+                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
+                    <Box
+                      component="span"
+                      role="button"
+                      aria-label={localeText.quickFilterBarRemoveFilter}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (filter.sourceWidgetId) {
+                          controller.clearCrossFilter(filter.sourceWidgetId);
+                        } else {
+                          controller.removeFilter(filter.id);
+                        }
+                      }}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
+                    </Box>
+                  </Tooltip>
+                </Box>
+              }
+            />
+          </Tooltip>
+        );
+      })}
+
+      {totalCount > 1 && (
         <Tooltip title={localeText.quickFilterBarClearAll}>
           <IconButton
             size="small"
@@ -119,14 +244,6 @@ export function StudioQuickFilterBar() {
           </IconButton>
         </Tooltip>
       )}
-
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ ml: pageFilters.length > 1 ? 0 : 'auto' }}
-      >
-        {localeText.quickFilterBarFiltered}
-      </Typography>
     </Box>
   );
 }

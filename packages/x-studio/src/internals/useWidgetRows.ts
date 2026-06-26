@@ -10,6 +10,8 @@ import {
   makeSelectExpressionFieldsForSources,
   makeSelectPartitionedFiltersForPage,
   makeSelectPartitionedBaseFiltersForPage,
+  selectGlobalCrossFilterMode,
+  selectCrossFilterAllPages,
 } from '../context';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
@@ -157,6 +159,9 @@ export function useWidgetRows(
   );
   const expressionFields = useStudioSelector(selectExprFields);
 
+  const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
+
   // ── Async adapter path ──────────────────────────────────────────────────
   const hasAdapter = Boolean(dataSource?.adapter);
 
@@ -272,26 +277,38 @@ export function useWidgetRows(
 
   const hasCrossFilters = React.useMemo(
     () =>
-      !hasAdapter &&
-      (deferredPartitioned.cross.some(
-        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId,
+      deferredPartitioned.cross.some(
+        (f) =>
+          !f.disabled &&
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
       ) ||
-        deferredPartitioned.interactive.some(
-          (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId,
-        )),
-    [hasAdapter, deferredPartitioned, widget.id, pageId],
+      deferredPartitioned.interactive.some(
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
+      ),
+    [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
 
   // Separate boolean for chart-click cross-filters only — interactive (filter widget)
   // selections do NOT trigger ghost rendering, regardless of crossFilterMode.
   const hasChartCrossFilters = React.useMemo(
     () =>
-      !hasAdapter &&
-      deferredPartitioned.cross.some((f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId !== widget.id && f.scope.pageId === pageId),
-    [hasAdapter, deferredPartitioned, widget.id, pageId],
+      deferredPartitioned.cross.some(
+        (f) =>
+          !f.disabled &&
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
+      ),
+    [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
 
-  const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
+  const crossFilterMode =
+    globalCrossFilterMode ?? widget.config?.crossFilterMode ?? 'cross-highlight';
 
   // Ghost overlay should only render when:
   // 1. The widget is in 'cross-highlight' mode (default)
@@ -327,7 +344,37 @@ export function useWidgetRows(
 
   const filteredRows = React.useMemo((): Row[] => {
     if (hasAdapter) {
-      return enrichedAdapterRows;
+      // Cross-filters and interactive filters are applied client-side on the adapter
+      // rows. For server-side adapters these are already included in descriptor.filter
+      // (so rows not matching were already excluded), making the re-apply idempotent.
+      // For in-memory adapters (e.g. Excel) that return all rows, this is where
+      // cross-filtering is actually enforced.
+      const crossFilters = deferredPartitioned.cross.filter(
+        (f) =>
+          !f.disabled &&
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
+      );
+      const interactiveFilters = deferredPartitioned.interactive.filter(
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
+      );
+      if (crossFilters.length === 0 && interactiveFilters.length === 0) {
+        return enrichedAdapterRows;
+      }
+      const allCrossFilters = resolveDateRangePresets([...crossFilters, ...interactiveFilters]);
+      return resolveRowsCached(
+        enrichedAdapterRows,
+        widget.sourceId,
+        allCrossFilters,
+        dataSources,
+        relationships,
+        expressionFields,
+        usedFieldIds,
+      );
     }
     if (!normalizedDataSource?.rows) {
       return [];
@@ -339,7 +386,7 @@ export function useWidgetRows(
         ...deferredPartitioned.cross,
         ...deferredPartitioned.interactive,
       ],
-      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId },
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, crossFilterAllPages },
     );
     return resolveRowsCached(
       normalizedDataSource.rows,
@@ -361,14 +408,20 @@ export function useWidgetRows(
     widget.id,
     widget.sourceId,
     pageId,
+    crossFilterAllPages,
     usedFieldIds,
   ]);
 
   const filteredRowsNoCross = React.useMemo((): Row[] => {
     if (hasAdapter) {
-      // Adapter path: descriptor already scopes all filters, so there is no
-      // "noCross" distinction — return the same reference.
-      return filteredRows;
+      if (!hasCrossFilters) {
+        // Same reference — downstream memos short-circuit automatically.
+        return filteredRows;
+      }
+      // Return the base adapter rows as the "all data" baseline for ghost rendering.
+      // For server-side adapters these already have page/widget filters applied by the
+      // adapter; for in-memory adapters (e.g. Excel) this is the full unfiltered set.
+      return enrichedAdapterRows;
     }
     if (!hasCrossFilters) {
       // Same reference — downstream memos short-circuit automatically.
@@ -397,6 +450,7 @@ export function useWidgetRows(
     hasAdapter,
     hasCrossFilters,
     filteredRows,
+    enrichedAdapterRows,
     normalizedDataSource,
     deferredPartitioned,
     dataSources,
@@ -415,7 +469,30 @@ export function useWidgetRows(
   // interactive filters always hard-filter (BI norm), chart cross-filters drive the overlay.
   const filteredRowsNoChartCross = React.useMemo((): Row[] => {
     if (hasAdapter) {
-      return filteredRows;
+      if (!hasChartCrossFilters) {
+        // No chart cross-filters — same reference as filteredRows (short-circuit).
+        return filteredRows;
+      }
+      // Apply interactive (filter-widget) filters but not chart-click cross-filters.
+      const interactiveFilters = deferredPartitioned.interactive.filter(
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
+      );
+      if (interactiveFilters.length === 0) {
+        return enrichedAdapterRows;
+      }
+      const allInteractiveFilters = resolveDateRangePresets(interactiveFilters);
+      return resolveRowsCached(
+        enrichedAdapterRows,
+        widget.sourceId,
+        allInteractiveFilters,
+        dataSources,
+        relationships,
+        expressionFields,
+        usedFieldIds,
+      );
     }
     if (!hasChartCrossFilters) {
       // No chart cross-filters — same reference as filteredRows (short-circuit).
@@ -445,6 +522,7 @@ export function useWidgetRows(
     hasAdapter,
     hasChartCrossFilters,
     filteredRows,
+    enrichedAdapterRows,
     normalizedDataSource,
     deferredPartitioned,
     dataSources,

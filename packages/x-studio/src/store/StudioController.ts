@@ -10,6 +10,7 @@ import {
   type StudioExpressionField,
   type StudioFilterPreset,
   type StudioFilterState,
+  type StudioCrossFilterMode,
   type StudioMode,
   type StudioPage,
   type StudioRelationship,
@@ -138,6 +139,28 @@ export class StudioController {
       ...this.store.state,
       mode,
     });
+  };
+
+  setGlobalCrossFilterMode = (mode: StudioCrossFilterMode | null) => {
+    const state = this.store.state;
+    this.commitState(
+      {
+        ...state,
+        dashboard: { ...state.dashboard, globalCrossFilterMode: mode },
+      },
+      { undoable: false },
+    );
+  };
+
+  setCrossFilterAllPages = (allPages: boolean) => {
+    const state = this.store.state;
+    this.commitState(
+      {
+        ...state,
+        dashboard: { ...state.dashboard, crossFilterAllPages: allPages },
+      },
+      { undoable: false },
+    );
   };
 
   toggleDrawer = (drawer: StudioDrawer) => {

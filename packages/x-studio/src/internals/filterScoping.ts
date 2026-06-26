@@ -24,9 +24,10 @@ export function selectFiltersForWidget(
     widgetSourceId: string | undefined;
     activePageId: string | undefined;
     include?: 'all' | 'no-cross' | 'no-chart-cross';
+    crossFilterAllPages?: boolean;
   },
 ): StudioFilterState[] {
-  const { widgetId, widgetSourceId, activePageId, include = 'all' } = opts;
+  const { widgetId, widgetSourceId, activePageId, include = 'all', crossFilterAllPages = false } = opts;
   const result: StudioFilterState[] = [];
 
   for (const f of filters) {
@@ -53,7 +54,7 @@ export function selectFiltersForWidget(
         if (
           include === 'all' &&
           sv2.sourceWidgetId !== widgetId &&
-          (activePageId === undefined || sv2.pageId === activePageId)
+          (crossFilterAllPages || activePageId === undefined || sv2.pageId === activePageId)
         ) {
           result.push(f);
         }

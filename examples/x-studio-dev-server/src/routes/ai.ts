@@ -5,6 +5,7 @@ import {
   handleGenerateTitle,
   handleCreateWidget,
   type StudioDataResolver,
+  type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
 import type { Config } from '../config.js';
 import { error } from '../logger.js';
@@ -73,6 +74,61 @@ function createDataResolver(salesDb: Knex, crmDb: Knex): StudioDataResolver {
   };
 }
 
+/** Matches a safe SQL identifier so a client-supplied table name can't inject. */
+const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Builds an optional `contextEnricher` that attaches DB-side metadata to the AI
+ * context — the server's chance to add information the client can't compute.
+ *
+ * Here we surface two things: the *exact* total row count of each source's
+ * backing table (the client only ever sees sampled/filtered rows) and any
+ * authored field descriptions re-exposed as schema comments. The result is
+ * rendered into a `<server_context>` block in the system prompt.
+ *
+ * Enrichment is best-effort: the middleware catches and reports failures via
+ * `onToolError`, so a slow or failing query never blocks the chat. Keep the
+ * payload small — it counts against the model's token budget.
+ */
+function createContextEnricher(salesDb: Knex, crmDb: Knex): StudioAIContextEnricher {
+  return async ({ dashboardState }) => {
+    const schemaComments: Record<string, string> = {};
+    const rowCountNotes: string[] = [];
+
+    await Promise.all(
+      Object.values(dashboardState.dataSources).map(async (source) => {
+        // Re-surface authored field descriptions as schema comments.
+        for (const field of source.fields ?? []) {
+          if (field.aiDescription) {
+            schemaComments[`${source.id}.${field.id}`] = field.aiDescription;
+          }
+        }
+
+        // Best-effort exact row count from the backing table. The table name
+        // comes from client state, so validate it before interpolating.
+        const table = source.tableName;
+        if (!table || !SAFE_IDENTIFIER.test(table)) {
+          return;
+        }
+        const db = CRM_TABLES.includes(table) ? crmDb : salesDb;
+        try {
+          const [row] = (await db(table).count({ c: '*' })) as Array<{ c: number | string }>;
+          rowCountNotes.push(`${source.label} (${table}): ${Number(row.c).toLocaleString()} rows`);
+        } catch {
+          // Table may not exist in this database — skip silently.
+        }
+      }),
+    );
+
+    return {
+      ...(Object.keys(schemaComments).length > 0 ? { schemaComments } : {}),
+      ...(rowCountNotes.length > 0
+        ? { notes: `Exact table row counts:\n${rowCountNotes.join('\n')}` }
+        : {}),
+    };
+  };
+}
+
 /**
  * POST /api/ai/chat
  *
@@ -104,6 +160,10 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
   // access to the sales + CRM databases.
   const dataResolver = createDataResolver(salesDb, crmDb);
 
+  // Attaches DB-side metadata (exact row counts, schema comments) to every
+  // chat request's system prompt. Optional — remove to send only client context.
+  const contextEnricher = createContextEnricher(salesDb, crmDb);
+
   /**
    * Approval resolvers keyed by toolCallId.
    * Each entry is created by the agentic loop just before it yields
@@ -131,6 +191,7 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
         model: config.llm.model,
         approvalPending: pendingApprovals,
         dataResolver,
+        contextEnricher,
       });
 
       const reader = stream.getReader();

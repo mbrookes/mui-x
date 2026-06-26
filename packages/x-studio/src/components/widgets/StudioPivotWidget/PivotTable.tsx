@@ -27,9 +27,12 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
   const theme = useTheme();
   const localeText = useStudioLocaleText();
 
-  const headerBg = theme.palette.action.selected;
-  const totalBg = theme.palette.action.hover;
-  const borderColor = theme.palette.divider;
+  // Use theme.vars for CSS variable references so styles adapt in dark mode.
+  const vars =
+    (theme as typeof theme & { vars: typeof theme.palette }).vars?.palette ?? theme.palette;
+  const headerBg = vars.action.selected;
+  const totalBg = vars.action.hover;
+  const borderColor = vars.divider;
   const cellStyle: React.CSSProperties = {
     border: `1px solid ${borderColor}`,
     padding: '4px 8px',
@@ -44,7 +47,7 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
     textAlign: 'left',
     position: 'sticky',
     left: 0,
-    background: theme.palette.background.paper,
+    background: vars.background.paper,
     zIndex: 1,
     minWidth: LABEL_W,
     fontWeight: 500,
@@ -91,9 +94,9 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
         <tbody>
           {matrix.rowValues.map((rv, ri) => {
             const rowCells = matrix.cells.get(rv);
-            let rowBg = theme.palette.background.paper;
+            let rowBg = vars.background.paper;
             if (ri % 2 === 1) {
-              rowBg = theme.palette.action.hover;
+              rowBg = vars.action.hover;
             }
             return (
               <tr key={rv}>

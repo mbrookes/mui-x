@@ -1,7 +1,8 @@
 import { createTheme } from '@mui/material/styles';
 import type {} from '@mui/x-charts/themeAugmentation';
 
-const PIE_PALETTE = ['#0f172a', '#b45309', '#1e3a8a', '#166534', '#7e22ce', '#9f1239', '#0e7490', '#78350f'];
+// Palette that works in both light and dark mode (avoid very dark values that vanish on dark cards)
+const PIE_PALETTE = ['var(--mui-palette-primary-main)', '#b45309', '#1e3a8a', '#166534', '#7e22ce', '#9f1239', '#0e7490', '#78350f'];
 
 export const theme = createTheme({
   cssVariables: true,
@@ -41,10 +42,10 @@ export const theme = createTheme({
       },
     },
     MuiBarChart: {
-      defaultProps: { colors: ['#0f172a'] },
+      defaultProps: { colors: ['var(--mui-palette-primary-main)'] },
     },
     MuiLineChart: {
-      defaultProps: { colors: ['#0f172a'] },
+      defaultProps: { colors: ['var(--mui-palette-primary-main)'] },
     },
     MuiPieChart: {
       defaultProps: { colors: PIE_PALETTE },

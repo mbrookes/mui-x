@@ -507,10 +507,8 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
   };
 }
 
-/** Shared page theme: flat #fafafa canvas, no widget borders. */
+/** Shared page theme: flat canvas using theme defaults so dark mode adapts automatically. */
 const PAGE_THEME: StudioPageTheme = {
-  pageBackground: 'rgb(250, 250, 250)',
-  cardBackground: 'rgb(250, 250, 250)',
   cardBorder: false,
 };
 

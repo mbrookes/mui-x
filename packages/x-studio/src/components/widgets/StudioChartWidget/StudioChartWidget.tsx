@@ -2163,10 +2163,31 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           ? null
           : controlledHighlightedItem;
 
+    // Ratio map for CrossHighlightPieArc, keyed by the RENDERED arc index.
+    // The top-level pieRatioByIndex is keyed by allChartData's original order, but
+    // displayLabels are re-sorted and "Other"-grouped when pieMaxSlices is set, so the
+    // arc dataIndex no longer matches. Rebuild from displayValues / filteredDisplayValues,
+    // which are both already aligned to displayLabels (incl. the "Other" bucket).
+    const pieDisplayCtxValue = isPieHighlightActive
+      ? {
+          ratioByIndex: new Map<number, number>(
+            displayValues.map((bv, i) => {
+              const allValue = bv ?? 0;
+              const filteredValue = filteredDisplayValues
+                ? (filteredDisplayValues[i] ?? 0)
+                : allValue;
+              return [i, allValue > 0 ? filteredValue / allValue : 1] as const;
+            }),
+          ),
+          isActive: isPieHighlightActive,
+          skipAnimation,
+        }
+      : pieHighlightCtxValue;
+
     return (
       /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
          stays at the same tree position and arcs never remount on filter changes. */
-      <PieHighlightContext.Provider value={pieHighlightCtxValue}>
+      <PieHighlightContext.Provider value={pieDisplayCtxValue}>
         {pieLegendBelow ? (
           <React.Fragment>
             <PieChart

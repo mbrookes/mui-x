@@ -2,6 +2,7 @@
 import * as React from 'react';
 import type { BarProps } from '@mui/x-charts/BarChart';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
+import { SourceSelectionContext } from './SourceSelectionContext';
 
 /**
  * Custom bar slot for BarChart that renders a ghost bar (faded, full-data height) with a
@@ -13,6 +14,7 @@ import { CrossFilterBarContext } from './CrossFilterBarContext';
  */
 export function CrossFilterGhostBar(props: BarProps) {
   const ctx = React.use(CrossFilterBarContext);
+  const selectedIndices = React.use(SourceSelectionContext);
   const {
     x,
     y,
@@ -31,6 +33,13 @@ export function CrossFilterGhostBar(props: BarProps) {
 
   const highlightFilter = ownerState.isHighlighted ? 'brightness(120%)' : undefined;
   const fadedOpacity = ownerState.isFaded ? 0.5 : 1;
+  // When source multi-select is active, dim unselected ghost bars.
+  const selectionMultiplier =
+    selectedIndices != null && selectedIndices.size > 0
+      ? selectedIndices.has(dataIndex)
+        ? 1
+        : 0.3
+      : 1;
 
   if (!ctx || height === 0) {
     return (
@@ -82,7 +91,7 @@ export function CrossFilterGhostBar(props: BarProps) {
           width={width}
           height={height}
           fill={color}
-          opacity={0.2 * fadedOpacity}
+          opacity={0.2 * fadedOpacity * selectionMultiplier}
         />
         {/* Foreground bar: filtered value, full opacity, narrower */}
         {hasFilteredValue && (
@@ -93,7 +102,7 @@ export function CrossFilterGhostBar(props: BarProps) {
             width={fgWidth}
             height={Math.abs(fgHeight)}
             fill={color}
-            opacity={fadedOpacity}
+            opacity={fadedOpacity * selectionMultiplier}
           />
         )}
       </React.Fragment>
@@ -114,7 +123,7 @@ export function CrossFilterGhostBar(props: BarProps) {
         width={width}
         height={height}
         fill={color}
-        opacity={0.2 * fadedOpacity}
+        opacity={0.2 * fadedOpacity * selectionMultiplier}
       />
       {hasFilteredValue && (
         <rect
@@ -124,7 +133,7 @@ export function CrossFilterGhostBar(props: BarProps) {
           width={fgWidth}
           height={fgHeight}
           fill={color}
-          opacity={fadedOpacity}
+          opacity={fadedOpacity * selectionMultiplier}
         />
       )}
     </React.Fragment>

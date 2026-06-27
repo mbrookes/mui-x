@@ -1,47 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import type { PluginOption } from 'vite';
-
-// Conditionally load visualizer — only when ANALYZE=true
-const visualizerPlugin: PluginOption[] = [];
-if (process.env.ANALYZE) {
-  const { visualizer } = await import('rollup-plugin-visualizer');
-  visualizerPlugin.push(
-    visualizer({
-      filename: 'stats.html',
-      open: true,
-      template: 'treemap',
-      gzipSize: true,
-      brotliSize: true,
-      sourcemap: true,
-    }) as PluginOption,
-  );
-}
-
-// Profiling build aliases — enable with PROFILING=true to use react-dom/profiling
-// so React DevTools Profiler works on production-like builds.
-const profilingAliases = process.env.PROFILING
-  ? [
-      { find: 'react-dom$', replacement: 'react-dom/profiling' },
-      { find: 'scheduler/tracing', replacement: 'scheduler/tracing-profiling' },
-    ]
-  : [];
 
 export default defineConfig({
-  plugins: [react(), ...visualizerPlugin],
-  build: {
-    sourcemap: !!process.env.ANALYZE,
-  },
-  // Never pre-bundle opt-in dev tools — they are large and should only be
-  // loaded when explicitly activated via dev:scan / dev:wdyr scripts or localStorage flags.
-  optimizeDeps: {
-    exclude: ['react-scan', '@welldone-software/why-did-you-render'],
-  },
+  plugins: [react()],
   resolve: {
     dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],
     alias: [
-      ...profilingAliases,
       {
         find: '@mui/x-studio',
         replacement: path.resolve(__dirname, '../../packages/x-studio/src'),

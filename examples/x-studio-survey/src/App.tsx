@@ -22,7 +22,11 @@ import { downloadJson, uploadJson } from 'x-studio-shared';
 import dayjs from 'dayjs';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
-import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
+import type {
+  SidebarLayout,
+  SidebarSide,
+  TableSourceMode,
+} from './components/SettingsDialog';
 import { theme } from './theme';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 import { AppLocaleProvider } from './locales/AppLocaleContext';
@@ -263,10 +267,6 @@ export default function App() {
               sidebarSide,
               tableSourceMode,
               stackBreakpoint,
-              rowCount: undefined,
-              dataMode: 'memory',
-              serverConfigured: false,
-              dataset: 'sales',
             }}
             onSidebarLayoutChange={setSidebarLayout}
             onSidebarSideChange={setSidebarSide}

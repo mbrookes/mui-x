@@ -45,7 +45,6 @@ export interface AppLocaleText {
   settingsDialogTitle: string;
   settingsTabLabel: string;
   featuresTabLabel: string;
-  datasetLabel: string;
   languageLabel: string;
   sidebarLayoutLabel: string;
   sidebarLayoutTabbed: string;
@@ -58,23 +57,11 @@ export interface AppLocaleText {
   tableSourceImplicit: string;
   stackBreakpointLabel: string;
   stackBreakpointHelper: string;
-  rowCountLabel: string;
-  rowCountHelper: string;
-  rowCountUnit: string;
-  rowCountOverridesServerHint: string;
-  serverAdapterLabel: string;
-  dataSourceModeLabel: string;
-  dataModeMemory: string;
-  dataModeServerUnavailableHint: string;
-  settingsReloadHint: string;
   devServerConnectionLabel: string;
   devServerConnectedLabel: string;
   devServerConnectedDescription: string;
   devServerChangeInstructions: string;
   devServerNotConnectedDescription: string;
-  datasetSales: string;
-  datasetAg: string;
-  applyReloadButtonLabel: string;
   closeButtonLabel: string;
   alertBannerSettingsTitle: string;
   alertTitleLabel: string;
@@ -110,10 +97,6 @@ export interface AppLocaleText {
   alertHideAboveError: string;
   alertComputedLabel: (value: string, days: number) => string;
   alertHiddenInViewNote: string;
-  adapterModeLabel: string;
-  serverModeLabel: string;
-  generatedRowsLabel: (rowCount: number) => string;
-  demoDataLabel: string;
   dashboardSavedMessage: string;
   dashboardLoadedMigratedMessage: (
     fromVersion: string | number,
@@ -145,7 +128,6 @@ const enAppLocaleText: AppLocaleText = {
   settingsDialogTitle: 'Settings',
   settingsTabLabel: 'Settings',
   featuresTabLabel: 'Features',
-  datasetLabel: 'Dataset',
   languageLabel: 'Language',
   sidebarLayoutLabel: 'Sidebar layout',
   sidebarLayoutTabbed: 'Tabbed',
@@ -158,26 +140,12 @@ const enAppLocaleText: AppLocaleText = {
   tableSourceImplicit: 'Implicit (inferred)',
   stackBreakpointLabel: 'Responsive stack breakpoint',
   stackBreakpointHelper: 'Canvas width (px) below which widgets stack. Set to 0 to disable.',
-  rowCountLabel: 'Generated row count',
-  rowCountHelper: 'Leave blank to use the default bundled data',
-  rowCountUnit: 'rows',
-  rowCountOverridesServerHint:
-    'When rows are set, server mode is bypassed — generated data is used in-memory.',
-  serverAdapterLabel: 'Simulated server adapter',
-  dataSourceModeLabel: 'Data source mode',
-  dataModeMemory: 'In-memory (default)',
-  dataModeServerUnavailableHint:
-    'Set STUDIO_SERVER_URL in .env.local (or add ?server=URL) to enable server mode.',
-  settingsReloadHint: 'Dataset, row count and data source mode changes take effect after reload.',
   devServerConnectionLabel: 'Dev Server Connection',
   devServerConnectedLabel: 'Connected to:',
-  devServerConnectedDescription: 'AI and data queries are routed through the dev server.',
+  devServerConnectedDescription: 'AI queries are routed through the dev server.',
   devServerChangeInstructions: 'To change, update STUDIO_SERVER_URL in .env.local.',
   devServerNotConnectedDescription:
-    'Not connected. Set STUDIO_SERVER_URL in .env.local to route queries through examples/x-studio-dev-server.',
-  datasetSales: 'MUI X Sales (generated)',
-  datasetAg: 'AG Studio Office Supplies',
-  applyReloadButtonLabel: 'Apply & Reload',
+    'Not connected. Set STUDIO_SERVER_URL in .env.local to enable AI chat features.',
   closeButtonLabel: 'Close',
   alertBannerSettingsTitle: 'Alert Banner settings',
   alertTitleLabel: 'Title (optional)',
@@ -214,10 +182,6 @@ const enAppLocaleText: AppLocaleText = {
   alertHideAboveError: 'Hide above Error',
   alertComputedLabel: (value, days) => `Computed value: ${value} (last ${days} day(s))`,
   alertHiddenInViewNote: 'Hidden in view mode when the condition is not met.',
-  adapterModeLabel: 'Adapter Mode',
-  serverModeLabel: 'Server Mode',
-  generatedRowsLabel: (rowCount) => `Generated · ${rowCount.toLocaleString()} rows`,
-  demoDataLabel: 'Demo Data',
   dashboardSavedMessage: 'Dashboard saved successfully',
   dashboardLoadedMigratedMessage: (fromVersion, toVersion) =>
     `Dashboard loaded and migrated from v${fromVersion} to v${toVersion}`,
@@ -247,7 +211,6 @@ const ptBrAppLocaleText: AppLocaleText = {
   settingsDialogTitle: 'Configurações',
   settingsTabLabel: 'Configurações',
   featuresTabLabel: 'Recursos',
-  datasetLabel: 'Conjunto de dados',
   languageLabel: 'Idioma',
   sidebarLayoutLabel: 'Layout da barra lateral',
   sidebarLayoutTabbed: 'Abas',
@@ -261,28 +224,13 @@ const ptBrAppLocaleText: AppLocaleText = {
   stackBreakpointLabel: 'Ponto de quebra da pilha responsiva',
   stackBreakpointHelper:
     'Largura do canvas (px) abaixo da qual os widgets são empilhados. Defina 0 para desativar.',
-  rowCountLabel: 'Número de linhas geradas',
-  rowCountHelper: 'Deixe em branco para usar os dados padrão incluídos',
-  rowCountUnit: 'linhas',
-  rowCountOverridesServerHint:
-    'Quando as linhas estão definidas, o modo servidor é ignorado — os dados gerados são usados em memória.',
-  serverAdapterLabel: 'Adaptador de servidor simulado',
-  dataSourceModeLabel: 'Modo da fonte de dados',
-  dataModeMemory: 'Em memória (padrão)',
-  dataModeServerUnavailableHint:
-    'Defina STUDIO_SERVER_URL em .env.local (ou adicione ?server=URL) para ativar o modo servidor.',
-  settingsReloadHint:
-    'As alterações de conjunto de dados, número de linhas e modo da fonte de dados entram em vigor após recarregar.',
   devServerConnectionLabel: 'Conexão com o servidor de desenvolvimento',
   devServerConnectedLabel: 'Conectado a:',
   devServerConnectedDescription:
-    'As consultas de IA e dados são roteadas pelo servidor de desenvolvimento.',
+    'As consultas de IA são roteadas pelo servidor de desenvolvimento.',
   devServerChangeInstructions: 'Para alterar, atualize STUDIO_SERVER_URL em .env.local.',
   devServerNotConnectedDescription:
-    'Não conectado. Defina STUDIO_SERVER_URL em .env.local para rotear consultas por examples/x-studio-dev-server.',
-  datasetSales: 'Vendas do MUI X (geradas)',
-  datasetAg: 'Suprimentos de escritório do AG Studio',
-  applyReloadButtonLabel: 'Aplicar e recarregar',
+    'Não conectado. Defina STUDIO_SERVER_URL em .env.local para ativar os recursos de chat de IA.',
   closeButtonLabel: 'Fechar',
   alertBannerSettingsTitle: 'Configurações do banner de alerta',
   alertTitleLabel: 'Título (opcional)',
@@ -319,10 +267,6 @@ const ptBrAppLocaleText: AppLocaleText = {
   alertHideAboveError: 'Ocultar acima de Erro',
   alertComputedLabel: (value, days) => `Valor calculado: ${value} (últimos ${days} dia(s))`,
   alertHiddenInViewNote: 'Oculto no modo de visualização quando a condição não é atendida.',
-  adapterModeLabel: 'Modo do adaptador',
-  serverModeLabel: 'Modo do servidor',
-  generatedRowsLabel: (rowCount) => `Gerado · ${rowCount.toLocaleString()} linhas`,
-  demoDataLabel: 'Dados de demonstração',
   dashboardSavedMessage: 'Painel salvo com sucesso',
   dashboardLoadedMigratedMessage: (fromVersion, toVersion) =>
     `Painel carregado e migrado da v${fromVersion} para a v${toVersion}`,

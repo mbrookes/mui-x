@@ -20,28 +20,20 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { StudioFeatureFlags } from '@mui/x-studio';
-import { FeatureFlagSettings, DEFAULT_ORDER_COUNT } from 'x-studio-shared';
+import { FeatureFlagSettings } from 'x-studio-shared';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 export type TableSourceMode = 'explicit' | 'implicit';
-export type DatasetMode = 'sales' | 'ag-studio';
-export type DataMode = 'memory' | 'adapter' | 'server';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
   sidebarSide: SidebarSide;
   tableSourceMode: TableSourceMode;
   stackBreakpoint: number;
-  rowCount: number | undefined;
-  dataMode: DataMode;
-  /** Whether a dev server URL is configured (env or ?server) — gates the "server" option. */
-  serverConfigured: boolean;
-  dataset: DatasetMode;
 }
 
 export interface SettingsDialogProps {
@@ -58,82 +50,13 @@ export interface SettingsDialogProps {
   onLocaleChange: (locale: SupportedLocale) => void;
 }
 
-// react-doctor-disable-next-line react-doctor/prefer-useReducer, react-doctor/no-event-handler -- dialog state is intentionally buffered locally and immediate prop callbacks are acceptable in this form
 export function SettingsDialog(props: SettingsDialogProps) {
-  // react-doctor-disable-next-line react-doctor/no-event-handler -- immediate prop callbacks are acceptable in this small settings form
   const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange } = props;
   const { onTableSourceModeChange, onStackBreakpointChange, featureFlags } = props;
   const { onFeatureFlagsChange, locale, onLocaleChange } = props;
 
   const t = useAppLocaleText();
   const [tab, setTab] = React.useState(0);
-  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [rowInput, setRowInput] = React.useState(
-    values.rowCount !== undefined ? String(values.rowCount) : '',
-  );
-  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [pendingRowCount, setPendingRowCount] = React.useState<number | undefined>(values.rowCount);
-  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [pendingMode, setPendingMode] = React.useState<DataMode>(values.dataMode);
-  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(values.dataset);
-
-  // Sync local state when dialog re-opens
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-cascading-set-state -- intentional batch reset of buffered form state when dialog opens
-  React.useEffect(() => {
-    if (open) {
-      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setRowInput(values.rowCount !== undefined ? String(values.rowCount) : '');
-      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setPendingRowCount(values.rowCount);
-      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setPendingMode(values.dataMode);
-      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setPendingDataset(values.dataset);
-    }
-  }, [open, values.rowCount, values.dataMode, values.dataset]);
-
-  const needsReload =
-    pendingRowCount !== values.rowCount ||
-    pendingMode !== values.dataMode ||
-    pendingDataset !== values.dataset;
-
-  function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
-    const raw = evt.target.value;
-    setRowInput(raw);
-    if (raw === '') {
-      setPendingRowCount(undefined);
-    } else {
-      const n = Number.parseInt(raw, 10);
-      if (Number.isFinite(n) && n > 0) {
-        setPendingRowCount(n);
-      }
-    }
-  }
-
-  function applyAndReload() {
-    const url = new URL(window.location.href);
-    if (pendingRowCount !== undefined) {
-      url.searchParams.set('rows', String(pendingRowCount));
-    } else {
-      url.searchParams.delete('rows');
-    }
-    // Omit ?mode when the selected mode is already the natural default so URLs stay clean.
-    // The legacy `adapter` param is removed in favour of the explicit `mode` param.
-    url.searchParams.delete('adapter');
-    const naturalDefault: DataMode = values.serverConfigured ? 'server' : 'memory';
-    if (pendingMode === naturalDefault) {
-      url.searchParams.delete('mode');
-    } else {
-      url.searchParams.set('mode', pendingMode);
-    }
-    if (pendingDataset === 'ag-studio') {
-      url.searchParams.set('dataset', 'ag-studio');
-    } else {
-      url.searchParams.delete('dataset');
-    }
-    window.location.href = url.toString();
-  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -145,28 +68,6 @@ export function SettingsDialog(props: SettingsDialogProps) {
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2 }}>
         {tab === 0 && (
           <React.Fragment>
-            {/* Dataset — requires reload (top) */}
-            <FormControl>
-              <FormLabel>{t.datasetLabel}</FormLabel>
-              <RadioGroup
-                value={pendingDataset}
-                onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
-              >
-                <FormControlLabel
-                  value="sales"
-                  control={<Radio size="small" />}
-                  label={t.datasetSales}
-                />
-                <FormControlLabel
-                  value="ag-studio"
-                  control={<Radio size="small" />}
-                  label={t.datasetAg}
-                />
-              </RadioGroup>
-            </FormControl>
-
-            <Divider />
-
             {/* Language — immediate */}
             <FormControl size="small" fullWidth>
               <InputLabel id="settings-language-label">{t.languageLabel}</InputLabel>
@@ -272,76 +173,6 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             <Divider />
 
-            {/* Data rows — requires reload */}
-            <TextField
-              label={t.rowCountLabel}
-              helperText={t.rowCountHelper}
-              value={rowInput}
-              onChange={handleRowInputChange}
-              size="small"
-              type="number"
-              slotProps={{
-                input: {
-                  endAdornment: <InputAdornment position="end">{t.rowCountUnit}</InputAdornment>,
-                },
-                htmlInput: { min: 1, step: 1, placeholder: String(DEFAULT_ORDER_COUNT) },
-              }}
-            />
-
-            {/* Data source mode — requires reload. Overrides .env (STUDIO_SERVER_URL). */}
-            <FormControl>
-              <FormLabel>{t.dataSourceModeLabel}</FormLabel>
-              <RadioGroup
-                value={pendingMode}
-                onChange={(_evt, val) => setPendingMode(val as DataMode)}
-              >
-                <FormControlLabel
-                  value="memory"
-                  control={<Radio size="small" />}
-                  label={t.dataModeMemory}
-                />
-                <FormControlLabel
-                  value="adapter"
-                  control={<Radio size="small" />}
-                  label={t.serverAdapterLabel}
-                />
-                <FormControlLabel
-                  value="server"
-                  control={<Radio size="small" />}
-                  label={t.serverModeLabel}
-                  disabled={!values.serverConfigured}
-                />
-              </RadioGroup>
-              {!values.serverConfigured && (
-                <Typography variant="caption" color="text.secondary">
-                  {t.dataModeServerUnavailableHint}
-                </Typography>
-              )}
-              {pendingRowCount !== undefined && pendingMode === 'server' && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'flex', gap: 0.5 }}
-                >
-                  <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-                  {t.rowCountOverridesServerHint}
-                </Typography>
-              )}
-            </FormControl>
-
-            {needsReload && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'flex', gap: 0.5 }}
-              >
-                <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-                {t.settingsReloadHint}
-              </Typography>
-            )}
-
-            <Divider />
-
             {/* Dev server connection — informational only (set via .env.local) */}
             <FormControl>
               <FormLabel sx={{ mb: 1 }}>{t.devServerConnectionLabel}</FormLabel>
@@ -374,11 +205,6 @@ export function SettingsDialog(props: SettingsDialogProps) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>{t.closeButtonLabel}</Button>
-        {tab === 0 && needsReload && (
-          <Button variant="contained" onClick={applyAndReload}>
-            {t.applyReloadButtonLabel}
-          </Button>
-        )}
       </DialogActions>
     </Dialog>
   );

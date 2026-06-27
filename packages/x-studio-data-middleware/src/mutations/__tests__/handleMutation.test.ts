@@ -9,9 +9,9 @@
  * - Cache invalidation called per successful mutation
  * - Unknown operation produces per-item error (not a batch throw)
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { handleMutation } from '../handleMutation';
-import type { BatchMutationRequest, HandleMutationOptions, CacheProvider } from '../../index';
+import type { BatchMutationRequest, CacheProvider } from '../../index';
 
 // ── Mutable in-memory mock DB (same as mutationBuilder.test.ts) ───────────────
 
@@ -32,10 +32,15 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
       where(col: string, op: string, val?: unknown) {
         const key = col.includes('.') ? col.split('.').pop()! : col;
         if (val !== undefined) {
-          if (op === '=') predicates.push((r) => r[key] === val);
-          else if (op === '!=') predicates.push((r) => r[key] !== val);
-          else if (op === '<') predicates.push((r) => (r[key] as number) < (val as number));
-          else if (op === '>') predicates.push((r) => (r[key] as number) > (val as number));
+          if (op === '=') {
+            predicates.push((r) => r[key] === val);
+          } else if (op === '!=') {
+            predicates.push((r) => r[key] !== val);
+          } else if (op === '<') {
+            predicates.push((r) => (r[key] as number) < (val as number));
+          } else if (op === '>') {
+            predicates.push((r) => (r[key] as number) > (val as number));
+          }
         } else {
           predicates.push((r) => r[key] === op);
         }
@@ -58,9 +63,10 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
         pendingDelete = true;
         return qb;
       },
-      then(resolve: (v: unknown) => void, reject?: (e: Error) => void) {
+      then(resolve: (v: unknown) => void, reject?: (err: Error) => void) {
         try {
-          const rows = (tables[table] ??= []);
+          tables[table] ??= [];
+          const rows = tables[table];
           if (pendingInsertValues !== null) {
             rows.push({ ...pendingInsertValues });
             resolve([rows.length]);
@@ -68,7 +74,9 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
           }
           const matched = rows.filter((r) => predicates.every((p) => p(r)));
           if (pendingUpdateValues !== null) {
-            for (const r of matched) Object.assign(r, pendingUpdateValues);
+            for (const r of matched) {
+              Object.assign(r, pendingUpdateValues);
+            }
             resolve(matched.length);
             return;
           }
@@ -79,8 +87,8 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
             return;
           }
           resolve(matched);
-        } catch (err) {
-          reject?.(err as Error);
+        } catch (caught) {
+          reject?.(caught as Error);
         }
       },
     };
@@ -289,6 +297,59 @@ describe('handleMutation — cache invalidation', () => {
     await expect(
       handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST }),
     ).resolves.toMatchObject({ results: [{ id: 'm1', ok: true }] });
+  });
+});
+
+// ── WHERE-column allowlist ────────────────────────────────────────────────────
+
+describe('handleMutation — where-column allowlist', () => {
+  it('returns ok=false when a mutation references a column outside the allowlist', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending', secret: 'x' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'secret', operator: 'eq', value: 'x' }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      columnAllowlist: { orders: ['id', 'status'] },
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/not in the column allowlist/);
+    // The row must not have been deleted.
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('allows a mutation whose WHERE columns are all in the allowlist', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'update',
+          table: 'orders',
+          values: { status: 'shipped' },
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      columnAllowlist: { orders: ['id', 'status'] },
+      tenantColumn: 'tenant_id',
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
   });
 });
 

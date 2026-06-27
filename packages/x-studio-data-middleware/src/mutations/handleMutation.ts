@@ -10,8 +10,9 @@
  * Security invariants enforced here (before reaching the builder):
  * 1. All tables validated against schemaAllowlist (Zero-Knowledge Rule)
  * 2. Column values validated against writableColumns per table
- * 3. UPDATE/DELETE require at least one WHERE predicate
- * 4. One failed mutation does not abort the rest of the batch (per-item isolation)
+ * 3. WHERE-predicate columns validated against columnAllowlist per table
+ * 4. UPDATE/DELETE require at least one WHERE predicate
+ * 5. One failed mutation does not abort the rest of the batch (per-item isolation)
  *
  * After each successful mutation:
  * - cacheProvider.deleteByTag(table) is called automatically to evict stale
@@ -72,7 +73,7 @@ async function processMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<MutationResult> {
-  const { db, writableColumns, tenantColumn, cacheProvider } = options;
+  const { db, writableColumns, tenantColumn, cacheProvider, columnAllowlist } = options;
 
   try {
     // Validate operation type
@@ -83,19 +84,21 @@ async function processMutation(
     }
 
     // Validate invariants (writable columns, required WHERE) before building query
-    validateMutation(descriptor, { writableColumns, tenantColumn });
+    validateMutation(descriptor, { writableColumns, tenantColumn, columnAllowlist });
 
     let rowsAffected: number;
 
     switch (descriptor.operation) {
       case 'insert': {
         const result = await buildInsertMutation(db, claims, descriptor, tenantColumn);
-        // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others
-        rowsAffected = Array.isArray(result)
-          ? result.length
-          : typeof result === 'number'
-            ? result
-            : 1;
+        // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others.
+        if (Array.isArray(result)) {
+          rowsAffected = result.length;
+        } else if (typeof result === 'number') {
+          rowsAffected = result;
+        } else {
+          rowsAffected = 1;
+        }
         break;
       }
       case 'update': {

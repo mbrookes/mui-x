@@ -6,7 +6,7 @@
  * The mock's `insert` / `update` / `delete` methods mutate an in-memory table and
  * return row counts matching the real Knex contract.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   validateMutation,
   buildInsertMutation,
@@ -34,12 +34,19 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
       where(col: string, op: string, val?: unknown) {
         const key = col.includes('.') ? col.split('.').pop()! : col;
         if (val !== undefined) {
-          if (op === '=') predicates.push((r) => r[key] === val);
-          else if (op === '!=') predicates.push((r) => r[key] !== val);
-          else if (op === '<') predicates.push((r) => (r[key] as number) < (val as number));
-          else if (op === '<=') predicates.push((r) => (r[key] as number) <= (val as number));
-          else if (op === '>') predicates.push((r) => (r[key] as number) > (val as number));
-          else if (op === '>=') predicates.push((r) => (r[key] as number) >= (val as number));
+          if (op === '=') {
+            predicates.push((r) => r[key] === val);
+          } else if (op === '!=') {
+            predicates.push((r) => r[key] !== val);
+          } else if (op === '<') {
+            predicates.push((r) => (r[key] as number) < (val as number));
+          } else if (op === '<=') {
+            predicates.push((r) => (r[key] as number) <= (val as number));
+          } else if (op === '>') {
+            predicates.push((r) => (r[key] as number) > (val as number));
+          } else if (op === '>=') {
+            predicates.push((r) => (r[key] as number) >= (val as number));
+          }
         } else {
           predicates.push((r) => r[key] === op);
         }
@@ -73,9 +80,10 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
         pendingDelete = true;
         return qb;
       },
-      then(resolve: (v: unknown) => void, reject?: (e: Error) => void) {
+      then(resolve: (v: unknown) => void, reject?: (err: Error) => void) {
         try {
-          const rows = (tables[table] ??= []);
+          tables[table] ??= [];
+          const rows = tables[table];
           if (pendingInsertValues !== null) {
             rows.push({ ...pendingInsertValues });
             resolve([rows.length]); // SQLite-style: returns [lastInsertRowid]
@@ -96,8 +104,8 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
             return;
           }
           resolve(matched);
-        } catch (err) {
-          reject?.(err as Error);
+        } catch (caught) {
+          reject?.(caught as Error);
         }
       },
     };
@@ -195,6 +203,43 @@ describe('validateMutation', () => {
     expect(() =>
       validateMutation(descriptor, { writableColumns: { orders: ['status', 'notes'] } }),
     ).not.toThrow();
+  });
+
+  it('throws when a WHERE column is not in the column allowlist', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'secret_internal_flag', operator: 'eq', value: true }],
+    };
+    expect(() =>
+      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+    ).toThrow(/not in the column allowlist for "where" predicates/);
+  });
+
+  it('passes when all WHERE columns are in the column allowlist', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'id', operator: 'eq', value: 42 }],
+    };
+    expect(() =>
+      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+    ).not.toThrow();
+  });
+
+  it('validates a qualified WHERE column against the named table allowlist', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'orders.deleted_at', operator: 'eq', value: null as unknown as number }],
+    };
+    expect(() =>
+      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+    ).toThrow(/Column "deleted_at" on table "orders"/);
   });
 });
 

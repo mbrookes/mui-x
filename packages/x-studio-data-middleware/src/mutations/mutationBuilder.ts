@@ -28,7 +28,7 @@ import type {
  */
 export function validateMutation(
   descriptor: MutationDescriptor,
-  options: Pick<HandleMutationOptions, 'writableColumns' | 'tenantColumn'>,
+  options: Pick<HandleMutationOptions, 'writableColumns' | 'tenantColumn' | 'columnAllowlist'>,
 ): void {
   // Require WHERE for update/delete — prevents full-table mutations.
   if (descriptor.operation !== 'insert' && (!descriptor.where || descriptor.where.length === 0)) {
@@ -36,6 +36,24 @@ export function validateMutation(
       `MUI X Studio Server: "${descriptor.operation}" mutation on table "${descriptor.table}" ` +
         `requires at least one "where" predicate to prevent unscoped mutations.`,
     );
+  }
+
+  // Validate where-predicate columns against the column allowlist — mirrors the
+  // read path (handler.ts validateColumns) so a client cannot reference arbitrary
+  // columns (e.g. to probe rows by hidden columns via the affected-row count).
+  if (options.columnAllowlist && descriptor.where) {
+    for (const pred of descriptor.where) {
+      const dotIdx = pred.column.indexOf('.');
+      const table = dotIdx !== -1 ? pred.column.slice(0, dotIdx) : descriptor.table;
+      const column = dotIdx !== -1 ? pred.column.slice(dotIdx + 1) : pred.column;
+      const allowed = options.columnAllowlist[table];
+      if (allowed && !allowed.includes(column)) {
+        throw new Error(
+          `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist ` +
+            `for "where" predicates. Allowed columns for "${table}": ${allowed.join(', ')}`,
+        );
+      }
+    }
   }
 
   // Validate value keys against the writable columns allowlist.
@@ -164,7 +182,9 @@ function applyMutationPredicate(query: any, predicate: FilterPredicate): void {
       query.where(column, '!=', value);
       break;
     case 'in':
-      if ((value as unknown[]).length === 0) break;
+      if ((value as unknown[]).length === 0) {
+        break;
+      }
       query.whereIn(column, value as unknown[]);
       break;
     case 'lt':

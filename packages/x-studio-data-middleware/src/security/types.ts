@@ -280,6 +280,24 @@ export interface HandleMutationOptions {
    */
   writableColumns?: Record<string, string[]>;
   /**
+   * Per-table allowlist of columns that may be referenced in `where` predicates
+   * for update/delete operations.
+   *
+   * Mirrors `HandleBatchQueryOptions.columnAllowlist` for the write path: when
+   * provided, every `MutationDescriptor.where[].column` is validated against the
+   * permitted list for its table. Qualified names (`table.column`) are split and
+   * validated against the named table.
+   *
+   * If omitted, no `where`-column validation is applied (backward compatible),
+   * but supplying it is strongly recommended in production so clients cannot
+   * probe rows by arbitrary columns (e.g. via update/delete row counts) within
+   * their own tenant.
+   *
+   * @example
+   * columnAllowlist: { orders: ['id', 'status', 'customer_id'] }
+   */
+  columnAllowlist?: Record<string, string[]>;
+  /**
    * Column name used for tenant isolation.
    *
    * - INSERT: the tenant value from `claims.tenantId` is set unconditionally.

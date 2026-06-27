@@ -147,7 +147,13 @@ export async function seedSurveyDatabase(db: Knex): Promise<SeededTable[]> {
       });
 
       if (rows.length > 0) {
-        const BATCH = 500;
+        // SQLite caps the number of bound variables per statement
+        // (SQLITE_MAX_VARIABLE_NUMBER, 32766). knex builds a multi-row insert
+        // binding columns × rows values, and the survey sheets are wide, so a
+        // fixed 500-row batch overflows the limit. Size each batch from the
+        // column count (also capped at 500 for the compound-SELECT limit).
+        const MAX_VARS = 32000;
+        const BATCH = Math.max(1, Math.min(500, Math.floor(MAX_VARS / Math.max(1, columns.length))));
         for (let i = 0; i < rows.length; i += BATCH) {
           const records = rows.slice(i, i + BATCH).map((row) =>
             Object.fromEntries(columns.map((col, j) => [col, row[j] ?? null])),

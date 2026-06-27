@@ -50,6 +50,8 @@ import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
+import { SourceSelectionContext } from './SourceSelectionContext';
+import { SourceSelectionBar } from './SourceSelectionBar';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -750,15 +752,19 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct; config.seriesField is a stable selector
   }, [multiYData, chartType, seriesFieldData, config.seriesField, twoRingData]);
 
+  // Non-deferred: suppresses stale hover immediately when any other widget emits a cross-filter,
+  // without waiting for the React.useDeferredValue lag in hasCrossFilters.
+  const hasIncomingCrossFilters = incomingCrossFilters.length > 0;
+
   const controlledHighlightedItem =
     !hasActiveXFilter &&
-    !hasCrossFilters &&
+    !hasIncomingCrossFilters &&
     hoveredItem &&
     currentHighlightableSeriesIds.has(hoveredItem.seriesId)
       ? hoveredItem
       : null;
   const controlledHighlightedAxis =
-    !hasActiveXFilter && !hasCrossFilters ? (hoveredAxis ?? []) : [];
+    !hasActiveXFilter && !hasIncomingCrossFilters ? (hoveredAxis ?? []) : [];
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';
@@ -2147,11 +2153,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       },
     ];
 
-    const pieHighlightedItem = isPieHighlightActive
-      ? null
-      : selectedDataIndices.length > 0
+    // Self-selection takes priority over ghost-highlight mode so clicking a pie arc
+    // always brightens it even when the pie is also receiving a cross-highlight from
+    // another chart. isPieHighlightActive ? null comes second to avoid suppressing it.
+    const pieHighlightedItem =
+      selectedDataIndices.length > 0
         ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-        : controlledHighlightedItem;
+        : isPieHighlightActive
+          ? null
+          : controlledHighlightedItem;
 
     return (
       /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
@@ -2755,6 +2765,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     yFieldDef?.precision,
   );
   const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
+  const sourceSelectionCtxValue =
+    selectedDataIndices.length > 1 ? new Set(selectedDataIndices) : null;
 
   // Filtered values aligned to all-data labels for ghost bar context
   const singleSeriesFilteredValues =
@@ -3067,36 +3079,110 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
 
     return (
+      <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
+        <CrossFilterBarContext.Provider value={singleBarContext}>
+          <div style={{ height: effectiveHBarHeight }}>
+            <BarChart
+              {...slotProps?.barChart}
+              skipAnimation={skipAnimation}
+              layout="horizontal"
+              xAxis={[
+                {
+                  height: 'auto',
+                  valueFormatter: seriesValueFormatter,
+                  ...(config.axisTickFontSize !== undefined
+                    ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
+                    : {}),
+                },
+              ]}
+              yAxis={[
+                {
+                  id: CROSS_FILTER_AXIS_ID,
+                  data: displayXAxisData,
+                  scaleType: 'band',
+                  width: hBarYAxisWidth,
+                  valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                  ...(config.axisTickFontSize !== undefined
+                    ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
+                    : {}),
+                  ...(config.barCategoryGapRatio !== undefined
+                    ? { categoryGapRatio: config.barCategoryGapRatio }
+                    : {}),
+                },
+              ]}
+              series={[
+                {
+                  id: CROSS_FILTER_SERIES_ID,
+                  data: displayBarValues,
+                  label: seriesLabel,
+                  highlightScope: { highlight: 'item', fade: 'global' },
+                  valueFormatter: singleSeriesVF,
+                },
+              ]}
+              colors={chartColors}
+              hideLegend
+              margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
+              highlightedItem={
+                selectedDataIndices.length === 1
+                  ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
+                  : selectedDataIndices.length === 0
+                    ? controlledHighlightedItem
+                    : null
+              }
+              onHighlightChange={(item) =>
+                setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+              }
+              onAxisClick={(_event, params) => {
+                if (params?.axisValue !== undefined) {
+                  handleItemClick(params.axisValue, _event.shiftKey);
+                }
+              }}
+              sx={{ cursor: 'default' }}
+              slots={
+                singleBarContext
+                  ? { bar: CrossFilterGhostBar }
+                  : selectedDataIndices.length > 1
+                    ? { bar: SourceSelectionBar }
+                    : undefined
+              }
+              slotProps={{
+                legend: {
+                  sx: {
+                    overflowY: 'auto',
+                    flexWrap: 'nowrap',
+                    maxHeight: '100%',
+                  },
+                },
+              }}
+            >
+              {annotationChildren}
+            </BarChart>
+          </div>
+        </CrossFilterBarContext.Provider>
+      </SourceSelectionContext.Provider>
+    );
+  }
+
+  return (
+    <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
       <CrossFilterBarContext.Provider value={singleBarContext}>
-        <div style={{ height: effectiveHBarHeight }}>
+        <div style={{ height: chartHeight }}>
           <BarChart
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}
-            layout="horizontal"
             xAxis={[
-              {
-                height: 'auto',
-                valueFormatter: seriesValueFormatter,
-                ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
-                  : {}),
-              },
-            ]}
-            yAxis={[
               {
                 id: CROSS_FILTER_AXIS_ID,
                 data: displayXAxisData,
                 scaleType: 'band',
-                width: hBarYAxisWidth,
+                height: 'auto',
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
-                  : {}),
                 ...(config.barCategoryGapRatio !== undefined
                   ? { categoryGapRatio: config.barCategoryGapRatio }
                   : {}),
               },
             ]}
+            yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
             series={[
               {
                 id: CROSS_FILTER_SERIES_ID,
@@ -3108,18 +3194,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             ]}
             colors={chartColors}
             hideLegend
-            margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
+            margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
             highlightedItem={
               selectedDataIndices.length === 1
                 ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
                 : selectedDataIndices.length === 0
                   ? controlledHighlightedItem
                   : null
-            }
-            highlightedAxis={
-              selectedDataIndices.length > 1
-                ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
-                : undefined
             }
             onHighlightChange={(item) =>
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -3130,7 +3211,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               }
             }}
             sx={{ cursor: 'default' }}
-            slots={singleBarContext ? { bar: CrossFilterGhostBar } : undefined}
+            slots={
+              singleBarContext
+                ? { bar: CrossFilterGhostBar }
+                : selectedDataIndices.length > 1
+                  ? { bar: SourceSelectionBar }
+                  : undefined
+            }
             slotProps={{
               legend: {
                 sx: {
@@ -3145,75 +3232,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           </BarChart>
         </div>
       </CrossFilterBarContext.Provider>
-    );
-  }
-
-  return (
-    <CrossFilterBarContext.Provider value={singleBarContext}>
-      <div style={{ height: chartHeight }}>
-        <BarChart
-          {...slotProps?.barChart}
-          skipAnimation={skipAnimation}
-          xAxis={[
-            {
-              id: CROSS_FILTER_AXIS_ID,
-              data: displayXAxisData,
-              scaleType: 'band',
-              height: 'auto',
-              valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-              ...(config.barCategoryGapRatio !== undefined
-                ? { categoryGapRatio: config.barCategoryGapRatio }
-                : {}),
-            },
-          ]}
-          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
-          series={[
-            {
-              id: CROSS_FILTER_SERIES_ID,
-              data: displayBarValues,
-              label: seriesLabel,
-              highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: singleSeriesVF,
-            },
-          ]}
-          colors={chartColors}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-          highlightedItem={
-            selectedDataIndices.length === 1
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-              : selectedDataIndices.length === 0
-                ? controlledHighlightedItem
-                : null
-          }
-          highlightedAxis={
-            selectedDataIndices.length > 1
-              ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
-              : undefined
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, _event.shiftKey);
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slots={singleBarContext ? { bar: CrossFilterGhostBar } : undefined}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {annotationChildren}
-        </BarChart>
-      </div>
-    </CrossFilterBarContext.Provider>
+    </SourceSelectionContext.Provider>
   );
 });

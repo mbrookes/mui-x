@@ -16,7 +16,10 @@ export function SourceSelectionBar(props: BarProps) {
   const { x, y, width, height, color, dataIndex, onClick } = props;
 
   const isSelected = selectedIndices != null && selectedIndices.has(dataIndex);
-  const opacity = selectedIndices != null ? (isSelected ? 1 : 0.3) : 1;
+  let opacity = 1;
+  if (selectedIndices != null) {
+    opacity = isSelected ? 1 : 0.3;
+  }
 
   return (
     <rect

@@ -34,12 +34,10 @@ export function CrossFilterGhostBar(props: BarProps) {
   const highlightFilter = ownerState.isHighlighted ? 'brightness(120%)' : undefined;
   const fadedOpacity = ownerState.isFaded ? 0.5 : 1;
   // When source multi-select is active, dim unselected ghost bars.
-  const selectionMultiplier =
-    selectedIndices != null && selectedIndices.size > 0
-      ? selectedIndices.has(dataIndex)
-        ? 1
-        : 0.3
-      : 1;
+  let selectionMultiplier = 1;
+  if (selectedIndices != null && selectedIndices.size > 0) {
+    selectionMultiplier = selectedIndices.has(dataIndex) ? 1 : 0.3;
+  }
 
   if (!ctx || height === 0) {
     return (

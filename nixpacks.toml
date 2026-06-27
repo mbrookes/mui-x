@@ -1,0 +1,20 @@
+# Railway build configuration (Nixpacks).
+#
+# The Node.js that Nixpacks provisions for the Node 22 series (22.19.0) ships an
+# old corepack. Since pnpm v11 is distributed as pure ESM, corepack loads pnpm's
+# `pnpm.cjs` shim inside a `vm` context without a dynamic-import callback and
+# crashes before install even starts:
+#
+#   TypeError [ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING]:
+#     A dynamic import callback was not specified.
+#       at .../corepack/pnpm/11.5.0/bin/pnpm.cjs:3:1
+#
+# Nixpacks pins Node by major version only, so a `.node-version` patch bump can't
+# pull in a newer (fixed) corepack. Instead, bypass corepack entirely: install
+# pnpm directly with npm into /usr/local (writable, takes priority on PATH) so
+# every later phase resolves the real pnpm CLI rather than the broken shim.
+[phases.install]
+cmds = [
+  "npm install -g --prefix /usr/local pnpm@11.5.0",
+  "pnpm install --frozen-lockfile --prefer-offline",
+]

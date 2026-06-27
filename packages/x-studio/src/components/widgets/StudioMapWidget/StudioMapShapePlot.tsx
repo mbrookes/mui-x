@@ -102,7 +102,7 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
                     const shape = (
                       <MapShape
                         seriesId={id}
-                        dataIndex={dataIndex}
+                        featureName={item.name}
                         d={d}
                         color={color}
                         stroke={stroke}

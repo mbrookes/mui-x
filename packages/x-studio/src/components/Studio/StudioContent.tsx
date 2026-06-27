@@ -79,7 +79,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const localeText = useStudioLocaleText();
 
   const filters = useStudioSelector(selectFilters);
-  const hasCrossFilters = filters.some((f) => f.scope === 'cross-filter' && !f.disabled);
+  const hasCrossFilters = filters.some((f) => f.scope.kind === 'cross-filter' && !f.disabled);
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);

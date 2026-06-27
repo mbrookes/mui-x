@@ -39,14 +39,19 @@ export function StudioQuickFilterBar() {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
-      (f.scope.kind === 'page' || (f.scope.kind === 'dashboard-date-range' && !features.quickFilter)) &&
-      ('pageId' in f.scope ? (!f.scope.pageId || f.scope.pageId === activePageId) : true),
+      (f.scope.kind === 'page' ||
+        (f.scope.kind === 'dashboard-date-range' && !features.quickFilter)) &&
+      ('pageId' in f.scope ? !f.scope.pageId || f.scope.pageId === activePageId : true),
   );
 
   // Chart-click cross-filters. When cross-page filtering is enabled, show all pages;
   // otherwise restrict to the active page only.
+  type CrossFilterEntry = StudioFilterState & {
+    scope: { kind: 'cross-filter'; sourceWidgetId: string; pageId: string };
+  };
   const crossFilters = (filters as StudioFilterState[]).filter(
-    (f) => f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
+    (f): f is CrossFilterEntry =>
+      f.scope.kind === 'cross-filter' && (crossFilterAllPages || f.scope.pageId === activePageId),
   );
 
   if (pageFilters.length === 0 && crossFilters.length === 0) {
@@ -70,9 +75,9 @@ export function StudioQuickFilterBar() {
     }
     const clearedWidgets = new Set<string>();
     for (const f of crossFilters) {
-      if (f.sourceWidgetId && !clearedWidgets.has(f.sourceWidgetId)) {
-        clearedWidgets.add(f.sourceWidgetId);
-        controller.clearCrossFilter(f.sourceWidgetId);
+      if (f.scope.sourceWidgetId && !clearedWidgets.has(f.scope.sourceWidgetId)) {
+        clearedWidgets.add(f.scope.sourceWidgetId);
+        controller.clearCrossFilter(f.scope.sourceWidgetId);
       }
     }
   };
@@ -176,8 +181,8 @@ export function StudioQuickFilterBar() {
       {crossFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
         const summary = String(filter.value ?? '');
-        const isFromOtherPage = filter.pageId && filter.pageId !== activePageId;
-        const pageTitle = isFromOtherPage ? (pages[filter.pageId!]?.title ?? '') : '';
+        const isFromOtherPage = filter.scope.pageId && filter.scope.pageId !== activePageId;
+        const pageTitle = isFromOtherPage ? (pages[filter.scope.pageId]?.title ?? '') : '';
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         const chipLabel = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (
@@ -224,8 +229,8 @@ export function StudioQuickFilterBar() {
                       aria-label={localeText.quickFilterBarRemoveFilter}
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        if (filter.sourceWidgetId) {
-                          controller.clearCrossFilter(filter.sourceWidgetId);
+                        if (filter.scope.sourceWidgetId) {
+                          controller.clearCrossFilter(filter.scope.sourceWidgetId);
                         } else {
                           controller.removeFilter(filter.id);
                         }

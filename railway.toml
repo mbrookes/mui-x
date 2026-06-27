@@ -1,6 +1,11 @@
 [build]
 builder = "railpack"
-buildCommand = "pnpm install --config.engine-strict=false"
+# Install deps, then build the better-sqlite3 native binding. The workspace
+# pins `better-sqlite3: false` under pnpm's build allowlist (CI stays
+# native-compile-free), so its prebuilt `.node` is never produced during
+# install — the survey data server needs it at runtime. Fetch the prebuilt
+# binary directly here (deploy-only; the workspace policy is unchanged).
+buildCommand = 'pnpm install --config.engine-strict=false && for d in node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3; do (cd "$d" && ./node_modules/.bin/prebuild-install || npm run build-release); done'
 
 [deploy]
 startCommand = "pnpm --filter \"x-studio-survey-example\" server"

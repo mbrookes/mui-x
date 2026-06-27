@@ -751,10 +751,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }, [multiYData, chartType, seriesFieldData, config.seriesField, twoRingData]);
 
   const controlledHighlightedItem =
-    !hasActiveXFilter && hoveredItem && currentHighlightableSeriesIds.has(hoveredItem.seriesId)
+    !hasActiveXFilter &&
+    !hasCrossFilters &&
+    hoveredItem &&
+    currentHighlightableSeriesIds.has(hoveredItem.seriesId)
       ? hoveredItem
       : null;
-  const controlledHighlightedAxis = !hasActiveXFilter ? (hoveredAxis ?? []) : [];
+  const controlledHighlightedAxis =
+    !hasActiveXFilter && !hasCrossFilters ? (hoveredAxis ?? []) : [];
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';

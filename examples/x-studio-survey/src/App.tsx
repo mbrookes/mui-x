@@ -145,20 +145,24 @@ export default function App() {
       return;
     }
     initialPageApplied.current = true;
-    const requested = new URLSearchParams(window.location.search).get('page');
-    if (requested && pages[requested]) {
-      studioRef.current?.setActivePage(requested);
+    const slug = new URLSearchParams(window.location.search).get('page');
+    if (slug) {
+      const pageId = `page-${slug}`;
+      if (pages[pageId]) {
+        studioRef.current?.setActivePage(pageId);
+      }
     }
   }, [activePageId, pages]);
 
-  // Keep ?page= in sync with the active page
+  // Keep ?page= in sync with the active page (use slug without the page- prefix)
   React.useEffect(() => {
     if (!activePageId) {
       return;
     }
+    const slug = activePageId.replace(/^page-/, '');
     const params = new URLSearchParams(window.location.search);
-    if (params.get('page') !== activePageId) {
-      params.set('page', activePageId);
+    if (params.get('page') !== slug) {
+      params.set('page', slug);
       window.history.replaceState(null, '', `?${params}`);
     }
   }, [activePageId]);

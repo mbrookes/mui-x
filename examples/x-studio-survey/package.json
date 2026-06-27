@@ -13,6 +13,7 @@
   "dependencies": {
     "@emotion/react": "catalog:",
     "@emotion/styled": "catalog:",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mui/icons-material": "catalog:",
     "@mui/material": "catalog:",
     "@mui/x-charts": "workspace:*",

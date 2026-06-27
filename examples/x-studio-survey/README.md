@@ -33,7 +33,37 @@ A copy of the `x-studio` example app wired to a **custom, generic Excel
 ## Running
 
 ```bash
+# Client (Vite dev server)
 pnpm --filter x-studio-survey-example dev
+
+# Backend (AI + MCP) — seeds the survey SQLite DB from the Excel files
+pnpm --filter x-studio-survey-example server
+```
+
+## Backend endpoints
+
+The server (`src/server/index.ts`) loads both workbooks into an in-memory SQLite
+database and exposes:
+
+- `GET /health` — readiness + seeded table row counts
+- `POST /api/ai/chat` (and `/title`, `/widget`, `/approval`) — x-studio AI chat
+- `POST|GET|DELETE /api/mcp` — a Streamable-HTTP **Model Context Protocol**
+  server
+
+The MCP server exposes the x-studio dashboard tools plus `query_data_source`,
+which runs structured (columns / filters / aggregations / order / paging)
+read-only queries against the seeded survey tables. Point an MCP client at it;
+for stdio-only clients (e.g. Claude Desktop) bridge with `mcp-remote`:
+
+```json
+{
+  "mcpServers": {
+    "x-studio-survey": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://survey-dev.up.railway.app/api/mcp"]
+    }
+  }
+}
 ```
 
 ## Report status / next steps

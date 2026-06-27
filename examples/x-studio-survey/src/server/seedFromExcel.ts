@@ -122,6 +122,8 @@ function parseWorkbook(filePath: string, idPrefix: string): ParsedSheet[] {
 export interface SeededTable {
   tableName: string;
   rowCount: number;
+  /** SQL column names for this table, in sheet order. */
+  columns: string[];
 }
 
 /**
@@ -162,7 +164,7 @@ export async function seedSurveyDatabase(db: Knex): Promise<SeededTable[]> {
         }
       }
 
-      seeded.push({ tableName, rowCount: rows.length });
+      seeded.push({ tableName, rowCount: rows.length, columns });
     }
   }
 

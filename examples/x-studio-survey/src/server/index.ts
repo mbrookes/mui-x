@@ -28,6 +28,7 @@ import {
   type StudioDataResolver,
 } from '@mui/x-studio-ai-middleware';
 import { seedSurveyDatabase, type SeededTable } from './seedFromExcel.js';
+import { makeMcpRouter } from './mcp.js';
 import { log, error } from './logger.js';
 
 const PORT = parseInt(process.env.PORT ?? '3005', 10);
@@ -116,6 +117,10 @@ async function main(): Promise<void> {
           cb(new Error(`CORS: origin ${origin} not allowed`));
         }
       },
+      // MCP clients send the session id on requests and must read it from the
+      // initialize response, so allow and expose the Mcp-Session-Id header.
+      allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
+      exposedHeaders: ['Mcp-Session-Id'],
     }),
   );
   app.use(express.json({ limit: '10mb' }));
@@ -244,10 +249,15 @@ async function main(): Promise<void> {
     }
   });
 
+  // MCP (Model Context Protocol) — Streamable HTTP at /api/mcp.
+  // Exposes the x-studio dashboard tools plus structured survey-data queries.
+  app.use('/api/mcp', makeMcpRouter(db, tables));
+
   app.listen(PORT, () => {
     log(`[startup] x-studio-survey-api listening on http://localhost:${PORT}`);
     log(`[startup]   Health:  http://localhost:${PORT}/health`);
     log(`[startup]   AI API:  http://localhost:${PORT}/api/ai/chat`);
+    log(`[startup]   MCP:     http://localhost:${PORT}/api/mcp`);
     if (!LLM_API_KEY) {
       log('[startup]   ⚠ LLM_API_KEY not set — AI endpoints will return 503');
     }

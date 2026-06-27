@@ -2143,8 +2143,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       },
     ];
 
-    const pieHighlightedItem =
-      selectedDataIndices.length > 0
+    const pieHighlightedItem = isPieHighlightActive
+      ? null
+      : selectedDataIndices.length > 0
         ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
         : controlledHighlightedItem;
 
@@ -3105,9 +3106,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             hideLegend
             margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
             highlightedItem={
-              selectedDataIndices.length > 0
+              selectedDataIndices.length === 1
                 ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-                : controlledHighlightedItem
+                : selectedDataIndices.length === 0
+                  ? controlledHighlightedItem
+                  : null
+            }
+            highlightedAxis={
+              selectedDataIndices.length > 1
+                ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
+                : undefined
             }
             onHighlightChange={(item) =>
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -3168,9 +3176,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
-            selectedDataIndices.length > 0
+            selectedDataIndices.length === 1
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-              : controlledHighlightedItem
+              : selectedDataIndices.length === 0
+                ? controlledHighlightedItem
+                : null
+          }
+          highlightedAxis={
+            selectedDataIndices.length > 1
+              ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
+              : undefined
           }
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)

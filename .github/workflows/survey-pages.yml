@@ -50,7 +50,8 @@ jobs:
       - name: Build survey example
         working-directory: examples/x-studio-survey
         env:
-          STUDIO_SERVER_URL: ${{ secrets.STUDIO_SERVER_URL }}
+          # Railway backend (AI chat). Overridable via the STUDIO_SERVER_URL secret.
+          STUDIO_SERVER_URL: ${{ secrets.STUDIO_SERVER_URL || 'https://survey-dev.up.railway.app' }}
         run: npx vite build --base=/mui-x/
 
       - name: Deploy to GitHub Pages

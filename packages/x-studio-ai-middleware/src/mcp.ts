@@ -58,7 +58,14 @@ import { executeToolOnState } from './executeToolOnState';
 import { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 import { renderChartSvg } from './chartRenderer';
 import type { ChartRendererInput } from './chartRenderer';
+import { buildPageLayoutContext } from './buildPageLayoutContext';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
+import type {
+  StateMutation,
+  StudioAIRecentMutation,
+  StudioAIEnrichedContext,
+} from './models/aiTypes';
+import type { StudioAIContextEnricher } from './handleAIChat';
 
 export type { StudioState };
 
@@ -266,6 +273,16 @@ export interface StudioMcpOptions {
     log: (...args: unknown[]) => void;
     error: (...args: unknown[]) => void;
   };
+  /**
+   * Optional hook to attach DB-side metadata (row counts per dimension value,
+   * schema comments) to the `studio://dashboard/system-prompt` resource — the
+   * MCP analogue of `handleAIChat`'s `contextEnricher`. It runs each time that
+   * resource is read and its result is rendered into a `<server_context>` block.
+   *
+   * Best-effort: if the callback throws, the error is logged and the prompt is
+   * built without it. Keep the payload small — it adds to every read.
+   */
+  contextEnricher?: StudioAIContextEnricher;
 }
 
 /**
@@ -496,6 +513,40 @@ const QUERY_DATA_SOURCE_SCHEMA = {
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Derives a compact, semantic label for a state mutation, mirroring the labels
+ * recorded by the client-side `StudioController` ring buffer. Surfaced via the
+ * `get_recent_changes` tool so MCP clients can see what changed recently.
+ */
+function mcpMutationLabel(m: StateMutation): string {
+  switch (m.type) {
+    case 'addPage':
+      return `addPage:${m.args.id}`;
+    case 'addWidget':
+      return `addWidget:${m.args.widget.kind}:${m.args.widget.id}`;
+    case 'updateWidget':
+      return `updateWidget:${m.args.widgetId}`;
+    case 'removeWidget':
+      return `removeWidget:${m.args.widgetId}`;
+    case 'setWidgetLayout':
+      return 'setWidgetLayout';
+    case 'setWidgetColSpan':
+      return `setWidgetColSpan:${m.args.widgetId}`;
+    case 'renamePage':
+      return `renamePage:${m.args.pageId}`;
+    case 'removePage':
+      return `removePage:${m.args.pageId}`;
+    case 'setActivePage':
+      return `setActivePage:${m.args.pageId}`;
+    case 'addFilter':
+      return `addFilter:${m.args.filter.field}`;
+    case 'removeFilter':
+      return `removeFilter:${m.args.filterId}`;
+    default:
+      return m.type;
+  }
+}
+
 /** Human-readable display titles for MCP tools (shown in Claude Desktop's permission editor). */
 const TOOL_TITLES: Record<string, string> = {
   get_dashboard_state: 'Get dashboard state',
@@ -524,6 +575,7 @@ const TOOL_TITLES: Record<string, string> = {
   get_field_values: 'Get field values',
   compute_field_stats: 'Compute field stats',
   render_chart: 'Render chart',
+  get_recent_changes: 'Get recent changes',
 };
 
 /** MCP tool annotations for each tool name (both built-in and dynamically added tools). */
@@ -542,6 +594,12 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
     openWorldHint: false,
   },
   render_chart: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  get_recent_changes: {
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -647,9 +705,16 @@ export function buildStudioMcpServer(
     data,
     onStateChange,
     logger,
+    contextEnricher,
   } = options;
 
   const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
+
+  // Session-scoped log of recent state mutations (oldest first), surfaced via the
+  // `get_recent_changes` tool. Only captures changes made through this MCP
+  // session — not edits a user makes in a separate browser session.
+  const MAX_RECENT_CHANGES = 20;
+  const recentChanges: StudioAIRecentMutation[] = [];
 
   const server = new Server(
     { name: serverName, version: serverVersion },
@@ -851,6 +916,21 @@ export function buildStudioMcpServer(
       annotations: TOOL_ANNOTATIONS.render_chart,
     });
 
+    tools.push({
+      name: 'get_recent_changes',
+      title: TOOL_TITLES.get_recent_changes,
+      description:
+        'Returns a compact, time-ordered log of the most recent changes made to the dashboard ' +
+        'in this session (e.g. "addWidget:chart:w1", "addFilter:region"). ' +
+        'Use this to understand what was just changed before deciding what to do next. ' +
+        'Only reflects changes made through this MCP session — not edits made elsewhere.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      } as Record<string, unknown>,
+      annotations: TOOL_ANNOTATIONS.get_recent_changes,
+    });
+
     return { tools };
   });
 
@@ -872,6 +952,13 @@ export function buildStudioMcpServer(
               text: JSON.stringify({ output: stateBox.current }),
             },
           ],
+        };
+      }
+
+      // ── get_recent_changes — session-scoped mutation log ────────────────
+      if (toolName === 'get_recent_changes') {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ output: recentChanges }) }],
         };
       }
 
@@ -1492,6 +1579,15 @@ export function buildStudioMcpServer(
 
         // Notify any subscribed clients that the dashboard state has changed.
         if (result.mutation) {
+          // Record the change in the session-scoped log surfaced by get_recent_changes.
+          recentChanges.push({
+            label: mcpMutationLabel(result.mutation),
+            at: new Date().toISOString(),
+          });
+          if (recentChanges.length > MAX_RECENT_CHANGES) {
+            recentChanges.shift();
+          }
+
           const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
           for (const uri of urisToNotify) {
             if (subscribedUris.has(uri)) {
@@ -1613,12 +1709,34 @@ export function buildStudioMcpServer(
       const dataToolNames = data
         ? ['query_data_source', 'describe_data_source', 'get_field_values', 'compute_field_stats']
         : undefined;
+
+      // Distilled layout + cross-filter graph — pure structure, no rows needed.
+      const pageLayout = buildPageLayoutContext(stateBox.current);
+      const richContext = pageLayout ? { pageLayout } : undefined;
+
+      // Best-effort server-side enrichment (row counts, schema comments).
+      let enrichedContext: StudioAIEnrichedContext | undefined;
+      if (contextEnricher) {
+        try {
+          enrichedContext = await contextEnricher({
+            dashboardState: stateBox.current,
+            richContext,
+          });
+        } catch (err) {
+          logger?.error(
+            `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
       return {
         contents: [
           {
             uri,
             text: buildAISystemPrompt(stateBox.current, customWidgets, undefined, undefined, {
               availableDataTools: dataToolNames,
+              richContext,
+              enrichedContext,
             }),
             mimeType: 'text/plain',
           },

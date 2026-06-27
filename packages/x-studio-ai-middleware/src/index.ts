@@ -62,6 +62,7 @@ export type {
 // Prompt builder and tool definitions — consumed by the server
 export { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 export type { BuildAISystemPromptOptions } from './buildAISystemPrompt';
+export { buildPageLayoutContext } from './buildPageLayoutContext';
 export { STUDIO_AI_TOOLS, WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
 
 // Built-in skills

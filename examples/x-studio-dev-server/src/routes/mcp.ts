@@ -48,6 +48,7 @@ import {
   createDefaultStudioState,
   type StudioStateBox,
   type StudioDataQueryParams,
+  type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
 import type { StudioState } from '@mui/x-studio-ai-middleware';
 import type { SerializedStudioState } from '@mui/x-studio';
@@ -123,6 +124,9 @@ const SALES_SCHEMA_ALLOWLIST = [
 
 const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities', 'deal_stage_transitions'];
 
+/** Matches a safe SQL identifier so a client-supplied table name can't inject. */
+const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 // ── Session maps ──────────────────────────────────────────────────────────────
 // Keyed by the MCP session ID issued on initialization.
 // Entries are removed when the transport closes (client disconnect or DELETE).
@@ -134,6 +138,48 @@ const stateBoxes: Record<string, StudioStateBox> = {};
 
 export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Router {
   const router = Router();
+
+  /**
+   * Builds an optional `contextEnricher` that attaches DB-side metadata (exact
+   * row counts and authored field descriptions) to the MCP session's AI context.
+   */
+  function makeContextEnricher(): StudioAIContextEnricher {
+    return async ({ dashboardState }) => {
+      const schemaComments: Record<string, string> = {};
+      const rowCountNotes: string[] = [];
+
+      await Promise.all(
+        Object.values(dashboardState.dataSources).map(async (source) => {
+          for (const field of source.fields ?? []) {
+            if (field.aiDescription) {
+              schemaComments[`${source.id}.${field.id}`] = field.aiDescription;
+            }
+          }
+
+          const table = source.tableName;
+          if (!table || !SAFE_IDENTIFIER.test(table)) {
+            return;
+          }
+          const db = CRM_SCHEMA_ALLOWLIST.includes(table) ? crmDb : salesDb;
+          try {
+            const [row] = (await db(table).count({ c: '*' })) as Array<{ c: number | string }>;
+            rowCountNotes.push(
+              `${source.label} (${table}): ${Number(row.c).toLocaleString()} rows`,
+            );
+          } catch {
+            // Table may not exist in this database — skip silently.
+          }
+        }),
+      );
+
+      return {
+        ...(Object.keys(schemaComments).length > 0 ? { schemaComments } : {}),
+        ...(rowCountNotes.length > 0
+          ? { notes: `Exact table row counts:\n${rowCountNotes.join('\n')}` }
+          : {}),
+      };
+    };
+  }
 
   /**
    * Build a `queryDataSource` callback for a session.
@@ -254,6 +300,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         data: {
           queryDataSource: makeQueryDataSource(claims),
         },
+        contextEnricher: makeContextEnricher(),
         logger: { log, error: logError },
       });
 

@@ -242,6 +242,13 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@atlaskit/pragmatic-drag-and-drop':
+        specifier: ^1.7.7
+        version: 1.8.1
+      '@mui/icons-material':
+        specifier: 'catalog:'
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
     devDependencies:
       '@atlaskit/pragmatic-drag-and-drop-unit-testing':
         specifier: 1.1.1
@@ -762,10 +769,10 @@ importers:
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/icons-material':
         specifier: 'catalog:'
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: 'catalog:'
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@mui/x-charts':
         specifier: workspace:*
         version: link:../../packages/x-charts/build
@@ -847,10 +854,10 @@ importers:
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/icons-material':
         specifier: 'catalog:'
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: 'catalog:'
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       ag-studio-react:
         specifier: latest
         version: 1.1.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -893,10 +900,10 @@ importers:
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/icons-material':
         specifier: 'catalog:'
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: 'catalog:'
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@mui/x-charts':
         specifier: workspace:*
         version: link:../../packages/x-charts/build
@@ -988,10 +995,10 @@ importers:
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/icons-material':
         specifier: 'catalog:'
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: 'catalog:'
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@mui/x-charts':
         specifier: workspace:*
         version: link:../../packages/x-charts/build
@@ -1125,10 +1132,10 @@ importers:
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/icons-material':
         specifier: 'catalog:'
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: 'catalog:'
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@mui/x-charts':
         specifier: workspace:*
         version: link:../../packages/x-charts/build
@@ -1147,15 +1154,21 @@ importers:
       '@mui/x-studio':
         specifier: workspace:*
         version: link:../../packages/x-studio/build
-      '@mui/x-studio-data-middleware':
+      '@mui/x-studio-ai-middleware':
         specifier: workspace:*
-        version: link:../../packages/x-studio-data-middleware
-      better-sqlite3:
-        specifier: ^12.10.0
-        version: 12.10.0
+        version: link:../../packages/x-studio-ai-middleware
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.6
       dayjs:
         specifier: 'catalog:'
         version: 1.11.21
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.21.2
+        version: 4.22.2
       knex:
         specifier: ^3.1.0
         version: 3.2.10(better-sqlite3@12.10.0)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.21.0)
@@ -1165,9 +1178,6 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.2.6(react@19.2.6)
-      web-vitals:
-        specifier: ^5.2.0
-        version: 5.3.0
       x-studio-shared:
         specifier: workspace:*
         version: link:../x-studio-shared
@@ -1178,6 +1188,15 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.15
@@ -1186,22 +1205,20 @@ importers:
         version: 19.2.3(@types/react@19.2.15)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
-      '@welldone-software/why-did-you-render':
-        specifier: ^10.0.1
-        version: 10.0.1(react@19.2.6)
-      react-scan:
-        specifier: 0.5.6
-        version: 0.5.6(esbuild@0.28.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rollup@4.62.0)
-      rollup-plugin-visualizer:
-        specifier: ^7.0.1
-        version: 7.0.1(rolldown@1.0.3)(rollup@4.62.0)
+        version: 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.3
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+        version: 8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+    optionalDependencies:
+      better-sqlite3:
+        specifier: ^12.10.0
+        version: 12.10.0
 
   packages/eslint-plugin-mui-x:
     dependencies:
@@ -1263,7 +1280,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1552,7 +1569,7 @@ importers:
         version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1590,7 +1607,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -1675,7 +1692,7 @@ importers:
         version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1796,7 +1813,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1858,7 +1875,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1917,7 +1934,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2012,7 +2029,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2084,7 +2101,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@types/use-sync-external-store':
         specifier: 'catalog:'
         version: 1.5.0
@@ -2116,7 +2133,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -2169,7 +2186,7 @@ importers:
         version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2237,7 +2254,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@types/prop-types':
         specifier: 'catalog:'
         version: 15.7.15
@@ -2281,7 +2298,7 @@ importers:
         version: 1.5.0
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@types/prop-types':
         specifier: 'catalog:'
         version: 15.7.15
@@ -2352,7 +2369,7 @@ importers:
         version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2453,10 +2470,10 @@ importers:
     devDependencies:
       '@mui/icons-material':
         specifier: ^9.0.0
-        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+        version: 9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
       '@mui/material':
         specifier: ^9.0.0
-        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@types/topojson-client':
         specifier: ^3.1.0
         version: 3.1.5
@@ -2512,7 +2529,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       rimraf:
         specifier: 'catalog:'
         version: 6.1.3
@@ -2553,7 +2570,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2624,7 +2641,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/material':
         specifier: 'catalog:'
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2665,7 +2682,7 @@ importers:
     devDependencies:
       '@mui/internal-test-utils':
         specifier: 'catalog:'
-        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/types':
         specifier: 'catalog:'
         version: 9.1.1(@types/react@19.2.15)
@@ -2912,7 +2929,7 @@ importers:
         version: 11.14.0(@types/react@19.2.15)(react@19.2.6)
       '@mui/internal-benchmark':
         specifier: 0.0.3-canary.6
-        version: 0.0.3-canary.6(@vitest/browser-playwright@4.1.8)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 0.0.3-canary.6(@vitest/browser-playwright@4.1.8)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       '@mui/x-charts':
         specifier: workspace:^
         version: link:../../packages/x-charts/build
@@ -2927,7 +2944,7 @@ importers:
         version: 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       '@vitest/browser-playwright':
         specifier: 'catalog:'
-        version: 4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+        version: 4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -2939,7 +2956,7 @@ importers:
         version: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
 
   test/regressions:
     devDependencies:
@@ -3060,7 +3077,7 @@ importers:
     devDependencies:
       vitest:
         specifier: 'catalog:'
-        version: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
 
 packages:
 
@@ -4833,6 +4850,16 @@ packages:
   '@mdn/browser-compat-data@6.1.5':
     resolution: {integrity: sha512-PzdZZzRhcXvKB0begee28n5lvwAcinGKYuLZOVxHAZm+n7y01ddEGfdS1ZXRuVcV+ndG6mSEAE8vgudom5UjYg==}
 
+  '@modelcontextprotocol/sdk@1.29.0':
+    resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@cfworker/json-schema': ^4.1.1
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@cfworker/json-schema':
+        optional: true
+
   '@mui/core-downloads-tracker@9.1.1':
     resolution: {integrity: sha512-AupmMICbdJHqAh6FfOMaaiiIr7dfEgZJn5DFfiPuGNrbs+ZZy9cD1APwO0TSVBz5j08MJEEY6n7iC76/2wjMEA==}
 
@@ -5775,8 +5802,8 @@ packages:
     peerDependencies:
       preact: 10.x
 
-  '@react-grab/cli@0.1.46':
-    resolution: {integrity: sha512-rNjGKeRY3HROku1J/a7y8RGHRGFR6ZnllSPqNLfFI5cUu6FCdjjxHvXf1TEXxW7I5REq8iKoLuzM9iYboXCRdg==}
+  '@react-grab/cli@0.1.47':
+    resolution: {integrity: sha512-Cc7d8mSwvoV8gpeTQbE8dMPdeXIyO6w+yIhzgi3jY06i03WLNhb/6jIxNBNF1cVRI7ujnFQXZA66BbnBNTpBSw==}
     hasBin: true
 
   '@react-spring/animated@10.1.0':
@@ -7562,6 +7589,7 @@ packages:
   conventional-changelog-core@5.0.1:
     resolution: {integrity: sha512-Rvi5pH+LvgsqGwZPZ3Cq/tz4ty7mjijhr3qR4m9IBXNbxGGYgTVVO+duXzz9aArmHxFtwZ+LRkrNIMDQzgoY4A==}
     engines: {node: '>=14'}
+    deprecated: Deprecated and no longer maintained. Please use conventional-changelog instead.
 
   conventional-changelog-preset-loader@3.0.0:
     resolution: {integrity: sha512-qy9XbdSLmVnwnvzEisjxdDiLA4OmV3o8db+Zdg4WiFw14fP3B6XNz98X0swPPpkTd/pc1K7+adKgEDM1JCUMiA==}
@@ -8688,7 +8716,7 @@ packages:
   git-raw-commits@3.0.0:
     resolution: {integrity: sha512-b5OHmZ3vAgGrDn/X0kS+9qCfNKWe4K/jFnhwzVWWg0/k5eLa3060tZShrRg8Dja5kPc+YjS0Gc6y7cRr44Lpjw==}
     engines: {node: '>=14'}
-    deprecated: This package is no longer maintained. For the JavaScript API, please use @conventional-changelog/git-client instead.
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   git-remote-origin-url@2.0.0:
@@ -8698,7 +8726,7 @@ packages:
   git-semver-tags@5.0.1:
     resolution: {integrity: sha512-hIvOeZwRbQ+7YEUmCkHqo8FOLQZCEn18yevLHADlFPZY02KJGsu5FZt9YW/lybfK2uhWFI7Qg/07LekJiTv7iA==}
     engines: {node: '>=14'}
-    deprecated: This package is no longer maintained. For the JavaScript API, please use @conventional-changelog/git-client instead.
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   git-up@7.0.0:
@@ -11133,8 +11161,8 @@ packages:
     peerDependencies:
       react: ^19.2.6
 
-  react-grab@0.1.46:
-    resolution: {integrity: sha512-i6sSSBGqW1yxZ5TZL9wX2m9qNMKOydpou5IMaXrK1iylJAJyr/npoqv4mhq3cO7480FBhmlEZbf5VF8KOCBlMQ==}
+  react-grab@0.1.47:
+    resolution: {integrity: sha512-1GNy24KMJ4CY1IxorYO9mydItGi0L1HkQB19uYU3t0BMsJB0K+D/QYiaBz+rugRynyY8LzmXIuOcon1TykLlCg==}
     hasBin: true
     peerDependencies:
       react: '>=17.0.0'
@@ -14740,6 +14768,28 @@ snapshots:
 
   '@mdn/browser-compat-data@6.1.5': {}
 
+  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.12.25)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      express: 5.2.1
+      express-rate-limit: 8.5.2(express@5.2.1)
+      hono: 4.12.25
+      jose: 6.2.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    transitivePeerDependencies:
+      - supports-color
+
   '@mui/core-downloads-tracker@9.1.1': {}
 
   '@mui/icons-material@9.1.1(@mui/material@9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)':
@@ -14792,16 +14842,16 @@ snapshots:
       '@babel/core': 7.29.7
       resolve: 1.22.12
 
-  '@mui/internal-benchmark@0.0.3-canary.6(@vitest/browser-playwright@4.1.8)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
+  '@mui/internal-benchmark@0.0.3-canary.6(@vitest/browser-playwright@4.1.8)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
     dependencies:
       '@babel/runtime': 7.29.7
-      '@vitejs/plugin-react': 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
-      '@vitest/browser-playwright': 4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+      '@vitejs/plugin-react': 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      '@vitest/browser-playwright': 4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
       env-ci: 11.2.0
       execa: 9.6.1
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
-      vitest: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       zod: 4.4.3
     transitivePeerDependencies:
       - '@rolldown/plugin-babel'
@@ -15114,6 +15164,34 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       vitest-fail-on-console: 0.10.1(@vitest/utils@4.1.8)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+    optionalDependencies:
+      '@emotion/cache': 11.14.0
+      '@emotion/react': 11.14.0(@types/react@19.2.15)(react@19.2.6)
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - '@vitest/utils'
+      - vite
+      - vitest
+
+  '@mui/internal-test-utils@2.0.18-canary.25(@emotion/cache@11.14.0)(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@playwright/test@1.60.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(@vitest/utils@4.1.8)(chai@6.2.2)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
+    dependencies:
+      '@babel/runtime': 7.29.7
+      '@playwright/test': 1.60.0
+      '@testing-library/dom': 10.4.1
+      '@testing-library/react': 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@testing-library/user-event': 14.6.1(@testing-library/dom@10.4.1)
+      '@types/chai-dom': 1.11.3
+      assertion-error: 2.0.1
+      chai: 6.2.2
+      chai-dom: 1.12.1(chai@6.2.2)
+      dom-accessibility-api: 0.7.1
+      es-toolkit: 1.46.1
+      format-util: 1.0.5
+      prop-types: 15.8.1
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+      vitest-fail-on-console: 0.10.1(@vitest/utils@4.1.8)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
     optionalDependencies:
       '@emotion/cache': 11.14.0
       '@emotion/react': 11.14.0(@types/react@19.2.15)(react@19.2.6)
@@ -15935,7 +16013,7 @@ snapshots:
       '@preact/signals-core': 1.14.2
       preact: 10.29.2
 
-  '@react-grab/cli@0.1.46':
+  '@react-grab/cli@0.1.47':
     dependencies:
       agent-install: 0.0.6
       commander: 14.0.3
@@ -16744,6 +16822,13 @@ snapshots:
     optionalDependencies:
       babel-plugin-react-compiler: 1.0.0
 
+  '@vitejs/plugin-react@6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
+    dependencies:
+      '@rolldown/pluginutils': 1.0.1
+      vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+    optionalDependencies:
+      babel-plugin-react-compiler: 1.0.0
+
   '@vitest/browser-playwright@4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
     dependencies:
       '@vitest/browser': 4.1.8(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
@@ -16751,6 +16836,19 @@ snapshots:
       playwright: 1.60.0
       tinyrainbow: 3.1.0
       vitest: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+
+  '@vitest/browser-playwright@4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
+    dependencies:
+      '@vitest/browser': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      playwright: 1.60.0
+      tinyrainbow: 3.1.0
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
     transitivePeerDependencies:
       - bufferutil
       - msw
@@ -16767,6 +16865,23 @@ snapshots:
       sirv: 3.0.2
       tinyrainbow: 3.1.0
       vitest: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      ws: 8.20.0
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+
+  '@vitest/browser@4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)':
+    dependencies:
+      '@blazediff/core': 1.9.1
+      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      '@vitest/utils': 4.1.8
+      magic-string: 0.30.21
+      pngjs: 7.0.0
+      sirv: 3.0.2
+      tinyrainbow: 3.1.0
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       ws: 8.20.0
     transitivePeerDependencies:
       - bufferutil
@@ -16818,6 +16933,14 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+
+  '@vitest/mocker@4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
+    dependencies:
+      '@vitest/spy': 4.1.8
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.8':
     dependencies:
@@ -18168,7 +18291,7 @@ snapshots:
 
   dotenv-expand@12.0.3:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
 
   dotenv@16.4.7: {}
 
@@ -22093,9 +22216,9 @@ snapshots:
       react: 19.2.6
       scheduler: 0.27.0
 
-  react-grab@0.1.46(react@19.2.6):
+  react-grab@0.1.47(react@19.2.6):
     dependencies:
-      '@react-grab/cli': 0.1.46
+      '@react-grab/cli': 0.1.47
       bippy: 0.5.41(react@19.2.6)
     optionalDependencies:
       react: 19.2.6
@@ -22139,7 +22262,7 @@ snapshots:
       prompts: 2.4.2
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
-      react-grab: 0.1.46(react@19.2.6)
+      react-grab: 0.1.47(react@19.2.6)
     optionalDependencies:
       esbuild: 0.28.0
       unplugin: 2.1.0
@@ -23835,12 +23958,35 @@ snapshots:
       tsx: 4.22.3
       yaml: 2.9.0
 
+  vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0):
+    dependencies:
+      lightningcss: 1.32.0
+      picomatch: 4.0.4
+      postcss: 8.5.15
+      rolldown: 1.0.3
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 24.13.2
+      esbuild: 0.28.0
+      fsevents: 2.3.3
+      jiti: 2.7.0
+      terser: 5.48.0
+      tsx: 4.22.3
+      yaml: 2.9.0
+
   vitest-fail-on-console@0.10.1(@vitest/utils@4.1.8)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8):
     dependencies:
       '@vitest/utils': 4.1.8
       chalk: 5.6.2
       vite: 8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
       vitest: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+
+  vitest-fail-on-console@0.10.1(@vitest/utils@4.1.8)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8):
+    dependencies:
+      '@vitest/utils': 4.1.8
+      chalk: 5.6.2
+      vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
 
   vitest@4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)):
     dependencies:
@@ -23872,7 +24018,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.7(playwright@1.60.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8))(@vitest/coverage-v8@4.1.7(@vitest/browser@4.1.7)(vitest@4.1.8))(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)):
+  vitest@4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.8
       '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
@@ -23896,38 +24042,8 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.13.2
-      '@vitest/browser-playwright': 4.1.7(playwright@1.60.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
-      '@vitest/coverage-v8': 4.1.7(@vitest/browser@4.1.7)(vitest@4.1.8)
-      jsdom: 29.1.1
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7(@vitest/browser@4.1.7)(vitest@4.1.8))(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.8
-      '@vitest/runner': 4.1.8
-      '@vitest/snapshot': 4.1.8
-      '@vitest/spy': 4.1.8
-      '@vitest/utils': 4.1.8
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.2
-      pathe: 2.0.3
-      picomatch: 4.0.4
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@types/node': 24.13.2
-      '@vitest/browser-playwright': 4.1.7(playwright@1.60.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
-      '@vitest/coverage-v8': 4.1.7(@vitest/browser@4.1.7)(vitest@4.1.8)
+      '@vitest/browser-playwright': 4.1.8(playwright@1.60.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+      '@vitest/coverage-v8': 4.1.8(@vitest/browser@4.1.8)(vitest@4.1.8)
       jsdom: 29.1.1
     transitivePeerDependencies:
       - msw

@@ -1,0 +1,8 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm install --config.engine-strict=false"
+
+[deploy]
+startCommand = "pnpm --filter \"x-studio-survey-example\" server"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

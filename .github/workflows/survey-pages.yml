@@ -1,0 +1,62 @@
+name: Deploy survey example to GitHub Pages
+
+on:
+  push:
+    branches: [x-studio-survey]
+    paths:
+      - 'examples/x-studio-survey/**'
+      - 'packages/x-studio/**'
+      - 'packages/x-charts/**'
+      - 'packages/x-charts-pro/**'
+      - 'packages/x-charts-premium/**'
+      - 'packages/x-charts-vendor/**'
+      - 'packages/x-data-grid/**'
+      - 'packages/x-data-grid-pro/**'
+      - 'packages/x-data-grid-premium/**'
+      - 'packages/x-date-pickers/**'
+      - 'packages/x-date-pickers-pro/**'
+      - 'packages/x-internals/**'
+      - 'packages/x-license/**'
+      - '.github/workflows/survey-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build survey example
+        working-directory: examples/x-studio-survey
+        env:
+          STUDIO_SERVER_URL: ${{ secrets.STUDIO_SERVER_URL }}
+        run: npx vite build --base=/mui-x/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: examples/x-studio-survey/dist
+          publish_branch: gh-pages
+          force_orphan: true

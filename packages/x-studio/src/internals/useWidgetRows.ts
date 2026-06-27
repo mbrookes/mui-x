@@ -17,6 +17,7 @@ import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { selectFiltersForWidget } from './filterScoping';
+import { resolveDateRangePresets } from './filterUtils';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
@@ -386,7 +387,12 @@ export function useWidgetRows(
         ...deferredPartitioned.cross,
         ...deferredPartitioned.interactive,
       ],
-      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, crossFilterAllPages },
+      {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        crossFilterAllPages,
+      },
     );
     return resolveRowsCached(
       normalizedDataSource.rows,
@@ -431,11 +437,13 @@ export function useWidgetRows(
       return [];
     }
     const allFilters = selectFiltersForWidget(
-      [
-        ...deferredPartitioned.page,
-        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
-      ],
-      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-cross' },
+      [...deferredPartitioned.page, ...(deferredPartitioned.byWidgetId.get(widget.id) ?? [])],
+      {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        include: 'no-cross',
+      },
     );
     return resolveRowsCached(
       normalizedDataSource.rows,
@@ -507,7 +515,12 @@ export function useWidgetRows(
         ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
         ...deferredPartitioned.interactive,
       ],
-      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-chart-cross' },
+      {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        include: 'no-chart-cross',
+      },
     );
     return resolveRowsCached(
       normalizedDataSource.rows,

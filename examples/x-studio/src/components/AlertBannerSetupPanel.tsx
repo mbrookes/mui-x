@@ -1,3 +1,4 @@
+import * as React from 'react';
 import {
   Box,
   Divider,
@@ -15,8 +16,9 @@ import {
   useStudioSelector,
   selectDataSources,
   selectExpressionFields,
+  DataSourceFieldSelect,
 } from '@mui/x-studio';
-import type { StudioCustomWidgetSetupPanelProps } from '@mui/x-studio';
+import type { StudioCustomWidgetSetupPanelProps, DataSourceFieldEntry } from '@mui/x-studio';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 import {
   computeBannerValue,
@@ -41,27 +43,36 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   const allExpressionFields = useStudioSelector(selectExpressionFields);
   const t = useAppLocaleText();
 
+  // Build a cross-source list of numeric fields (physical + expression) for the
+  // value field picker. Expression fields carry their own sourceId and label.
+  const allNumberFields = React.useMemo<DataSourceFieldEntry[]>(() => {
+    const physical = Object.values(dataSources).flatMap((src) => {
+      if (src.hidden) return [];
+      return src.fields
+        .filter((f) => !f.hidden && f.type === 'number')
+        .map((f) => ({ id: f.id, label: f.label, type: f.type, sourceId: src.id, sourceLabel: src.label }));
+    });
+    const expressions = allExpressionFields
+      .filter((ef) => !ef.hidden && (ef.type === 'number' || ef.type == null))
+      .map((ef) => {
+        const src = dataSources[ef.sourceId];
+        return { id: ef.id, label: ef.label, type: 'number' as const, sourceId: ef.sourceId, sourceLabel: src?.label ?? ef.sourceId };
+      });
+    return [...physical, ...expressions];
+  }, [dataSources, allExpressionFields]);
+
   if (!widget) {
     return null;
   }
 
-  const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
   const sourceId = widget.sourceId;
+  const source = sourceId ? dataSources[sourceId] : undefined;
 
-  // Include expression fields alongside physical fields so computed columns
-  // (e.g. expr-order-total-usd) appear in the value and date field selectors.
-  const exprForSource = allExpressionFields.filter((ef) => ef.sourceId === sourceId && !ef.hidden);
-  const numberFields: { id: string; label: string }[] = [
-    ...(source?.fields.filter((f) => !f.hidden && f.type === 'number') ?? []),
-    ...exprForSource
-      .filter((ef) => ef.type === 'number' || ef.type == null)
-      .map((ef) => ({ id: ef.id, label: ef.label })),
-  ];
+  // Date fields are restricted to the selected value field's source so rows align.
   const dateFields: { id: string; label: string }[] = [
-    ...(source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ??
-      []),
-    ...exprForSource
-      .filter((ef) => ef.type === 'date' || ef.type === 'datetime')
+    ...(source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ?? []),
+    ...allExpressionFields
+      .filter((ef) => ef.sourceId === sourceId && !ef.hidden && (ef.type === 'date' || ef.type === 'datetime'))
       .map((ef) => ({ id: ef.id, label: ef.label })),
   ];
 
@@ -78,6 +89,15 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
     controller.updateWidgetConfig(widgetId, {
       customConfig: { ...custom, ...changes },
     });
+  }
+
+  function onValueFieldChange(fieldId: string, newSourceId: string) {
+    // Clear the date field when source changes since it may not exist on the new source.
+    const sourceChanging = newSourceId !== sourceId;
+    updateCustomConfig({ valueField: fieldId, ...(sourceChanging ? { dateField: undefined } : {}) });
+    if (sourceChanging) {
+      controller.updateWidget(widgetId, { sourceId: newSourceId });
+    }
   }
 
   // Live preview of the computed value + resolved severity so the user can tune
@@ -128,20 +148,13 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
 
       <Divider flexItem />
 
-      <FormControl size="small" fullWidth>
-        <InputLabel>{t.alertValueFieldLabel}</InputLabel>
-        <Select
-          value={numberFields.some((f) => f.id === valueField) ? valueField : ''}
-          label={t.alertValueFieldLabel}
-          onChange={(event) => updateCustomConfig({ valueField: event.target.value })}
-        >
-          {numberFields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>
-              {f.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <DataSourceFieldSelect
+        label={t.alertValueFieldLabel}
+        value={valueField}
+        valueSourceId={sourceId}
+        fields={allNumberFields}
+        onChange={onValueFieldChange}
+      />
 
       <FormControl size="small" fullWidth>
         <InputLabel>{t.alertAggregationLabel}</InputLabel>

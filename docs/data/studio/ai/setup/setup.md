@@ -259,6 +259,45 @@ The browser client only sends messages and receives streaming events — it has 
 Protect your backend route with authentication (session cookies, JWTs, etc.) and rate limiting to prevent abuse.
 Studio does not make any calls at mount — the LLM is only called when the user sends a message.
 
+## Enriching the AI context
+
+Every chat request automatically includes extra context to help the AI answer better — no configuration required:
+
+- **Field statistics** — min/max/mean for numeric fields and distinct counts for dimensions, computed client-side from the live, filtered rows (raw data never leaves the browser).
+- **Page layout and cross-filter graph** — the active page's widget arrangement and which widgets filter which.
+- **Recent changes** — a compact log of what the user changed in the last few steps.
+
+This context is bounded by a token budget so it never bloats the prompt on large dashboards. Tune it with `contextBudgetTokens` (default `4000`); sections are included in priority order (field statistics, then layout, then recent changes) and anything that doesn't fit is dropped:
+
+```ts
+const aiConfig: StudioAIConfig = {
+  endpoint: '/api/ai',
+  contextBudgetTokens: 8000, // allow more context (higher token cost per turn)
+};
+```
+
+Setting `privateMode: true` omits this context entirely, since field statistics expose real data values.
+
+### Server-side enrichment
+
+The server can attach metadata the client can't know — exact row counts per dimension value, schema comments from your database catalog, and so on — via the `contextEnricher` option on `handleAIChat`. It runs once per request and its result is rendered into the system prompt (and omitted in `privateMode`):
+
+```ts
+const stream = handleAIChat(body, {
+  endpoint: 'https://api.openai.com/v1/chat/completions',
+  apiKey: process.env.OPENAI_API_KEY,
+  async contextEnricher({ dashboardState }) {
+    const rowCounts = await db.countByDimension('orders', 'region');
+    return {
+      rowCounts: { region: rowCounts }, // { US: 1200, EU: 840, ... }
+      schemaComments: { 'orders.revenue': 'Gross revenue in USD, pre-refund' },
+    };
+  },
+});
+```
+
+Enrichment is best-effort: if the callback throws it's reported via `onToolError` and the chat continues without it. Keep the returned payload small — it counts against the model's token budget.
+
 ## `StudioAIConfig` reference
 
 ```ts
@@ -290,6 +329,14 @@ interface StudioAIConfig {
    * @default false
    */
   privateMode?: boolean;
+  /**
+   * Token budget for the extra context attached to each request (field
+   * statistics, page layout, recent changes). Sections are included in priority
+   * order until the budget is reached; the rest are dropped. No effect in
+   * `privateMode`.
+   * @default 4000
+   */
+  contextBudgetTokens?: number;
 }
 ```
 

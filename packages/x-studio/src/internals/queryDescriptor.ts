@@ -6,12 +6,14 @@ import type {
   StudioQueryDescriptor,
   StudioWidget,
 } from '../models';
-import { resolveDateRangePresets } from './filterUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import {
   isFieldExpression,
   isFunctionExpression,
   isJoinFieldExpression,
 } from '../utils/expressionEvaluator';
+import { getDescriptor } from './chartTypeRegistry';
+import type { AggFn } from './chartTypeRegistry';
 
 function sortedStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -63,125 +65,11 @@ export function filtersToFilterNode(filters: StudioFilterState[]): StudioFilterN
 // ── Select field collector ──────────────────────────────────────────────────
 
 export function collectSelectFields(widget: StudioWidget): string[] {
-  const { config } = widget;
-  const fields = new Set<string>();
-
-  if (!config) {
+  if (!widget.config) {
     return [];
   }
-
-  // Grid columns
-  if (config.columns) {
-    config.columns.forEach((col) => fields.add(col.fieldId));
-  }
-  if (config.gridGroupByField) {
-    fields.add(config.gridGroupByField);
-  }
-  if (config.gridSortField) {
-    fields.add(config.gridSortField);
-  }
-  if (config.crossFilterField) {
-    fields.add(config.crossFilterField);
-  }
-
-  // Chart fields
-  if (config.xField) {
-    fields.add(config.xField);
-  }
-  if (config.yField) {
-    fields.add(config.yField);
-  }
-  if (config.yField2) {
-    fields.add(config.yField2);
-  }
-  if (config.seriesField) {
-    fields.add(config.seriesField);
-  }
-  if (config.scatterColorField) {
-    fields.add(config.scatterColorField);
-  }
-  if (config.scatterSizeField) {
-    fields.add(config.scatterSizeField);
-  }
-  if (config.ySeries) {
-    config.ySeries.forEach((s) => {
-      if (!s.fieldId) {
-        return;
-      }
-      // Foreign-source blended series are fetched independently from their own
-      // source (see useChartWidgetData's blend path). Pulling them into the
-      // widget's primary query would force a cross-source JOIN and can clash on a
-      // shared column such as the category axis present in both sources.
-      if (s.sourceId && s.sourceId !== widget.sourceId) {
-        return;
-      }
-      fields.add(s.fieldId);
-    });
-  }
-
-  // KPI fields
-  if (config.kpiValueField) {
-    fields.add(config.kpiValueField);
-  }
-  if (config.kpiSparklineField) {
-    // Skip sparkline field when it belongs to a different source — the KPI widget
-    // resolves it via in-memory join (resolveChartRowsForAggregation), so it must
-    // not be SELECTed from the widget's primary table (causes "no such column" SQL errors).
-    const sparklineSourceId = config.kpiSparklineSourceId;
-    if (!sparklineSourceId || sparklineSourceId === widget.sourceId) {
-      fields.add(config.kpiSparklineField);
-    }
-  }
-
-  // Pivot fields
-  if (config.pivotRowField) {
-    fields.add(config.pivotRowField);
-  }
-  if (config.pivotColField) {
-    fields.add(config.pivotColField);
-  }
-  if (config.pivotValueField) {
-    fields.add(config.pivotValueField);
-  }
-
-  // Funnel reached-depth field (used by aggregateFunnelReached for cumulative funnel / step-conversion)
-  if (config.funnelReachedField) {
-    fields.add(config.funnelReachedField);
-  }
-
-  // Heatmap fields
-  if (config.heatYField) {
-    fields.add(config.heatYField);
-  }
-
-  // Sankey target ("to") node field (source uses xField, value uses yField)
-  if (config.sankeyTargetField) {
-    fields.add(config.sankeyTargetField);
-  }
-
-  // Gantt chart fields
-  if (config.ganttLabelField) {
-    fields.add(config.ganttLabelField);
-  }
-  if (config.ganttStartField) {
-    fields.add(config.ganttStartField);
-  }
-  if (config.ganttEndField) {
-    fields.add(config.ganttEndField);
-  }
-  if (config.ganttColorField) {
-    fields.add(config.ganttColorField);
-  }
-
-  // Map / choropleth fields
-  if (config.mapCountryField) {
-    fields.add(config.mapCountryField);
-  }
-  if (config.mapValueField) {
-    fields.add(config.mapValueField);
-  }
-
-  return [...fields].filter(Boolean);
+  const descriptor = getDescriptor(widget.kind, widget.config);
+  return descriptor.collectFields(widget.config, widget.sourceId);
 }
 
 // ── Expression-field expansion ──────────────────────────────────────────────
@@ -264,14 +152,11 @@ function isExpressionField(
 
 // ── Aggregations builder ────────────────────────────────────────────────────
 
-type AggFn = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
-
 function buildAggregations(
   widget: StudioWidget,
   expressionFields: StudioExpressionField[] = [],
 ): { field: string; fn: AggFn; alias: string }[] | undefined {
   const { config } = widget;
-  const aggs: { field: string; fn: AggFn; alias: string }[] = [];
 
   if (!config) {
     return undefined;
@@ -283,61 +168,8 @@ function buildAggregations(
   const isExpr = (fieldId: string): boolean =>
     isExpressionField(fieldId, expressionFields, widget.sourceId);
 
-  // Single Y field — skip scatter (raw rows, no aggregation) and gantt (no yField anyway)
-  if (config.yField && config.chartType !== 'scatter' && !isExpr(config.yField)) {
-    const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
-    aggs.push({ field: config.yField, fn, alias: config.yField });
-  }
-
-  // Multiple Y series — use per-series aggregation function. Foreign-source blended
-  // series are queried separately against their own source, so they are excluded here.
-  if (config.ySeries) {
-    config.ySeries.forEach((s) => {
-      if (!s.fieldId || (s.sourceId && s.sourceId !== widget.sourceId) || isExpr(s.fieldId)) {
-        return;
-      }
-      const fn = (s.yAggregation as AggFn | undefined) ?? 'sum';
-      aggs.push({ field: s.fieldId, fn, alias: s.fieldId });
-    });
-  }
-
-  // KPI widgets always aggregate client-side (computeAggregate in StudioKpiWidget).
-  // Sending aggregations here triggers db-tier routing on the server, which returns
-  // 1 pre-aggregated row. Client COUNT([1 row]) = 1, not the real row count.
-  // Omitting aggregations lets the preflight use client/server tier → raw rows.
-
-  // Grid with groupBy — emit per-column aggregations so async adapters receive them
-  if (widget.kind === 'grid' && config.gridGroupByField) {
-    // Prefer per-column aggregationFn from StudioGridColumn, fall back to gridAggregations
-    if (config.columns?.length) {
-      config.columns.forEach((col) => {
-        const fn =
-          (col.aggregationFn as AggFn | undefined) ??
-          (config.gridAggregations?.[col.fieldId] as AggFn | undefined);
-        if (fn && col.fieldId !== config.gridGroupByField && !isExpr(col.fieldId)) {
-          aggs.push({ field: col.fieldId, fn, alias: col.fieldId });
-        }
-      });
-    } else if (config.gridAggregations) {
-      Object.entries(config.gridAggregations).forEach(([field, fn]) => {
-        if (!isExpr(field)) {
-          aggs.push({ field, fn: fn as AggFn, alias: field });
-        }
-      });
-    }
-  }
-
-  // Map / choropleth — aggregate the value field per country for db-tier push-down
-  if (widget.kind === 'map' && config.mapValueField && !isExpr(config.mapValueField)) {
-    const fn = (config.mapAggregation as AggFn | undefined) ?? 'sum';
-    aggs.push({ field: config.mapValueField, fn, alias: config.mapValueField });
-  }
-
-  // Pivot table — aggregate the value field per (row, col) for db-tier push-down
-  if (widget.kind === 'pivot' && config.pivotValueField && !isExpr(config.pivotValueField)) {
-    const fn = (config.pivotAggregation as AggFn | undefined) ?? 'sum';
-    aggs.push({ field: config.pivotValueField, fn, alias: config.pivotValueField });
-  }
+  const descriptor = getDescriptor(widget.kind, widget.config);
+  const aggs = descriptor.buildAggregationSpecs(config, isExpr, widget.sourceId);
 
   return aggs.length > 0 ? aggs : undefined;
 }
@@ -366,27 +198,11 @@ export function buildQueryDescriptor(
   tableName?: string,
   expressionFields: StudioExpressionField[] = [],
 ): StudioQueryDescriptor {
-  const pageFilters = filters.filter((f) => f.scope === 'page');
-  const widgetFilters = filters.filter(
-    (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
-  );
-  const crossFilters = filters.filter(
-    (f) =>
-      f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-  );
-  const interactiveFilters = filters.filter(
-    (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-  );
-
-  const allFilters = resolveDateRangePresets(
-    [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters].filter(
-      (f) =>
-        !f.disabled &&
-        // Dashboard date-range filters are scoped to their own source — exclude those
-        // targeting a different source so they don't leak into the wrong DB query.
-        !(f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widget.sourceId),
-    ),
-  );
+  const allFilters = selectFiltersForWidget(filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId,
+  });
   const filter = filtersToFilterNode(allFilters);
 
   // Expression columns are expanded to the native columns they depend on — the server

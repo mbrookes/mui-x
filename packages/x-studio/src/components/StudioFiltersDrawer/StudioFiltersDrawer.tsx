@@ -18,6 +18,7 @@ import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined
 import EditIcon from '@mui/icons-material/Edit';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import type { SxProps, Theme } from '@mui/material/styles';
 import {
@@ -75,6 +76,8 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const [renamingPresetId, setRenamingPresetId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
+
+  const [activePresetId, setActivePresetId] = React.useState<string | null>(null);
 
   const handleRenameStart = (presetId: string, currentName: string) => {
     setRenamingPresetId(presetId);
@@ -164,17 +167,17 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) =>
-      f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
+      f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
   );
   const widgetFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
+    (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === selectedWidgetId,
   );
   const crossFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) =>
-      f.scope === 'cross-filter' && (crossFilterAllPages || f.pageId === activePageId),
+      f.scope.kind === 'cross-filter' && (crossFilterAllPages || f.scope.pageId === activePageId),
   );
   const interactiveFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope === 'interactive',
+    (f: StudioFilterState) => f.scope.kind === 'interactive',
   );
 
   // Build a map of field id → label for search matching
@@ -211,7 +214,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       field: '',
       operator: 'equals',
       value: '',
-      scope: 'page',
+      scope: { kind: 'page' },
     });
   };
 
@@ -224,8 +227,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       field: '',
       operator: 'equals',
       value: '',
-      scope: 'widget',
-      widgetId: selectedWidgetId,
+      scope: { kind: 'widget', widgetId: selectedWidgetId },
     });
   };
 
@@ -384,55 +386,93 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
             )}
 
             <Stack spacing={0.5}>
-              {filterPresets.map((preset) => (
-                <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                  {renamingPresetId === preset.id ? (
-                    <TextField
-                      size="small"
-                      value={renameValue}
-                      autoFocus
-                      sx={{ flexGrow: 1 }}
-                      onChange={(event) => setRenameValue(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          handleRenameConfirm();
-                        } else if (event.key === 'Escape') {
-                          handleRenameCancel();
+              {filterPresets.length > 0 && (
+                <Chip
+                  icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
+                  label={localeText.filtersDefaultViewLabel}
+                  size="small"
+                  color={activePresetId === null ? 'primary' : 'default'}
+                  disabled={activePresetId === null}
+                  clickable={activePresetId !== null}
+                  onClick={
+                    activePresetId !== null
+                      ? () => {
+                          controller.clearPageFilters();
+                          setActivePresetId(null);
                         }
-                      }}
-                      onBlur={handleRenameConfirm}
-                      slotProps={{ input: { 'aria-label': localeText.filtersRenameViewAriaLabel } }}
-                    />
-                  ) : (
-                    <Chip
-                      icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                      label={preset.name}
-                      size="small"
-                      clickable
-                      onClick={() => controller.applyFilterPreset(preset.id)}
-                      sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-                    />
-                  )}
-                  <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleRenameStart(preset.id, preset.name)}
-                      aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title={localeText.filtersDeleteViewTooltip}>
-                    <IconButton
-                      size="small"
-                      onClick={() => controller.deleteFilterPreset(preset.id)}
-                      aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
-                    >
-                      <DeleteOutlineOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              ))}
+                      : undefined
+                  }
+                  sx={{ justifyContent: 'flex-start' }}
+                />
+              )}
+              {filterPresets.map((preset) => {
+                const isActive = preset.id === activePresetId;
+                return (
+                  <Stack
+                    key={preset.id}
+                    direction="row"
+                    spacing={0.5}
+                    sx={{ alignItems: 'center' }}
+                  >
+                    {renamingPresetId === preset.id ? (
+                      <TextField
+                        size="small"
+                        value={renameValue}
+                        autoFocus
+                        sx={{ flexGrow: 1 }}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            handleRenameConfirm();
+                          } else if (event.key === 'Escape') {
+                            handleRenameCancel();
+                          }
+                        }}
+                        onBlur={handleRenameConfirm}
+                        slotProps={{
+                          input: { 'aria-label': localeText.filtersRenameViewAriaLabel },
+                        }}
+                      />
+                    ) : (
+                      <Chip
+                        icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                        label={preset.name}
+                        size="small"
+                        color={isActive ? 'primary' : 'default'}
+                        disabled={isActive}
+                        clickable={!isActive}
+                        onClick={
+                          isActive
+                            ? undefined
+                            : () => {
+                                controller.applyFilterPreset(preset.id);
+                                setActivePresetId(preset.id);
+                              }
+                        }
+                        sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                      />
+                    )}
+                    <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRenameStart(preset.id, preset.name)}
+                        aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={localeText.filtersDeleteViewTooltip}>
+                      <IconButton
+                        size="small"
+                        onClick={() => controller.deleteFilterPreset(preset.id)}
+                        aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
+                      >
+                        <DeleteOutlineOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                );
+              })}
             </Stack>
           </div>
         </React.Fragment>

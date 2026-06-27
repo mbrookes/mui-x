@@ -15,9 +15,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'region',
     operator: 'equals',
     value: 'EU',
-    scope: 'page',
+    scope: { kind: 'page' as const },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 function makeDataSources(
@@ -150,7 +150,7 @@ describe('resolveRowsCached', () => {
   it('invalidates the cache when own rows reference changes', () => {
     const ownRows1 = [...rows];
     const dataSources1 = makeDataSources(ownRows1);
-    const filters = [makeFilter({ id: 'f1', value: 'EU' })];
+    const filters = [makeFilter({ id: 'f1', scope: { kind: 'page' }, value: 'EU' })];
     const result1 = resolveRowsCached(
       ownRows1,
       'orders',
@@ -183,7 +183,7 @@ describe('resolveRowsCached', () => {
     const ownRows = [...rows];
     const customersV1 = [{ id: 'c1', name: 'Alice' }];
     const dataSources1 = makeDataSources(ownRows, { customers: customersV1 });
-    const filters = [makeFilter({ id: 'f1', value: 'EU' })];
+    const filters = [makeFilter({ id: 'f1', scope: { kind: 'page' }, value: 'EU' })];
     const result1 = resolveRowsCached(
       ownRows,
       'orders',
@@ -241,7 +241,7 @@ describe('resolveRowsCached', () => {
     // Same filter in both calls — same filterKey — only the foreign source rows differ
     const crossFilter = makeFilter({
       id: 'cf1',
-      scope: 'cross-filter',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'some-widget', pageId: 'p1' },
       filterSourceId: 'customers',
       field: 'region',
       operator: 'equals',
@@ -300,7 +300,7 @@ describe('resolveRowsCached', () => {
   it('falls through to resolveRows when widgetSourceId is undefined', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
-    const filters = [makeFilter({ id: 'f1', value: 'EU' })];
+    const filters = [makeFilter({ id: 'f1', scope: { kind: 'page' }, value: 'EU' })];
     const result = resolveRowsCached(
       ownRows,
       undefined,
@@ -315,7 +315,7 @@ describe('resolveRowsCached', () => {
   it('shares cached results across different widgets with same source and effective filters', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
-    const pageFilter = makeFilter({ id: 'page-filter', scope: 'page', value: 'EU' });
+    const pageFilter = makeFilter({ id: 'page-filter', scope: { kind: 'page' }, value: 'EU' });
 
     // Widget A: page filter only
     const widget1Filters = [pageFilter];

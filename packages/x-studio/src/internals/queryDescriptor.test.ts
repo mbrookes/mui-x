@@ -16,15 +16,15 @@ function makeWidget(config: Partial<StudioWidgetConfig> = {}): StudioWidget {
   };
 }
 
-function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+function makeFilter(overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] }): StudioFilterState {
   return {
     id: 'f1',
     field: 'status',
     operator: 'equals',
     value: 'active',
-    scope: 'page',
+    scope: { kind: 'page' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 const PAGE_ID = 'page-1';
@@ -80,9 +80,12 @@ describe('buildQueryDescriptor', () => {
   });
 
   it('collects grid columns into select', () => {
-    const widget = makeWidget({
-      columns: [{ fieldId: 'id' }, { fieldId: 'name' }, { fieldId: 'amount' }],
-    });
+    const widget = {
+      ...makeWidget({
+        columns: [{ fieldId: 'id' }, { fieldId: 'name' }, { fieldId: 'amount' }],
+      }),
+      kind: 'grid' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID);
     expect(desc.select).toEqual(expect.arrayContaining(['id', 'name', 'amount']));
   });
@@ -153,14 +156,20 @@ describe('buildQueryDescriptor', () => {
   };
 
   it('expands an expression KPI value field to its native dependencies in select', () => {
-    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.select).toEqual(expect.arrayContaining(['price', 'cost']));
     expect(desc.select).not.toContain('expr-margin');
   });
 
   it('drops expression-field aggregations (cannot be computed server-side)', () => {
-    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.aggregations?.some((a) => a.field === 'expr-margin')).not.toBe(true);
   });
@@ -168,7 +177,10 @@ describe('buildQueryDescriptor', () => {
   it('leaves native value fields untouched when expression fields are supplied', () => {
     // KPI aggregates client-side — but the native field must still appear in select so the
     // server returns the raw values the client needs to aggregate.
-    const widget = makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' });
+    const widget = {
+      ...makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.select).toContain('revenue');
     expect(desc.aggregations == null || desc.aggregations.length === 0).toBe(true);
@@ -177,7 +189,10 @@ describe('buildQueryDescriptor', () => {
   it('end-to-end: a server returning the native columns yields a non-zero expression KPI (BL-201)', () => {
     // Reproduces the adapter/server path: the descriptor selects native deps (no expression
     // column), a "server" projects those raw columns, then the client enriches + aggregates.
-    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const widget = {
+      ...makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' }),
+      kind: 'kpi' as const,
+    };
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
 
     // Simulated server: returns only the requested physical columns (no expr-margin).
@@ -209,7 +224,7 @@ describe('buildQueryDescriptor', () => {
 
   it('includes page-scoped filters in the descriptor', () => {
     const pageFilter = makeFilter({
-      scope: 'page',
+      scope: { kind: 'page' },
       field: 'region',
       operator: 'equals',
       value: 'EU',
@@ -222,15 +237,13 @@ describe('buildQueryDescriptor', () => {
 
   it('includes widget-scoped filters for this widget only', () => {
     const widgetFilter = makeFilter({
-      scope: 'widget',
-      widgetId: 'w1',
+      scope: { kind: 'widget', widgetId: 'w1' },
       field: 'status',
       value: 'shipped',
     });
     const otherFilter = makeFilter({
       id: 'f99',
-      scope: 'widget',
-      widgetId: 'w2',
+      scope: { kind: 'widget', widgetId: 'w2' },
       field: 'status',
       value: 'returned',
     });
@@ -243,9 +256,7 @@ describe('buildQueryDescriptor', () => {
 
   it('includes cross-filters from other widgets on same page', () => {
     const crossFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w2',
-      pageId: PAGE_ID,
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
       field: 'category',
       value: 'Electronics',
     });
@@ -256,9 +267,7 @@ describe('buildQueryDescriptor', () => {
 
   it('excludes cross-filters emitted by this widget', () => {
     const selfCrossFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w1', // same as widget.id
-      pageId: PAGE_ID,
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1' /* same as widget.id */, pageId: PAGE_ID },
       field: 'category',
       value: 'Electronics',
     });
@@ -269,9 +278,7 @@ describe('buildQueryDescriptor', () => {
 
   it('excludes cross-filters from a different page', () => {
     const otherPageFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w2',
-      pageId: 'other-page',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'other-page' },
       field: 'category',
       value: 'Electronics',
     });
@@ -292,7 +299,7 @@ describe('buildQueryDescriptor', () => {
     const desc1 = buildQueryDescriptor(widget, [], PAGE_ID);
     const desc2 = buildQueryDescriptor(
       widget,
-      [makeFilter({ field: 'status', value: 'active' })],
+      [makeFilter({ scope: { kind: 'page' }, field: 'status', value: 'active' })],
       PAGE_ID,
     );
     expect(desc1.cacheKey).not.toBe(desc2.cacheKey);

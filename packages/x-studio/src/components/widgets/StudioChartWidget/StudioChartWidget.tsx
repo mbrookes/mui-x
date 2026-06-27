@@ -2325,7 +2325,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       height: 'auto',
-                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      valueFormatter: (v: string | number) =>
+                        wrapBandLabel(formatLabel(String(v))),
                       ...(config.barCategoryGapRatio !== undefined
                         ? { categoryGapRatio: config.barCategoryGapRatio }
                         : {}),
@@ -2340,7 +2341,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       width: 'auto',
-                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      valueFormatter: (v: string | number) =>
+                        wrapBandLabel(formatLabel(String(v))),
                       ...(config.axisTickFontSize !== undefined
                         ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
                         : {}),
@@ -2926,9 +2928,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               area: true,
               connectNulls: true,
               highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: ghostLineValues
-                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
-                : seriesValueFormatter,
+              valueFormatter: seriesValueFormatter,
             },
             ...(forecastData
               ? [

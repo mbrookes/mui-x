@@ -25,7 +25,7 @@ export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFil
   if (
     !filters.some(
       (f) =>
-        f.isDashboardDateRange &&
+        f.scope.kind === 'dashboard-date-range' &&
         f.dateRangePreset &&
         f.dateRangePreset !== 'custom' &&
         !isRelativeDateValue(f.value),
@@ -35,7 +35,7 @@ export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFil
   }
   return filters.map((f) => {
     if (
-      !f.isDashboardDateRange ||
+      f.scope.kind !== 'dashboard-date-range' ||
       !f.dateRangePreset ||
       f.dateRangePreset === 'custom' ||
       isRelativeDateValue(f.value)

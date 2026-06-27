@@ -39,11 +39,8 @@ export function StudioQuickFilterBar() {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
-      f.scope === 'page' &&
-      // When the date range bar is disabled, still show dashboard date-range filters
-      // so they remain visible and clearable (avoids hidden active filters).
-      (!f.isDashboardDateRange || !features.quickFilter) &&
-      (!f.pageId || f.pageId === activePageId),
+      (f.scope.kind === 'page' || (f.scope.kind === 'dashboard-date-range' && !features.quickFilter)) &&
+      ('pageId' in f.scope ? (!f.scope.pageId || f.scope.pageId === activePageId) : true),
   );
 
   // Chart-click cross-filters. When cross-page filtering is enabled, show all pages;

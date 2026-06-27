@@ -19,9 +19,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scope: 'widget',
+    scope: { kind: 'widget', widgetId: 'w1' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 // ─── getOperators ─────────────────────────────────────────────────────────────

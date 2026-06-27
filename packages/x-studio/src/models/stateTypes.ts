@@ -9,6 +9,21 @@ import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
 
+/**
+ * Typed filter scope — a discriminated union that encodes scope and all
+ * scope-dependent identifiers in a single field.
+ *
+ * This is the sole scope descriptor for `StudioFilterState`.
+ */
+export type StudioFilterScope =
+  | { kind: 'page'; pageId?: string }
+  | { kind: 'widget'; widgetId: string }
+  | { kind: 'cross-filter'; sourceWidgetId: string; pageId: string }
+  | { kind: 'interactive'; sourceWidgetId: string; pageId: string }
+  /** Replaces isDashboardDateRange: true + filterSourceId. The filter applies only to
+   *  widgets whose sourceId matches and runs on the given page. */
+  | { kind: 'dashboard-date-range'; sourceId: string; pageId: string };
+
 export type StudioDateRangePreset =
   | 'this_month'
   | 'last_3_months'
@@ -49,12 +64,6 @@ export interface StudioFilterState {
    * - `<fieldId>`: rank by the values of the specific series with that fieldId
    */
   rankMultiSeriesBy?: string;
-  scope: 'page' | 'widget' | 'cross-filter' | 'interactive';
-  widgetId?: string;
-  /** For cross-filters: the widget ID that originated the filter */
-  sourceWidgetId?: string;
-  /** For cross-filters: the page on which the filter was applied */
-  pageId?: string;
   /**
    * For cross-source widget filters: the data source this filter's field belongs to.
    * When set (and different from the widget's source), the join path is resolved
@@ -62,13 +71,7 @@ export interface StudioFilterState {
    */
   filterSourceId?: string;
   /**
-   * When `true`, this filter was created by the dashboard date-range bar and is
-   * managed exclusively by that component — it is hidden from the filters drawer
-   * and quick-filter bar.
-   */
-  isDashboardDateRange?: true;
-  /**
-   * The preset that was used to compute the date range when `isDashboardDateRange` is true.
+   * The preset that was used to compute the date range when the scope is `dashboard-date-range`.
    * Stored for display purposes so the bar can show the active preset.
    */
   dateRangePreset?: StudioDateRangePreset;
@@ -81,6 +84,11 @@ export interface StudioFilterState {
   dependsOn?: string[];
   /** When `true`, the filter is temporarily inactive without being removed. */
   disabled?: boolean;
+  /**
+   * Typed scope — a discriminated union that encodes scope and all
+   * scope-dependent identifiers in a single, exhaustive field.
+   */
+  scope: StudioFilterScope;
 }
 
 export interface StudioShellState {
@@ -117,7 +125,7 @@ export interface StudioFilterPreset {
 }
 
 export interface StudioState {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1;
   mode: StudioMode;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
@@ -144,7 +152,7 @@ const defaultPageId = 'page-1';
 
 export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
   const baseState: StudioState = {
-    schemaVersion: 2,
+    schemaVersion: 1,
     mode: 'edit',
     dashboard: {
       id: 'dashboard-1',

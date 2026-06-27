@@ -2,15 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { StudioController } from './StudioController';
 import type { StudioFilterState, StudioWidget } from '../models';
 
-function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+function makeFilter(overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] }): StudioFilterState {
   return {
     id: 'f1',
     field: 'value',
     operator: 'equals',
     value: '',
-    scope: 'page',
+    scope: { kind: 'page' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 describe('StudioController.updateFilter', () => {
@@ -75,8 +75,7 @@ describe('StudioController.applyCrossFilter', () => {
     const filters = controller.getState().filters;
     expect(filters).toHaveLength(1);
     expect(filters[0]).toMatchObject({
-      scope: 'cross-filter',
-      sourceWidgetId: 'widget-chart-category',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'widget-chart-category' },
       field: 'category',
       operator: 'equals',
       value: 'Electronics',
@@ -102,7 +101,7 @@ describe('StudioController.applyCrossFilter', () => {
 
     const filters = controller.getState().filters;
     // Only one cross-filter from widget-a should remain
-    expect(filters.filter((f) => f.sourceWidgetId === 'widget-a')).toHaveLength(1);
+    expect(filters.filter((f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === 'widget-a')).toHaveLength(1);
     expect(filters[0]).toMatchObject({ value: 'Clothing' });
   });
 
@@ -114,20 +113,20 @@ describe('StudioController.applyCrossFilter', () => {
 
     const filters = controller.getState().filters;
     expect(filters).toHaveLength(2);
-    expect(filters.some((f) => f.sourceWidgetId === 'widget-a')).toBe(true);
-    expect(filters.some((f) => f.sourceWidgetId === 'widget-b')).toBe(true);
+    expect(filters.some((f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === 'widget-a')).toBe(true);
+    expect(filters.some((f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === 'widget-b')).toBe(true);
   });
 
   it('does not remove page-scoped filters when adding a cross-filter', () => {
     const controller = new StudioController({
-      filters: [makeFilter({ id: 'date-filter', scope: 'page', field: 'date' })],
+      filters: [makeFilter({ id: 'date-filter', scope: { kind: 'page' }, field: 'date' })],
     });
 
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
 
     const filters = controller.getState().filters;
     expect(filters.some((f) => f.id === 'date-filter')).toBe(true);
-    expect(filters.some((f) => f.scope === 'cross-filter')).toBe(true);
+    expect(filters.some((f) => f.scope.kind === 'cross-filter')).toBe(true);
   });
 });
 
@@ -140,7 +139,7 @@ describe('StudioController.clearCrossFilter', () => {
 
     controller.clearCrossFilter('widget-a');
 
-    expect(controller.getState().filters.filter((f) => f.scope === 'cross-filter')).toHaveLength(0);
+    expect(controller.getState().filters.filter((f) => f.scope.kind === 'cross-filter')).toHaveLength(0);
   });
 
   it('leaves cross-filters from other widgets untouched', () => {
@@ -152,14 +151,14 @@ describe('StudioController.clearCrossFilter', () => {
 
     const remaining = controller.getState().filters;
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].sourceWidgetId).toBe('widget-b');
+    expect(remaining[0].scope.kind === 'cross-filter' && remaining[0].scope.sourceWidgetId).toBe('widget-b');
   });
 
   it('leaves page-scoped and widget-scoped filters untouched', () => {
     const controller = new StudioController({
       filters: [
-        makeFilter({ id: 'page-filter', scope: 'page' }),
-        makeFilter({ id: 'widget-filter', scope: 'widget' }),
+        makeFilter({ id: 'page-filter', scope: { kind: 'page' } }),
+        makeFilter({ id: 'widget-filter', scope: { kind: 'widget', widgetId: 'w1' } }),
       ],
     });
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
@@ -173,7 +172,7 @@ describe('StudioController.clearCrossFilter', () => {
 
   it('is a no-op when no cross-filter exists for the widget', () => {
     const controller = new StudioController({
-      filters: [makeFilter({ id: 'page-filter', scope: 'page' })],
+      filters: [makeFilter({ id: 'page-filter', scope: { kind: 'page' } })],
     });
 
     controller.clearCrossFilter('widget-nonexistent');
@@ -201,8 +200,7 @@ describe('StudioController.applyInteractiveFilter', () => {
     const filters = controller.getState().filters;
     expect(filters).toHaveLength(1);
     expect(filters[0]).toMatchObject({
-      scope: 'interactive',
-      sourceWidgetId: 'filter-widget-1',
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget-1' },
       field: 'category',
       operator: 'in',
       value: ['Electronics', 'Books'],
@@ -217,7 +215,7 @@ describe('StudioController.applyInteractiveFilter', () => {
     controller.applyInteractiveFilter('filter-widget-1', 'country', 'equals', 'AU');
 
     const [f] = controller.getState().filters;
-    expect(f.pageId).toBe(activePageId);
+    expect(f.scope.kind === 'interactive' ? (f.scope as { kind: 'interactive'; sourceWidgetId: string; pageId: string }).pageId : undefined).toBe(activePageId);
   });
 
   it('replaces an existing interactive filter from the same widget', () => {
@@ -227,7 +225,7 @@ describe('StudioController.applyInteractiveFilter', () => {
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books', 'Clothing']);
 
     const filters = controller.getState().filters;
-    expect(filters.filter((f) => f.sourceWidgetId === 'filter-widget-1')).toHaveLength(1);
+    expect(filters.filter((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === 'filter-widget-1')).toHaveLength(1);
     expect(filters[0].value).toEqual(['Books', 'Clothing']);
   });
 
@@ -255,9 +253,9 @@ describe('StudioController.applyInteractiveFilter', () => {
   it('does not remove page/widget/cross filters', () => {
     const controller = new StudioController({
       filters: [
-        makeFilter({ id: 'page-f', scope: 'page' }),
-        makeFilter({ id: 'widget-f', scope: 'widget' }),
-        makeFilter({ id: 'cross-f', scope: 'cross-filter' }),
+        makeFilter({ id: 'page-f', scope: { kind: 'page' } }),
+        makeFilter({ id: 'widget-f', scope: { kind: 'widget', widgetId: 'w1' } }),
+        makeFilter({ id: 'cross-f', scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' } }),
       ],
     });
 
@@ -279,7 +277,7 @@ describe('StudioController.clearInteractiveFilter', () => {
 
     controller.clearInteractiveFilter('filter-widget-1');
 
-    expect(controller.getState().filters.filter((f) => f.scope === 'interactive')).toHaveLength(0);
+    expect(controller.getState().filters.filter((f) => f.scope.kind === 'interactive')).toHaveLength(0);
   });
 
   it('leaves interactive filters from other widgets untouched', () => {
@@ -291,12 +289,12 @@ describe('StudioController.clearInteractiveFilter', () => {
 
     const remaining = controller.getState().filters;
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].sourceWidgetId).toBe('filter-b');
+    expect(remaining[0].scope.kind === 'interactive' && remaining[0].scope.sourceWidgetId).toBe('filter-b');
   });
 
   it('leaves page/widget/cross-filters untouched', () => {
     const controller = new StudioController({
-      filters: [makeFilter({ id: 'page-f', scope: 'page' })],
+      filters: [makeFilter({ id: 'page-f', scope: { kind: 'page' } })],
     });
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
 
@@ -307,7 +305,7 @@ describe('StudioController.clearInteractiveFilter', () => {
 
   it('is a no-op when no interactive filter exists for the widget', () => {
     const controller = new StudioController({
-      filters: [makeFilter({ id: 'page-f', scope: 'page' })],
+      filters: [makeFilter({ id: 'page-f', scope: { kind: 'page' } })],
     });
 
     controller.clearInteractiveFilter('nonexistent-widget');
@@ -327,7 +325,7 @@ describe('StudioController.removeWidget — interactive filter cleanup', () => {
     controller.removeWidget('filter-w1');
 
     expect(
-      controller.getState().filters.filter((f) => f.sourceWidgetId === 'filter-w1'),
+      controller.getState().filters.filter((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === 'filter-w1'),
     ).toHaveLength(0);
   });
 
@@ -340,9 +338,9 @@ describe('StudioController.removeWidget — interactive filter cleanup', () => {
 
     controller.removeWidget('filter-w1');
 
-    const remaining = controller.getState().filters.filter((f) => f.scope === 'interactive');
+    const remaining = controller.getState().filters.filter((f) => f.scope.kind === 'interactive');
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].sourceWidgetId).toBe('filter-w2');
+    expect(remaining[0].scope.kind === 'interactive' && remaining[0].scope.sourceWidgetId).toBe('filter-w2');
   });
 });
 
@@ -681,18 +679,19 @@ describe('StudioController.moveWidgetToPage', () => {
     expect(controller.getState()).toBe(stateBefore);
   });
 
-  it('re-scopes widget filters to the target page', () => {
+  it('preserves widget-scoped filters when moving widget to another page (scope carries only widgetId)', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
     const sourcePageId = controller.getState().dashboard.activePageId;
     const targetPageId = controller.addPage('Page 2');
     controller.setActivePage(sourcePageId);
     controller.addFilter(
-      makeFilter({ id: 'f1', scope: 'widget', widgetId: 'w1', pageId: sourcePageId }),
+      makeFilter({ id: 'f1', scope: { kind: 'widget', widgetId: 'w1' } }),
     );
     controller.moveWidgetToPage('w1', targetPageId);
     const filter = controller.getState().filters.find((f) => f.id === 'f1');
-    expect(filter?.pageId).toBe(targetPageId);
+    // Widget-scoped filters identify by widgetId only; they have no pageId to re-scope.
+    expect(filter?.scope).toEqual({ kind: 'widget', widgetId: 'w1' });
   });
 });
 
@@ -731,21 +730,21 @@ describe('StudioController.clearAllCrossFilters', () => {
   it('removes all cross-filter scoped entries', () => {
     const controller = new StudioController({
       filters: [
-        makeFilter({ id: 'page-f', scope: 'page' }),
-        makeFilter({ id: 'cf1', scope: 'cross-filter', sourceWidgetId: 'w1' }),
-        makeFilter({ id: 'cf2', scope: 'cross-filter', sourceWidgetId: 'w2' }),
+        makeFilter({ id: 'page-f', scope: { kind: 'page' } }),
+        makeFilter({ id: 'cf1', scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' } }),
+        makeFilter({ id: 'cf2', scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'page-1' } }),
       ],
     });
     controller.clearAllCrossFilters();
-    expect(controller.getState().filters.filter((f) => f.scope === 'cross-filter')).toHaveLength(0);
+    expect(controller.getState().filters.filter((f) => f.scope.kind === 'cross-filter')).toHaveLength(0);
   });
 
   it('preserves page-scoped and widget-scoped filters', () => {
     const controller = new StudioController({
       filters: [
-        makeFilter({ id: 'page-f', scope: 'page' }),
-        makeFilter({ id: 'widget-f', scope: 'widget' }),
-        makeFilter({ id: 'cf1', scope: 'cross-filter', sourceWidgetId: 'w1' }),
+        makeFilter({ id: 'page-f', scope: { kind: 'page' } }),
+        makeFilter({ id: 'widget-f', scope: { kind: 'widget', widgetId: 'w1' } }),
+        makeFilter({ id: 'cf1', scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' } }),
       ],
     });
     controller.clearAllCrossFilters();
@@ -936,8 +935,8 @@ describe('StudioController.setActivePage', () => {
       },
     });
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
-    const cf = controller.getState().filters.find((f) => f.scope === 'cross-filter');
-    expect(cf?.pageId).toBe('page-1');
+    const cf = controller.getState().filters.find((f) => f.scope.kind === 'cross-filter');
+    expect(cf?.scope.kind === 'cross-filter' ? cf.scope.pageId : undefined).toBe('page-1');
   });
 
   it('preserves cross-filters when navigating to a different page', () => {
@@ -954,7 +953,7 @@ describe('StudioController.setActivePage', () => {
     expect(
       controller
         .getState()
-        .filters.some((f) => f.scope === 'cross-filter' && f.pageId === 'page-1'),
+        .filters.some((f) => f.scope.kind === 'cross-filter' && f.scope.pageId === 'page-1'),
     ).toBe(true);
   });
 });
@@ -1005,5 +1004,59 @@ describe('StudioController.loadSerializedState', () => {
     const result = controller.loadSerializedState('not-an-object');
     expect(result.success).toBe(false);
     expect(controller.getState().dashboard.title).toBe('Untitled Dashboard'); // unchanged
+  });
+});
+
+describe('StudioController.getRecentMutations', () => {
+  it('starts empty', () => {
+    const controller = new StudioController();
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+
+  it('records labeled mutations oldest-first', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' }));
+    controller.removeFilter('a');
+
+    const log = controller.getRecentMutations();
+    expect(log.map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+      'removeFilter:a',
+    ]);
+    expect(typeof log[0].at).toBe('string');
+    expect(Number.isNaN(Date.parse(log[0].at))).toBe(false);
+  });
+
+  it('does not record non-undoable navigation (setActivePage)', () => {
+    const controller = new StudioController({
+      pages: {
+        'page-1': { id: 'page-1', title: 'One', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'Two', widgetRows: [] },
+      },
+      dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+    });
+    controller.setActivePage('page-2');
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+
+  it('caps the log at 20 entries, keeping the newest', () => {
+    const controller = new StudioController();
+    for (let i = 0; i < 25; i += 1) {
+      controller.addFilter(makeFilter({ id: `f-${i}`, field: `field-${i}` }));
+    }
+    const log = controller.getRecentMutations();
+    expect(log).toHaveLength(20);
+    expect(log[0].label).toBe('addFilter:field-5');
+    expect(log[19].label).toBe('addFilter:field-24');
+  });
+
+  it('returns a defensive copy', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    const log = controller.getRecentMutations();
+    log.push({ label: 'tampered', at: 'now' });
+    expect(controller.getRecentMutations()).toHaveLength(1);
   });
 });

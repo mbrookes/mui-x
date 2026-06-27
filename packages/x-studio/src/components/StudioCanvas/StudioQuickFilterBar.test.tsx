@@ -85,8 +85,7 @@ function makePageFilter(id: string, field: string = 'country') {
     values: ['France'],
     value: 'France',
     operator: 'equals' as const,
-    scope: 'page' as const,
-    pageId: PAGE_ID,
+    scope: { kind: 'page' as const, pageId: PAGE_ID },
     filterMode: 'condition' as const,
   };
 }
@@ -147,7 +146,7 @@ describe('StudioQuickFilterBar', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
     mockState = createDefaultStudioState({
       filters: [
-        { ...makePageFilter('dr1', 'order_date'), isDashboardDateRange: true as const },
+        { ...makePageFilter('dr1', 'order_date'), scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID } },
         makePageFilter('f1', 'country'),
       ],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
@@ -163,7 +162,7 @@ describe('StudioQuickFilterBar', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: true };
     mockState = createDefaultStudioState({
       filters: [
-        { ...makePageFilter('dr1', 'order_date'), isDashboardDateRange: true as const },
+        { ...makePageFilter('dr1', 'order_date'), scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID } },
         makePageFilter('f1', 'country'),
       ],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
@@ -187,7 +186,7 @@ describe('StudioQuickFilterBar', () => {
 
   it('does not show chips for filters on other pages', () => {
     mockState = createDefaultStudioState({
-      filters: [{ ...makePageFilter('f1'), pageId: 'other-page' }],
+      filters: [{ ...makePageFilter('f1'), scope: { kind: 'page' as const, pageId: 'other-page' } }],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
     });
     const { container } = render(<StudioQuickFilterBar />);
@@ -195,9 +194,9 @@ describe('StudioQuickFilterBar', () => {
   });
 
   it('shows chips for filters with no pageId (legacy data)', () => {
-    const filterWithoutPageId = { ...makePageFilter('f1'), pageId: undefined };
+    const filterWithoutPageId = { ...makePageFilter('f1'), scope: { kind: 'page' as const } };
     mockState = createDefaultStudioState({
-      filters: [filterWithoutPageId as any],
+      filters: [filterWithoutPageId],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
     });
     render(<StudioQuickFilterBar />);

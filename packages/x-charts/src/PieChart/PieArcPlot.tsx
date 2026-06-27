@@ -2,12 +2,13 @@
 import * as React from 'react';
 import PropTypes from 'prop-types';
 import { styled } from '@mui/material/styles';
-import { PieArc, type PieArcProps } from './PieArc';
-import {
-  type ComputedPieRadius,
-  type DefaultizedPieSeriesType,
-  type DefaultizedPieValueType,
-  type PieItemIdentifier,
+import { PieArc } from './PieArc';
+import type { PieArcProps } from './PieArc';
+import type {
+  ComputedPieRadius,
+  DefaultizedPieSeriesType,
+  DefaultizedPieValueType,
+  PieItemIdentifier,
 } from '../models/seriesType/pie';
 import { useTransformData } from './dataTransform/useTransformData';
 import type { PieArcPropsOverrides } from '../models/chartsSlotsComponentsProps';
@@ -134,7 +135,7 @@ function PieArcPlot(props: PieArcPlotProps) {
   );
 }
 
-PieArcPlot.propTypes = {
+PieArcPlot.propTypes /* remove-proptypes */ = {
   // ----------------------------- Warning --------------------------------
   // | These PropTypes are generated from the TypeScript type definitions |
   // | To update them edit the TypeScript types and run "pnpm proptypes"  |

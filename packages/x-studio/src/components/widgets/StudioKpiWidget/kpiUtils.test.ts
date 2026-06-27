@@ -21,9 +21,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'date',
     operator: 'greater_than_or_equal',
     value: '',
-    scope: 'page',
+    scope: { kind: 'page' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 function makeSource(fields: StudioDataSource['fields'] = []): StudioDataSource {
@@ -100,14 +100,14 @@ describe('extractDateRange', () => {
 
 describe('findDateFilter', () => {
   it('finds a date filter by field type lookup in dataSource.fields', () => {
-    const filter = makeFilter({ field: 'date', scope: 'page', fieldType: undefined });
+    const filter = makeFilter({ field: 'date', scope: { kind: 'page' }, fieldType: undefined });
     const source = makeSource([DATE_FIELD]);
     expect(findDateFilter([filter], 'w1', source)).toBe(filter);
   });
 
   it('finds a date filter using stored fieldType — even when field is not in dataSource', () => {
     // Simulates a filter on a related source's date field (not in this widget's source)
-    const filter = makeFilter({ field: 'created_at', scope: 'page', fieldType: 'date' });
+    const filter = makeFilter({ field: 'created_at', scope: { kind: 'page' }, fieldType: 'date' });
     const source = makeSource([]); // KPI source has no fields
     expect(findDateFilter([filter], 'w1', source)).toBe(filter);
   });
@@ -115,7 +115,7 @@ describe('findDateFilter', () => {
   it('finds a relative date filter using stored fieldType', () => {
     const filter = makeFilter({
       field: 'date',
-      scope: 'page',
+      scope: { kind: 'page' },
       fieldType: 'date',
       value: { relative: true, amount: 1, unit: 'month', direction: 'past' },
     });
@@ -124,7 +124,7 @@ describe('findDateFilter', () => {
   });
 
   it('ignores non-date filters', () => {
-    const filter = makeFilter({ field: 'name', scope: 'page', fieldType: 'string' });
+    const filter = makeFilter({ field: 'name', scope: { kind: 'page' }, fieldType: 'string' });
     const source = makeSource([{ id: 'name', label: 'Name', type: 'string' }]);
     expect(findDateFilter([filter], 'w1', source)).toBeUndefined();
   });
@@ -132,8 +132,7 @@ describe('findDateFilter', () => {
   it('ignores widget-scoped filters from other widgets', () => {
     const filter = makeFilter({
       field: 'date',
-      scope: 'widget',
-      widgetId: 'other-widget',
+      scope: { kind: 'widget', widgetId: 'other-widget' },
       fieldType: 'date',
     });
     const source = makeSource([DATE_FIELD]);
@@ -143,8 +142,7 @@ describe('findDateFilter', () => {
   it('finds a widget-scoped filter for the correct widget', () => {
     const filter = makeFilter({
       field: 'date',
-      scope: 'widget',
-      widgetId: 'my-widget',
+      scope: { kind: 'widget', widgetId: 'my-widget' },
       fieldType: 'date',
     });
     const source = makeSource([DATE_FIELD]);
@@ -208,7 +206,7 @@ describe('KPI trend: relative date filter integration', () => {
   it('finds a relative date filter and extracts a valid date range from it', () => {
     const filter = makeFilter({
       field: 'date',
-      scope: 'page',
+      scope: { kind: 'page' },
       fieldType: 'date',
       operator: 'greater_than_or_equal',
       value: { relative: true, amount: 1, unit: 'month', direction: 'past' },

@@ -39,6 +39,46 @@ function makeRedisClient() {
   return client;
 }
 
+/** Redis mock with optional SET commands for tag-based invalidation. */
+function makeRedisClientWithTags() {
+  const base = makeRedisClient();
+  const sets = new Map<string, Set<string>>();
+  return {
+    ...base,
+    sets,
+    async sadd(key: string, ...members: string[]) {
+      let set = sets.get(key);
+      if (!set) {
+        set = new Set<string>();
+        sets.set(key, set);
+      }
+      for (const m of members) {
+        set.add(m);
+      }
+    },
+    async smembers(key: string) {
+      return [...(sets.get(key) ?? [])];
+    },
+    async srem(key: string, ...members: string[]) {
+      const set = sets.get(key);
+      if (set) {
+        for (const m of members) {
+          set.delete(m);
+        }
+        if (set.size === 0) {
+          sets.delete(key);
+        }
+      }
+    },
+    async del(...keys: string[]) {
+      for (const key of keys) {
+        base.store.delete(key);
+        sets.delete(key);
+      }
+    },
+  };
+}
+
 const ENTRY: CacheEntry = { rows: [{ id: 1, amount: 10 }], cachedAt: 1_000 };
 
 describe('RedisCacheProvider', () => {
@@ -77,10 +117,10 @@ describe('RedisCacheProvider', () => {
       expect(expiresAt).toBeLessThan(Date.now() + 30_000);
     });
 
-    it('honors a per-call ttlSeconds override', async () => {
+    it('honors a per-call ttlMs override', async () => {
       const redis = makeRedisClient();
       const provider = new RedisCacheProvider(redis, { defaultTtlSeconds: 60 });
-      await provider.set('k1', ENTRY, 5);
+      await provider.set('k1', ENTRY, { ttlMs: 5_000 });
       expect(redis.store.get('k1')?.expiresAt).toBeLessThan(Date.now() + 10_000);
     });
   });
@@ -92,6 +132,38 @@ describe('RedisCacheProvider', () => {
       await provider.set('k1', ENTRY);
       expect(redis.store.has('studio:prod:k1')).toBe(true);
       expect(redis.store.has('k1')).toBe(false);
+      expect(await provider.get('k1')).toEqual(ENTRY);
+    });
+  });
+
+  describe('deleteByTag', () => {
+    it('removes all entries associated with the tag and leaves others intact', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      await provider.set('k1', ENTRY, { tags: ['sales'] });
+      await provider.set('k2', ENTRY, { tags: ['sales'] });
+      await provider.set('k3', ENTRY, { tags: ['orders'] });
+
+      await provider.deleteByTag('sales');
+
+      expect(await provider.get('k1')).toBeUndefined();
+      expect(await provider.get('k2')).toBeUndefined();
+      expect(await provider.get('k3')).toEqual(ENTRY);
+    });
+
+    it('is a graceful no-op when the Redis client does not support smembers', async () => {
+      const redis = makeRedisClient(); // no sadd / smembers
+      const provider = new RedisCacheProvider(redis);
+      await provider.set('k1', ENTRY);
+      await provider.deleteByTag('sales'); // must not throw
+      expect(await provider.get('k1')).toEqual(ENTRY);
+    });
+
+    it('is a no-op when no keys are registered for the tag', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      await provider.set('k1', ENTRY, { tags: ['orders'] });
+      await provider.deleteByTag('sales'); // unused tag
       expect(await provider.get('k1')).toEqual(ENTRY);
     });
   });
@@ -133,6 +205,24 @@ describe('RedisCacheProvider', () => {
       await provider.invalidatePrefix('acme:');
       expect(await provider.get('acme:a')).toBeUndefined();
       expect(await provider.get('globex:a')).toEqual(ENTRY);
+    });
+
+    it('cleans up the tag forward index when a tagged key is removed by prefix', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      await provider.set('studio:v1:acme:q1', ENTRY, { tags: ['sales'] });
+      await provider.set('studio:v1:acme:q2', ENTRY, { tags: ['sales'] });
+      await provider.set('studio:v1:globex:q1', ENTRY, { tags: ['sales'] });
+
+      await provider.invalidatePrefix('studio:v1:acme:');
+
+      // Acme keys gone; globex key still present
+      expect(await provider.get('studio:v1:acme:q1')).toBeUndefined();
+      expect(await provider.get('studio:v1:globex:q1')).toEqual(ENTRY);
+
+      // After deleteByTag, only the globex key should have been in the forward index
+      await provider.deleteByTag('sales');
+      expect(await provider.get('studio:v1:globex:q1')).toBeUndefined();
     });
   });
 });

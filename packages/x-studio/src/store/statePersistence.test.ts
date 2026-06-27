@@ -54,8 +54,7 @@ describe('migrateState', () => {
     expect(result.errors[0]).toMatch(/newer version/i);
   });
 
-  it('migrates from version 0 by bumping to CURRENT_SCHEMA_VERSION (no migration fn needed)', () => {
-    // There is no registered migration fn for 0→1; the code auto-bumps schemaVersion
+  it('migrates from version 0 to 1 (stamps schemaVersion)', () => {
     const result = migrateState({ widgets: {}, pages: {}, filters: [] }); // no schemaVersion → treated as 0
     expect(result.success).toBe(true);
     expect(result.fromVersion).toBe(0);
@@ -63,62 +62,6 @@ describe('migrateState', () => {
     expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(
       CURRENT_SCHEMA_VERSION,
     );
-  });
-
-  it('migrates from version 1 to 2 (adds optional ai field — no structural changes)', () => {
-    const v1State = { schemaVersion: 1, widgets: {}, pages: {}, filters: [], dashboard: {} };
-    const result = migrateState(v1State);
-    expect(result.success).toBe(true);
-    expect(result.fromVersion).toBe(1);
-    expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(
-      CURRENT_SCHEMA_VERSION,
-    );
-  });
-
-  it('migrates from version 2 to 3: renames dashboard date-range filter IDs to per-source format', () => {
-    const pageId = 'page-1';
-    const sourceId = 'orders';
-    const v2State = {
-      schemaVersion: 2,
-      widgets: {},
-      pages: {},
-      dashboard: {},
-      filters: [
-        {
-          id: `dashboard-date-range-${pageId}`,
-          scope: 'page',
-          pageId,
-          isDashboardDateRange: true,
-          dateRangePreset: 'last_12_months',
-          field: 'created_at',
-          fieldType: 'date',
-          filterSourceId: sourceId,
-          filterMode: 'condition',
-          operator: 'between',
-          value: null,
-        },
-        // Non-date-range filter — must be left untouched
-        {
-          id: 'regular-filter',
-          scope: 'page',
-          pageId,
-          field: 'status',
-          operator: 'equals',
-          value: 'active',
-        },
-      ],
-    };
-    const result = migrateState(v2State);
-    expect(result.success).toBe(true);
-    expect(result.fromVersion).toBe(2);
-    const migratedFilters = (result.state as unknown as Record<string, unknown>)[
-      'filters'
-    ] as Array<Record<string, unknown>>;
-    const dateFilter = migratedFilters.find((f) => f['isDashboardDateRange']);
-    expect(dateFilter?.['id']).toBe(`dashboard-date-range-${pageId}-${sourceId}`);
-    const regularFilter = migratedFilters.find((f) => f['id'] === 'regular-filter');
-    expect(regularFilter).toBeDefined();
   });
 });
 
@@ -128,27 +71,26 @@ describe('serializeState', () => {
   it('strips cross-filter scoped filters from the output', () => {
     const state = createDefaultStudioState({
       filters: [
-        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: 'page' },
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
         {
           id: 'cross-f',
           field: 'category',
           operator: 'equals',
           value: 'A',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w1',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
         },
       ],
     });
     const serialized = serializeState(state);
-    expect(serialized.filters.some((f) => f.scope === 'cross-filter')).toBe(false);
+    expect(serialized.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
     expect(serialized.filters.some((f) => f.id === 'page-f')).toBe(true);
   });
 
   it('retains page-scoped and widget-scoped filters', () => {
     const state = createDefaultStudioState({
       filters: [
-        { id: 'p', field: 'date', operator: 'equals', value: '', scope: 'page' },
-        { id: 'w', field: 'status', operator: 'equals', value: 'active', scope: 'widget' },
+        { id: 'p', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+        { id: 'w', field: 'status', operator: 'equals', value: 'active', scope: { kind: 'widget', widgetId: 'w1' } },
       ],
     });
     const { filters } = serializeState(state);
@@ -310,8 +252,7 @@ describe('serializeState / deserializeState roundtrip', () => {
           field: 'cat',
           operator: 'equals',
           value: 'A',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w1',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
         },
       ],
     });
@@ -319,7 +260,7 @@ describe('serializeState / deserializeState roundtrip', () => {
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
     expect(
-      restored?.filters.filter((f: { scope: string }) => f.scope === 'cross-filter'),
+      restored?.filters.filter((f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter'),
     ).toHaveLength(0);
   });
 

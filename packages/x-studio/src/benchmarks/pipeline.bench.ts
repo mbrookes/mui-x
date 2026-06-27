@@ -160,7 +160,7 @@ layerBench(
   ({ dataSources, relationships, expressionFields }) => {
     const filter: StudioFilterState = {
       id: 'f1',
-      scope: 'page',
+      scope: { kind: 'page' },
       field: 'status',
       fieldType: 'string',
       operator: 'equals',
@@ -188,7 +188,7 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
       // so resolvedRowsCache treats this as a cache-valid state
       const filter: StudioFilterState = {
         id: 'f-cache',
-        scope: 'page',
+        scope: { kind: 'page' },
         field: 'status',
         fieldType: 'string',
         operator: 'equals',
@@ -338,7 +338,7 @@ function makeKpiWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
 function makePageFilter(id: string): StudioFilterState {
   return {
     id,
-    scope: 'page',
+    scope: { kind: 'page' },
     field: 'status',
     fieldType: 'string',
     operator: 'equals',
@@ -399,7 +399,7 @@ describe('A3 StudioRequestCache set+get round-trip', () => {
     keys = Array.from({ length: 100 }, (_, i) => {
       const f: StudioFilterState = {
         id: 'f1',
-        scope: 'page',
+        scope: { kind: 'page' },
         field: 'status',
         fieldType: 'string',
         operator: 'equals',
@@ -437,7 +437,7 @@ describe('A4 StudioRequestCache.invalidateSource', () => {
         for (let i = 0; i < entryCount; i += 1) {
           const f: StudioFilterState = {
             id: 'f1',
-            scope: 'page',
+            scope: { kind: 'page' },
             field: 'status',
             fieldType: 'string',
             operator: 'equals',

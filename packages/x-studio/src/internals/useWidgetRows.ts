@@ -16,7 +16,7 @@ import {
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { resolveDateRangePresets } from './filterUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
@@ -280,11 +280,15 @@ export function useWidgetRows(
       deferredPartitioned.cross.some(
         (f) =>
           !f.disabled &&
-          f.sourceWidgetId !== widget.id &&
-          (crossFilterAllPages || f.pageId === pageId),
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
       ) ||
       deferredPartitioned.interactive.some(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
       ),
     [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
@@ -296,8 +300,9 @@ export function useWidgetRows(
       deferredPartitioned.cross.some(
         (f) =>
           !f.disabled &&
-          f.sourceWidgetId !== widget.id &&
-          (crossFilterAllPages || f.pageId === pageId),
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
       ),
     [deferredPartitioned, widget.id, pageId, crossFilterAllPages],
   );
@@ -347,11 +352,15 @@ export function useWidgetRows(
       const crossFilters = deferredPartitioned.cross.filter(
         (f) =>
           !f.disabled &&
-          f.sourceWidgetId !== widget.id &&
-          (crossFilterAllPages || f.pageId === pageId),
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          (crossFilterAllPages || f.scope.pageId === pageId),
       );
       const interactiveFilters = deferredPartitioned.interactive.filter(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
       );
       if (crossFilters.length === 0 && interactiveFilters.length === 0) {
         return enrichedAdapterRows;
@@ -370,25 +379,15 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+        ...deferredPartitioned.cross,
+        ...deferredPartitioned.interactive,
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, crossFilterAllPages },
     );
-    const crossFilters = deferredPartitioned.cross.filter(
-      (f) =>
-        !f.disabled &&
-        f.sourceWidgetId !== widget.id &&
-        (crossFilterAllPages || f.pageId === pageId),
-    );
-    const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
-    );
-    const allFilters = resolveDateRangePresets([
-      ...pageFilters,
-      ...widgetFilters,
-      ...crossFilters,
-      ...interactiveFilters,
-    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -431,11 +430,13 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-cross' },
     );
-    const allFilters = resolveDateRangePresets([...pageFilters, ...widgetFilters]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -474,7 +475,10 @@ export function useWidgetRows(
       }
       // Apply interactive (filter-widget) filters but not chart-click cross-filters.
       const interactiveFilters = deferredPartitioned.interactive.filter(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId !== widget.id &&
+          f.scope.pageId === pageId,
       );
       if (interactiveFilters.length === 0) {
         return enrichedAdapterRows;
@@ -497,18 +501,14 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+        ...deferredPartitioned.interactive,
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-chart-cross' },
     );
-    const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
-    );
-    const allFilters = resolveDateRangePresets([
-      ...pageFilters,
-      ...widgetFilters,
-      ...interactiveFilters,
-    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,

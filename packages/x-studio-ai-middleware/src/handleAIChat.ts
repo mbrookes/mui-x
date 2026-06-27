@@ -56,7 +56,35 @@
  */
 import { runAgenticLoop } from './agenticLoop';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
-import type { StudioAISkill, StudioDataResolver, StudioAIRateLimit } from './models/aiTypes';
+import type {
+  StudioAISkill,
+  StudioDataResolver,
+  StudioAIRateLimit,
+  StudioAIRichContext,
+  StudioAIEnrichedContext,
+} from './models/aiTypes';
+import type { StudioState } from './models/studioTypes';
+
+/** Arguments passed to a {@link StudioAIContextEnricher}. */
+export interface StudioAIContextEnricherArgs {
+  /** The current dashboard state from the request body. */
+  dashboardState: StudioState;
+  /** Client-derived rich context, if any (absent in `privateMode`). */
+  richContext?: StudioAIRichContext;
+  /** The request's abort signal, when provided. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Hook to attach DB-side metadata to the AI context. See
+ * {@link StudioAIHandlerOptions.contextEnricher} for usage.
+ *
+ * @param {StudioAIContextEnricherArgs} args - Dashboard state, client-derived rich context, and abort signal.
+ * @returns {StudioAIEnrichedContext | Promise<StudioAIEnrichedContext>} Server-side metadata to render into the system prompt.
+ */
+export type StudioAIContextEnricher = (
+  args: StudioAIContextEnricherArgs,
+) => StudioAIEnrichedContext | Promise<StudioAIEnrichedContext>;
 
 /**
  * Options for the AI chat handler.
@@ -193,6 +221,33 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  /**
+   * Optional hook to attach DB-side metadata to the AI context.
+   *
+   * Called once per request, before the agentic loop starts. Use it to enrich
+   * the system prompt with information that only the server has — e.g. exact row
+   * counts per dimension value, or schema comments from the database catalog.
+   * The returned `StudioAIEnrichedContext` is rendered into a `<server_context>`
+   * block in the system prompt (omitted in `privateMode`).
+   *
+   * Enrichment is best-effort: if the callback throws, the error is reported via
+   * `onToolError('contextEnricher', err)` and the chat proceeds without it.
+   * Keep the returned payload small — it counts against the LLM token budget;
+   * bound large maps/notes yourself before returning.
+   *
+   * @example
+   * ```ts
+   * const stream = handleAIChat(body, {
+   *   endpoint: process.env.OPENAI_ENDPOINT,
+   *   apiKey: process.env.OPENAI_API_KEY,
+   *   async contextEnricher({ dashboardState }) {
+   *     const rowCounts = await db.countByDimension('orders', 'region');
+   *     return { rowCounts: { region: rowCounts } };
+   *   },
+   * });
+   * ```
+   */
+  contextEnricher?: StudioAIContextEnricher;
 }
 
 /**
@@ -222,11 +277,29 @@ export function handleAIChat(
     skills,
     privateMode,
     pageSnapshot,
+    richContext,
   } = body;
 
   return new ReadableStream<string>({
     async start(controller) {
       try {
+        // Best-effort server-side context enrichment. Failures never abort the chat.
+        let enrichedContext: StudioAIEnrichedContext | undefined;
+        if (options.contextEnricher && !privateMode) {
+          try {
+            enrichedContext = await options.contextEnricher({
+              dashboardState,
+              richContext,
+              signal: options.signal,
+            });
+          } catch (err) {
+            options.onToolError?.(
+              'contextEnricher',
+              err instanceof Error ? err : new Error(String(err)),
+            );
+          }
+        }
+
         const loop = runAgenticLoop(
           messages,
           dashboardState,
@@ -247,6 +320,8 @@ export function handleAIChat(
             rateLimit: options.rateLimit,
             approvalPending: options.approvalPending,
             pageSnapshot,
+            richContext,
+            enrichedContext,
           },
         );
 

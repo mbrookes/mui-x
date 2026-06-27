@@ -31,8 +31,22 @@
  *
  * ## TTL
  *
- * The default TTL is 60 seconds. Override per-call via `set(key, value, ttlSeconds)`
- * or set a default in the constructor options.
+ * The default TTL is 60 seconds. Override per-call via the `opts.ttlMs` field
+ * on `set()`, or set a default in the constructor options.
+ *
+ * ## Tag-based invalidation
+ *
+ * When `opts.tags` is provided to `set()`, two Redis SETs are maintained:
+ *   - `__tag__:<tag>`  — forward index: maps tag → set of data keys
+ *   - `__ktag__:<key>` — reverse index: maps data key → set of tags it belongs to
+ *
+ * `deleteByTag(tag)` evicts all matching entries in one round-trip.
+ * `invalidatePrefix(prefix)` uses the reverse index to remove stale tag entries
+ * for every key it deletes, keeping the forward index clean.
+ *
+ * Requires `sadd`, `smembers`, and `srem` on the Redis client (all three are
+ * included in ioredis and node-redis v4+). If the client does not implement
+ * them, both operations degrade gracefully (no tag cleanup, but no crash).
  *
  * ## Key format
  *
@@ -42,13 +56,19 @@
  * Use `keyPrefix` in the constructor options for that case.
  */
 
-import type { CacheProvider, CacheEntry } from './types';
+import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
 
 export interface RedisClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, exMode: 'EX', ttlSeconds: number): Promise<unknown>;
   keys(pattern: string): Promise<string[]>;
   del(...keys: string[]): Promise<unknown>;
+  /** Optional — required for tag-based invalidation (ioredis + node-redis v4+ include this). */
+  sadd?(key: string, ...members: string[]): Promise<unknown>;
+  /** Optional — required for tag-based invalidation. */
+  smembers?(key: string): Promise<string[]>;
+  /** Optional — required for tag cleanup in invalidatePrefix when tags are in use. */
+  srem?(key: string, ...members: string[]): Promise<unknown>;
 }
 
 export interface RedisCacheProviderOptions {
@@ -88,16 +108,67 @@ export class RedisCacheProvider implements CacheProvider {
     }
   }
 
-  async set(key: string, value: CacheEntry, ttlSeconds?: number): Promise<void> {
-    const ttl = ttlSeconds ?? this.defaultTtl;
-    await this.redis.set(this.prefix + key, JSON.stringify(value), 'EX', ttl);
+  async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
+    const ttlSeconds = opts?.ttlMs !== undefined ? Math.ceil(opts.ttlMs / 1000) : this.defaultTtl;
+    const prefixedKey = this.prefix + key;
+    await this.redis.set(prefixedKey, JSON.stringify(value), 'EX', ttlSeconds);
+
+    // Maintain forward (tag→keys) and reverse (key→tags) indexes for clean invalidation.
+    const tags = opts?.tags;
+    if (tags && tags.length > 0 && this.redis.sadd) {
+      for (const tag of tags) {
+        await this.redis.sadd(this.tagKey(tag), prefixedKey);
+      }
+      // Reverse index: lets invalidatePrefix remove stale forward-index entries
+      await this.redis.sadd(this.keyTagsKey(prefixedKey), ...tags);
+    }
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
     const pattern = `${this.prefix}${prefix}*`;
     const keys = await this.redis.keys(pattern);
-    if (keys.length > 0) {
+    if (keys.length === 0) {
+      return;
+    }
+    // Clean up tag indexes when supported, so forward index stays accurate.
+    if (this.redis.smembers && this.redis.srem) {
+      for (const key of keys) {
+        const keyTagsKey = this.keyTagsKey(key);
+        const tags = await this.redis.smembers(keyTagsKey);
+        for (const tag of tags) {
+          await this.redis.srem(this.tagKey(tag), key);
+        }
+      }
+      await this.redis.del(...keys, ...keys.map((k) => this.keyTagsKey(k)));
+    } else {
       await this.redis.del(...keys);
     }
+  }
+
+  async deleteByTag(tag: string): Promise<void> {
+    // Graceful no-op when the Redis client doesn't support SET operations.
+    if (!this.redis.smembers) {
+      return;
+    }
+    const tagKey = this.tagKey(tag);
+    const keys = await this.redis.smembers(tagKey);
+    // Clean up the reverse index for each deleted key.
+    if (keys.length > 0 && this.redis.srem) {
+      for (const key of keys) {
+        await this.redis.srem(this.keyTagsKey(key), tag);
+      }
+    }
+    // Delete all tagged data keys plus the forward-index set itself.
+    await this.redis.del(...keys, tagKey);
+  }
+
+  /** Redis key for the forward tag→keys index. */
+  private tagKey(tag: string): string {
+    return `${this.prefix}__tag__:${tag}`;
+  }
+
+  /** Redis key for the reverse key→tags index. */
+  private keyTagsKey(key: string): string {
+    return `__ktag__:${key}`;
   }
 }

@@ -7,10 +7,11 @@ import { cartesianSeriesTypes, useStore, useSkipAnimation } from '@mui/x-charts/
 import { type FunnelItemIdentifier } from './funnel.types';
 import { AnimatedFunnelSection } from './AnimatedFunnelSection';
 import { alignLabel, positionLabel } from './labelUtils';
-import { type FunnelPlotSlotExtension } from './funnelPlotSlots.types';
+import type { FunnelPlotSlotExtension } from './funnelPlotSlots.types';
 import { useUtilityClasses } from './funnelClasses';
 import { useFunnelSeriesContext } from '../hooks/useFunnelSeries';
-import { getFunnelCurve, type Point } from './curves';
+import { getFunnelCurve } from './curves';
+import type { Point } from './curves';
 import { FunnelSectionLabel } from './FunnelSectionLabel';
 import {
   selectorChartXAxis,
@@ -204,7 +205,7 @@ function FunnelPlot(props: FunnelPlotProps) {
   );
 }
 
-FunnelPlot.propTypes = {
+FunnelPlot.propTypes /* remove-proptypes */ = {
   // ----------------------------- Warning --------------------------------
   // | These PropTypes are generated from the TypeScript type definitions |
   // | To update them edit the TypeScript types and run "pnpm proptypes"  |

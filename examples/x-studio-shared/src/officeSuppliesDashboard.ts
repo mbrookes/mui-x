@@ -836,22 +836,20 @@ function createExpressionFields(sourceIds) {
 function createFilters(sourceIds) {
   return MAIN_DEMO_PAGES.map((page) => ({
     id: `os-date-${page.id}`,
-    scope: 'page',
-    pageId: page.id,
     filterSourceId: sourceIds.orders,
     field: 'order_datetime',
     fieldType: 'date',
     operator: 'greater_than_or_equal',
     value: '2024-12-01',
+    scope: { kind: 'page', pageId: page.id },
   })).concat({
     id: 'os-return-reasons-returned',
-    scope: 'widget',
-    widgetId: 'return-reasons',
     filterSourceId: sourceIds.orderItems,
     field: 'returned',
     fieldType: 'boolean',
     operator: 'equals',
     value: true,
+    scope: { kind: 'widget', widgetId: 'return-reasons' },
   });
 }
 

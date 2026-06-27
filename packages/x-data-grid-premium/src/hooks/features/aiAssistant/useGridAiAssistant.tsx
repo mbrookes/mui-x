@@ -3,11 +3,9 @@ import * as React from 'react';
 import type { RefObject } from '@mui/x-internals/types';
 import { isDeepEqual } from '@mui/x-internals/isDeepEqual';
 import {
-  type GridRowSelectionModel,
   gridColumnLookupSelector,
   GridLogicOperator,
   gridRowsLookupSelector,
-  type GridSingleSelectColDef,
   useGridApiMethod,
   GRID_CHECKBOX_SELECTION_FIELD,
   GridPreferencePanelsValue,
@@ -18,14 +16,14 @@ import {
   gridRowCountSelector,
   gridFilteredSortedRowIdsSelector,
 } from '@mui/x-data-grid-pro';
+import type { GridRowSelectionModel, GridSingleSelectColDef } from '@mui/x-data-grid-pro';
 import {
   getValueOptions,
   getVisibleRows,
-  type GridPipeProcessor,
-  type GridStateInitializer,
   useGridRegisterPipeProcessor,
   gridPivotActiveSelector,
 } from '@mui/x-data-grid-pro/internals';
+import type { GridPipeProcessor, GridStateInitializer } from '@mui/x-data-grid-pro/internals';
 import type { GridPrivateApiPremium } from '../../../models/gridApiPremium';
 import type {
   GridAiAssistantApi,

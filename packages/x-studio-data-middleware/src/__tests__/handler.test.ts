@@ -859,3 +859,258 @@ describe('handleBatchQuery — aggregation push-down', () => {
     expect(tierCache.size).toBe(0);
   });
 });
+
+// ─── handleBatchQuery — HAVING predicates ────────────────────────────────────
+
+describe('handleBatchQuery — HAVING predicates', () => {
+  // ACME amounts by region: west=250, east=200, north=75
+  const columnAllowlist = {
+    sales: ['region', 'amount', 'tenant_id', 'product', 'sale_date', 'id'],
+  };
+
+  it('single gt HAVING predicate filters groups', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'total', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // north (75) is excluded; west (250) and east (200) pass
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => (r.total as number) > 100)).toBe(true);
+  });
+
+  it('two HAVING conditions are both enforced (AND logic)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [
+            { alias: 'total', operator: 'gt', value: 100 },
+            { alias: 'total', operator: 'lt', value: 260 },
+          ],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // 100 < total < 260 → west (250) ✓, east (200) ✓, north (75) ✗
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => (r.total as number) > 100 && (r.total as number) < 260)).toBe(true);
+  });
+
+  it('HAVING alias not in aggregations throws a security error', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'raw_amount', operator: 'gt', value: 100 }], // 'raw_amount' not in aggregations
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        columnAllowlist,
+      }),
+    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+
+  it('DB error from an expression-field aggregation column is returned in the widget result, not thrown', async () => {
+    // Simulate a DB that fails when SUM-ing a virtual/expression column.
+    // The HAVING alias is valid (matches the aggregation alias), but the DB
+    // cannot resolve the underlying column — the error must surface in
+    // result.error, not as an unhandled rejection.
+    const failingDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.then = (_resolve: unknown, reject?: (err: Error) => void) => {
+        reject?.(new Error('no such column: computed_revenue'));
+      };
+      return qb;
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'computed_revenue', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'total', operator: 'gt', value: 0 }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: failingDb,
+      schemaAllowlist: ['sales'],
+    });
+
+    expect(result.results[0].rows).toEqual([]);
+    expect(result.results[0].error).toMatch('no such column: computed_revenue');
+  });
+});
+
+// ─── handleBatchQuery — JOIN with ambiguous column names ─────────────────────
+
+describe('handleBatchQuery — JOIN with ambiguous column names', () => {
+  it('db-tier aggregation with a JOIN qualifies column references to avoid ambiguity', async () => {
+    // Regression for dd2e96b5: without qualify(), SUM(amount) would be ambiguous
+    // when a JOIN introduces a second table that also has an `amount` column.
+    // executeForTier() in preflight.ts uses qualify() to prefix every unqualified
+    // column with the primary table name (e.g. amount → sales.amount).
+    //
+    // The mock adds leftJoin support (no-op) to verify the full code path runs
+    // without throwing and returns the primary table's aggregated values.
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.leftJoin = () => qb;
+      return qb;
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          joins: [{ table: 'regions', type: 'left', on: [['sales.region', 'regions.name']] }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: joinCapableDb,
+      schemaAllowlist: ['sales', 'regions'],
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // ACME rows: west(100+150=250), east(200), north(75)
+    expect(rows).toHaveLength(3);
+    const west = rows.find((r) => r.region === 'west');
+    expect(west?.total).toBe(250);
+  });
+});
+
+// ─── handleBatchQuery — partial batch failure recovery ───────────────────────
+
+describe('handleBatchQuery — partial batch failure recovery', () => {
+  it('a query error on one widget does not contaminate sibling results', async () => {
+    // A db whose query for 'broken' throws during execution.
+    const goodDb = createMockDb({ sales: SALES_ROWS });
+    const mixedDb = (table: string) => {
+      if (table === 'broken') {
+        const stub: ReturnType<typeof goodDb> = {
+          where: function () {
+            return this;
+          },
+          whereIn: function () {
+            return this;
+          },
+          whereLike: function () {
+            return this;
+          },
+          whereBetween: function () {
+            return this;
+          },
+          havingRaw: function () {
+            return this;
+          },
+          count: function () {
+            return this;
+          },
+          select: function () {
+            return this;
+          },
+          orderBy: function () {
+            return this;
+          },
+          limit: function () {
+            return this;
+          },
+          sum: function () {
+            return this;
+          },
+          avg: function () {
+            return this;
+          },
+          min: function () {
+            return this;
+          },
+          max: function () {
+            return this;
+          },
+          groupBy: function () {
+            return this;
+          },
+          async first() {
+            throw new Error('db connection failed');
+          },
+          then(_resolve: unknown, reject: (err: Error) => void) {
+            reject(new Error('db connection failed'));
+          },
+        };
+        return stub;
+      }
+      return goodDb(table);
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'ok-widget', table: 'sales' },
+        { id: 'err-widget', table: 'broken' },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: mixedDb,
+      schemaAllowlist: ['sales', 'broken'],
+    });
+
+    // ok-widget returns rows; err-widget returns an error field
+    const okResult = result.results.find((r) => r.id === 'ok-widget')!;
+    const errResult = result.results.find((r) => r.id === 'err-widget')!;
+
+    expect(okResult.rows.length).toBeGreaterThan(0);
+    expect(okResult.error).toBeUndefined();
+    expect(errResult.rows).toEqual([]);
+    expect(errResult.error).toMatch('db connection failed');
+  });
+});

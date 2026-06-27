@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import useEnhancedEffect from '@mui/utils/useEnhancedEffect';
-import { useChat, useMessageIds, useConversations } from '@mui/x-chat-headless';
+import { useChat, useMessageIds, useConversations, useChatComposer } from '@mui/x-chat-headless';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import MUIFocusTrap from '@mui/material/Unstable_TrapFocus';
@@ -206,7 +206,8 @@ const ChatBoxConversationOverlay = styled('div', {
 // conversations pane. Marking it keeps ChatLayout's pane resolution unambiguous —
 // once any sibling (the thread view) is marked, every direct child must be marked
 // or ChatLayout warns about a mixed/undeterminable set.
-markChatLayoutPane(ChatBoxConversationOverlay, 'conversations');
+// `markChatLayoutPane` mutates the component in place and returns it; the return is discarded here.
+void markChatLayoutPane(ChatBoxConversationOverlay, 'conversations');
 
 const ChatBoxConversationOverlayBackdrop = styled('div', {
   name: 'MuiChatBox',
@@ -271,6 +272,13 @@ interface ChatBoxContentProps {
   threadPaneClassName?: string;
   suggestions?: Array<ChatSuggestion | string>;
   suggestionsAutoSubmit?: boolean;
+  /**
+   * When `true`, the current composer value is automatically submitted once on mount.
+   * Use together with `initialComposerValue` on the parent `ChatBox` to send a pre-filled
+   * message without requiring a user interaction.
+   * @default false
+   */
+  autoSubmitInitialValue?: boolean;
 }
 
 function normalizeLayoutModeBreakpoints(
@@ -632,7 +640,7 @@ function createMarkedConversationListComponent(
       return <Component ref={ref} {...props} />;
     },
   );
-  markChatLayoutPane(MarkedConversationList, 'conversations');
+  void markChatLayoutPane(MarkedConversationList, 'conversations');
   return MarkedConversationList as typeof ChatConversationList;
 }
 
@@ -648,6 +656,7 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
     threadPaneClassName,
     suggestions,
     suggestionsAutoSubmit,
+    autoSubmitInitialValue,
   } = props;
   const { slots, slotProps } = useChatSlots();
   const showScrollToBottom = features?.scrollToBottom !== false;
@@ -692,6 +701,9 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
   const isNarrow = resolvedLayoutMode !== 'standard';
   const isMobileSplitView = resolvedLayoutMode === 'split';
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  if (drawerOpen && (!isNarrow || isMobileSplitView)) {
+    setDrawerOpen(false);
+  }
   const drawerCloseButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const drawerOpenerRef = React.useRef<HTMLElement | null>(null);
   const wasDrawerOpenRef = React.useRef(false);
@@ -731,6 +743,18 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
     }
   }, []);
 
+  // Auto-submit the initial composer value on first mount when requested.
+  const { submit } = useChatComposer();
+  const hasAutoSubmittedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoSubmitInitialValue && !hasAutoSubmittedRef.current) {
+      hasAutoSubmittedRef.current = true;
+      void Promise.resolve().then(() => submit());
+    }
+    // Only run once on mount — intentionally omitting deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleMenuClick = React.useCallback(() => {
     drawerOpenerRef.current =
       globalThis.document?.activeElement instanceof HTMLElement
@@ -758,12 +782,6 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
   const handleBackClick = React.useCallback(() => {
     void setActiveConversation(undefined);
   }, [setActiveConversation]);
-
-  React.useEffect(() => {
-    if (!isNarrow || isMobileSplitView) {
-      setDrawerOpen(false);
-    }
-  }, [isMobileSplitView, isNarrow]);
 
   React.useLayoutEffect(() => {
     if (drawerOpen) {

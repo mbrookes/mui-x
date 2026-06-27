@@ -415,7 +415,7 @@ export function StudioMapWidget({
       }
       const filterSourceId = config.mapCountrySourceId ?? widget.sourceId;
       const isActive =
-        activeCrossFilter?.sourceWidgetId === widget.id &&
+        (activeCrossFilter?.scope.kind === 'cross-filter' ? activeCrossFilter.scope.sourceWidgetId : undefined) === widget.id &&
         String(activeCrossFilter?.value) === String(rawValue);
       if (isActive) {
         controller.clearCrossFilter(widget.id);

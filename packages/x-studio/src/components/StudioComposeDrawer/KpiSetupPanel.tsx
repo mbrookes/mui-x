@@ -204,7 +204,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const widgetDateRangeFilter = React.useMemo(
     () =>
       allFilters.find(
-        (f) => f.scope === 'widget' && f.widgetId === widgetId && f.isDashboardDateRange,
+        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.dateRangePreset !== undefined,
       ),
     [allFilters, widgetId],
   );

@@ -1,5 +1,5 @@
 {
-  "version": "9.5.0",
+  "version": "9.7.0",
   "private": true,
   "scripts": {
     "preinstall": "npx only-allow pnpm",
@@ -14,7 +14,7 @@
     "docs:api:buildX": "tsx ./docs/scripts/api/buildApi.ts",
     "docs:llms:build": "rimraf --glob ./docs/public/x/ && tsx ./scripts/buildLlmsDocs/index.ts --projectSettings scripts/buildApiDocs/projectSettings.ts",
     "docs:link-check": "pnpm --filter docs link-check",
-    "docs:build": "pnpm release:build && pnpm docs:llms:build && pnpm --filter docs build",
+    "docs:build": "pnpm --filter @mui/x-charts-vendor build && pnpm docs:llms:build && pnpm --filter docs build",
     "docs:typescript:formatted": "pnpm --filter docs typescript:transpile",
     "docs:populate:demos": "pnpm --filter docs populate:demos",
     "docs:importDocsStatic": "node scripts/importDocsStatic.mjs",
@@ -45,6 +45,8 @@
     "test:e2e": "pnpm -F ./test/e2e start",
     "test:e2e-website": "npx playwright test test/e2e-website --config test/e2e-website/playwright.config.ts",
     "test:e2e-website:dev": "PLAYWRIGHT_TEST_BASE_URL=http://localhost:3001 npx playwright test test/e2e-website --config test/e2e-website/playwright.config.ts",
+    "test:e2e-studio": "npx playwright test test/e2e-studio --config test/e2e-studio/playwright.config.ts",
+    "test:e2e-studio:ci": "PLAYWRIGHT_TEST_BASE_URL=http://localhost:3004 npx playwright test test/e2e-studio --config test/e2e-studio/playwright.config.ts",
     "test:regressions": "pnpm -F ./test/regressions start",
     "test:argos": "code-infra argos-push --folder test/regressions/screenshots/chrome",
     "test:charts-benchmark": "pnpm -F ./test/performance-charts test:performance",
@@ -72,16 +74,18 @@
     "@babel/plugin-transform-object-rest-spread": "7.29.7",
     "@babel/traverse": "catalog:",
     "@babel/types": "7.29.7",
+    "@base-ui/utils": "catalog:",
     "@emotion/cache": "catalog:",
+    "@eslint/compat": "2.1.0",
     "@inquirer/prompts": "8.5.1",
     "@mui/internal-babel-plugin-display-name": "1.0.4-canary.20",
     "@mui/internal-babel-plugin-minify-errors": "2.0.8-canary.27",
     "@mui/internal-bundle-size-checker": "1.0.9-canary.81",
-    "@mui/internal-code-infra": "0.0.4-canary.54",
-    "@mui/internal-api-docs-builder": "1.0.2-canary.1",
-    "@mui/internal-markdown": "3.0.8-canary.3",
+    "@mui/internal-code-infra": "0.0.4-canary.66",
+    "@mui/internal-api-docs-builder": "1.0.4-canary.1",
+    "@mui/internal-markdown": "3.0.11-canary.1",
     "@mui/internal-netlify-cache": "0.0.3-canary.5",
-    "@mui/internal-scripts": "3.0.8-canary.1",
+    "@mui/internal-scripts": "3.0.10-canary.1",
     "@mui/internal-core-docs": "catalog:",
     "@mui/internal-test-utils": "catalog:",
     "@mui/material": "catalog:",
@@ -100,13 +104,14 @@
     "@types/yargs": "17.0.35",
     "@typescript-eslint/parser": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "axe-core": "4.11.4",
     "babel-plugin-react-remove-properties": "catalog:",
     "babel-plugin-search-and-replace": "1.1.1",
     "babel-plugin-transform-replace-expressions": "0.2.0",
-    "concurrently": "^10.0.3",
+    "concurrently": "10.0.3",
     "cross-env": "catalog:",
     "date-fns-jalali-v2": "npm:date-fns-jalali@2.30.0-0",
     "date-fns-v2": "npm:date-fns@2.30.0",
@@ -150,5 +155,9 @@
   "engines": {
     "pnpm": "11.5.0",
     "node": ">=22.22.3"
+  },
+  "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^1.7.7",
+    "@mui/icons-material": "catalog:"
   }
 }

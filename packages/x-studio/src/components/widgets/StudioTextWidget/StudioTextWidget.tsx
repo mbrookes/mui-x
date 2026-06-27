@@ -13,7 +13,7 @@ export interface StudioTextWidgetProps {
 }
 
 const FONT_FAMILY: Record<string, string> = {
-  'sans-serif': "Fraunces, 'Inter Tight', serif",
+  'sans-serif': 'Arial, Helvetica, sans-serif',
   serif: "Georgia, 'Times New Roman', Times, serif",
   monospace: "'Courier New', Courier, monospace",
 };

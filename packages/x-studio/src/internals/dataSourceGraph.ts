@@ -165,7 +165,9 @@ export function resolveRows(
     // Dashboard date-range filters are scoped to their own source. A filter created
     // for source A must not be treated as a cross-filter against source B — it would
     // trigger a semi-join that returns zero rows when no relationship is declared.
-    if (f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
+    // selectFiltersForWidget (filterScoping.ts) applies this guard before callers reach
+    // here; this check is a defensive invariant that should never fire in practice.
+    if (f.scope.kind === 'dashboard-date-range' && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
       continue;
     }
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {

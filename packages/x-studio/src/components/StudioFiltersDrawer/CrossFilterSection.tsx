@@ -70,8 +70,9 @@ export function CrossFilterSection({
         <Stack spacing={1} sx={{ pb: 0.5 }}>
           {filters.map((filter: StudioFilterState) => {
             const fieldLabel = resolveFieldLabel(filter.field, filter.filterSourceId);
-            const widgetTitle = filter.sourceWidgetId
-              ? (widgets[filter.sourceWidgetId]?.title ?? filter.sourceWidgetId)
+            const sourceWidgetId = filter.scope.kind === 'cross-filter' ? filter.scope.sourceWidgetId : undefined;
+            const widgetTitle = sourceWidgetId
+              ? (widgets[sourceWidgetId]?.title ?? sourceWidgetId)
               : null;
             const isFromOtherPage =
               pages && activePageId && filter.pageId && filter.pageId !== activePageId;

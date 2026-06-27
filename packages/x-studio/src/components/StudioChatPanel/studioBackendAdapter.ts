@@ -14,6 +14,7 @@ import type { StudioCustomWidgetDef, StateMutation, SerializableSkill } from '..
 import { applyStateMutation } from './applyStateMutation';
 import type { StudioAIToolName } from './studioAITools';
 import { buildWidgetDataSummary } from './generateInsight';
+import { buildRichContext } from './richContext';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -92,6 +93,17 @@ export interface StudioAIConfig {
    * ```
    */
   onUsage?: (usage: { inputTokens: number; outputTokens: number; iterations: number }) => void;
+  /**
+   * Token budget for the additional "rich context" attached to each chat request
+   * (per-field summary statistics, active-page layout + cross-filter graph, and
+   * recent user mutations). Sections are included in priority order until the
+   * budget is reached; the rest are dropped and noted to the model.
+   *
+   * Larger values give the model more signal at higher token cost. Has no effect
+   * in `privateMode` (rich context is never sent then).
+   * @default 4000
+   */
+  contextBudgetTokens?: number;
 }
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
@@ -110,7 +122,15 @@ export function createBackendChatAdapter(
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
 ): ChatAdapter {
-  const { endpoint, headers: extraHeaders, allowedTools, skills, privateMode, onUsage } = config;
+  const {
+    endpoint,
+    headers: extraHeaders,
+    allowedTools,
+    skills,
+    privateMode,
+    onUsage,
+    contextBudgetTokens,
+  } = config;
   const baseUrl = endpoint.replace(/\/?$/, '');
   const chatUrl = `${baseUrl}/chat`;
   const approvalUrl = `${baseUrl}/approval`;
@@ -183,6 +203,13 @@ export function createBackendChatAdapter(
       const pageSnapshot =
         pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
 
+      // Richer, purely-additive context (field stats, layout + cross-filter graph,
+      // recent mutations) to give the model more signal. Never sent in private mode
+      // since field statistics expose real data values.
+      const richContext = privateMode
+        ? undefined
+        : buildRichContext(state, controller, { budgetTokens: contextBudgetTokens });
+
       // Strip raw data rows and adapter instances before sending state to the server.
       // The server uses state only for structural information (widget configs, filters, layout)
       // and never reads dataSources.rows or dataSources.adapter. Sending raw rows can push
@@ -193,6 +220,7 @@ export function createBackendChatAdapter(
         ...state,
         dataSources: Object.fromEntries(
           Object.entries(state.dataSources).map(([id, source]) => {
+            /* eslint-disable-next-line @typescript-eslint/naming-convention -- omit rows/adapter via rest */
             const { rows: _rows, adapter: _adapter, ...sourceWithoutData } = source;
             return [id, sourceWithoutData];
           }),
@@ -225,6 +253,7 @@ export function createBackendChatAdapter(
                 skills: serializableSkills,
                 privateMode,
                 pageSnapshot,
+                richContext,
               }),
             });
           } catch (err) {

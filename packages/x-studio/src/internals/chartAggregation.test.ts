@@ -26,9 +26,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scope: 'widget',
+    scope: { kind: 'widget', widgetId: 'w1' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 // ─── applyRankToAggregated ────────────────────────────────────────────────────
@@ -955,9 +955,9 @@ describe('applyRankToSeriesFieldData', () => {
       field: '',
       operator: 'equals',
       value: 3,
-      scope: 'widget',
+      scope: { kind: 'widget', widgetId: 'w1' },
       ...overrides,
-    };
+    } as StudioFilterState;
   }
 
   it('null filter returns original data unchanged', () => {
@@ -1433,6 +1433,13 @@ describe('aggregateFunnelReached', () => {
     expect(result.stages[0].stepConversion).toBeNull(); // first stage has no previous
     // reached≥0 = 4, reached≥1 = 2 → step conversion = 0.5
     expect(result.stages[1].stepConversion).toBeCloseTo(0.5);
+  });
+
+  it('returns empty stages with zero values for empty rows', () => {
+    const result = aggregateFunnelReached([], 'stage', 'stageReached', SEQUENCE, 'Closed Lost');
+    expect(result.stages).toHaveLength(SEQUENCE.length);
+    result.stages.forEach((s) => expect(s.value).toBe(0));
+    expect(result.exitValue).toBe(0);
   });
 });
 

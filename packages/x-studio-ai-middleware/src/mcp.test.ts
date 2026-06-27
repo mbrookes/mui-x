@@ -714,3 +714,95 @@ describe('buildStudioMcpServer', () => {
     });
   });
 });
+
+describe('buildStudioMcpServer — context for MCP clients', () => {
+  const LIST_TOOLS = 'tools/list';
+  const CALL_TOOL = 'tools/call';
+
+  it('lists the get_recent_changes tool', async () => {
+    const server = buildStudioMcpServer({ current: makeStableState() });
+    const result = await getHandler(server, LIST_TOOLS)({ params: {}, method: LIST_TOOLS });
+    const names = ((result as any).tools as Array<{ name: string }>).map((t) => t.name);
+    expect(names).toContain('get_recent_changes');
+  });
+
+  it('records mutations and returns them via get_recent_changes (oldest first)', async () => {
+    const server = buildStudioMcpServer({ current: makeStableState() });
+    const call = getHandler(server, CALL_TOOL);
+    await call({
+      params: { name: 'set_dashboard_title', arguments: { title: 'New Title' } },
+      method: CALL_TOOL,
+    });
+    await call({ params: { name: 'add_page', arguments: { title: 'Page 2' } }, method: CALL_TOOL });
+
+    const result = (await call({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const { output } = JSON.parse(result.content[0].text);
+    expect(output).toHaveLength(2);
+    expect(output[0].label).toBe('setDashboardTitle');
+    expect(output[1].label).toMatch(/^addPage:/);
+    expect(Number.isNaN(Date.parse(output[0].at))).toBe(false);
+  });
+
+  it('includes the distilled cross-filter graph in the system-prompt resource', async () => {
+    const state = makeStableState();
+    state.widgets.w1 = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'Orders',
+      sourceId: 'source-orders',
+      config: { chartType: 'bar' },
+    } as any;
+    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w1']] };
+    state.filters = [
+      {
+        id: 'xf',
+        field: 'status',
+        operator: 'equals',
+        value: 'pending',
+        scope: 'cross-filter',
+        sourceWidgetId: 'w1',
+        pageId: PAGE_ID,
+      } as any,
+    ];
+    const server = buildStudioMcpServer({ current: state });
+    const result = (await getHandler(server, READ_RESOURCE)({
+      params: { uri: 'studio://dashboard/system-prompt' },
+      method: READ_RESOURCE,
+    })) as any;
+    const text = result.contents[0].text as string;
+    expect(text).toContain('<dashboard_context>');
+    expect(text).toContain('filters by `status` (cross-filter)');
+  });
+
+  it('renders contextEnricher output into the system-prompt resource', async () => {
+    const contextEnricher = vi.fn().mockResolvedValue({ notes: 'Enriched server-side.' });
+    const server = buildStudioMcpServer({ current: makeStableState() }, { contextEnricher });
+    const result = (await getHandler(server, READ_RESOURCE)({
+      params: { uri: 'studio://dashboard/system-prompt' },
+      method: READ_RESOURCE,
+    })) as any;
+    const text = result.contents[0].text as string;
+    expect(contextEnricher).toHaveBeenCalledOnce();
+    expect(text).toContain('<server_context>');
+    expect(text).toContain('Enriched server-side.');
+  });
+
+  it('still returns the system prompt when contextEnricher throws', async () => {
+    const contextEnricher = vi.fn().mockRejectedValue(new Error('boom'));
+    const errorLog = vi.fn();
+    const server = buildStudioMcpServer(
+      { current: makeStableState() },
+      { contextEnricher, logger: { log: vi.fn(), error: errorLog } },
+    );
+    const result = (await getHandler(server, READ_RESOURCE)({
+      params: { uri: 'studio://dashboard/system-prompt' },
+      method: READ_RESOURCE,
+    })) as any;
+    const text = result.contents[0].text as string;
+    expect(text).not.toContain('<server_context>');
+    expect(errorLog).toHaveBeenCalled();
+  });
+});

@@ -904,24 +904,16 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
     return [];
   }
   let value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
-  // The server's queryBuilder expects between values as [lo, hi] tuple.
-  // setDashboardDateRange / setWidgetDateRange store them as { from, to } objects.
+  // setDashboardDateRange / setWidgetDateRange store between values as { from, to } objects.
+  // Convert to the [lo, hi] tuple that the server's queryBuilder expects.
   if (
+    operator === 'between' &&
     value !== null &&
     typeof value === 'object' &&
-    !Array.isArray(value) &&
-    'from' in (value as object)
+    !Array.isArray(value)
   ) {
     const range = value as { from?: unknown; to?: unknown };
-    if (operator === 'between') {
-      value = [range.from, range.to] as unknown;
-    } else if (operator === 'gte' || operator === 'gt') {
-      // Stale persisted state: { from, to } stored against a gte/gt operator.
-      // Extract the lower bound only — the upper bound has no meaning for >=.
-      value = range.from as unknown;
-    } else if (operator === 'lte' || operator === 'lt') {
-      value = range.to as unknown;
-    }
+    value = [range.from, range.to] as unknown;
   }
   const predicate: FilterPredicate = { column: node.field, operator, value };
   const predicates: FilterPredicate[] = [predicate];

@@ -47,7 +47,7 @@ export const selectCrossFilterAllPages = (state: StudioState) =>
  */
 export function makeSelectActiveInteractiveFilter(widgetId: string) {
   return (state: StudioState) =>
-    state.filters.find((f) => f.scope === 'interactive' && f.sourceWidgetId === widgetId) ?? null;
+    state.filters.find((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) ?? null;
 }
 
 /**
@@ -169,21 +169,22 @@ export const selectPartitionedFilters = createSelectorMemoized(
     const interactive: StudioFilterState[] = [];
 
     for (const f of filters) {
-      if (f.scope === 'page') {
-        if (!f.pageId || f.pageId === activePageId) {
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
+        if (!scopePageId || scopePageId === activePageId) {
           page.push(f);
         }
-      } else if (f.scope === 'widget') {
-        const key = f.widgetId ?? '';
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
           byWidgetId.set(key, bucket);
         }
         bucket.push(f);
-      } else if (f.scope === 'cross-filter') {
+      } else if (f.scope.kind === 'cross-filter') {
         cross.push(f);
-      } else if (f.scope === 'interactive') {
+      } else if (f.scope.kind === 'interactive') {
         interactive.push(f);
       }
     }
@@ -226,12 +227,13 @@ export const selectPartitionedBaseFilters = (state: StudioState): BasePartitione
   const byWidgetId = new Map<string, StudioFilterState[]>();
 
   for (const f of filters) {
-    if (f.scope === 'page') {
-      if (!f.pageId || f.pageId === activePageId) {
+    if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+      const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
+      if (!scopePageId || scopePageId === activePageId) {
         page.push(f);
       }
-    } else if (f.scope === 'widget') {
-      const key = f.widgetId ?? '';
+    } else if (f.scope.kind === 'widget') {
+      const key = f.scope.widgetId;
       let bucket = byWidgetId.get(key);
       if (!bucket) {
         bucket = [];
@@ -297,21 +299,22 @@ export function makeSelectPartitionedFiltersForPage(pageId: string) {
     const interactive: StudioFilterState[] = [];
 
     for (const f of filters) {
-      if (f.scope === 'page') {
-        if (!f.pageId || f.pageId === pageId) {
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
+        if (!scopePageId || scopePageId === pageId) {
           page.push(f);
         }
-      } else if (f.scope === 'widget') {
-        const key = f.widgetId ?? '';
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
           byWidgetId.set(key, bucket);
         }
         bucket.push(f);
-      } else if (f.scope === 'cross-filter') {
+      } else if (f.scope.kind === 'cross-filter') {
         cross.push(f);
-      } else if (f.scope === 'interactive') {
+      } else if (f.scope.kind === 'interactive') {
         interactive.push(f);
       }
     }
@@ -371,12 +374,13 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
     const byWidgetId = new Map<string, StudioFilterState[]>();
 
     for (const f of filters) {
-      if (f.scope === 'page') {
-        if (!f.pageId || f.pageId === pageId) {
+      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
+        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
+        if (!scopePageId || scopePageId === pageId) {
           page.push(f);
         }
-      } else if (f.scope === 'widget') {
-        const key = f.widgetId ?? '';
+      } else if (f.scope.kind === 'widget') {
+        const key = f.scope.widgetId;
         let bucket = byWidgetId.get(key);
         if (!bucket) {
           bucket = [];
@@ -435,9 +439,9 @@ export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
     state.filters.find(
       (f) =>
-        f.scope === 'cross-filter' &&
-        f.sourceWidgetId === widgetId &&
-        f.pageId === pageId &&
+        f.scope.kind === 'cross-filter' &&
+        f.scope.sourceWidgetId === widgetId &&
+        f.scope.pageId === pageId &&
         !f.disabled,
     ) ?? null;
 }
@@ -468,9 +472,9 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
     }
     const filtered = filters.filter(
       (f) =>
-        f.scope === 'cross-filter' &&
-        f.sourceWidgetId !== widgetId &&
-        f.pageId === pageId &&
+        f.scope.kind === 'cross-filter' &&
+        f.scope.sourceWidgetId !== widgetId &&
+        f.scope.pageId === pageId &&
         !f.disabled,
     );
     if (
@@ -549,8 +553,8 @@ export function makeSelectWidgetRankFilter(
     return (
       state.filters.find(
         (f) =>
-          f.scope === 'widget' &&
-          f.widgetId === widgetId &&
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
           f.filterMode === 'rank' &&
           typeof f.value === 'number' &&
           f.value > 0,
@@ -574,7 +578,7 @@ export function makeSelectWidgetSliderFilter(
     }
     return (
       state.filters.find(
-        (f) => f.scope === 'interactive' && f.sourceWidgetId === widgetId && f.pageId === pageId,
+        (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
       ) ?? null
     );
   };
@@ -596,7 +600,7 @@ export function makeSelectWidgetActiveCrossFilter(
     }
     return (
       state.filters.find(
-        (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === pageId,
+        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
       ) ?? null
     );
   };

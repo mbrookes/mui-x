@@ -243,7 +243,7 @@ function StudioPageRows({
   }
 
   return (
-    <>
+    <React.Fragment>
       {/* Insertion point above the first row */}
       {mode === 'edit' && (
         <InsertionPoint
@@ -477,7 +477,7 @@ function StudioPageRows({
           </Box>
         );
       })}
-    </>
+    </React.Fragment>
   );
 }
 

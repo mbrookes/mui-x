@@ -374,7 +374,7 @@ function renderScatter(input: ChartRendererInput): string {
 
   // Expect data as series with numeric values (x from xLabels, y from values)
   // or simple data[] where label is parsed as x and value is y.
-  let points: { x: number; y: number; label?: string; seriesName?: string; color: string }[] = [];
+  const points: { x: number; y: number; label?: string; seriesName?: string; color: string }[] = [];
 
   if (rawSeries && rawXLabels) {
     rawSeries.forEach((s, si) => {
@@ -483,7 +483,7 @@ function renderDonut(input: ChartRendererInput): string {
   // Slices with inner hole
   let angle = 0;
   data.forEach((d, i) => {
-    if (d.value <= 0) return;
+    if (d.value <= 0) {return;}
     const slice = (d.value / total) * 360;
     const fill = color(colors, i);
 

@@ -83,8 +83,8 @@ export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'c
       };
     }
     default: {
-      const _exhaustive: never = preset;
-      void _exhaustive;
+      const exhaustive: never = preset;
+      void exhaustive;
       return { from: today, to: today };
     }
   }

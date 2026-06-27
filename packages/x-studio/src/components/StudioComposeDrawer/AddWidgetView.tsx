@@ -54,7 +54,7 @@ export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const features = useStudioFeatures();
-  const { aiConfig } = useStudioUIConfig();
+  useStudioUIConfig();
   const localeText = useStudioLocaleText();
   const canvasScrollRef = React.use(CanvasScrollContext);
   const customWidgetMap = useCustomWidgetMap();

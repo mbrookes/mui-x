@@ -1,4 +1,4 @@
-export const eventList: Record<keyof GlobalEventHandlersEventMap, true> = {
+export const eventList = {
   abort: true,
   animationcancel: true,
   animationend: true,

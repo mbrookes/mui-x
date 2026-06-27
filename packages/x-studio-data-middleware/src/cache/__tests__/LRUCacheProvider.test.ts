@@ -75,9 +75,10 @@ describe('LRUCacheProvider', () => {
       const cache = new LRUCacheProvider();
       await cache.set('k1', entry(), { tags: ['sales', 'q4'] });
       await cache.deleteByTag('sales'); // deletes k1; q4 tag set should also be cleaned up
-      // Verify no stale k1 entry under q4 — deleteByTag on q4 must be a no-op
+      expect(await cache.get('k1')).toBeUndefined();
+      // Verify no stale k1 entry under q4 — deleteByTag on q4 must be a no-op (no throw)
       await cache.deleteByTag('q4');
-      // No assertion needed beyond "did not throw"; verifies dispose cleanup is correct.
+      expect(await cache.get('k1')).toBeUndefined();
     });
   });
 

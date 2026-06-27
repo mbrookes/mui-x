@@ -73,7 +73,7 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
         const colorScale = colorAxis?.colorScale;
         return (
           <g key={id} data-series={id}>
-            {data.map((item, dataIndex) => {
+            {data.map((item) => {
               if (item.hidden) {
                 return null;
               }

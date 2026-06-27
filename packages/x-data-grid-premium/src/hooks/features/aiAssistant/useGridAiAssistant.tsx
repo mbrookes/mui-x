@@ -200,8 +200,8 @@ export const useGridAiAssistant = (
             let max = nums[0];
             let sum = 0;
             for (const n of nums) {
-              if (n < min) min = n;
-              if (n > max) max = n;
+              if (n < min) {min = n;}
+              if (n > max) {max = n;}
               sum += n;
             }
             result[column.field] = {
@@ -762,7 +762,7 @@ export const useGridAiAssistant = (
 
       for (const id of allRowIds) {
         const row = rowsLookup[id];
-        if (!row) continue;
+        if (!row) {continue;}
         const value = column ? apiRef.current.getRowValue(row, column) : (row as any)[field];
         totalCount += 1;
         if (value == null) {

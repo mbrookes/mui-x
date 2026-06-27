@@ -90,6 +90,7 @@ export type { ToolExecutionResult } from './executeToolOnState';
 export { buildStudioMcpServer } from './mcp';
 export type {
   StudioMcpOptions,
+  StudioState,
   StudioStateBox,
   StudioDataFilter,
   StudioDataAggregation,

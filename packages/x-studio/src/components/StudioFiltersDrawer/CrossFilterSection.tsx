@@ -79,7 +79,7 @@ export function CrossFilterSection({
               filter.scope.kind === 'cross-filter' ? filter.scope.pageId : undefined;
             const isFromOtherPage =
               pages && activePageId && filterPageId && filterPageId !== activePageId;
-            const pageTitle = isFromOtherPage ? (pages[filterPageId]?.title ?? null) : null;
+            const pageTitle = isFromOtherPage ? (pages[filterPageId!]?.title ?? null) : null;
             return (
               <Box
                 key={filter.id}

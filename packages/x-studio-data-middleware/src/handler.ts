@@ -220,7 +220,7 @@ async function processWidget(
       resolvedThresholds,
       tierCacheTtlMs,
     );
-    let tier: 'client' | 'server' | 'db' = tierDecision.tier;
+    const tier: 'client' | 'server' | 'db' = tierDecision.tier;
     let rowCount: number = tierDecision.rowCount;
 
     // ── 4. Execute query for the selected tier ─────────────────────────────

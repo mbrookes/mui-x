@@ -203,7 +203,7 @@ type EncodedFilterValues = Record<
 function encodeFilterValues(filters: StudioFilterState[]): string | null {
   const map: EncodedFilterValues = {};
   for (const f of filters) {
-    if (f.scope === 'page' && f.value != null) {
+    if (f.scope.kind === 'page' && f.value != null) {
       const entry: EncodedFilterValues[string] = { operator: f.operator, value: f.value };
       if (f.operator2 != null) {
         entry.operator2 = f.operator2;

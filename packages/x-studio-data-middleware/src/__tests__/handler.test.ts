@@ -1037,46 +1037,46 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     const mixedDb = (table: string) => {
       if (table === 'broken') {
         const stub: ReturnType<typeof goodDb> = {
-          where: function () {
+          where () {
             return this;
           },
-          whereIn: function () {
+          whereIn () {
             return this;
           },
-          whereLike: function () {
+          whereLike () {
             return this;
           },
-          whereBetween: function () {
+          whereBetween () {
             return this;
           },
-          havingRaw: function () {
+          havingRaw () {
             return this;
           },
-          count: function () {
+          count () {
             return this;
           },
-          select: function () {
+          select () {
             return this;
           },
-          orderBy: function () {
+          orderBy () {
             return this;
           },
-          limit: function () {
+          limit () {
             return this;
           },
-          sum: function () {
+          sum () {
             return this;
           },
-          avg: function () {
+          avg () {
             return this;
           },
-          min: function () {
+          min () {
             return this;
           },
-          max: function () {
+          max () {
             return this;
           },
-          groupBy: function () {
+          groupBy () {
             return this;
           },
           async first() {

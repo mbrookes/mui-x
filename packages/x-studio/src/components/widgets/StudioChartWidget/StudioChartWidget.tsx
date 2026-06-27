@@ -71,8 +71,10 @@ import { canDetectAnomalies, detectChartDataAnomalies } from '../../../internals
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
-const EMPTY_LEGEND = () => null;
-const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EMPTY_LEGEND } as const;
+function EmptyLegend() {
+  return null;
+}
+const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EmptyLegend } as const;
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -264,7 +266,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const wrapBandLabel = React.useCallback(
     (label: string): string => {
       const MAX_LINES = bandLabelWrapMaxLines;
-      if (!bandLabelWrap || label.length <= bandLabelWrap) return label;
+      if (!bandLabelWrap || label.length <= bandLabelWrap) {
+        return label;
+      }
       const words = label.split(' ');
       const lines: string[] = [];
       let current = '';
@@ -282,7 +286,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           current = joined;
         }
       }
-      if (current) lines.push(current);
+      if (current) {
+        lines.push(current);
+      }
       return lines.join('\n');
     },
     [bandLabelWrap, bandLabelWrapMaxLines],
@@ -1720,7 +1726,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                             ),
                         ...(is100 && { min: 0, max: 100 }),
                         ...(config.axisTickFontSize !== undefined
-                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                          ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                           : {}),
                       },
                     ]
@@ -1746,7 +1752,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         valueFormatter: (v: string | number) =>
                           wrapBandLabel(formatLabel(String(v))),
                         ...(config.axisTickFontSize !== undefined
-                          ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                          ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                           : {}),
                         ...(config.barCategoryGapRatio !== undefined
                           ? { categoryGapRatio: config.barCategoryGapRatio }
@@ -2009,7 +2015,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           const idx = (item as { id?: number; value: number }).id ?? 0;
           const fv = localFilteredDisplayValues[idx] ?? 0;
           const bv = item.value;
-          if (fv === bv) return localPieValueFormatter(bv);
+          if (fv === bv) {
+            return localPieValueFormatter(bv);
+          }
           return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
         };
       } else {
@@ -2025,7 +2033,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           const fv = localFilteredDisplayValues[idx] ?? 0;
           const filtPct = `${((fv / fTotal) * 100).toFixed(1)}%`;
           const basePct = `${((item.value / total) * 100).toFixed(1)}%`;
-          if (fv === item.value) return basePct;
+          if (fv === item.value) {
+            return basePct;
+          }
           return `${filtPct} / ${basePct}`;
         };
       } else {
@@ -2072,7 +2082,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 const idx = item.id as number;
                 const fv = filteredDisplayValues[idx] ?? 0;
                 const bv = item.value;
-                if (fv === bv) return localPieValueFormatter(bv);
+                if (fv === bv) {
+                  return localPieValueFormatter(bv);
+                }
                 return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
               },
             }
@@ -2090,7 +2102,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
          stays at the same tree position and arcs never remount on filter changes. */
       <PieHighlightContext.Provider value={pieHighlightCtxValue}>
         {pieLegendBelow ? (
-          <>
+          <React.Fragment>
             <PieChart
               {...slotProps?.pieChart}
               height={pieH}
@@ -2169,7 +2181,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 );
               })}
             </Box>
-          </>
+          </React.Fragment>
         ) : (
           <div style={{ height: chartHeight }}>
             <PieChart
@@ -2315,7 +2327,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                           ),
                       ...(is100 && { min: 0, max: 100 }),
                       ...(config.axisTickFontSize !== undefined
-                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                        ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                         : {}),
                     },
                   ]
@@ -2325,8 +2337,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       height: 'auto',
-                      valueFormatter: (v: string | number) =>
-                        wrapBandLabel(formatLabel(String(v))),
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                       ...(config.barCategoryGapRatio !== undefined
                         ? { categoryGapRatio: config.barCategoryGapRatio }
                         : {}),
@@ -2341,10 +2352,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       width: 'auto',
-                      valueFormatter: (v: string | number) =>
-                        wrapBandLabel(formatLabel(String(v))),
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                       ...(config.axisTickFontSize !== undefined
-                        ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                        ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                         : {}),
                       ...(config.barCategoryGapRatio !== undefined
                         ? { categoryGapRatio: config.barCategoryGapRatio }
@@ -3012,7 +3022,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 height: 'auto',
                 valueFormatter: seriesValueFormatter,
                 ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                  ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                   : {}),
               },
             ]}
@@ -3024,7 +3034,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 width: hBarYAxisWidth,
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                 ...(config.axisTickFontSize !== undefined
-                  ? { tickLabelStyle: { fontSize: config.axisTickFontSize + 'px' } }
+                  ? { tickLabelStyle: { fontSize: `${config.axisTickFontSize}px` } }
                   : {}),
                 ...(config.barCategoryGapRatio !== undefined
                   ? { categoryGapRatio: config.barCategoryGapRatio }

@@ -19,9 +19,12 @@ interface CacheEntry {
 
 function djb2Hash(s: string): string {
   let h = 5381;
+  // eslint-disable-next-line no-plusplus
   for (let i = 0; i < s.length; i++) {
+    // eslint-disable-next-line no-bitwise
     h = ((h << 5) + h) ^ s.charCodeAt(i);
   }
+  // eslint-disable-next-line no-bitwise
   return (h >>> 0).toString(36);
 }
 
@@ -133,11 +136,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
           ...state,
           dataSources: Object.fromEntries(
             Object.entries(state.dataSources).map(([id, source]) => {
-              const {
-                rows: _rows,
-                adapter: _adapter,
-                ...rest
-              } = source as unknown as {
+              const { rows, adapter, ...rest } = source as unknown as {
                 rows?: unknown;
                 adapter?: unknown;
               } & Record<string, unknown>;
@@ -172,7 +171,8 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
         let buffer = '';
         let content = '';
 
-        outer: while (true) {
+        let finished = false;
+        while (!finished) {
           // eslint-disable-next-line no-await-in-loop
           const { done, value } = await reader.read();
           if (done) {
@@ -189,26 +189,27 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
             if (!payload) {
               continue;
             }
-            let event: Record<string, unknown>;
+            let sseEvent: Record<string, unknown>;
             try {
-              event = JSON.parse(payload);
+              sseEvent = JSON.parse(payload);
             } catch {
               continue;
             }
 
-            if (event.type === 'text-delta') {
-              content += String(event.delta ?? '');
-            } else if (event.type === 'tool-approval-request') {
+            if (sseEvent.type === 'text-delta') {
+              content += String(sseEvent.delta ?? '');
+            } else if (sseEvent.type === 'tool-approval-request') {
               // Auto-approve: text widget AI only runs read-only tools, but guard just in case
               fetch(approvalUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
-                body: JSON.stringify({ id: event.toolCallId, approved: true }),
+                body: JSON.stringify({ id: sseEvent.toolCallId, approved: true }),
               }).catch(() => {});
-            } else if (event.type === 'finish') {
-              break outer;
-            } else if (event.type === 'error') {
-              throw new Error(String(event.message ?? 'AI error'));
+            } else if (sseEvent.type === 'finish') {
+              finished = true;
+              break;
+            } else if (sseEvent.type === 'error') {
+              throw new Error(String(sseEvent.message ?? 'AI error'));
             }
           }
         }

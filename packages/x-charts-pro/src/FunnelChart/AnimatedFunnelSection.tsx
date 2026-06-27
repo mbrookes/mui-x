@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
-import { FunnelSection, type FunnelSectionProps } from './FunnelSection';
+import { FunnelSection  } from './FunnelSection';
+import type {FunnelSectionProps} from './FunnelSection';
 import { useAnimateFunnelSection } from './useAnimateFunnelSection';
 
 export interface AnimatedFunnelSectionProps extends FunnelSectionProps {

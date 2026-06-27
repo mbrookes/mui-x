@@ -117,6 +117,7 @@ export class RedisCacheProvider implements CacheProvider {
     const tags = opts?.tags;
     if (tags && tags.length > 0 && this.redis.sadd) {
       for (const tag of tags) {
+        // eslint-disable-next-line no-await-in-loop
         await this.redis.sadd(this.tagKey(tag), prefixedKey);
       }
       // Reverse index: lets invalidatePrefix remove stale forward-index entries
@@ -134,8 +135,10 @@ export class RedisCacheProvider implements CacheProvider {
     if (this.redis.smembers && this.redis.srem) {
       for (const key of keys) {
         const keyTagsKey = this.keyTagsKey(key);
+        // eslint-disable-next-line no-await-in-loop
         const tags = await this.redis.smembers(keyTagsKey);
         for (const tag of tags) {
+          // eslint-disable-next-line no-await-in-loop
           await this.redis.srem(this.tagKey(tag), key);
         }
       }
@@ -155,6 +158,7 @@ export class RedisCacheProvider implements CacheProvider {
     // Clean up the reverse index for each deleted key.
     if (keys.length > 0 && this.redis.srem) {
       for (const key of keys) {
+        // eslint-disable-next-line no-await-in-loop
         await this.redis.srem(this.keyTagsKey(key), tag);
       }
     }

@@ -1104,7 +1104,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
           'Negotiation',
           'Closed Won',
         ],
-        funnelExitStage: 'Closed Lost',
       },
     },
     'widget-chart6-stage-conversion': {
@@ -1127,8 +1126,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
           'Negotiation',
           'Closed Won',
         ],
-        funnelExitStage: 'Closed Lost',
-        funnelConversionBar: true,
         funnelLabelFormat: 'percent' as const,
       },
     },

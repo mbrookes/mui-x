@@ -46,11 +46,11 @@ import type { BatchWidgetDescriptor } from '@mui/x-studio-data-middleware';
 import {
   buildStudioMcpServer,
   createDefaultStudioState,
+  type StudioState,
   type StudioStateBox,
   type StudioDataQueryParams,
   type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
-import type { StudioState } from '@mui/x-studio-ai-middleware';
 import type { SerializedStudioState } from '@mui/x-studio';
 import { log, error as logError } from '../logger.js';
 import { getDashboardState, setDashboardState } from './dashboardState.js';
@@ -261,13 +261,9 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       const saved = getDashboardState() as SerializedStudioState | null;
       const stateBox: StudioStateBox = {
         current: createDefaultStudioState(
-          saved
-            ? ({
-                ...saved,
-                dataSources: MCP_INITIAL_DATA_SOURCES,
-                mode: 'edit',
-              } as Partial<StudioState>)
-            : MCP_INITIAL_STATE,
+          (saved
+            ? { ...saved, dataSources: MCP_INITIAL_DATA_SOURCES, mode: 'edit' }
+            : MCP_INITIAL_STATE) as unknown as Partial<StudioState>,
         ),
       };
 

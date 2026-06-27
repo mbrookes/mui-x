@@ -11,8 +11,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { decideTier, decideTierWithCache, DEFAULT_THRESHOLDS } from '../tierDecision';
-import type { TierCacheProvider } from '../../cache/types';
-import type { TierEntry } from '../../cache/types';
+import type { TierCacheProvider , TierEntry } from '../../cache/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -133,12 +132,7 @@ describe('decideTierWithCache — tier-cache population', () => {
 
     expect(result.tier).toBe('client');
     expect(result.source).toBe('preflight');
-    expect(tierCache.set).toHaveBeenCalledOnce();
-    expect(tierCache.set).toHaveBeenCalledWith(
-      'my-cache-key',
-      { tier: 'client', rowCount: 8_000 },
-      30_000,
-    );
+    expect(tierCache.set).toHaveBeenCalledExactlyOnceWith('my-cache-key', { tier: 'client', rowCount: 8_000 }, 30_000);
   });
 
   it('does NOT write the cache for aggregation queries', async () => {

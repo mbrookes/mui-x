@@ -407,13 +407,17 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
             // interactive and cross-filter scopes. Including interactive filters here would cause
             // the trend delta to reflect different filter states for current vs previous period.
-            const pageFilters = filters.filter((f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range');
+            const pageFilters = filters.filter(
+              (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range',
+            );
             const widgetFilters = filters.filter(
               (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id,
             );
             const interactiveFilters =
               crossFilterMode !== 'none'
-                ? filters.filter((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id)
+                ? filters.filter(
+                    (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id,
+                  )
                 : [];
             const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
 
@@ -506,7 +510,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     config,
     widget,
     crossFilterMode,
-    localeText,
   ]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
@@ -516,7 +519,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       return '';
     }
     const relevant = filters.filter(
-      (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range' || (f.scope.kind === 'widget' && f.scope.widgetId === widget.id),
+      (f) =>
+        f.scope.kind === 'page' ||
+        f.scope.kind === 'dashboard-date-range' ||
+        (f.scope.kind === 'widget' && f.scope.widgetId === widget.id),
     );
     if (relevant.length === 0) {
       return '';

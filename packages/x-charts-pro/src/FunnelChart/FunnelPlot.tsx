@@ -4,7 +4,7 @@ import clsx from 'clsx';
 
 import { line as d3Line } from '@mui/x-charts-vendor/d3-shape';
 import { cartesianSeriesTypes, useStore, useSkipAnimation } from '@mui/x-charts/internals';
-import { type FunnelItemIdentifier } from './funnel.types';
+import type {FunnelItemIdentifier} from './funnel.types';
 import { AnimatedFunnelSection } from './AnimatedFunnelSection';
 import { alignLabel, positionLabel } from './labelUtils';
 import type { FunnelPlotSlotExtension } from './funnelPlotSlots.types';

@@ -14,7 +14,11 @@ export interface DataGridMcpTool {
   description: string;
   /** JSON Schema for the tool's input object. */
   inputSchema: Record<string, unknown>;
-  /** Execute the tool and return a serialisable result. */
+  /**
+   * Execute the tool and return a serialisable result.
+   * @param {unknown} input The input object for this tool call.
+   * @returns {Promise<unknown>} A serialisable result.
+   */
   execute: (input: unknown) => Promise<unknown>;
 }
 

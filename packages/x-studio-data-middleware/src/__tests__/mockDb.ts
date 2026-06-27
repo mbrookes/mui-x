@@ -42,7 +42,9 @@ function computeAgg(func: AggSpec['func'], groupRows: Row[], column: string): nu
   if (func === 'count') {
     return groupRows.filter((r) => r[column] != null).length;
   }
-  const values = groupRows.map((r) => r[column] as number).filter((v) => v != null && !isNaN(v));
+  const values = groupRows
+    .map((r) => r[column] as number)
+    .filter((v) => v != null && !Number.isNaN(v));
   if (values.length === 0) {
     return 0;
   }

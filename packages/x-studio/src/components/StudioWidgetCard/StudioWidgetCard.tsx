@@ -462,8 +462,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         pivotExportRef.current?.();
       }
     },
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct
-    [widget, source, controller, theme.palette.background.default],
+    [widget, source, controller, pageId, theme.palette.background.default],
   );
 
   if (!widget) {

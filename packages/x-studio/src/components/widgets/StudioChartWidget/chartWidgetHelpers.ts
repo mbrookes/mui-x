@@ -49,8 +49,8 @@ export function makeCrossHighlightLineFormatter(
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const baseline = baselineValues[dataIndex] ?? null;
-    if (value == null) return `${baseFormatter(baseline)} (filtered out)`;
-    if (value === baseline || baseline == null) return baseFormatter(value);
+    if (value == null) {return `${baseFormatter(baseline)} (filtered out)`;}
+    if (value === baseline || baseline == null) {return baseFormatter(value);}
     return `${baseFormatter(value)} / ${baseFormatter(baseline)}`;
   };
 }

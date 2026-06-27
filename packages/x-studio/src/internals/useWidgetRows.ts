@@ -466,6 +466,7 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
+    pageId,
     usedFieldIds,
   ]);
 

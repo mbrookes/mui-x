@@ -82,7 +82,7 @@ test.describe('Smoke: all pages load', () => {
     await page.goto('/');
     // Store console errors in the page object for later assertions
     await page.evaluate(() => {
-      (window as any).__e2eErrors = [];
+      (window as any).e2eErrors = [];
     });
     page.on('pageerror', (err) => {
       // We'll surface these in individual tests
@@ -328,9 +328,12 @@ test.describe('Dashboard date-range filter scoping', () => {
     const kpiTitles = ['Units Sold', 'Avg Unit Margin', 'Total Inventory Value'];
     for (const title of kpiTitles) {
       const card = widgetCard(page, title);
+      // eslint-disable-next-line no-await-in-loop
       await expect(card).toBeVisible();
       const valueEl = card.locator('h3').first();
+      // eslint-disable-next-line no-await-in-loop
       await expect(valueEl).toBeVisible();
+      // eslint-disable-next-line no-await-in-loop
       const text = await valueEl.textContent();
       // Should be a non-empty, non-dash value
       expect(text).toBeTruthy();

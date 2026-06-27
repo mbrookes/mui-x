@@ -542,7 +542,7 @@ function GridPrompt(props: GridPromptProps) {
                 </thead>
                 <tbody>
                   {(response as DataPromptResponse).rows.map((row, rowIndex) => (
-                    // eslint-disable-next-line react/no-array-index-key
+                     
                     <tr key={rowIndex}>
                       {(
                         (response as DataPromptResponse).columns ??

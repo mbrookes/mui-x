@@ -242,6 +242,8 @@ export interface StudioMcpOptions {
    * Use this to persist the session state to a database so it can be reloaded
    * on the next session.
    *
+   * @param {StudioState} state The updated studio state after the tool mutation.
+   * @returns {void | Promise<void>} Nothing; the return value is ignored.
    * @example
    * ```ts
    * buildStudioMcpServer(stateBox, {
@@ -321,9 +323,9 @@ const DEFAULT_EXCLUDED_TOOLS = new Set([
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
   ]);
 }
 
@@ -343,13 +345,23 @@ function mcpIsoWeek(d: Date): { year: number; week: number } {
 
 /** Truncate an ISO-date-string value to a period-key. Mirror of truncateToGranularity(). */
 function mcpTruncateToPeriod(value: unknown, granularity: string): string | null {
-  const raw =
-    typeof value === 'string' ? value : value instanceof Date ? value.toISOString() : null;
-  if (!raw) return null;
+  let raw: string | null;
+  if (typeof value === 'string') {
+    raw = value;
+  } else if (value instanceof Date) {
+    raw = value.toISOString();
+  } else {
+    raw = null;
+  }
+  if (!raw) {
+    return null;
+  }
   const y = Number(raw.slice(0, 4));
   const m = Number(raw.slice(5, 7)) - 1; // 0-indexed
   const day = Number(raw.slice(8, 10));
-  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(day)) return null;
+  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(day)) {
+    return null;
+  }
   switch (granularity) {
     case 'day':
       return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -374,17 +386,23 @@ function mcpMedian(sorted: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 function mcpDetectAnomaliesIQR(values: number[]): Set<number> {
-  if (values.length < 4) return new Set();
+  if (values.length < 4) {
+    return new Set();
+  }
   const sorted = values.toSorted((a, b) => a - b);
   const q1 = mcpMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = mcpMedian(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;
-  if (iqr === 0) return new Set();
+  if (iqr === 0) {
+    return new Set();
+  }
   const lower = q1 - 1.5 * iqr;
   const upper = q3 + 1.5 * iqr;
   const result = new Set<number>();
   for (let i = 0; i < values.length; i += 1) {
-    if (values[i] < lower || values[i] > upper) result.add(i);
+    if (values[i] < lower || values[i] > upper) {
+      result.add(i);
+    }
   }
   return result;
 }
@@ -995,9 +1013,13 @@ export function buildStudioMcpServer(
           await Promise.all(
             widgets.map(async (widget) => {
               const sourceId = widget.sourceId;
-              if (!sourceId) return;
+              if (!sourceId) {
+                return;
+              }
               const source = state.dataSources[sourceId];
-              if (!source?.tableName) return;
+              if (!source?.tableName) {
+                return;
+              }
 
               const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
               const numericFields = visibleFields.filter((f) => f.type === 'number');
@@ -1024,7 +1046,9 @@ export function buildStudioMcpServer(
                 const stats = numericFields
                   .map((f) => {
                     const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
-                    if (values.length === 0) return null;
+                    if (values.length === 0) {
+                      return null;
+                    }
                     const sum = values.reduce((a, b) => a + b, 0);
                     const min = Math.min(...values);
                     const max = Math.max(...values);
@@ -1089,7 +1113,9 @@ export function buildStudioMcpServer(
                     const grouped = new Map<string, number>();
                     for (const row of aggResult.rows) {
                       const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
-                      if (!periodKey) continue;
+                      if (!periodKey) {
+                        continue;
+                      }
                       grouped.set(
                         periodKey,
                         (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0),

@@ -157,8 +157,8 @@ export function StudioQuickFilterBar() {
                       component="span"
                       role="button"
                       aria-label={localeText.quickFilterBarRemoveFilter}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         controller.removeFilter(filter.id);
                       }}
                       sx={{
@@ -227,8 +227,8 @@ export function StudioQuickFilterBar() {
                       component="span"
                       role="button"
                       aria-label={localeText.quickFilterBarRemoveFilter}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         if (filter.scope.sourceWidgetId) {
                           controller.clearCrossFilter(filter.scope.sourceWidgetId);
                         } else {

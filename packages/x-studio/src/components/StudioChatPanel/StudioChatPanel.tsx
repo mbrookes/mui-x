@@ -36,18 +36,16 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { ChatBox, ChatComposerSendButton, ChatComposerToolbar, ChatMessage } from '@mui/x-chat';
-import type {
-  ChatAdapter,
-  ChatMessage as ChatMessageType,
-  ChatPartRendererMap,
-} from '@mui/x-chat/headless';
 import {
+  type ChatAdapter,
+  type ChatMessage as ChatMessageType,
+  type ChatPartRendererMap,
+  type ToolPartOwnerState,
   useChat,
   useChatComposer,
   useMessage,
   useMessageContext,
   createToolPartRenderer,
-  type ToolPartOwnerState,
 } from '@mui/x-chat/headless';
 
 import {

@@ -138,6 +138,31 @@ export default function App() {
     [],
   );
 
+  // On first render with pages, navigate to the page specified in ?page=
+  const initialPageApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (initialPageApplied.current || !activePageId || Object.keys(pages).length === 0) {
+      return;
+    }
+    initialPageApplied.current = true;
+    const requested = new URLSearchParams(window.location.search).get('page');
+    if (requested && pages[requested]) {
+      studioRef.current?.setActivePage(requested);
+    }
+  }, [activePageId, pages]);
+
+  // Keep ?page= in sync with the active page
+  React.useEffect(() => {
+    if (!activePageId) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('page') !== activePageId) {
+      params.set('page', activePageId);
+      window.history.replaceState(null, '', `?${params}`);
+    }
+  }, [activePageId]);
+
   const handleUndo = React.useCallback(() => studioRef.current?.undo(), []);
   const handleRedo = React.useCallback(() => studioRef.current?.redo(), []);
   const handlePageClose = React.useCallback((pageId: string) => {

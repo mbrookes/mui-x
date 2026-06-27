@@ -169,7 +169,7 @@ const PROFICIENCY_ORDER = [
 ];
 
 /** Company-size buckets, smallest → largest. */
-const SIZE_ORDER = ['Only me', '2–5', '6–10', '11–25', '26–50', '51–200', '201–500', '500+'];
+const SIZE_ORDER = ['Only me', '2–5', '6–10', '11–25', '26–50', '51–200', '201–500', '500+', 'Other'];
 
 /** Numeric rating fields that should be charted as discrete categories. */
 const RATING_FIELD_IDS = new Set<string>([FIELDS.richDefaults, FIELDS.commercialHappiness, FIELDS.aiUsage]);

@@ -144,27 +144,28 @@ Add to `.cursor/mcp.json` in your project:
 const server = buildStudioMcpServer(stateBox, options);
 ```
 
-| Option                 | Type                                            | Default                    | Description                                                                                                                               |
-| :--------------------- | :---------------------------------------------- | :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- |
-| `serverName`           | `string`                                        | `'x-studio'`               | Name reported in MCP `initialize` response                                                                                                |
-| `serverVersion`        | `string`                                        | `'1.0.0'`                  | Version reported in MCP `initialize` response                                                                                             |
-| `allowedTools`         | `string[]`                                      | all except `execute_query` | Exact list of tool names to expose                                                                                                        |
-| `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                       | Custom widget definitions                                                                                                                 |
-| `data.queryDataSource` | `(params) => Promise<result>`                   | —                          | Enables `query_data_source` and the data-analysis tools; required for `summarise_page` synthesis                                          |
-| `data.maxQueryRows`    | `number`                                        | `1000`                     | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query. |
-| `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                          | Called after every mutating tool call. Use to persist the session state (see [Enabling data queries](#enabling-data-queries)).            |
+| Option                 | Type                                            | Default                    | Description                                                                                                                                                                                                          |
+| :--------------------- | :---------------------------------------------- | :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverName`           | `string`                                        | `'x-studio'`               | Name reported in MCP `initialize` response                                                                                                                                                                           |
+| `serverVersion`        | `string`                                        | `'1.0.0'`                  | Version reported in MCP `initialize` response                                                                                                                                                                        |
+| `allowedTools`         | `string[]`                                      | all except `execute_query` | Exact list of tool names to expose                                                                                                                                                                                   |
+| `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                       | Custom widget definitions                                                                                                                                                                                            |
+| `data.queryDataSource` | `(params) => Promise<result>`                   | —                          | Enables `query_data_source` and the data-analysis tools; required for `summarise_page` synthesis                                                                                                                     |
+| `data.maxQueryRows`    | `number`                                        | `1000`                     | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query.                                                                            |
+| `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                          | Called after every mutating tool call. Use to persist the session state (see [Enabling data queries](#enabling-data-queries)).                                                                                       |
+| `contextEnricher`      | `(args) => StudioAIEnrichedContext`             | —                          | Attach DB-side metadata (row counts per dimension value, schema comments) to the system-prompt resource. Runs on each read; rendered into a `<server_context>` block. Best-effort — failures are logged and skipped. |
 
 `execute_query` (raw SQL) is excluded by default — opt in explicitly via `allowedTools`. The data-analysis tools (`describe_data_source`, `get_field_values`, `compute_field_stats`) are only useful when `data.queryDataSource` is configured.
 
 ## MCP resources
 
-| URI                                | Description                                                          |
-| :--------------------------------- | :------------------------------------------------------------------- |
-| `studio://dashboard/state`         | Full dashboard JSON (pages, widgets, sources, filters)               |
-| `studio://dashboard/system-prompt` | AI system prompt built from the current dashboard state              |
-| `studio://dashboard/data-health`   | Row counts per data source (requires `data` option)                  |
-| `studio://schema/{sourceId}`       | Field definitions: type, format, defaultAggregationFn, sample values |
-| `studio://data/{sourceId}`         | Raw row preview — up to 20 rows (requires `data` option)             |
+| URI                                | Description                                                                                                                                           |
+| :--------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `studio://dashboard/state`         | Full dashboard JSON (pages, widgets, sources, filters)                                                                                                |
+| `studio://dashboard/system-prompt` | AI system prompt built from the current dashboard state, including the active page's layout and cross-filter graph, plus any `contextEnricher` output |
+| `studio://dashboard/data-health`   | Row counts per data source (requires `data` option)                                                                                                   |
+| `studio://schema/{sourceId}`       | Field definitions: type, format, defaultAggregationFn, sample values                                                                                  |
+| `studio://data/{sourceId}`         | Raw row preview — up to 20 rows (requires `data` option)                                                                                              |
 
 ### Subscriptions
 
@@ -189,14 +190,17 @@ Type `studio://schema/` or `studio://data/` in an MCP client that supports `comp
 
 All built-in Studio AI tools are available in the MCP server. The following tools are additionally registered by `buildStudioMcpServer` and are only available via MCP (not the chat assistant):
 
-| Tool                   | Requires `data` | Description                                                                         |
-| :--------------------- | :-------------- | :---------------------------------------------------------------------------------- |
-| `list_pages`           | No              | Returns all page IDs and titles in the current dashboard                            |
-| `describe_data_source` | Yes             | Returns field definitions, row count, sample rows, and per-field stats for a source |
-| `get_field_values`     | Yes             | Returns distinct values and counts for a field (useful for filter suggestions)      |
-| `compute_field_stats`  | Yes             | Returns full-table min/max/avg/sum/count for numeric fields across a source         |
+| Tool                   | Requires `data` | Description                                                                                                         |
+| :--------------------- | :-------------- | :------------------------------------------------------------------------------------------------------------------ |
+| `list_pages`           | No              | Returns all page IDs and titles in the current dashboard                                                            |
+| `get_recent_changes`   | No              | Returns a time-ordered log of changes made in this MCP session (such as `addWidget:chart:w1` or `addFilter:region`) |
+| `describe_data_source` | Yes             | Returns field definitions, row count, sample rows, and per-field stats for a source                                 |
+| `get_field_values`     | Yes             | Returns distinct values and counts for a field (useful for filter suggestions)                                      |
+| `compute_field_stats`  | Yes             | Returns full-table min/max/avg/sum/count for numeric fields across a source                                         |
 
-These tools give an MCP client (Claude Desktop, Cursor, etc.) the ability to explore and analyse data without needing to know the schema in advance. `describe_data_source`, `get_field_values`, and `compute_field_stats` require `data.queryDataSource` to be configured.
+These tools give an MCP client (Claude Desktop, Cursor, etc.) the ability to explore and analyze data without needing to know the schema in advance. `describe_data_source`, `get_field_values`, and `compute_field_stats` require `data.queryDataSource` to be configured.
+
+`get_recent_changes` returns only the changes made through the current MCP session — it does not reflect edits a user makes in a separate browser session, which run in a different process with separate state.
 
 ## MCP prompts
 

@@ -398,12 +398,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     [allSeriesNames, resolvedChartColors],
   );
 
-  const selectedFilterValue =
-    activeCrossFilter &&
-    activeCrossFilter.field === config.xField &&
-    activeCrossFilter.operator !== 'between'
-      ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
-      : null;
+  const selectedFilterValues = React.useMemo<Set<string | number>>(() => {
+    if (
+      !activeCrossFilter ||
+      activeCrossFilter.field !== config.xField ||
+      activeCrossFilter.operator === 'between'
+    ) {
+      return new Set();
+    }
+    if (activeCrossFilter.operator === 'in' && Array.isArray(activeCrossFilter.value)) {
+      const values = (activeCrossFilter.value as Array<string | number>)
+        .map((v) => normalizeCrossFilterValue(v as string | number | Date))
+        .filter((v): v is string => v !== null);
+      return new Set(values);
+    }
+    const single = normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date);
+    return single !== null ? new Set([single]) : new Set();
+  }, [activeCrossFilter, config.xField]);
 
   // For period-grouped (between) cross-filters, resolve the matching period key
   // so getSelectedDataIndex can highlight the correct bar/point.
@@ -424,10 +435,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }, [activeCrossFilter, config.xField, xGroupBy]);
 
   // True when any cross-filter is active on the x-field from this widget.
-  const hasActiveXFilter = selectedFilterValue != null || selectedPeriodKey != null;
+  const hasActiveXFilter = selectedFilterValues.size > 0 || selectedPeriodKey != null;
 
   const handleItemClick = React.useCallback(
-    (label: string | number | Date) => {
+    (label: string | number | Date, shiftKey: boolean) => {
       if (!config.xField) {
         return;
       }
@@ -437,6 +448,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       if (xGroupBy) {
         // For period-grouped axes, emit a `between` filter covering the full period date range
         // so downstream widgets filter by raw dates, not the formatted period label.
+        // Multi-select is not supported for date-range (between) filters.
         let periodKey: string | null = null;
         if (label instanceof Date) {
           periodKey = truncateToGranularity(label, xGroupBy);
@@ -468,11 +480,42 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
 
-      // Toggle cross-filter: if same value is already active, clear it
-      if (activeCrossFilter && activeCrossFilter.value === filterValue) {
+      if (!shiftKey) {
+        // Regular click: single-select toggle
+        const isSingleActive =
+          activeCrossFilter?.operator !== 'in'
+            ? activeCrossFilter?.field === config.xField && activeCrossFilter?.value === filterValue
+            : (activeCrossFilter.value as unknown[]).length === 1 &&
+              (activeCrossFilter.value as unknown[])[0] == filterValue;
+        if (isSingleActive) {
+          controller.clearCrossFilter(widget.id);
+        } else {
+          controller.applyCrossFilter(widget.id, config.xField, filterValue, filterSourceId);
+        }
+        return;
+      }
+
+      // Shift-click: multi-select toggle using the 'in' operator
+      const existing: Array<string | number> =
+        activeCrossFilter?.operator === 'in' &&
+        Array.isArray(activeCrossFilter.value) &&
+        activeCrossFilter.field === config.xField
+          ? (activeCrossFilter.value as Array<string | number>)
+          : activeCrossFilter?.operator === 'equals' && activeCrossFilter.field === config.xField
+            ? [activeCrossFilter.value as string | number]
+            : [];
+
+      const hasValue = existing.some((v) => v == filterValue);
+      const next = hasValue
+        ? existing.filter((v) => v != filterValue)
+        : [...existing, filterValue as string | number];
+
+      if (next.length === 0) {
         controller.clearCrossFilter(widget.id);
+      } else if (next.length === 1) {
+        controller.applyCrossFilter(widget.id, config.xField, next[0], filterSourceId);
       } else {
-        controller.applyCrossFilter(widget.id, config.xField, filterValue, filterSourceId);
+        controller.applyCrossFilter(widget.id, config.xField, next, filterSourceId, 'in');
       }
     },
     [
@@ -585,23 +628,31 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     multiYData,
   ]);
 
-  const getSelectedDataIndex = React.useCallback(
-    (labels: Array<string | number | Date>) => {
-      // Period-grouped between filter: match by period key
+  const getSelectedDataIndices = React.useCallback(
+    (labels: Array<string | number | Date>): number[] => {
+      // Period-grouped between filter: single match by period key
       if (selectedPeriodKey != null) {
-        return labels.findIndex((l) => {
+        const idx = labels.findIndex((l) => {
           if (l instanceof Date) {
             return truncateToGranularity(l, xGroupBy ?? 'day') === selectedPeriodKey;
           }
           return String(l) === selectedPeriodKey;
         });
+        return idx >= 0 ? [idx] : [];
       }
-      if (selectedFilterValue == null) {
-        return -1;
+      if (selectedFilterValues.size === 0) {
+        return [];
       }
-      return labels.findIndex((label) => normalizeCrossFilterValue(label) === selectedFilterValue);
+      const indices: number[] = [];
+      labels.forEach((label, i) => {
+        const normalized = normalizeCrossFilterValue(label);
+        if (normalized !== null && selectedFilterValues.has(normalized)) {
+          indices.push(i);
+        }
+      });
+      return indices;
     },
-    [selectedFilterValue, selectedPeriodKey, xGroupBy],
+    [selectedFilterValues, selectedPeriodKey, xGroupBy],
   );
 
   // Pre-compute grouped-ring pie data: one ring per xField category, each ring
@@ -1600,7 +1651,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       const effectiveMultiYData =
         shouldShowGhost && allBarMultiYData ? allBarMultiYData : barMultiYData;
       const xAxisData = effectiveMultiYData.labels;
-      const selectedDataIndex = getSelectedDataIndex(effectiveMultiYData.labels);
+      const selectedDataIndices = getSelectedDataIndices(effectiveMultiYData.labels);
       const isStacked =
         chartType === 'bar-stacked' ||
         chartType === 'bar-100' ||
@@ -1766,14 +1817,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
               highlightedItem={null}
               highlightedAxis={
-                selectedDataIndex >= 0
-                  ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+                selectedDataIndices.length > 0
+                  ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
                   : controlledHighlightedAxis
               }
               onHighlightedAxisChange={setHoveredAxis}
               onAxisClick={(_event, params) => {
                 if (params?.axisValue !== undefined) {
-                  handleItemClick(params.axisValue);
+                  handleItemClick(params.axisValue, _event.shiftKey);
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -1969,7 +2020,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }
     }
 
-    const selectedDataIndex = pieMaxSlices ? -1 : getSelectedDataIndex(chartData.labels);
+    const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(chartData.labels);
 
     // Value formatter for pie y-field — seriesValueFormatter isn't in scope here (declared after early return)
     const pieYFieldDef =
@@ -2093,8 +2144,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     ];
 
     const pieHighlightedItem =
-      selectedDataIndex >= 0
-        ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+      selectedDataIndices.length > 0
+        ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
         : controlledHighlightedItem;
 
     return (
@@ -2118,7 +2169,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               onItemClick={(_event, params) => {
                 const label = displayLabels[params.dataIndex];
                 if (label !== undefined) {
-                  handleItemClick(label);
+                  handleItemClick(label, _event.shiftKey);
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -2198,7 +2249,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               onItemClick={(_event, params) => {
                 const label = displayLabels[params.dataIndex];
                 if (label !== undefined) {
-                  handleItemClick(label);
+                  handleItemClick(label, _event.shiftKey);
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -2301,7 +2352,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         valueFormatter,
       };
     });
-    const selectedDataIndex = getSelectedDataIndex(effectiveSFData.labels);
+    const selectedDataIndices = getSelectedDataIndices(effectiveSFData.labels);
     const effectiveSFBarHeight =
       isHorizontalBarLayout && config.barMinBandSize
         ? Math.max(chartHeight, xAxisData.length * config.barMinBandSize + 40)
@@ -2380,8 +2431,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
             highlightedItem={controlledHighlightedItem}
             highlightedAxis={
-              selectedDataIndex >= 0
-                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+              selectedDataIndices.length > 0
+                ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
                 : controlledHighlightedAxis
             }
             onHighlightChange={(item) =>
@@ -2390,7 +2441,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             onHighlightedAxisChange={setHoveredAxis}
             onAxisClick={(_event, params) => {
               if (params?.axisValue !== undefined) {
-                handleItemClick(params.axisValue);
+                handleItemClick(params.axisValue, _event.shiftKey);
               }
             }}
             sx={{ cursor: 'default' }}
@@ -2436,7 +2487,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         : null;
     const effectiveSFLineData = sfLineAllData ?? seriesFieldData;
     const xAxis = createLineXAxis(effectiveSFLineData.labels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndex = getSelectedDataIndex(effectiveSFLineData.labels);
+    const selectedDataIndices = getSelectedDataIndices(effectiveSFLineData.labels);
 
     // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
     const totals100 = is100
@@ -2517,8 +2568,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
           highlightedAxis={
-            selectedDataIndex >= 0
-              ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+            selectedDataIndices.length > 0
+              ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
               : controlledHighlightedAxis
           }
           onHighlightChange={(item) =>
@@ -2527,7 +2578,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           onHighlightedAxisChange={setHoveredAxis}
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
+              handleItemClick(params.axisValue, _event.shiftKey);
             }
           }}
           sx={{ cursor: 'default' }}
@@ -2560,7 +2611,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         : null;
     const effectiveLabels = (multiYAllData ?? multiYData).labels;
     const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndex = getSelectedDataIndex(effectiveLabels);
+    const selectedDataIndices = getSelectedDataIndices(effectiveLabels);
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const multiYLineFieldDefs = multiYData.series.map(
@@ -2650,10 +2701,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={
-            selectedDataIndex >= 0
+            selectedDataIndices.length > 0
               ? {
                   seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
-                  dataIndex: selectedDataIndex,
+                  dataIndex: selectedDataIndices[0],
                 }
               : controlledHighlightedItem
           }
@@ -2662,7 +2713,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
+              handleItemClick(params.axisValue, _event.shiftKey);
             }
           }}
           sx={{ cursor: 'default' }}
@@ -2698,7 +2749,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     yFieldDef?.currencyCode,
     yFieldDef?.precision,
   );
-  const selectedDataIndex = getSelectedDataIndex(effectiveSingleSeriesData!.labels);
+  const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
 
   // Filtered values aligned to all-data labels for ghost bar context
   const singleSeriesFilteredValues =
@@ -2863,8 +2914,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
-            selectedDataIndex >= 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+            selectedDataIndices.length > 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
@@ -2872,7 +2923,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
+              handleItemClick(params.axisValue, _event.shiftKey);
             }
           }}
           sx={{ cursor: 'default' }}
@@ -2960,8 +3011,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
-            selectedDataIndex >= 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+            selectedDataIndices.length > 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
@@ -2969,7 +3020,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
+              handleItemClick(params.axisValue, _event.shiftKey);
             }
           }}
           sx={{ cursor: 'default' }}
@@ -3054,8 +3105,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             hideLegend
             margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
             highlightedItem={
-              selectedDataIndex >= 0
-                ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              selectedDataIndices.length > 0
+                ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
                 : controlledHighlightedItem
             }
             onHighlightChange={(item) =>
@@ -3063,7 +3114,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             }
             onAxisClick={(_event, params) => {
               if (params?.axisValue !== undefined) {
-                handleItemClick(params.axisValue);
+                handleItemClick(params.axisValue, _event.shiftKey);
               }
             }}
             sx={{ cursor: 'default' }}
@@ -3117,8 +3168,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
-            selectedDataIndex >= 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+            selectedDataIndices.length > 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
@@ -3126,7 +3177,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
+              handleItemClick(params.axisValue, _event.shiftKey);
             }
           }}
           sx={{ cursor: 'default' }}

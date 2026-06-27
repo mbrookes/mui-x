@@ -45,7 +45,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --config.engine-strict=false
 
       - name: Build survey example
         working-directory: examples/x-studio-survey

@@ -482,13 +482,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
 
+      // Loose equality throughout: cross-filter values may be string or number depending
+      // on the source column, and a click always yields the label's own runtime type.
+      const looseEq = (a: unknown, b: unknown) =>
+        // eslint-disable-next-line eqeqeq
+        a == b;
+
       if (!shiftKey) {
         // Regular click: single-select toggle
-        const isSingleActive =
-          activeCrossFilter?.operator !== 'in'
-            ? activeCrossFilter?.field === config.xField && activeCrossFilter?.value === filterValue
-            : (activeCrossFilter.value as unknown[]).length === 1 &&
-              (activeCrossFilter.value as unknown[])[0] == filterValue;
+        let isSingleActive: boolean;
+        if (activeCrossFilter?.operator === 'in') {
+          isSingleActive =
+            (activeCrossFilter.value as unknown[]).length === 1 &&
+            looseEq((activeCrossFilter.value as unknown[])[0], filterValue);
+        } else {
+          isSingleActive =
+            activeCrossFilter?.field === config.xField && activeCrossFilter?.value === filterValue;
+        }
         if (isSingleActive) {
           controller.clearCrossFilter(widget.id);
         } else {
@@ -498,18 +508,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }
 
       // Shift-click: multi-select toggle using the 'in' operator
-      const existing: Array<string | number> =
+      let existing: Array<string | number> = [];
+      if (
         activeCrossFilter?.operator === 'in' &&
         Array.isArray(activeCrossFilter.value) &&
         activeCrossFilter.field === config.xField
-          ? (activeCrossFilter.value as Array<string | number>)
-          : activeCrossFilter?.operator === 'equals' && activeCrossFilter.field === config.xField
-            ? [activeCrossFilter.value as string | number]
-            : [];
+      ) {
+        existing = activeCrossFilter.value as Array<string | number>;
+      } else if (
+        activeCrossFilter?.operator === 'equals' &&
+        activeCrossFilter.field === config.xField
+      ) {
+        existing = [activeCrossFilter.value as string | number];
+      }
 
-      const hasValue = existing.some((v) => v == filterValue);
+      const hasValue = existing.some((v) => looseEq(v, filterValue));
       const next = hasValue
-        ? existing.filter((v) => v != filterValue)
+        ? existing.filter((v) => !looseEq(v, filterValue))
         : [...existing, filterValue as string | number];
 
       if (next.length === 0) {
@@ -1834,7 +1849,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               onHighlightedAxisChange={setHoveredAxis}
               onAxisClick={(_event, params) => {
                 if (params?.axisValue !== undefined) {
-                  handleItemClick(params.axisValue, _event.shiftKey);
+                  handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -2155,13 +2170,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     // Self-selection takes priority over ghost-highlight mode so clicking a pie arc
     // always brightens it even when the pie is also receiving a cross-highlight from
-    // another chart. isPieHighlightActive ? null comes second to avoid suppressing it.
+    // another chart. isPieHighlightActive suppresses stale hover; otherwise fall back to hover.
+    const pieHoverFallback = isPieHighlightActive ? null : controlledHighlightedItem;
     const pieHighlightedItem =
       selectedDataIndices.length > 0
         ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-        : isPieHighlightActive
-          ? null
-          : controlledHighlightedItem;
+        : pieHoverFallback;
 
     // Ratio map for CrossHighlightPieArc, keyed by the RENDERED arc index.
     // The top-level pieRatioByIndex is keyed by allChartData's original order, but
@@ -2169,7 +2183,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // arc dataIndex no longer matches. Rebuild from displayValues / filteredDisplayValues,
     // which are both already aligned to displayLabels (incl. the "Other" bucket).
     const pieDisplayCtxValue = isPieHighlightActive
-      ? {
+      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+        {
           ratioByIndex: new Map<number, number>(
             displayValues.map((bv, i) => {
               const allValue = bv ?? 0;
@@ -2205,7 +2220,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               onItemClick={(_event, params) => {
                 const label = displayLabels[params.dataIndex];
                 if (label !== undefined) {
-                  handleItemClick(label, _event.shiftKey);
+                  handleItemClick(label, Boolean(_event?.shiftKey));
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -2285,7 +2300,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               onItemClick={(_event, params) => {
                 const label = displayLabels[params.dataIndex];
                 if (label !== undefined) {
-                  handleItemClick(label, _event.shiftKey);
+                  handleItemClick(label, Boolean(_event?.shiftKey));
                 }
               }}
               sx={{ cursor: 'default' }}
@@ -2477,7 +2492,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             onHighlightedAxisChange={setHoveredAxis}
             onAxisClick={(_event, params) => {
               if (params?.axisValue !== undefined) {
-                handleItemClick(params.axisValue, _event.shiftKey);
+                handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
               }
             }}
             sx={{ cursor: 'default' }}
@@ -2614,7 +2629,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           onHighlightedAxisChange={setHoveredAxis}
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, _event.shiftKey);
+              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
             }
           }}
           sx={{ cursor: 'default' }}
@@ -2749,7 +2764,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, _event.shiftKey);
+              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
             }
           }}
           sx={{ cursor: 'default' }}
@@ -2787,6 +2802,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
   const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
   const sourceSelectionCtxValue =
+    // eslint-disable-next-line react/jsx-no-constructed-context-values
     selectedDataIndices.length > 1 ? new Set(selectedDataIndices) : null;
 
   // Filtered values aligned to all-data labels for ghost bar context
@@ -2810,6 +2826,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     singleBarContext && singleSeriesFilteredValues
       ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
       : seriesValueFormatter;
+  // Bar slot: ghost-target rendering wins; otherwise multi-select source dimming; else default.
+  let singleBarSlots: { bar: typeof CrossFilterGhostBar } | undefined;
+  if (singleBarContext) {
+    singleBarSlots = { bar: CrossFilterGhostBar };
+  } else if (selectedDataIndices.length > 1) {
+    singleBarSlots = { bar: SourceSelectionBar };
+  }
+  // MUI item highlight for single-series bars: a lone selection highlights that bar; multi-select
+  // (>1) is handled by SourceSelectionBar so no item highlight; no selection falls back to hover.
+  let singleBarHighlightedItem = controlledHighlightedItem;
+  if (selectedDataIndices.length === 1) {
+    singleBarHighlightedItem = {
+      seriesId: CROSS_FILTER_SERIES_ID,
+      dataIndex: selectedDataIndices[0],
+    };
+  } else if (selectedDataIndices.length > 1) {
+    singleBarHighlightedItem = null;
+  }
 
   // Ghost line series data (allChartData values) for line/area charts when ghost-rendering
   const ghostLineValues =
@@ -2961,7 +2995,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, _event.shiftKey);
+              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
             }
           }}
           sx={{ cursor: 'default' }}
@@ -3058,7 +3092,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, _event.shiftKey);
+              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
             }
           }}
           sx={{ cursor: 'default' }}
@@ -3143,29 +3177,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               colors={chartColors}
               hideLegend
               margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
-              highlightedItem={
-                selectedDataIndices.length === 1
-                  ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-                  : selectedDataIndices.length === 0
-                    ? controlledHighlightedItem
-                    : null
-              }
+              highlightedItem={singleBarHighlightedItem}
               onHighlightChange={(item) =>
                 setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
               }
               onAxisClick={(_event, params) => {
                 if (params?.axisValue !== undefined) {
-                  handleItemClick(params.axisValue, _event.shiftKey);
+                  handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
                 }
               }}
               sx={{ cursor: 'default' }}
-              slots={
-                singleBarContext
-                  ? { bar: CrossFilterGhostBar }
-                  : selectedDataIndices.length > 1
-                    ? { bar: SourceSelectionBar }
-                    : undefined
-              }
+              slots={singleBarSlots}
               slotProps={{
                 legend: {
                   sx: {
@@ -3216,29 +3238,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             colors={chartColors}
             hideLegend
             margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-            highlightedItem={
-              selectedDataIndices.length === 1
-                ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-                : selectedDataIndices.length === 0
-                  ? controlledHighlightedItem
-                  : null
-            }
+            highlightedItem={singleBarHighlightedItem}
             onHighlightChange={(item) =>
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
             onAxisClick={(_event, params) => {
               if (params?.axisValue !== undefined) {
-                handleItemClick(params.axisValue, _event.shiftKey);
+                handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
               }
             }}
             sx={{ cursor: 'default' }}
-            slots={
-              singleBarContext
-                ? { bar: CrossFilterGhostBar }
-                : selectedDataIndices.length > 1
-                  ? { bar: SourceSelectionBar }
-                  : undefined
-            }
+            slots={singleBarSlots}
             slotProps={{
               legend: {
                 sx: {

@@ -8,7 +8,6 @@ export function CrossHighlightPieArc(props: PieArcProps) {
   const { ratioByIndex, isActive, skipAnimation } = React.use(PieHighlightContext);
 
   const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
-  const ghostColor = isActive ? `${color}40` : color;
   const overlayEndAngle = startAngle + ratio * (endAngle - startAngle);
 
   return (
@@ -16,16 +15,23 @@ export function CrossHighlightPieArc(props: PieArcProps) {
       {/* Ghost arc — full surface area; handles ALL pointer interaction for this slice.
           The overlay arc sits on top but defers interaction to the ghost so that
           hovering anywhere on the slice (ghost or overlay region) consistently
-          triggers highlighting. */}
-      <PieArc
-        {...rest}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius}
-        color={ghostColor}
-        skipAnimation={skipAnimation}
-      />
+          triggers highlighting.
+          Dimming is applied via group `opacity`, NOT by suffixing the color with an
+          alpha hex (`${color}40`): the palette's first colour is a CSS variable
+          (`var(--mui-palette-primary-main)`), and `var(...)40` is an invalid colour
+          string that the browser drops — leaving that arc rendered at full opacity, so
+          the first slice always looked highlighted regardless of its cross-filter ratio. */}
+      <g opacity={isActive ? 0.25 : 1}>
+        <PieArc
+          {...rest}
+          startAngle={startAngle}
+          endAngle={endAngle}
+          innerRadius={innerRadius}
+          outerRadius={outerRadius}
+          color={color}
+          skipAnimation={skipAnimation}
+        />
+      </g>
       {/* Overlay arc — purely visual; skipInteraction prevents duplicate/conflicting
           pointer events with the ghost arc beneath it.
           stroke="none" removes the radial end-line at the overlay boundary.

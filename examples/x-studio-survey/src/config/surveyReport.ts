@@ -508,9 +508,11 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
   };
 }
 
-/** Shared page theme: flat canvas using theme defaults so dark mode adapts automatically. */
+/** Shared page theme: flat canvas. Track the theme's default background (rgb(250, 250, 246)
+ * in light mode) via the CSS variable so dark mode still adapts automatically. */
 const PAGE_THEME: StudioPageTheme = {
   cardBorder: false,
+  pageBackground: 'var(--mui-palette-background-default)',
 };
 
 function qDividerWidget(n: number): StudioWidget {

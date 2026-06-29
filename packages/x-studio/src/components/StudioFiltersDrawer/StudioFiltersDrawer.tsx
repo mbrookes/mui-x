@@ -273,7 +273,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
         emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
       />
 
-      {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
+      {selectedWidgetId && selectedWidget?.kind !== 'filter' && selectedWidget?.kind !== 'text' ? (
         <React.Fragment>
           <Divider />
           <WidgetFilterSection

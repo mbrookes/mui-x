@@ -53,6 +53,9 @@ export interface StudioWidgetCardActionsOverlayProps {
    * @param {'summary' | 'analysis' | 'forecast'} type - The insight type the user selected.
    */
   onInsightRequest?: (type: 'summary' | 'analysis' | 'forecast') => void;
+  /** Whether the widget supports forecasting (line/area charts). Hides the "forecast"
+   * item from the AI insight menu when false. */
+  supportsForecast?: boolean;
   /** Called when the user clicks the refresh button on an AI-mode text widget. When omitted, the button is hidden. */
   onAiRefresh?: () => void;
   /** When true, anomaly detection is currently active on this chart widget. */
@@ -91,6 +94,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     moveToPageOptions,
     onAiRequest,
     onInsightRequest,
+    supportsForecast,
     onAiRefresh,
     anomalyEnabled,
     anomalyCount,
@@ -111,6 +115,11 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const deleteButtonRef = React.useRef<HTMLButtonElement>(null);
   const localeText = useStudioLocaleText();
+
+  // Forecast only applies to line/area charts — omit it from the insight menu otherwise.
+  const insightTypes: Array<'summary' | 'analysis' | 'forecast'> = supportsForecast
+    ? ['summary', 'analysis', 'forecast']
+    : ['summary', 'analysis'];
 
   const handleDeleteClick = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -219,7 +228,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 onClose={() => setInsightMenuAnchor(null)}
                 onClick={(event) => event.stopPropagation()}
               >
-                {(['summary', 'analysis', 'forecast'] as const).map((type) => (
+                {insightTypes.map((type) => (
                   <MenuItem
                     key={type}
                     dense
@@ -546,7 +555,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               onClose={() => setInsightMenuAnchor(null)}
               onClick={(event) => event.stopPropagation()}
             >
-              {(['summary', 'analysis', 'forecast'] as const).map((type) => (
+              {insightTypes.map((type) => (
                 <MenuItem
                   key={type}
                   dense

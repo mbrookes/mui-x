@@ -90,6 +90,22 @@ describe('StudioWidgetCardActionsOverlay — edit mode', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Summary' }));
     expect(onInsightRequest).toHaveBeenCalledWith('summary');
   });
+
+  it('hides the forecast insight item for widgets that do not support forecasting', async () => {
+    const { user } = setup({ onInsightRequest: vi.fn(), supportsForecast: false });
+    await user.click(screen.getByRole('button', { name: 'AI insight' }));
+    expect(screen.getByRole('menuitem', { name: 'Summary' })).not.toBe(null);
+    expect(screen.getByRole('menuitem', { name: 'Analysis' })).not.toBe(null);
+    expect(screen.queryByRole('menuitem', { name: 'Forecast' })).toBe(null);
+  });
+
+  it('shows the forecast insight item when the widget supports forecasting', async () => {
+    const onInsightRequest = vi.fn();
+    const { user } = setup({ onInsightRequest, supportsForecast: true });
+    await user.click(screen.getByRole('button', { name: 'AI insight' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Forecast' }));
+    expect(onInsightRequest).toHaveBeenCalledWith('forecast');
+  });
 });
 
 describe('StudioWidgetCardActionsOverlay — view mode', () => {

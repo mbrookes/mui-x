@@ -52,6 +52,11 @@ import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { SourceSelectionContext } from './SourceSelectionContext';
 import { SourceSelectionBar } from './SourceSelectionBar';
+import {
+  ChartFieldTitleContext,
+  AxisFieldTooltip,
+  ItemFieldTooltip,
+} from './StudioChartFieldTooltip';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -76,7 +81,14 @@ import { formatFieldValue } from '../../../internals/numberFormat';
 function EmptyLegend() {
   return null;
 }
-const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EmptyLegend } as const;
+// Pie/donut slots: cross-highlight arc + a field-titled tooltip (question as title, slice
+// as the labelled row). The "no legend" variant also suppresses the built-in legend.
+const PIE_FIELD_SLOTS = { ...PIE_HIGHLIGHT_SLOTS, tooltip: ItemFieldTooltip } as const;
+const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = {
+  ...PIE_HIGHLIGHT_SLOTS,
+  legend: EmptyLegend,
+  tooltip: ItemFieldTooltip,
+} as const;
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -2202,112 +2214,120 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
          stays at the same tree position and arcs never remount on filter changes. */
-      <PieHighlightContext.Provider value={pieDisplayCtxValue}>
-        {pieLegendBelow ? (
-          <React.Fragment>
-            <PieChart
-              {...slotProps?.pieChart}
-              height={pieH}
-              skipAnimation={skipAnimation}
-              slots={PIE_HIGHLIGHT_SLOTS_NO_LEGEND}
-              series={pieSingleSeries}
-              colors={pieColors}
-              margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
-              highlightedItem={pieHighlightedItem}
-              onHighlightChange={(item) =>
-                setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-              }
-              onItemClick={(_event, params) => {
-                const label = displayLabels[params.dataIndex];
-                if (label !== undefined) {
-                  handleItemClick(label, Boolean(_event?.shiftKey));
+      <ChartFieldTitleContext.Provider value={pieYFieldDef?.label}>
+        <PieHighlightContext.Provider value={pieDisplayCtxValue}>
+          {pieLegendBelow ? (
+            <React.Fragment>
+              <PieChart
+                {...slotProps?.pieChart}
+                height={pieH}
+                skipAnimation={skipAnimation}
+                slots={PIE_HIGHLIGHT_SLOTS_NO_LEGEND}
+                series={pieSingleSeries}
+                colors={pieColors}
+                margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
+                highlightedItem={pieHighlightedItem}
+                onHighlightChange={(item) =>
+                  setHoveredItem(
+                    item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+                  )
                 }
-              }}
-              sx={{ cursor: 'default' }}
-            />
-            {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
-            <Box sx={{ px: 1.5, pb: 1 }}>
-              {displayLabels.map((label, i) => {
-                const value = displayValues[i] ?? 0;
-                const basePct =
-                  singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
-                const filteredPct =
-                  filteredDisplayValues && filteredPieTotal > 0
-                    ? `${(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100).toFixed(1)}%`
-                    : null;
-                const pct =
-                  filteredPct && filteredPct !== basePct ? `${filteredPct} / ${basePct}` : basePct;
-                const color = pieColors[i % pieColors.length];
-                return (
-                  <Box
-                    key={i}
-                    sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}
-                  >
+                onItemClick={(_event, params) => {
+                  const label = displayLabels[params.dataIndex];
+                  if (label !== undefined) {
+                    handleItemClick(label, Boolean(_event?.shiftKey));
+                  }
+                }}
+                sx={{ cursor: 'default' }}
+              />
+              {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
+              <Box sx={{ px: 1.5, pb: 1 }}>
+                {displayLabels.map((label, i) => {
+                  const value = displayValues[i] ?? 0;
+                  const basePct =
+                    singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
+                  const filteredPct =
+                    filteredDisplayValues && filteredPieTotal > 0
+                      ? `${(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100).toFixed(1)}%`
+                      : null;
+                  const pct =
+                    filteredPct && filteredPct !== basePct
+                      ? `${filteredPct} / ${basePct}`
+                      : basePct;
+                  const color = pieColors[i % pieColors.length];
+                  return (
                     <Box
-                      component="span"
-                      sx={{
-                        display: 'inline-block',
-                        width: 8,
-                        height: 8,
-                        borderRadius: '2px',
-                        bgcolor: color,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Box
-                      component="span"
-                      sx={{
-                        flex: 1,
-                        fontSize: '0.65rem',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
+                      key={i}
+                      sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}
                     >
-                      {formatLabel(label)}
+                      <Box
+                        component="span"
+                        sx={{
+                          display: 'inline-block',
+                          width: 8,
+                          height: 8,
+                          borderRadius: '2px',
+                          bgcolor: color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Box
+                        component="span"
+                        sx={{
+                          flex: 1,
+                          fontSize: '0.65rem',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {formatLabel(label)}
+                      </Box>
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: '0.65rem',
+                          fontVariantNumeric: 'tabular-nums',
+                          flexShrink: 0,
+                          color: 'text.secondary',
+                          pl: '8px',
+                          textAlign: 'right',
+                        }}
+                      >
+                        {pct}
+                      </Box>
                     </Box>
-                    <Box
-                      component="span"
-                      sx={{
-                        fontSize: '0.65rem',
-                        fontVariantNumeric: 'tabular-nums',
-                        flexShrink: 0,
-                        color: 'text.secondary',
-                        pl: '8px',
-                        textAlign: 'right',
-                      }}
-                    >
-                      {pct}
-                    </Box>
-                  </Box>
-                );
-              })}
-            </Box>
-          </React.Fragment>
-        ) : (
-          <div style={{ height: chartHeight }}>
-            <PieChart
-              {...slotProps?.pieChart}
-              skipAnimation={skipAnimation}
-              slots={PIE_HIGHLIGHT_SLOTS}
-              series={pieSingleSeries}
-              colors={pieColors}
-              margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-              highlightedItem={pieHighlightedItem}
-              onHighlightChange={(item) =>
-                setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-              }
-              onItemClick={(_event, params) => {
-                const label = displayLabels[params.dataIndex];
-                if (label !== undefined) {
-                  handleItemClick(label, Boolean(_event?.shiftKey));
+                  );
+                })}
+              </Box>
+            </React.Fragment>
+          ) : (
+            <div style={{ height: chartHeight }}>
+              <PieChart
+                {...slotProps?.pieChart}
+                skipAnimation={skipAnimation}
+                slots={PIE_FIELD_SLOTS}
+                series={pieSingleSeries}
+                colors={pieColors}
+                margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+                highlightedItem={pieHighlightedItem}
+                onHighlightChange={(item) =>
+                  setHoveredItem(
+                    item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+                  )
                 }
-              }}
-              sx={{ cursor: 'default' }}
-            />
-          </div>
-        )}
-      </PieHighlightContext.Provider>
+                onItemClick={(_event, params) => {
+                  const label = displayLabels[params.dataIndex];
+                  if (label !== undefined) {
+                    handleItemClick(label, Boolean(_event?.shiftKey));
+                  }
+                }}
+                sx={{ cursor: 'default' }}
+              />
+            </div>
+          )}
+        </PieHighlightContext.Provider>
+      </ChartFieldTitleContext.Provider>
     );
   }
 
@@ -2826,12 +2846,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     singleBarContext && singleSeriesFilteredValues
       ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
       : seriesValueFormatter;
-  // Bar slot: ghost-target rendering wins; otherwise multi-select source dimming; else default.
-  let singleBarSlots: { bar: typeof CrossFilterGhostBar } | undefined;
+  // Bar slots: a field-titled tooltip (question as title, category as the labelled row) plus a
+  // bar slot — ghost-target rendering wins; otherwise multi-select source dimming; else default.
+  const singleBarSlots: {
+    tooltip: typeof AxisFieldTooltip;
+    bar?: typeof CrossFilterGhostBar | typeof SourceSelectionBar;
+  } = { tooltip: AxisFieldTooltip };
   if (singleBarContext) {
-    singleBarSlots = { bar: CrossFilterGhostBar };
+    singleBarSlots.bar = CrossFilterGhostBar;
   } else if (selectedDataIndices.length > 1) {
-    singleBarSlots = { bar: SourceSelectionBar };
+    singleBarSlots.bar = SourceSelectionBar;
   }
   // MUI item highlight for single-series bars: a lone selection highlights that bar; multi-select
   // (>1) is handled by SourceSelectionBar so no item highlight; no selection falls back to hover.

@@ -479,6 +479,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     features.export &&
     (widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot');
   const isChart = widget.kind === 'chart';
+  // Forecast is only rendered for line/area charts (see StudioChartWidget), so hide the
+  // forecast insight action for every other widget kind / chart type.
+  const supportsForecast =
+    isChart && (widget.config.chartType === 'line' || widget.config.chartType === 'area');
   const showEditActions = !isDragging && mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
@@ -574,6 +578,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               : undefined
           }
           onInsightRequest={supportsInsight && onInsightRequest ? handleInsightRequest : undefined}
+          supportsForecast={supportsForecast}
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
           onAnomalyToggle={

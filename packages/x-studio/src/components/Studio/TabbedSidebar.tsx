@@ -78,6 +78,12 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDrawer]);
 
+  // Nothing to show (e.g. all panels gated off in view mode) — render no rail at all
+  // rather than an empty tab strip.
+  if (panels.length === 0) {
+    return null;
+  }
+
   const handleTabClick = (drawer: StudioDrawer) => {
     if (activeDrawer === drawer) {
       // Same tab → close

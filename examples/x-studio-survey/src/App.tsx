@@ -110,6 +110,13 @@ export default function App() {
     crossFilterBar: true,
   });
 
+  // Hide the filters panel in view mode — viewers consume the report, they don't edit filters.
+  // (The quick-filter chip bar still surfaces any active filters.)
+  const effectiveFeatureFlags = React.useMemo<StudioFeatureFlags>(
+    () => (mode === 'view' ? { ...featureFlags, filters: false } : featureFlags),
+    [featureFlags, mode],
+  );
+
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (!serverUrl) {
@@ -423,7 +430,7 @@ export default function App() {
                     sidebarSide={sidebarSide}
                     tableSourceMode={tableSourceMode}
                     stackBreakpoint={stackBreakpoint}
-                    featureFlags={featureFlags}
+                    featureFlags={effectiveFeatureFlags}
                     localeText={localeBundle.studioLocaleText}
                     customWidgets={CUSTOM_WIDGETS}
                     aiConfig={aiConfig}

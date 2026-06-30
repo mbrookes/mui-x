@@ -617,7 +617,7 @@ export const SURVEY_DASHBOARD: Partial<StudioState> = {
   mode: 'view',
   dashboard: {
     id: 'dashboard-survey-2025',
-    title: 'MUI · 2025 Annual Developer Survey',
+    title: 'MUI · 2025 Annual Developer Survey – Insights & Analysis',
     activePageId: 'page-styling',
   },
   pages,

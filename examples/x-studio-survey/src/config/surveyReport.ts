@@ -507,6 +507,8 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
       xField: meta.field,
       yField: meta.field,
       yAggregation: 'count',
+      chartSortBy: 'value',
+      chartSortDirection: 'desc',
       pieArcLabel: 'percent',
       pieMaxSlices: 8,
       pieLegendBelow: true,

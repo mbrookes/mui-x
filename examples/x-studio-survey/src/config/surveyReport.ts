@@ -445,6 +445,29 @@ function qId(n: number): string {
   return `q${String(n).padStart(2, '0')}`;
 }
 
+/**
+ * Questions whose categories are numeric (rating scales) or numeric ranges (dataset / team
+ * sizes). These read better in their natural axis order than sorted by frequency, so both
+ * charts use natural sort. Rating scales sort numerically on their own; the range fields rely
+ * on the `orderedValues` assigned in surveyData.
+ */
+const NATURAL_SORT_FIELDS = new Set<string>([
+  FIELDS.richDefaults, // Q04 — rating 1–5
+  FIELDS.commercialHappiness, // Q09 — rating 1–5
+  FIELDS.aiUsage, // Q38 — rating 0–10
+  FIELDS.chartsDatasetSize, // Q22 — dataset-size ranges
+  FIELDS.gridDatasetSize, // Q31 — dataset-size ranges
+  FIELDS.muiDevs, // Q48 — team-size ranges
+  FIELDS.companyDevs, // Q49 — company-size ranges
+]);
+
+/** Natural category order for numeric/range questions, otherwise by value (descending). */
+function chartSort(field: string) {
+  return NATURAL_SORT_FIELDS.has(field)
+    ? ({ chartSortBy: 'natural' } as const)
+    : ({ chartSortBy: 'value', chartSortDirection: 'desc' } as const);
+}
+
 function qTextWidget(meta: QuestionMeta): StudioWidget {
   return {
     id: `${qId(meta.n)}-text`,
@@ -479,12 +502,12 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
       yField: meta.field,
       yAggregation: 'count',
       barLayout: 'horizontal',
-      chartSortBy: 'value',
-      chartSortDirection: 'desc',
+      ...chartSort(meta.field),
       barBandLabelWrap: 28,
       barMinBandSize: 44,
       barCategoryGapRatio: 0.5,
-      barMaxCategories: 10,
+      // Numeric/range questions show the full scale in order; others cap the long tail.
+      ...(NATURAL_SORT_FIELDS.has(meta.field) ? {} : { barMaxCategories: 10 }),
       // Match the donut legend label size (0.65rem = 10.4px at the 16px root).
       axisTickFontSize: 10.4,
     },
@@ -507,10 +530,10 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
       xField: meta.field,
       yField: meta.field,
       yAggregation: 'count',
-      chartSortBy: 'value',
-      chartSortDirection: 'desc',
+      ...chartSort(meta.field),
       pieArcLabel: 'percent',
-      pieMaxSlices: 8,
+      // Numeric/range questions show every slice in natural order; others cap + group "Other".
+      ...(NATURAL_SORT_FIELDS.has(meta.field) ? {} : { pieMaxSlices: 8 }),
       pieLegendBelow: true,
     },
   };

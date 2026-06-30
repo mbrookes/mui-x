@@ -118,11 +118,9 @@ export const FIELDS = {
   // Q35 — coded bins (G column; &gt; in original header → -gt- after slugify)
   designDevHandoffG: 'g-what-gets-in-the-way-during-design-gt-development-hands-off',
   // Q36
-  figmaKitImprovement:
-    'if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
+  figmaKitImprovement: 'if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
   // Q36 — coded bins (G column)
-  figmaKitImprovementG:
-    'g-if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
+  figmaKitImprovementG: 'g-if-we-could-improve-one-thing-about-the-mui-figma-kit-what-should-it-be',
   // Q37
   aiExperience:
     'describe-the-last-time-you-used-ai-with-any-mui-project-did-you-accomplish-your-goal-how-did-it-turn-out',
@@ -136,8 +134,7 @@ export const FIELDS = {
   // Q40
   aiTools: 'which-tools-or-services-are-involved-when-incorporating-ai-into-your-front-end-work',
   // Q40 — coded bins (G column)
-  aiToolsG:
-    'g-which-tools-or-services-are-involved-when-incorporating-ai-into-your-front-end-work',
+  aiToolsG: 'g-which-tools-or-services-are-involved-when-incorporating-ai-into-your-front-end-work',
   // Q41 (email) — omitted
   // Q42
   heardAbout: 'where-did-you-first-hear-about-mui',
@@ -169,10 +166,24 @@ const PROFICIENCY_ORDER = [
 ];
 
 /** Company-size buckets, smallest → largest. */
-const SIZE_ORDER = ['Only me', '2–5', '6–10', '11–25', '26–50', '51–200', '201–500', '500+', 'Other'];
+const SIZE_ORDER = [
+  'Only me',
+  '2–5',
+  '6–10',
+  '11–25',
+  '26–50',
+  '51–200',
+  '201–500',
+  '500+',
+  'Other',
+];
 
 /** Numeric rating fields that should be charted as discrete categories. */
-const RATING_FIELD_IDS = new Set<string>([FIELDS.richDefaults, FIELDS.commercialHappiness, FIELDS.aiUsage]);
+const RATING_FIELD_IDS = new Set<string>([
+  FIELDS.richDefaults,
+  FIELDS.commercialHappiness,
+  FIELDS.aiUsage,
+]);
 
 const PROFICIENCY_FIELD_IDS = new Set<string>([
   FIELDS.profJs,
@@ -182,6 +193,30 @@ const PROFICIENCY_FIELD_IDS = new Set<string>([
 ]);
 
 const SIZE_FIELD_IDS = new Set<string>([FIELDS.muiDevs, FIELDS.companyDevs]);
+
+/** Dataset-size questions whose buckets are numeric ranges ("<10k rows", "10k–100k", …). */
+const DATASET_SIZE_FIELD_IDS = new Set<string>([FIELDS.chartsDatasetSize, FIELDS.gridDatasetSize]);
+
+/**
+ * Approximate lower-bound magnitude of a dataset-size bucket label (e.g. "10k–100k" → 10000),
+ * used only to order the buckets ascending. The dashes/units vary between buckets, so the
+ * order is derived from the leading number + k/M suffix rather than hard-coded strings.
+ */
+function datasetSizeMagnitude(label: string): number {
+  const match = label.match(/(\d+(?:\.\d+)?)\s*([kKmM])?/);
+  if (!match) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let value = parseFloat(match[1]);
+  const unit = (match[2] ?? '').toLowerCase();
+  if (unit === 'k') {
+    value *= 1e3;
+  } else if (unit === 'm') {
+    value *= 1e6;
+  }
+  // "<1k" should sort just before "1k–…".
+  return label.trim().startsWith('<') ? value - 0.5 : value;
+}
 
 /**
  * Report-specific tweaks to the inferred fields of the primary 2025 sheet.
@@ -200,6 +235,19 @@ function enrichSource(source: StudioDataSource): void {
       field.orderedValues = PROFICIENCY_ORDER;
     } else if (SIZE_FIELD_IDS.has(field.id)) {
       field.orderedValues = SIZE_ORDER;
+    } else if (DATASET_SIZE_FIELD_IDS.has(field.id)) {
+      // Order the range buckets ascending by magnitude (derived from the data, since the
+      // exact bucket strings differ between the charts and grid questions).
+      const distinct = [
+        ...new Set(
+          (source.rows ?? [])
+            .map((row) => row[field.id])
+            .filter((value) => value != null && String(value).trim() !== '')
+            .map((value) => String(value)),
+        ),
+      ];
+      distinct.sort((a, b) => datasetSizeMagnitude(a) - datasetSizeMagnitude(b));
+      field.orderedValues = distinct;
     }
   }
 }
@@ -219,25 +267,25 @@ export async function loadSurveyWorkbooks(): Promise<LoadedSurvey> {
       // Fields where cells hold `, `-delimited multi-select answers.
       // The adapter expands these into one row per option when aggregating.
       multiSelectFields: [
-        FIELDS.outsource,               // Q02
+        FIELDS.outsource, // Q02
         FIELDS.advancedComponentsFeedback, // Q11
-        FIELDS.schedulerAI,             // Q14
-        FIELDS.chartsNextFeatures,      // Q21
-        FIELDS.chartsAIFeatures,        // Q24
-        FIELDS.ganttAI,                 // Q28
-        FIELDS.gridAIUseCases,          // Q32
-        FIELDS.aiWorkflow,              // Q39
-        FIELDS.productBuilding,         // Q47
+        FIELDS.schedulerAI, // Q14
+        FIELDS.chartsNextFeatures, // Q21
+        FIELDS.chartsAIFeatures, // Q24
+        FIELDS.ganttAI, // Q28
+        FIELDS.gridAIUseCases, // Q32
+        FIELDS.aiWorkflow, // Q39
+        FIELDS.productBuilding, // Q47
         // G-column coded bins for open questions (comma-separated when multi-coded)
-        FIELDS.wrapBenefitG,            // Q07 G
-        FIELDS.backendServiceFactorsG,  // Q10 G
-        FIELDS.schedulerMustHavesG,     // Q12 G
-        FIELDS.chartsMigrationFromG,    // Q17 G
-        FIELDS.gridUseCaseG,            // Q30 G
-        FIELDS.designDevHandoffG,       // Q35 G
-        FIELDS.figmaKitImprovementG,    // Q36 G
-        FIELDS.aiExperienceG,           // Q37 G
-        FIELDS.aiToolsG,                // Q40 G
+        FIELDS.wrapBenefitG, // Q07 G
+        FIELDS.backendServiceFactorsG, // Q10 G
+        FIELDS.schedulerMustHavesG, // Q12 G
+        FIELDS.chartsMigrationFromG, // Q17 G
+        FIELDS.gridUseCaseG, // Q30 G
+        FIELDS.designDevHandoffG, // Q35 G
+        FIELDS.figmaKitImprovementG, // Q36 G
+        FIELDS.aiExperienceG, // Q37 G
+        FIELDS.aiToolsG, // Q40 G
       ],
       // Collapse "Specific request: <verbatim>" entries into a generic "Other" bucket.
       // The G columns use this prefix to tag unique verbatim responses that didn't

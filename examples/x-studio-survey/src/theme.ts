@@ -2,7 +2,16 @@ import { createTheme } from '@mui/material/styles';
 import type {} from '@mui/x-charts/themeAugmentation';
 
 // Palette that works in both light and dark mode (avoid very dark values that vanish on dark cards)
-const PIE_PALETTE = ['var(--mui-palette-primary-main)', '#b45309', '#1e3a8a', '#166534', '#7e22ce', '#9f1239', '#0e7490', '#78350f'];
+const PIE_PALETTE = [
+  'var(--mui-palette-primary-main)',
+  '#b45309',
+  '#1e3a8a',
+  '#166534',
+  '#7e22ce',
+  '#9f1239',
+  '#0e7490',
+  '#78350f',
+];
 
 // The base font stays monospace so the charts (SVG axis/arc labels and the donut's HTML
 // legend, which all inherit it) keep their current look. The UI chrome — tabs, controls,
@@ -56,7 +65,14 @@ export const theme = createTheme({
     MuiInputBase: uiFont,
     MuiChip: uiFont,
     MuiFormLabel: uiFont,
-    MuiTooltip: { styleOverrides: { tooltip: { fontFamily: UI_FONT } } },
+    MuiTooltip: { styleOverrides: { tooltip: { fontFamily: UI_FONT, fontSize: '0.625rem' } } },
+    // Shrink the chart data tooltips (cells default to body1 ≈ 1rem, the title to caption).
+    MuiChartsTooltip: {
+      styleOverrides: {
+        cell: { fontSize: '0.625rem' },
+        table: { '& caption': { fontSize: '0.625rem' } },
+      },
+    },
     MuiBarChart: {
       defaultProps: { colors: ['var(--mui-palette-primary-main)'] },
     },

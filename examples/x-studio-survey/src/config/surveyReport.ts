@@ -472,7 +472,7 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
     subtitleMode: 'manual',
     sourceId: SRC,
     config: {
-      titleFontSize: 16,
+      titleFontSize: 14,
       cardExpandTitle: `${meta.n}. ${meta.question}`,
       chartType: 'bar',
       xField: meta.field,
@@ -501,7 +501,7 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
     subtitleMode: 'manual',
     sourceId: SRC,
     config: {
-      titleFontSize: 16,
+      titleFontSize: 14,
       cardExpandTitle: `${meta.n}. ${meta.question}`,
       chartType: 'donut',
       xField: meta.field,

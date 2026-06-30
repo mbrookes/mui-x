@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen, fireEvent, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
@@ -146,7 +146,10 @@ describe('StudioQuickFilterBar', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
     mockState = createDefaultStudioState({
       filters: [
-        { ...makePageFilter('dr1', 'order_date'), scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID } },
+        {
+          ...makePageFilter('dr1', 'order_date'),
+          scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
+        },
         makePageFilter('f1', 'country'),
       ],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
@@ -162,7 +165,10 @@ describe('StudioQuickFilterBar', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: true };
     mockState = createDefaultStudioState({
       filters: [
-        { ...makePageFilter('dr1', 'order_date'), scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID } },
+        {
+          ...makePageFilter('dr1', 'order_date'),
+          scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
+        },
         makePageFilter('f1', 'country'),
       ],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
@@ -186,7 +192,9 @@ describe('StudioQuickFilterBar', () => {
 
   it('does not show chips for filters on other pages', () => {
     mockState = createDefaultStudioState({
-      filters: [{ ...makePageFilter('f1'), scope: { kind: 'page' as const, pageId: 'other-page' } }],
+      filters: [
+        { ...makePageFilter('f1'), scope: { kind: 'page' as const, pageId: 'other-page' } },
+      ],
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
     });
     const { container } = render(<StudioQuickFilterBar />);
@@ -201,5 +209,33 @@ describe('StudioQuickFilterBar', () => {
     });
     render(<StudioQuickFilterBar />);
     expect(screen.getByText('Filtered')).toBeDefined();
+  });
+
+  it('suppresses the chip toggle tooltip while hovering the close button (no double tooltip)', async () => {
+    mockState = createDefaultStudioState({
+      filters: [makePageFilter('f1', 'country')],
+      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Source',
+          fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+          rows: [],
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+
+    const closeButton = screen.getByRole('button', { name: 'Remove filter' });
+    const chip = closeButton.closest('.MuiChip-root') as HTMLElement;
+
+    // Hovering the chip body shows the enable/disable tooltip.
+    fireEvent.mouseEnter(chip);
+    expect(screen.getByText('Disable filter')).toBeDefined();
+
+    // Moving onto the close button must hide that tooltip — otherwise the remove tooltip
+    // would render on top of it and the user would see two tooltips at once.
+    fireEvent.mouseEnter(closeButton);
+    await waitFor(() => expect(screen.queryByText('Disable filter')).toBeNull());
   });
 });

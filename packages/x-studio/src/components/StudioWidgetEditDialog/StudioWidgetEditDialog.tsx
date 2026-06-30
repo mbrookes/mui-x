@@ -52,7 +52,9 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const widget = widgets[widgetId];
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
-  const showFiltersTab = features.widgetFilters !== false;
+  // Text widgets render static content and don't query a data source, so widget filters
+  // are meaningless for them (matches the filters drawer); hide the Filters tab entirely.
+  const showFiltersTab = features.widgetFilters !== false && widget?.kind !== 'text';
   const widgetKindLabels = useWidgetKindLabels();
 
   const handleTabChange = React.useCallback(

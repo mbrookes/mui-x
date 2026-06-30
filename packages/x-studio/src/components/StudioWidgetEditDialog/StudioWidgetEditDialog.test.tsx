@@ -17,17 +17,39 @@ function textWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   };
 }
 
+function chartWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'chart',
+    title: 'My Chart',
+    sourceId: 'src',
+    config: { chartType: 'bar', xField: 'region' } as StudioWidgetConfig,
+    ...overrides,
+  };
+}
+
+const CHART_SOURCE = {
+  id: 'src',
+  label: 'Sales',
+  fields: [{ id: 'region', label: 'Region', type: 'string' as const }],
+  rows: [],
+};
+
 function setup(
   options: {
     widgets?: Record<string, StudioWidget>;
     widgetId?: string;
     open?: boolean;
     featureFlags?: Record<string, boolean>;
+    dataSources?: Record<string, typeof CHART_SOURCE>;
   } = {},
 ) {
   const onClose = vi.fn();
   const { controller, wrapper } = createStudioHarness({
-    initialState: { widgets: options.widgets ?? { w1: textWidget() } },
+    initialState: {
+      widgets: options.widgets ?? { w1: textWidget() },
+      ...(options.dataSources ? { dataSources: options.dataSources } : {}),
+    },
     providerProps: options.featureFlags ? { featureFlags: options.featureFlags } : undefined,
   });
   const view = render(
@@ -55,15 +77,26 @@ describe('StudioWidgetEditDialog', () => {
     expect(screen.getAllByText('My Notes').length).toBeGreaterThan(0);
   });
 
-  it('shows Setup, Filters and Format tabs by default', () => {
-    setup();
+  it('shows Setup, Filters and Format tabs for a data-backed widget', () => {
+    setup({ widgets: { w1: chartWidget() }, dataSources: { src: CHART_SOURCE } });
     expect(screen.getByRole('tab', { name: 'Setup' })).not.toBe(null);
     expect(screen.getByRole('tab', { name: 'Filters' })).not.toBe(null);
     expect(screen.getByRole('tab', { name: 'Format' })).not.toBe(null);
   });
 
+  it('hides the Filters tab for text widgets', () => {
+    setup();
+    expect(screen.queryByRole('tab', { name: 'Filters' })).toBe(null);
+    expect(screen.getByRole('tab', { name: 'Setup' })).not.toBe(null);
+    expect(screen.getByRole('tab', { name: 'Format' })).not.toBe(null);
+  });
+
   it('hides the Filters tab when the widgetFilters feature is disabled', () => {
-    setup({ featureFlags: { widgetFilters: false } });
+    setup({
+      widgets: { w1: chartWidget() },
+      dataSources: { src: CHART_SOURCE },
+      featureFlags: { widgetFilters: false },
+    });
     expect(screen.queryByRole('tab', { name: 'Filters' })).toBe(null);
     expect(screen.getByRole('tab', { name: 'Setup' })).not.toBe(null);
     expect(screen.getByRole('tab', { name: 'Format' })).not.toBe(null);

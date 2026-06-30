@@ -485,6 +485,8 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
       barMinBandSize: 44,
       barCategoryGapRatio: 0.5,
       barMaxCategories: 10,
+      // Match the donut legend label size (0.65rem = 10.4px at the 16px root).
+      axisTickFontSize: 10.4,
     },
   };
 }

@@ -57,8 +57,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card actions
   widgetEditTooltip: 'Modifier le widget',
-  widgetExportCsvTooltip: 'Exporter au format CSV',
-  widgetExportPngTooltip: 'Exporter au format PNG',
+  widgetExportCsvTooltip: 'Télécharger en CSV',
+  widgetExportPngTooltip: 'Télécharger en PNG',
   widgetExpandTooltip: 'Agrandir le graphique',
   widgetMoveToPageLabel: 'Déplacer vers la page',
   widgetDuplicateTooltip: 'Dupliquer le widget',
@@ -91,7 +91,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card (expanded state)
   widgetCardCloseExpandedAriaLabel: 'Fermer le graphique développé',
-  widgetCardExportPngAriaLabel: 'Exporter le graphique développé au format PNG',
+  widgetCardExportPngAriaLabel: 'Télécharger le graphique développé au format PNG',
 
   // Natural language widget creation
   aiCreateWidgetLabel: 'Décrire un widget',

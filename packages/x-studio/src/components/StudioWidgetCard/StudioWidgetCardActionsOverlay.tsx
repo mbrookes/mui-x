@@ -40,6 +40,8 @@ export interface StudioWidgetCardActionsOverlayProps {
   isChart: boolean;
   exportLabel: string;
   showEditActions: boolean;
+  /** Whether the view-mode toolbar should be revealed (widget hovered or selected). */
+  showViewActions?: boolean;
   showViewExport: boolean;
   showViewExpand: boolean;
   overlayTopSx: SxProps;
@@ -88,6 +90,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     isChart,
     exportLabel,
     showEditActions,
+    showViewActions,
     showViewExport,
     showViewExpand,
     overlayTopSx,
@@ -481,12 +484,10 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     mode === 'view' &&
     (canExport || isChart || onInsightRequest || onAnomalyToggle || onAiRefresh)
   ) {
-    const viewVisible =
-      showViewExport ||
-      showViewExpand ||
-      Boolean(onInsightRequest) ||
-      Boolean(onAnomalyToggle) ||
-      Boolean(onAiRefresh);
+    // Only reveal the toolbar when the widget is hovered/selected. The presence of AI
+    // action handlers (insight/anomaly/refresh) must NOT force it visible, otherwise the
+    // toolbar shows permanently on every AI-enabled widget.
+    const viewVisible = showViewActions ?? (showViewExport || showViewExpand);
     return (
       <Stack
         data-widget-overlay

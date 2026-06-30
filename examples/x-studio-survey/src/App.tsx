@@ -28,6 +28,32 @@ import { statePersistenceEnabled, loadSession, saveSession } from './connectors/
 
 const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
+// The active page + question are tracked in the URL (?page=&q=) for shareable deep links,
+// but they're also remembered for the browsing session so that reloading with the query
+// string cleared resumes where the user was instead of snapping back to the first page.
+const NAV_STORAGE_KEY = 'survey-nav-location';
+
+interface SavedNav {
+  page?: string;
+  q?: number;
+}
+
+function readSavedNav(): SavedNav | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(NAV_STORAGE_KEY) ?? 'null');
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedNav(nav: SavedNav): void {
+  try {
+    sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(nav));
+  } catch {
+    // Ignore storage failures (private mode, disabled storage, etc.).
+  }
+}
+
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
@@ -246,7 +272,12 @@ export default function App() {
     [],
   );
 
-  // On first render with pages, navigate to the page specified in ?page=
+  // Last page/question for this session, captured once before any save effect can run, so a
+  // reload with the query string cleared can fall back to it.
+  const savedNavRef = React.useRef<SavedNav | null>(readSavedNav());
+
+  // On first render with pages, navigate to the page in ?page= (falling back to the saved
+  // session location when the query string is absent).
   const initialPageApplied = React.useRef(false);
   React.useEffect(() => {
     if (initialPageApplied.current || !activePageId || Object.keys(pages).length === 0) {
@@ -254,13 +285,14 @@ export default function App() {
     }
     initialPageApplied.current = true;
     const search = new URLSearchParams(window.location.search);
-    const slug = search.get('page');
+    const saved = savedNavRef.current;
+    const slug = search.get('page') ?? saved?.page ?? null;
     const targetPageId = slug ? `page-${slug}` : activePageId;
     if (slug && pages[targetPageId]) {
       studioRef.current?.setActivePage(targetPageId);
     }
     // Deep-link straight to a question if ?q= is present (jump, not smooth, on first load).
-    const qParam = search.get('q');
+    const qParam = search.get('q') ?? (saved?.q != null ? String(saved.q) : null);
     const n = qParam ? Number(qParam) : NaN;
     const target = Number.isFinite(n) ? questionLookup.get(n) : undefined;
     if (target) {
@@ -286,6 +318,17 @@ export default function App() {
       window.history.replaceState(null, '', `?${params}`);
     }
   }, [activePageId]);
+
+  // Remember the current page + question for this session, so a reload with a cleared query
+  // string resumes here (see savedNavRef).
+  React.useEffect(() => {
+    if (!activePageId) {
+      return;
+    }
+    const page = activePageId.replace(/^page-/, '');
+    const match = activeWidgetId?.match(/^q(\d+)/);
+    writeSavedNav({ page, q: match ? Number(match[1]) : undefined });
+  }, [activePageId, activeWidgetId]);
 
   const handleUndo = React.useCallback(() => studioRef.current?.undo(), []);
   const handleRedo = React.useCallback(() => studioRef.current?.redo(), []);

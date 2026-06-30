@@ -293,220 +293,235 @@ export function AppToolbar(props: AppToolbarProps) {
     <Box
       sx={{
         display: 'flex',
-        alignItems: 'center',
-        px: 2,
+        flexDirection: 'column',
         borderBottom: 1,
         borderColor: 'divider',
         bgcolor: 'background.paper',
-        gap: 1,
-        minHeight: 48,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-        <StudioWordmark height={30} />
-        {title && (
-          <React.Fragment>
+      {/* Top row: wordmark + title on the left, controls on the right */}
+      <Box sx={{ display: 'flex', alignItems: 'center', px: 2, gap: 1, minHeight: 48 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+          <StudioWordmark height={30} />
+          {title && (
+            <React.Fragment>
+              <Box
+                sx={{
+                  width: '1px',
+                  height: 20,
+                  bgcolor: 'divider',
+                  flexShrink: 0,
+                  display: { xs: 'none', md: 'block' },
+                }}
+                aria-hidden
+              />
+              <Typography
+                variant="body1"
+                sx={{
+                  fontFamily: 'Fraunces, "Inter Tight", serif',
+                  fontWeight: 300,
+                  fontSize: 18,
+                  color: 'text.secondary',
+                  maxWidth: 480,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  display: { xs: 'none', md: 'block' },
+                }}
+              >
+                {title}
+              </Typography>
+            </React.Fragment>
+          )}
+        </Box>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        {/* Ghost tab portal — rendered at document.body level during pointer drag */}
+        {activeDrag &&
+          ReactDOM.createPortal(
             <Box
-              sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0, display: { xs: 'none', md: 'block' } }}
-              aria-hidden
-            />
-            <Typography
-              variant="body1"
+              ref={(el) => {
+                ghostElRef.current = el as HTMLDivElement | null;
+              }}
               sx={{
-                fontSize: 18,
-                color: 'text.secondary',
-                maxWidth: 240,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                display: { xs: 'none', md: 'block' },
+                position: 'fixed',
+                top: activeDrag.tabBarTop,
+                left: activeDrag.ghostLeft,
+                height: activeDrag.tabBarHeight,
+                minWidth: activeDrag.tabWidth,
+                bgcolor: 'background.paper',
+                borderRadius: '4px 4px 0 0',
+                boxShadow: 3,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                px: 2,
+                pointerEvents: 'none',
+                zIndex: 9999,
+                fontSize: '0.875rem',
+                fontFamily: 'inherit',
+                color: 'text.primary',
+                border: 1,
+                borderColor: 'primary.main',
+                userSelect: 'none',
               }}
             >
-              {title}
-            </Typography>
+              {pages[activeDrag.draggedIndex]?.title}
+            </Box>,
+            document.body,
+          )}
+
+        {/* Confirmation dialog for page removal */}
+        <Dialog
+          open={Boolean(confirmPage)}
+          onClose={() => setConfirmPageId(null)}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>{t.removePageTitle}</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              {t.removePageDescription(confirmPage?.title ?? '')}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmPageId(null)}>{t.cancelButtonLabel}</Button>
+            <Button
+              color="error"
+              variant="contained"
+              onClick={() => {
+                if (confirmPageId) {
+                  onPageClose?.(confirmPageId);
+                }
+                setConfirmPageId(null);
+              }}
+            >
+              {t.removeButtonLabel}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        {mode === 'edit' && (
+          <React.Fragment>
+            <Tooltip title={t.undoTooltip}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={onUndo}
+                  disabled={!canUndo}
+                  aria-label={t.undoAriaLabel}
+                >
+                  <UndoIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={t.redoTooltip}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={onRedo}
+                  disabled={!canRedo}
+                  aria-label={t.redoAriaLabel}
+                >
+                  <RedoIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
           </React.Fragment>
         )}
+        <Tooltip title={t.downloadTooltip}>
+          <IconButton size="small" onClick={onSave} aria-label={t.downloadAriaLabel}>
+            <FileDownloadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={t.uploadTooltip}>
+          <IconButton size="small" onClick={onLoad} aria-label={t.uploadAriaLabel}>
+            <FileUploadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={t.settingsTooltip}>
+          <IconButton size="small" onClick={onOpenSettings} aria-label={t.settingsAriaLabel}>
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
+            {t.viewLabel}
+          </Typography>
+          <Switch
+            checked={mode === 'edit'}
+            onChange={onModeChange}
+            size="small"
+            slotProps={{ input: { 'aria-label': t.toggleEditModeAriaLabel } }}
+          />
+          <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
+            {t.editLabel}
+          </Typography>
+        </Box>
       </Box>
+
+      {/* Bottom row: page tabs, below the title and controls */}
       {pages.length > 1 && (
-        <Tabs
-          ref={tabsRef}
-          value={activePageId}
-          onChange={onPageChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ flexGrow: 1, minWidth: 0 }}
-          onClickCapture={(event) => {
-            if (didDragRef.current) {
-              event.stopPropagation();
-              event.preventDefault();
-              didDragRef.current = false;
-            }
-          }}
-        >
-          {pages.map((page, index) => (
-            <Tab
-              key={page.id}
-              value={page.id}
-              onPointerDown={
-                showDragHandles ? (event) => handleTabPointerDown(event, index) : undefined
+        <Box sx={{ px: 2, borderTop: 1, borderColor: 'divider' }}>
+          <Tabs
+            ref={tabsRef}
+            value={activePageId}
+            onChange={onPageChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{ minWidth: 0 }}
+            onClickCapture={(event) => {
+              if (didDragRef.current) {
+                event.stopPropagation();
+                event.preventDefault();
+                didDragRef.current = false;
               }
-              onDragEnter={(event) => handleTabWidgetDragEnter(event, page.id)}
-              onDragLeave={(event) => handleTabWidgetDragLeave(event, page.id)}
-              sx={{
-                minHeight: 48,
-                opacity: activeDrag?.draggedIndex === index ? 0 : 1,
-                transform: getTabTransform(index),
-                transition: activeDrag ? 'transform 150ms ease' : 'none',
-              }}
-              label={
-                showCloseButtons ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <span>{page.title}</span>
-                    <IconButton
-                      component="span"
-                      size="small"
-                      aria-label={`Remove page ${page.title}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setConfirmPageId(page.id);
-                      }}
-                      sx={{ p: 0.25, ml: 0.25 }}
-                    >
-                      <CloseIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Box>
-                ) : (
-                  page.title
-                )
-              }
-            />
-          ))}
-        </Tabs>
-      )}
-      {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
-
-      {/* Ghost tab portal — rendered at document.body level during pointer drag */}
-      {activeDrag &&
-        ReactDOM.createPortal(
-          <Box
-            ref={(el) => {
-              ghostElRef.current = el as HTMLDivElement | null;
-            }}
-            sx={{
-              position: 'fixed',
-              top: activeDrag.tabBarTop,
-              left: activeDrag.ghostLeft,
-              height: activeDrag.tabBarHeight,
-              minWidth: activeDrag.tabWidth,
-              bgcolor: 'background.paper',
-              borderRadius: '4px 4px 0 0',
-              boxShadow: 3,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              px: 2,
-              pointerEvents: 'none',
-              zIndex: 9999,
-              fontSize: '0.875rem',
-              fontFamily: 'inherit',
-              color: 'text.primary',
-              border: 1,
-              borderColor: 'primary.main',
-              userSelect: 'none',
             }}
           >
-            {pages[activeDrag.draggedIndex]?.title}
-          </Box>,
-          document.body,
-        )}
-
-      {/* Confirmation dialog for page removal */}
-      <Dialog
-        open={Boolean(confirmPage)}
-        onClose={() => setConfirmPageId(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>{t.removePageTitle}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{t.removePageDescription(confirmPage?.title ?? '')}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmPageId(null)}>{t.cancelButtonLabel}</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => {
-              if (confirmPageId) {
-                onPageClose?.(confirmPageId);
-              }
-              setConfirmPageId(null);
-            }}
-          >
-            {t.removeButtonLabel}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      {mode === 'edit' && (
-        <React.Fragment>
-          <Tooltip title={t.undoTooltip}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onUndo}
-                disabled={!canUndo}
-                aria-label={t.undoAriaLabel}
-              >
-                <UndoIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={t.redoTooltip}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onRedo}
-                disabled={!canRedo}
-                aria-label={t.redoAriaLabel}
-              >
-                <RedoIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-        </React.Fragment>
+            {pages.map((page, index) => (
+              <Tab
+                key={page.id}
+                value={page.id}
+                onPointerDown={
+                  showDragHandles ? (event) => handleTabPointerDown(event, index) : undefined
+                }
+                onDragEnter={(event) => handleTabWidgetDragEnter(event, page.id)}
+                onDragLeave={(event) => handleTabWidgetDragLeave(event, page.id)}
+                sx={{
+                  minHeight: 44,
+                  opacity: activeDrag?.draggedIndex === index ? 0 : 1,
+                  transform: getTabTransform(index),
+                  transition: activeDrag ? 'transform 150ms ease' : 'none',
+                }}
+                label={
+                  showCloseButtons ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <span>{page.title}</span>
+                      <IconButton
+                        component="span"
+                        size="small"
+                        aria-label={`Remove page ${page.title}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setConfirmPageId(page.id);
+                        }}
+                        sx={{ p: 0.25, ml: 0.25 }}
+                      >
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    page.title
+                  )
+                }
+              />
+            ))}
+          </Tabs>
+        </Box>
       )}
-      <Tooltip title={t.downloadTooltip}>
-        <IconButton size="small" onClick={onSave} aria-label={t.downloadAriaLabel}>
-          <FileDownloadIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title={t.uploadTooltip}>
-        <IconButton size="small" onClick={onLoad} aria-label={t.uploadAriaLabel}>
-          <FileUploadIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title={t.settingsTooltip}>
-        <IconButton size="small" onClick={onOpenSettings} aria-label={t.settingsAriaLabel}>
-          <SettingsIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
-          {t.viewLabel}
-        </Typography>
-        <Switch
-          checked={mode === 'edit'}
-          onChange={onModeChange}
-          size="small"
-          slotProps={{ input: { 'aria-label': t.toggleEditModeAriaLabel } }}
-        />
-        <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
-          {t.editLabel}
-        </Typography>
-      </Box>
     </Box>
   );
 }

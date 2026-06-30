@@ -118,4 +118,17 @@ describe('StudioWidgetCardActionsOverlay — view mode', () => {
     setup({ mode: 'view', canExport: true, showViewExport: true });
     expect(screen.getByRole('button', { name: 'Export CSV' })).not.toBe(null);
   });
+
+  it('keeps the toolbar hidden when an AI-enabled widget is not hovered/selected', () => {
+    setup({ mode: 'view', onInsightRequest: vi.fn(), showViewActions: false });
+    const overlay = document.querySelector('[data-widget-overlay]');
+    expect(overlay).not.toBe(null);
+    expect(getComputedStyle(overlay as Element).visibility).toBe('hidden');
+  });
+
+  it('reveals the toolbar when the widget is hovered/selected', () => {
+    setup({ mode: 'view', onInsightRequest: vi.fn(), showViewActions: true });
+    const overlay = document.querySelector('[data-widget-overlay]');
+    expect(getComputedStyle(overlay as Element).visibility).toBe('visible');
+  });
 });

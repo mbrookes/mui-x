@@ -484,8 +484,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const supportsForecast =
     isChart && (widget.config.chartType === 'line' || widget.config.chartType === 'area');
   const showEditActions = !isDragging && mode === 'edit' && (isSelected || (!dimmed && hovered));
-  const showViewExport = mode === 'view' && hovered && canExport;
-  const showViewExpand = mode === 'view' && hovered && isChart;
+  // View-mode toolbar is only revealed when the widget is hovered ("covered") or selected,
+  // not permanently for every AI-enabled widget.
+  const showViewActions = mode === 'view' && (hovered || isSelected);
+  const showViewExport = showViewActions && canExport;
+  const showViewExpand = showViewActions && isChart;
   const exportLabel =
     widget.kind === 'chart' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
 
@@ -567,6 +570,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           isChart={isChart}
           exportLabel={exportLabel}
           showEditActions={showEditActions}
+          showViewActions={showViewActions}
           showViewExport={showViewExport}
           showViewExpand={showViewExpand}
           overlayTopSx={overlayTopSx}

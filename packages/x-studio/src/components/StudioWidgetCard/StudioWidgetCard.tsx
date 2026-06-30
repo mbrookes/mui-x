@@ -483,10 +483,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // forecast insight action for every other widget kind / chart type.
   const supportsForecast =
     isChart && (widget.config.chartType === 'line' || widget.config.chartType === 'area');
+  // "Active" (outline border + persistent toolbar) is an edit-mode concept only. In view
+  // mode a widget is never activated, even if it carries a stale selection from edit mode.
+  const isActive = isSelected && mode === 'edit';
   const showEditActions = !isDragging && mode === 'edit' && (isSelected || (!dimmed && hovered));
-  // View-mode toolbar is only revealed when the widget is hovered ("covered") or selected,
-  // not permanently for every AI-enabled widget.
-  const showViewActions = mode === 'view' && (hovered || isSelected);
+  // View-mode toolbar is only revealed while the widget is hovered ("covered"), never pinned.
+  const showViewActions = mode === 'view' && hovered;
   const showViewExport = showViewActions && canExport;
   const showViewExpand = showViewActions && isChart;
   const exportLabel =
@@ -509,30 +511,27 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         variant="outlined"
         {...slotProps?.paper}
         onClick={() => {
+          // View mode is read-only: clicking must not select/activate the widget.
+          if (mode !== 'edit') {
+            return;
+          }
           controller.setSelectedWidget(widgetId);
-          if (
-            mode === 'edit' &&
-            onUnconfiguredClick &&
-            widget.kind !== 'text' &&
-            !widget.sourceId
-          ) {
+          if (onUnconfiguredClick && widget.kind !== 'text' && !widget.sourceId) {
             onUnconfiguredClick(widgetId);
           }
         }}
         role="group"
-        aria-current={isSelected ? true : undefined}
+        aria-current={isActive ? true : undefined}
         aria-label={localeText.filtersSectionWidgetTitle(widget.title ?? '')}
         data-widget-card
         tabIndex={0}
         onKeyDown={(event) => {
+          if (mode !== 'edit') {
+            return;
+          }
           if (event.key === 'Enter' || event.key === ' ') {
             controller.setSelectedWidget(widgetId);
-            if (
-              mode === 'edit' &&
-              onUnconfiguredClick &&
-              widget.kind !== 'text' &&
-              !widget.sourceId
-            ) {
+            if (onUnconfiguredClick && widget.kind !== 'text' && !widget.sourceId) {
               onUnconfiguredClick(widgetId);
             }
           }
@@ -542,7 +541,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         sx={{
           borderColor: pageTheme?.cardBorderColor ?? 'divider',
           borderWidth: pageTheme?.cardBorderWidth ?? 1,
-          border: pageTheme?.cardBorder === false && !isSelected ? 'none' : undefined,
+          border: pageTheme?.cardBorder === false && !isActive ? 'none' : undefined,
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
@@ -554,8 +553,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           flexDirection: 'column',
           position: 'relative',
           minHeight,
-          outline: isSelected ? '2px solid' : undefined,
-          outlineColor: isSelected ? 'primary.main' : undefined,
+          outline: isActive ? '2px solid' : undefined,
+          outlineColor: isActive ? 'primary.main' : undefined,
           outlineOffset: -1,
           transition: 'outline-color 0.15s',
           '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },

@@ -22,12 +22,14 @@ function setup(
     widget?: StudioWidget;
     shell?: Partial<StudioState['shell']>;
     onUnconfiguredClick?: (id: string) => void;
+    mode?: StudioState['mode'];
   } = {},
 ) {
   const w = options.widget ?? widget();
   const { controller, wrapper } = createStudioHarness({
     initialState: {
       widgets: { [w.id]: w },
+      ...(options.mode ? { mode: options.mode } : {}),
       ...(options.shell ? { shell: options.shell as StudioState['shell'] } : {}),
     },
   });
@@ -98,5 +100,18 @@ describe('StudioWidgetCard', () => {
     });
     fireEvent.click(card);
     expect(onUnconfiguredClick).toHaveBeenCalledWith('w1');
+  });
+
+  it('does not select/activate the widget when clicked in view mode', () => {
+    const { card, setSelectedSpy } = setup({ mode: 'view' });
+    fireEvent.click(card);
+    card.focus();
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(setSelectedSpy).not.toHaveBeenCalled();
+  });
+
+  it('is not aria-current in view mode even when it is the selected widget', () => {
+    const { card } = setup({ mode: 'view', shell: { selectedWidgetId: 'w1' } });
+    expect(card.getAttribute('aria-current')).toBe(null);
   });
 });

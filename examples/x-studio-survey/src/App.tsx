@@ -61,6 +61,8 @@ export default function App() {
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
   const [activePageId, setActivePageId] = React.useState('');
   const [activeWidgetId, setActiveWidgetId] = React.useState<string | null>(null);
+  const [navOpen, setNavOpen] = React.useState(true);
+  const handleToggleNav = React.useCallback(() => setNavOpen((open) => !open), []);
   // When a deep-link/nav click targets a question on a not-yet-active page, remember the
   // scroll target so we can run it after the page becomes active (and un-clipped).
   const pendingScrollRef = React.useRef<{ widgetId: string; smooth: boolean } | null>(null);
@@ -257,6 +259,73 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [activePageId, scrollToWidget]);
 
+  // Scrollspy: as the user scrolls (or switches tabs), highlight the question whose title
+  // block currently sits at the top of the canvas, and keep the deep-link ?q= in sync.
+  const ready = Boolean(initialState);
+  React.useEffect(() => {
+    if (!ready || !activePageId) {
+      return undefined;
+    }
+    const order = SURVEY_SECTIONS.filter((s) => s.pageId === activePageId).flatMap((s) =>
+      s.questions.map((q) => ({ widgetId: q.widgetId, n: q.n })),
+    );
+    if (order.length === 0) {
+      return undefined;
+    }
+
+    // The canvas scroll container is shared by every page; resolve it from any mounted
+    // widget (previously-visited pages stay mounted, so one is always present).
+    let scroller: HTMLElement | null = null;
+    let probe = document.querySelector<HTMLElement>('[data-widget-id]')?.parentElement ?? null;
+    while (probe) {
+      const overflowY = getComputedStyle(probe).overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') {
+        scroller = probe;
+        break;
+      }
+      probe = probe.parentElement;
+    }
+    const scrollTarget: HTMLElement | Window = scroller ?? window;
+
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const refTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      const threshold = refTop + 80;
+      let current = order[0];
+      for (const item of order) {
+        const node = document.querySelector<HTMLElement>(`[data-widget-id="${item.widgetId}"]`);
+        if (!node) {
+          continue;
+        }
+        if (node.getBoundingClientRect().top <= threshold) {
+          current = item;
+        } else {
+          break;
+        }
+      }
+      setActiveWidgetId((prev) => (prev === current.widgetId ? prev : current.widgetId));
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('q') !== String(current.n)) {
+        params.set('q', String(current.n));
+        window.history.replaceState(null, '', `?${params}`);
+      }
+    };
+    const onScroll = () => {
+      if (!raf) {
+        raf = requestAnimationFrame(update);
+      }
+    };
+    scrollTarget.addEventListener('scroll', onScroll, { passive: true });
+    update();
+    return () => {
+      scrollTarget.removeEventListener('scroll', onScroll);
+      if (raf) {
+        cancelAnimationFrame(raf);
+      }
+    };
+  }, [ready, activePageId]);
+
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
     if (!serialized) {
@@ -329,6 +398,8 @@ export default function App() {
                   activePageId={activePageId}
                   activeWidgetId={activeWidgetId}
                   onNavigate={handleNavigateToQuestion}
+                  open={navOpen}
+                  onToggle={handleToggleNav}
                 />
               )}
               <Box sx={{ flexGrow: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>

@@ -158,6 +158,10 @@ export default function App() {
   // `hydratedRef` gates saving so the in-memory default never overwrites a saved session
   // before it has loaded.
   const hydratedRef = React.useRef(!statePersistenceEnabled);
+  // Drives a loading overlay over the canvas until the saved session has been fetched and
+  // applied, so the dashboard appears once in its final state instead of rendering the local
+  // default and then visibly swapping when the server data lands.
+  const [hydrated, setHydrated] = React.useState(!statePersistenceEnabled);
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushSave = React.useCallback((keepalive = false) => {
@@ -225,6 +229,9 @@ export default function App() {
     const finish = () => {
       hydratedRef.current = true;
       applyInitialNav();
+      // Reveal after a couple of frames so the restored state (and the charts' first layout)
+      // has settled — otherwise the overlay would lift mid-swap.
+      requestAnimationFrame(() => requestAnimationFrame(() => setHydrated(true)));
     };
     if (!statePersistenceEnabled) {
       finish();
@@ -510,18 +517,10 @@ export default function App() {
                 />
               )}
               <Box sx={{ flexGrow: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
-                {!initialState ? (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                    }}
-                  >
-                    <CircularProgress />
-                  </Box>
-                ) : (
+                {/* Studio mounts as soon as the data is ready so the saved session can be
+                    restored into it, but it stays hidden behind the loading overlay until
+                    that restore has settled (see `hydrated`). */}
+                {initialState && (
                   <Studio
                     ref={studioRef}
                     initialState={initialState}
@@ -535,6 +534,21 @@ export default function App() {
                     customWidgets={CUSTOM_WIDGETS}
                     aiConfig={aiConfig}
                   />
+                )}
+                {(!initialState || !hydrated) && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: 'background.default',
+                      zIndex: 1,
+                    }}
+                  >
+                    <CircularProgress />
+                  </Box>
                 )}
               </Box>
             </Box>

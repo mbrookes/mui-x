@@ -464,7 +464,7 @@ export function AppToolbar(props: AppToolbarProps) {
 
       {/* Bottom row: page tabs, below the title and controls */}
       {pages.length > 1 && (
-        <Box sx={{ px: 2, borderTop: 1, borderColor: 'divider' }}>
+        <Box sx={{ px: 2 }}>
           <Tabs
             ref={tabsRef}
             value={activePageId}

@@ -66,6 +66,13 @@ describe('TabbedSidebar', () => {
     expect(screen.getByRole('tab', { name: /Open Filters panel/i })).toBeVisible();
   });
 
+  it('renders nothing (no empty rail) when there are no panels', () => {
+    const { container } = renderSidebar([]);
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByRole('tablist')).toBeNull();
+  });
+
   it('renders no panel content when all drawers are closed', () => {
     renderSidebar();
 

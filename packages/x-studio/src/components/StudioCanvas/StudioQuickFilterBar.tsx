@@ -17,6 +17,98 @@ import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
 
+interface QuickFilterChipProps {
+  /** Tooltip shown when hovering the chip body (toggles the filter enabled/disabled). */
+  toggleTitle: string;
+  /** Tooltip shown when hovering the close button (removes the filter). */
+  removeTitle: string;
+  /** Visible chip text. */
+  label: React.ReactNode;
+  /** Whether the filter is currently disabled (dimmed + outlined). */
+  disabled?: boolean;
+  /** Maximum width of the whole chip. */
+  maxWidth: number;
+  /** Maximum width of the truncating label span. */
+  labelMaxWidth: number;
+  onToggle: () => void;
+  onRemove: () => void;
+}
+
+/**
+ * A single quick-filter chip with two distinct hover affordances: hovering the body shows the
+ * enable/disable tooltip, hovering the close button shows the remove tooltip. The body tooltip
+ * is controlled so that only one tooltip is ever visible — hovering the close button suppresses
+ * the body tooltip rather than showing both at once.
+ */
+function QuickFilterChip(props: QuickFilterChipProps) {
+  const { toggleTitle, removeTitle, label, disabled, maxWidth, labelMaxWidth, onToggle, onRemove } =
+    props;
+  const [chipHovered, setChipHovered] = React.useState(false);
+  const [closeHovered, setCloseHovered] = React.useState(false);
+
+  return (
+    <Tooltip title={toggleTitle} open={chipHovered && !closeHovered}>
+      <Chip
+        size="small"
+        color={disabled ? undefined : 'primary'}
+        variant={disabled ? 'outlined' : 'filled'}
+        onMouseEnter={() => setChipHovered(true)}
+        onMouseLeave={() => {
+          setChipHovered(false);
+          setCloseHovered(false);
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        sx={{
+          maxWidth,
+          opacity: disabled ? 0.55 : 1,
+          cursor: 'pointer',
+          '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
+        }}
+        label={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box
+              component="span"
+              sx={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+                maxWidth: labelMaxWidth,
+              }}
+            >
+              {label}
+            </Box>
+            <Tooltip title={removeTitle}>
+              <Box
+                component="span"
+                role="button"
+                aria-label={removeTitle}
+                onMouseEnter={() => setCloseHovered(true)}
+                onMouseLeave={() => setCloseHovered(false)}
+                onClick={(event: React.MouseEvent) => {
+                  event.stopPropagation();
+                  onRemove();
+                }}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                <CloseIcon sx={{ fontSize: '0.75rem' }} />
+              </Box>
+            </Tooltip>
+          </Box>
+        }
+      />
+    </Tooltip>
+  );
+}
+
 /**
  * Compact row of chips pinned above the canvas showing active page filters.
  * Only rendered in view mode when at least one page filter is present.
@@ -116,65 +208,21 @@ export function StudioQuickFilterBar() {
         const summary = summarizeFilter(filter);
         const chipLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         return (
-          <Tooltip
+          <QuickFilterChip
             key={filter.id}
-            title={
+            toggleTitle={
               filter.disabled
                 ? localeText.quickFilterBarEnableFilter
                 : localeText.quickFilterBarDisableFilter
             }
-          >
-            <Chip
-              size="small"
-              color={filter.disabled ? undefined : 'primary'}
-              variant={filter.disabled ? 'outlined' : 'filled'}
-              onClick={(event) => {
-                event.stopPropagation();
-                controller.toggleFilter(filter.id);
-              }}
-              sx={{
-                maxWidth: 240,
-                opacity: filter.disabled ? 0.55 : 1,
-                cursor: 'pointer',
-                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
-              }}
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box
-                    component="span"
-                    sx={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      minWidth: 0,
-                      maxWidth: 190,
-                    }}
-                  >
-                    {chipLabel}
-                  </Box>
-                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
-                    <Box
-                      component="span"
-                      role="button"
-                      aria-label={localeText.quickFilterBarRemoveFilter}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        controller.removeFilter(filter.id);
-                      }}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        flexShrink: 0,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
-                    </Box>
-                  </Tooltip>
-                </Box>
-              }
-            />
-          </Tooltip>
+            removeTitle={localeText.quickFilterBarRemoveFilter}
+            label={chipLabel}
+            disabled={filter.disabled}
+            maxWidth={240}
+            labelMaxWidth={190}
+            onToggle={() => controller.toggleFilter(filter.id)}
+            onRemove={() => controller.removeFilter(filter.id)}
+          />
         );
       })}
 
@@ -186,69 +234,27 @@ export function StudioQuickFilterBar() {
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         const chipLabel = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (
-          <Tooltip
+          <QuickFilterChip
             key={filter.id}
-            title={
+            toggleTitle={
               filter.disabled
                 ? localeText.quickFilterBarEnableFilter
                 : localeText.quickFilterBarDisableFilter
             }
-          >
-            <Chip
-              size="small"
-              color={filter.disabled ? undefined : 'primary'}
-              variant={filter.disabled ? 'outlined' : 'filled'}
-              onClick={(event) => {
-                event.stopPropagation();
-                controller.toggleFilter(filter.id);
-              }}
-              sx={{
-                maxWidth: 280,
-                opacity: filter.disabled ? 0.55 : 1,
-                cursor: 'pointer',
-                '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
-              }}
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box
-                    component="span"
-                    sx={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      minWidth: 0,
-                      maxWidth: 230,
-                    }}
-                  >
-                    {chipLabel}
-                  </Box>
-                  <Tooltip title={localeText.quickFilterBarRemoveFilter}>
-                    <Box
-                      component="span"
-                      role="button"
-                      aria-label={localeText.quickFilterBarRemoveFilter}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        if (filter.scope.sourceWidgetId) {
-                          controller.clearCrossFilter(filter.scope.sourceWidgetId);
-                        } else {
-                          controller.removeFilter(filter.id);
-                        }
-                      }}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        flexShrink: 0,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <CloseIcon sx={{ fontSize: '0.75rem' }} />
-                    </Box>
-                  </Tooltip>
-                </Box>
+            removeTitle={localeText.quickFilterBarRemoveFilter}
+            label={chipLabel}
+            disabled={filter.disabled}
+            maxWidth={280}
+            labelMaxWidth={230}
+            onToggle={() => controller.toggleFilter(filter.id)}
+            onRemove={() => {
+              if (filter.scope.sourceWidgetId) {
+                controller.clearCrossFilter(filter.scope.sourceWidgetId);
+              } else {
+                controller.removeFilter(filter.id);
               }
-            />
-          </Tooltip>
+            }}
+          />
         );
       })}
 

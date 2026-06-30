@@ -234,6 +234,13 @@ export default function App() {
     loadSession()
       .then((session) => {
         if (!cancelled && session) {
+          // The survey is a report — always open in view mode. The saved dashboard content
+          // and undo/redo history are restored, but the persisted mode is not resumed, so a
+          // reload never jumps into edit mode.
+          const present = (session as { present?: { mode?: StudioMode } }).present;
+          if (present) {
+            present.mode = 'view';
+          }
           studioRef.current?.restoreSession(session);
         }
       })

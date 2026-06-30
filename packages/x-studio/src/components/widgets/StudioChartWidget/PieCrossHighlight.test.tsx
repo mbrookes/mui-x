@@ -60,9 +60,13 @@ describe('CrossHighlightPieArc', () => {
     }
   });
 
-  it('dims the ghost via group opacity (0.25) when active instead of a faded colour', () => {
+  it('dims the ghost fill via fill-opacity (0.25) when active, keeping the gap stroke crisp', () => {
     renderArc('#b45309', 0);
-    expect(document.querySelector('g[opacity="0.25"]')).not.toBeNull();
+    // fill-opacity (not group opacity) so the 1px separator stroke stays fully opaque.
+    const group = document.querySelector('svg > g') as SVGGElement | null;
+    expect(group).not.toBeNull();
+    expect(group!.style.fillOpacity).toBe('0.25');
+    expect(document.querySelector('g[opacity="0.25"]')).toBeNull();
   });
 
   it('renders only the ghost arc (no overlay) when the slice ratio is ~0', () => {

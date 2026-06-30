@@ -58,8 +58,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card actions
   widgetEditTooltip: 'Widget bearbeiten',
-  widgetExportCsvTooltip: 'Als CSV exportieren',
-  widgetExportPngTooltip: 'Als PNG exportieren',
+  widgetExportCsvTooltip: 'Download als CSV',
+  widgetExportPngTooltip: 'Download als PNG',
   widgetExpandTooltip: 'Diagramm erweitern',
   widgetMoveToPageLabel: 'Auf Seite verschieben',
   widgetDuplicateTooltip: 'Widget duplizieren',
@@ -92,7 +92,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card (expanded state)
   widgetCardCloseExpandedAriaLabel: 'Erweitertes Diagramm schließen',
-  widgetCardExportPngAriaLabel: 'Exportieren Sie das erweiterte Diagramm als PNG',
+  widgetCardExportPngAriaLabel: 'Laden Sie das erweiterte Diagramm als PNG herunter',
 
   // Natural language widget creation
   aiCreateWidgetLabel: 'Beschreiben Sie ein Widget',

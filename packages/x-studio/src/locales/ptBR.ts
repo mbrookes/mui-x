@@ -54,8 +54,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card actions
   widgetEditTooltip: 'Editar widget',
-  widgetExportCsvTooltip: 'Exportar como CSV',
-  widgetExportPngTooltip: 'Exportar como PNG',
+  widgetExportCsvTooltip: 'Baixar como CSV',
+  widgetExportPngTooltip: 'Baixar como PNG',
   widgetExpandTooltip: 'Expandir gráfico',
   widgetMoveToPageLabel: 'Mover para página',
   widgetDuplicateTooltip: 'Duplicar widget',
@@ -88,7 +88,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Widget card (expanded state)
   widgetCardCloseExpandedAriaLabel: 'Fechar gráfico expandido',
-  widgetCardExportPngAriaLabel: 'Exportar gráfico expandido como PNG',
+  widgetCardExportPngAriaLabel: 'Baixar gráfico expandido como PNG',
 
   // Natural language widget creation
   aiCreateWidgetLabel: 'Descrever um widget',

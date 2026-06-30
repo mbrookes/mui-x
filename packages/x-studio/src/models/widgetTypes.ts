@@ -393,6 +393,8 @@ export interface StudioWidgetConfig {
   textTitleFontFamily?: 'serif' | 'monospace' | 'sans-serif' | (string & {});
   /** Font size in px for the title section. undefined = variant default (~20px). */
   textTitleFontSize?: number;
+  /** Font weight for the title section (e.g. 300, 400, 600). undefined = variant default. */
+  textTitleFontWeight?: number;
   /** CSS colour for the title section. undefined = theme text.primary. */
   textTitleColor?: string;
   /** Text alignment for the title section. undefined = left. */

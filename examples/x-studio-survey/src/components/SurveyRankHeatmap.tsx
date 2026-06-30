@@ -26,6 +26,8 @@ interface RankMatrix {
   rankCount: number;
   /** matrix[categoryIndex][rankIndex] = respondent count. */
   matrix: number[][];
+  /** meanRanks[categoryIndex] = mean rank position (the sort key), aligned with `categories`. */
+  meanRanks: number[];
   maxCount: number;
 }
 
@@ -54,7 +56,7 @@ function computeRankMatrix(rows: Record<string, unknown>[], field: string): Rank
     });
   }
 
-  // Order categories by their mean rank (most-important first) so the heat reads
+  // Order categories by their mean rank (most important first) so the heat reads
   // top-left → bottom-right.
   const meanRank = (category: string): number => {
     const arr = counts.get(category) ?? [];
@@ -69,6 +71,7 @@ function computeRankMatrix(rows: Record<string, unknown>[], field: string): Rank
     return total ? weighted / total : Number.POSITIVE_INFINITY;
   };
   const categories = [...counts.keys()].sort((a, b) => meanRank(a) - meanRank(b));
+  const meanRanks = categories.map(meanRank);
 
   let maxCount = 0;
   const matrix = categories.map((category) => {
@@ -82,7 +85,7 @@ function computeRankMatrix(rows: Record<string, unknown>[], field: string): Rank
     return filled;
   });
 
-  return { categories, rankCount, matrix, maxCount };
+  return { categories, rankCount, matrix, meanRanks, maxCount };
 }
 
 function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
@@ -105,7 +108,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
     );
   }
 
-  const { categories, rankCount, matrix, maxCount } = data;
+  const { categories, rankCount, matrix, meanRanks, maxCount } = data;
   const base = theme.palette.primary.main;
 
   // Colour ramp: empty cells stay near-transparent, the most popular cell is solid.
@@ -121,13 +124,18 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: `minmax(120px, 1.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
+          gridTemplateColumns: `minmax(36px, auto) minmax(120px, 1.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
           gap: '2px',
           minWidth: 'min-content',
           fontSize: '0.65rem',
         }}
       >
-        {/* Header row: empty corner + rank numbers */}
+        {/* Header row: mean-rank column + category corner + rank numbers */}
+        <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
+          <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
+            mean
+          </Typography>
+        </Box>
         <Box sx={{ alignSelf: 'end', px: 0.5, pb: 0.5 }}>
           <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>
             most important →
@@ -151,6 +159,19 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
         {/* One row per category */}
         {categories.map((category, catIndex) => (
           <React.Fragment key={category}>
+            <Box
+              title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'text.secondary',
+                fontVariantNumeric: 'tabular-nums',
+                fontWeight: 600,
+              }}
+            >
+              {meanRanks[catIndex].toFixed(1)}
+            </Box>
             <Box
               title={category}
               sx={{

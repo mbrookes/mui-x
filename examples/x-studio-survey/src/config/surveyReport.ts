@@ -557,62 +557,69 @@ function withDividers(...ns: number[]): string[][] {
   return ns.flatMap((n, i) => (i === 0 ? qRows(n) : [...qDividerRow(n), ...qRows(n)]));
 }
 
-const pages: Record<string, StudioPage> = {
-  'page-styling': {
-    id: 'page-styling',
-    title: 'Styling',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(1, 2, 3, 4, 5, 6, 7),
-  },
-  'page-muix': {
-    id: 'page-muix',
-    title: 'MUI X',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(8, 9, 10, 11),
-  },
-  'page-scheduler': {
-    id: 'page-scheduler',
-    title: 'Scheduler',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(12, 13, 14),
-  },
-  'page-charts': {
-    id: 'page-charts',
+/** Ordered sections (one per page) and the question numbers each contains. Drives both the
+ * dashboard pages and the side-nav, so the two can never drift apart. */
+const SECTION_DEFS: { pageId: string; title: string; questionNumbers: number[] }[] = [
+  { pageId: 'page-styling', title: 'Styling', questionNumbers: [1, 2, 3, 4, 5, 6, 7] },
+  { pageId: 'page-muix', title: 'MUI X', questionNumbers: [8, 9, 10, 11] },
+  { pageId: 'page-scheduler', title: 'Scheduler', questionNumbers: [12, 13, 14] },
+  {
+    pageId: 'page-charts',
     title: 'Charts',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(15, 16, 17, 18, 19, 20, 21, 22, 23, 24),
+    questionNumbers: [15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
   },
-  'page-gantt': {
-    id: 'page-gantt',
-    title: 'Gantt',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(25, 26, 27, 28),
-  },
-  'page-datagrid': {
-    id: 'page-datagrid',
-    title: 'Data Grid',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(29, 30, 31, 32),
-  },
-  'page-figma': {
-    id: 'page-figma',
-    title: 'Figma',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(33, 34, 35, 36),
-  },
-  'page-ai': {
-    id: 'page-ai',
-    title: 'AI',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(37, 38, 39, 40),
-  },
-  'page-about': {
-    id: 'page-about',
+  { pageId: 'page-gantt', title: 'Gantt', questionNumbers: [25, 26, 27, 28] },
+  { pageId: 'page-datagrid', title: 'Data Grid', questionNumbers: [29, 30, 31, 32] },
+  { pageId: 'page-figma', title: 'Figma', questionNumbers: [33, 34, 35, 36] },
+  { pageId: 'page-ai', title: 'AI', questionNumbers: [37, 38, 39, 40] },
+  {
+    pageId: 'page-about',
     title: 'About You',
-    theme: PAGE_THEME,
-    widgetRows: withDividers(42, 43, 44, 45, 46, 47, 48, 49, 50),
+    questionNumbers: [42, 43, 44, 45, 46, 47, 48, 49, 50],
   },
-};
+];
+
+const questionByNumber = new Map(QUESTIONS.map((q) => [q.n, q]));
+
+const pages: Record<string, StudioPage> = Object.fromEntries(
+  SECTION_DEFS.map((s) => [
+    s.pageId,
+    {
+      id: s.pageId,
+      title: s.title,
+      theme: PAGE_THEME,
+      widgetRows: withDividers(...s.questionNumbers),
+    },
+  ]),
+);
+
+/** A single navigable question in the side-nav. */
+export interface SurveyNavQuestion {
+  /** Question number. */
+  n: number;
+  /** Full question text, shown as the nav label. */
+  label: string;
+  /** Widget id of the question's title block — the scroll/deep-link target. */
+  widgetId: string;
+}
+
+/** A side-nav section (one per dashboard page) with its questions. */
+export interface SurveyNavSection {
+  pageId: string;
+  title: string;
+  questions: SurveyNavQuestion[];
+}
+
+/** Side-nav model: sections → questions, derived from the same SECTION_DEFS as the pages. */
+export const SURVEY_SECTIONS: SurveyNavSection[] = SECTION_DEFS.map((s) => ({
+  pageId: s.pageId,
+  title: s.title,
+  questions: s.questionNumbers.map((n) => ({
+    n,
+    label: questionByNumber.get(n)?.question ?? `Question ${n}`,
+    widgetId: `${qId(n)}-text`,
+  })),
+}));
 
 /** The full survey report dashboard config (data sources are injected at load time). */
 export const SURVEY_DASHBOARD: Partial<StudioState> = {

@@ -1,12 +1,5 @@
 import * as React from 'react';
-import {
-  Alert,
-  Box,
-  CircularProgress,
-  CssBaseline,
-  Snackbar,
-  ThemeProvider,
-} from '@mui/material';
+import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio } from '@mui/x-studio';
@@ -21,17 +14,14 @@ import type {
 import { downloadJson, uploadJson } from 'x-studio-shared';
 import dayjs from 'dayjs';
 import { AppToolbar } from './components/AppToolbar';
+import { SurveyNav } from './components/SurveyNav';
 import { SettingsDialog } from './components/SettingsDialog';
-import type {
-  SidebarLayout,
-  SidebarSide,
-  TableSourceMode,
-} from './components/SettingsDialog';
+import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
 import { theme } from './theme';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 import { AppLocaleProvider } from './locales/AppLocaleContext';
 import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
-import { SURVEY_DASHBOARD } from './config/surveyReport';
+import { SURVEY_DASHBOARD, SURVEY_SECTIONS } from './config/surveyReport';
 import { dividerWidgetDef } from './components/DividerWidget';
 
 const CUSTOM_WIDGETS = [dividerWidgetDef];
@@ -70,6 +60,37 @@ export default function App() {
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
   const [activePageId, setActivePageId] = React.useState('');
+  const [activeWidgetId, setActiveWidgetId] = React.useState<string | null>(null);
+  // When a deep-link/nav click targets a question on a not-yet-active page, remember the
+  // scroll target so we can run it after the page becomes active (and un-clipped).
+  const pendingScrollRef = React.useRef<{ widgetId: string; smooth: boolean } | null>(null);
+
+  // n → { pageId, widgetId } lookup for deep-linking via the ?q= URL param.
+  const questionLookup = React.useMemo(() => {
+    const map = new Map<number, { pageId: string; widgetId: string }>();
+    for (const section of SURVEY_SECTIONS) {
+      for (const q of section.questions) {
+        map.set(q.n, { pageId: section.pageId, widgetId: q.widgetId });
+      }
+    }
+    return map;
+  }, []);
+
+  // Smoothly scroll the question's title block into view; polls until it's mounted.
+  const scrollToWidget = React.useCallback((widgetId: string, smooth: boolean) => {
+    const deadline = Date.now() + 3000;
+    const tick = () => {
+      const el = document.querySelector<HTMLElement>(`[data-widget-id="${widgetId}"]`);
+      if (el && el.getBoundingClientRect().height > 0) {
+        el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+        return;
+      }
+      if (Date.now() < deadline) {
+        requestAnimationFrame(tick);
+      }
+    };
+    requestAnimationFrame(tick);
+  }, []);
   const [canUndo, setCanUndo] = React.useState(false);
   const [canRedo, setCanRedo] = React.useState(false);
   const [snackbar, setSnackbar] = React.useState<{
@@ -145,14 +166,26 @@ export default function App() {
       return;
     }
     initialPageApplied.current = true;
-    const slug = new URLSearchParams(window.location.search).get('page');
-    if (slug) {
-      const pageId = `page-${slug}`;
-      if (pages[pageId]) {
-        studioRef.current?.setActivePage(pageId);
-      }
+    const search = new URLSearchParams(window.location.search);
+    const slug = search.get('page');
+    const targetPageId = slug ? `page-${slug}` : activePageId;
+    if (slug && pages[targetPageId]) {
+      studioRef.current?.setActivePage(targetPageId);
     }
-  }, [activePageId, pages]);
+    // Deep-link straight to a question if ?q= is present (jump, not smooth, on first load).
+    const qParam = search.get('q');
+    const n = qParam ? Number(qParam) : NaN;
+    const target = Number.isFinite(n) ? questionLookup.get(n) : undefined;
+    if (target) {
+      if (target.pageId !== targetPageId && pages[target.pageId]) {
+        pendingScrollRef.current = { widgetId: target.widgetId, smooth: false };
+        studioRef.current?.setActivePage(target.pageId);
+      } else {
+        scrollToWidget(target.widgetId, false);
+      }
+      setActiveWidgetId(target.widgetId);
+    }
+  }, [activePageId, pages, questionLookup, scrollToWidget]);
 
   // Keep ?page= in sync with the active page (use slug without the page- prefix)
   React.useEffect(() => {
@@ -179,10 +212,50 @@ export default function App() {
     studioRef.current?.setActivePage(pageId);
   }, []);
   const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
+    // Tab change is not tied to a specific question — drop any deep-linked question.
+    setActiveWidgetId(null);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('q')) {
+      params.delete('q');
+      window.history.replaceState(null, '', `?${params}`);
+    }
     React.startTransition(() => {
       studioRef.current?.setActivePage(pageId);
     });
   }, []);
+
+  // Deep-link to a question: update the URL, switch page if needed, then scroll to it.
+  const handleNavigateToQuestion = React.useCallback(
+    (pageId: string, n: number, widgetId: string, smooth = true) => {
+      setActiveWidgetId(widgetId);
+      const params = new URLSearchParams(window.location.search);
+      params.set('page', pageId.replace(/^page-/, ''));
+      params.set('q', String(n));
+      window.history.replaceState(null, '', `?${params}`);
+      if (studioRef.current && activePageId !== pageId) {
+        pendingScrollRef.current = { widgetId, smooth };
+        React.startTransition(() => studioRef.current?.setActivePage(pageId));
+      } else {
+        scrollToWidget(widgetId, smooth);
+      }
+    },
+    [activePageId, scrollToWidget],
+  );
+
+  // Once the page switch lands, run the queued scroll (after a couple of frames so the
+  // target page has re-rendered and been un-clipped).
+  React.useEffect(() => {
+    const pending = pendingScrollRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingScrollRef.current = null;
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => scrollToWidget(pending.widgetId, pending.smooth)),
+    );
+    // eslint-disable-next-line consistent-return
+    return () => cancelAnimationFrame(raf);
+  }, [activePageId, scrollToWidget]);
 
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
@@ -249,33 +322,43 @@ export default function App() {
               onRedo={handleRedo}
               onPageDragNavigate={handlePageDragNavigate}
             />
-            <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
-              {!initialState ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                  }}
-                >
-                  <CircularProgress />
-                </Box>
-              ) : (
-                <Studio
-                  ref={studioRef}
-                  initialState={initialState}
-                  onStateChange={handleStateChange}
-                  sidebarLayout={sidebarLayout}
-                  sidebarSide={sidebarSide}
-                  tableSourceMode={tableSourceMode}
-                  stackBreakpoint={stackBreakpoint}
-                  featureFlags={featureFlags}
-                  localeText={localeBundle.studioLocaleText}
-                  customWidgets={CUSTOM_WIDGETS}
-                  aiConfig={aiConfig}
+            <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex' }}>
+              {initialState && (
+                <SurveyNav
+                  sections={SURVEY_SECTIONS}
+                  activePageId={activePageId}
+                  activeWidgetId={activeWidgetId}
+                  onNavigate={handleNavigateToQuestion}
                 />
               )}
+              <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
+                {!initialState ? (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                    }}
+                  >
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <Studio
+                    ref={studioRef}
+                    initialState={initialState}
+                    onStateChange={handleStateChange}
+                    sidebarLayout={sidebarLayout}
+                    sidebarSide={sidebarSide}
+                    tableSourceMode={tableSourceMode}
+                    stackBreakpoint={stackBreakpoint}
+                    featureFlags={featureFlags}
+                    localeText={localeBundle.studioLocaleText}
+                    customWidgets={CUSTOM_WIDGETS}
+                    aiConfig={aiConfig}
+                  />
+                )}
+              </Box>
             </Box>
           </Box>
           <Snackbar
@@ -284,7 +367,11 @@ export default function App() {
             onClose={handleCloseSnackbar}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
           >
-            <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+            <Alert
+              onClose={handleCloseSnackbar}
+              severity={snackbar.severity}
+              sx={{ width: '100%' }}
+            >
               {snackbar.message}
             </Alert>
           </Snackbar>

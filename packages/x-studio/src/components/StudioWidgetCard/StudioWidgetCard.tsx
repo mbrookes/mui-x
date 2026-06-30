@@ -525,6 +525,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         aria-current={isActive ? true : undefined}
         aria-label={localeText.filtersSectionWidgetTitle(widget.title ?? '')}
         data-widget-card
+        data-widget-id={widgetId}
         tabIndex={0}
         onKeyDown={(event) => {
           if (mode !== 'edit') {

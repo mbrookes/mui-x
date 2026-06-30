@@ -187,7 +187,7 @@ export function StudioQuickFilterBar() {
         py: 0.5,
         borderBottom: 1,
         borderColor: 'divider',
-        backgroundColor: 'action.hover',
+        backgroundColor: 'background.paper',
       }}
     >
       {onOpenFilterPanel && (

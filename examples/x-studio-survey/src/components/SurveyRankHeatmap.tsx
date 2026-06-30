@@ -31,6 +31,33 @@ interface RankMatrix {
   maxCount: number;
 }
 
+/**
+ * Split a rank list on top-level commas only, so commas *inside* a parenthesised category
+ * (e.g. "Excel like features (charting, pivoting, row grouping and aggregation)") don't
+ * fracture that category into several.
+ */
+function splitRankList(value: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of value) {
+    if (ch === '(') {
+      depth += 1;
+      current += ch;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      current += ch;
+    } else if (ch === ',' && depth === 0) {
+      out.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
 function computeRankMatrix(rows: Record<string, unknown>[], field: string): RankMatrix {
   // category → per-rank counts (index 0 = rank 1)
   const counts = new Map<string, number[]>();
@@ -41,10 +68,7 @@ function computeRankMatrix(rows: Record<string, unknown>[], field: string): Rank
     if (raw == null || String(raw).trim() === '') {
       continue;
     }
-    const items = String(raw)
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const items = splitRankList(String(raw));
     rankCount = Math.max(rankCount, items.length);
     items.forEach((category, rankIndex) => {
       let arr = counts.get(category);
@@ -124,7 +148,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: `minmax(36px, auto) minmax(120px, 1.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
+          gridTemplateColumns: `minmax(36px, auto) minmax(200px, 2.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
           gap: '2px',
           minWidth: 'min-content',
           fontSize: '0.65rem',
@@ -189,7 +213,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
                   lineHeight: 1.2,
                   overflow: 'hidden',
                   display: '-webkit-box',
-                  WebkitLineClamp: 2,
+                  WebkitLineClamp: 3,
                   WebkitBoxOrient: 'vertical',
                 }}
               >

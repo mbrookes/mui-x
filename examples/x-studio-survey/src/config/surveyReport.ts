@@ -268,7 +268,7 @@ const QUESTIONS: QuestionMeta[] = [
       'Rank the following criteria by their importance when choosing a data grid component.',
     field: FIELDS.gridCriteria,
     plotted: 275,
-    categories: 13,
+    categories: 11,
     type: 'Ranking',
   },
   {
@@ -534,7 +534,7 @@ function qHeatmapWidget(meta: QuestionMeta): StudioWidget {
 }
 
 /** Ranking questions shown as a category × rank heatmap instead of bar + donut. */
-const HEATMAP_QUESTIONS = new Set<number>([15]);
+const HEATMAP_QUESTIONS = new Set<number>([15, 29]);
 
 /** Shared page theme: flat canvas. Track the theme's default background (rgb(250, 250, 246)
  * in light mode) via the CSS variable so dark mode still adapts automatically. */

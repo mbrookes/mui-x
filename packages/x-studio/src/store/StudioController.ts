@@ -22,7 +22,10 @@ import {
   serializeState,
   deserializeState,
   migrateState,
+  CURRENT_SCHEMA_VERSION,
   type SerializedStudioState,
+  type SerializedStudioSession,
+  type SerializedStudioSnapshot,
   type MigrationResult,
 } from './statePersistence';
 
@@ -1521,6 +1524,77 @@ export class StudioController {
     }
 
     return migrationResult;
+  };
+
+  /**
+   * Serializes the full editing session — the present state plus the undo and redo
+   * stacks — for persistence. Use {@link restoreSession} to rehydrate it so a reload
+   * resumes with the undo/redo history intact.
+   */
+  serializeSession = (): SerializedStudioSession => {
+    const toSnapshot = (state: StudioState) => ({ mode: state.mode, state: serializeState(state) });
+    return {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      present: toSnapshot(this.store.state),
+      past: this.undoStack.map(toSnapshot),
+      future: this.redoStack.map(toSnapshot),
+    };
+  };
+
+  /**
+   * Restores a session previously produced by {@link serializeSession}, rebuilding the
+   * present state and the undo/redo stacks. Host-app data sources are re-injected (they
+   * are never persisted). Does not itself create an undo entry.
+   *
+   * @returns A {@link MigrationResult} for the present state; `success: false` (with the
+   *   state left unchanged) when the payload is malformed or from a newer schema.
+   */
+  restoreSession = (session: unknown): MigrationResult => {
+    const invalid = (errors: string[]): MigrationResult => ({
+      success: false,
+      state: null,
+      fromVersion: 0,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors,
+    });
+
+    if (!session || typeof session !== 'object') {
+      return invalid(['Invalid session: expected an object']);
+    }
+    const { present, past, future } = session as Partial<SerializedStudioSession>;
+    if (!present?.state) {
+      return invalid(['Invalid session: missing "present" snapshot']);
+    }
+
+    const dataSources = this.store.state.dataSources;
+    // Restore a snapshot to a full state, re-applying its captured mode (mode is not part
+    // of the serialized state). Returns null if the snapshot fails to migrate.
+    const toState = (snapshot: SerializedStudioSnapshot | undefined): StudioState | null => {
+      const result = snapshot?.state ? migrateState(snapshot.state) : null;
+      if (!result?.success || !result.state) {
+        return null;
+      }
+      const state = deserializeState(result.state, dataSources);
+      return { ...state, mode: snapshot!.mode ?? state.mode };
+    };
+
+    const presentResult = migrateState(present.state);
+    if (!presentResult.success || !presentResult.state) {
+      return presentResult;
+    }
+    const presentState = toState(present)!;
+
+    // Drop any history entries that fail to migrate rather than aborting the whole restore.
+    this.undoStack = (Array.isArray(past) ? past : [])
+      .map(toState)
+      .filter(Boolean) as StudioState[];
+    this.redoStack = (Array.isArray(future) ? future : [])
+      .map(toState)
+      .filter(Boolean) as StudioState[];
+    this.mutationLog = [];
+    this.store.setState(presentState);
+
+    return presentResult;
   };
 }
 

@@ -29,12 +29,12 @@ import {
 } from '@mui/x-studio-ai-middleware';
 import { seedSurveyDatabase, type SeededTable } from './seedFromExcel.js';
 import { makeMcpRouter } from './mcp.js';
+import { createStateStore, STATE_DB_PATH } from './stateStore.js';
 import { log, error } from './logger.js';
 
 const PORT = parseInt(process.env.PORT ?? '3005', 10);
 const LLM_API_KEY = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY;
-const LLM_ENDPOINT =
-  process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
+const LLM_ENDPOINT = process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
 const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o';
 const STUDIO_TOKEN = process.env.STUDIO_TOKEN;
 const ALLOWED_ORIGINS = (
@@ -125,17 +125,49 @@ async function main(): Promise<void> {
   );
   app.use(express.json({ limit: '10mb' }));
 
-  // Optional bearer-token auth for AI endpoints
+  // Optional bearer-token auth for AI + state endpoints
   if (STUDIO_TOKEN) {
-    app.use('/api/ai', (req: Request, res: Response, next) => {
+    const requireToken = (req: Request, res: Response, next: () => void): void => {
       const auth = req.headers['authorization'];
       if (!auth || auth !== `Bearer ${STUDIO_TOKEN}`) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
       }
       next();
-    });
+    };
+    app.use('/api/ai', requireToken);
+    app.use('/api/state', requireToken);
   }
+
+  // Durable dashboard-state store (survives restarts, unlike the in-memory survey data).
+  const stateStore = await createStateStore();
+  log(`[startup] Dashboard state persisted to ${STATE_DB_PATH}`);
+
+  // GET /api/state — load the saved session (present state + undo/redo history), or null.
+  app.get('/api/state', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ session: await stateStore.load() });
+    } catch (err) {
+      error('[state] Load failed:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // PUT /api/state — persist the session sent by the client.
+  app.put('/api/state', async (req: Request, res: Response): Promise<void> => {
+    const session = (req.body as { session?: unknown }).session ?? req.body;
+    if (!session || typeof session !== 'object') {
+      res.status(400).json({ error: 'Expected a session object' });
+      return;
+    }
+    try {
+      await stateStore.save(session);
+      res.json({ ok: true });
+    } catch (err) {
+      error('[state] Save failed:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   // Health
   app.get('/health', (_req: Request, res: Response) => {
@@ -257,6 +289,7 @@ async function main(): Promise<void> {
     log(`[startup] x-studio-survey-api listening on http://localhost:${PORT}`);
     log(`[startup]   Health:  http://localhost:${PORT}/health`);
     log(`[startup]   AI API:  http://localhost:${PORT}/api/ai/chat`);
+    log(`[startup]   State:   http://localhost:${PORT}/api/state`);
     log(`[startup]   MCP:     http://localhost:${PORT}/api/mcp`);
     if (!LLM_API_KEY) {
       log('[startup]   ⚠ LLM_API_KEY not set — AI endpoints will return 503');

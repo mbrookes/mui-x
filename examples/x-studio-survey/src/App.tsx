@@ -24,6 +24,7 @@ import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
 import { SURVEY_DASHBOARD, SURVEY_SECTIONS } from './config/surveyReport';
 import { dividerWidgetDef } from './components/DividerWidget';
 import { rankHeatmapWidgetDef } from './components/SurveyRankHeatmap';
+import { statePersistenceEnabled, loadSession, saveSession } from './connectors/statePersistence';
 
 const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
@@ -151,16 +152,92 @@ export default function App() {
     );
   }, [survey]);
 
-  const handleStateChange = React.useCallback((state: StudioState) => {
-    setMode((prev) => (prev === state.mode ? prev : state.mode));
-    setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
-    setPages((prev) => (prev === state.pages ? prev : state.pages));
-    setActivePageId((prev) =>
-      prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
-    );
-    setCanUndo(studioRef.current?.canUndo() ?? false);
-    setCanRedo(studioRef.current?.canRedo() ?? false);
+  // ── Backend state persistence ────────────────────────────────────────────────
+  // Restore the saved session (present state + undo/redo history) on load, then persist
+  // every change — from the UI or the AI chat — back to the dev server, debounced.
+  // `hydratedRef` gates saving so the in-memory default never overwrites a saved session
+  // before it has loaded.
+  const hydratedRef = React.useRef(!statePersistenceEnabled);
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushSave = React.useCallback((keepalive = false) => {
+    const session = studioRef.current?.serializeSession();
+    if (!session) {
+      return;
+    }
+    saveSession(session, keepalive).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('[x-studio-survey] Failed to save dashboard state', err);
+    });
   }, []);
+
+  const scheduleSave = React.useCallback(() => {
+    if (!hydratedRef.current || !statePersistenceEnabled) {
+      return;
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => flushSave(), 800);
+  }, [flushSave]);
+
+  // Once the survey data (and the controller's data sources) are ready, restore the saved
+  // session, then enable saving. Runs once.
+  const loadStartedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!survey || !statePersistenceEnabled || loadStartedRef.current) {
+      return undefined;
+    }
+    loadStartedRef.current = true;
+    let cancelled = false;
+    loadSession()
+      .then((session) => {
+        if (!cancelled && session) {
+          studioRef.current?.restoreSession(session);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[x-studio-survey] Failed to load dashboard state', err);
+      })
+      .finally(() => {
+        hydratedRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [survey]);
+
+  // Flush a pending (debounced) save when the tab is hidden or closed.
+  React.useEffect(() => {
+    if (!statePersistenceEnabled) {
+      return undefined;
+    }
+    const onHide = () => {
+      if (hydratedRef.current && saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        flushSave(true);
+      }
+    };
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, [flushSave]);
+
+  const handleStateChange = React.useCallback(
+    (state: StudioState) => {
+      setMode((prev) => (prev === state.mode ? prev : state.mode));
+      setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
+      setPages((prev) => (prev === state.pages ? prev : state.pages));
+      setActivePageId((prev) =>
+        prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
+      );
+      setCanUndo(studioRef.current?.canUndo() ?? false);
+      setCanRedo(studioRef.current?.canRedo() ?? false);
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
 
   const handleModeChange = React.useCallback(
     (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {

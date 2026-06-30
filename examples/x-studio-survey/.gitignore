@@ -1,0 +1,8 @@
+# Local env overrides
+.env.local
+
+# Durable dashboard-state SQLite store (created by the dev server)
+.studio-state.db
+.studio-state.db-journal
+.studio-state.db-wal
+.studio-state.db-shm

@@ -18,15 +18,18 @@ import { ColorInput } from './ColorInput';
 
 interface TextSectionFormatProps {
   label: string;
-  fontFamily?: 'serif' | 'monospace' | 'sans-serif';
+  /** A named keyword or a literal CSS font-family stack. */
+  fontFamily?: string;
   fontSize?: number;
   color?: string;
   align?: 'left' | 'center' | 'right';
-  onFontFamilyChange: (v: 'serif' | 'monospace' | 'sans-serif' | undefined) => void;
+  onFontFamilyChange: (v: string | undefined) => void;
   onFontSizeChange: (v: number | undefined) => void;
   onColorChange: (v: string | undefined) => void;
   onAlignChange: (v: 'left' | 'center' | 'right' | undefined) => void;
 }
+
+const NAMED_FONTS = ['sans-serif', 'serif', 'monospace'];
 
 export function TextSectionFormat(props: TextSectionFormatProps) {
   const {
@@ -52,15 +55,17 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
             value={fontFamily ?? ''}
             onChange={(event) => {
               const v = event.target.value as string;
-              onFontFamilyChange(
-                v === '' ? undefined : (v as 'serif' | 'monospace' | 'sans-serif'),
-              );
+              onFontFamilyChange(v === '' ? undefined : v);
             }}
           >
             <MenuItem value="">{localeText.textFormatDefaultFont}</MenuItem>
             <MenuItem value="sans-serif">{localeText.textFormatSansSerifFont}</MenuItem>
             <MenuItem value="serif">{localeText.textFormatSerifFont}</MenuItem>
             <MenuItem value="monospace">{localeText.textFormatMonospaceFont}</MenuItem>
+            {/* A custom CSS font stack (set programmatically) keeps the Select in range. */}
+            {fontFamily && !NAMED_FONTS.includes(fontFamily) ? (
+              <MenuItem value={fontFamily}>{fontFamily}</MenuItem>
+            ) : null}
           </Select>
         </FormControl>
 

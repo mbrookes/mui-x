@@ -5,18 +5,13 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import type { StudioWidget } from '../../../models';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
+import { resolveTextFontFamily } from '../../../internals/textFontFamily';
 
 export interface StudioTextWidgetProps {
   widget: StudioWidget;
   /** Ref that receives the AI refresh function when AI mode is active. */
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }
-
-const FONT_FAMILY: Record<string, string> = {
-  'sans-serif': 'Arial, Helvetica, sans-serif',
-  serif: "Georgia, 'Times New Roman', Times, serif",
-  monospace: "'Courier New', Courier, monospace",
-};
 
 // ── AI content sub-component ──────────────────────────────────────────────────
 
@@ -115,7 +110,7 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
           sx={{
             color: config.textSubtitleColor ?? 'text.secondary',
             ...(config.textSubtitleFontFamily && {
-              fontFamily: FONT_FAMILY[config.textSubtitleFontFamily],
+              fontFamily: resolveTextFontFamily(config.textSubtitleFontFamily),
             }),
             ...(config.textSubtitleFontSize && { fontSize: config.textSubtitleFontSize }),
             ...(config.textSubtitleAlign && { textAlign: config.textSubtitleAlign }),
@@ -131,7 +126,7 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             color: config.textBodyColor ?? 'text.primary',
             whiteSpace: 'pre-wrap',
             ...(config.textBodyFontFamily && {
-              fontFamily: FONT_FAMILY[config.textBodyFontFamily],
+              fontFamily: resolveTextFontFamily(config.textBodyFontFamily),
             }),
             ...(config.textBodyFontSize && { fontSize: config.textBodyFontSize }),
             ...(config.textBodyAlign && { textAlign: config.textBodyAlign }),

@@ -632,6 +632,13 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                     top: 0,
                     left: 0,
                     width: '100%',
+                    // Collapse the box to zero height and clip its content. Without this an
+                    // absolutely-positioned inactive page keeps its full natural height and
+                    // still contributes to the scroll container's scrollHeight, so a taller
+                    // previously-visited page leaves a screenful of empty space below a
+                    // shorter active page.
+                    height: 0,
+                    overflow: 'hidden',
                     // clip-path creates a clipping context for all descendants — unlike
                     // visibility:hidden, it cannot be overridden by SVG elements that
                     // have visibility="visible" as a presentation attribute.

@@ -4,7 +4,7 @@ import { PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import { PieHighlightContext } from './PieCrossHighlightContext';
 
 export function CrossHighlightPieArc(props: PieArcProps) {
-  const { startAngle, endAngle, color, innerRadius, outerRadius, ...rest } = props;
+  const { startAngle, endAngle, color, innerRadius, outerRadius, isFaded, ...rest } = props;
   const { ratioByIndex, isActive, skipAnimation } = React.use(PieHighlightContext);
 
   const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
@@ -16,14 +16,18 @@ export function CrossHighlightPieArc(props: PieArcProps) {
           The overlay arc sits on top but defers interaction to the ghost so that
           hovering anywhere on the slice (ghost or overlay region) consistently
           triggers highlighting.
-          Dimming is applied via group `opacity`, NOT by suffixing the color with an
-          alpha hex (`${color}40`): the palette's first colour is a CSS variable
-          (`var(--mui-palette-primary-main)`), and `var(...)40` is an invalid colour
-          string that the browser drops — leaving that arc rendered at full opacity, so
-          the first slice always looked highlighted regardless of its cross-filter ratio. */}
-      <g opacity={isActive ? 0.25 : 1}>
+          Dimming uses `fill-opacity` (inherited only by the arc's fill), NOT group
+          `opacity`: each arc has a 1px `background.paper` stroke that forms the little gap
+          between slices, and dimming the whole group fades that stroke too — so the
+          non-filtered slices visually merge when a cross-filter is active. `isFaded` is
+          also forced off while active so the arc's own opacity doesn't dim the stroke.
+          (Dimming is likewise not done by suffixing the colour with an alpha hex
+          (`${color}40`): the palette's first colour is a CSS variable, and `var(...)40` is
+          an invalid colour string the browser drops, leaving that arc fully opaque.) */}
+      <g style={{ fillOpacity: isActive ? 0.25 : 1 }}>
         <PieArc
           {...rest}
+          isFaded={isActive ? false : isFaded}
           startAngle={startAngle}
           endAngle={endAngle}
           innerRadius={innerRadius}

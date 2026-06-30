@@ -58,11 +58,25 @@ function FieldTooltipShell(props: {
         ) : null}
         <tbody>
           <ChartsTooltipRow>
-            <ChartsTooltipCell component="td">
+            {/* Swatch + value columns shrink to their content so the category column absorbs
+                the slack (the long question title widens the table). This keeps the category
+                hugging the swatch on the left and the value pinned to the right, instead of
+                the short data row spreading its cells across the title's width. */}
+            <ChartsTooltipCell component="td" sx={{ width: '1px', whiteSpace: 'nowrap' }}>
               <Swatch color={color} />
             </ChartsTooltipCell>
-            <ChartsTooltipCell component="th">{category}</ChartsTooltipCell>
-            <ChartsTooltipCell component="td" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+            <ChartsTooltipCell component="th" sx={{ textAlign: 'left' }}>
+              {category}
+            </ChartsTooltipCell>
+            <ChartsTooltipCell
+              component="td"
+              sx={{
+                width: '1px',
+                whiteSpace: 'nowrap',
+                textAlign: 'right',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
               {value}
             </ChartsTooltipCell>
           </ChartsTooltipRow>

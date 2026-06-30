@@ -48,9 +48,9 @@ export function StudioCrossFilterBar() {
         gap: 1.5,
         px: 1,
         py: 0.5,
-        borderBottom: 1,
-        borderColor: 'divider',
-        backgroundColor: 'action.hover',
+        // No bottom border: this top section sits directly above the quick-filter chip bar,
+        // and the two read as a single block (the chip bar carries the boundary border).
+        backgroundColor: 'background.paper',
         flexShrink: 0,
       }}
     >

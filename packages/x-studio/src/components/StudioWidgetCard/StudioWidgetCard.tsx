@@ -42,6 +42,7 @@ import {
 } from '../../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
+import { resolveTextFontFamily } from '../../internals/textFontFamily';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
@@ -627,10 +628,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                         color: widget.config.textTitleColor,
                       }),
                       ...(widget.config.textTitleFontFamily && {
-                        fontFamily:
-                          widget.config.textTitleFontFamily === 'serif'
-                            ? "Georgia, 'Times New Roman', Times, serif"
-                            : "'Courier New', Courier, monospace",
+                        fontFamily: resolveTextFontFamily(widget.config.textTitleFontFamily),
                       }),
                       ...(widget.config.textTitleFontSize && {
                         fontSize: widget.config.textTitleFontSize,

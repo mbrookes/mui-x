@@ -516,6 +516,26 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
   };
 }
 
+function qHeatmapWidget(meta: QuestionMeta): StudioWidget {
+  return {
+    id: `${qId(meta.n)}-heatmap`,
+    kind: 'survey-rank-heatmap',
+    title: 'Rank distribution · Counts',
+    titleMode: 'manual',
+    subtitle: meta.type,
+    subtitleMode: 'manual',
+    sourceId: SRC,
+    config: {
+      titleFontSize: 14,
+      cardExpandTitle: `${meta.n}. ${meta.question}`,
+      customConfig: { field: meta.field },
+    },
+  };
+}
+
+/** Ranking questions shown as a category × rank heatmap instead of bar + donut. */
+const HEATMAP_QUESTIONS = new Set<number>([15]);
+
 /** Shared page theme: flat canvas. Track the theme's default background (rgb(250, 250, 246)
  * in light mode) via the CSS variable so dark mode still adapts automatically. */
 const PAGE_THEME: StudioPageTheme = {
@@ -536,14 +556,22 @@ const widgets: Record<string, StudioWidget> = {};
 for (const meta of QUESTIONS) {
   const id = qId(meta.n);
   widgets[`${id}-text`] = qTextWidget(meta);
-  widgets[`${id}-bar`] = qBarWidget(meta);
-  widgets[`${id}-donut`] = qDonutWidget(meta);
+  if (HEATMAP_QUESTIONS.has(meta.n)) {
+    widgets[`${id}-heatmap`] = qHeatmapWidget(meta);
+  } else {
+    widgets[`${id}-bar`] = qBarWidget(meta);
+    widgets[`${id}-donut`] = qDonutWidget(meta);
+  }
   widgets[`${id}-divider`] = qDividerWidget(meta.n);
 }
 
-/** Returns [text-row, chart-row] for a question number. */
+/** Returns [text-row, chart-row] for a question number. Ranking questions flagged for a
+ * heatmap get a single full-width heatmap row instead of the bar + donut pair. */
 function qRows(n: number): string[][] {
   const id = qId(n);
+  if (widgets[`${id}-heatmap`]) {
+    return [[`${id}-text`], [`${id}-heatmap`]];
+  }
   return [[`${id}-text`], [`${id}-bar`, `${id}-donut`]];
 }
 

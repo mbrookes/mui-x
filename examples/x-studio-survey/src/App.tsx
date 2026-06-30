@@ -23,8 +23,9 @@ import { AppLocaleProvider } from './locales/AppLocaleContext';
 import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
 import { SURVEY_DASHBOARD, SURVEY_SECTIONS } from './config/surveyReport';
 import { dividerWidgetDef } from './components/DividerWidget';
+import { rankHeatmapWidgetDef } from './components/SurveyRankHeatmap';
 
-const CUSTOM_WIDGETS = [dividerWidgetDef];
+const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);

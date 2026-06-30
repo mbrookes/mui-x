@@ -28,32 +28,6 @@ import { statePersistenceEnabled, loadSession, saveSession } from './connectors/
 
 const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
-// The active page + question are tracked in the URL (?page=&q=) for shareable deep links,
-// but they're also remembered for the browsing session so that reloading with the query
-// string cleared resumes where the user was instead of snapping back to the first page.
-const NAV_STORAGE_KEY = 'survey-nav-location';
-
-interface SavedNav {
-  page?: string;
-  q?: number;
-}
-
-function readSavedNav(): SavedNav | null {
-  try {
-    return JSON.parse(sessionStorage.getItem(NAV_STORAGE_KEY) ?? 'null');
-  } catch {
-    return null;
-  }
-}
-
-function writeSavedNav(nav: SavedNav): void {
-  try {
-    sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(nav));
-  } catch {
-    // Ignore storage failures (private mode, disabled storage, etc.).
-  }
-}
-
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
@@ -207,14 +181,55 @@ export default function App() {
     saveTimerRef.current = setTimeout(() => flushSave(), 800);
   }, [flushSave]);
 
+  // The page-sync effect rewrites the URL on mount, so capture the original query string at
+  // first render before applyInitialNav (which can run a microtask later) reads it.
+  const initialSearchRef = React.useRef(window.location.search);
+
+  // Apply the initial navigation from the URL: ?page= deep-links to that page (and ?q= to
+  // that question). A bare URL always loads the FIRST page at the first question — it is not
+  // restored from the persisted session, so clearing the query string resets navigation.
+  // Runs after any session restore so it overrides the restored active page.
+  const applyInitialNav = React.useCallback(() => {
+    const pagesNow = studioRef.current?.getState().pages ?? {};
+    const pageIds = Object.keys(pagesNow);
+    if (pageIds.length === 0) {
+      return;
+    }
+    const search = new URLSearchParams(initialSearchRef.current);
+    const slug = search.get('page');
+    const targetPageId = slug && pagesNow[`page-${slug}`] ? `page-${slug}` : pageIds[0];
+    studioRef.current?.setActivePage(targetPageId);
+
+    const qParam = search.get('q');
+    const n = qParam ? Number(qParam) : NaN;
+    const target = Number.isFinite(n) ? questionLookup.get(n) : undefined;
+    if (target && pagesNow[target.pageId]) {
+      if (target.pageId !== targetPageId) {
+        pendingScrollRef.current = { widgetId: target.widgetId, smooth: false };
+        studioRef.current?.setActivePage(target.pageId);
+      } else {
+        scrollToWidget(target.widgetId, false);
+      }
+      setActiveWidgetId(target.widgetId);
+    }
+  }, [questionLookup, scrollToWidget]);
+
   // Once the survey data (and the controller's data sources) are ready, restore the saved
-  // session, then enable saving. Runs once.
+  // session, apply the initial navigation, then enable saving. Runs once.
   const loadStartedRef = React.useRef(false);
   React.useEffect(() => {
-    if (!survey || !statePersistenceEnabled || loadStartedRef.current) {
+    if (!survey || loadStartedRef.current) {
       return undefined;
     }
     loadStartedRef.current = true;
+    const finish = () => {
+      hydratedRef.current = true;
+      applyInitialNav();
+    };
+    if (!statePersistenceEnabled) {
+      finish();
+      return undefined;
+    }
     let cancelled = false;
     loadSession()
       .then((session) => {
@@ -227,12 +242,14 @@ export default function App() {
         console.error('[x-studio-survey] Failed to load dashboard state', err);
       })
       .finally(() => {
-        hydratedRef.current = true;
+        if (!cancelled) {
+          finish();
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [survey]);
+  }, [survey, applyInitialNav]);
 
   // Flush a pending (debounced) save when the tab is hidden or closed.
   React.useEffect(() => {
@@ -272,40 +289,6 @@ export default function App() {
     [],
   );
 
-  // Last page/question for this session, captured once before any save effect can run, so a
-  // reload with the query string cleared can fall back to it.
-  const savedNavRef = React.useRef<SavedNav | null>(readSavedNav());
-
-  // On first render with pages, navigate to the page in ?page= (falling back to the saved
-  // session location when the query string is absent).
-  const initialPageApplied = React.useRef(false);
-  React.useEffect(() => {
-    if (initialPageApplied.current || !activePageId || Object.keys(pages).length === 0) {
-      return;
-    }
-    initialPageApplied.current = true;
-    const search = new URLSearchParams(window.location.search);
-    const saved = savedNavRef.current;
-    const slug = search.get('page') ?? saved?.page ?? null;
-    const targetPageId = slug ? `page-${slug}` : activePageId;
-    if (slug && pages[targetPageId]) {
-      studioRef.current?.setActivePage(targetPageId);
-    }
-    // Deep-link straight to a question if ?q= is present (jump, not smooth, on first load).
-    const qParam = search.get('q') ?? (saved?.q != null ? String(saved.q) : null);
-    const n = qParam ? Number(qParam) : NaN;
-    const target = Number.isFinite(n) ? questionLookup.get(n) : undefined;
-    if (target) {
-      if (target.pageId !== targetPageId && pages[target.pageId]) {
-        pendingScrollRef.current = { widgetId: target.widgetId, smooth: false };
-        studioRef.current?.setActivePage(target.pageId);
-      } else {
-        scrollToWidget(target.widgetId, false);
-      }
-      setActiveWidgetId(target.widgetId);
-    }
-  }, [activePageId, pages, questionLookup, scrollToWidget]);
-
   // Keep ?page= in sync with the active page (use slug without the page- prefix)
   React.useEffect(() => {
     if (!activePageId) {
@@ -318,17 +301,6 @@ export default function App() {
       window.history.replaceState(null, '', `?${params}`);
     }
   }, [activePageId]);
-
-  // Remember the current page + question for this session, so a reload with a cleared query
-  // string resumes here (see savedNavRef).
-  React.useEffect(() => {
-    if (!activePageId) {
-      return;
-    }
-    const page = activePageId.replace(/^page-/, '');
-    const match = activeWidgetId?.match(/^q(\d+)/);
-    writeSavedNav({ page, q: match ? Number(match[1]) : undefined });
-  }, [activePageId, activeWidgetId]);
 
   const handleUndo = React.useCallback(() => studioRef.current?.undo(), []);
   const handleRedo = React.useCallback(() => studioRef.current?.redo(), []);

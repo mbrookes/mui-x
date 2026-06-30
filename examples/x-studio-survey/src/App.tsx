@@ -331,7 +331,7 @@ export default function App() {
                   onNavigate={handleNavigateToQuestion}
                 />
               )}
-              <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
+              <Box sx={{ flexGrow: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
                 {!initialState ? (
                   <Box
                     sx={{

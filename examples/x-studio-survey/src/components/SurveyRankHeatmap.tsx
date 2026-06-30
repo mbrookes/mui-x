@@ -148,7 +148,10 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: `minmax(36px, auto) minmax(200px, 2.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
+          // The category column sizes to its widest single-line label (the long Q29
+          // "Excel like features (…)" entry), so labels never wrap and every row stays
+          // the same single-line height.
+          gridTemplateColumns: `minmax(36px, auto) max-content repeat(${rankCount}, minmax(28px, 1fr))`,
           gap: '2px',
           minWidth: 'min-content',
           fontSize: '0.65rem',
@@ -211,10 +214,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
                 sx={{
                   textAlign: 'right',
                   lineHeight: 1.2,
-                  overflow: 'hidden',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: 'vertical',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {category}

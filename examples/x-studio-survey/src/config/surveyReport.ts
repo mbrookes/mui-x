@@ -455,6 +455,7 @@ function qTextWidget(meta: QuestionMeta): StudioWidget {
       textSubtitle: `${meta.plotted} plotted answers · ${TOTAL_RESPONDENTS} respondents · ${meta.categories} categories`,
       textTitleFontFamily: 'Fraunces, "Inter Tight", serif',
       textTitleFontSize: 24,
+      textTitleFontWeight: 300,
       textSubtitleFontFamily: 'sans-serif',
       textSubtitleFontSize: 14,
     },

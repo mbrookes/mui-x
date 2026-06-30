@@ -633,6 +633,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                       ...(widget.config.textTitleFontSize && {
                         fontSize: widget.config.textTitleFontSize,
                       }),
+                      ...(widget.config.textTitleFontWeight && {
+                        fontWeight: widget.config.textTitleFontWeight,
+                      }),
                       ...(widget.config.textTitleAlign && {
                         textAlign: widget.config.textTitleAlign,
                       }),

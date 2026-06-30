@@ -33,6 +33,33 @@ export interface SerializedStudioState {
 }
 
 /**
+ * One snapshot in a {@link SerializedStudioSession} — a serialized state plus the `mode`
+ * it was captured in (`mode` is not part of {@link SerializedStudioState}, so it is tracked
+ * here to keep undo/redo of mode changes faithful across a reload).
+ */
+export interface SerializedStudioSnapshot {
+  mode: StudioState['mode'];
+  state: SerializedStudioState;
+}
+
+/**
+ * Serializable full editing *session*: the present state plus the undo/redo stacks.
+ *
+ * Each entry strips data sources (re-injected on restore). Use this instead of
+ * {@link SerializedStudioState} when the undo/redo history must survive a reload, not just
+ * the current dashboard.
+ */
+export interface SerializedStudioSession {
+  schemaVersion: number;
+  /** The current (present) snapshot. */
+  present: SerializedStudioSnapshot;
+  /** Undo stack, oldest first. */
+  past: SerializedStudioSnapshot[];
+  /** Redo stack, oldest first. */
+  future: SerializedStudioSnapshot[];
+}
+
+/**
  * Result of a state migration operation
  */
 export interface MigrationResult {

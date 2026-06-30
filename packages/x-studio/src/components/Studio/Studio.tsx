@@ -14,7 +14,11 @@ import type {
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
 import { StudioController } from '../../store';
-import type { SerializedStudioState, MigrationResult } from '../../store/statePersistence';
+import type {
+  SerializedStudioState,
+  SerializedStudioSession,
+  MigrationResult,
+} from '../../store/statePersistence';
 // StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
@@ -54,6 +58,17 @@ export interface StudioHandle {
    * @returns A `MigrationResult` describing success or validation errors.
    */
   loadSerializedState(data: unknown): MigrationResult;
+  /**
+   * Serialise the full editing session — present state plus the undo/redo stacks — so the
+   * history can be persisted and later restored with {@link StudioHandle.restoreSession}.
+   */
+  serializeSession(): SerializedStudioSession;
+  /**
+   * Restore a session produced by {@link StudioHandle.serializeSession}, rebuilding the
+   * present state and the undo/redo stacks.
+   * @returns A `MigrationResult` for the present state.
+   */
+  restoreSession(session: unknown): MigrationResult;
   /**
    * Attach (or remove) an async data source adapter for the given source.
    * When an adapter is provided, Studio calls `adapter.getRows(descriptor)` on every
@@ -289,6 +304,8 @@ export const Studio = React.memo(
         getState: () => controller.getState(),
         serializeState: () => controller.serializeState(),
         loadSerializedState: (data) => controller.loadSerializedState(data),
+        serializeSession: () => controller.serializeSession(),
+        restoreSession: (session) => controller.restoreSession(session),
         setDataSourceAdapter: (sourceId, adapter) =>
           controller.setDataSourceAdapter(sourceId, adapter),
         setDataSourceRows: (sourceId, rows) => controller.setDataSourceRows(sourceId, rows),

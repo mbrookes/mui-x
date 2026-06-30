@@ -170,7 +170,12 @@ export { createDefaultStudioState } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
 export { serializeState, deserializeState, migrateState } from './store/statePersistence';
-export type { SerializedStudioState, MigrationResult } from './store/statePersistence';
+export type {
+  SerializedStudioState,
+  SerializedStudioSession,
+  SerializedStudioSnapshot,
+  MigrationResult,
+} from './store/statePersistence';
 
 // ─── Models / domain types ────────────────────────────────────────────────────
 export type {

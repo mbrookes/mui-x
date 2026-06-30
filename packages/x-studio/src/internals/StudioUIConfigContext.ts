@@ -1079,8 +1079,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Widget card actions
   widgetEditTooltip: 'Edit widget',
-  widgetExportCsvTooltip: 'Export as CSV',
-  widgetExportPngTooltip: 'Export as PNG',
+  widgetExportCsvTooltip: 'Download as CSV',
+  widgetExportPngTooltip: 'Download as PNG',
   widgetExpandTooltip: 'Expand chart',
   widgetMoveToPageLabel: 'Move to page',
   widgetDuplicateTooltip: 'Duplicate widget',
@@ -1113,7 +1113,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Widget card (expanded state)
   widgetCardCloseExpandedAriaLabel: 'Close expanded chart',
-  widgetCardExportPngAriaLabel: 'Export expanded chart as PNG',
+  widgetCardExportPngAriaLabel: 'Download expanded chart as PNG',
 
   // Natural language widget creation
   aiCreateWidgetLabel: 'Describe a widget',

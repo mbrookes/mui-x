@@ -249,8 +249,10 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       </Box>
 
       {/* Colour scale legend */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, pl: 0.5 }}>
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>fewer</Typography>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 1, pr: 0.5 }}
+      >
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>fewer (0)</Typography>
         <Box
           sx={{
             flexGrow: 0,

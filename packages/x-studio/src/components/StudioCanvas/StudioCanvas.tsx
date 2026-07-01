@@ -618,53 +618,60 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       {/* Date range bar — shown in both modes when the page has date/datetime fields */}
       {features.quickFilter && <StudioDateRangeBar />}
 
-      {Object.values(pages).map((page) => {
-        if (!mountedPageIds.has(page.id)) {
-          return null;
-        }
-        return (
-          <Box
-            key={page.id}
-            sx={
-              page.id !== activePageId
-                ? {
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    // Collapse the box to zero height and clip its content. Without this an
-                    // absolutely-positioned inactive page keeps its full natural height and
-                    // still contributes to the scroll container's scrollHeight, so a taller
-                    // previously-visited page leaves a screenful of empty space below a
-                    // shorter active page.
-                    height: 0,
-                    overflow: 'hidden',
-                    // clip-path creates a clipping context for all descendants — unlike
-                    // visibility:hidden, it cannot be overridden by SVG elements that
-                    // have visibility="visible" as a presentation attribute.
-                    clipPath: 'inset(100%)',
-                    pointerEvents: 'none',
-                  }
-                : undefined
-            }
-          >
-            <StudioPageRows
-              page={page}
-              pageId={page.id}
-              mode={mode}
-              widgets={widgets}
-              dataSources={dataSources}
-              customWidgetMap={customWidgetMap}
-              canvasWidth={canvasWidth}
-              stackBreakpointProp={stackBreakpointProp}
-              slotProps={slotProps}
-              controller={controller}
-              announce={announce}
-              localeText={localeText}
-            />
-          </Box>
-        );
-      })}
+      {/* Positioning context for the inactive pages. It sits inside the canvas padding, so an
+          inactive page's `position: absolute; width: 100%` resolves to the same content width
+          as the in-flow active page. Without it the absolute pages would size to the canvas
+          padding box (a few px wider), and switching back to a page would resize its charts —
+          which x-charts animates, producing a visible flash. */}
+      <Box sx={{ position: 'relative' }}>
+        {Object.values(pages).map((page) => {
+          if (!mountedPageIds.has(page.id)) {
+            return null;
+          }
+          return (
+            <Box
+              key={page.id}
+              sx={
+                page.id !== activePageId
+                  ? {
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      // Collapse the box to zero height and clip its content. Without this an
+                      // absolutely-positioned inactive page keeps its full natural height and
+                      // still contributes to the scroll container's scrollHeight, so a taller
+                      // previously-visited page leaves a screenful of empty space below a
+                      // shorter active page.
+                      height: 0,
+                      overflow: 'hidden',
+                      // clip-path creates a clipping context for all descendants — unlike
+                      // visibility:hidden, it cannot be overridden by SVG elements that
+                      // have visibility="visible" as a presentation attribute.
+                      clipPath: 'inset(100%)',
+                      pointerEvents: 'none',
+                    }
+                  : undefined
+              }
+            >
+              <StudioPageRows
+                page={page}
+                pageId={page.id}
+                mode={mode}
+                widgets={widgets}
+                dataSources={dataSources}
+                customWidgetMap={customWidgetMap}
+                canvasWidth={canvasWidth}
+                stackBreakpointProp={stackBreakpointProp}
+                slotProps={slotProps}
+                controller={controller}
+                announce={announce}
+                localeText={localeText}
+              />
+            </Box>
+          );
+        })}
+      </Box>
     </Box>
   );
 });

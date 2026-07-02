@@ -51,7 +51,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   quickFilterBarOpenFilters: 'Abrir panel de filtros',
   quickFilterBarCloseFilters: 'Cerrar panel de filtros',
   quickFilterBarClearAll: 'Borrar todos los filtros',
-  quickFilterBarFiltered: 'Filtrado',
   dateRangeBarFieldLabel: 'Rango de fechas',
 
   // Widget card actions

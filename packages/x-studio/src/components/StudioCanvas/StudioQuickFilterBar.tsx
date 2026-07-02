@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Chip, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import {
@@ -201,12 +201,6 @@ export function StudioQuickFilterBar() {
             <FilterListIcon fontSize="small" color="action" />
           </IconButton>
         </Tooltip>
-      )}
-
-      {totalCount > 0 && (
-        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-          {localeText.quickFilterBarFiltered}
-        </Typography>
       )}
 
       {pageFilters.map((filter) => {

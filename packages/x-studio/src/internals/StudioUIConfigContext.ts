@@ -76,7 +76,6 @@ export interface StudioLocaleText {
   quickFilterBarOpenFilters: string;
   quickFilterBarCloseFilters: string;
   quickFilterBarClearAll: string;
-  quickFilterBarFiltered: string;
   quickFilterBarEnableFilter: string;
   quickFilterBarDisableFilter: string;
   quickFilterBarRemoveFilter: string;
@@ -1069,7 +1068,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   quickFilterBarOpenFilters: 'Open filters panel',
   quickFilterBarCloseFilters: 'Close filters panel',
   quickFilterBarClearAll: 'Clear all filters',
-  quickFilterBarFiltered: 'Filtered',
   quickFilterBarEnableFilter: 'Enable filter',
   quickFilterBarDisableFilter: 'Disable filter',
   quickFilterBarRemoveFilter: 'Remove filter',

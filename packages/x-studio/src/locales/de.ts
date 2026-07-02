@@ -53,7 +53,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   quickFilterBarOpenFilters: 'Filterbereich öffnen',
   quickFilterBarCloseFilters: 'Filterbereich schließen',
   quickFilterBarClearAll: 'Alle Filter löschen',
-  quickFilterBarFiltered: 'Gefiltert',
   dateRangeBarFieldLabel: 'Datumsbereich',
 
   // Widget card actions

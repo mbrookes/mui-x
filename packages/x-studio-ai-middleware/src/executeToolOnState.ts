@@ -16,7 +16,6 @@ import type {
   StudioDataField,
 } from './models/studioTypes';
 import type { StateMutation } from './models/aiTypes';
-import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { createDefaultWidget } from './widgetFactory';
 
 export interface ToolExecutionResult {
@@ -42,8 +41,14 @@ export function executeToolOnState(
 
   switch (toolName) {
     case 'get_dashboard_state': {
+      // Canonical output contract, shared with the MCP transport: return the raw
+      // `StudioState`. Both `buildStudioMcpServer`'s `get_dashboard_state` handler
+      // (mcp.ts) and this chat-path handler now return the state object so the tool
+      // means the same thing on both surfaces. The full rendered system prompt is
+      // already the chat request's system message, so re-emitting it as tool output
+      // was redundant and diverged from MCP.
       return {
-        output: buildAISystemPrompt(state, customWidgets),
+        output: JSON.stringify(state),
         nextState: state,
       };
     }
@@ -187,6 +192,12 @@ export function executeToolOnState(
 
     case 'remove_widget': {
       const widgetId = String(args.widgetId ?? '');
+      if (!state.widgets[widgetId]) {
+        return {
+          output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
+          nextState: state,
+        };
+      }
       const nextWidgets = { ...state.widgets };
       delete nextWidgets[widgetId];
 
@@ -246,10 +257,13 @@ export function executeToolOnState(
       }
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
-      const rowWidgetIds = activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [
+      if (!activePage) {
+        return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
+      }
+      const rowWidgetIds = activePage.widgetRows?.find((row) => row.includes(widgetId)) ?? [
         widgetId,
       ];
-      const nextColSpans = { ...(activePage?.widgetColSpans ?? {}) };
+      const nextColSpans = { ...(activePage.widgetColSpans ?? {}) };
       if (columns === null) {
         delete nextColSpans[widgetId];
       } else {
@@ -259,7 +273,7 @@ export function executeToolOnState(
         ...state,
         pages: {
           ...state.pages,
-          [activePageId]: { ...activePage!, widgetColSpans: nextColSpans },
+          [activePageId]: { ...activePage, widgetColSpans: nextColSpans },
         },
       };
       return {
@@ -289,9 +303,41 @@ export function executeToolOnState(
 
     case 'remove_page': {
       const pageId = String(args.pageId ?? '');
+      const page = state.pages[pageId];
+      if (!page) {
+        return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
+      }
+
+      // Mirror `StudioController.removePage` exactly so the server-computed
+      // `nextState` matches what the client controller produces:
+      //   1. drop the page,
+      //   2. remove the widgets that live on that page,
+      //   3. remove the page-scoped filters that belong to it,
+      //   4. reassign `activePageId` if the removed page was the active one.
+      const widgetIdsOnPage = new Set((page.widgetRows ?? []).flat());
+
       const nextPages = { ...state.pages };
       delete nextPages[pageId];
-      const nextState: StudioState = { ...state, pages: nextPages };
+
+      const nextWidgets = Object.fromEntries(
+        Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
+      );
+
+      const nextFilters = (state.filters ?? []).filter((f) => f.pageId !== pageId);
+
+      const remainingPageIds = Object.keys(nextPages);
+      const nextActivePageId =
+        state.dashboard.activePageId === pageId
+          ? (remainingPageIds[0] ?? '')
+          : state.dashboard.activePageId;
+
+      const nextState: StudioState = {
+        ...state,
+        pages: nextPages,
+        widgets: nextWidgets,
+        filters: nextFilters,
+        dashboard: { ...state.dashboard, activePageId: nextActivePageId },
+      };
       return {
         output: JSON.stringify({ success: true, pageId }),
         mutation: { type: 'removePage', args: { pageId } },
@@ -301,6 +347,9 @@ export function executeToolOnState(
 
     case 'set_active_page': {
       const pageId = String(args.pageId ?? '');
+      if (!state.pages[pageId]) {
+        return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
+      }
       const nextState: StudioState = {
         ...state,
         dashboard: { ...state.dashboard, activePageId: pageId },
@@ -519,6 +568,26 @@ export function executeToolOnState(
     }
 
     case 'summarise_page': {
+      // On the chat path the only row data available is the client-provided
+      // `pageSnapshot`, which is built for the *active* page. Unlike the MCP path
+      // (which can query any page's sources live), we cannot honor a `pageId` that
+      // points at a non-active page here. The tool schema advertises `pageId`, so
+      // rather than silently mislabel the active page's data as the requested page,
+      // reject the request with actionable guidance.
+      const requestedPageId = args.pageId ? String(args.pageId) : undefined;
+      const activePageId = state.dashboard.activePageId;
+      if (requestedPageId && requestedPageId !== activePageId) {
+        return {
+          output: JSON.stringify({
+            error:
+              `summarise_page cannot summarise page "${requestedPageId}" here. ` +
+              'In chat, live row data is only available for the active page, so a non-active ' +
+              `pageId cannot be honored. Call set_active_page with "${requestedPageId}" first, ` +
+              'then summarise_page, or omit pageId to summarise the active page.',
+          }),
+          nextState: state,
+        };
+      }
       if (pageSnapshot) {
         // Return the data snapshot as plain text so the model can read it directly
         // without unwrapping a JSON structure. The tool description instructs the model

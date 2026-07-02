@@ -961,7 +961,10 @@ export function buildStudioMcpServer(
 
     let threw = false;
     try {
-      // ── get_dashboard_state — returns full state JSON for MCP context ────
+      // ── get_dashboard_state — returns the raw StudioState ───────────────
+      // Canonical output contract shared with the chat path (see
+      // executeToolOnState.ts `get_dashboard_state`): both transports return the
+      // raw `StudioState` so the tool means the same thing on both surfaces.
       if (toolName === 'get_dashboard_state') {
         return {
           content: [

@@ -4,6 +4,7 @@ import type {
   StudioGridSummaryAggregation,
   StudioRelationship,
 } from '../models';
+import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
 
 function aggregateGridValue(
   rows: Record<string, unknown>[],
@@ -96,13 +97,9 @@ export function buildGroupedGridRows(
   >();
 
   if (columns && dataSources && relationships && widgetSourceId) {
-    // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
-    const relIndex = new Map<string, (typeof relationships)[number]>();
-    for (const r of relationships) {
-      if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
-        relIndex.set(r.targetId, r);
-      }
-    }
+    // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
+    // see dataSourceGraph.buildManyToOneRelationshipIndex.
+    const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
 
     for (const col of columns) {
       if (!col.sourceId || col.sourceId === widgetSourceId) {

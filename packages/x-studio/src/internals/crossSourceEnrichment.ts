@@ -1,4 +1,5 @@
 import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../models';
+import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
 
 type Row = Record<string, unknown>;
 
@@ -51,13 +52,9 @@ export function enrichWithCrossSourceFields(
 
   const colMeta: ColMeta[] = [];
 
-  // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
-  const relIndex = new Map<string, (typeof relationships)[number]>();
-  for (const r of relationships) {
-    if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
-      relIndex.set(r.targetId, r);
-    }
-  }
+  // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
+  // see dataSourceGraph.buildManyToOneRelationshipIndex.
+  const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
 
   for (const ref of crossFields) {
     const rel = relIndex.get(ref.sourceId);

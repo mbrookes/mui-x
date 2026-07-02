@@ -21,6 +21,8 @@ export interface StateStore {
   load(): Promise<unknown | null>;
   /** Upserts the session document. */
   save(doc: unknown): Promise<void>;
+  /** Cheap existence check (no JSON parse) — whether a session has been stored. */
+  has(): Promise<boolean>;
 }
 
 export async function createStateStore(): Promise<StateStore> {
@@ -62,6 +64,13 @@ export async function createStateStore(): Promise<StateStore> {
         })
         .onConflict('id')
         .merge();
+    },
+
+    async has() {
+      const row = (await db('dashboard_state').where({ id: DOC_ID }).select('id').first()) as
+        | { id?: string }
+        | undefined;
+      return Boolean(row);
     },
   };
 }

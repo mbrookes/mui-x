@@ -21,6 +21,7 @@ dotenv.config();
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import knex from 'knex';
+import { randomUUID } from 'node:crypto';
 import {
   handleAIChat,
   handleGenerateTitle,
@@ -31,6 +32,10 @@ import { seedSurveyDatabase, type SeededTable } from './seedFromExcel.js';
 import { makeMcpRouter } from './mcp.js';
 import { createStateStore, STATE_DB_PATH } from './stateStore.js';
 import { log, error } from './logger.js';
+
+// Fresh per process boot. A redeploy/restart mints a new id, which is how the client detects the
+// server was reset (and, if its state DB came back empty, re-seeds it) without a page reload.
+const INSTANCE_ID = randomUUID();
 
 const PORT = parseInt(process.env.PORT ?? '3005', 10);
 const LLM_API_KEY = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY;
@@ -142,6 +147,18 @@ async function main(): Promise<void> {
   // Durable dashboard-state store (survives restarts, unlike the in-memory survey data).
   const stateStore = await createStateStore();
   log(`[startup] Dashboard state persisted to ${STATE_DB_PATH}`);
+
+  // GET /api/state/status — cheap heartbeat: this boot's instance id + whether any state is
+  // stored. The client polls it to notice a reset/redeploy (changed instanceId) and re-seed an
+  // empty DB. Registered before the `/api/state` handler; Express matches the exact path.
+  app.get('/api/state/status', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ instanceId: INSTANCE_ID, hasState: await stateStore.has() });
+    } catch (err) {
+      error('[state] Status failed:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   // GET /api/state — load the saved session (present state + undo/redo history), or null.
   app.get('/api/state', async (_req: Request, res: Response): Promise<void> => {

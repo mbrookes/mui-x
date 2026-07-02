@@ -24,7 +24,12 @@ import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
 import { SURVEY_DASHBOARD, SURVEY_SECTIONS } from './config/surveyReport';
 import { dividerWidgetDef } from './components/DividerWidget';
 import { rankHeatmapWidgetDef } from './components/SurveyRankHeatmap';
-import { statePersistenceEnabled, loadSession, saveSession } from './connectors/statePersistence';
+import {
+  statePersistenceEnabled,
+  loadSession,
+  saveSession,
+  fetchServerStatus,
+} from './connectors/statePersistence';
 
 const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
@@ -187,6 +192,8 @@ export default function App() {
   // default and then visibly swapping when the server data lands.
   const [hydrated, setHydrated] = React.useState(!statePersistenceEnabled);
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last-seen server boot id, for detecting a reset/redeployment while the app stays open.
+  const serverInstanceRef = React.useRef<string | null>(null);
 
   const flushSave = React.useCallback((keepalive = false) => {
     const session = studioRef.current?.serializeSession();
@@ -319,6 +326,63 @@ export default function App() {
     };
     window.addEventListener('pagehide', onHide);
     return () => window.removeEventListener('pagehide', onHide);
+  }, [flushSave]);
+
+  // Detect a server reset/redeployment without waiting for a page reload. The server stamps each
+  // process boot with a random instance id; we poll it (and on tab focus). When it changes, the
+  // server restarted — if its state DB came back empty, re-seed it from the client so the report
+  // isn't silently lost. Never overwrites a server that already has state.
+  React.useEffect(() => {
+    if (!statePersistenceEnabled) {
+      return undefined;
+    }
+    let cancelled = false;
+    const check = async () => {
+      if (document.hidden) {
+        return;
+      }
+      let status;
+      try {
+        status = await fetchServerStatus();
+      } catch {
+        // Server unreachable (likely mid-redeploy) — retry on the next tick.
+        return;
+      }
+      if (cancelled || !status) {
+        return;
+      }
+      if (serverInstanceRef.current === null) {
+        // First reading — record the baseline, nothing to compare against yet.
+        serverInstanceRef.current = status.instanceId;
+        return;
+      }
+      if (status.instanceId === serverInstanceRef.current) {
+        return;
+      }
+      // The server restarted.
+      serverInstanceRef.current = status.instanceId;
+      if (!status.hasState && hydratedRef.current) {
+        const state = studioRef.current?.getState();
+        if (state && Object.keys(state.pages ?? {}).length > 0) {
+          flushSave();
+          // eslint-disable-next-line no-console
+          console.info('[x-studio-survey] Server restarted with empty state — re-seeded.');
+        }
+      }
+    };
+    const interval = window.setInterval(check, 60000);
+    const onVisible = () => {
+      if (!document.hidden) {
+        check();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    check();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [flushSave]);
 
   const handleStateChange = React.useCallback(

@@ -19,6 +19,28 @@ function headers(): Record<string, string> {
   return h;
 }
 
+export interface ServerStatus {
+  /** Random id minted when the server process booted — changes on any restart/redeploy. */
+  instanceId: string;
+  /** Whether the server currently has a saved session. */
+  hasState: boolean;
+}
+
+/**
+ * Fetches the server's boot instance id and whether it holds any saved state. Used to detect a
+ * reset/redeployment at runtime. Returns `null` when persistence is disabled.
+ */
+export async function fetchServerStatus(signal?: AbortSignal): Promise<ServerStatus | null> {
+  if (!serverUrl) {
+    return null;
+  }
+  const res = await fetch(`${serverUrl}/api/state/status`, { headers: headers(), signal });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch server status (HTTP ${res.status})`);
+  }
+  return (await res.json()) as ServerStatus;
+}
+
 /** Loads the saved session, or `null` when none has been stored (or persistence is off). */
 export async function loadSession(signal?: AbortSignal): Promise<unknown | null> {
   if (!serverUrl) {

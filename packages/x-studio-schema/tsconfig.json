@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // `node` types are needed only because typechecking follows the type-only
+    // `ChatMessage` import into `@mui/x-chat-headless`'s source (which references
+    // `process`). The schema package's own runtime code uses no Node built-ins.
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"]
+}

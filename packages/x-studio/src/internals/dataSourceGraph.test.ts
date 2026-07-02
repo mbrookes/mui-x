@@ -539,6 +539,33 @@ describe('enrichRowsWithRelatedFields', () => {
     expect(result[2].country).toBe('Germany'); // ORD-3 → CUS-1
   });
 
+  it('enriches across a numeric-vs-string FK/PK type mismatch (shared normalizeJoinKey policy)', () => {
+    const numericFkOrders = [
+      { id: 'ORD-1', customerId: 1 },
+      { id: 'ORD-2', customerId: 2 },
+    ];
+    const stringPkSources: Record<string, StudioDataSource> = {
+      ...dataSources,
+      customers: {
+        ...dataSources.customers,
+        rows: [
+          { id: '1', country: 'Germany', tier: 'gold' },
+          { id: '2', country: 'France', tier: 'silver' },
+        ],
+      },
+    };
+    const result = enrichRowsWithRelatedFields(
+      numericFkOrders,
+      'orders',
+      ['country'],
+      stringPkSources,
+      relationships,
+    );
+    // Before the fix these were undefined (raw 1 !== '1'); now they join.
+    expect(result[0].country).toBe('Germany');
+    expect(result[1].country).toBe('France');
+  });
+
   it('enriches multiple fields in a single call', () => {
     const result = enrichRowsWithRelatedFields(
       orders,

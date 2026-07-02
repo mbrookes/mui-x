@@ -129,4 +129,60 @@ describe('buildGroupedGridRows', () => {
     // Without fan-out fix this would be 100+100+50=250; with fix: 100+50=150
     expect(result[0].total).toBe(150);
   });
+
+  it('dedupes a cross-source many-to-one column across a numeric-vs-string FK/PK mismatch', () => {
+    // order_items.orderId is numeric; orders.id is a string. The shared normalizeJoinKey
+    // policy (internals/joinKeys.ts) makes the grid dedup match the chart/filter paths.
+    const orderItems = [
+      { id: 'i1', orderId: 1, category: 'Electronics' },
+      { id: 'i2', orderId: 1, category: 'Electronics' }, // same order, numeric FK
+      { id: 'i3', orderId: 2, category: 'Electronics' },
+    ];
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'orderId', label: 'Order', type: 'number' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [
+          { id: '1', total: 100 },
+          { id: '2', total: 50 },
+        ],
+      },
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel1',
+        type: 'many-to-one',
+        sourceId: 'order_items',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+      },
+    ];
+
+    const result = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'total'],
+      { total: 'sum' },
+      'widget-1',
+      [{ fieldId: 'category' }, { fieldId: 'total', sourceId: 'orders' }],
+      dataSources,
+      relationships,
+      'order_items',
+    );
+    expect(result[0].total).toBe(150); // 100 (order 1, once) + 50 (order 2)
+  });
 });

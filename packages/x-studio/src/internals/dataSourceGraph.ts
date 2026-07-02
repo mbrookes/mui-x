@@ -6,8 +6,29 @@ import type {
 } from '../models';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { applyFilters } from './filterUtils';
+import { collectKeySet, normalizeJoinKey } from './joinKeys';
 
 type Row = Record<string, unknown>;
+
+/**
+ * Finds the relationship that directly connects `sourceA` and `sourceB` as its two
+ * endpoints (in either direction), or `null` if none is declared. Note this also
+ * matches a `many-to-many` relationship whose two endpoints are `sourceA`/`sourceB`
+ * (callers branch on `relationship.type`); it does NOT match on a junction source.
+ */
+export function findDirectRelationship(
+  sourceA: string,
+  sourceB: string,
+  relationships: StudioRelationship[],
+): StudioRelationship | null {
+  return (
+    relationships.find(
+      (relationship) =>
+        (relationship.sourceId === sourceA && relationship.targetId === sourceB) ||
+        (relationship.sourceId === sourceB && relationship.targetId === sourceA),
+    ) ?? null
+  );
+}
 
 /**
  * Builds a `targetId → relationship` index of the direct many-to-one relationships
@@ -278,29 +299,36 @@ export function resolveRows(
     const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
 
     if (joinPath.hops === 1) {
-      // One-hop (direct) semi-join: keep widget rows whose join field is in the allowed set
-      const allowedValues = new Set(matchingForeignRows.map((r) => r[joinPath.filterJoinField]));
-      rows = rows.filter((r) => allowedValues.has(r[joinPath.widgetJoinField]));
+      // One-hop (direct) semi-join: keep widget rows whose join field is in the allowed set.
+      // Keys are normalized (normalizeJoinKey) so a numeric FK matches a string PK etc.
+      const allowedValues = collectKeySet(matchingForeignRows, joinPath.filterJoinField);
+      rows = rows.filter((r) => {
+        const key = normalizeJoinKey(r[joinPath.widgetJoinField]);
+        return key !== null && allowedValues.has(key);
+      });
     } else {
       // Two-hop (M:N) semi-join via junction source:
       // 1. Collect the filter-side join values from matching foreign rows
       // 2. Walk the junction to find widget-side join values that link to those
       // 3. Keep widget rows in the resulting allowed set
-      const matchingFilterValues = new Set(
-        matchingForeignRows.map((r) => r[joinPath.filterJoinField]),
-      );
+      const matchingFilterValues = collectKeySet(matchingForeignRows, joinPath.filterJoinField);
       // Record the junction source whose rows we read for the two-hop semi-join.
       options?.collectJoinedSourceIds?.add(joinPath.junctionSourceId);
       const junctionRows = dataSources[joinPath.junctionSourceId]?.rows ?? [];
-      const allowedWidgetValues = new Set<unknown>(
-        junctionRows.reduce<unknown[]>((acc, r) => {
-          if (matchingFilterValues.has(r[joinPath.junctionFilterField])) {
-            acc.push(r[joinPath.junctionWidgetField]);
+      const allowedWidgetValues = new Set<string>();
+      for (const r of junctionRows) {
+        const filterKey = normalizeJoinKey(r[joinPath.junctionFilterField]);
+        if (filterKey !== null && matchingFilterValues.has(filterKey)) {
+          const widgetKey = normalizeJoinKey(r[joinPath.junctionWidgetField]);
+          if (widgetKey !== null) {
+            allowedWidgetValues.add(widgetKey);
           }
-          return acc;
-        }, []),
-      );
-      rows = rows.filter((r) => allowedWidgetValues.has(r[joinPath.widgetJoinField]));
+        }
+      }
+      rows = rows.filter((r) => {
+        const key = normalizeJoinKey(r[joinPath.widgetJoinField]);
+        return key !== null && allowedWidgetValues.has(key);
+      });
     }
   }
 
@@ -455,35 +483,45 @@ export function enrichRowsWithRelatedFields(
     return rows;
   }
 
-  // Build lookup maps
+  // Build lookup maps. Keys are normalized (normalizeJoinKey) so a numeric FK
+  // matches a string PK etc. — the single join-key policy shared with the chart,
+  // filter and grid paths.
   const lookups: Array<{
     fieldId: string;
     widgetJoinField: string;
-    map: Map<unknown, unknown>;
+    map: Map<string, unknown>;
   }> = [];
 
   for (const need of foreignFieldNeeds) {
     if (need.kind === 'direct') {
-      const map = new Map<unknown, unknown>();
+      const map = new Map<string, unknown>();
       for (const row of need.relatedRows) {
-        map.set(row[need.relatedJoinField], row[need.fieldId]);
+        const key = normalizeJoinKey(row[need.relatedJoinField]);
+        if (key !== null && !map.has(key)) {
+          map.set(key, row[need.fieldId]);
+        }
       }
       lookups.push({ fieldId: need.fieldId, widgetJoinField: need.widgetJoinField, map });
     } else {
       // Build: widgetJoinValue → first matching target field value via junction
       const junctionRows = dataSources[need.junctionSourceId]?.rows ?? [];
       // targetJoinValue → fieldValue
-      const targetLookup = new Map<unknown, unknown>();
+      const targetLookup = new Map<string, unknown>();
       for (const row of need.targetRows) {
-        targetLookup.set(row[need.targetJoinField], row[need.fieldId]);
+        const key = normalizeJoinKey(row[need.targetJoinField]);
+        if (key !== null && !targetLookup.has(key)) {
+          targetLookup.set(key, row[need.fieldId]);
+        }
       }
       // widgetJoinValue → first target field value
-      const map = new Map<unknown, unknown>();
+      const map = new Map<string, unknown>();
       for (const jRow of junctionRows) {
-        const widgetKey = jRow[need.junctionWidgetField];
-        if (!map.has(widgetKey)) {
-          map.set(widgetKey, targetLookup.get(jRow[need.junctionTargetField]));
+        const widgetKey = normalizeJoinKey(jRow[need.junctionWidgetField]);
+        if (widgetKey === null || map.has(widgetKey)) {
+          continue;
         }
+        const targetKey = normalizeJoinKey(jRow[need.junctionTargetField]);
+        map.set(widgetKey, targetKey === null ? undefined : targetLookup.get(targetKey));
       }
       lookups.push({ fieldId: need.fieldId, widgetJoinField: need.widgetJoinField, map });
     }
@@ -494,7 +532,8 @@ export function enrichRowsWithRelatedFields(
     const extras: Row = {};
     for (const { fieldId, widgetJoinField, map } of lookups) {
       if (!(fieldId in row)) {
-        extras[fieldId] = map.get(row[widgetJoinField]);
+        const key = normalizeJoinKey(row[widgetJoinField]);
+        extras[fieldId] = key === null ? undefined : map.get(key);
       }
     }
     return Object.keys(extras).length > 0 ? { ...row, ...extras } : row;

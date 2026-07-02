@@ -7,6 +7,23 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>2025 Annual Developer Survey</title>
+    <!-- Paint the theme's backdrop colour before the JS bundle loads so a dark-mode visitor
+         doesn't see a flash of white while the app boots. Values mirror theme.ts
+         (background.default): light rgb(250, 250, 246), dark #1e293b. `color-scheme` also keeps
+         the browser's native canvas/scrollbars in step with the OS preference. -->
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      html {
+        background-color: rgb(250, 250, 246);
+      }
+      @media (prefers-color-scheme: dark) {
+        html {
+          background-color: #1e293b;
+        }
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

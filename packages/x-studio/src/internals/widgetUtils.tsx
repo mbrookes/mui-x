@@ -319,7 +319,9 @@ export function inferKpiDateSubtitle(
   }
   const relevant = filters.filter(
     (f) =>
-      (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range' || (f.scope.kind === 'widget' && f.scope.widgetId === widget.id)) &&
+      (f.scope.kind === 'page' ||
+        f.scope.kind === 'dashboard-date-range' ||
+        (f.scope.kind === 'widget' && f.scope.widgetId === widget.id)) &&
       (f.fieldType === 'date' || f.fieldType === 'datetime'),
   );
   const dateFilter = relevant[0];
@@ -579,6 +581,30 @@ function inlineComputedStyles(svgElement: SVGElement): void {
   });
 }
 
+/**
+ * Walk up from `el` and return the first ancestor's computed background colour that is not
+ * fully transparent — i.e. the surface the chart visually sits on. Returns `undefined` when
+ * nothing opaque is found (or outside the browser), so callers can fall back.
+ */
+function resolveOpaqueBackground(el: HTMLElement | null): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  // Matches a fully-transparent colour: `transparent`, or an rgba() whose alpha is 0. A pure
+  // opaque `rgb(0, 0, 0)` (no alpha component) is intentionally not matched.
+  const isTransparent = (bg: string): boolean =>
+    bg === 'transparent' || /^rgba\(\s*[\d.]+,\s*[\d.]+,\s*[\d.]+,\s*0(\.0+)?\s*\)$/.test(bg);
+  let node: HTMLElement | null = el;
+  while (node) {
+    const bg = window.getComputedStyle(node).backgroundColor;
+    if (bg && !isTransparent(bg)) {
+      return bg;
+    }
+    node = node.parentElement;
+  }
+  return undefined;
+}
+
 export function exportChartToPng(
   widget: StudioWidget,
   chartContainer: HTMLElement | null,
@@ -620,9 +646,12 @@ export function exportChartToPng(
   }
 
   ctx.scale(scale, scale);
-  // Use the provided background color (e.g. theme.palette.background.default) so
-  // dark-mode dashboards export correctly. Fall back to white for light mode.
-  ctx.fillStyle = backgroundColor ?? 'white';
+  // Resolve the fill from the live DOM (the first opaque ancestor behind the chart, i.e. the
+  // widget card) rather than a theme value. Under `cssVariables` themes `theme.palette.*` is
+  // pinned to the default (light) colour scheme, so a passed-in value would export a light
+  // background even in dark mode — making light chart text unreadable. The DOM-resolved colour
+  // always reflects the active scheme. Fall back to the passed colour, then white.
+  ctx.fillStyle = resolveOpaqueBackground(chartContainer) ?? backgroundColor ?? 'white';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Convert SVG to image

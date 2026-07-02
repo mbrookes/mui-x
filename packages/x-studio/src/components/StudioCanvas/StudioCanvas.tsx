@@ -276,7 +276,13 @@ function StudioPageRows({
           return null;
         }
         return (
-          <Box key={row.join('-')} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
+          // Keyed by the row's index within the page, not its membership (`row.join('-')`):
+          // the row's identity shouldn't need to encode which widgets it currently holds.
+          // Adding/moving/removing a widget elsewhere in the row previously changed this key
+          // and remounted every sibling widget in the row, discarding their local component
+          // state (see StudioWidgetCard, keyed by `widgetId` below, which no longer remounts
+          // on ordinary layout edits as a result).
+          <Box key={rowIndex} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
             <Box
               sx={{
                 display: 'flex',

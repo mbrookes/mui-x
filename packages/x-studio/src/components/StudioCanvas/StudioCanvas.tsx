@@ -36,11 +36,55 @@ import { WidgetGap } from './WidgetGap';
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 
 /** Return the minimum resize column span for a widget based on its kind and config. */
-function getWidgetMinSpan(widget: StudioWidget | undefined): number {
+export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
   if (widget?.kind === 'kpi' && !widget.config.kpiSparkline) {
     return KPI_NO_SPARKLINE_MIN_SPAN;
   }
   return MIN_SPAN;
+}
+
+/** State describing an in-progress resize drag between two adjacent widgets in a row. */
+export interface LiveDragState {
+  leftId: string;
+  rightId: string;
+  leftSpanLive: number;
+  totalSpan: number;
+}
+
+/**
+ * Compute the CSS `left` values for the column-divider overlay lines shown while a
+ * resize drag is active on a row. One value is returned per grid-column boundary
+ * (`GRID_COLS - 1` of them); each string is a `left` calc() expression relative to
+ * the row's flex container.
+ */
+export function computeGridLineLefts(
+  row: string[],
+  widgetColSpans: Record<string, number> | undefined,
+  liveDrag: LiveDragState,
+): string[] {
+  const flexGrowDefault = Math.round(GRID_COLS / row.length);
+  let acc = 0;
+  const cumSpans = row.map((wId) => {
+    const start = acc;
+    if (wId === liveDrag.leftId) {
+      acc += liveDrag.leftSpanLive;
+    } else if (wId === liveDrag.rightId) {
+      acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
+    } else {
+      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
+    }
+    return start;
+  });
+  return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
+    const col = i + 1;
+    let j = 0;
+    for (let k = 1; k < cumSpans.length; k += 1) {
+      if (cumSpans[k] <= col) {
+        j = k;
+      }
+    }
+    return `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`;
+  });
 }
 
 export interface StudioCanvasProps {
@@ -428,46 +472,22 @@ function StudioPageRows({
               {/* Column grid lines overlay — shown during a resize drag on this row. */}
               {liveDrag &&
                 row.includes(liveDrag.leftId) &&
-                (() => {
-                  const flexGrowDefault = Math.round(GRID_COLS / row.length);
-                  let acc = 0;
-                  const cumSpans = row.map((wId) => {
-                    const start = acc;
-                    if (wId === liveDrag.leftId) {
-                      acc += liveDrag.leftSpanLive;
-                    } else if (wId === liveDrag.rightId) {
-                      acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
-                    } else {
-                      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
-                    }
-                    return start;
-                  });
-                  return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
-                    const col = i + 1;
-                    let j = 0;
-                    for (let k = 1; k < cumSpans.length; k += 1) {
-                      if (cumSpans[k] <= col) {
-                        j = k;
-                      }
-                    }
-                    return (
-                      <Box
-                        key={i}
-                        sx={{
-                          position: 'absolute',
-                          top: 0,
-                          bottom: 0,
-                          left: `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
-                          width: '1px',
-                          bgcolor: 'divider',
-                          opacity: 0.6,
-                          pointerEvents: 'none',
-                          zIndex: 15,
-                        }}
-                      />
-                    );
-                  });
-                })()}
+                computeGridLineLefts(row, widgetColSpans, liveDrag).map((left, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left,
+                      width: '1px',
+                      bgcolor: 'divider',
+                      opacity: 0.6,
+                      pointerEvents: 'none',
+                      zIndex: 15,
+                    }}
+                  />
+                ))}
             </Box>
             {/* Insertion point below this row */}
             {mode === 'edit' && (

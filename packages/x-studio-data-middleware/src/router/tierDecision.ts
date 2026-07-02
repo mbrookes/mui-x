@@ -1,15 +1,15 @@
 /**
  * Consolidated tier routing decision for x-studio-data-middleware.
  *
- * All routing logic lives here. Callers (handler.ts) no longer need to know
- * about the aggregation flag, the tier cache, or the COUNT(*) preflight — they
- * call `decideTier` and act on the returned `TierDecision`.
+ * All routing logic lives here. Callers (handler.ts) call `decideTierWithCache`
+ * and act on the returned `TierDecision`.
  *
  * Decision tree
  * ─────────────
  * 1. Aggregation query → force 'db' tier immediately (no COUNT(*), no cache I/O)
  * 2. Tier-cache hit    → return cached tier (skip COUNT(*))
- * 3. Cache miss        → run COUNT(*), map to tier, write tier cache, return result
+ * 3. Cache miss        → run COUNT(*), map to tier, write tier cache (if a TTL was
+ *                        given), return result
  */
 import type { TierCacheProvider } from '../cache/types';
 
@@ -45,20 +45,26 @@ function tierFromRowCount(
 }
 
 /**
- * Determine the routing tier for a widget query.
+ * Determine the routing tier for a widget query, optionally persisting the
+ * decision to the tier cache.
  *
- * @param hasAggregations    - Whether the descriptor contains aggregation specs.
- * @param cacheKey           - Security-scoped key used for tier cache lookups.
+ * @param hasAggregations     - Whether the descriptor contains aggregation specs.
+ * @param cacheKey            - Security-scoped key used for tier cache lookups.
  * @param getPreflightRowCount - Async function that runs COUNT(*); only called on a cache miss.
- * @param tierCacheProvider  - Optional tier cache; skipped for aggregation queries.
- * @param thresholds         - Row-count boundaries for tier selection.
+ * @param tierCacheProvider   - Optional tier cache; skipped for aggregation queries.
+ * @param thresholds          - Row-count boundaries for tier selection.
+ * @param tierCacheTtlMs      - TTL (ms) used when writing a fresh decision to the tier cache.
+ *                              When omitted, the decision is still computed/read from the
+ *                              cache but never written back — equivalent to a plain
+ *                              decide-without-cache-write.
  */
-export async function decideTier(
+export async function decideTierWithCache(
   hasAggregations: boolean,
   cacheKey: string,
   getPreflightRowCount: () => Promise<number>,
   tierCacheProvider: TierCacheProvider | undefined | null,
   thresholds: TierThresholds,
+  tierCacheTtlMs?: number,
 ): Promise<TierDecision> {
   // 1. Aggregation queries always run at 'db' tier.
   //    Skip COUNT(*) and cache entirely — the row count is irrelevant when the
@@ -75,48 +81,11 @@ export async function decideTier(
     }
   }
 
-  // 3. Cache miss → run COUNT(*), determine tier, populate cache.
+  // 3. Cache miss → run COUNT(*), determine tier, populate cache (when a TTL was given).
   const rowCount = await getPreflightRowCount();
   const tier = tierFromRowCount(rowCount, thresholds);
 
-  if (tierCacheProvider) {
-    // The TTL is passed by the caller via tierCacheProvider.set(); the handler
-    // knows the configured TTL and passes it through a bound closure or separate
-    // wrapper. Here we use the provider's own default by omitting the TTL arg.
-    // (The handler calls a helper that forwards the TTL explicitly.)
-  }
-
-  return { tier, rowCount, source: 'preflight' };
-}
-
-/**
- * Like `decideTier`, but also writes the result to the tier cache (when
- * the cache is provided). Separated so the handler can pass `tierCacheTtlMs`
- * without the core decision function needing to know about it.
- */
-export async function decideTierWithCache(
-  hasAggregations: boolean,
-  cacheKey: string,
-  getPreflightRowCount: () => Promise<number>,
-  tierCacheProvider: TierCacheProvider | undefined | null,
-  thresholds: TierThresholds,
-  tierCacheTtlMs: number,
-): Promise<TierDecision> {
-  if (hasAggregations) {
-    return { tier: 'db', rowCount: 0, source: 'aggregation-forced' };
-  }
-
-  if (tierCacheProvider) {
-    const cached = await tierCacheProvider.get(cacheKey);
-    if (cached) {
-      return { tier: cached.tier, rowCount: cached.rowCount, source: 'tier-cache' };
-    }
-  }
-
-  const rowCount = await getPreflightRowCount();
-  const tier = tierFromRowCount(rowCount, thresholds);
-
-  if (tierCacheProvider) {
+  if (tierCacheProvider && tierCacheTtlMs !== undefined) {
     await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
   }
 

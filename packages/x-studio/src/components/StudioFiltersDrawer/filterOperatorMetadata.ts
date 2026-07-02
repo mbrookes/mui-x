@@ -98,13 +98,13 @@ export function getOperatorsForFieldType(
  * operators read differently per type — e.g. `equals` reads "=" for numbers but
  * "On" for dates).
  *
- * `localeText` is accepted so this can start returning translated labels the
- * moment `StudioLocaleText` (`internals/StudioUIConfigContext.ts`) grows
- * per-operator keys — it currently does not define any (only a generic
- * `filterOperatorLabel` string for the "Operator" field label itself), so this
- * function always falls back to the English labels above today. Wiring up real
- * translations requires adding those keys to `StudioLocaleText`, which is outside
- * this module's scope.
+ * `localeText` is looked up for a `filterOperator_${fieldType}_${operator}` key
+ * on `StudioLocaleText` (`internals/StudioUIConfigContext.ts`) — every
+ * (fieldType, operator) pair above has a corresponding key there, with English
+ * defaults matching the hardcoded labels in this module and real translations
+ * provided by each locale bundle in `src/locales/`. When a key is missing from
+ * the provided `localeText` (e.g. a caller passes a partial override), this
+ * function falls back to the hardcoded English labels above.
  */
 export function getOperatorLabel(
   operator: StudioFilterOperator,

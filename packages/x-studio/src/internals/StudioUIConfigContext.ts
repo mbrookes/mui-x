@@ -320,6 +320,50 @@ export interface StudioLocaleText {
   filterRankTop: string;
   filterRankBottom: string;
 
+  // ── Filter operator labels (per field type) ───────────────────────────────
+  // Keys follow `filterOperator_${fieldType}_${operator}`; see
+  // `StudioFiltersDrawer/filterOperatorMetadata.ts` for the authoritative list
+  // of (fieldType, operator) pairs and their English fallback labels.
+  filterOperator_string_equals: string;
+  filterOperator_string_not_equals: string;
+  filterOperator_string_contains: string;
+  filterOperator_string_does_not_contain: string;
+  filterOperator_string_starts_with: string;
+  filterOperator_string_not_starts_with: string;
+  filterOperator_string_ends_with: string;
+  filterOperator_string_not_ends_with: string;
+  filterOperator_string_is_empty: string;
+  filterOperator_string_is_not_empty: string;
+  filterOperator_number_equals: string;
+  filterOperator_number_not_equals: string;
+  filterOperator_number_greater_than: string;
+  filterOperator_number_greater_than_or_equal: string;
+  filterOperator_number_less_than: string;
+  filterOperator_number_less_than_or_equal: string;
+  filterOperator_number_between: string;
+  filterOperator_number_is_empty: string;
+  filterOperator_number_is_not_empty: string;
+  filterOperator_date_equals: string;
+  filterOperator_date_not_equals: string;
+  filterOperator_date_less_than: string;
+  filterOperator_date_greater_than: string;
+  filterOperator_date_less_than_or_equal: string;
+  filterOperator_date_greater_than_or_equal: string;
+  filterOperator_date_between: string;
+  filterOperator_date_is_empty: string;
+  filterOperator_date_is_not_empty: string;
+  filterOperator_datetime_equals: string;
+  filterOperator_datetime_not_equals: string;
+  filterOperator_datetime_greater_than: string;
+  filterOperator_datetime_less_than: string;
+  filterOperator_datetime_greater_than_or_equal: string;
+  filterOperator_datetime_less_than_or_equal: string;
+  filterOperator_datetime_between: string;
+  filterOperator_datetime_is_empty: string;
+  filterOperator_datetime_is_not_empty: string;
+  filterOperator_boolean_equals: string;
+  filterOperator_boolean_not_equals: string;
+
   // ── Expression field dialog ────────────────────────────────────────────────
   exprNodeTypeField: string;
   exprNodeTypeLiteral: string;
@@ -1300,6 +1344,47 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRankAggMinLabel: 'Min of all series',
   filterRankTop: 'Top',
   filterRankBottom: 'Bottom',
+
+  // Filter operator labels (per field type)
+  filterOperator_string_equals: 'Equals',
+  filterOperator_string_not_equals: 'Not equals',
+  filterOperator_string_contains: 'Contains',
+  filterOperator_string_does_not_contain: 'Does not contain',
+  filterOperator_string_starts_with: 'Starts with',
+  filterOperator_string_not_starts_with: 'Does not start with',
+  filterOperator_string_ends_with: 'Ends with',
+  filterOperator_string_not_ends_with: 'Does not end with',
+  filterOperator_string_is_empty: 'Is empty',
+  filterOperator_string_is_not_empty: 'Is not empty',
+  filterOperator_number_equals: '=',
+  filterOperator_number_not_equals: '≠',
+  filterOperator_number_greater_than: '>',
+  filterOperator_number_greater_than_or_equal: '≥',
+  filterOperator_number_less_than: '<',
+  filterOperator_number_less_than_or_equal: '≤',
+  filterOperator_number_between: 'Between',
+  filterOperator_number_is_empty: 'Is empty',
+  filterOperator_number_is_not_empty: 'Is not empty',
+  filterOperator_date_equals: 'On',
+  filterOperator_date_not_equals: 'Not on',
+  filterOperator_date_less_than: 'Before',
+  filterOperator_date_greater_than: 'After',
+  filterOperator_date_less_than_or_equal: 'On or before',
+  filterOperator_date_greater_than_or_equal: 'On or after',
+  filterOperator_date_between: 'Between',
+  filterOperator_date_is_empty: 'Is empty',
+  filterOperator_date_is_not_empty: 'Is not empty',
+  filterOperator_datetime_equals: 'At',
+  filterOperator_datetime_not_equals: 'Not at',
+  filterOperator_datetime_greater_than: 'After',
+  filterOperator_datetime_less_than: 'Before',
+  filterOperator_datetime_greater_than_or_equal: 'At or after',
+  filterOperator_datetime_less_than_or_equal: 'At or before',
+  filterOperator_datetime_between: 'Between',
+  filterOperator_datetime_is_empty: 'Is empty',
+  filterOperator_datetime_is_not_empty: 'Is not empty',
+  filterOperator_boolean_equals: 'Is',
+  filterOperator_boolean_not_equals: 'Is not',
 
   // Expression field dialog
   exprNodeTypeField: 'Field',

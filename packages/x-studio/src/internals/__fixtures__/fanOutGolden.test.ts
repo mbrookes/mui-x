@@ -34,11 +34,22 @@ import type { StudioDataSource, StudioRelationship } from '../../models';
  * widget kind gains the other's capability, not a matter of reconciling two existing
  * numbers.
  *
- * STATUS: Part B item 7 (the actual grainResolution unification) was NOT attempted in
- * this change — surfacing this capability asymmetry (and the concrete join-key-type
- * bug in scenario 3) confirmed the risk described in the task is real, and unifying it
- * safely needs dedicated review time this pass didn't have budget for. These tests are
- * the first step for whoever picks that item up next.
+ * STATUS (updated by the follow-up unification pass):
+ *  - The join-key coercion mismatch is now FIXED: every cross-source path (chart,
+ *    filter, grid, display enrichment) coerces keys through the single
+ *    `normalizeJoinKey` policy (internals/joinKeys.ts). Scenario 3 (the numeric-vs-
+ *    string many-to-many junction bug) now resolves correctly instead of dropping
+ *    all rows — the one intentional golden diff, justified inline.
+ *  - The chart L4 re-anchoring core was extracted into
+ *    `internals/grainResolution.ts` (`resolveRowsAtGrain`); the chart path now
+ *    delegates to it. Scenarios 1, 2 and 4 are unchanged (behavior-preserving).
+ *  - The grid <-> chart topology asymmetry documented below is REAL and remains: the
+ *    grid's fan-in dedup (scenario 1) and m2m gap (scenario 2) are intentionally NOT
+ *    migrated, because the grid's supported topology (group field on the many side,
+ *    measure on the one side) has no single global grain and needs per-group dedup
+ *    (`gridGrouping.symmetricAggregate`). See grainResolution.ts's JSDoc for the full
+ *    rationale. So scenarios 1 and 2 still capture the current (unmigrated) grid
+ *    behavior on purpose.
  */
 
 describe('fan-out golden fixtures — chart vs grid (current, pre-unification behavior)', () => {
@@ -222,7 +233,7 @@ describe('fan-out golden fixtures — chart vs grid (current, pre-unification be
     expect(gridResult.find((r) => r.name === 'Gadget')?.weight).toBe(0);
   });
 
-  it('scenario 3: many-to-many junction anchor with a numeric-vs-string join key mismatch drops ALL rows (chartAggregation.ts raw Map/Set key bug)', () => {
+  it('scenario 3: many-to-many junction anchor with a numeric-vs-string join key mismatch now joins correctly (was: dropped ALL rows)', () => {
     // Same shape as scenario 2, but products.id is NUMERIC while the junction's `pid`
     // (referencing it) is STRING — a realistic type drift between two data sources.
     const products = [
@@ -274,11 +285,13 @@ describe('fan-out golden fixtures — chart vs grid (current, pre-unification be
       },
     };
 
-    // `allowedWidgetKeys` is built from RAW `products.id` values (numbers: 1, 2) and
-    // compared against RAW `jRow.pid` values (strings: '1', '2') with no coercion —
-    // `allowedWidgetKeys.has('1')` is false even though `1` is "the same" key
-    // conceptually. Every junction row is filtered out — the widget silently renders
-    // ZERO data despite the links being real and unambiguous.
+    // FIXED (was a known-wrong number, now corrected): the join keys formerly used
+    // RAW `products.id` values (numbers: 1, 2) compared against RAW `jRow.pid`
+    // values (strings: '1', '2') with no coercion, so `allowedWidgetKeys.has('1')`
+    // was false and every junction row was dropped — the widget silently rendered
+    // ZERO data. All cross-source paths now coerce join keys through the single
+    // `normalizeJoinKey` policy (internals/joinKeys.ts), so `1` and `'1'` are the
+    // same key and the real, unambiguous links resolve.
     const resolved = resolveChartRowsForAggregation(
       products,
       'products',
@@ -289,7 +302,9 @@ describe('fan-out golden fixtures — chart vs grid (current, pre-unification be
       [m2mRel],
       [],
     );
-    expect(resolved).toEqual([]);
+    const chartAgg = aggregateByField(resolved, 'name', 'weight');
+    expect(chartAgg.values[chartAgg.labels.indexOf('Widget')]).toBe(10);
+    expect(chartAgg.values[chartAgg.labels.indexOf('Gadget')]).toBe(5);
   });
 
   it("scenario 4: null/missing FK within grid's supported many-to-one topology contributes nothing (not a separate bucket)", () => {

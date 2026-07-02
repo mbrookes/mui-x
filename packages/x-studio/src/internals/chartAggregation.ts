@@ -4,8 +4,8 @@ import type {
   StudioFilterState,
   StudioRelationship,
 } from '../models';
-import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { enrichRowsWithRelatedFields } from './dataSourceGraph';
+import { findDirectRelationship } from './dataSourceGraph';
+import { resolveRowsAtGrain } from './grainResolution';
 import { truncateToGranularity, sortLabels, type XGroupBy } from './temporalUtils';
 
 type Row = Record<string, unknown>;
@@ -177,20 +177,6 @@ function hasRowLevelField(
   );
 }
 
-function findDirectRelationship(
-  sourceA: string,
-  sourceB: string,
-  relationships: StudioRelationship[],
-): StudioRelationship | null {
-  return (
-    relationships.find(
-      (relationship) =>
-        (relationship.sourceId === sourceA && relationship.targetId === sourceB) ||
-        (relationship.sourceId === sourceB && relationship.targetId === sourceA),
-    ) ?? null
-  );
-}
-
 function isSafeWidgetBridgeOwner(
   widgetSourceId: string,
   ownerSourceId: string,
@@ -286,24 +272,6 @@ function findDirectFieldOwner(
   }
 
   return null;
-}
-
-function enrichSourceRowsWithExpressions(
-  rows: Row[],
-  sourceId: string,
-  dataSources: Record<string, StudioDataSource>,
-  relationships: StudioRelationship[],
-  expressionFields: StudioExpressionField[],
-  usedFieldIds?: ReadonlySet<string>,
-): Row[] {
-  return getCachedEnrichedRows(
-    rows,
-    sourceId,
-    expressionFields,
-    dataSources,
-    relationships,
-    usedFieldIds,
-  );
 }
 
 export type ChartSupportReason =
@@ -583,152 +551,19 @@ export function resolveChartRowsForAggregation(
     return cached.result;
   }
 
-  // Determine which requested fields are expression fields on the widget source.
-  const exprFieldIdsOnSource = new Set(
-    expressionFields.flatMap((ef) =>
-      ef.sourceId === anchorSourceId && !ef.isMeasure ? [ef.id] : [],
-    ),
+  // Re-anchor the row set to the fan-out anchor's grain (shared L4 core, see
+  // internals/grainResolution.ts) so a plain per-row aggregation cannot
+  // double-count from a fan-out join.
+  const result = resolveRowsAtGrain(
+    widgetRows,
+    widgetSourceId,
+    anchorSourceId,
+    requestedFields,
+    fieldOwners,
+    dataSources,
+    relationships,
+    expressionFields,
   );
-  const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
-
-  let result: Row[];
-
-  if (anchorSourceId === widgetSourceId) {
-    const related = enrichRowsWithRelatedFields(
-      widgetRows,
-      widgetSourceId,
-      requestedFields,
-      dataSources,
-      relationships,
-    );
-    result = needsExpressionEnrichment
-      ? enrichSourceRowsWithExpressions(
-          related,
-          widgetSourceId,
-          dataSources,
-          relationships,
-          expressionFields,
-          new Set(requestedFields),
-        )
-      : related;
-  } else {
-    const anchorRelationship = findDirectRelationship(
-      widgetSourceId,
-      anchorSourceId,
-      relationships,
-    );
-
-    // ── Many-to-many anchor: anchorSourceId is the junction source ──────────────
-    const manyToManyRel = relationships.find(
-      (rel) =>
-        rel.type === 'many-to-many' &&
-        rel.junctionSourceId === anchorSourceId &&
-        (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
-    );
-
-    if (manyToManyRel && manyToManyRel.junctionSourceField && manyToManyRel.junctionTargetField) {
-      // Determine which junction field links back to widgetSource
-      const junctionWidgetField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.junctionSourceField
-          : manyToManyRel.junctionTargetField;
-      const junctionTargetField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.junctionTargetField
-          : manyToManyRel.junctionSourceField;
-      const widgetJoinField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.sourceField
-          : manyToManyRel.targetField;
-      const remoteSourceId =
-        manyToManyRel.sourceId === widgetSourceId ? manyToManyRel.targetId : manyToManyRel.sourceId;
-      const remoteJoinField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.targetField
-          : manyToManyRel.sourceField;
-
-      // Build lookup maps for widget and remote source
-      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
-      const widgetRowLookup = new Map<unknown, Row>();
-      for (const row of widgetRows) {
-        widgetRowLookup.set(row[widgetJoinField], row);
-      }
-      const remoteRowLookup = new Map<unknown, Row>();
-      for (const row of dataSources[remoteSourceId]?.rows ?? []) {
-        remoteRowLookup.set(row[remoteJoinField], row);
-      }
-
-      const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
-      result = junctionRows.flatMap((jRow) => {
-        if (!allowedWidgetKeys.has(jRow[junctionWidgetField])) {
-          return [];
-        }
-        const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
-        const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
-        return [{ ...widgetRow, ...remoteRow, ...jRow }];
-      });
-    } else if (
-      !anchorRelationship ||
-      anchorRelationship.type === 'many-to-many' ||
-      anchorRelationship.sourceId !== anchorSourceId ||
-      anchorRelationship.targetId !== widgetSourceId
-    ) {
-      result = enrichRowsWithRelatedFields(
-        widgetRows,
-        widgetSourceId,
-        requestedFields,
-        dataSources,
-        relationships,
-      );
-    } else {
-      const widgetJoinField = anchorRelationship.targetField;
-      const anchorJoinField = anchorRelationship.sourceField;
-      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
-      // Pass only the fields owned by anchorSourceId so getCachedEnrichedRows
-      // builds a tighter field-set key and skips unrelated widget-source fields.
-      const anchorFieldIds = new Set(
-        requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
-      );
-      const enrichedAnchorRows = enrichSourceRowsWithExpressions(
-        dataSources[anchorSourceId]?.rows ?? [],
-        anchorSourceId,
-        dataSources,
-        relationships,
-        expressionFields,
-        anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
-      ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
-
-      const widgetRowsForLookup = enrichRowsWithRelatedFields(
-        widgetRows,
-        widgetSourceId,
-        requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
-        dataSources,
-        relationships,
-      );
-
-      const widgetRowLookup = new Map<unknown, Row>();
-      for (const row of widgetRowsForLookup) {
-        widgetRowLookup.set(row[widgetJoinField], row);
-      }
-
-      result = enrichedAnchorRows.map((anchorRow) => {
-        const widgetRow = widgetRowLookup.get(anchorRow[anchorJoinField]);
-        if (!widgetRow) {
-          return anchorRow;
-        }
-
-        const extras: Row = {};
-        for (const fieldId of requestedFields) {
-          if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
-            continue;
-          }
-          extras[fieldId] = widgetRow[fieldId];
-        }
-
-        return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;
-      });
-    }
-  }
 
   byKey.set(configKey, { relationships, exprFields: relevantExprFields, result });
   return result;

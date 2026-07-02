@@ -92,7 +92,9 @@ function makeDataSource(rows: Row[], overrides: Partial<StudioDataSource> = {}):
   };
 }
 
-function makeFilter(overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] }): StudioFilterState {
+function makeFilter(
+  overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] },
+): StudioFilterState {
   return {
     id: 'f1',
     field: 'region',
@@ -144,7 +146,13 @@ describe('sync path (no adapter)', () => {
   it('applies a page filter to rows', () => {
     mockState = createState({
       filters: [
-        makeFilter({ id: 'f1', scope: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
+        makeFilter({
+          id: 'f1',
+          scope: { kind: 'page' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+        }),
       ],
     });
     const widget = makeWidget();
@@ -443,6 +451,56 @@ describe('async adapter path', () => {
     // filteredRowsNoCross is the full adapter row set without cross-filter
     expect(result.current.filteredRowsNoCross).toHaveLength(3);
     expect(result.current.filteredRowsNoCross).not.toBe(result.current.filteredRows);
+  });
+
+  it('honors crossFilterAllPages for a cross-filter from another page', async () => {
+    // The cross-filter originates on page-2 while the widget lives on page-1. It must
+    // only apply when crossFilterAllPages is enabled — this exercises the adapter path
+    // now routing through selectFiltersForWidget (previously hand-encoded inline).
+    const buildState = (crossFilterAllPages: boolean) =>
+      createState({
+        dashboard: { crossFilterAllPages },
+        filters: [
+          makeFilter({
+            id: 'f-cross',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-2' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const makeAdapterSource = () =>
+      makeDataSource([], { adapter: { getRows: vi.fn().mockResolvedValue({ rows }) } });
+
+    // Default (crossFilterAllPages = false): the other-page cross-filter is ignored.
+    mockState = buildState(false);
+    const { result: resultOff, unmount: unmountOff } = renderHook(() =>
+      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultOff.current.isLoading);
+    });
+    expect(resultOff.current.hasCrossFilters).toBe(false);
+    expect(resultOff.current.filteredRows).toHaveLength(3);
+    unmountOff();
+
+    studioRequestCache.clear();
+
+    // crossFilterAllPages = true: the other-page cross-filter now applies (EU rows only).
+    mockState = buildState(true);
+    const { result: resultOn, unmount: unmountOn } = renderHook(() =>
+      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultOn.current.isLoading);
+    });
+    expect(resultOn.current.hasCrossFilters).toBe(true);
+    expect(resultOn.current.filteredRows).toHaveLength(2);
+    unmountOn();
   });
 
   it('sets isLoading=false when adapter rejects', async () => {

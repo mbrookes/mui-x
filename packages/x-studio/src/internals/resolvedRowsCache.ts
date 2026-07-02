@@ -15,43 +15,118 @@ type Row = Record<string, unknown>;
 //   referenced (i.e., after dataSources[widgetSourceId].rows changes).
 //   An unrelated source's rows changing does NOT affect this entry.
 //
-// Inner key: content-based fingerprint of the effective filter set
-//   (sourceId + sorted "filterId:value" pairs). Changing a filter value
-//   produces a different key → cache miss. Changing an unrelated widget's
-//   filter while this widget's effective filters stay the same → same key
-//   → cache hit (previously the globalFilters sentinel caused a full clear).
+// Inner key: content-based fingerprint of the effective filter set.
+//   The fingerprint encodes the FULL behavioral content of each filter — not just
+//   its id/value — so changing a filter's operator, second condition, mode, rank
+//   direction, field type, or target source produces a different key → cache miss.
+//   Two widgets sharing the same effective filters get the same key → cache hit.
 //
-// Per-entry deps:
-//   crossFilterSourceRows  rows refs of cross-filter foreign sources
+// Per-entry deps (checked on every hit):
+//   crossFilterSourceRows  rows refs of EVERY foreign source this entry joined
+//                          against — declared cross-filter sources, derived
+//                          cross-filter sources (a page filter on an expression
+//                          field owned by another source), and many-to-many
+//                          junction sources. `resolveRows` reports these via the
+//                          `collectJoinedSourceIds` out-param; if any of their
+//                          rows refs change the entry is invalidated.
 //   relationships          full array ref (rarely changes; OK to be broad here)
-//
-// Expression fields are intentionally NOT tracked here — enrichedRowsCache
-// handles per-source enrichment invalidation with fine-grained dep tracking.
+//   relevantExprFields     object refs of the non-measure expression fields owned
+//                          by any source this result depends on (the widget source
+//                          plus every joined source). Editing a formula produces a
+//                          new object ref → invalidation. Without this, a HIT here
+//                          returns rows baked with the OLD formula even though
+//                          enrichedRowsCache would have recomputed on a MISS.
 
 interface ResolvedCacheEntry {
   crossFilterSourceRows: Map<string, Row[]>;
   relationships: StudioRelationship[];
+  /** Source IDs whose non-measure expression fields this result depends on. */
+  relevantExprSourceIds: Set<string>;
+  /** The relevant expression-field objects at cache time (reference identity). */
+  relevantExprFields: StudioExpressionField[];
   result: Row[];
 }
 
 const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
+/**
+ * Stable, content-based fingerprint of a single filter. Sorts nested object keys
+ * so `value`/`value2` objects fingerprint identically regardless of key order.
+ */
+function sortedStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(sortedStringify).join(',')}]`;
+  }
+  const sorted = Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${sortedStringify((value as Record<string, unknown>)[k])}`);
+  return `{${sorted.join(',')}}`;
+}
+
+/**
+ * Fingerprints every field that affects how a filter selects rows. `compileRowTest`
+ * (filterUtils) reads operator/field/fieldType/conjunction/operator2/value2/
+ * filterMode/rank*, so all of them must be part of the cache key — omitting them
+ * lets an operator edit (same id, same value) silently serve stale rows.
+ */
+function filterFingerprint(f: StudioFilterState): string {
+  return sortedStringify([
+    f.id,
+    f.field,
+    f.fieldType ?? null,
+    f.filterMode ?? null,
+    f.operator,
+    f.value ?? null,
+    f.conjunction ?? null,
+    f.operator2 ?? null,
+    f.value2 ?? null,
+    f.rankDirection ?? null,
+    f.rankByField ?? null,
+    f.rankMultiSeriesBy ?? null,
+    f.filterSourceId ?? null,
+    f.disabled ?? null,
+  ]);
+}
+
+/** Non-measure expression fields owned by any of `sourceIds`, in declaration order. */
+function collectRelevantExprFields(
+  expressionFields: StudioExpressionField[],
+  sourceIds: ReadonlySet<string>,
+): StudioExpressionField[] {
+  return expressionFields.filter((ef) => !ef.isMeasure && sourceIds.has(ef.sourceId));
+}
+
 function isEntryValid(
   entry: ResolvedCacheEntry,
-  resolvedFilters: StudioFilterState[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
 ): boolean {
   if (entry.relationships !== relationships) {
     return false;
   }
-  for (const f of resolvedFilters) {
-    if (f.filterSourceId) {
-      if (
-        entry.crossFilterSourceRows.get(f.filterSourceId) !== dataSources[f.filterSourceId]?.rows
-      ) {
-        return false;
-      }
+  // Every foreign source this result joined against must still have the same rows ref.
+  for (const [sourceId, rowsRef] of entry.crossFilterSourceRows) {
+    if (dataSources[sourceId]?.rows !== rowsRef) {
+      return false;
+    }
+  }
+  // Expression fields relevant to this result must be the same objects (formula edits
+  // replace the object). Recompute the relevant set from the stored source IDs so an
+  // added/removed field on a relevant source is caught too.
+  const currentExprFields = collectRelevantExprFields(
+    expressionFields,
+    entry.relevantExprSourceIds,
+  );
+  if (currentExprFields.length !== entry.relevantExprFields.length) {
+    return false;
+  }
+  for (let i = 0; i < currentExprFields.length; i += 1) {
+    if (currentExprFields[i] !== entry.relevantExprFields[i]) {
+      return false;
     }
   }
   return true;
@@ -65,12 +140,16 @@ function isEntryValid(
  * receive the **same Row[] reference** after the first widget computes it —
  * saving N-1 full pipeline passes per shared source per render cycle.
  *
- * Unlike the old sentinel-based approach:
- * - An unrelated source's data changing does NOT invalidate this widget's entry.
- * - Changing another widget's filter (that doesn't affect this widget's effective
- *   filters) does NOT invalidate this entry.
- * - Only own-rows changes (outer WeakMap key), cross-filter foreign source changes,
- *   filter value changes (inner key), or relationships changes trigger re-computation.
+ * Invalidation triggers:
+ * - own-rows changes (outer WeakMap key),
+ * - any joined foreign source's rows changing (declared/derived cross-filter or
+ *   many-to-many junction — tracked via resolveRows' collectJoinedSourceIds),
+ * - any behavioral filter-field change (inner key fingerprint),
+ * - relationships changes (array ref),
+ * - a relevant expression-field formula change (object ref).
+ *
+ * Unrelated sources, unrelated filters, and unrelated expression fields do NOT
+ * invalidate this entry.
  *
  * KPI widgets that use `skipEnrichment: true` should continue to call
  * `resolveRows` directly — they pre-enrich once and call twice with different
@@ -98,12 +177,7 @@ export function resolveRowsCached(
   }
 
   const filterKey =
-    resolvedFilters.length === 0
-      ? ''
-      : resolvedFilters
-          .map((f) => `${f.id}:${JSON.stringify(f.value ?? '')}`)
-          .sort()
-          .join('|');
+    resolvedFilters.length === 0 ? '' : resolvedFilters.map(filterFingerprint).sort().join('|');
   const fieldSetSegment = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '';
   const cacheKey = `${widgetSourceId}::${filterKey}::${fieldSetSegment}`;
 
@@ -114,10 +188,13 @@ export function resolveRowsCached(
   }
 
   const existing = byKey.get(cacheKey);
-  if (existing && isEntryValid(existing, resolvedFilters, dataSources, relationships)) {
+  if (existing && isEntryValid(existing, dataSources, relationships, expressionFields)) {
     return existing.result;
   }
 
+  // Capture the full set of foreign sources actually joined against (declared +
+  // derived cross-filter sources + M:N junction sources).
+  const joinedSourceIds = new Set<string>();
   const result = resolveRows(
     widgetRows,
     widgetSourceId,
@@ -125,12 +202,20 @@ export function resolveRowsCached(
     dataSources,
     relationships,
     expressionFields,
-    { usedFieldIds },
+    { usedFieldIds, collectJoinedSourceIds: joinedSourceIds },
   );
 
   const crossFilterSourceRows = new Map<string, Row[]>();
+  for (const sourceId of joinedSourceIds) {
+    const foreignRows = dataSources[sourceId]?.rows;
+    if (foreignRows) {
+      crossFilterSourceRows.set(sourceId, foreignRows);
+    }
+  }
+  // Also record any declared filterSourceId even if the join was skipped (e.g. the
+  // foreign source had no rows yet) so a later data load invalidates the entry.
   for (const f of resolvedFilters) {
-    if (f.filterSourceId) {
+    if (f.filterSourceId && !crossFilterSourceRows.has(f.filterSourceId)) {
       const foreignRows = dataSources[f.filterSourceId]?.rows;
       if (foreignRows) {
         crossFilterSourceRows.set(f.filterSourceId, foreignRows);
@@ -138,6 +223,25 @@ export function resolveRowsCached(
     }
   }
 
-  byKey.set(cacheKey, { crossFilterSourceRows, relationships, result });
+  // Expression fields whose formulas this result depends on: the widget source's
+  // own, plus every joined source (foreign enrichment is baked into the semi-join).
+  const relevantExprSourceIds = new Set<string>([widgetSourceId]);
+  for (const sourceId of joinedSourceIds) {
+    relevantExprSourceIds.add(sourceId);
+  }
+  for (const f of resolvedFilters) {
+    if (f.filterSourceId) {
+      relevantExprSourceIds.add(f.filterSourceId);
+    }
+  }
+  const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
+
+  byKey.set(cacheKey, {
+    crossFilterSourceRows,
+    relationships,
+    relevantExprSourceIds,
+    relevantExprFields,
+    result,
+  });
   return result;
 }

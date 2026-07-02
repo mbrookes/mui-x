@@ -10,6 +10,31 @@ import { applyFilters } from './filterUtils';
 type Row = Record<string, unknown>;
 
 /**
+ * Builds a `targetId → relationship` index of the direct many-to-one relationships
+ * FROM `widgetSourceId`, i.e. `{ targetId, sourceField (FK on widget rows), targetField (PK
+ * on the related source) }`. This is the single traversal step every "cross-source
+ * display column" enrichment needs (grid columns, cross-source aggregation) and was
+ * previously re-derived identically in `gridGrouping.ts` and `crossSourceEnrichment.ts`.
+ *
+ * Scope is intentionally narrow (many-to-one, one hop, from widgetSourceId only) to match
+ * the exact behavior those two call sites already had — this does not add many-to-many or
+ * two-hop support to grid/cross-source-column enrichment (see `findJoinPath` and
+ * `enrichRowsWithRelatedFields` for the broader multi-hop traversal used by filters and charts).
+ */
+export function buildManyToOneRelationshipIndex(
+  widgetSourceId: string,
+  relationships: StudioRelationship[],
+): Map<string, StudioRelationship> {
+  const relIndex = new Map<string, StudioRelationship>();
+  for (const r of relationships) {
+    if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
+      relIndex.set(r.targetId, r);
+    }
+  }
+  return relIndex;
+}
+
+/**
  * Returns the set of source IDs reachable from `sourceId` in one hop via declared relationships.
  * For many-to-many relationships, also includes the junction source and the remote endpoint.
  * Always includes `sourceId` itself.
@@ -129,7 +154,19 @@ export function resolveRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[] = [],
   expressionFields: StudioExpressionField[] = [],
-  options?: { skipEnrichment?: boolean; usedFieldIds?: ReadonlySet<string> },
+  options?: {
+    skipEnrichment?: boolean;
+    usedFieldIds?: ReadonlySet<string>;
+    /**
+     * Out-param: when provided, every foreign source ID whose `rows` this call
+     * actually read for a semi-join is added to this set. Callers (e.g.
+     * `resolvedRowsCache`) use it to record the full set of foreign-row
+     * dependencies — including derived cross-filter sources (a page filter on an
+     * expression field owned by another source) and many-to-many junction
+     * sources — which the incoming filter objects do not themselves declare.
+     */
+    collectJoinedSourceIds?: Set<string>;
+  },
 ): Row[] {
   // Enrich rows with computed (non-measure) expression field values first so they
   // can be referenced in filters and downstream aggregations.
@@ -167,7 +204,11 @@ export function resolveRows(
     // trigger a semi-join that returns zero rows when no relationship is declared.
     // selectFiltersForWidget (filterScoping.ts) applies this guard before callers reach
     // here; this check is a defensive invariant that should never fire in practice.
-    if (f.scope.kind === 'dashboard-date-range' && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
+    if (
+      f.scope.kind === 'dashboard-date-range' &&
+      f.filterSourceId &&
+      f.filterSourceId !== widgetSourceId
+    ) {
       continue;
     }
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {
@@ -228,6 +269,11 @@ export function resolveRows(
         ),
       );
     }
+    // Record the foreign source we joined against (covers derived filterSourceId
+    // from expression-owned page filters — f may not be the same object the caller
+    // passed in).
+    options?.collectJoinedSourceIds?.add(f.filterSourceId);
+
     const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
     const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
 
@@ -243,6 +289,8 @@ export function resolveRows(
       const matchingFilterValues = new Set(
         matchingForeignRows.map((r) => r[joinPath.filterJoinField]),
       );
+      // Record the junction source whose rows we read for the two-hop semi-join.
+      options?.collectJoinedSourceIds?.add(joinPath.junctionSourceId);
       const junctionRows = dataSources[joinPath.junctionSourceId]?.rows ?? [];
       const allowedWidgetValues = new Set<unknown>(
         junctionRows.reduce<unknown[]>((acc, r) => {

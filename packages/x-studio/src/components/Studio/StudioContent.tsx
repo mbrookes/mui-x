@@ -74,11 +74,36 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
+  const filterBarRegionRef = React.useRef<HTMLDivElement>(null);
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
 
   const filters = useStudioSelector(selectFilters);
   const hasCrossFilters = filters.some((f) => f.scope.kind === 'cross-filter' && !f.disabled);
+
+  // The pinned filter bars sit above the scroll container, so mounting/unmounting them (the
+  // first cross-filter, clearing all filters, chips wrapping to another line) shrinks or grows
+  // the scroll viewport and shoves the whole report up or down — a jarring vertical jump. Watch
+  // the bar region's height and offset the scroll position by the delta so the content the user
+  // is looking at stays put. Clamped at 0 so the top of the report still tucks under the bars.
+  React.useLayoutEffect(() => {
+    const region = filterBarRegionRef.current;
+    const scrollEl = canvasScrollRef.current;
+    if (!region || !scrollEl || typeof ResizeObserver === 'undefined') {
+      return undefined;
+    }
+    let prevHeight = region.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const nextHeight = region.offsetHeight;
+      const delta = nextHeight - prevHeight;
+      if (delta !== 0) {
+        prevHeight = nextHeight;
+        scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + delta);
+      }
+    });
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, []);
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
@@ -269,13 +294,18 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 ...theme.applyStyles('dark', { bgcolor: 'grey.900' }),
               })}
             >
-              {/* Cross-filter mode toggle — visible on all pages while any cross-filter is active */}
-              {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
-                <StudioCrossFilterBar />
-              )}
+              {/* Pinned filter bars. Wrapped so their appear/disappear height change can be
+                  measured and compensated on the scroll container (see the effect above),
+                  keeping the report content visually anchored instead of jumping. */}
+              <Box ref={filterBarRegionRef}>
+                {/* Cross-filter mode toggle — visible on all pages while any cross-filter is active */}
+                {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
+                  <StudioCrossFilterBar />
+                )}
 
-              {/* Active page-filter chips */}
-              {mode !== 'edit' && <StudioQuickFilterBar />}
+                {/* Active page-filter chips */}
+                {mode !== 'edit' && <StudioQuickFilterBar />}
+              </Box>
 
               <Box
                 ref={canvasScrollRef}
@@ -287,7 +317,9 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                   overflow: 'auto',
                 }}
               >
-                <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+                {/* The 480px floor keeps multi-column rows legible on desktop, but would force
+                    horizontal scrolling on phones — so drop it below the `sm` breakpoint. */}
+                <Box sx={{ minWidth: { xs: 0, sm: MIN_CANVAS_WIDTH }, minHeight: '100%' }}>
                   {canvas ?? (
                     <StudioCanvas
                       stackBreakpoint={stackBreakpoint}

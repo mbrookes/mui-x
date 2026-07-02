@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
 import type { StudioCustomWidgetDef, StudioCustomWidgetProps } from '@mui/x-studio';
 
 /**
@@ -112,8 +111,13 @@ function computeRankMatrix(rows: Record<string, unknown>[], field: string): Rank
   return { categories, rankCount, matrix, meanRanks, maxCount };
 }
 
+// Theme CSS variables (not `theme.palette.*`, which under a cssVariables theme is pinned to the
+// light scheme) so the heat ramp tracks the active colour scheme in both light and dark mode.
+const PRIMARY_VAR = 'var(--mui-palette-primary-main)';
+const CONTRAST_VAR = 'var(--mui-palette-primary-contrastText)';
+const SURFACE_VAR = 'var(--mui-palette-background-paper)';
+
 function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
-  const theme = useTheme();
   const config = (widget.config.customConfig ?? {}) as RankHeatmapConfig;
   const field = config.field;
 
@@ -133,14 +137,13 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
   }
 
   const { categories, rankCount, matrix, meanRanks, maxCount } = data;
-  const base = theme.palette.primary.main;
 
-  // Colour ramp: empty cells stay near-transparent, the most popular cell is solid.
+  // Colour ramp: empty cells stay near the card surface, the most popular cell is solid primary.
+  // Mixing primary into the card surface (rather than an alpha overlay) keeps the ramp legible on
+  // whichever surface the active scheme uses.
   const cellColor = (count: number): string => {
-    if (count <= 0) {
-      return alpha(base, 0.04);
-    }
-    return alpha(base, 0.12 + 0.88 * (count / maxCount));
+    const pct = count <= 0 ? 4 : 12 + 88 * (count / maxCount);
+    return `color-mix(in srgb, ${PRIMARY_VAR} ${pct}%, ${SURFACE_VAR})`;
   };
 
   return (
@@ -234,10 +237,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color:
-                    count > 0 && count / maxCount > 0.55
-                      ? theme.palette.primary.contrastText
-                      : 'text.secondary',
+                  color: count > 0 && count / maxCount > 0.55 ? CONTRAST_VAR : 'text.secondary',
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
@@ -250,7 +250,14 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
 
       {/* Colour scale legend */}
       <Box
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, mt: 1, pr: 0.5 }}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 1,
+          mt: 1,
+          pr: 0.5,
+        }}
       >
         <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>fewer (0)</Typography>
         <Box
@@ -259,7 +266,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
             width: 120,
             height: 8,
             borderRadius: 1,
-            background: `linear-gradient(to right, ${alpha(base, 0.12)}, ${alpha(base, 1)})`,
+            background: `linear-gradient(to right, color-mix(in srgb, ${PRIMARY_VAR} 12%, ${SURFACE_VAR}), ${PRIMARY_VAR})`,
           }}
         />
         <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>

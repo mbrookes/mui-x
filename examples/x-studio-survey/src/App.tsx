@@ -262,9 +262,16 @@ export default function App() {
       return undefined;
     }
     let cancelled = false;
+    // When the server has no saved session yet, seed it with the client's current (bundled)
+    // state so the dashboard persists from the first visit — but only if the client actually
+    // has content to save (never overwrite the server with an empty dashboard).
+    let seedServer = false;
     loadSession()
       .then((session) => {
-        if (!cancelled && session) {
+        if (cancelled) {
+          return;
+        }
+        if (session) {
           // The survey is a report — always open in view mode. The saved dashboard content
           // and undo/redo history are restored, but the persisted mode is not resumed, so a
           // reload never jumps into edit mode.
@@ -273,6 +280,8 @@ export default function App() {
             present.mode = 'view';
           }
           studioRef.current?.restoreSession(session);
+        } else {
+          seedServer = true;
         }
       })
       .catch((err) => {
@@ -280,14 +289,21 @@ export default function App() {
         console.error('[x-studio-survey] Failed to load dashboard state', err);
       })
       .finally(() => {
-        if (!cancelled) {
-          finish();
+        if (cancelled) {
+          return;
+        }
+        finish();
+        if (seedServer) {
+          const state = studioRef.current?.getState();
+          if (state && Object.keys(state.pages ?? {}).length > 0) {
+            flushSave();
+          }
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [survey, applyInitialNav]);
+  }, [survey, applyInitialNav, flushSave]);
 
   // Flush a pending (debounced) save when the tab is hidden or closed.
   React.useEffect(() => {
@@ -304,39 +320,6 @@ export default function App() {
     window.addEventListener('pagehide', onHide);
     return () => window.removeEventListener('pagehide', onHide);
   }, [flushSave]);
-
-  // Imperative one-shot save. Pushes the current client session (present + undo/redo history)
-  // to the server immediately — no debounce, and bypassing the `hydratedRef` gate — so the
-  // live state can be forced onto a freshly-reset (empty) state DB. Call `window.__studioSave()`
-  // from the console; it resolves `true` on success, `false` otherwise.
-  React.useEffect(() => {
-    if (!statePersistenceEnabled) {
-      return undefined;
-    }
-    const save = async (): Promise<boolean> => {
-      const session = studioRef.current?.serializeSession();
-      if (!session) {
-        // eslint-disable-next-line no-console
-        console.warn('[x-studio-survey] No session to save yet.');
-        return false;
-      }
-      try {
-        await saveSession(session);
-        // eslint-disable-next-line no-console
-        console.info('[x-studio-survey] Pushed current state to the server.');
-        return true;
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[x-studio-survey] One-shot save failed', err);
-        return false;
-      }
-    };
-    const w = window as unknown as { __studioSave?: () => Promise<boolean> };
-    w.__studioSave = save;
-    return () => {
-      delete w.__studioSave;
-    };
-  }, []);
 
   const handleStateChange = React.useCallback(
     (state: StudioState) => {

@@ -388,3 +388,142 @@ describe('buildDeleteMutation', () => {
     expect(count).toBe(2);
   });
 });
+
+// ── Write-path predicate safety (empty IN, unknown operator) ──────────────────
+
+describe('write-path predicate safety', () => {
+  it('REJECTS a delete whose only WHERE is an empty "in" list (would wipe the tenant table)', () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', status: 'a' },
+        { id: 2, tenant_id: 'acme', status: 'b' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'id', operator: 'in', value: [] }],
+    };
+    // Build throws synchronously — the predicate is NOT silently dropped.
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+      /"in" predicate with an empty value list/,
+    );
+    // Nothing was deleted.
+    expect(db.snapshot().orders).toHaveLength(2);
+  });
+
+  it('REJECTS an update whose only WHERE is an empty "in" list', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'a' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'z' },
+      where: [{ column: 'id', operator: 'in', value: [] }],
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+      /"in" predicate with an empty value list/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('a');
+  });
+
+  it('REJECTS an unknown operator on the write path (no silent drop)', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'id', operator: 'sql' as any, value: 1 }],
+    };
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+      /Unsupported filter operator/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('allows a non-empty "in" list on the write path', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', status: 'a' },
+        { id: 2, tenant_id: 'acme', status: 'b' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'id', operator: 'in', value: [1] }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(1);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]);
+  });
+});
+
+// ── Write-path region / department scoping (symmetry with reads) ───────────────
+
+describe('write-path security scoping', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [1] };
+
+  it('update only affects rows inside the caller region', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', region_id: 1, status: 'pending' },
+        { id: 2, tenant_id: 'acme', region_id: 2, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(1);
+    const { orders } = db.snapshot();
+    expect(orders.find((r) => r.id === 1)?.status).toBe('shipped'); // region 1
+    expect(orders.find((r) => r.id === 2)?.status).toBe('pending'); // region 2 untouched
+  });
+
+  it('delete only affects rows inside the caller region', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', region_id: 1, status: 'cancelled' },
+        { id: 2, tenant_id: 'acme', region_id: 2, status: 'cancelled' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
+    };
+    const count = await buildDeleteMutation(db, REGION_CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(1);
+    const { orders } = db.snapshot();
+    expect(orders.map((r) => r.id)).toEqual([2]); // region 2 row survives
+  });
+
+  it('respects a custom region column name from securityColumns', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', sales_region: 1, status: 'pending' },
+        { id: 2, tenant_id: 'acme', sales_region: 9, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, 'tenant_id', {
+      region: 'sales_region',
+    });
+    expect(count).toBe(1);
+    expect(db.snapshot().orders.find((r) => r.id === 2)?.status).toBe('pending');
+  });
+});

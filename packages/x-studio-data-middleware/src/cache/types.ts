@@ -42,6 +42,12 @@ export interface CacheSetOpts {
 export interface CacheEntry {
   rows: Record<string, unknown>[];
   cachedAt: number;
+  /**
+   * Routing tier that produced these rows. Echoed back on a cache hit so a
+   * client-tier result is not misreported as 'server' on subsequent requests.
+   * Optional for backward compatibility with entries written before this field.
+   */
+  tier?: 'client' | 'server' | 'db';
 }
 
 export interface CacheProvider {

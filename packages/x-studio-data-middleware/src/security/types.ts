@@ -30,6 +30,51 @@ export interface JwtSecurityClaims {
 }
 
 /**
+ * Column names used to apply row-level security predicates to a table.
+ *
+ * All three are optional. A missing name means that dimension is not scoped for
+ * the table in question:
+ *   - `tenant` — the multi-tenancy column (`WHERE table.tenant = claims.tenantId`)
+ *   - `region` — restricted to `claims.regionIds` via `WHERE table.region IN (...)`
+ *   - `department` — restricted to `claims.department`
+ */
+export interface SecurityColumns {
+  /** Column used for tenant isolation. */
+  tenant?: string;
+  /** Column checked against `claims.regionIds`. */
+  region?: string;
+  /** Column checked against `claims.department`. */
+  department?: string;
+}
+
+/**
+ * Row-level-security column configuration.
+ *
+ * The top-level `tenant` / `region` / `department` names act as defaults for the
+ * primary table (they default to `tenantColumn`, `'region_id'` and `'department'`
+ * respectively for backward compatibility). Per-table overrides — including the
+ * opt-in that makes a **joined** table security-scoped — go in `perTable`.
+ *
+ * A joined table is only scoped when it has a `perTable` entry with a `tenant`
+ * column; tables without such an entry are treated as shared lookup tables and
+ * receive no predicate (preserving the previous behavior for those).
+ *
+ * @example
+ * securityColumns: {
+ *   // primary table uses non-default names
+ *   region: 'sales_region',
+ *   perTable: {
+ *     // a joined table that must be tenant-scoped
+ *     customers: { tenant: 'tenant_id', region: 'region_id' },
+ *   },
+ * }
+ */
+export interface SecurityColumnsConfig extends SecurityColumns {
+  /** Per-table column overrides. Required to security-scope a joined table. */
+  perTable?: Record<string, SecurityColumns>;
+}
+
+/**
  * Explicit aggregation specification for DB-tier push-down queries.
  *
  * Use instead of the legacy `sum_` / `avg_` / `count_` column prefix convention.
@@ -306,6 +351,17 @@ export interface HandleMutationOptions {
    */
   tenantColumn?: string;
   /**
+   * Row-level-security column configuration for the write path.
+   *
+   * Lets you override the region/department column names (defaults: `region_id`
+   * / `department`) and, via `perTable`, security-scope additional tables. The
+   * same region/department predicates enforced on reads are applied to
+   * update/delete so a user restricted to region 5 cannot write outside it.
+   *
+   * @default region column `region_id`, department column `department`
+   */
+  securityColumns?: SecurityColumnsConfig;
+  /**
    * Cache provider for post-mutation invalidation.
    *
    * When provided, a successful mutation calls `cacheProvider.deleteByTag(table)`
@@ -371,6 +427,17 @@ export interface HandleBatchQueryOptions {
    * @example 'tenant_id'
    */
   tenantColumn?: string;
+  /**
+   * Row-level-security column configuration.
+   *
+   * Overrides the hardcoded region/department column names (defaults:
+   * `region_id` / `department`) and, via `perTable`, opts joined tables into
+   * tenant/region/department scoping. Joined tables without a `perTable` entry
+   * carrying a `tenant` column are treated as shared and receive no predicate.
+   *
+   * @default region column `region_id`, department column `department`
+   */
+  securityColumns?: SecurityColumnsConfig;
   /**
    * Routing thresholds (row counts).
    * Defaults: { clientTier: 10_000, serverMemoryTier: 100_000 }

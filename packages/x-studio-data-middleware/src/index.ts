@@ -21,9 +21,12 @@ export type {
   BatchWidgetDescriptor,
   WidgetQueryResult,
   FilterPredicate,
+  HavingPredicate,
   OrderBy,
   AggregationSpec,
   JoinDescriptor,
+  SecurityColumns,
+  SecurityColumnsConfig,
   HandleBatchQueryOptions,
   // Mutation types
   MutationDescriptor,

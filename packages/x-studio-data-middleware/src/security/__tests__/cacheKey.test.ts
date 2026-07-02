@@ -139,4 +139,12 @@ describe('generateCacheKey', () => {
     const key = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET);
     expect(key).toMatch(/^studio:v1:acme:[0-9a-f]{16}:[0-9a-f]{16}$/);
   });
+
+  describe('fail-closed HMAC secret', () => {
+    it('throws when the effective secret is empty (would be forgeable)', () => {
+      expect(() => generateCacheKey(CLAIMS, DESCRIPTOR, '')).toThrow(
+        /No cache HMAC secret is configured/,
+      );
+    });
+  });
 });

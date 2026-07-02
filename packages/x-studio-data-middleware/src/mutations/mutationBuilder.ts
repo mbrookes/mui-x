@@ -18,9 +18,14 @@
 import type {
   JwtSecurityClaims,
   MutationDescriptor,
-  FilterPredicate,
   HandleMutationOptions,
+  SecurityColumnsConfig,
 } from '../security/types';
+import {
+  applyPredicates,
+  applySecurityPredicates,
+  resolvePrimarySecurityColumns,
+} from '../shared/predicates';
 
 /**
  * Validate a mutation descriptor before building the query.
@@ -107,10 +112,11 @@ export function buildInsertMutation(
 /**
  * Build a parameterized UPDATE query.
  *
- * Tenant isolation (`WHERE tenantColumn = claims.tenantId`) is added
- * unconditionally before user-supplied WHERE predicates. The tenant column is
- * stripped from the values being updated so a client cannot re-assign a row
- * to a different tenant.
+ * Row-level security predicates (tenant + region + department) are added
+ * unconditionally before user-supplied WHERE predicates — the same set enforced
+ * on reads, so a user restricted to region 5 cannot UPDATE rows in other regions.
+ * The tenant column is stripped from the values being updated so a client cannot
+ * re-assign a row to a different tenant.
  *
  * Returns a Knex query builder — await to get the number of rows updated.
  */
@@ -119,23 +125,23 @@ export function buildUpdateMutation(
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
   tenantColumn?: string,
+  securityColumns?: SecurityColumnsConfig,
 ): any {
   const query = db(descriptor.table);
+  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
 
-  // Unconditional tenant scope — must be first so it cannot be AND-ed away.
-  if (tenantColumn) {
-    query.where(`${descriptor.table}.${tenantColumn}`, '=', claims.tenantId);
-  }
+  // Unconditional security scope — applied first so it cannot be AND-ed away.
+  applySecurityPredicates(query, descriptor.table, claims, cols);
 
-  for (const pred of descriptor.where ?? []) {
-    applyMutationPredicate(query, pred);
-  }
+  // 'write' mode: an empty `in` list or an unknown operator throws rather than
+  // silently widening the mutation to the whole tenant table.
+  applyPredicates(query, descriptor.where, 'write');
 
   // Strip tenant column from update values — never let a client move a row
   // from one tenant to another.
   const values: Record<string, unknown> = { ...descriptor.values };
-  if (tenantColumn) {
-    delete values[tenantColumn];
+  if (cols.tenant) {
+    delete values[cols.tenant];
   }
 
   return query.update(values);
@@ -144,8 +150,8 @@ export function buildUpdateMutation(
 /**
  * Build a parameterized DELETE query.
  *
- * Tenant isolation is unconditional. User-supplied WHERE predicates are applied
- * after the tenant scope predicate.
+ * Row-level security predicates (tenant + region + department) are unconditional.
+ * User-supplied WHERE predicates are applied after the security scope predicates.
  *
  * Returns a Knex query builder — await to get the number of rows deleted.
  */
@@ -154,60 +160,16 @@ export function buildDeleteMutation(
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
   tenantColumn?: string,
+  securityColumns?: SecurityColumnsConfig,
 ): any {
   const query = db(descriptor.table);
+  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
 
-  if (tenantColumn) {
-    query.where(`${descriptor.table}.${tenantColumn}`, '=', claims.tenantId);
-  }
+  applySecurityPredicates(query, descriptor.table, claims, cols);
 
-  for (const pred of descriptor.where ?? []) {
-    applyMutationPredicate(query, pred);
-  }
+  // 'write' mode: an empty `in` list or an unknown operator throws rather than
+  // silently widening the mutation to the whole tenant table.
+  applyPredicates(query, descriptor.where, 'write');
 
   return query.delete();
-}
-
-/**
- * Apply a WHERE predicate to a Knex mutation query.
- * Reuses the same FilterPredicate type as read queries — same operators, same bindings.
- */
-function applyMutationPredicate(query: any, predicate: FilterPredicate): void {
-  const { column, operator, value } = predicate;
-  switch (operator) {
-    case 'eq':
-      query.where(column, '=', value);
-      break;
-    case 'neq':
-      query.where(column, '!=', value);
-      break;
-    case 'in':
-      if ((value as unknown[]).length === 0) {
-        break;
-      }
-      query.whereIn(column, value as unknown[]);
-      break;
-    case 'lt':
-      query.where(column, '<', value);
-      break;
-    case 'lte':
-      query.where(column, '<=', value);
-      break;
-    case 'gt':
-      query.where(column, '>', value);
-      break;
-    case 'gte':
-      query.where(column, '>=', value);
-      break;
-    case 'between': {
-      const [lo, hi] = value;
-      query.whereBetween(column, [lo, hi]);
-      break;
-    }
-    case 'like':
-      query.whereLike(column, value);
-      break;
-    default:
-      break;
-  }
 }

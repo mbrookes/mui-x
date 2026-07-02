@@ -353,6 +353,38 @@ describe('handleMutation — where-column allowlist', () => {
   });
 });
 
+// ── Empty-IN write scoping (data-loss guard) ──────────────────────────────────
+
+describe('handleMutation — empty-IN write guard', () => {
+  it('rejects a delete whose only WHERE is an empty "in" list instead of wiping the table', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', status: 'a' },
+        { id: 2, tenant_id: 'acme', status: 'b' },
+      ],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'id', operator: 'in', value: [] }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenantColumn: 'tenant_id',
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/"in" predicate with an empty value list/);
+    // The table must be intact — the mutation must NOT have widened to all rows.
+    expect(db.snapshot().orders).toHaveLength(2);
+  });
+});
+
 // ── Tenant isolation end-to-end ───────────────────────────────────────────────
 
 describe('handleMutation — tenant isolation', () => {

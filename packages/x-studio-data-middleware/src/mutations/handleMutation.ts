@@ -73,7 +73,8 @@ async function processMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<MutationResult> {
-  const { db, writableColumns, tenantColumn, cacheProvider, columnAllowlist } = options;
+  const { db, writableColumns, tenantColumn, cacheProvider, columnAllowlist, securityColumns } =
+    options;
 
   try {
     // Validate operation type
@@ -102,12 +103,24 @@ async function processMutation(
         break;
       }
       case 'update': {
-        const result = await buildUpdateMutation(db, claims, descriptor, tenantColumn);
+        const result = await buildUpdateMutation(
+          db,
+          claims,
+          descriptor,
+          tenantColumn,
+          securityColumns,
+        );
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
       case 'delete': {
-        const result = await buildDeleteMutation(db, claims, descriptor, tenantColumn);
+        const result = await buildDeleteMutation(
+          db,
+          claims,
+          descriptor,
+          tenantColumn,
+          securityColumns,
+        );
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }

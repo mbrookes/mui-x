@@ -2,54 +2,15 @@ import dayjs from 'dayjs';
 import type { RelativeDateValue } from '../../internals/filterTypes';
 import type { StudioDataSource, StudioFilterOperator, StudioFilterState } from '../../models';
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
+import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMetadata';
 
 // ─── Operators ────────────────────────────────────────────────────────────────
-
-const OPERATORS_BY_TYPE: Record<FieldType, { value: StudioFilterOperator; label: string }[]> = {
-  string: [
-    { value: 'equals', label: 'Equals' },
-    { value: 'not_equals', label: 'Not equals' },
-    { value: 'contains', label: 'Contains' },
-    { value: 'does_not_contain', label: 'Does not contain' },
-    { value: 'starts_with', label: 'Starts with' },
-    { value: 'not_starts_with', label: 'Does not start with' },
-    { value: 'ends_with', label: 'Ends with' },
-    { value: 'not_ends_with', label: 'Does not end with' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' },
-  ],
-  number: [
-    { value: 'equals', label: '=' },
-    { value: 'not_equals', label: '≠' },
-    { value: 'greater_than', label: '>' },
-    { value: 'less_than', label: '<' },
-    { value: 'greater_than_or_equal', label: '≥' },
-    { value: 'less_than_or_equal', label: '≤' },
-  ],
-  date: [
-    { value: 'equals', label: 'On' },
-    { value: 'not_equals', label: 'Not on' },
-    { value: 'less_than', label: 'Before' },
-    { value: 'greater_than', label: 'After' },
-    { value: 'less_than_or_equal', label: 'On or before' },
-    { value: 'greater_than_or_equal', label: 'On or after' },
-  ],
-  datetime: [
-    { value: 'equals', label: 'At' },
-    { value: 'not_equals', label: 'Not at' },
-    { value: 'greater_than', label: 'After' },
-    { value: 'less_than', label: 'Before' },
-    { value: 'greater_than_or_equal', label: 'At or after' },
-    { value: 'less_than_or_equal', label: 'At or before' },
-  ],
-  boolean: [
-    { value: 'equals', label: 'Is' },
-    { value: 'not_equals', label: 'Is not' },
-  ],
-};
+// Operator metadata (which operators are valid per field type, and their labels)
+// now lives in `filterOperatorMetadata.ts`, shared with
+// `StudioWidgetEditDialog/FilterRow.tsx` — see that module for why.
 
 export function getOperators(fieldType: FieldType | undefined) {
-  return OPERATORS_BY_TYPE[fieldType ?? 'string'] ?? OPERATORS_BY_TYPE.string;
+  return getOperatorsForFieldType(fieldType);
 }
 
 // ─── ID generation ───────────────────────────────────────────────────────────
@@ -211,7 +172,7 @@ export function summarizeFilter(filter: StudioFilterState): string {
     if (op === 'is_not_empty') {
       return 'is not empty';
     }
-    const opLabel = getOperators(filter.fieldType).find((o) => o.value === op)?.label ?? op;
+    const opLabel = getOperatorLabel(op, undefined, filter.fieldType);
     if (op === 'between') {
       const range = value as { from?: unknown; to?: unknown } | null;
       const from = range?.from ? formatFilterValue(range.from, filter.fieldType) : '';

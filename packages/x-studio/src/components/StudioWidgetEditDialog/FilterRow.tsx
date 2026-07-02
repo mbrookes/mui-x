@@ -12,6 +12,10 @@ import {
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../../models';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import {
+  getOperatorLabel,
+  getOperatorsForFieldType,
+} from '../StudioFiltersDrawer/filterOperatorMetadata';
 
 export interface FieldOption {
   id: string;
@@ -23,54 +27,9 @@ export interface FieldOption {
 }
 
 // ── Operator metadata ─────────────────────────────────────────────────────────
-
-const STRING_OPERATORS: { value: StudioFilterOperator; label: string }[] = [
-  { value: 'equals', label: 'equals' },
-  { value: 'not_equals', label: 'not equals' },
-  { value: 'contains', label: 'contains' },
-  { value: 'does_not_contain', label: "doesn't contain" },
-  { value: 'starts_with', label: 'starts with' },
-  { value: 'ends_with', label: 'ends with' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
-];
-
-const NUMBER_OPERATORS: { value: StudioFilterOperator; label: string }[] = [
-  { value: 'equals', label: '=' },
-  { value: 'not_equals', label: '≠' },
-  { value: 'greater_than', label: '>' },
-  { value: 'greater_than_or_equal', label: '≥' },
-  { value: 'less_than', label: '<' },
-  { value: 'less_than_or_equal', label: '≤' },
-  { value: 'between', label: 'between' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
-];
-
-const DATE_OPERATORS = NUMBER_OPERATORS;
-
-const BOOLEAN_OPERATORS: { value: StudioFilterOperator; label: string }[] = [
-  { value: 'equals', label: 'equals' },
-  { value: 'not_equals', label: 'not equals' },
-];
-
-function operatorsForField(
-  field: FieldOption | undefined,
-): { value: StudioFilterOperator; label: string }[] {
-  if (!field) {
-    return STRING_OPERATORS;
-  }
-  if (field.type === 'number') {
-    return NUMBER_OPERATORS;
-  }
-  if (field.type === 'date' || field.type === 'datetime') {
-    return DATE_OPERATORS;
-  }
-  if (field.type === 'boolean') {
-    return BOOLEAN_OPERATORS;
-  }
-  return STRING_OPERATORS;
-}
+// Shared with `StudioFiltersDrawer/filterDrawerUtils.ts` via `filterOperatorMetadata.ts`
+// so a filter created here (e.g. using `between`) round-trips correctly when
+// re-edited in the filters drawer, and vice versa.
 
 const NO_VALUE_OPERATORS = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
 
@@ -90,7 +49,7 @@ export function FilterRow(props: {
   const fieldMeta = fieldOptions.find(
     (f) => f.id === filter.field && (f.sourceId ?? null) === (filter.filterSourceId ?? null),
   );
-  const operators = operatorsForField(fieldMeta);
+  const operators = getOperatorsForFieldType(fieldMeta?.type);
   const noValue = NO_VALUE_OPERATORS.has(filter.operator);
 
   const currentValue = filter.filterSourceId
@@ -175,7 +134,7 @@ export function FilterRow(props: {
         >
           {operators.map((op) => (
             <MenuItem key={op.value} value={op.value}>
-              {op.label}
+              {getOperatorLabel(op.value, localeText, fieldMeta?.type)}
             </MenuItem>
           ))}
         </Select>

@@ -610,6 +610,100 @@ describe('resolveChartRowsForAggregation', () => {
     const elecIdx = agg.labels.indexOf('Electronics');
     expect(agg.values[elecIdx]).toBe(60); // avg of 40 and 80
   });
+
+  // ─── L4 cache invalidation on relationship / expression edits (Part A item 3) ──
+
+  it('invalidates the L4 cache when the relationships array reference changes', () => {
+    const widgetRows = [...customers];
+    const result1 = resolveChartRowsForAggregation(
+      widgetRows,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    // New relationships array + object ref, identical content, all rows unchanged.
+    const relationships2: StudioRelationship[] = [{ ...relationships[0] }];
+    const result2 = resolveChartRowsForAggregation(
+      widgetRows,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships2,
+      [],
+    );
+    // Old cache keyed only on rows refs → would have served the stale joined result.
+    expect(result2).not.toBe(result1);
+    expect(result2.map((r) => r.total)).toEqual([100, 50, 70]);
+  });
+
+  it('invalidates the L4 cache when an anchor-source expression formula changes', () => {
+    const products = [
+      { id: 'P1', category: 'Electronics', price: 100, cost: 60 },
+      { id: 'P2', category: 'Electronics', price: 200, cost: 120 },
+    ];
+    const productsSource: StudioDataSource = {
+      id: 'products',
+      label: 'Products',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'price', label: 'Price', type: 'number' },
+        { id: 'cost', label: 'Cost', type: 'number' },
+      ],
+      rows: products,
+    };
+    const ds = { products: productsSource };
+
+    const exprV1: import('../models/expressionTypes').StudioExpressionField = {
+      id: 'expr-margin',
+      label: 'Margin',
+      sourceId: 'products',
+      type: 'number',
+      isMeasure: false,
+      expression: { operator: 'subtract', inputs: [{ id: 'price' }, { id: 'cost' }] },
+    };
+    // Edited formula: margin = price - 0 (i.e. just price), rows unchanged.
+    const exprV2: import('../models/expressionTypes').StudioExpressionField = {
+      id: 'expr-margin',
+      label: 'Margin',
+      sourceId: 'products',
+      type: 'number',
+      isMeasure: false,
+      expression: { operator: 'subtract', inputs: [{ id: 'price' }, { type: 'number', value: 0 }] },
+    };
+
+    const r1 = resolveChartRowsForAggregation(
+      products,
+      'products',
+      'category',
+      ['expr-margin'],
+      undefined,
+      ds,
+      [],
+      [exprV1],
+    );
+    expect(r1[0]['expr-margin']).toBe(40); // 100 - 60
+
+    const r2 = resolveChartRowsForAggregation(
+      products,
+      'products',
+      'category',
+      ['expr-margin'],
+      undefined,
+      ds,
+      [],
+      [exprV2],
+    );
+    // Formula edit with rows unchanged must recompute — old cache returned stale 40.
+    expect(r2[0]['expr-margin']).toBe(100); // price only
+    expect(r2).not.toBe(r1);
+  });
 });
 
 describe('analyzeChartSupport', () => {
@@ -1058,6 +1152,47 @@ describe('aggregateByTwoFields', () => {
     expect(result.seriesData.B[northIdx]).toBeNull(); // North has no product B
     expect(result.seriesData.A[southIdx]).toBeNull(); // South has no product A
   });
+
+  // ─── yAggregation honored (Part A item 5) ───────────────────────────────────
+
+  it('averages per cell when yAggregation is "avg" (not sum)', () => {
+    const result = aggregateByTwoFields(
+      rows,
+      'region',
+      'product',
+      'revenue',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'avg',
+    );
+    const northIdx = result.labels.indexOf('North');
+    // North/A: 100 and 75 → avg 87.5 (sum would be 175)
+    expect(result.seriesData.A[northIdx]).toBe(87.5);
+  });
+
+  it('takes the max per cell when yAggregation is "max"', () => {
+    const result = aggregateByTwoFields(
+      rows,
+      'region',
+      'product',
+      'revenue',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'max',
+    );
+    const northIdx = result.labels.indexOf('North');
+    expect(result.seriesData.A[northIdx]).toBe(100); // max(100, 75)
+  });
+
+  it('defaults to sum when yAggregation is omitted (backward compatible)', () => {
+    const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
+    const northIdx = result.labels.indexOf('North');
+    expect(result.seriesData.A[northIdx]).toBe(175);
+  });
 });
 
 // ─── aggregateMultipleSeries ──────────────────────────────────────────────────
@@ -1145,6 +1280,53 @@ describe('aggregateMultipleSeries', () => {
     expect(idSeries.values[engIdx]).toBe(2);
     // salary is numeric → summed
     expect(salSeries.values[engIdx]).toBe(170000);
+  });
+
+  // ─── yAggregation honored (Part A item 5) ───────────────────────────────────
+
+  it('averages each series when yAggregation is "avg" (not sum)', () => {
+    const result = aggregateMultipleSeries(
+      rows,
+      'month',
+      ['revenue', 'cost'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'avg',
+    );
+    const janIdx = result.labels.indexOf('2024-01');
+    const revSeries = result.series.find((s) => s.fieldId === 'revenue')!;
+    const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
+    // Jan revenue: 100 and 50 → avg 75 (sum would be 150)
+    expect(revSeries.values[janIdx]).toBe(75);
+    // Jan cost: 60 and 30 → avg 45
+    expect(costSeries.values[janIdx]).toBe(45);
+  });
+
+  it('keeps non-numeric fields as count even when yAggregation is "avg"', () => {
+    const mixed = [
+      { dept: 'Eng', employee_id: 'e-1', salary: 80000 },
+      { dept: 'Eng', employee_id: 'e-2', salary: 90000 },
+      { dept: 'HR', employee_id: 'e-3', salary: 70000 },
+    ];
+    const result = aggregateMultipleSeries(
+      mixed,
+      'dept',
+      ['employee_id', 'salary'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'avg',
+    );
+    const idSeries = result.series.find((s) => s.fieldId === 'employee_id')!;
+    const salSeries = result.series.find((s) => s.fieldId === 'salary')!;
+    const engIdx = result.labels.indexOf('Eng');
+    // employee_id stays a count (string field) regardless of yAggregation
+    expect(idSeries.values[engIdx]).toBe(2);
+    // salary is averaged: (80000 + 90000) / 2
+    expect(salSeries.values[engIdx]).toBe(85000);
   });
 });
 

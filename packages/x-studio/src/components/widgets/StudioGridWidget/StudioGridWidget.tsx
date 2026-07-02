@@ -23,6 +23,7 @@ import { computeGridSummary } from '../../../utils/gridSummary';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
@@ -259,7 +260,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       if (
         activeCrossFilter &&
         activeCrossFilter.field === fieldId &&
-        String(activeCrossFilter.value) === String(value)
+        crossFilterValueEquals(activeCrossFilter.value, value)
       ) {
         controller.clearCrossFilter(widget.id);
       } else {
@@ -393,7 +394,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           // Outgoing cross-filter: highlight the row this table is filtering on.
           if (activeCrossFilter) {
             const rowValue = (params.row as Record<string, unknown>)[activeCrossFilter.field];
-            return String(rowValue) === String(activeCrossFilter.value)
+            return crossFilterValueEquals(rowValue, activeCrossFilter.value)
               ? 'StudioGrid-crossFilterMatch'
               : '';
           }

@@ -33,6 +33,32 @@ function textResponse(text: string, promptTokens: number, completionTokens: numb
   ]);
 }
 
+/** A tool call whose streamed `arguments` accumulate to invalid JSON. */
+function malformedToolCallResponse(toolName: string): Response {
+  return makeSseResponse([
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, id: 'tc_1', function: { name: toolName, arguments: '' } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: { tool_calls: [{ index: 0, function: { arguments: '{not valid json' } }] },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+  ]);
+}
+
 /** A single-turn response that calls a tool, then (next turn) returns text. */
 function toolCallResponse(toolName: string, args: object): Response {
   return makeSseResponse([
@@ -300,5 +326,179 @@ describe('runAgenticLoop — built-in tool gating', () => {
   it('advertises summarise_page only when explicitly opted in via allowedTools', async () => {
     const names = await offeredToolNames(['summarise_page', 'get_dashboard_state']);
     expect(names).toContain('summarise_page');
+  });
+});
+
+// ── Malformed tool arguments ────────────────────────────────────────────────────
+
+describe('runAgenticLoop — malformed tool arguments', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('feeds an error back to the model and does NOT execute the tool', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(malformedToolCallResponse('set_dashboard_title'))
+      .mockResolvedValueOnce(textResponse('recovered', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename the dashboard')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // The tool never ran — no state mutation was produced by the coerced `{}`.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(String(complete?.output)).toContain('invalid tool arguments');
+
+    // The loop recovers and finishes on the follow-up turn.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Tool approval ───────────────────────────────────────────────────────────────
+
+describe('runAgenticLoop — tool approval', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('times out an unanswered approval, tells the model, and cleans up the map entry', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Remove the widget')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 20 },
+      ),
+    );
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'tool-approval-request')).toBe(
+      true,
+    );
+
+    const timedOut = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete' &&
+        String((ev as { output?: string }).output).includes('approval timed out'),
+    );
+    expect(timedOut).toBeDefined();
+
+    // The pending entry is always removed — no leak.
+    expect(approvalPending.size).toBe(0);
+    // The loop recovers and finishes.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('ends silently when the request is aborted during an approval wait', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }));
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const ac = new AbortController();
+
+    const gen = runAgenticLoop(
+      [userMsg('Remove the widget')],
+      INITIAL_STATE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000, signal: ac.signal },
+    );
+
+    const events: unknown[] = [];
+    for await (const ev of gen) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        // Simulate the client abandoning the request while we await approval.
+        ac.abort();
+      }
+    }
+
+    const types = events.map((ev) => (ev as { type: string }).type);
+    expect(types).toContain('tool-approval-request');
+    // Abort ends the stream silently — no finish, no error event.
+    expect(types).not.toContain('finish');
+    expect(types).not.toContain('error');
+    // The pending entry is cleaned up even on abort.
+    expect(approvalPending.size).toBe(0);
+  });
+
+  it('resolves an approved tool call and applies the mutation', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('removed', 10, 5));
+
+    // Seed a state that actually has the widget so removal succeeds post-approval.
+    const state = createDefaultStudioState();
+    const activePageId = state.dashboard.activePageId;
+    const seeded = {
+      ...state,
+      widgets: {
+        w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+      },
+      pages: {
+        ...state.pages,
+        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1']] },
+      },
+    };
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+
+    const gen = runAgenticLoop(
+      [userMsg('Remove the widget')],
+      seeded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    );
+
+    const events: unknown[] = [];
+    for await (const ev of gen) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        const id = (ev as { toolCallId: string }).toolCallId;
+        // The loop registers its resolver only once it resumes past this yield, so
+        // grant approval on the next tick when the map entry exists.
+        setTimeout(() => approvalPending.get(id)?.(true), 0);
+      }
+    }
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    expect(approvalPending.size).toBe(0);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });

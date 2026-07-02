@@ -459,7 +459,12 @@ describe('async adapter path', () => {
     // now routing through selectFiltersForWidget (previously hand-encoded inline).
     const buildState = (crossFilterAllPages: boolean) =>
       createState({
-        dashboard: { crossFilterAllPages },
+        dashboard: {
+          id: 'dash-1',
+          title: 'Dashboard',
+          activePageId: 'page-1',
+          crossFilterAllPages,
+        },
         filters: [
           makeFilter({
             id: 'f-cross',

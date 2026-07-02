@@ -1,22 +1,6 @@
-import { formatNumber } from '../../../internals/numberFormat';
 import type { MultiYSeriesData } from '../../../internals/chartUtils';
-import type { StudioChartType, StudioDataField, StudioNumberFormat } from '../../../models';
-
-function makeValueFormatter(
-  format?: StudioNumberFormat,
-  currencyCode?: string,
-  precision?: number,
-) {
-  if (!format && precision == null) {
-    return undefined;
-  }
-  return (value: number | null) => {
-    if (value === null) {
-      return '';
-    }
-    return formatNumber(value, format, currencyCode, undefined, precision);
-  };
-}
+import type { StudioChartType, StudioDataField } from '../../../models';
+import { makeValueFormatter } from './chartWidgetHelpers';
 
 export function buildMultiYLineSeries(
   multiYData: MultiYSeriesData,
@@ -56,7 +40,10 @@ export function buildMultiYLineSeries(
       highlightScope: { highlight: 'item' as const, fade: 'global' as const },
       valueFormatter: is100
         ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-        : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision),
+        : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision, {
+            compact: false,
+            noFormatFallback: 'undefined',
+          }),
     };
   });
 }

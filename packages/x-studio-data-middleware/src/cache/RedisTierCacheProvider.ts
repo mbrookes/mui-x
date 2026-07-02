@@ -11,6 +11,10 @@
  * Accepts any object that conforms to the minimal `RedisClient` interface
  * (same interface used by `RedisCacheProvider`) — compatible with both
  * `ioredis` and `node-redis` (v4+) without requiring either as a peer dep.
+ * As with `RedisCacheProvider`, the constructor detects (or accepts an
+ * explicit `clientStyle` override for) which `SET key value EX seconds` shape
+ * the client expects: ioredis's positional form vs node-redis v4's
+ * `{ EX: seconds }` options object.
  *
  * ### ioredis
  * ```ts
@@ -32,8 +36,15 @@
  *
  * ## TTL
  *
- * The default TTL is 5 minutes (300 s). Override per-call via the `ttlMs`
- * argument on `set()`, or set a different default in the constructor options.
+ * This provider's own default, when `set()` is called without an explicit
+ * `ttlMs`, is 5 minutes (300 s) — see `defaultTtlSeconds` below. In production
+ * this default is rarely exercised: `handler.ts` always calls `set()` with an
+ * explicit TTL (its own default is `DEFAULT_TIER_CACHE_TTL_MS`, currently 30
+ * seconds, aligned with the data cache). `MapTierCacheProvider`'s in-process
+ * equivalent also defaults to 300 s for the same "standalone usage" case.
+ * These are three independent knobs (this class's default, the handler's
+ * default, `MapTierCacheProvider`'s default) that happen to disagree on paper
+ * but rarely matter in practice because the handler's explicit TTL wins.
  *
  * ## Combining with RedisCacheProvider
  *
@@ -57,7 +68,7 @@
  * across multiple deployments.
  */
 
-import type { RedisClient } from './RedisCacheProvider';
+import { detectClientStyle, type RedisClient } from './RedisCacheProvider';
 import type { TierCacheProvider, TierEntry } from './types';
 
 export interface RedisTierCacheProviderOptions {
@@ -74,17 +85,33 @@ export interface RedisTierCacheProviderOptions {
    * @example 'studio:prod:tier:'
    */
   keyPrefix?: string;
+  /**
+   * Force a specific client wire convention instead of auto-detecting it from
+   * the shape of the injected client (see `RedisCacheProvider`'s option of the
+   * same name for details).
+   */
+  clientStyle?: 'ioredis' | 'node-redis';
+  /** Number of keys requested per SCAN iteration. @default 1000 */
+  scanCount?: number;
 }
 
 export class RedisTierCacheProvider implements TierCacheProvider {
   private readonly redis: RedisClient;
+
   private readonly defaultTtl: number;
+
   private readonly prefix: string;
+
+  private readonly clientStyle: 'ioredis' | 'node-redis';
+
+  private readonly scanCount: number;
 
   constructor(redis: RedisClient, options: RedisTierCacheProviderOptions = {}) {
     this.redis = redis;
     this.defaultTtl = options.defaultTtlSeconds ?? 300;
     this.prefix = options.keyPrefix ?? '';
+    this.clientStyle = options.clientStyle ?? detectClientStyle(redis);
+    this.scanCount = options.scanCount ?? 1000;
   }
 
   async get(key: string): Promise<TierEntry | undefined> {
@@ -102,14 +129,54 @@ export class RedisTierCacheProvider implements TierCacheProvider {
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {
     // TierCacheProvider interface uses ttlMs; Redis EX uses seconds.
     const ttlSeconds = ttlMs !== undefined ? Math.max(1, Math.ceil(ttlMs / 1000)) : this.defaultTtl;
-    await this.redis.set(this.prefix + key, JSON.stringify(value), 'EX', ttlSeconds);
+    const prefixedKey = this.prefix + key;
+    const payload = JSON.stringify(value);
+    if (this.clientStyle === 'node-redis') {
+      await this.redis.set(prefixedKey, payload, { EX: ttlSeconds });
+    } else {
+      await this.redis.set(prefixedKey, payload, 'EX', ttlSeconds);
+    }
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
     const pattern = `${this.prefix}${prefix}*`;
-    const keys = await this.redis.keys(pattern);
+    const keys = await this.scanKeys(pattern);
     if (keys.length > 0) {
       await this.redis.del(...keys);
     }
+  }
+
+  /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    if (typeof this.redis.scan !== 'function') {
+      // Fallback for minimal clients that only implement KEYS.
+      if (typeof this.redis.keys === 'function') {
+        return this.redis.keys(pattern);
+      }
+      return [];
+    }
+
+    const results: string[] = [];
+    let cursor = '0';
+    // SCAN cursor iteration is inherently sequential — each call's cursor
+    // depends on the previous call's reply, so this cannot be parallelized.
+    do {
+      let reply: [string, string[]] | { cursor: string | number; keys: string[] };
+      if (this.clientStyle === 'node-redis') {
+        // eslint-disable-next-line no-await-in-loop
+        reply = await this.redis.scan(cursor, { MATCH: pattern, COUNT: this.scanCount });
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', this.scanCount);
+      }
+      if (Array.isArray(reply)) {
+        [cursor] = reply;
+        results.push(...reply[1]);
+      } else {
+        cursor = String(reply.cursor);
+        results.push(...reply.keys);
+      }
+    } while (cursor !== '0');
+    return results;
   }
 }

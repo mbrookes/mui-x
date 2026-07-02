@@ -447,7 +447,11 @@ export function AppToolbar(props: AppToolbarProps) {
         </Tooltip>
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
+          <Typography
+            variant="body2"
+            color={mode === 'view' ? 'text.primary' : 'text.secondary'}
+            sx={{ display: { xs: 'none', sm: 'inline' } }}
+          >
             {t.viewLabel}
           </Typography>
           <Switch
@@ -456,7 +460,11 @@ export function AppToolbar(props: AppToolbarProps) {
             size="small"
             slotProps={{ input: { 'aria-label': t.toggleEditModeAriaLabel } }}
           />
-          <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
+          <Typography
+            variant="body2"
+            color={mode === 'edit' ? 'text.primary' : 'text.secondary'}
+            sx={{ display: { xs: 'none', sm: 'inline' } }}
+          >
             {t.editLabel}
           </Typography>
         </Box>

@@ -57,6 +57,20 @@ export function SurveyNav({
   const listRef = React.useRef<HTMLDivElement>(null);
   const floating = overlay && open;
 
+  // Dismiss the floating nav with Escape, matching the backdrop-click affordance.
+  React.useEffect(() => {
+    if (!floating) {
+      return undefined;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onToggle();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [floating, onToggle]);
+
   // Keep the highlighted question visible as scrollspy moves it (without scrolling the page).
   React.useEffect(() => {
     if (!activeWidgetId) {

@@ -6,6 +6,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAgenticLoop } from './agenticLoop';
 import { createDefaultStudioState } from './models/studioTypes';
+import type { StudioAISkill, StudioDataResolver } from './models/aiTypes';
+import type { SerializableSkill } from './models/protocol';
 
 // ── SSE response helpers ──────────────────────────────────────────────────────
 
@@ -84,6 +86,75 @@ function toolCallResponse(toolName: string, args: object): Response {
     },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
     { choices: [], usage: { prompt_tokens: 200, completion_tokens: 50 } },
+  ]);
+}
+
+/**
+ * A tool call whose streamed deltas carry an `id` but never an `index` — the
+ * fallback path in the accumulation loop that keys tool-call slots by `id`
+ * instead of `index`.
+ */
+function toolCallResponseNoIndex(toolCallId: string, toolName: string, args: object): Response {
+  return makeSseResponse([
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ id: toolCallId, function: { name: toolName, arguments: '' } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ id: toolCallId, function: { arguments: JSON.stringify(args) } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+  ]);
+}
+
+/**
+ * Two concurrent tool calls, both accumulated purely via `id` (no `index` on
+ * any delta), interleaved across chunks.
+ */
+function multiToolCallResponseNoIndex(): Response {
+  return makeSseResponse([
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { id: 'tc_a', function: { name: 'get_dashboard_state', arguments: '' } },
+              { id: 'tc_b', function: { name: 'list_pages', arguments: '' } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { id: 'tc_a', function: { arguments: '{}' } },
+              { id: 'tc_b', function: { arguments: '{}' } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
   ]);
 }
 
@@ -499,6 +570,361 @@ describe('runAgenticLoop — tool approval', () => {
 
     expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
     expect(approvalPending.size).toBe(0);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Server-tool skills ──────────────────────────────────────────────────────────
+
+describe('runAgenticLoop — server-tool skill execution', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function makeSkill(execute: NonNullable<StudioAISkill['tool']>['execute']): StudioAISkill {
+    return {
+      name: 'greeting_skill',
+      mode: 'server-tool',
+      promptFragment: 'Use greet_user to greet the user by name.',
+      tool: {
+        name: 'greet_user',
+        description: 'Greets the user by name.',
+        parameters: { type: 'object', properties: { name: { type: 'string' } } },
+        execute,
+      },
+    };
+  }
+
+  it('executes a registered server-tool skill and applies its mutation', async () => {
+    const execute = vi.fn((args: Record<string, unknown>, state) => ({
+      output: JSON.stringify({ greeted: args.name }),
+      mutation: { type: 'setDashboardTitle' as const, args: { title: `Hi, ${args.name}` } },
+      nextState: { ...state, dashboard: { ...state.dashboard, title: `Hi, ${args.name}` } },
+    }));
+    const skill = makeSkill(execute);
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('greet_user', { name: 'Ada' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Greet Ada')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+
+    expect(execute).toHaveBeenCalledExactlyOnceWith({ name: 'Ada' }, INITIAL_STATE);
+
+    const mutationEvent = events.find(
+      (ev) => (ev as { type: string }).type === 'state-mutation',
+    ) as { mutation: { type: string; args: { title: string } } } | undefined;
+    expect(mutationEvent).toBeDefined();
+    expect(mutationEvent?.mutation).toEqual({
+      type: 'setDashboardTitle',
+      args: { title: 'Hi, Ada' },
+    });
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; toolName?: string }).type === 'tool-activity' &&
+        (ev as { toolName?: string }).toolName === 'greet_user' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!)).toEqual({ greeted: 'Ada' });
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('catches a throwing server-tool skill, reports via onToolError, and feeds {error} back', async () => {
+    const execute = vi.fn(() => {
+      throw new Error('skill blew up');
+    });
+    const skill = makeSkill(execute);
+    const onToolError = vi.fn();
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('greet_user', { name: 'Ada' }))
+      .mockResolvedValueOnce(textResponse('recovered', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Greet Ada')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill], onToolError },
+      ),
+    );
+
+    expect(onToolError).toHaveBeenCalledExactlyOnceWith('greet_user', expect.any(Error));
+    expect((onToolError.mock.calls[0][1] as Error).message).toBe('skill blew up');
+
+    // No mutation was applied — the loop didn't crash on the throw.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; toolName?: string }).type === 'tool-activity' &&
+        (ev as { toolName?: string }).toolName === 'greet_user' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!)).toEqual({ error: 'skill blew up' });
+
+    // The generator did not crash: it fed the error back to the model and finished.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── execute_query execution ─────────────────────────────────────────────────────
+
+describe('runAgenticLoop — execute_query execution', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('resolves via the configured dataResolver and feeds the result back to the model', async () => {
+    const resolve = vi.fn(async (query: string, sourceId?: string) => ({
+      rows: [{ a: 1 }],
+      columns: ['a'],
+      totalCount: 1,
+      _query: query,
+      _sourceId: sourceId,
+    }));
+    const dataResolver: StudioDataResolver = { resolve: resolve as StudioDataResolver['resolve'] };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        toolCallResponse('execute_query', { query: 'SELECT 1', sourceId: 'src1' }),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Run a query')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, dataResolver },
+      ),
+    );
+
+    expect(resolve).toHaveBeenCalledExactlyOnceWith('SELECT 1', 'src1');
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; toolName?: string }).type === 'tool-activity' &&
+        (ev as { toolName?: string }).toolName === 'execute_query' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!)).toMatchObject({ rows: [{ a: 1 }], totalCount: 1 });
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('catches a rejected dataResolver.resolve(), reports via onToolError, and feeds {error} back', async () => {
+    const dataResolver: StudioDataResolver = {
+      resolve: vi.fn(async () => {
+        throw new Error('query failed: syntax error');
+      }),
+    };
+    const onToolError = vi.fn();
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('execute_query', { query: 'BAD SQL' }))
+      .mockResolvedValueOnce(textResponse('recovered', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Run a bad query')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, dataResolver, onToolError },
+      ),
+    );
+
+    expect(onToolError).toHaveBeenCalledExactlyOnceWith('execute_query', expect.any(Error));
+    expect((onToolError.mock.calls[0][1] as Error).message).toBe('query failed: syntax error');
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; toolName?: string }).type === 'tool-activity' &&
+        (ev as { toolName?: string }).toolName === 'execute_query' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!)).toEqual({ error: 'query failed: syntax error' });
+
+    // The generator recovers instead of crashing.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Unregistered skill fallback ──────────────────────────────────────────────────
+
+describe('runAgenticLoop — unregistered skill fallback', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns a descriptive error when a declared server-tool skill has no handler', async () => {
+    const declaredSkill: SerializableSkill = {
+      name: 'orphan_skill',
+      mode: 'server-tool',
+      promptFragment: 'Use orphan_tool for something.',
+      tool: {
+        name: 'orphan_tool',
+        description: 'A tool declared by the client but never registered on the server.',
+        parameters: { type: 'object', properties: {} },
+      },
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('orphan_tool', {}))
+      .mockResolvedValueOnce(textResponse('recovered', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Use the orphan tool')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        [declaredSkill],
+        // Note: no `skillHandlers` passed — the skill is declared but unregistered.
+        BASE_OPTIONS,
+      ),
+    );
+
+    // No crash, no silent no-op: the tool call gets an informative error result.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; toolName?: string }).type === 'tool-activity' &&
+        (ev as { toolName?: string }).toolName === 'orphan_tool' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    const parsed = JSON.parse(complete!.output!) as { error?: string };
+    expect(parsed.error).toMatch(/no registered handler/i);
+    expect(parsed.error).toContain('orphan_tool');
+
+    // The loop recovers and finishes on the follow-up turn.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Tool-call delta accumulation fallback ────────────────────────────────────────
+
+describe('runAgenticLoop — tool-call delta accumulation fallback (id without index)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('accumulates a single tool call whose deltas carry an id but never an index', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        toolCallResponseNoIndex('tc_1', 'set_dashboard_title', { title: 'Reassembled Title' }),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename the dashboard')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // The arguments split across the two id-only deltas must be accumulated into
+    // one coherent tool call rather than lost or corrupted.
+    const start = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'start',
+    ) as { input?: unknown } | undefined;
+    expect(start).toBeDefined();
+    expect(start?.input).toEqual({ title: 'Reassembled Title' });
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    const mutationEvent = events.find(
+      (ev) => (ev as { type: string }).type === 'state-mutation',
+    ) as { mutation: { type: string; args: { title: string } } } | undefined;
+    expect(mutationEvent?.mutation).toEqual({
+      type: 'setDashboardTitle',
+      args: { title: 'Reassembled Title' },
+    });
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('accumulates two concurrent tool calls keyed purely by id (no index on any delta)', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(multiToolCallResponseNoIndex())
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Do two things')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const completeEvents = events.filter(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as Array<{ toolName: string; output?: string }>;
+
+    // Both distinct tool calls ran (not merged/collapsed into a single slot) and
+    // neither call's arguments were corrupted by the other.
+    const toolNames = completeEvents.map((ev) => ev.toolName).sort();
+    expect(toolNames).toEqual(['get_dashboard_state', 'list_pages']);
+    completeEvents.forEach((ev) => {
+      expect(() => JSON.parse(ev.output ?? '')).not.toThrow();
+    });
+
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });

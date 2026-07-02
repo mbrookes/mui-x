@@ -425,6 +425,61 @@ describe('handleBatchQuery — user filter predicates', () => {
   });
 });
 
+// ─── handleBatchQuery — columnAliases success path ───────────────────────────
+//
+// `mockDb.ts` previously had no `db.raw()`, so any descriptor using
+// `columnAliases` would crash with "db.raw is not a function" — only the
+// alias-mapping *logic* was covered (via a recording mock in preflight.test.ts
+// that just asserts on the call args), never the actual renamed-output rows
+// produced end-to-end through `handleBatchQuery`. `mockDb.ts` now implements a
+// minimal `raw('?? as ??', [phys, alias])`, so this exercises the real success
+// path: a logical column id that maps to a different physical column actually
+// comes back under the logical id, with the right values.
+describe('handleBatchQuery — columnAliases success path', () => {
+  it('SELECTs the physical column AS the logical id (client/server tier)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['revenue'],
+          columnAliases: { revenue: 'amount' },
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    expect(result.results[0].error).toBeUndefined();
+    const rows = result.results[0].rows;
+    expect(rows.length).toBeGreaterThan(0);
+
+    // The logical id "revenue" must be present with the underlying "amount"
+    // value, and the physical column name must NOT leak into the row shape.
+    const expectedAmounts = SALES_ROWS.filter((r) => r.tenant_id === 'acme')
+      .map((r) => r.amount)
+      .sort((a, b) => a - b);
+    expect(rows.map((r) => r.revenue as number).sort((a, b) => a - b)).toEqual(expectedAmounts);
+    for (const row of rows) {
+      expect(row).not.toHaveProperty('amount');
+    }
+  });
+
+  // Note: the 'db' (aggregation push-down) tier also calls `db.raw('?? as ??', ...)`
+  // for an aliased dimension column (see `executeForTier` in router/preflight.ts),
+  // but `mockDb.ts`'s aggregation branch builds output rows directly from its
+  // `groupBy()` columns rather than from `select()`'s projection list, so it does
+  // not honor column-alias renaming for aggregated queries. Extending the mock's
+  // aggregation-grouping code to do so is out of scope here (see ARCHITECTURE_REVIEW.md
+  // finding 10) — the client/server-tier case above already proves the renamed-output
+  // success path that was previously untestable at all.
+});
+
 // ─── handleBatchQuery — batch of multiple widgets ────────────────────────────
 
 describe('handleBatchQuery — batch', () => {

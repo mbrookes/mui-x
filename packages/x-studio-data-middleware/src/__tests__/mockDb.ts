@@ -5,11 +5,30 @@
  *   db(table), .where(), .whereIn(), .count(), .select(), .orderBy(), .limit()
  *   .sum(), .avg(), .min(), .max(), .groupBy() — with real in-memory aggregation
  *
+ * Also implements a minimal `db.raw(sql, bindings)` — just enough to support the
+ * one shape this package actually emits, `?? as ??` (used by `executeForTier` to
+ * SELECT a physical column AS a logical `columnAliases` id in its `.select()`
+ * projection list). This is NOT a general raw-SQL evaluator — it only recognizes
+ * that one binding pattern, which is sufficient to exercise the `columnAliases`
+ * success path end-to-end (as opposed to only being able to test that a
+ * `columnAliases`-bearing descriptor crashes because `db.raw` didn't exist).
+ *
  * This avoids any native SQLite driver dependency in tests.
  */
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
+
+/** Result of `db.raw('?? as ??', [physicalColumn, logicalAlias])`. */
+interface RawExpr {
+  kind: 'raw';
+  physicalColumn: string;
+  alias: string;
+}
+
+function isRawExpr(value: unknown): value is RawExpr {
+  return typeof value === 'object' && value !== null && (value as RawExpr).kind === 'raw';
+}
 
 interface MockQueryBuilder {
   where(column: string, op: string, value: unknown): MockQueryBuilder;
@@ -20,7 +39,7 @@ interface MockQueryBuilder {
   whereNot?: (column: string, value: unknown) => MockQueryBuilder;
   havingRaw(expr: string, bindings: unknown[]): MockQueryBuilder;
   count(expr: string): MockQueryBuilder;
-  select(columns: string | string[]): MockQueryBuilder;
+  select(columns: string | (string | RawExpr)[]): MockQueryBuilder;
   orderBy(column: string, dir?: string): MockQueryBuilder;
   limit(n: number): MockQueryBuilder;
   sum(expr: string): MockQueryBuilder;
@@ -62,12 +81,14 @@ function computeAgg(func: AggSpec['func'], groupRows: Row[], column: string): nu
   }
 }
 
-export function createMockDb(tables: Tables): (table: string) => MockQueryBuilder {
-  return function db(table: string): MockQueryBuilder {
+export function createMockDb(
+  tables: Tables,
+): ((table: string) => MockQueryBuilder) & { raw: (sql: string, bindings: unknown[]) => RawExpr } {
+  const db = function db(table: string): MockQueryBuilder {
     const rows = [...(tables[table] ?? [])];
     let isStarCount = false;
     let starCountAlias = 'count';
-    let selectedColumns: string[] | null = null;
+    let selectedColumns: (string | RawExpr)[] | null = null;
     let groupByColumns: string[] | null = null;
     let limitValue: number | null = null;
     const orderByClauses: { column: string; dir: string }[] = [];
@@ -178,7 +199,7 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
         aggSpecs.push({ func: 'max', column, alias });
         return qb;
       },
-      select(columns: string | string[]) {
+      select(columns: string | (string | RawExpr)[]) {
         selectedColumns = Array.isArray(columns) ? columns : [columns];
         return qb;
       },
@@ -304,9 +325,19 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
             filtered = filtered.map((row) => {
               const projected: Row = {};
               for (const col of selectedColumns!) {
-                // Handle "table.column" qualified names
-                const key = col.includes('.') ? col.split('.')[1] : col;
-                projected[key] = row[key];
+                if (isRawExpr(col)) {
+                  // db.raw('?? as ??', [physicalColumn, logicalAlias]) — resolve the
+                  // physical column (stripping any "table." qualifier) and project
+                  // its value under the logical alias, mirroring `SELECT phys AS alias`.
+                  const physKey = col.physicalColumn.includes('.')
+                    ? col.physicalColumn.split('.')[1]
+                    : col.physicalColumn;
+                  projected[col.alias] = row[physKey];
+                } else {
+                  // Handle "table.column" qualified names
+                  const key = col.includes('.') ? col.split('.')[1] : col;
+                  projected[key] = row[key];
+                }
               }
               return projected;
             });
@@ -321,4 +352,17 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
 
     return qb;
   };
+
+  db.raw = (sql: string, bindings: unknown[]): RawExpr => {
+    // Only the "?? as ??" pattern used by executeForTier() is supported.
+    if (!/^\?\?\s+as\s+\?\?$/i.test(sql.trim())) {
+      throw new Error(
+        `mockDb.raw(): unsupported raw SQL shape "${sql}" — only "?? as ??" is implemented.`,
+      );
+    }
+    const [physicalColumn, alias] = bindings as [string, string];
+    return { kind: 'raw', physicalColumn, alias };
+  };
+
+  return db;
 }

@@ -9,6 +9,7 @@ import {
 } from '../../../context';
 import { useStudioUIConfig } from '../../../internals/StudioUIConfigContext';
 import { buildWidgetDataSummary } from '../../StudioChatPanel/generateInsight';
+import { parseSSEStream, serializeDashboardState } from '../../StudioChatPanel/sseUtils';
 
 const CACHE_PREFIX = 'studio:textAI:v1';
 
@@ -132,18 +133,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     (async () => {
       try {
         const state = controller.getState();
-        const serializableState = {
-          ...state,
-          dataSources: Object.fromEntries(
-            Object.entries(state.dataSources).map(([id, source]) => {
-              const { rows, adapter, ...rest } = source as unknown as {
-                rows?: unknown;
-                adapter?: unknown;
-              } & Record<string, unknown>;
-              return [id, rest];
-            }),
-          ),
-        };
+        const serializableState = serializeDashboardState(state);
 
         const response = await fetch(chatUrl, {
           method: 'POST',
@@ -162,57 +152,24 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
           throw new Error(`HTTP ${response.status}`);
         }
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('No response body');
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = '';
         let content = '';
-
-        let finished = false;
-        while (!finished) {
-          // eslint-disable-next-line no-await-in-loop
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
+        await parseSSEStream(response, (sseEvent) => {
+          if (sseEvent.type === 'text-delta') {
+            content += String(sseEvent.delta ?? '');
+          } else if (sseEvent.type === 'tool-approval-request') {
+            // Auto-approve: text widget AI only runs read-only tools, but guard just in case
+            fetch(approvalUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
+              body: JSON.stringify({ id: sseEvent.toolCallId, approved: true }),
+            }).catch(() => {});
+          } else if (sseEvent.type === 'finish') {
+            return false;
+          } else if (sseEvent.type === 'error') {
+            throw new Error(String(sseEvent.message ?? 'AI error'));
           }
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) {
-              continue;
-            }
-            const payload = line.slice(6).trim();
-            if (!payload) {
-              continue;
-            }
-            let sseEvent: Record<string, unknown>;
-            try {
-              sseEvent = JSON.parse(payload);
-            } catch {
-              continue;
-            }
-
-            if (sseEvent.type === 'text-delta') {
-              content += String(sseEvent.delta ?? '');
-            } else if (sseEvent.type === 'tool-approval-request') {
-              // Auto-approve: text widget AI only runs read-only tools, but guard just in case
-              fetch(approvalUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
-                body: JSON.stringify({ id: sseEvent.toolCallId, approved: true }),
-              }).catch(() => {});
-            } else if (sseEvent.type === 'finish') {
-              finished = true;
-              break;
-            } else if (sseEvent.type === 'error') {
-              throw new Error(String(sseEvent.message ?? 'AI error'));
-            }
-          }
-        }
+          return undefined;
+        });
 
         if (abort.signal.aborted) {
           return;

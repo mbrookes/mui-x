@@ -45,6 +45,7 @@
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/x-internals": "workspace:*",
+    "@mui/x-studio-schema": "workspace:*",
     "dayjs": "catalog:",
     "@mui/x-chat": "workspace:*",
     "markdown-to-jsx": "catalog:",

@@ -17,6 +17,10 @@ function makeController(): StudioController {
   return {
     getState: vi.fn(() => state),
     getRecentMutations: vi.fn(() => []),
+    // State mutations from the SSE stream are now applied through this single
+    // entry point (which runs the shared `applyMutation` reducer) rather than a
+    // per-mutation-type dispatch to individual controller methods.
+    applyExternalMutation: vi.fn(),
     setState: vi.fn(),
     setDashboardTitle: vi.fn(),
     addPage: vi.fn(),
@@ -174,7 +178,10 @@ describe('createBackendChatAdapter: state-mutation', () => {
     const stream = await adapter.sendMessage(makeSendInput([]));
 
     await collectChunks(stream);
-    expect(controller.setDashboardTitle).toHaveBeenCalledWith('Updated');
+    expect(controller.applyExternalMutation).toHaveBeenCalledWith({
+      type: 'setDashboardTitle',
+      args: { title: 'Updated' },
+    });
 
     vi.unstubAllGlobals();
   });
@@ -195,7 +202,10 @@ describe('createBackendChatAdapter: state-mutation', () => {
     const stream = await adapter.sendMessage(makeSendInput([]));
 
     await collectChunks(stream);
-    expect(controller.removeWidget).toHaveBeenCalledWith('widget-1');
+    expect(controller.applyExternalMutation).toHaveBeenCalledWith({
+      type: 'removeWidget',
+      args: { widgetId: 'widget-1' },
+    });
 
     vi.unstubAllGlobals();
   });

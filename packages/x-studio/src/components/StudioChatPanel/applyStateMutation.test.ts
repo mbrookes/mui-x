@@ -1,22 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { applyStateMutation } from './applyStateMutation';
-import { createDefaultStudioState } from '../../models/stateTypes';
-import type { StudioController } from '../../store/StudioController';
-import type { StateMutation } from '../../models';
+import { StudioController } from '../../store/StudioController';
+import type { StudioWidget } from '../../models';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// These tests exercise the real `StudioController` (no mocks) so they verify the
+// full path: applyStateMutation → controller.applyExternalMutation → the shared
+// `applyMutation` reducer → commitState → store. This is the same reducer the
+// AI-middleware server runs, so "server-threaded state equals client-applied
+// state" is exercised here directly.
 
-function makeController(overrides: Partial<StudioController> = {}): StudioController {
-  const pageId = 'page-1';
-  const widgetId = 'widget-1';
-  const state = createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: pageId },
+function makeController(): StudioController {
+  return new StudioController({
+    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
     pages: {
-      [pageId]: { id: pageId, title: 'Page 1', widgetRows: [[widgetId]] },
+      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
     },
     widgets: {
-      [widgetId]: {
-        id: widgetId,
+      'widget-1': {
+        id: 'widget-1',
         kind: 'chart',
         title: 'Revenue Chart',
         sourceId: 'src1',
@@ -24,291 +25,320 @@ function makeController(overrides: Partial<StudioController> = {}): StudioContro
       },
     },
     filters: [
-      { id: 'f1', field: 'revenue', operator: 'greater_than', value: 100, scope: { kind: 'page', pageId } },
+      {
+        id: 'f1',
+        field: 'revenue',
+        operator: 'greater_than',
+        value: 100,
+        scope: { kind: 'page', pageId: 'page-1' },
+      },
     ],
   });
-
-  return {
-    getState: vi.fn(() => state),
-    setState: vi.fn(),
-    setDashboardTitle: vi.fn(),
-    addPage: vi.fn().mockReturnValue('new-page-id'),
-    removePage: vi.fn(),
-    renamePage: vi.fn(),
-    setActivePage: vi.fn(),
-    addWidget: vi.fn(),
-    removeWidget: vi.fn(),
-    updateWidget: vi.fn(),
-    updateWidgetConfig: vi.fn(),
-    moveWidgetToPage: vi.fn(),
-    duplicateWidget: vi.fn(),
-    addFilter: vi.fn(),
-    removeFilter: vi.fn(),
-    setWidgetLayout: vi.fn(),
-    setWidgetColSpanInRow: vi.fn(),
-    clearSelection: vi.fn(),
-    setDrawerOpen: vi.fn(),
-    selectWidget: vi.fn(),
-    ...overrides,
-  } as unknown as StudioController;
 }
+
+const chartWidget = (id: string, title = 'W'): StudioWidget => ({
+  id,
+  kind: 'chart',
+  title,
+  config: { chartType: 'bar' },
+});
 
 // ── setDashboardTitle ─────────────────────────────────────────────────────────
 
 describe('applyStateMutation: setDashboardTitle', () => {
-  it('calls controller.setDashboardTitle with the given title', () => {
+  it('updates the dashboard title', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'setDashboardTitle', args: { title: 'New Title' } };
-    applyStateMutation(mutation, controller);
-    expect(controller.setDashboardTitle).toHaveBeenCalledWith('New Title');
+    applyStateMutation({ type: 'setDashboardTitle', args: { title: 'New Title' } }, controller);
+    expect(controller.getState().dashboard.title).toBe('New Title');
   });
 });
 
 // ── addPage ───────────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: addPage', () => {
-  it('uses controller.setState() directly to preserve the server-generated ID', () => {
+  it('adds the page with the server-generated ID and makes it active', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'addPage',
-      args: { id: 'server-page-42', title: 'Analytics' },
-    };
-    applyStateMutation(mutation, controller);
-
-    // Must use setState, NOT addPage() (which generates a new ID)
-    expect(controller.setState).toHaveBeenCalled();
-    expect(controller.addPage).not.toHaveBeenCalled();
-
-    // The new page must appear in the state passed to setState
-    const setStateArg = (controller.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      pages: Record<string, { id: string; title: string }>;
-    };
-    expect(setStateArg.pages['server-page-42']).toMatchObject({
+    applyStateMutation(
+      { type: 'addPage', args: { id: 'server-page-42', title: 'Analytics' } },
+      controller,
+    );
+    const state = controller.getState();
+    expect(state.pages['server-page-42']).toMatchObject({
       id: 'server-page-42',
       title: 'Analytics',
     });
-  });
-
-  it('makes the new page active', () => {
-    const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'addPage',
-      args: { id: 'server-page-99', title: 'Reports' },
-    };
-    applyStateMutation(mutation, controller);
-    const setStateArg = (controller.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      dashboard: { activePageId: string };
-    };
-    expect(setStateArg.dashboard.activePageId).toBe('server-page-99');
+    expect(state.dashboard.activePageId).toBe('server-page-42');
   });
 });
 
-// ── addWidget ─────────────────────────────────────────────────────────────────
+// ── addWidget + page-targeting fix ─────────────────────────────────────────────
 
 describe('applyStateMutation: addWidget', () => {
-  it('calls controller.addWidget with the widget', () => {
+  it('adds the widget to the active page when no pageId is given (legacy fallback)', () => {
     const controller = makeController();
-    const widget = {
-      id: 'w-99',
-      kind: 'chart' as const,
-      title: 'Test',
-      config: { chartType: 'bar' as const },
-    };
-    const mutation: StateMutation = { type: 'addWidget', args: { widget } };
-    applyStateMutation(mutation, controller);
-    expect(controller.addWidget).toHaveBeenCalledWith(widget);
+    const widget = chartWidget('w-legacy');
+    applyStateMutation({ type: 'addWidget', args: { widget } }, controller);
+    const state = controller.getState();
+    expect(state.widgets['w-legacy']).toBeDefined();
+    expect(state.pages['page-1'].widgetRows.flat()).toContain('w-legacy');
+  });
+
+  it('lands the widget on the SERVER-chosen pageId, not the client active page', () => {
+    // Simulate the model deciding to add a widget to page-1 while the user (the
+    // client) has since navigated to page-2. Before the fix, the widget would
+    // land on page-2 (the client's active page) while the model was told page-1.
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+      },
+    });
+    const widget = chartWidget('w-server', 'Server Widget');
+
+    applyStateMutation({ type: 'addWidget', args: { widget, pageId: 'page-1' } }, controller);
+
+    const state = controller.getState();
+    // Landed on the server-specified page…
+    expect(state.pages['page-1'].widgetRows.flat()).toContain('w-server');
+    // …NOT on wherever the client happened to be navigated.
+    expect(state.pages['page-2'].widgetRows.flat()).not.toContain('w-server');
+    // Client active page is untouched by an add to another page.
+    expect(state.dashboard.activePageId).toBe('page-2');
   });
 });
 
 // ── updateWidget ──────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: updateWidget', () => {
-  it('calls controller.updateWidget with changes', () => {
+  it('applies title changes', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'updateWidget',
-      args: { widgetId: 'widget-1', changes: { title: 'Updated' } },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', { title: 'Updated' });
+    applyStateMutation(
+      { type: 'updateWidget', args: { widgetId: 'widget-1', changes: { title: 'Updated' } } },
+      controller,
+    );
+    expect(controller.getState().widgets['widget-1'].title).toBe('Updated');
   });
 
-  it('calls controller.updateWidgetConfig when config is provided', () => {
+  it('merges a config patch onto the existing config', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'updateWidget',
-      args: { widgetId: 'widget-1', changes: {}, config: { chartType: 'line' } },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { chartType: 'line' });
-  });
-
-  it('does not call updateWidget when changes is empty', () => {
-    const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'updateWidget',
-      args: { widgetId: 'widget-1', changes: {} },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.updateWidget).not.toHaveBeenCalled();
+    applyStateMutation(
+      {
+        type: 'updateWidget',
+        args: { widgetId: 'widget-1', changes: {}, config: { chartType: 'line' } },
+      },
+      controller,
+    );
+    expect(controller.getState().widgets['widget-1'].config.chartType).toBe('line');
   });
 });
 
 // ── removeWidget ──────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: removeWidget', () => {
-  it('calls controller.removeWidget with the widgetId', () => {
+  it('removes the widget from state and every page layout', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'removeWidget', args: { widgetId: 'widget-1' } };
-    applyStateMutation(mutation, controller);
-    expect(controller.removeWidget).toHaveBeenCalledWith('widget-1');
+    applyStateMutation({ type: 'removeWidget', args: { widgetId: 'widget-1' } }, controller);
+    const state = controller.getState();
+    expect(state.widgets['widget-1']).toBeUndefined();
+    expect(state.pages['page-1'].widgetRows.flat()).not.toContain('widget-1');
   });
 });
 
 // ── setWidgetLayout ───────────────────────────────────────────────────────────
 
 describe('applyStateMutation: setWidgetLayout', () => {
-  it('calls controller.setWidgetLayout with the rows', () => {
+  it('replaces the active page rows', () => {
     const controller = makeController();
-    const rows = [['widget-1', 'widget-2'], ['widget-3']];
-    const mutation: StateMutation = { type: 'setWidgetLayout', args: { rows } };
-    applyStateMutation(mutation, controller);
-    expect(controller.setWidgetLayout).toHaveBeenCalledWith(rows);
+    applyStateMutation({ type: 'setWidgetLayout', args: { rows: [['widget-1']] } }, controller);
+    expect(controller.getState().pages['page-1'].widgetRows).toEqual([['widget-1']]);
   });
 });
 
 // ── setWidgetColSpan ──────────────────────────────────────────────────────────
 
 describe('applyStateMutation: setWidgetColSpan', () => {
-  it('calls controller.setWidgetColSpanInRow', () => {
+  it('sets the column span on the active page', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'setWidgetColSpan',
-      args: { widgetId: 'widget-1', columns: 6, rowWidgetIds: ['widget-1'] },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.setWidgetColSpanInRow).toHaveBeenCalledWith('widget-1', 6, ['widget-1']);
+    applyStateMutation(
+      {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'widget-1', columns: 6, rowWidgetIds: ['widget-1'] },
+      },
+      controller,
+    );
+    expect(controller.getState().pages['page-1'].widgetColSpans?.['widget-1']).toBe(6);
   });
 });
 
 // ── renamePage ────────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: renamePage', () => {
-  it('calls controller.renamePage', () => {
+  it('renames the page', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'renamePage',
-      args: { pageId: 'page-1', title: 'Overview' },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.renamePage).toHaveBeenCalledWith('page-1', 'Overview');
+    applyStateMutation(
+      { type: 'renamePage', args: { pageId: 'page-1', title: 'Overview' } },
+      controller,
+    );
+    expect(controller.getState().pages['page-1'].title).toBe('Overview');
   });
 });
 
 // ── removePage ────────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: removePage', () => {
-  it('calls controller.removePage', () => {
-    const controller = makeController();
-    const mutation: StateMutation = { type: 'removePage', args: { pageId: 'page-1' } };
-    applyStateMutation(mutation, controller);
-    expect(controller.removePage).toHaveBeenCalledWith('page-1');
+  it('removes the page and cleans up its widgets/filters', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['widget-1']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [['widget-2']] },
+      },
+      widgets: {
+        'widget-1': chartWidget('widget-1'),
+        'widget-2': chartWidget('widget-2'),
+      },
+      filters: [
+        {
+          id: 'f-page1',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'f-page2',
+          field: 'x',
+          operator: 'equals',
+          value: 2,
+          scope: { kind: 'page', pageId: 'page-2' },
+        },
+      ],
+    });
+    applyStateMutation({ type: 'removePage', args: { pageId: 'page-1' } }, controller);
+    const state = controller.getState();
+    expect(state.pages['page-1']).toBeUndefined();
+    expect(state.widgets['widget-1']).toBeUndefined();
+    expect(state.widgets['widget-2']).toBeDefined();
+    expect(state.filters.map((f) => f.id)).toEqual(['f-page2']);
+    expect(state.dashboard.activePageId).toBe('page-2');
   });
 });
 
 // ── setActivePage ─────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: setActivePage', () => {
-  it('calls controller.setActivePage', () => {
-    const controller = makeController();
-    const mutation: StateMutation = { type: 'setActivePage', args: { pageId: 'page-1' } };
-    applyStateMutation(mutation, controller);
-    expect(controller.setActivePage).toHaveBeenCalledWith('page-1');
+  it('switches the active page', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+      },
+    });
+    applyStateMutation({ type: 'setActivePage', args: { pageId: 'page-2' } }, controller);
+    expect(controller.getState().dashboard.activePageId).toBe('page-2');
   });
 });
 
 // ── addFilter ─────────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: addFilter', () => {
-  it('calls controller.addFilter with the filter', () => {
-    const controller = makeController();
+  it('appends the filter verbatim, honouring the scope the server chose', () => {
+    const controller = makeController(); // client active page is page-1
+    // The server targeted page-7 (not the client's active page). The filter must
+    // NOT be re-stamped to the client's active page.
     const filter = {
       id: 'f-new',
       field: 'revenue',
       operator: 'greater_than' as const,
       value: 200,
-      scope: { kind: 'page' as const, pageId: 'page-1' },
+      scope: { kind: 'page' as const, pageId: 'page-7' },
     };
-    const mutation: StateMutation = { type: 'addFilter', args: { filter } };
-    applyStateMutation(mutation, controller);
-    expect(controller.addFilter).toHaveBeenCalledWith(filter);
+    applyStateMutation({ type: 'addFilter', args: { filter } }, controller);
+    const added = controller.getState().filters.find((f) => f.id === 'f-new');
+    expect(added?.scope).toEqual({ kind: 'page', pageId: 'page-7' });
   });
 });
 
 // ── removeFilter ──────────────────────────────────────────────────────────────
 
 describe('applyStateMutation: removeFilter', () => {
-  it('calls controller.removeFilter', () => {
+  it('removes the filter by id', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'removeFilter', args: { filterId: 'f1' } };
-    applyStateMutation(mutation, controller);
-    expect(controller.removeFilter).toHaveBeenCalledWith('f1');
+    applyStateMutation({ type: 'removeFilter', args: { filterId: 'f1' } }, controller);
+    expect(controller.getState().filters.map((f) => f.id)).not.toContain('f1');
   });
 });
 
 // ── applyBulkUpdate ───────────────────────────────────────────────────────────
 
 describe('applyStateMutation: applyBulkUpdate', () => {
-  it('uses controller.setState() directly with the full widget map', () => {
+  it('replaces the widget map and the active page layout', () => {
     const controller = makeController();
-    const widgets = { 'w-new': { id: 'w-new', kind: 'chart' as const, title: 'New', config: {} } };
-    const mutation: StateMutation = {
-      type: 'applyBulkUpdate',
-      args: {
-        widgets,
-        widgetRows: [['w-new']],
-        widgetColSpans: {},
-        activePageId: 'page-1',
+    const widgets = { 'w-new': chartWidget('w-new', 'New') };
+    applyStateMutation(
+      {
+        type: 'applyBulkUpdate',
+        args: { widgets, widgetRows: [['w-new']], widgetColSpans: {}, activePageId: 'page-1' },
       },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.setState).toHaveBeenCalled();
-
-    const setStateArg = (controller.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      widgets: Record<string, unknown>;
-    };
-    expect(setStateArg.widgets).toEqual(widgets);
+      controller,
+    );
+    const state = controller.getState();
+    expect(state.widgets).toEqual(widgets);
+    expect(state.pages['page-1'].widgetRows).toEqual([['w-new']]);
   });
 
-  it('does nothing when activePageId is not found in state', () => {
+  it('is a no-op when the target page is missing', () => {
     const controller = makeController();
-    const mutation: StateMutation = {
-      type: 'applyBulkUpdate',
-      args: {
-        widgets: {},
-        widgetRows: [],
-        widgetColSpans: {},
-        activePageId: 'nonexistent-page',
+    const before = controller.getState();
+    applyStateMutation(
+      {
+        type: 'applyBulkUpdate',
+        args: { widgets: {}, widgetRows: [], widgetColSpans: {}, activePageId: 'nope' },
       },
-    };
-    applyStateMutation(mutation, controller);
-    expect(controller.setState).not.toHaveBeenCalled();
+      controller,
+    );
+    expect(controller.getState()).toBe(before);
   });
 });
 
-// ── Unknown mutation type ─────────────────────────────────────────────────────
+// ── renameAIThread ────────────────────────────────────────────────────────────
 
-describe('applyStateMutation: unknown type', () => {
-  it('logs a console.warn and does not throw', () => {
+describe('applyStateMutation: renameAIThread', () => {
+  it('renames the active AI thread', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      ai: {
+        activeThreadId: 't1',
+        threads: [{ id: 't1', name: 'Old', createdAt: '2020-01-01T00:00:00.000Z', messages: [] }],
+      },
+    });
+    applyStateMutation({ type: 'renameAIThread', args: { name: 'New Name' } }, controller);
+    expect(controller.getState().ai?.threads[0].name).toBe('New Name');
+  });
+});
+
+// ── undo integration ──────────────────────────────────────────────────────────
+
+describe('applyStateMutation: undo integration', () => {
+  it('an applied mutation is undoable', () => {
     const controller = makeController();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    applyStateMutation({ type: 'setDashboardTitle', args: { title: 'Changed' } }, controller);
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().dashboard.title).toBe('Dashboard');
+  });
+});
 
-    applyStateMutation({ type: 'unknownMutation' as never, args: {} as never }, controller);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Unknown state mutation type:'),
-      'unknownMutation',
-    );
+// ── unknown/unhandled ─────────────────────────────────────────────────────────
 
-    warnSpy.mockRestore();
+describe('applyStateMutation: unknown/unhandled', () => {
+  it('does not throw for a malformed mutation', () => {
+    const controller = makeController();
+    expect(() =>
+      applyStateMutation({ type: 'unknownMutation' as never, args: {} as never }, controller),
+    ).not.toThrow();
   });
 });

@@ -1,13 +1,27 @@
 /**
- * Tests for useChartWidgetData's cross-source blending path (mixed charts whose
- * ySeries reference different data sources, aligned on a shared categorical xField).
+ * Tests for useChartWidgetData.
+ *
+ * Covers: cross-source blending (mixed charts whose ySeries reference different data
+ * sources, aligned on a shared categorical xField), cross-filter ghost baseline memos
+ * (allChartData/allSeriesFieldData/allMultiYData), rank-filter separation (row-level
+ * vs. post-aggregation), stable series-color assignment (allSeriesNames/resolvedChartColors),
+ * scatter series computation, and adapter-backed foreign-source fetch promise plumbing
+ * (loading / success / rejection).
  *
  * Context is mocked via vi.mock so useStudioSelector resolves against a mutable
  * `mockState` — matching the pattern used by the other widget/hook tests.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor } from '@mui/internal-test-utils';
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import { renderHook, waitFor, act } from '@mui/internal-test-utils';
+import { blueberryTwilightPalette } from '@mui/x-charts/colorPalettes';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioRelationship,
+  StudioExpressionField,
+  StudioState,
+  StudioWidget,
+} from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   mockUseStudioSelector,
@@ -240,5 +254,594 @@ describe('useChartWidgetData — cross-source blending', () => {
     expect(getRows).toHaveBeenCalled();
     // The foreign source must be queried on its own (no cross-source JOIN on the widget).
     expect(getRows.mock.calls[0][0].sourceId).toBe('products');
+  });
+
+  it('renders synchronously with foreign series at 0 while the adapter fetch is still pending', () => {
+    // The foreign source's getRows() never resolves in this test. Before it settles,
+    // asyncForeignRows is empty, so blendedMultiYData outer-joins the foreign field
+    // against zero rows — the primary series must still render its real aggregation.
+    const getRows = vi.fn(() => new Promise<{ rows: Record<string, unknown>[] }>(() => {}));
+    const adapterProducts: StudioDataSource = {
+      ...productsSource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: adapterProducts },
+    });
+
+    const widget = blendedWidget();
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+
+    expect(getRows).toHaveBeenCalled();
+    const data = result.current.multiYData!;
+    const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
+    expect(stockSeries.values.every((v) => v === 0)).toBe(true);
+    const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
+    const ent = data.labels.indexOf('Electronics');
+    expect(totalSeries.values[ent]).toBe(150); // primary series unaffected by the pending fetch
+  });
+
+  it('leaves the foreign series empty and does not crash the hook when the adapter fetch rejects', async () => {
+    let rejectFetch: (err: unknown) => void = () => {};
+    const getRows = vi.fn(
+      () =>
+        new Promise<{ rows: Record<string, unknown>[] }>((_resolve, reject) => {
+          rejectFetch = reject;
+        }),
+    );
+    const adapterProducts: StudioDataSource = {
+      ...productsSource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: adapterProducts },
+    });
+
+    const widget = blendedWidget();
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+    expect(getRows).toHaveBeenCalled();
+
+    // Reject the in-flight fetch. The hook's rejection handler is a documented no-op
+    // (see the comment above `promise.then(...)` in useChartWidgetData.ts: "errors leave
+    // the series empty; the primary chart still renders") — it must not throw, produce an
+    // unhandled rejection, or crash the hook.
+    await act(async () => {
+      rejectFetch(new Error('network down'));
+      // Flush the microtask queue so the attached rejection handler runs.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const data = result.current.multiYData!;
+    const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
+    expect(stockSeries.values.every((v) => v === 0)).toBe(true);
+    const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
+    const ent = data.labels.indexOf('Electronics');
+    expect(totalSeries.values[ent]).toBe(150); // primary chart still renders after the error
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-filter ghost baseline memos: allChartData / allSeriesFieldData / allMultiYData
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// These memos recompute from `allEnrichedRows` (derived from `filteredRowsNoCross`,
+// i.e. page + widget filters only — no cross-filters) so a chart can render a dimmed
+// "all data" ghost baseline behind the actively cross-filtered series. They are only
+// computed when `shouldShowGhost` is true (crossFilterMode 'cross-highlight' + an
+// incoming chart-click cross-filter from another widget).
+
+const revenueSource: StudioDataSource = {
+  id: 'revenue',
+  label: 'Revenue',
+  fields: [
+    { id: 'category', label: 'Category', type: 'string' },
+    { id: 'region', label: 'Region', type: 'string' },
+    { id: 'total', label: 'Total', type: 'number' },
+    { id: 'cost', label: 'Cost', type: 'number' },
+  ],
+  rows: [
+    { id: 'r1', category: 'Electronics', region: 'EU', total: 100, cost: 40 },
+    { id: 'r2', category: 'Electronics', region: 'US', total: 50, cost: 20 },
+    { id: 'r3', category: 'Furniture', region: 'EU', total: 30, cost: 10 },
+    { id: 'r4', category: 'Furniture', region: 'US', total: 20, cost: 5 },
+    { id: 'r5', category: 'Office', region: 'EU', total: 10, cost: 3 },
+  ],
+};
+
+function crossFilterOnRegion(value: string): StudioFilterState {
+  return {
+    id: 'f-cross-region',
+    field: 'region',
+    operator: 'equals',
+    value,
+    scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+  } as StudioFilterState;
+}
+
+function singleSeriesWidget(): StudioWidget {
+  return {
+    id: 'chart-single',
+    kind: 'chart',
+    title: 'Revenue by Category',
+    sourceId: 'revenue',
+    config: { chartType: 'bar', xField: 'category', yField: 'total', yAggregation: 'sum' },
+  };
+}
+
+function multiYWidget(): StudioWidget {
+  return {
+    id: 'chart-multi',
+    kind: 'chart',
+    title: 'Total & Cost by Category',
+    sourceId: 'revenue',
+    config: {
+      chartType: 'bar',
+      xField: 'category',
+      ySeries: [
+        { fieldId: 'total', yAggregation: 'sum' },
+        { fieldId: 'cost', yAggregation: 'sum' },
+      ],
+    },
+  };
+}
+
+const salesSource: StudioDataSource = {
+  id: 'sales',
+  label: 'Sales',
+  fields: [
+    { id: 'month', label: 'Month', type: 'string' },
+    { id: 'region', label: 'Region', type: 'string' },
+    { id: 'value', label: 'Value', type: 'number' },
+  ],
+  rows: [
+    { id: 's1', month: 'Jan', region: 'EU', value: 10 },
+    { id: 's2', month: 'Jan', region: 'US', value: 20 },
+    { id: 's3', month: 'Feb', region: 'EU', value: 15 },
+    { id: 's4', month: 'Feb', region: 'US', value: 25 },
+  ],
+};
+
+function seriesFieldWidget(): StudioWidget {
+  return {
+    id: 'chart-series',
+    kind: 'chart',
+    title: 'Value by Month/Region',
+    sourceId: 'sales',
+    config: { chartType: 'line', xField: 'month', seriesField: 'region', yField: 'value' },
+  };
+}
+
+describe('useChartWidgetData — cross-filter ghost baseline memos', () => {
+  it('allChartData is the full unfiltered aggregation while chartData reflects the active cross-filter', () => {
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [crossFilterOnRegion('EU')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+
+    const filtered = result.current.chartData!;
+    expect(filtered.values[filtered.labels.indexOf('Electronics')]).toBe(100); // EU only
+    expect(filtered.values[filtered.labels.indexOf('Furniture')]).toBe(30);
+    expect(filtered.values[filtered.labels.indexOf('Office')]).toBe(10);
+
+    const all = result.current.allChartData!;
+    expect(all.values[all.labels.indexOf('Electronics')]).toBe(150); // 100 + 50, all regions
+    expect(all.values[all.labels.indexOf('Furniture')]).toBe(50); // 30 + 20
+    expect(all.values[all.labels.indexOf('Office')]).toBe(10);
+  });
+
+  it('allMultiYData is the full unfiltered multi-series aggregation while multiYData reflects the active cross-filter', () => {
+    const widget = multiYWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [crossFilterOnRegion('EU')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+
+    const filtered = result.current.multiYData!;
+    const totalFiltered = filtered.series.find((s) => s.fieldId === 'total')!;
+    const costFiltered = filtered.series.find((s) => s.fieldId === 'cost')!;
+    const elFiltered = filtered.labels.indexOf('Electronics');
+    expect(totalFiltered.values[elFiltered]).toBe(100);
+    expect(costFiltered.values[elFiltered]).toBe(40);
+
+    const all = result.current.allMultiYData!;
+    const totalAll = all.series.find((s) => s.fieldId === 'total')!;
+    const costAll = all.series.find((s) => s.fieldId === 'cost')!;
+    const elAll = all.labels.indexOf('Electronics');
+    expect(totalAll.values[elAll]).toBe(150);
+    expect(costAll.values[elAll]).toBe(60);
+  });
+
+  it('allSeriesFieldData is the full unfiltered two-field aggregation while seriesFieldData reflects the active cross-filter', () => {
+    const widget = seriesFieldWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: salesSource },
+      filters: [crossFilterOnRegion('EU')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, salesSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+
+    // Only EU rows are visible post-cross-filter, so the US series disappears entirely.
+    const filtered = result.current.seriesFieldData!;
+    expect(filtered.seriesNames).toEqual(['EU']);
+
+    const all = result.current.allSeriesFieldData!;
+    expect(all.seriesNames).toEqual(['EU', 'US']);
+    const jan = all.labels.indexOf('Jan');
+    const feb = all.labels.indexOf('Feb');
+    expect(all.seriesData.EU[jan]).toBe(10);
+    expect(all.seriesData.US[jan]).toBe(20);
+    expect(all.seriesData.EU[feb]).toBe(15);
+    expect(all.seriesData.US[feb]).toBe(25);
+  });
+
+  it('ghost memos are null when there is no incoming cross-filter (shouldShowGhost false)', () => {
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(false);
+    expect(result.current.allChartData).toBeNull();
+    expect(result.current.chartData).not.toBeNull();
+  });
+
+  it('keeps allChartData referentially stable across a cross-filter-only change, but recomputes when the underlying rows change', () => {
+    // Stable (never replaced) relationships/expressionFields references: the underlying
+    // content-based row-resolution caches gate on `relationships`/expression-field object
+    // identity, so a fresh [] on every mockState reassignment would defeat the very
+    // cache hit this test is trying to observe.
+    const stableRelationships: StudioRelationship[] = [];
+    const stableExpressionFields: StudioExpressionField[] = [];
+    const widget = singleSeriesWidget();
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [crossFilterOnRegion('EU')],
+    });
+    // `dataSource` is passed to the hook directly (not read from context), so it must be
+    // threaded through renderHook's props to actually change on rerender — reusing the
+    // same closure-captured value across `rerender()` calls would never update it.
+    const { result, rerender } = renderHook(
+      ({ dataSource }) => useChartWidgetData(widget, dataSource, 'page-1'),
+      { initialProps: { dataSource: revenueSource } },
+    );
+    const firstAllChartData = result.current.allChartData;
+    expect(firstAllChartData).not.toBeNull();
+
+    // Change only which value the incoming cross-filter selects. The "no-cross" baseline
+    // (page + widget filters only, which are empty here) is untouched by this change, so
+    // allEnrichedRows — and therefore allChartData — must not be recomputed.
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [crossFilterOnRegion('US')],
+    });
+    rerender({ dataSource: revenueSource });
+
+    expect(result.current.allChartData).toBe(firstAllChartData);
+    // Sanity check: the filtered (non-ghost) data DID change with the new cross-filter value.
+    const filteredAfter = result.current.chartData!;
+    expect(filteredAfter.values[filteredAfter.labels.indexOf('Electronics')]).toBe(50); // US only now
+
+    // Now change the underlying data itself (new rows array reference with a changed
+    // value) — this must invalidate the "no-cross" baseline and force a recompute.
+    const updatedRevenueSource: StudioDataSource = {
+      ...revenueSource,
+      rows: [
+        ...revenueSource.rows!.slice(0, -1),
+        { id: 'r5', category: 'Office', region: 'EU', total: 999, cost: 3 },
+      ],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: updatedRevenueSource },
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [crossFilterOnRegion('US')],
+    });
+    rerender({ dataSource: updatedRevenueSource });
+
+    expect(result.current.allChartData).not.toBe(firstAllChartData);
+    expect(
+      result.current.allChartData!.values[result.current.allChartData!.labels.indexOf('Office')],
+    ).toBe(999);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rank-filter separation: row-level filtering vs. post-aggregation ranking
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A widget-scoped filter with filterMode:'rank' (top/bottom-N) must NOT reduce the
+// row set the chart aggregates over (per ARCHITECTURE.md's L3 filter layer: rank
+// filters are excluded from row-level filtering and applied after aggregation). See
+// `selectFiltersForWidget` (filterScoping.ts:49): a widget-scope filter is only
+// included in the row-level filter set when `filterMode !== 'rank'`.
+
+function rankFilter(overrides: Partial<StudioFilterState> = {}): StudioFilterState {
+  return {
+    id: 'f-rank',
+    field: 'total',
+    operator: 'greater_than',
+    value: 2,
+    filterMode: 'rank',
+    rankDirection: 'top',
+    scope: { kind: 'widget', widgetId: 'chart-single' },
+    ...overrides,
+  } as StudioFilterState;
+}
+
+describe('useChartWidgetData — rank-filter separation', () => {
+  it('excludes the widget rank filter from row-level filtering (all rows still reach aggregation)', () => {
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [rankFilter({ value: 2 })],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    // All 5 rows across all 3 categories reach the chart-grain/enrichment layer —
+    // the rank filter must not have removed any rows at the filter layer.
+    expect(result.current.filteredRows).toHaveLength(5);
+    expect(result.current.enrichedRows).toHaveLength(5);
+  });
+
+  it.each([
+    { rankDirection: 'top' as const, value: 2, expectedLabels: ['Electronics', 'Furniture'] },
+    { rankDirection: 'bottom' as const, value: 1, expectedLabels: ['Office'] },
+    { rankDirection: 'bottom' as const, value: 2, expectedLabels: ['Furniture', 'Office'] },
+  ])(
+    'applies rank ($rankDirection $value) post-aggregation to chartData',
+    ({ rankDirection, value, expectedLabels }) => {
+      const widget = singleSeriesWidget();
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { revenue: revenueSource },
+        filters: [rankFilter({ rankDirection, value })],
+      });
+      const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+      const data = result.current.chartData!;
+      expect([...data.labels].sort()).toEqual([...expectedLabels].sort());
+      expect(data.labels).toHaveLength(expectedLabels.length);
+    },
+  );
+
+  it('applies rank post-aggregation to multiYData (ranking by the summed series values)', () => {
+    const widget = multiYWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [
+        rankFilter({
+          scope: { kind: 'widget', widgetId: widget.id },
+          rankDirection: 'top',
+          value: 1,
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    // Electronics has the highest combined total+cost (150 + 60), so top-1 keeps only it.
+    const data = result.current.multiYData!;
+    expect(data.labels).toEqual(['Electronics']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stable color assignment: allSeriesNames / resolvedChartColors
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `allSeriesNames` is computed from `allEnrichedRows` (the non-cross-filtered baseline)
+// so the consuming component can assign each series a color by its index in this list —
+// a series doesn't change color just because an active cross-filter temporarily hides it.
+
+describe('useChartWidgetData — stable color assignment', () => {
+  it('computes allSeriesNames (sorted) from the unfiltered rows', () => {
+    const widget = seriesFieldWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: salesSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, salesSource, 'page-1'));
+
+    expect(result.current.allSeriesNames).toEqual(['EU', 'US']);
+  });
+
+  it('keeps allSeriesNames unaffected when a cross-filter narrows the visible series', () => {
+    const widget = seriesFieldWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: salesSource },
+      filters: [crossFilterOnRegion('EU')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, salesSource, 'page-1'));
+
+    // The currently-visible series collapses to just 'EU' ...
+    expect(result.current.seriesFieldData!.seriesNames).toEqual(['EU']);
+    // ... but the stable color-assignment list still reports both series, at their
+    // original indices, so a series doesn't jump to a different color when it reappears.
+    expect(result.current.allSeriesNames).toEqual(['EU', 'US']);
+  });
+
+  it('appends a newly-appearing label without disturbing earlier indices when it sorts after existing labels', () => {
+    const widget = seriesFieldWidget();
+    const extendedSales: StudioDataSource = {
+      ...salesSource,
+      rows: [...salesSource.rows!, { id: 's5', month: 'Mar', region: 'ZZ-APAC', value: 5 }],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: extendedSales },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, extendedSales, 'page-1'));
+
+    expect(result.current.allSeriesNames).toEqual(['EU', 'US', 'ZZ-APAC']);
+    expect(result.current.allSeriesNames.indexOf('EU')).toBe(0);
+    expect(result.current.allSeriesNames.indexOf('US')).toBe(1);
+  });
+
+  it('documents actual behavior: a new label that sorts BEFORE existing labels shifts their indices', () => {
+    // allSeriesNames is alphabetically sorted (sortLabels), not insertion-ordered. A
+    // series-color assignment keyed by `allSeriesNames.indexOf(name)` (as the consuming
+    // StudioChartWidget component does) is therefore only index-stable for existing
+    // series when new categories happen to sort AFTER them. A category that sorts
+    // earlier (e.g. 'AA' before 'EU') shifts every later index. This is current,
+    // intentional-looking behavior — documented here rather than "fixed" by this
+    // test-only change.
+    const widget = seriesFieldWidget();
+    const extendedSales: StudioDataSource = {
+      ...salesSource,
+      rows: [...salesSource.rows!, { id: 's5', month: 'Mar', region: 'AA-EMEA', value: 5 }],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: extendedSales },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, extendedSales, 'page-1'));
+
+    expect(result.current.allSeriesNames).toEqual(['AA-EMEA', 'EU', 'US']);
+    // EU shifted from index 0 -> 1, US from index 1 -> 2.
+    expect(result.current.allSeriesNames.indexOf('EU')).toBe(1);
+    expect(result.current.allSeriesNames.indexOf('US')).toBe(2);
+  });
+
+  it('resolvedChartColors falls back to the theme palette when no page chart-color override is configured', () => {
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    // usePageChartColors() currently always returns undefined (colors are theme-driven),
+    // so resolvedChartColors falls back to blueberryTwilightPalette for the resolved mode.
+    // Without a ThemeProvider/CssVarsProvider the resolved mode defaults to 'light'.
+    expect(result.current.chartColors).toBeUndefined();
+    expect(result.current.resolvedChartColors).toEqual(blueberryTwilightPalette('light'));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scatter series computation
+// ─────────────────────────────────────────────────────────────────────────────
+
+const scatterSource: StudioDataSource = {
+  id: 'metrics',
+  label: 'Metrics',
+  fields: [
+    { id: 'x', label: 'X', type: 'number' },
+    { id: 'y', label: 'Y', type: 'number' },
+    { id: 'size', label: 'Size', type: 'number' },
+    { id: 'region', label: 'Region', type: 'string' },
+  ],
+  rows: [
+    { id: 'm1', x: 1, y: 2, size: 5, region: 'A' },
+    { id: 'm2', x: 3, y: 4, size: 9, region: 'B' },
+    { id: 'm3', x: 5, y: 6, region: 'A' }, // no size value
+  ],
+};
+
+function scatterWidget(overrides: Partial<StudioWidget['config']> = {}): StudioWidget {
+  return {
+    id: 'chart-scatter',
+    kind: 'chart',
+    title: 'Scatter',
+    sourceId: 'metrics',
+    config: {
+      chartType: 'scatter',
+      xField: 'x',
+      yField: 'y',
+      scatterSizeField: 'size',
+      ...overrides,
+    },
+  };
+}
+
+describe('useChartWidgetData — scatter series computation', () => {
+  it('prepares scatterData points (x/y pairing, index ids, bubble sizing via the size field)', () => {
+    const widget = scatterWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { metrics: scatterSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, scatterSource, 'page-1'));
+
+    expect(result.current.scatterData).toEqual([
+      { x: 1, y: 2, id: 0, sizeValue: 5 },
+      { x: 3, y: 4, id: 1, sizeValue: 9 },
+      { x: 5, y: 6, id: 2, sizeValue: 0 }, // missing size defaults to 0
+    ]);
+  });
+
+  it('groups rows into one scatter series per color-by category, dropping empty categories', () => {
+    const widget = scatterWidget({ scatterColorField: 'region' });
+    // Cross-filter hides region 'B' entirely from the current (filtered) rows, but the
+    // stable category order is still derived from ALL rows (allEnrichedRows).
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { metrics: scatterSource },
+      filters: [crossFilterOnRegion('A')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, scatterSource, 'page-1'));
+
+    expect(result.current.scatterSeries).toHaveLength(1);
+    expect(result.current.scatterSeries![0].id).toBe('A');
+    // `id` is the point's index within the CURRENT (already cross-filtered) row set, not
+    // the original unfiltered row array — so m3 (originally index 2) becomes index 1 here.
+    expect(result.current.scatterSeries![0].data).toEqual([
+      { x: 1, y: 2, id: 0, sizeValue: 5 },
+      { x: 5, y: 6, id: 1, sizeValue: 0 },
+    ]);
+
+    // Ghost (ALL rows, ignoring the cross-filter) still includes both categories.
+    expect(result.current.shouldShowGhost).toBe(true);
+    expect(result.current.allScatterSeries!.map((s) => s.id).sort()).toEqual(['A', 'B']);
+  });
+
+  it('ghost scatter data (allScatterData/allScatterSeries) is null without an active cross-filter', () => {
+    const widget = scatterWidget({ scatterColorField: 'region' });
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { metrics: scatterSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, scatterSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(false);
+    expect(result.current.allScatterData).toBeNull();
+    expect(result.current.allScatterSeries).toBeNull();
+    // Non-ghost scatter data is still computed from the (unfiltered, in this case) rows.
+    expect(result.current.scatterData).toHaveLength(3);
   });
 });

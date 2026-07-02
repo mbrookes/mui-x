@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import type { StudioWidget, StudioWidgetConfig } from '../../models';
+import type { StudioCustomWidgetDef, StudioWidget, StudioWidgetConfig } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioWidgetEditDialog } from './StudioWidgetEditDialog';
 
@@ -16,6 +16,25 @@ function textWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
     ...overrides,
   };
 }
+
+function customWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'acme-alert',
+    title: 'My Alert',
+    config: {} as StudioWidgetConfig,
+    ...overrides,
+  };
+}
+
+const CUSTOM_WIDGET_DEF: StudioCustomWidgetDef = {
+  kind: 'acme-alert',
+  label: 'Alert Banner',
+  component: () => <div data-testid="custom-widget-preview">Custom preview</div>,
+  setupPanel: ({ widgetId }) => (
+    <div data-testid="custom-setup-panel">Custom setup for {widgetId}</div>
+  ),
+};
 
 function chartWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {
@@ -42,6 +61,9 @@ function setup(
     open?: boolean;
     featureFlags?: Record<string, boolean>;
     dataSources?: Record<string, typeof CHART_SOURCE>;
+    customWidgets?: StudioCustomWidgetDef[];
+    /** Omit the `children` override so the dialog renders its default Setup-tab dispatch. */
+    withoutChildren?: boolean;
   } = {},
 ) {
   const onClose = vi.fn();
@@ -50,16 +72,20 @@ function setup(
       widgets: options.widgets ?? { w1: textWidget() },
       ...(options.dataSources ? { dataSources: options.dataSources } : {}),
     },
-    providerProps: options.featureFlags ? { featureFlags: options.featureFlags } : undefined,
+    providerProps:
+      options.featureFlags || options.customWidgets
+        ? { featureFlags: options.featureFlags, customWidgets: options.customWidgets }
+        : undefined,
   });
   const view = render(
-    // Pass children to bypass the heavy auto-rendered widget preview.
+    // Pass children to bypass the heavy auto-rendered widget preview (unless the test
+    // needs the dialog's own default dispatch, e.g. the Setup-tab custom-widget test).
     <StudioWidgetEditDialog
       open={options.open ?? true}
       onClose={onClose}
       widgetId={options.widgetId ?? 'w1'}
     >
-      <div data-testid="preview" />
+      {options.withoutChildren ? undefined : <div data-testid="preview" />}
     </StudioWidgetEditDialog>,
     { wrapper },
   );
@@ -100,6 +126,29 @@ describe('StudioWidgetEditDialog', () => {
     expect(screen.queryByRole('tab', { name: 'Filters' })).toBe(null);
     expect(screen.getByRole('tab', { name: 'Setup' })).not.toBe(null);
     expect(screen.getByRole('tab', { name: 'Format' })).not.toBe(null);
+  });
+
+  // Regression test for the architecture-review bug: editing a custom widget via the
+  // built-in edit dialog previously rendered a blank Setup tab (no custom-widget handling
+  // at all) even though the preview rendered fine via `customDef.component`. Both the
+  // Setup tab and the preview now resolve through the same unified widget-kind registry.
+  it("renders a custom widget kind's setupPanel in the Setup tab (previously blank)", () => {
+    setup({
+      widgets: { w1: customWidget() },
+      customWidgets: [CUSTOM_WIDGET_DEF],
+      withoutChildren: true,
+    });
+    expect(screen.getByTestId('custom-setup-panel').textContent).toBe('Custom setup for w1');
+  });
+
+  it("renders the custom widget's own preview component alongside the fixed Setup tab", () => {
+    setup({
+      widgets: { w1: customWidget() },
+      customWidgets: [CUSTOM_WIDGET_DEF],
+      withoutChildren: true,
+    });
+    expect(screen.getByTestId('custom-widget-preview')).not.toBe(null);
+    expect(screen.getByTestId('custom-setup-panel')).not.toBe(null);
   });
 
   it('calls onClose when the close button is clicked', async () => {

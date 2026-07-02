@@ -24,7 +24,6 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioLocaleText,
-  useCustomWidgetMap,
   selectMode,
   selectPages,
   selectFilters,
@@ -45,20 +44,14 @@ import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/wi
 import { resolveTextFontFamily } from '../../internals/textFontFamily';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../../models';
-import { StudioGridWidget } from '../widgets/StudioGridWidget/StudioGridWidget';
 import type { StudioGridWidgetProps } from '../widgets/StudioGridWidget/StudioGridWidget';
-import { StudioChartWidget, CHART_MIN_HEIGHT } from '../widgets/StudioChartWidget';
 import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
-import { StudioKpiWidget } from '../widgets/StudioKpiWidget';
 import type { StudioKpiWidgetProps } from '../widgets/StudioKpiWidget/StudioKpiWidget';
-import { StudioTextWidget } from '../widgets/StudioTextWidget';
 import type { StudioTextWidgetProps } from '../widgets/StudioTextWidget/StudioTextWidget';
-import { StudioFilterWidget } from '../widgets/StudioFilterWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
-import { StudioPivotWidget } from '../widgets/StudioPivotWidget/StudioPivotWidget';
-import { StudioMapWidget } from '../widgets/StudioMapWidget';
 import {
   exportGridToCsv,
   exportChartToPng,
@@ -134,15 +127,6 @@ export interface StudioWidgetCardProps {
   onInsightRequest?: (widgetId: string, prompt: string) => void;
 }
 
-// Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
-// Widgets that have already been rendered once skip the defer on subsequent mounts
-// so rearranging cards doesn't cause a visible blank-shell flash.
-const hydratedWidgets = new Set<string>();
-
-const KPI_WIDGET_MIN_HEIGHT = 160;
-const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
-const MAP_WIDGET_DEFAULT_HEIGHT = 400;
-
 function DefaultLoadingOverlay() {
   return (
     <Box
@@ -214,7 +198,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
-  const customWidgetMap = useCustomWidgetMap();
+  const widgetDefMap = useWidgetDefMap();
   const features = useStudioFeatures();
 
   // For KPI widgets with auto subtitle and no user-set subtitle, derive a date range label
@@ -230,11 +214,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     }
     return widget.subtitle ?? '';
   }, [widget, allFilters, localeText]);
-  // Look up the custom widget definition for non-builtin widget kinds
-  const customDef =
-    widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
-      ? (customWidgetMap.get(widget.kind) ?? null)
-      : null;
+
+  // Unified widget-kind definition — built-in or consumer-registered custom kind.
+  const def = widget ? widgetDefMap.get(widget.kind) : undefined;
+  // Only non-builtin (custom) kinds need L2 enrichment applied here; built-in widgets
+  // enrich their own rows internally via `useWidgetRows`.
+  const isCustomKind = widget != null && !(widget.kind in BUILTIN_WIDGET_DEFS);
 
   // Enrich the raw data source with expression-field values (L2 pipeline) for custom widgets.
   // Built-in widgets handle enrichment themselves via useWidgetRows; custom widgets receive
@@ -243,7 +228,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // computed column values. The enriched result is stable — getCachedEnrichedRows caches by
   // reference, so repeated renders with the same inputs return the same array.
   const enrichedCustomSource = React.useMemo(() => {
-    if (!customDef || !source) {
+    if (!isCustomKind || !source) {
       return source ?? undefined;
     }
     const pipeline = createStudioPipeline({
@@ -254,20 +239,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
     const enrichedRows = pipeline.getEnrichedRows(source.rows ?? [], source.id);
     return { ...source, rows: enrichedRows };
-  }, [customDef, source, allDataSources, relationships, expressionFields]);
+  }, [isCustomKind, source, allDataSources, relationships, expressionFields]);
 
   // Full-bleed custom widgets render edge-to-edge: no title/subtitle header and no card padding.
-  const isFullBleedCustom = customDef?.fullBleed === true;
+  const isFullBleedCustom = def?.fullBleed === true;
 
   // AI insights are disabled for filter/text/kpi widgets; custom widgets opt in via `aiInsight: true`.
   // The `aiInsights` feature flag lets embedders hide per-widget AI actions independently of AI chat.
-  const supportsInsight =
-    features.aiInsights &&
-    widget != null &&
-    widget.kind !== 'filter' &&
-    widget.kind !== 'text' &&
-    widget.kind !== 'kpi' &&
-    (customDef === null || customDef.aiInsight === true);
+  const supportsInsight = features.aiInsights && widget != null && def?.aiInsight === true;
 
   // ── AI Insight routing ────────────────────────────────────────────────────
   const handleInsightRequest = React.useCallback(
@@ -418,9 +397,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   }, [onEditRequest, widgetId]);
 
   // Defer heavy widget content to after the first browser paint so the card
-  // shells are visible immediately on initial load. Widgets that have already
-  // been rendered (tracked in hydratedWidgets) skip the defer so that
-  // drag-and-drop repositioning doesn't cause a blank-shell flash.
+  // shells are visible immediately on initial load.
   //
   // NOTE: intentionally NOT using startTransition/useTransition here.
   // Wrapping setShowContent in a transition makes it low-priority and lets
@@ -428,18 +405,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // indefinitely, causing a ~5-second visible delay after DnD drops.
   // The requestAnimationFrame delay alone is sufficient to avoid blocking the
   // first paint without causing hover-induced starvation.
-  const [showContent, setShowContent] = React.useState(() => hydratedWidgets.has(widgetId));
+  //
+  // Each widget Box is keyed by its own `widgetId` (see StudioCanvas), so
+  // ordinary layout edits (adding/moving/removing a sibling in the same row)
+  // no longer remount this component — the defer below only ever runs once
+  // per genuine mount of a given widget.
+  const [showContent, setShowContent] = React.useState(false);
 
   React.useEffect(() => {
-    hydratedWidgets.add(widgetId);
-    if (showContent) {
-      return undefined;
-    }
     const raf = requestAnimationFrame(() => {
       setShowContent(true);
     });
     return () => cancelAnimationFrame(raf);
-  }, [showContent, widgetId]);
+  }, []);
 
   const handleExport = React.useCallback(
     (event: React.MouseEvent) => {
@@ -470,16 +448,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     return null;
   }
 
-  // In view mode, let the custom widget def opt into collapsing the entire card.
+  // In view mode, let the widget def opt into collapsing the entire card (custom widgets only).
   // Pass the enriched source so shouldHide can evaluate expression-field–driven conditions.
-  if (mode === 'view' && customDef?.shouldHide?.({ widget, dataSource: enrichedCustomSource })) {
+  if (mode === 'view' && def?.shouldHide?.({ widget, dataSource: enrichedCustomSource })) {
     return null;
   }
 
-  const canExport =
-    features.export &&
-    (widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot');
+  const exportKind = def?.capabilities?.export;
+  const canExport = features.export && exportKind != null;
   const isChart = widget.kind === 'chart';
+  const canExpand = def?.capabilities?.expand === true;
   // Forecast is only rendered for line/area charts (see StudioChartWidget), so hide the
   // forecast insight action for every other widget kind / chart type.
   const supportsForecast =
@@ -491,19 +469,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // View-mode toolbar is only revealed while the widget is hovered ("covered"), never pinned.
   const showViewActions = mode === 'view' && hovered;
   const showViewExport = showViewActions && canExport;
-  const showViewExpand = showViewActions && isChart;
+  const showViewExpand = showViewActions && canExpand;
   const exportLabel =
-    widget.kind === 'chart' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
+    exportKind === 'png' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
-  let minHeight: number | undefined;
-  if (widget.kind === 'kpi') {
-    minHeight = KPI_WIDGET_MIN_HEIGHT;
-  } else if (widget.kind === 'filter') {
-    minHeight = FILTER_WIDGET_MIN_HEIGHT;
-  }
+  const minHeight = def?.capabilities?.minHeight;
+
+  // Extra props forwarded from `slotProps.<kind>` (currently only grid/chart/kpi/filter/text
+  // accept them via the public `StudioWidgetCardProps.slotProps` API).
+  const extraProps = (
+    slotProps as Record<string, Record<string, unknown> | undefined> | undefined
+  )?.[widget.kind];
 
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -517,7 +496,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             return;
           }
           controller.setSelectedWidget(widgetId);
-          if (onUnconfiguredClick && widget.kind !== 'text' && !widget.sourceId) {
+          if (onUnconfiguredClick && def?.requiresDataSource !== false && !widget.sourceId) {
             onUnconfiguredClick(widgetId);
           }
         }}
@@ -533,7 +512,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           }
           if (event.key === 'Enter' || event.key === ' ') {
             controller.setSelectedWidget(widgetId);
-            if (onUnconfiguredClick && widget.kind !== 'text' && !widget.sourceId) {
+            if (onUnconfiguredClick && def?.requiresDataSource !== false && !widget.sourceId) {
               onUnconfiguredClick(widgetId);
             }
           }
@@ -707,117 +686,35 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           )}
           {/* Widget content — deferred to after first paint to avoid blocking initial render.
             A Skeleton placeholder preserves the card's height so the layout does not
-            shift when real content arrives (avoids CLS). */}
-          {widget.kind === 'grid' &&
+            shift when real content arrives (avoids CLS). Dispatch to the widget's
+            render component is a single lookup into the unified widget-kind registry
+            (built-in and custom kinds are otherwise indistinguishable here). */}
+          {def &&
             (showContent ? (
-              <Box sx={{ position: 'relative' }}>
-                <StudioGridWidget
+              <Box sx={{ position: 'relative', ...(def.capabilities.contentSx ?? {}) }}>
+                <def.component
                   widget={widget}
-                  dataSource={source}
+                  dataSource={isCustomKind ? enrichedCustomSource : source}
                   pageId={pageId}
-                  {...slotProps?.grid}
-                />
-                {isRecomputing && <LoadingOverlay />}
-              </Box>
-            ) : (
-              <Skeleton
-                variant="rectangular"
-                height={widget.config.gridHeight ?? 400}
-                sx={{ borderRadius: 1 }}
-              />
-            ))}
-          {widget.kind === 'chart' &&
-            (showContent ? (
-              <Box sx={{ position: 'relative' }}>
-                <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
-                  <StudioChartWidget
-                    widget={widget}
-                    dataSource={source}
-                    pageId={pageId}
-                    height={CHART_MIN_HEIGHT}
-                    anomalyEnabled={anomalyEnabled}
-                    onAnomalyDetected={setAnomalyAnnotations}
-                    {...slotProps?.chart}
-                  />
-                </Box>
-                {isRecomputing && <LoadingOverlay />}
-              </Box>
-            ) : (
-              <Skeleton variant="rectangular" height={CHART_MIN_HEIGHT} sx={{ borderRadius: 1 }} />
-            ))}
-          {widget.kind === 'kpi' &&
-            (showContent ? (
-              <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-                <StudioKpiWidget
-                  widget={widget}
-                  dataSource={source}
-                  pageId={pageId}
-                  {...slotProps?.kpi}
-                />
-              </Box>
-            ) : (
-              <Skeleton
-                variant="rectangular"
-                height={KPI_WIDGET_MIN_HEIGHT - 48}
-                sx={{ borderRadius: 1 }}
-              />
-            ))}
-          {widget.kind === 'text' &&
-            (showContent ? (
-              <StudioTextWidget
-                widget={widget}
-                aiRefreshRef={textAiRefreshRef}
-                {...slotProps?.text}
-              />
-            ) : (
-              <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1 }} />
-            ))}
-          {widget.kind === 'filter' &&
-            (showContent ? (
-              <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
-            ) : (
-              <Skeleton
-                variant="rectangular"
-                height={FILTER_WIDGET_MIN_HEIGHT - 48}
-                sx={{ borderRadius: 1 }}
-              />
-            ))}
-          {widget.kind === 'pivot' &&
-            (showContent ? (
-              <Box sx={{ position: 'relative' }}>
-                <StudioPivotWidget
-                  widget={widget}
-                  dataSource={source}
-                  pageId={pageId}
+                  anomalyEnabled={anomalyEnabled}
+                  onAnomalyDetected={setAnomalyAnnotations}
+                  chartContainerRef={chartContainerRef}
+                  aiRefreshRef={textAiRefreshRef}
                   exportRef={pivotExportRef}
+                  extraProps={extraProps}
                 />
-                {isRecomputing && <LoadingOverlay />}
-              </Box>
-            ) : (
-              <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />
-            ))}
-          {widget.kind === 'map' &&
-            (showContent ? (
-              <Box sx={{ position: 'relative', height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-                {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
               <Skeleton
                 variant="rectangular"
-                height={MAP_WIDGET_DEFAULT_HEIGHT}
+                height={def.capabilities.skeletonHeight?.(widget) ?? 120}
                 sx={{ borderRadius: 1 }}
               />
-            ))}
-          {customDef &&
-            (showContent ? (
-              <customDef.component widget={widget} dataSource={enrichedCustomSource} />
-            ) : (
-              <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />
             ))}
         </Stack>
         {/* Chart full-screen overlay dialog */}
-        {isChart && expanded && (
+        {canExpand && expanded && def && (
           <Dialog
             open={expanded}
             onClose={() => setExpanded(false)}
@@ -858,14 +755,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               </IconButton>
             </DialogTitle>
             <DialogContent sx={{ p: 2, pt: 0 }}>
-              <Box ref={chartExpandContainerRef}>
-                <StudioChartWidget
-                  widget={widget}
-                  dataSource={source}
-                  pageId={pageId}
-                  height={500}
-                />
-              </Box>
+              <def.component
+                widget={widget}
+                dataSource={source}
+                pageId={pageId}
+                height={500}
+                chartContainerRef={chartExpandContainerRef}
+              />
             </DialogContent>
             <DialogActions sx={{ px: 2, pb: 1.5 }}>
               <Tooltip title={localeText.widgetExportPngTooltip}>
@@ -880,44 +776,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             </DialogActions>
           </Dialog>
         )}
-        {/* Widget edit dialog — only when no external onEditRequest handler */}
+        {/* Widget edit dialog — only when no external onEditRequest handler. Uses the dialog's
+            default `BuiltinWidgetPreview`, which resolves through the same unified widget-kind
+            registry, so built-in and custom widgets are both previewed correctly. */}
         {!onEditRequest && editDialogOpen && (
           <StudioWidgetEditDialog
             open={editDialogOpen}
             onClose={() => setEditDialogOpen(false)}
             widgetId={widgetId}
-          >
-            {widget.kind === 'grid' && (
-              <StudioGridWidget widget={widget} dataSource={source} pageId={pageId} />
-            )}
-            {widget.kind === 'chart' && (
-              <StudioChartWidget
-                widget={widget}
-                dataSource={source}
-                pageId={pageId}
-                height={CHART_MIN_HEIGHT}
-              />
-            )}
-            {widget.kind === 'kpi' && (
-              <StudioKpiWidget widget={widget} dataSource={source} pageId={pageId} />
-            )}
-            {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-            {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
-            {widget.kind === 'pivot' && (
-              <StudioPivotWidget
-                widget={widget}
-                dataSource={source}
-                pageId={pageId}
-                exportRef={pivotExportRef}
-              />
-            )}
-            {widget.kind === 'map' && (
-              <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-                {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
-              </Box>
-            )}
-            {customDef && <customDef.component widget={widget} dataSource={enrichedCustomSource} />}
-          </StudioWidgetEditDialog>
+          />
         )}
       </Paper>
     </Box>

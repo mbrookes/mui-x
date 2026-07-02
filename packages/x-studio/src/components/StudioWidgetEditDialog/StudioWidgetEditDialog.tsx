@@ -4,16 +4,10 @@ import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } fr
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, selectWidgets } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
-import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
-import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';
-import { GridSetupPanel } from '../StudioComposeDrawer/GridSetupPanel';
-import { KpiSetupPanel } from '../StudioComposeDrawer/KpiSetupPanel';
-import { MapSetupPanel } from '../StudioComposeDrawer/MapSetupPanel';
-import { PivotSetupPanel } from '../StudioComposeDrawer/PivotSetupPanel';
 import { TextFormatPanel } from '../StudioComposeDrawer/TextFormatPanel';
-import { TextSetupPanel } from '../StudioComposeDrawer/TextSetupPanel';
 import { WidgetFiltersPanel } from './WidgetFiltersPanel';
 import { BuiltinWidgetPreview } from './BuiltinWidgetPreview';
 
@@ -52,9 +46,14 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const widget = widgets[widgetId];
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
+  const widgetDefMap = useWidgetDefMap();
+  const def = widget ? widgetDefMap.get(widget.kind) : undefined;
   // Text widgets render static content and don't query a data source, so widget filters
   // are meaningless for them (matches the filters drawer); hide the Filters tab entirely.
-  const showFiltersTab = features.widgetFilters !== false && widget?.kind !== 'text';
+  // Consolidated into `capabilities.widgetFilters` (defaults to applicable for any kind
+  // that doesn't explicitly opt out).
+  const showFiltersTab =
+    features.widgetFilters !== false && def?.capabilities?.widgetFilters !== false;
   const widgetKindLabels = useWidgetKindLabels();
 
   const handleTabChange = React.useCallback(
@@ -192,15 +191,11 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           <Tab label={localeText.widgetEditDialogTabFormat} />
         </Tabs>
 
-        {/* Tab panels — scrollable */}
+        {/* Tab panels — scrollable. Setup-panel dispatch is a single lookup into the unified
+            widget-kind registry, so custom widgets get their `setupPanel` rendered here too
+            (previously this tab had no custom-widget handling at all and rendered blank). */}
         <TabPanel value={tab} index={0}>
-          {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'pivot' && <PivotSetupPanel widgetId={widgetId} />}
-          {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
+          {def?.setupPanel && <def.setupPanel widgetId={widgetId} />}
         </TabPanel>
 
         {showFiltersTab && (

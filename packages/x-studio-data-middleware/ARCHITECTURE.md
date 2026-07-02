@@ -24,25 +24,25 @@ Internals of `router/`, `mutations/mutationBuilder.ts`, and `security/cacheKey.t
 
 ## Module map
 
-| Path | Responsibility |
-| :-- | :-- |
-| `handler.ts` | `handleBatchQuery` — allowlist validation, per-widget tier routing + cache, batch assembly |
-| `router/preflight.ts` | `runPreflight` (COUNT(\*) → tier), `executeForTier` (builds/runs the real query per tier) |
-| `router/queryBuilder.ts` | `buildSecureQuery` — the single choke point where joins, security predicates, filters, and having are applied |
-| `router/tierDecision.ts` | `decideTier`/`decideTierWithCache` — client/server/db tier decision tree + tier-cache read/write |
-| `mutations/handleMutation.ts` | `handleMutation` — allowlist validation, per-mutation dispatch + cache invalidation |
-| `mutations/mutationBuilder.ts` | `validateMutation`, `buildInsertMutation`/`buildUpdateMutation`/`buildDeleteMutation` |
-| `security/extractSecurityClaims.ts` | Demo JWT verifier → `JwtSecurityClaims` (the trust boundary object) |
-| `security/cacheKey.ts` | `generateCacheKey` — HMAC security hash + SHA-256 query-shape hash |
-| `security/types.ts` | All wire/option type definitions |
-| `cache/` | `CacheProvider`/`TierCacheProvider` interfaces + LRU (in-process) and Redis (multi-node) implementations |
-| `benchmarks/` | Standalone perf harness (`pnpm bench`) over cache keying, cache hit/miss, invalidation, preflight, and full-pipeline cold/warm |
+| Path                                | Responsibility                                                                                                                 |
+| :---------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- |
+| `handler.ts`                        | `handleBatchQuery` — allowlist validation, per-widget tier routing + cache, batch assembly                                     |
+| `router/preflight.ts`               | `runPreflight` (COUNT(\*) → tier), `executeForTier` (builds/runs the real query per tier)                                      |
+| `router/queryBuilder.ts`            | `buildSecureQuery` — the single choke point where joins, security predicates, filters, and having are applied                  |
+| `router/tierDecision.ts`            | `decideTier`/`decideTierWithCache` — client/server/db tier decision tree + tier-cache read/write                               |
+| `mutations/handleMutation.ts`       | `handleMutation` — allowlist validation, per-mutation dispatch + cache invalidation                                            |
+| `mutations/mutationBuilder.ts`      | `validateMutation`, `buildInsertMutation`/`buildUpdateMutation`/`buildDeleteMutation`                                          |
+| `security/extractSecurityClaims.ts` | Demo JWT verifier → `JwtSecurityClaims` (the trust boundary object)                                                            |
+| `security/cacheKey.ts`              | `generateCacheKey` — HMAC security hash + SHA-256 query-shape hash                                                             |
+| `security/types.ts`                 | All wire/option type definitions                                                                                               |
+| `cache/`                            | `CacheProvider`/`TierCacheProvider` interfaces + LRU (in-process) and Redis (multi-node) implementations                       |
+| `benchmarks/`                       | Standalone perf harness (`pnpm bench`) over cache keying, cache hit/miss, invalidation, preflight, and full-pipeline cold/warm |
 
 ## Core data flow
 
 ### Read path — `handleBatchQuery(body, claims, options)`
 
-1. **Table allowlist** ("Zero-Knowledge Rule"): every `widget.table` + all `widget.joins[].table` across the whole batch is checked against `options.schemaAllowlist`; any violation rejects the *entire* request before any query is built.
+1. **Table allowlist** ("Zero-Knowledge Rule"): every `widget.table` + all `widget.joins[].table` across the whole batch is checked against `options.schemaAllowlist`; any violation rejects the _entire_ request before any query is built.
 2. **Column allowlist**: `columns`/`filters[].column`/`orderBy[].column`/`aggregations[].column` are checked against `options.columnAllowlist`, resolving `columnAliases` first. `having[].alias` must match a declared `aggregations[].alias` — this is what stops HAVING from reaching arbitrary raw columns.
 3. Each widget in the batch is processed **in parallel** (`Promise.all`), with **per-widget error isolation** — a failed widget returns `{ rows: [], tier: 'db', rowCount: 0, error }` rather than failing the batch. Per widget:
    - Compute `cacheKey = generateCacheKey(claims, descriptor)`.
@@ -65,13 +65,13 @@ Internals of `router/`, `mutations/mutationBuilder.ts`, and `security/cacheKey.t
 
 These must hold for any change to this package to be safe:
 
-1. **Zero-Knowledge Rule** — nothing outside `schemaAllowlist` / `columnAllowlist` / `writableColumns` is ever reachable, checked *before* any query is built, for the whole batch at once (not per-widget) so one bad descriptor can't slip through alongside valid ones.
-2. **Security predicates are unconditional and injected first** — tenant (`WHERE table.tenantColumn = claims.tenantId`), region, and department predicates are applied in `buildSecureQuery`/the mutation builders *before* any user-supplied filter or WHERE, and update/delete always overwrite `values[tenantColumn]`/strip it from client `values`. A client can never override, remove, or "AND-away" these predicates, nor move a row to another tenant.
+1. **Zero-Knowledge Rule** — nothing outside `schemaAllowlist` / `columnAllowlist` / `writableColumns` is ever reachable, checked _before_ any query is built, for the whole batch at once (not per-widget) so one bad descriptor can't slip through alongside valid ones.
+2. **Security predicates are unconditional and injected first** — tenant (`WHERE table.tenantColumn = claims.tenantId`), region, and department predicates are applied in `buildSecureQuery`/the mutation builders _before_ any user-supplied filter or WHERE, and update/delete always overwrite `values[tenantColumn]`/strip it from client `values`. A client can never override, remove, or "AND-away" these predicates, nor move a row to another tenant.
 3. **All SQL is parameterized** — every value and identifier reaches Knex via `?`/`??` bindings (`db.raw('?? as ??', ...)`, `havingRaw('?? op ?', ...)`). No string-concatenated SQL anywhere.
 4. **Cache keys are opaque** — `generateCacheKey` HMACs the security-claims portion specifically so a client cannot guess or enumerate another tenant's cache key.
 5. **No hard Knex/Redis dependency** — `db` is typed `any` and only called through Knex's chainable builder API (duck typing); `RedisClient` is a minimal structural interface compatible with both `ioredis` and `node-redis` v4+. Don't add a literal `import ... from 'knex'` or a specific Redis client import to core logic.
-6. **Two independent cache planes** — the *data* cache (`CacheProvider`, rows, short TTL ~30–60s) and the *tier* cache (`TierCacheProvider`, routing decisions only, longer TTL ~5min) are separate because tier boundaries shift far less often than the underlying data. `tierCacheTtlMs: 0` disables the tier cache for benchmarking/testing.
-7. **Batch-level isolation, request-level rejection** — allowlist violations reject the whole batch (fail fast, nothing partially executes against disallowed tables); per-item *execution* errors (a bad filter value, a DB error) are isolated to that one widget/mutation result.
+6. **Two independent cache planes** — the _data_ cache (`CacheProvider`, rows, short TTL ~30–60s) and the _tier_ cache (`TierCacheProvider`, routing decisions only, longer TTL ~5min) are separate because tier boundaries shift far less often than the underlying data. `tierCacheTtlMs: 0` disables the tier cache for benchmarking/testing.
+7. **Batch-level isolation, request-level rejection** — allowlist violations reject the whole batch (fail fast, nothing partially executes against disallowed tables); per-item _execution_ errors (a bad filter value, a DB error) are isolated to that one widget/mutation result.
 
 ## Testing & benchmarks
 

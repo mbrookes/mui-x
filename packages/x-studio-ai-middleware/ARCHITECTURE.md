@@ -26,25 +26,25 @@ Both dispatch state-mutating tool calls through the same `executeToolOnState` fu
 
 ## Module map
 
-| Path | Responsibility |
-| :-- | :-- |
-| `handleAIChat.ts` | Top-level SSE handler — wraps `runAgenticLoop` in a `ReadableStream`, encodes each event as SSE |
-| `agenticLoop.ts` | `runAgenticLoop` — the core multi-turn agentic loop (async generator) |
-| `executeToolOnState.ts` | Pure `(toolName, args, state) → { output, mutation?, nextState }` for all ~19 built-in tools |
-| `studioAITools.ts` | `STUDIO_AI_TOOLS` — OpenAI-compatible tool/function schemas for all built-in tools |
-| `studioSkills.ts` | `StudioAISkill` definitions — prompt-only instruction fragments (`dashboardNarratorSkill`, `insightSuggestorSkill`, `dataAnalystSkill`, `pageExplorerSkill`) |
-| `buildAISystemPrompt.ts` | Composes the full system prompt from static instructions + dashboard state + skills + rich context |
-| `buildPageLayoutContext.ts` | Pure structural extraction of the active page's widget layout + cross-filter graph |
-| `mcp.ts` | `buildStudioMcpServer` — MCP server exposing the same tools/state as resources/tools/prompts |
-| `chartRenderer.ts` | `renderChartSvg` — dependency-free SVG chart generator (bar/line/pie/scatter/donut/stacked_bar) |
-| `generateFieldDescriptions.ts` | One-shot LLM call to generate `aiDescription` text for a data source's fields |
-| `parseSSE.ts` | Minimal OpenAI-compatible SSE stream parser used by `agenticLoop.ts` |
-| `handleGenerateInsight.ts` | `handleGenerateTitle`, `handleCreateWidget` — non-streaming, non-agentic one-shot LLM calls |
-| `widgetConfigMeta.ts` | Single source of truth for widget-kind docs shown to the LLM (tool schemas + system prompt) |
-| `widgetFactory.ts` | Re-export shim for `createDefaultWidget` (implementation lives in `models/studioTypes.ts`) |
-| `models/aiTypes.ts` | AI protocol types: `StateMutation`, rich-context types, `StudioAISkill`, rate-limit/usage types |
-| `models/protocol.ts` | Wire protocol: `StudioAIRequest`, `StudioAISSEEvent` |
-| `models/studioTypes.ts` | Local copy of the Studio data model (`StudioState`, widgets, sources, filters — React fields stripped) + `createDefaultStudioState`/`createDefaultWidget` |
+| Path                           | Responsibility                                                                                                                                               |
+| :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handleAIChat.ts`              | Top-level SSE handler — wraps `runAgenticLoop` in a `ReadableStream`, encodes each event as SSE                                                              |
+| `agenticLoop.ts`               | `runAgenticLoop` — the core multi-turn agentic loop (async generator)                                                                                        |
+| `executeToolOnState.ts`        | Pure `(toolName, args, state) → { output, mutation?, nextState }` for all ~19 built-in tools                                                                 |
+| `studioAITools.ts`             | `STUDIO_AI_TOOLS` — OpenAI-compatible tool/function schemas for all built-in tools                                                                           |
+| `studioSkills.ts`              | `StudioAISkill` definitions — prompt-only instruction fragments (`dashboardNarratorSkill`, `insightSuggestorSkill`, `dataAnalystSkill`, `pageExplorerSkill`) |
+| `buildAISystemPrompt.ts`       | Composes the full system prompt from static instructions + dashboard state + skills + rich context                                                           |
+| `buildPageLayoutContext.ts`    | Pure structural extraction of the active page's widget layout + cross-filter graph                                                                           |
+| `mcp.ts`                       | `buildStudioMcpServer` — MCP server exposing the same tools/state as resources/tools/prompts                                                                 |
+| `chartRenderer.ts`             | `renderChartSvg` — dependency-free SVG chart generator (bar/line/pie/scatter/donut/stacked_bar)                                                              |
+| `generateFieldDescriptions.ts` | One-shot LLM call to generate `aiDescription` text for a data source's fields                                                                                |
+| `parseSSE.ts`                  | Minimal OpenAI-compatible SSE stream parser used by `agenticLoop.ts`                                                                                         |
+| `handleGenerateInsight.ts`     | `handleGenerateTitle`, `handleCreateWidget` — non-streaming, non-agentic one-shot LLM calls                                                                  |
+| `widgetConfigMeta.ts`          | Single source of truth for widget-kind docs shown to the LLM (tool schemas + system prompt)                                                                  |
+| `widgetFactory.ts`             | Re-export shim for `createDefaultWidget` (implementation lives in `models/studioTypes.ts`)                                                                   |
+| `models/aiTypes.ts`            | AI protocol types: `StateMutation`, rich-context types, `StudioAISkill`, rate-limit/usage types                                                              |
+| `models/protocol.ts`           | Wire protocol: `StudioAIRequest`, `StudioAISSEEvent`                                                                                                         |
+| `models/studioTypes.ts`        | Local copy of the Studio data model (`StudioState`, widgets, sources, filters — React fields stripped) + `createDefaultStudioState`/`createDefaultWidget`    |
 
 `models/*.ts` deliberately **duplicates** types from the `@mui/x-studio` client package rather than importing them, to keep this package dependency-free — the boundary is structural typing, not a shared import.
 

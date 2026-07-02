@@ -203,6 +203,45 @@ describe('RedisCacheProvider', () => {
       await provider.set('k1', ENTRY, { ttlMs: 5_000 });
       expect(redis.store.get('k1')?.expiresAt).toBeLessThan(Date.now() + 10_000);
     });
+
+    describe('ttlMs: 0 (finding 10 — parity with RedisTierCacheProvider)', () => {
+      // `ttlMs: 0` naively rounds to `Math.ceil(0 / 1000)` = 0 seconds. Sending
+      // that straight through as `SET key value EX 0` is a real Redis error
+      // ("invalid expire time"). RedisCacheProvider.set (RedisCacheProvider.ts)
+      // guards this with `Math.max(1, ttlSeconds)`, exactly like its sibling
+      // RedisTierCacheProvider.set — this test locks in that both providers
+      // treat `ttlMs: 0` identically (floor to 1 second), not "never expires"
+      // (the lru-cache convention) and not a thrown error.
+      it('floors to a minimum 1-second TTL instead of sending "EX 0"', async () => {
+        const redis = makeRedisClient();
+        let capturedTtlSeconds: number | undefined;
+        const originalSet = redis.set.bind(redis);
+        redis.set = async (key: string, value: string, _exMode: 'EX', ttlSeconds: number) => {
+          capturedTtlSeconds = ttlSeconds;
+          return originalSet(key, value, _exMode, ttlSeconds);
+        };
+        const provider = new RedisCacheProvider(redis);
+
+        await provider.set('k1', ENTRY, { ttlMs: 0 });
+
+        expect(capturedTtlSeconds).toBe(1); // never 0 — that's an invalid Redis EX value
+        const expiresAt = redis.store.get('k1')?.expiresAt ?? 0;
+        expect(expiresAt).toBeGreaterThanOrEqual(Date.now() + 900);
+        expect(expiresAt).toBeLessThan(Date.now() + 2_000);
+      });
+
+      it('also floors to 1 second against a node-redis-v4-shaped client', async () => {
+        const { client: redis } = makeNodeRedisV4Client();
+        const provider = new RedisCacheProvider(redis);
+
+        await provider.set('k1', ENTRY, { ttlMs: 0 });
+
+        const stored = redis.store.get('k1');
+        expect(stored).toBeDefined();
+        expect(stored?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 900);
+        expect(stored?.expiresAt).toBeLessThan(Date.now() + 2_000);
+      });
+    });
   });
 
   describe('keyPrefix namespacing', () => {

@@ -461,6 +461,122 @@ describe('write-path predicate safety', () => {
   });
 });
 
+// ── Write-path predicate operators beyond eq/in (between, like, lte, gte) ──────
+//
+// `applyPredicates` (shared/predicates.ts) supports the full `SAFE_OPERATORS`
+// set on both read and write, but until now no mutation test exercised
+// `between`/`like`/`lte`/`gte` — only `eq` and `in` were proven to actually
+// scope a mutation. These prove each operator narrows the UPDATE/DELETE to the
+// matching rows (not merely "accepted without throwing").
+
+describe('write-path predicate operators (between/like/lte/gte)', () => {
+  it('"gte" scopes an update to rows at or above the threshold', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 50, status: 'pending' },
+        { id: 2, tenant_id: 'acme', total: 100, status: 'pending' },
+        { id: 3, tenant_id: 'acme', total: 150, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'total', operator: 'gte', value: 100 }],
+    };
+    const count = await buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(2);
+    const { orders } = db.snapshot();
+    expect(orders.find((r) => r.id === 1)?.status).toBe('pending'); // below threshold
+    expect(orders.find((r) => r.id === 2)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 3)?.status).toBe('shipped');
+  });
+
+  it('"lte" scopes a delete to rows at or below the threshold', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 50 },
+        { id: 2, tenant_id: 'acme', total: 100 },
+        { id: 3, tenant_id: 'acme', total: 150 },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'total', operator: 'lte', value: 100 }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(2);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([3]); // only the row above threshold survives
+  });
+
+  it('"between" scopes an update to rows inside the inclusive range', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 40, status: 'pending' },
+        { id: 2, tenant_id: 'acme', total: 100, status: 'pending' }, // inclusive lower bound
+        { id: 3, tenant_id: 'acme', total: 150, status: 'pending' },
+        { id: 4, tenant_id: 'acme', total: 200, status: 'pending' }, // inclusive upper bound
+        { id: 5, tenant_id: 'acme', total: 260, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'total', operator: 'between', value: [100, 200] }],
+    };
+    const count = await buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(3);
+    const { orders } = db.snapshot();
+    expect(orders.find((r) => r.id === 1)?.status).toBe('pending'); // below range
+    expect(orders.find((r) => r.id === 2)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 3)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 4)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 5)?.status).toBe('pending'); // above range
+  });
+
+  it('"like" scopes a delete to rows matching the pattern', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', notes: 'urgent: rush order' },
+        { id: 2, tenant_id: 'acme', notes: 'standard delivery' },
+        { id: 3, tenant_id: 'acme', notes: 'urgent: hold for pickup' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'notes', operator: 'like', value: 'urgent%' }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(2);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]); // only the non-matching row survives
+  });
+
+  it('"between"/"like"/"lte"/"gte" still respect tenant scoping (do not leak across tenants)', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 150 },
+        { id: 2, tenant_id: 'other', total: 150 }, // same shape, different tenant
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'total', operator: 'between', value: [100, 200] }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(1);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]); // other tenant's row untouched
+  });
+});
+
 // ── Write-path region / department scoping (symmetry with reads) ───────────────
 
 describe('write-path security scoping', () => {

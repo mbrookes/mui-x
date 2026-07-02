@@ -96,4 +96,65 @@ describe('LRUCacheProvider', () => {
       expect(await cache.get('studio:v1:globex:q1')).toBeUndefined();
     });
   });
+
+  describe('byte-based eviction under real maxSizeBytes pressure', () => {
+    // sizeCalculation = value.rows.length * avgBytesPerRow + 64 (see LRUCacheProvider.ts).
+    // With avgBytesPerRow=100 and 1 row per entry, each entry costs 164 bytes.
+    // maxSizeBytes=500 fits ~3 entries — writing 6 must force real lru-cache
+    // eviction (as opposed to the explicit `.delete()`-driven tests above,
+    // which never exercise the `maxSize`/`sizeCalculation` byte-pressure path).
+    it('evicts least-recently-used entries once total size exceeds maxSizeBytes', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 500, avgBytesPerRow: 100 });
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`k${i}`, entry([{ v: i }]));
+      }
+
+      let present = 0;
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await cache.get(`k${i}`)) {
+          present += 1;
+        }
+      }
+      // Not all 6 entries can fit under the byte cap — some must have been evicted.
+      expect(present).toBeGreaterThan(0);
+      expect(present).toBeLessThan(6);
+
+      // LRU semantics: the most recently written key must survive, and the
+      // very first (least-recently-used) key must have been evicted.
+      expect(await cache.get('k5')).toBeDefined();
+      expect(await cache.get('k0')).toBeUndefined();
+    });
+
+    it('evicts a larger (multi-row) entry sooner than several small entries under the same byte cap', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 500, avgBytesPerRow: 100 });
+      // A 4-row entry costs 4*100+64=464 bytes — nearly the whole budget on its own.
+      await cache.set('big', entry([{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }]));
+      expect(await cache.get('big')).toBeDefined();
+
+      // Writing several small (164-byte) entries afterward must evict 'big'
+      // once the cumulative size exceeds maxSizeBytes.
+      for (let i = 0; i < 4; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`small${i}`, entry([{ v: i }]));
+      }
+
+      expect(await cache.get('big')).toBeUndefined();
+      // The most recently written small entry must still be present.
+      expect(await cache.get('small3')).toBeDefined();
+    });
+
+    it('keeps every entry when their combined size stays under maxSizeBytes', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 10_000, avgBytesPerRow: 100 });
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`k${i}`, entry([{ v: i }]));
+      }
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await cache.get(`k${i}`)).toBeDefined();
+      }
+    });
+  });
 });

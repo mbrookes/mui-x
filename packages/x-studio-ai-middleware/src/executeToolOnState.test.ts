@@ -39,8 +39,7 @@ function makeState(): StudioState {
         field: 'revenue',
         operator: 'greater_than',
         value: 100,
-        scope: 'page',
-        pageId,
+        scope: { kind: 'page', pageId },
       },
     ],
   });
@@ -83,24 +82,21 @@ function makeMultiPageState(): StudioState {
         field: 'revenue',
         operator: 'greater_than',
         value: 1,
-        scope: 'page',
-        pageId: 'page-1',
+        scope: { kind: 'page', pageId: 'page-1' },
       },
       {
         id: 'f-page2',
         field: 'revenue',
         operator: 'greater_than',
         value: 2,
-        scope: 'page',
-        pageId: 'page-2',
+        scope: { kind: 'page', pageId: 'page-2' },
       },
       {
         id: 'f-widget2',
         field: 'revenue',
         operator: 'equals',
         value: 3,
-        scope: 'widget',
-        widgetId: 'widget-2',
+        scope: { kind: 'widget', widgetId: 'widget-2' },
       },
     ],
   });
@@ -488,8 +484,8 @@ describe('executeToolOnState: add_page_filter', () => {
       state,
     );
     expect(result.mutation?.type).toBe('addFilter');
-    const mut = result.mutation as { type: string; args: { filter: { scope: string } } };
-    expect(mut.args.filter.scope).toBe('page');
+    const mut = result.mutation as { type: string; args: { filter: { scope: { kind: string } } } };
+    expect(mut.args.filter.scope.kind).toBe('page');
   });
 
   it('appends the filter to nextState.filters', () => {
@@ -515,10 +511,10 @@ describe('executeToolOnState: add_widget_filter', () => {
     expect(result.mutation?.type).toBe('addFilter');
     const mut = result.mutation as {
       type: string;
-      args: { filter: { scope: string; widgetId: string } };
+      args: { filter: { scope: { kind: string; widgetId: string } } };
     };
-    expect(mut.args.filter.scope).toBe('widget');
-    expect(mut.args.filter.widgetId).toBe('widget-1');
+    expect(mut.args.filter.scope.kind).toBe('widget');
+    expect(mut.args.filter.scope.widgetId).toBe('widget-1');
   });
 });
 

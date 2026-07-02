@@ -17,6 +17,9 @@
     "test:unit": "vitest --config vitest.config.jsdom.mts",
     "test:integration": "vitest --config vitest.config.node.mts"
   },
+  "dependencies": {
+    "@mui/x-studio-schema": "workspace:*"
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mui/x-chat-headless": "workspace:*"

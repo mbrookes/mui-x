@@ -41,8 +41,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'revenue',
     operator: 'greater_than',
     value: 100,
-    scope: 'page',
-    pageId: PAGE_ID,
+    scope: { kind: 'page', pageId: PAGE_ID },
     ...overrides,
   } as StudioFilterState;
 }
@@ -421,7 +420,7 @@ describe('buildAISystemPrompt: pivot and map widget descriptions', () => {
 
 describe('buildAISystemPrompt: active filters', () => {
   it('includes page-scoped filter for the active page', () => {
-    const filter = makeFilter({ id: 'f1', scope: 'page', pageId: PAGE_ID });
+    const filter = makeFilter({ id: 'f1', scope: { kind: 'page', pageId: PAGE_ID } });
     const state = makeState({ filters: [filter] });
     const prompt = buildAISystemPrompt(state);
     expect(prompt).toContain('f1');
@@ -429,7 +428,7 @@ describe('buildAISystemPrompt: active filters', () => {
   });
 
   it('does not include page-scoped filter for a different page', () => {
-    const filter = makeFilter({ id: 'f-other', scope: 'page', pageId: 'other-page' });
+    const filter = makeFilter({ id: 'f-other', scope: { kind: 'page', pageId: 'other-page' } });
     const state = makeState({ filters: [filter] });
     const prompt = buildAISystemPrompt(state);
     expect(prompt).not.toContain('f-other');
@@ -439,9 +438,7 @@ describe('buildAISystemPrompt: active filters', () => {
     const widget = makeWidget('w1');
     const filter = makeFilter({
       id: 'fw1',
-      scope: 'widget',
-      widgetId: 'w1',
-      pageId: undefined,
+      scope: { kind: 'widget', widgetId: 'w1' },
     } as Partial<StudioFilterState>);
     const state = makeState({
       pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
@@ -456,8 +453,7 @@ describe('buildAISystemPrompt: active filters', () => {
     const widget = makeWidget('w2');
     const filter = makeFilter({
       id: 'fw2',
-      scope: 'widget',
-      widgetId: 'w2',
+      scope: { kind: 'widget', widgetId: 'w2' },
     } as Partial<StudioFilterState>);
     const state = makeState({
       // w2 is NOT in the active page's widgetRows
@@ -589,9 +585,7 @@ describe('buildAISystemPrompt: rich context', () => {
     pageLayout: {
       pageId: PAGE_ID,
       rows: [[{ widgetId: 'w1', kind: 'chart', title: 'Revenue', chartType: 'bar', colSpan: 6 }]],
-      crossFilters: [
-        { sourceWidgetId: 'w1', field: 'region', scope: 'cross-filter' as const },
-      ],
+      crossFilters: [{ sourceWidgetId: 'w1', field: 'region', scope: 'cross-filter' as const }],
     },
     recentMutations: [{ label: 'addFilter:revenue', at: '2026-01-01T00:00:00.000Z' }],
     omitted: ['pageLayout'],

@@ -32,9 +32,7 @@ describe('buildPageLayoutContext', () => {
           field: 'region',
           operator: 'equals',
           value: 'US',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w1',
-          pageId: 'p1',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'p1' },
         } as StudioFilterState,
       ],
     });
@@ -65,8 +63,7 @@ describe('buildPageLayoutContext', () => {
           field: 'region',
           operator: 'equals',
           value: 'US',
-          scope: 'page',
-          pageId: 'p1',
+          scope: { kind: 'page', pageId: 'p1' },
         } as StudioFilterState,
       ],
     });

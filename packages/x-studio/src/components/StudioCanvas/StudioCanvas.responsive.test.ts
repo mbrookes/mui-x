@@ -1,4 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import * as React from 'react';
+import { createRenderer, act } from '@mui/internal-test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createStudioHarness } from '../../internals/test-utils';
+import type { StudioWidget, StudioWidgetConfig } from '../../models';
+import { StudioCanvas } from './StudioCanvas';
+
+const { render } = createRenderer();
 
 /**
  * Unit tests for the BL-154 responsive span calculation.
@@ -8,132 +15,168 @@ import { describe, expect, it } from 'vitest';
  *   B ≤ width < 2B   → effectiveSpan = min(span * 2, GRID_COLS)  (half-stacked, 2-up)
  *   width < B         → effectiveSpan = GRID_COLS               (fully stacked, 1-up)
  *
- * Flex-basis formula: calc(pct% − gapAdj px) where
- *   pct     = effectiveSpan / GRID_COLS × 100
- *   gapAdj  = 8 × (1 − effectiveSpan / GRID_COLS)
- * This ensures N equal-width items + (N−1)×8px column gaps = 100% container width.
+ * This math is computed inline inside `StudioCanvas`'s render (derived from the
+ * `mode`/`canvasWidth`/`stackBreakpoint` props+state, not a standalone
+ * function), so — per the guidance for embedded render logic — these tests
+ * render the real `StudioCanvas` component and assert on the rendered widget
+ * wrapper's computed `max-width`/`flex` style, rather than recomputing the
+ * tiers in a hand-copied helper.
+ *
+ * `StudioCanvas` doesn't have real layout in jsdom, so canvasWidth is driven
+ * directly through a stubbed `ResizeObserver` whose callback we invoke with a
+ * synthetic `contentRect.width`.
  */
 
-const GRID_COLS = 24;
-const GAP_PX = 8; // MUI gap: 1 = theme.spacing(1) = 8px
-
-function computeEffectiveSpan(
-  span: number | null,
-  canvasWidth: number | null,
-  stackBreakpoint: number,
-  mode: 'edit' | 'view',
-): number | null {
-  if (mode === 'edit' || stackBreakpoint === 0 || canvasWidth === null || span === null) {
-    return span;
-  }
-  if (canvasWidth < stackBreakpoint) {
-    return GRID_COLS; // fully stacked
-  }
-  if (canvasWidth < stackBreakpoint * 2) {
-    return Math.min(span * 2, GRID_COLS); // half-stacked
-  }
-  return span; // normal
+function makeWidget(id: string): StudioWidget {
+  return { id, kind: 'responsive-test-probe', title: id, config: {} as StudioWidgetConfig };
 }
 
-function viewFlexBasis(effectiveSpan: number): string {
-  const pct = (effectiveSpan / GRID_COLS) * 100;
-  const gapAdj = GAP_PX * (1 - effectiveSpan / GRID_COLS);
-  return gapAdj > 0.001 ? `calc(${pct}% - ${gapAdj}px)` : `${pct}%`;
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+
+  private callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    FakeResizeObserver.instances.push(this);
+  }
+
+  observe() {}
+
+  unobserve() {}
+
+  disconnect() {}
+
+  takeRecords(): ResizeObserverEntry[] {
+    return [];
+  }
+
+  /** Simulate the canvas being resized to `width` px. */
+  fire(width: number) {
+    this.callback(
+      [{ contentRect: { width } } as ResizeObserverEntry],
+      this as unknown as ResizeObserver,
+    );
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function setup(mode: 'edit' | 'view', stackBreakpoint: number) {
+  FakeResizeObserver.instances = [];
+  vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+  const { controller, wrapper } = createStudioHarness({
+    initialState: {
+      mode,
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'Page 1',
+          // Two single-widget rows so each widget's flex-basis only depends on
+          // its own span, not on siblings sharing the row.
+          widgetRows: [['w1'], ['w2']],
+          widgetColSpans: { w1: 6, w2: 12 },
+        },
+      },
+      widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
+    },
+  });
+  // `render`'s type expects a JSX-literal-shaped `ReactElement<DataAttributes>`; this file
+  // stays `.ts` (no JSX) so the element is built with `React.createElement` and widened here.
+  const element: React.ReactElement<any> = React.createElement(StudioCanvas, { stackBreakpoint });
+  const view = render(element, { wrapper });
+  return {
+    ...view,
+    controller,
+    observer: FakeResizeObserver.instances[0] as FakeResizeObserver | undefined,
+  };
+}
+
+/** Computed style of the flex/max-width wrapper `StudioCanvas` renders around a widget's card. */
+function wrapperStyle(container: HTMLElement, widgetId: string): CSSStyleDeclaration {
+  const paper = container.querySelector(`[data-widget-id="${widgetId}"]`);
+  if (!paper) {
+    throw new Error(`widget ${widgetId} not found`);
+  }
+  // Paper (StudioWidgetCard root) -> StudioWidgetCard's outer Box -> StudioCanvas's flex wrapper Box.
+  const flexBox = paper.parentElement?.parentElement as HTMLElement;
+  return getComputedStyle(flexBox);
+}
+
+/**
+ * Fire a synthetic resize and flush it through. `useResizeObserver` defers the
+ * actual state update via `requestAnimationFrame` in test/dev environments
+ * (see `@mui/x-internals/useResizeObserver`), so firing the observer alone
+ * isn't enough — the update only lands after that frame runs.
+ */
+async function resize(observer: FakeResizeObserver | undefined, width: number) {
+  if (!observer) {
+    throw new Error('no ResizeObserver was created — is the canvas in an enabled state?');
+  }
+  await act(async () => {
+    observer.fire(width);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
 }
 
 describe('StudioCanvas responsive tiers (BL-154)', () => {
-  const B = 600; // default stackBreakpoint
+  const B = 600; // stackBreakpoint used by these tests
 
-  describe('normal tier (canvasWidth ≥ 2B = 1200px)', () => {
-    const cases: Array<[number, number]> = [
-      [1200, 6],
-      [1400, 6],
-      [2000, 12],
-    ];
-    it.each(cases)('canvasWidth=%d span=%d → effectiveSpan unchanged', (cw, span) => {
-      expect(computeEffectiveSpan(span, cw, B, 'view')).toBe(span);
-    });
+  it('normal tier (canvasWidth >= 2B): flex-basis reflects the stored span unmodified', async () => {
+    const { container, observer } = setup('view', B);
+    await resize(observer, 1400);
+
+    // span=6 of 24 -> 25%, gap adjustment 8 * (1 - 6/24) = 6px
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(25% - 6px)');
+    // span=12 of 24 -> 50%, gap adjustment 8 * (1 - 12/24) = 4px
+    expect(wrapperStyle(container, 'w2').maxWidth).toBe('calc(50% - 4px)');
   });
 
-  describe('half-stacked tier (B ≤ canvasWidth < 2B)', () => {
-    it('span=6 at 900px → effectiveSpan=12 (2-up)', () => {
-      expect(computeEffectiveSpan(6, 900, B, 'view')).toBe(12);
-    });
+  it('half-stacked tier (B <= canvasWidth < 2B): span doubles, capped at GRID_COLS', async () => {
+    const { container, observer } = setup('view', B);
+    await resize(observer, 900);
 
-    it('span=6 at exactly 600px → effectiveSpan=12', () => {
-      expect(computeEffectiveSpan(6, 600, B, 'view')).toBe(12);
-    });
-
-    it('span=12 at 900px → effectiveSpan=24 (capped at GRID_COLS)', () => {
-      expect(computeEffectiveSpan(12, 900, B, 'view')).toBe(24);
-    });
-
-    it('span=8 at 800px → effectiveSpan=16', () => {
-      expect(computeEffectiveSpan(8, 800, B, 'view')).toBe(16);
-    });
-
-    it('span=24 (full-width) at 800px → effectiveSpan=24 (cap at GRID_COLS)', () => {
-      expect(computeEffectiveSpan(24, 800, B, 'view')).toBe(24);
-    });
+    // span 6 -> 12 -> 50%
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(50% - 4px)');
+    // span 12 -> 24 (capped) -> 100%
+    expect(wrapperStyle(container, 'w2').maxWidth).toBe('100%');
   });
 
-  describe('fully-stacked tier (canvasWidth < B)', () => {
-    it('span=6 at 400px → effectiveSpan=24 (100%)', () => {
-      expect(computeEffectiveSpan(6, 400, B, 'view')).toBe(24);
-    });
+  it('half-stacked tier at exactly canvasWidth = B is included in the tier', async () => {
+    const { container, observer } = setup('view', B);
+    await resize(observer, B);
 
-    it('span=12 at 300px → effectiveSpan=24 (100%)', () => {
-      expect(computeEffectiveSpan(12, 300, B, 'view')).toBe(24);
-    });
-
-    it('span=1 at 599px → effectiveSpan=24 (100%)', () => {
-      expect(computeEffectiveSpan(1, 599, B, 'view')).toBe(24);
-    });
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(50% - 4px)');
   });
 
-  describe('edit mode: tiers are not applied', () => {
-    it('span=6 at 400px in edit mode → effectiveSpan=6 unchanged', () => {
-      expect(computeEffectiveSpan(6, 400, B, 'edit')).toBe(6);
-    });
+  it('fully-stacked tier (canvasWidth < B): every widget goes full width', async () => {
+    const { container, observer } = setup('view', B);
+    await resize(observer, 400);
+
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('100%');
+    expect(wrapperStyle(container, 'w2').maxWidth).toBe('100%');
   });
 
-  describe('breakpoint=0: stacking disabled', () => {
-    it('span=6 at 100px with breakpoint=0 → effectiveSpan=6 (no stacking)', () => {
-      expect(computeEffectiveSpan(6, 100, 0, 'view')).toBe(6);
-    });
+  it('edit mode: tiers are not applied — no max-width clamp regardless of canvas width', () => {
+    // Edit mode disables the resize observer entirely (`enabled = mode !== 'edit' && ...`),
+    // so canvasWidth never leaves `null` — exercising exactly the "edit mode ignores
+    // stacking" real-component behavior, not a synthetic bypass.
+    const { container } = setup('edit', B);
+
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('none');
+    expect(wrapperStyle(container, 'w2').maxWidth).toBe('none');
   });
 
-  describe('null span fallthrough', () => {
-    it('null span → returns null regardless of tier', () => {
-      expect(computeEffectiveSpan(null, 400, B, 'view')).toBeNull();
-    });
-  });
-});
+  it('breakpoint=0: stacking disabled regardless of canvas width', () => {
+    // stackBreakpoint=0 also disables the resize observer (`effectiveBreakpoint !== 0`),
+    // so the widget falls back to its raw span-based basis unconditionally.
+    const { container } = setup('view', 0);
 
-describe('viewFlexBasis gap-adjustment formula (BL-154)', () => {
-  it('span=24 (100%) → "100%" with no gap adjustment', () => {
-    expect(viewFlexBasis(24)).toBe('100%');
-  });
-
-  it('span=12 (50%) → calc with 4px gap adjustment for 2 items per row', () => {
-    // 2 × (50% − 4px) + 1 × 8px = 100%
-    expect(viewFlexBasis(12)).toBe('calc(50% - 4px)');
-  });
-
-  it('span=6 (25%) → calc with 6px gap adjustment for 4 items per row', () => {
-    // 4 × (25% − 6px) + 3 × 8px = 100%
-    expect(viewFlexBasis(6)).toBe('calc(25% - 6px)');
-  });
-
-  it('span=8 (33.3%) → calc with ~5.33px gap adjustment', () => {
-    const pct = (8 / 24) * 100; // 33.333...
-    const gapAdj = 8 * (1 - 8 / 24); // 5.333...
-    expect(viewFlexBasis(8)).toBe(`calc(${pct}% - ${gapAdj}px)`);
-  });
-
-  it('span=16 (66.7%) → calc with ~2.67px gap adjustment', () => {
-    const pct = (16 / 24) * 100; // 66.666...
-    const gapAdj = 8 * (1 - 16 / 24); // 2.666...
-    expect(viewFlexBasis(16)).toBe(`calc(${pct}% - ${gapAdj}px)`);
+    expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(25% - 6px)');
+    expect(wrapperStyle(container, 'w2').maxWidth).toBe('calc(50% - 4px)');
   });
 });

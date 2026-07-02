@@ -13,20 +13,28 @@ import type {
 
 type Row = Record<string, unknown>;
 
-// ─── Per-source cache entries ─────────────────────────────────────────────────
+// ─── Per-rows cache entries ───────────────────────────────────────────────────
 //
-// Each source gets its own cache entry tracking only ITS OWN dependencies:
+// Outer key: the source's own `rows` array (WeakMap) — matches the pattern used by
+//   `normalizedRowsCache`/`resolvedRowsCache`. Keying on the rows reference (rather
+//   than a bare `sourceId` string) means:
+//     - Entries are GC'd automatically when a source's rows array is replaced or
+//       the dashboard unmounts — no more rows pinned forever in a module-level Map.
+//     - Two `<Studio>` instances with the SAME rows reference legitimately share an
+//       entry (desired); two instances with DISTINCT rows arrays (even same sourceId)
+//       get independent entries and never thrash each other.
 //
-//   rows            dataSources[X].rows at cache time
-//   fieldRefs       the specific StudioExpressionField objects for source X
+// Inner key: fieldSetKey — the sorted, joined IDs of the expression fields being
+//   enriched. Using '*' when usedFieldIds is undefined (all fields for the source).
+//
+// Each entry tracks only ITS OWN dependencies:
+//   rows            the rows array at cache time (== outer key; kept for clarity)
+//   fieldRefs       the specific StudioExpressionField objects for this source
 //   joinedSourceRows  for each JoinFieldExpression: the joined source's rows ref
 //   relRefs         the specific StudioRelationship objects where sourceId === X
 //
 // This means changing customers data (or a customers expression field, or an
 // unrelated relationship) has zero effect on the orders cache entry.
-//
-// Contrast with the old sentinel approach which wiped ALL entries on any
-// dataSources / expressionFields / relationships ref change.
 
 interface EnrichCacheEntry {
   rows: Row[];
@@ -36,10 +44,8 @@ interface EnrichCacheEntry {
   result: Row[];
 }
 
-// 2-level cache: sourceId → fieldSetKey → entry
-// fieldSetKey is the sorted, joined IDs of the expression fields being enriched.
-// Using '*' when usedFieldIds is undefined (all fields for the source).
-const entriesBySource = new Map<string, Map<string, EnrichCacheEntry>>();
+// 2-level cache: rows array (WeakMap) → fieldSetKey → entry
+const cache = new WeakMap<Row[], Map<string, EnrichCacheEntry>>();
 
 function isEntryValid(
   entry: EnrichCacheEntry,
@@ -212,11 +218,11 @@ export function getCachedEnrichedRows(
     (r) => r.sourceId === sourceId && joinedSourceIds.has(r.targetId),
   );
 
-  // Look up the 2-level cache: sourceId → fieldSetKey → entry.
-  let byFieldSet = entriesBySource.get(sourceId);
+  // Look up the 2-level cache: rows array → fieldSetKey → entry.
+  let byFieldSet = cache.get(rows);
   if (!byFieldSet) {
     byFieldSet = new Map();
-    entriesBySource.set(sourceId, byFieldSet);
+    cache.set(rows, byFieldSet);
   }
 
   const existing = byFieldSet.get(fieldSetKey);

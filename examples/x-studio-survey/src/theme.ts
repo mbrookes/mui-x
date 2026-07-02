@@ -36,8 +36,11 @@ export const theme = createTheme({
       palette: {
         primary: { main: '#2563eb' },
         secondary: { main: '#f59e0b' },
+        // Canvas backdrop and widget cards share one surface colour, mirroring the light
+        // scheme (where default === paper). Only the backdrop is unified up to the card
+        // tone; elevated surfaces (menus, dialogs) keep using `paper` as before.
         background: {
-          default: '#0f172a',
+          default: '#1e293b',
           paper: '#1e293b',
         },
       },

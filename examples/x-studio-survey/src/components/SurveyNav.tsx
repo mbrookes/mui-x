@@ -23,6 +23,12 @@ export interface SurveyNavProps {
   /** Toggle the collapsed/expanded state. */
   onToggle: () => void;
   /**
+   * On small screens the expanded nav floats above the canvas (with a dismiss backdrop) instead
+   * of pushing the report content, so opening it never squeezes the charts off-screen. The
+   * collapsed rail stays in-flow so the expand affordance is always reachable.
+   */
+  overlay?: boolean;
+  /**
    * Called when a question is clicked.
    * @param pageId Page the question lives on.
    * @param n Question number (used in the deep-link URL).
@@ -46,8 +52,10 @@ export function SurveyNav({
   open,
   onToggle,
   onNavigate,
+  overlay = false,
 }: SurveyNavProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
+  const floating = overlay && open;
 
   // Keep the highlighted question visible as scrollspy moves it (without scrolling the page).
   React.useEffect(() => {
@@ -67,101 +75,131 @@ export function SurveyNav({
   }, [activeWidgetId, open]);
 
   return (
-    <Box
-      component="nav"
-      aria-label="Survey questions"
-      sx={{
-        width: open ? EXPANDED_WIDTH : COLLAPSED_WIDTH,
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        borderRight: 1,
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
-        transition: (theme) =>
-          theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
-        overflow: 'hidden',
-      }}
-    >
+    <React.Fragment>
+      {/* Dismiss backdrop behind the floating nav on small screens. */}
+      {floating && (
+        <Box
+          onClick={onToggle}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            bgcolor: 'rgba(0, 0, 0, 0.4)',
+            zIndex: (theme) => theme.zIndex.drawer - 1,
+          }}
+        />
+      )}
       <Box
+        component="nav"
+        aria-label="Survey questions"
         sx={{
+          width: open ? EXPANDED_WIDTH : COLLAPSED_WIDTH,
+          flexShrink: 0,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: open ? 'space-between' : 'center',
-          px: open ? 2 : 0,
-          py: 1,
-          minHeight: 48,
+          flexDirection: 'column',
+          borderRight: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+          transition: (theme) =>
+            theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+          overflow: 'hidden',
+          // When expanded on a small screen, float above the canvas instead of taking flow width.
+          ...(floating && {
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            height: '100%',
+            zIndex: (theme) => theme.zIndex.drawer,
+            boxShadow: 6,
+          }),
         }}
       >
-        {open && (
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Questions
-          </Typography>
-        )}
-        <Tooltip title={open ? 'Collapse' : 'Show questions'} placement="right">
-          <IconButton
-            size="small"
-            onClick={onToggle}
-            aria-label={open ? 'Collapse questions navigation' : 'Show questions navigation'}
-            aria-expanded={open}
-          >
-            {open ? <ChevronLeftIcon fontSize="small" /> : <MenuIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {open && (
-        <Box ref={listRef} sx={{ overflowY: 'auto', flexGrow: 1, pb: 1 }}>
-          {sections.map((section) => {
-            const isActiveSection = section.pageId === activePageId;
-            return (
-              <Box key={section.pageId} sx={{ mb: 1.5 }}>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    display: 'block',
-                    px: 2,
-                    py: 0.5,
-                    lineHeight: 1.4,
-                    fontWeight: 700,
-                    color: isActiveSection ? 'primary.main' : 'text.secondary',
-                  }}
-                >
-                  {section.title}
-                </Typography>
-                <List dense disablePadding>
-                  {section.questions.map((q) => (
-                    <ListItemButton
-                      key={q.n}
-                      data-nav-widget={q.widgetId}
-                      selected={q.widgetId === activeWidgetId}
-                      onClick={() => onNavigate(section.pageId, q.n, q.widgetId)}
-                      sx={{ alignItems: 'flex-start', py: 0.5, pl: 2, pr: 1.5 }}
-                    >
-                      <ListItemText
-                        primary={`${q.n}. ${q.label}`}
-                        title={q.label}
-                        slotProps={{
-                          primary: {
-                            sx: {
-                              fontSize: 12,
-                              lineHeight: 1.35,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            },
-                          },
-                        }}
-                      />
-                    </ListItemButton>
-                  ))}
-                </List>
-              </Box>
-            );
-          })}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: open ? 'space-between' : 'center',
+            px: open ? 2 : 0,
+            py: 1,
+            minHeight: 48,
+          }}
+        >
+          {open && (
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Questions
+            </Typography>
+          )}
+          <Tooltip title={open ? 'Collapse' : 'Show questions'} placement="right">
+            <IconButton
+              size="small"
+              onClick={onToggle}
+              aria-label={open ? 'Collapse questions navigation' : 'Show questions navigation'}
+              aria-expanded={open}
+            >
+              {open ? <ChevronLeftIcon fontSize="small" /> : <MenuIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         </Box>
-      )}
-    </Box>
+
+        {open && (
+          <Box ref={listRef} sx={{ overflowY: 'auto', flexGrow: 1, pb: 1 }}>
+            {sections.map((section) => {
+              const isActiveSection = section.pageId === activePageId;
+              return (
+                <Box key={section.pageId} sx={{ mb: 1.5 }}>
+                  <Typography
+                    variant="overline"
+                    sx={{
+                      display: 'block',
+                      px: 2,
+                      py: 0.5,
+                      lineHeight: 1.4,
+                      fontWeight: 700,
+                      color: isActiveSection ? 'primary.main' : 'text.secondary',
+                    }}
+                  >
+                    {section.title}
+                  </Typography>
+                  <List dense disablePadding>
+                    {section.questions.map((q) => (
+                      <ListItemButton
+                        key={q.n}
+                        data-nav-widget={q.widgetId}
+                        selected={q.widgetId === activeWidgetId}
+                        onClick={() => {
+                          onNavigate(section.pageId, q.n, q.widgetId);
+                          // Dismiss the floating nav on small screens once a question is picked.
+                          if (floating) {
+                            onToggle();
+                          }
+                        }}
+                        sx={{ alignItems: 'flex-start', py: 0.5, pl: 2, pr: 1.5 }}
+                      >
+                        <ListItemText
+                          primary={`${q.n}. ${q.label}`}
+                          title={q.label}
+                          slotProps={{
+                            primary: {
+                              sx: {
+                                fontSize: 12,
+                                lineHeight: 1.35,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              },
+                            },
+                          }}
+                        />
+                      </ListItemButton>
+                    ))}
+                  </List>
+                </Box>
+              );
+            })}
+          </Box>
+        )}
+      </Box>
+    </React.Fragment>
   );
 }

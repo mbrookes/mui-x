@@ -28,6 +28,15 @@ import { statePersistenceEnabled, loadSession, saveSession } from './connectors/
 
 const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
 
+// Below this viewport width the side nav starts collapsed and overlays the canvas when opened,
+// instead of pushing the report content (which would squeeze the charts off-screen).
+const SMALL_SCREEN_QUERY = '(max-width: 899.95px)';
+function prefersSmallScreen(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(SMALL_SCREEN_QUERY).matches
+    : false;
+}
+
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
@@ -63,8 +72,23 @@ export default function App() {
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
   const [activePageId, setActivePageId] = React.useState('');
   const [activeWidgetId, setActiveWidgetId] = React.useState<string | null>(null);
-  const [navOpen, setNavOpen] = React.useState(true);
+  const [smallScreen, setSmallScreen] = React.useState(prefersSmallScreen);
+  const [navOpen, setNavOpen] = React.useState(() => !prefersSmallScreen());
   const handleToggleNav = React.useCallback(() => setNavOpen((open) => !open), []);
+  // Track the small-screen media query: collapse the nav when entering small screens, re-expand
+  // when returning to a large viewport.
+  React.useEffect(() => {
+    if (typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mq = window.matchMedia(SMALL_SCREEN_QUERY);
+    const onChange = (event: MediaQueryListEvent) => {
+      setSmallScreen(event.matches);
+      setNavOpen(!event.matches);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
   // When a deep-link/nav click targets a question on a not-yet-active page, remember the
   // scroll target so we can run it after the page becomes active (and un-clipped).
   const pendingScrollRef = React.useRef<{ widgetId: string; smooth: boolean } | null>(null);
@@ -280,6 +304,39 @@ export default function App() {
     window.addEventListener('pagehide', onHide);
     return () => window.removeEventListener('pagehide', onHide);
   }, [flushSave]);
+
+  // Imperative one-shot save. Pushes the current client session (present + undo/redo history)
+  // to the server immediately — no debounce, and bypassing the `hydratedRef` gate — so the
+  // live state can be forced onto a freshly-reset (empty) state DB. Call `window.__studioSave()`
+  // from the console; it resolves `true` on success, `false` otherwise.
+  React.useEffect(() => {
+    if (!statePersistenceEnabled) {
+      return undefined;
+    }
+    const save = async (): Promise<boolean> => {
+      const session = studioRef.current?.serializeSession();
+      if (!session) {
+        // eslint-disable-next-line no-console
+        console.warn('[x-studio-survey] No session to save yet.');
+        return false;
+      }
+      try {
+        await saveSession(session);
+        // eslint-disable-next-line no-console
+        console.info('[x-studio-survey] Pushed current state to the server.');
+        return true;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[x-studio-survey] One-shot save failed', err);
+        return false;
+      }
+    };
+    const w = window as unknown as { __studioSave?: () => Promise<boolean> };
+    w.__studioSave = save;
+    return () => {
+      delete w.__studioSave;
+    };
+  }, []);
 
   const handleStateChange = React.useCallback(
     (state: StudioState) => {
@@ -505,7 +562,7 @@ export default function App() {
               onRedo={handleRedo}
               onPageDragNavigate={handlePageDragNavigate}
             />
-            <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex' }}>
+            <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
               {initialState && (
                 <SurveyNav
                   sections={SURVEY_SECTIONS}
@@ -514,6 +571,7 @@ export default function App() {
                   onNavigate={handleNavigateToQuestion}
                   open={navOpen}
                   onToggle={handleToggleNav}
+                  overlay={smallScreen}
                 />
               )}
               <Box sx={{ flexGrow: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>

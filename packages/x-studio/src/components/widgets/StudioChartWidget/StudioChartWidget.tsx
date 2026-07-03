@@ -1,23 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { BarChart, BarPlot } from '@mui/x-charts/BarChart';
+import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
-import { LineChart, LinePlot, MarkPlot } from '@mui/x-charts/LineChart';
+import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
-import { ChartsDataProvider } from '@mui/x-charts/ChartsDataProvider';
-import { ChartsWrapper } from '@mui/x-charts/ChartsWrapper';
-import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
-import { ChartsXAxis } from '@mui/x-charts/ChartsXAxis';
-import { ChartsYAxis } from '@mui/x-charts/ChartsYAxis';
-import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
-import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
-import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
-import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
 import { PieChart, PieChartProps } from '@mui/x-charts/PieChart';
-import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
-import { Gauge } from '@mui/x-charts/Gauge';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
@@ -60,6 +49,9 @@ import {
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
+import { StudioGaugeChart } from './StudioGaugeChart';
+import { StudioScatterChart } from './StudioScatterChart';
+import { StudioMixedChart } from './StudioMixedChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
@@ -997,28 +989,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     const gaugeAggregation = config.yAggregation ?? 'sum';
     const gaugeValue = computeAggregate(filteredRows, gaugeValueField, gaugeAggregation);
-    const gaugeMin = config.gaugeMin ?? 0;
-    const gaugeMax = config.gaugeMax ?? 100;
-    const clampedValue = Math.min(Math.max(gaugeValue, gaugeMin), gaugeMax);
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: chartHeight,
-          width: '100%',
-        }}
-      >
-        <Gauge
-          {...slotProps?.gaugeChart}
-          value={clampedValue}
-          valueMin={gaugeMin}
-          valueMax={gaugeMax}
-          width={Math.min(chartHeight * 1.2, 320)}
-          height={chartHeight * 0.85}
-        />
-      </Box>
+      <StudioGaugeChart
+        value={gaugeValue}
+        valueMin={config.gaugeMin ?? 0}
+        valueMax={config.gaugeMax ?? 100}
+        height={chartHeight}
+        slotProps={slotProps?.gaugeChart}
+      />
     );
   }
 
@@ -1413,129 +1391,36 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Scatter chart
   if (chartType === 'scatter') {
-    const hasColorBy = Boolean(config.scatterColorField) && scatterSeries !== null;
-    const hasData = hasColorBy
-      ? scatterSeries!.some((s) => s.data.length > 0)
-      : scatterData != null && scatterData.length > 0;
-
-    if (!hasData) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-          }}
-        />
-      );
-    }
-
-    // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series
-    const ghostSeries = (() => {
-      if (!shouldShowGhost) {
-        return null;
-      }
-      if (hasColorBy && allScatterSeries) {
-        return allScatterSeries.map((s) => ({
-          id: `${s.id}${GHOST_SERIES_SUFFIX}`,
-          label: s.label,
-          data: s.data,
-          markerSize: 3,
-        }));
-      }
-      if (allScatterData) {
-        return [{ id: `__all${GHOST_SERIES_SUFFIX}`, data: allScatterData, markerSize: 3 }];
-      }
-      return null;
-    })();
-
-    const highlightedSeries = hasColorBy
-      ? scatterSeries!.map((s) => ({
-          id: s.id,
-          label: s.label,
-          data: s.data,
-        }))
-      : [
-          {
-            data: scatterData!,
-          },
-        ];
-
-    const resolvedSeries = ghostSeries ? [...ghostSeries, ...highlightedSeries] : highlightedSeries;
-
-    // Bubble mode: when a size field is configured, each point carries a `sizeValue`
-    // that the chart maps to a marker radius via a continuous size scale on the z-axis
-    // (mui-x native bubble support — series default to the first z-axis as the size axis).
-    const bubbleZAxis = config.scatterSizeField
-      ? [
-          {
-            sizeMap: {
-              type: 'continuous' as const,
-              size: [config.scatterMinRadius ?? 4, config.scatterMaxRadius ?? 40] as [
-                number,
-                number,
-              ],
-            },
-          },
-        ]
-      : undefined;
-
-    // Ghost series are identified by suffix; we render them at reduced opacity via sx
-    const ghostIds = new Set(ghostSeries?.map((s) => s.id) ?? []);
-
+    const xAxisLabel =
+      (
+        dataSource?.fields.find((f) => f.id === config.xField) ??
+        expressionFields.find((ef) => ef.id === config.xField)
+      )?.label ?? config.xField;
+    const yAxisLabel =
+      (
+        dataSource?.fields.find((f) => f.id === config.yField) ??
+        expressionFields.find((ef) => ef.id === config.yField)
+      )?.label ?? config.yField;
     return (
-      <div style={{ height: chartHeight }}>
-        <ScatterChart
-          {...slotProps?.scatterChart}
-          skipAnimation={skipAnimation}
-          series={resolvedSeries}
-          zAxis={bubbleZAxis}
-          colors={chartColors}
-          hideLegend={!hasColorBy}
-          margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 30, left: 40 }}
-          xAxis={[
-            {
-              label:
-                (
-                  dataSource?.fields.find((f) => f.id === config.xField) ??
-                  expressionFields.find((ef) => ef.id === config.xField)
-                )?.label ?? config.xField,
-            },
-          ]}
-          yAxis={[
-            {
-              label:
-                (
-                  dataSource?.fields.find((f) => f.id === config.yField) ??
-                  expressionFields.find((ef) => ef.id === config.yField)
-                )?.label ?? config.yField,
-            },
-          ]}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-          sx={{
-            cursor: 'default',
-            ...(ghostIds.size > 0 && {
-              // Dim ghost series dots using CSS targeting — each ghost series
-              // gets a lower-opacity fill. Ghost series are interleaved before
-              // the highlighted series so they render behind them.
-              [`& .MuiScatter-root:nth-of-type(-n+${ghostIds.size}) circle`]: {
-                opacity: 0.2,
-              },
-            }),
-          }}
-        >
-          {annotationChildren}
-        </ScatterChart>
-      </div>
+      <StudioScatterChart
+        height={chartHeight}
+        colorField={config.scatterColorField}
+        sizeField={config.scatterSizeField}
+        minRadius={config.scatterMinRadius}
+        maxRadius={config.scatterMaxRadius}
+        scatterData={scatterData}
+        scatterSeries={scatterSeries}
+        allScatterData={allScatterData}
+        allScatterSeries={allScatterSeries}
+        shouldShowGhost={shouldShowGhost}
+        skipAnimation={skipAnimation}
+        colors={chartColors}
+        xAxisLabel={xAxisLabel}
+        yAxisLabel={yAxisLabel}
+        slotProps={slotProps?.scatterChart}
+      >
+        {annotationChildren}
+      </StudioScatterChart>
     );
   }
 
@@ -1556,123 +1441,21 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
 
-    const ySeries = config.ySeries ?? [];
-    const mixedSeries = multiYData.series.map((s, index) => {
-      // For blended charts a fieldId can repeat across sources, so match the config
-      // by index (aggregateBlendedSeries preserves ySeries order 1:1); otherwise match
-      // by fieldId to stay robust to de-duplicated multi-Y series.
-      const seriesConfig = isBlended
-        ? ySeries[index]
-        : ySeries.find((c) => c.fieldId === s.fieldId);
-      const seriesType = seriesConfig?.seriesType ?? seriesConfig?.type ?? 'bar';
-      const seriesId = `${s.fieldId}-${index}`;
-      const color = resolvedChartColors[index % resolvedChartColors.length];
-      // The field may live in a foreign source for blended series — fall back across
-      // all sources, then to the explicit series label, then the field id.
-      const seriesSourceId = seriesConfig?.sourceId ?? widget.sourceId;
-      const fieldDef =
-        (seriesSourceId ? dataSources[seriesSourceId] : dataSource)?.fields.find(
-          (f) => f.id === s.fieldId,
-        ) ?? dataSource?.fields.find((f) => f.id === s.fieldId);
-      const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
-      if (seriesType === 'line') {
-        return {
-          type: 'line' as const,
-          id: seriesId,
-          label: seriesLabel,
-          data: s.values,
-          color,
-          yAxisId: config.dualYAxis ? 'right' : 'left',
-        };
-      }
-      return {
-        type: 'bar' as const,
-        id: seriesId,
-        label: seriesLabel,
-        data: s.values,
-        color,
-        yAxisId: 'left',
-      };
-    });
-
-    const xAxisData = multiYData.labels;
-    // Find a representative field def for each y-axis side (for axis tick formatting)
-    const getMixedFieldDef = (sc: { fieldId: string; sourceId?: string } | undefined) => {
-      if (!sc) {
-        return undefined;
-      }
-      const srcId = sc.sourceId ?? widget.sourceId;
-      return (srcId ? dataSources[srcId] : dataSource)?.fields.find((f) => f.id === sc.fieldId);
-    };
-    const leftSeriesConfig =
-      (config.ySeries ?? []).find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'bar') ??
-      config.ySeries?.[0];
-    const rightSeriesConfig = config.dualYAxis
-      ? (config.ySeries ?? []).find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'line')
-      : undefined;
-    const leftAxisFieldDef = getMixedFieldDef(leftSeriesConfig);
-    const rightAxisFieldDef = getMixedFieldDef(rightSeriesConfig);
-    const yAxes = config.dualYAxis
-      ? [
-          {
-            id: 'left',
-            scaleType: 'linear' as const,
-            position: 'left' as const,
-            valueFormatter: makeValueFormatter(
-              leftAxisFieldDef?.format,
-              leftAxisFieldDef?.currencyCode,
-              leftAxisFieldDef?.precision,
-            ),
-          },
-          {
-            id: 'right',
-            scaleType: 'linear' as const,
-            position: 'right' as const,
-            valueFormatter: makeValueFormatter(
-              rightAxisFieldDef?.format,
-              rightAxisFieldDef?.currencyCode,
-              rightAxisFieldDef?.precision,
-            ),
-          },
-        ]
-      : [
-          {
-            id: 'left',
-            scaleType: 'linear' as const,
-            valueFormatter: makeValueFormatter(
-              leftAxisFieldDef?.format,
-              leftAxisFieldDef?.currencyCode,
-              leftAxisFieldDef?.precision,
-            ),
-          },
-        ];
-
     return (
-      <div style={{ width: '100%', height: chartHeight }}>
-        <ChartsDataProvider
-          series={mixedSeries}
-          xAxis={[{ id: 'x', data: xAxisData, scaleType: 'band' }]}
-          yAxis={yAxes}
-          height={chartHeight}
-          skipAnimation={skipAnimation}
-        >
-          <ChartsWrapper>
-            <ChartsSurface>
-              <ChartsGrid horizontal />
-              <BarPlot />
-              <LinePlot />
-              <MarkPlot />
-              <ChartsXAxis axisId="x" />
-              <ChartsYAxis axisId="left" />
-              {config.dualYAxis && <ChartsYAxis axisId="right" />}
-              <ChartsAxisHighlight x="band" />
-              {annotationChildren}
-            </ChartsSurface>
-            <ChartsTooltip trigger="axis" />
-            <ChartsLegend />
-          </ChartsWrapper>
-        </ChartsDataProvider>
-      </div>
+      <StudioMixedChart
+        multiYData={multiYData}
+        ySeries={config.ySeries ?? []}
+        dualYAxis={config.dualYAxis}
+        isBlended={isBlended}
+        resolvedChartColors={resolvedChartColors}
+        widgetSourceId={widget.sourceId}
+        dataSources={dataSources}
+        dataSource={dataSource}
+        height={chartHeight}
+        skipAnimation={skipAnimation}
+      >
+        {annotationChildren}
+      </StudioMixedChart>
     );
   }
 

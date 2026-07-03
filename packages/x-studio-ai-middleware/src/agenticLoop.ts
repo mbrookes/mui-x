@@ -10,7 +10,6 @@
 import type { ChatMessage } from '@mui/x-chat-headless';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type {
-  StateMutation,
   SerializableSkill,
   StudioAISkill,
   StudioDataResolver,
@@ -86,8 +85,11 @@ function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAI
     } else if (msg.role === 'assistant') {
       if (toolParts.length > 0) {
         result.push({
+          // Preserve any assistant text alongside the tool calls — OpenAI allows a
+          // `tool_calls` message to also carry `content`, and dropping it loses the
+          // model's own reasoning/commentary from the replayed history.
           role: 'assistant',
-          content: null,
+          content: textParts || null,
           tool_calls: toolParts.map((p) => ({
             id: p.toolInvocation.toolCallId,
             type: 'function' as const,
@@ -98,13 +100,18 @@ function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAI
           })),
         });
         for (const p of toolParts) {
-          if (p.toolInvocation.output !== undefined) {
-            result.push({
-              role: 'tool',
-              tool_call_id: p.toolInvocation.toolCallId,
-              content: JSON.stringify(p.toolInvocation.output),
-            });
-          }
+          // OpenAI requires every `tool_calls` entry to be followed by a matching
+          // tool message. A result that is still pending (`output === undefined`)
+          // would otherwise be skipped, leaving an unmatched tool call and a 400 on
+          // the next turn — emit a placeholder result instead of dropping it.
+          result.push({
+            role: 'tool',
+            tool_call_id: p.toolInvocation.toolCallId,
+            content:
+              p.toolInvocation.output !== undefined
+                ? JSON.stringify(p.toolInvocation.output)
+                : JSON.stringify({ status: 'unknown' }),
+          });
         }
       } else if (textParts) {
         result.push({ role: 'assistant', content: textParts });
@@ -113,6 +120,308 @@ function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAI
   }
 
   return result;
+}
+
+// ── Tool-call delta accumulation ──────────────────────────────────────────────
+
+interface AccumulatedToolCall {
+  id: string;
+  name: string;
+  argsBuffer: string;
+  extra_content?: unknown;
+}
+
+interface ToolCallAccumulator {
+  reqToolCalls: Record<number, AccumulatedToolCall>;
+  idToIdx: Record<string, number>;
+  nextAutoIdx: number;
+}
+
+interface ToolCallDelta {
+  index?: number;
+  id?: string;
+  function?: { name?: string; arguments?: string };
+  extra_content?: unknown;
+}
+
+/**
+ * Seed for synthetic indices assigned to id-only tool-call deltas.
+ *
+ * Providers key streamed tool-call fragments either by a numeric `index` or by an
+ * `id`. For id-only deltas we mint our own index; seeding from a high, disjoint
+ * range (rather than `0`) guarantees a synthetic index can never collide with a
+ * real provider-supplied `index: 0` in a mixed stream, which would otherwise merge
+ * two distinct calls' fragments.
+ */
+const SYNTHETIC_INDEX_BASE = 1_000_000;
+
+function createToolCallAccumulator(): ToolCallAccumulator {
+  return { reqToolCalls: {}, idToIdx: {}, nextAutoIdx: SYNTHETIC_INDEX_BASE };
+}
+
+/**
+ * Merges a chunk's `tool_calls` deltas into the accumulator, resolving each
+ * fragment to a stable slot by `index`, then by `id` (synthetic index), then by
+ * position. Mutates `acc` in place.
+ */
+function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallAccumulator): void {
+  for (const [i, tc] of deltas.entries()) {
+    let idx: number;
+    const tcIndex = tc.index;
+    if (tcIndex !== undefined) {
+      idx = tcIndex;
+    } else if (tc.id) {
+      if (acc.idToIdx[tc.id] !== undefined) {
+        idx = acc.idToIdx[tc.id];
+      } else {
+        idx = acc.nextAutoIdx;
+        acc.idToIdx[tc.id] = idx;
+        acc.nextAutoIdx += 1;
+      }
+    } else {
+      idx = i;
+    }
+    if (!acc.reqToolCalls[idx]) {
+      acc.reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
+    }
+    if (tc.id) {
+      acc.reqToolCalls[idx].id = tc.id;
+    }
+    if (tc.extra_content) {
+      acc.reqToolCalls[idx].extra_content = tc.extra_content;
+    }
+    if (tc.function?.name) {
+      acc.reqToolCalls[idx].name += tc.function.name;
+    }
+    if (tc.function?.arguments) {
+      acc.reqToolCalls[idx].argsBuffer += tc.function.arguments;
+    }
+  }
+}
+
+// ── Tool approval ─────────────────────────────────────────────────────────────
+
+type ApprovalOutcome =
+  | { kind: 'resolved'; approved: boolean; reason?: string }
+  | { kind: 'timeout' }
+  | { kind: 'aborted' };
+
+/**
+ * Waits for a destructive tool's approval, but never unconditionally: races the
+ * approval callback against the abort signal and a timeout so an abandoned prompt
+ * can't hang the stream and leak the map entry forever. The `approvalPending`
+ * entry is always removed once the race settles.
+ */
+function waitForApproval(
+  toolCallId: string,
+  approvalPending: Map<string, (approved: boolean, reason?: string) => void>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<ApprovalOutcome> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  return new Promise<ApprovalOutcome>((resolve) => {
+    approvalPending.set(toolCallId, (a, r) =>
+      resolve({ kind: 'resolved', approved: a, reason: r }),
+    );
+    timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+    if (signal) {
+      if (signal.aborted) {
+        resolve({ kind: 'aborted' });
+      } else {
+        onAbort = () => resolve({ kind: 'aborted' });
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+  }).finally(() => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+    if (signal && onAbort) {
+      signal.removeEventListener('abort', onAbort);
+    }
+    approvalPending.delete(toolCallId);
+  });
+}
+
+// ── Tool dispatch ─────────────────────────────────────────────────────────────
+
+/** Static, per-request context shared by every `dispatchToolCall` invocation. */
+interface ToolDispatchContext {
+  skillHandlers: StudioAISkill[];
+  skills: SerializableSkill[] | undefined;
+  dataResolver?: StudioDataResolver;
+  customWidgets: StudioCustomWidgetDef[] | undefined;
+  pageSnapshot?: string;
+  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  approvalTimeoutMs: number;
+  signal?: AbortSignal;
+  onToolError?: (toolName: string, error: Error) => void;
+  /** Names of tools actually advertised to the model this request (T1-1 gate). */
+  advertisedToolNames: Set<string>;
+  /** Tools that pause for user approval before execution. */
+  toolsRequiringApproval: Set<string>;
+}
+
+/**
+ * Outcome of dispatching a single tool call. `aborted` propagates a mid-approval
+ * abort up to the loop so it can end the stream silently; otherwise the loop turns
+ * `output`/`nextState` into the tool-result + `tool-activity` pair exactly once.
+ */
+type ToolDispatchOutcome =
+  | { kind: 'aborted' }
+  | { kind: 'result'; output: string; nextState?: StudioState };
+
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : /* minify-error-disabled */ new Error(String(err));
+}
+
+/**
+ * Executes one tool call, owning the full dispatch decision (parse-failure →
+ * gating → server-tool skill → execute_query → unregistered skill → approval +
+ * built-in). Yields the side-effect events that must precede the result
+ * (`state-mutation`, `tool-approval-request`) and returns a uniform outcome; the
+ * caller performs the single result/`tool-activity` pairing for every path.
+ */
+async function* dispatchToolCall(
+  tc: AccumulatedToolCall,
+  toolInput: unknown,
+  argsParseFailed: boolean,
+  currentState: StudioState,
+  ctx: ToolDispatchContext,
+): AsyncGenerator<StudioAISSEEvent, ToolDispatchOutcome> {
+  const { name } = tc;
+
+  // The model streamed tool-call arguments that aren't valid JSON. Executing the
+  // tool with a coerced `{}` would run it with the wrong (empty) args and, for
+  // non-validating destructive tools, report a no-op as success. Surface the parse
+  // failure to the model so it can retry with valid JSON.
+  if (argsParseFailed) {
+    const rawArgs = tc.argsBuffer ?? '';
+    const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
+    return {
+      kind: 'result',
+      output: JSON.stringify({ error: `invalid tool arguments: ${snippet}` }),
+    };
+  }
+
+  // T1-1 — enforce the effective tool set at dispatch time, not just at
+  // advertisement time. `allowedTools`/`privateMode`/resolver filtering only
+  // controls what is offered to the model; without this gate a prompt-injected
+  // call to an unadvertised tool (e.g. `remove_page` in a read-only assistant, or
+  // `execute_query` excluded from `allowedTools`) would still be executed. Unknown
+  // or unadvertised names get the same error the default path produces — never run.
+  if (!ctx.advertisedToolNames.has(name)) {
+    return { kind: 'result', output: JSON.stringify({ error: `Unknown tool: ${name}` }) };
+  }
+
+  // Registered server-tool skill — execute it server-side (may be sync or async).
+  const matchedSkill = ctx.skillHandlers
+    .filter((s) => s.mode === 'server-tool' && s.tool)
+    .find((s) => s.tool!.name === name);
+
+  if (matchedSkill?.tool?.execute) {
+    try {
+      const result = await Promise.resolve(
+        matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
+      );
+      if (result.mutation) {
+        yield { type: 'state-mutation', mutation: result.mutation };
+      }
+      return { kind: 'result', output: result.output, nextState: result.nextState };
+    } catch (skillErr) {
+      const skillError = toError(skillErr);
+      ctx.onToolError?.(name, skillError);
+      return { kind: 'result', output: JSON.stringify({ error: skillError.message }) };
+    }
+  }
+
+  // execute_query — resolved via the app-provided dataResolver.
+  if (name === 'execute_query') {
+    let output: string;
+    try {
+      if (!ctx.dataResolver) {
+        output = JSON.stringify({
+          error:
+            'execute_query is not available: no dataResolver was configured on the server. ' +
+            'Pass a dataResolver in AgenticLoopOptions to enable this tool.',
+        });
+      } else {
+        const args = toolInput as { query: string; sourceId?: string };
+        const result = await ctx.dataResolver.resolve(args.query, args.sourceId);
+        output = JSON.stringify(result);
+      }
+    } catch (queryErr) {
+      const queryError = toError(queryErr);
+      ctx.onToolError?.(name, queryError);
+      output = JSON.stringify({ error: queryError.message });
+    }
+    return { kind: 'result', output };
+  }
+
+  // Skill was declared in the request but has no registered server handler.
+  const isUnregisteredSkillTool = (ctx.skills ?? [])
+    .filter((s) => s.mode === 'server-tool' && s.tool)
+    .some((s) => s.tool!.name === name);
+
+  if (isUnregisteredSkillTool) {
+    return {
+      kind: 'result',
+      output: JSON.stringify({
+        error: `server-tool skill '${name}' has no registered handler on the server.`,
+      }),
+    };
+  }
+
+  // Built-in tool — pause for user approval first when required.
+  if (ctx.toolsRequiringApproval.has(name) && ctx.approvalPending) {
+    yield { type: 'tool-approval-request', toolCallId: tc.id, toolName: name, input: toolInput };
+
+    const outcome = await waitForApproval(
+      tc.id,
+      ctx.approvalPending,
+      ctx.signal,
+      ctx.approvalTimeoutMs,
+    );
+
+    // Abort: end silently, matching how aborts are handled elsewhere in the loop.
+    if (outcome.kind === 'aborted') {
+      return { kind: 'aborted' };
+    }
+    if (outcome.kind === 'timeout') {
+      return {
+        kind: 'result',
+        output: JSON.stringify({ denied: true, reason: 'approval timed out' }),
+      };
+    }
+    if (!outcome.approved) {
+      return {
+        kind: 'result',
+        output: JSON.stringify({
+          denied: true,
+          reason: outcome.reason ?? 'User denied the operation.',
+        }),
+      };
+    }
+  }
+
+  try {
+    const result = executeToolOnState(
+      name,
+      toolInput,
+      currentState,
+      ctx.customWidgets,
+      ctx.pageSnapshot,
+    );
+    if (result.mutation) {
+      yield { type: 'state-mutation', mutation: result.mutation };
+    }
+    return { kind: 'result', output: result.output, nextState: result.nextState };
+  } catch (err) {
+    const toolErr = toError(err);
+    ctx.onToolError?.(name, toolErr);
+    return { kind: 'result', output: JSON.stringify({ error: toolErr.message }) };
+  }
 }
 
 // ── Loop options ──────────────────────────────────────────────────────────────
@@ -236,6 +545,21 @@ export async function* runAgenticLoop(
     enrichedContext,
   });
 
+  // T1-2 — state-reading tools whose output would defeat `privateMode`. In
+  // private mode the `<dashboard_state>` block is withheld from the system prompt
+  // so sensitive business data is never sent to the provider, but these tools
+  // return that same data (field distinct values, widget configs, filter values,
+  // source labels) which then round-trips back to the provider in the tool-result
+  // message. We use approach (a) from the review — exclude them from the advertised
+  // built-in list entirely — rather than redacting tool output, keeping the fix
+  // self-contained to this file. Combined with the T1-1 dispatch-time gate, an
+  // injected call to one of these is rejected as an unadvertised tool.
+  const PRIVATE_MODE_EXCLUDED_TOOLS = new Set([
+    'get_dashboard_state',
+    'list_pages',
+    'summarise_page',
+  ]);
+
   // Build effective tool list.
   //
   // Two built-in tools can't function in this server-side loop unless the host
@@ -251,6 +575,10 @@ export async function* runAgenticLoop(
       ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
       : STUDIO_AI_TOOLS
   ).filter((t) => {
+    // T1-2 — never advertise state-reading tools in private mode.
+    if (privateMode && PRIVATE_MODE_EXCLUDED_TOOLS.has(t.function.name)) {
+      return false;
+    }
     if (t.function.name === 'execute_query') {
       return Boolean(dataResolver);
     }
@@ -273,6 +601,26 @@ export async function* runAgenticLoop(
     }));
 
   const effectiveTools = [...builtInTools, ...skillToolDefs];
+
+  // T1-1 — the exact set of tool names advertised to the model this request.
+  // `dispatchToolCall` rejects any call whose name is not in this set so gating is
+  // enforced at execution time, not merely at advertisement time.
+  const advertisedToolNames = new Set(effectiveTools.map((t) => t.function.name));
+
+  // Static per-request context shared by every tool dispatch.
+  const dispatchCtx: ToolDispatchContext = {
+    skillHandlers,
+    skills,
+    dataResolver,
+    customWidgets,
+    pageSnapshot,
+    approvalPending,
+    approvalTimeoutMs,
+    signal,
+    onToolError,
+    advertisedToolNames,
+    toolsRequiringApproval: TOOLS_REQUIRING_APPROVAL,
+  };
 
   let currentMessages = toOpenAIMessages(systemPrompt, messages);
   let currentState = initialState;
@@ -325,12 +673,7 @@ export async function* runAgenticLoop(
     }
 
     // Accumulate tool calls and text from this LLM response
-    const reqToolCalls: Record<
-      number,
-      { id: string; name: string; argsBuffer: string; extra_content?: unknown }
-    > = {};
-    const idToIdx: Record<string, number> = {};
-    let nextAutoIdx = 0;
+    const acc = createToolCallAccumulator();
     let finishReason: string | null = null;
 
     // eslint-disable-next-line no-await-in-loop -- sequential SSE streaming; cannot be parallelized
@@ -376,42 +719,11 @@ export async function* runAgenticLoop(
       }
 
       if (delta.tool_calls) {
-        for (const [i, tc] of delta.tool_calls.entries()) {
-          let idx: number;
-          const tcIndex = tc.index as number | undefined;
-          if (tcIndex !== undefined) {
-            idx = tcIndex;
-          } else if (tc.id) {
-            if (idToIdx[tc.id] !== undefined) {
-              idx = idToIdx[tc.id];
-            } else {
-              idx = nextAutoIdx;
-              idToIdx[tc.id] = idx;
-              nextAutoIdx += 1;
-            }
-          } else {
-            idx = i;
-          }
-          if (!reqToolCalls[idx]) {
-            reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
-          }
-          if (tc.id) {
-            reqToolCalls[idx].id = tc.id;
-          }
-          if (tc.extra_content) {
-            reqToolCalls[idx].extra_content = tc.extra_content;
-          }
-          if (tc.function?.name) {
-            reqToolCalls[idx].name += tc.function.name;
-          }
-          if (tc.function?.arguments) {
-            reqToolCalls[idx].argsBuffer += tc.function.arguments;
-          }
-        }
+        accumulateToolCallDeltas(delta.tool_calls, acc);
       }
     }
 
-    const toolCallEntries = Object.entries(reqToolCalls);
+    const toolCallEntries = Object.entries(acc.reqToolCalls);
     usage.iterations += 1;
 
     if (toolCallEntries.length === 0) {
@@ -494,246 +806,46 @@ export async function* runAgenticLoop(
         input: toolInput,
       };
 
-      // The model streamed tool-call arguments that aren't valid JSON. Executing
-      // the tool with a coerced `{}` would run it with the wrong (empty) args and,
-      // for non-validating destructive tools, report a no-op as success. Instead,
-      // surface the parse failure to the model so it can retry with valid JSON.
-      if (argsParseFailed) {
-        const rawArgs = tc.argsBuffer ?? '';
-        const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
-        const output = JSON.stringify({ error: `invalid tool arguments: ${snippet}` });
-        toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-        yield {
-          type: 'tool-activity',
-          toolCallId: tc.id,
-          toolName: tc.name,
-          phase: 'complete',
-          input: toolInput,
-          output,
-        };
-        continue;
-      }
-
-      // Check if this is a server-tool skill
-      const matchedSkill = skillHandlers
-        .filter((s) => s.mode === 'server-tool' && s.tool)
-        .find((s) => s.tool!.name === tc.name);
-
-      if (matchedSkill?.tool?.execute) {
-        // Execute the skill server-side (may be sync or async)
-        try {
-          // eslint-disable-next-line no-await-in-loop -- sequential skill execution; each tool call depends on prior state
-          const result = await Promise.resolve(
-            matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
-          );
-          const output = result.output;
-          if (result.mutation) {
-            yield { type: 'state-mutation', mutation: result.mutation };
-          }
-          currentState = result.nextState;
-          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-          yield {
-            type: 'tool-activity',
-            toolCallId: tc.id,
-            toolName: tc.name,
-            phase: 'complete',
-            input: toolInput,
-            output,
-          };
-        } catch (skillErr) {
-          const skillError =
-            skillErr instanceof Error
-              ? skillErr
-              : /* minify-error-disabled */ new Error(String(skillErr));
-          onToolError?.(tc.name, skillError);
-          const output = JSON.stringify({ error: skillError.message });
-          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-          yield {
-            type: 'tool-activity',
-            toolCallId: tc.id,
-            toolName: tc.name,
-            phase: 'complete',
-            input: toolInput,
-            output,
-          };
+      // Drive the dispatch generator: forward its side-effect events
+      // (`state-mutation`, `tool-approval-request`) verbatim, then act on the
+      // uniform outcome. This is the single point where the tool-result +
+      // `tool-activity` (`complete`) pair is emitted for every dispatch path.
+      const dispatch = dispatchToolCall(tc, toolInput, argsParseFailed, currentState, dispatchCtx);
+      let outcome: ToolDispatchOutcome;
+      while (true) {
+        // eslint-disable-next-line no-await-in-loop -- sequential tool execution; each call depends on prior state
+        const step = await dispatch.next();
+        if (step.done) {
+          outcome = step.value;
+          break;
         }
-        continue;
+        yield step.value;
       }
 
-      // execute_query — resolved via the app-provided dataResolver
-      if (tc.name === 'execute_query') {
-        let output: string;
-        try {
-          if (!dataResolver) {
-            output = JSON.stringify({
-              error:
-                'execute_query is not available: no dataResolver was configured on the server. ' +
-                'Pass a dataResolver in AgenticLoopOptions to enable this tool.',
-            });
-          } else {
-            const args = toolInput as { query: string; sourceId?: string };
-            // eslint-disable-next-line no-await-in-loop -- sequential query execution; each depends on prior tool results
-            const result = await dataResolver.resolve(args.query, args.sourceId);
-            output = JSON.stringify(result);
-          }
-        } catch (queryErr) {
-          const queryError =
-            queryErr instanceof Error
-              ? queryErr
-              : /* minify-error-disabled */ new Error(String(queryErr));
-          onToolError?.(tc.name, queryError);
-          output = JSON.stringify({ error: queryError.message });
-        }
-        toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-        yield {
-          type: 'tool-activity',
-          toolCallId: tc.id,
-          toolName: tc.name,
-          phase: 'complete',
-          input: toolInput,
-          output,
-        };
-        continue;
+      // A mid-approval abort ends the stream silently, matching how aborts are
+      // handled elsewhere in this loop.
+      if (outcome.kind === 'aborted') {
+        return;
       }
 
-      // Skill was declared in the request but has no registered server handler
-      const isUnregisteredSkillTool = (skills ?? [])
-        .filter((s) => s.mode === 'server-tool' && s.tool)
-        .some((s) => s.tool!.name === tc.name);
-
-      if (isUnregisteredSkillTool) {
-        const output = JSON.stringify({
-          error: `server-tool skill '${tc.name}' has no registered handler on the server.`,
-        });
-        toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-        yield {
-          type: 'tool-activity',
-          toolCallId: tc.id,
-          toolName: tc.name,
-          phase: 'complete',
-          input: toolInput,
-          output,
-        };
-        continue;
+      if (outcome.nextState) {
+        currentState = outcome.nextState;
       }
 
-      let output: string;
-      let mutation: StateMutation | undefined;
-
-      // Check if this tool requires user approval before execution.
-      if (TOOLS_REQUIRING_APPROVAL.has(tc.name) && approvalPending) {
-        yield {
-          type: 'tool-approval-request',
-          toolCallId: tc.id,
-          toolName: tc.name,
-          input: toolInput,
-        };
-
-        // Pause the loop and wait for the client to send an approval response,
-        // but never wait unconditionally: race the approval against the abort
-        // signal and a timeout so an abandoned prompt can't hang the stream and
-        // leak the map entry forever. Always delete the map entry in `finally`.
-        type ApprovalOutcome =
-          | { kind: 'resolved'; approved: boolean; reason?: string }
-          | { kind: 'timeout' }
-          | { kind: 'aborted' };
-
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        let onAbort: (() => void) | undefined;
-        let outcome: ApprovalOutcome;
-        try {
-          // eslint-disable-next-line no-await-in-loop -- approval is an intentional bounded pause
-          outcome = await new Promise<ApprovalOutcome>((resolve) => {
-            approvalPending.set(tc.id, (a, r) =>
-              resolve({ kind: 'resolved', approved: a, reason: r }),
-            );
-            timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), approvalTimeoutMs);
-            if (signal) {
-              if (signal.aborted) {
-                resolve({ kind: 'aborted' });
-              } else {
-                onAbort = () => resolve({ kind: 'aborted' });
-                signal.addEventListener('abort', onAbort, { once: true });
-              }
-            }
-          });
-        } finally {
-          if (timeoutId !== undefined) {
-            clearTimeout(timeoutId);
-          }
-          if (signal && onAbort) {
-            signal.removeEventListener('abort', onAbort);
-          }
-          approvalPending.delete(tc.id);
-        }
-
-        // Abort: end silently, matching how aborts are handled elsewhere in this loop.
-        if (outcome.kind === 'aborted') {
-          return;
-        }
-
-        if (outcome.kind === 'timeout') {
-          output = JSON.stringify({ denied: true, reason: 'approval timed out' });
-          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-          yield {
-            type: 'tool-activity',
-            toolCallId: tc.id,
-            toolName: tc.name,
-            phase: 'complete',
-            input: toolInput,
-            output,
-          };
-          continue;
-        }
-
-        if (!outcome.approved) {
-          output = JSON.stringify({
-            denied: true,
-            reason: outcome.reason ?? 'User denied the operation.',
-          });
-          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
-          yield {
-            type: 'tool-activity',
-            toolCallId: tc.id,
-            toolName: tc.name,
-            phase: 'complete',
-            input: toolInput,
-            output,
-          };
-          continue;
-        }
-      }
-
-      try {
-        const result = executeToolOnState(
-          tc.name,
-          toolInput,
-          currentState,
-          customWidgets,
-          pageSnapshot,
-        );
-        output = result.output;
-        mutation = result.mutation;
-        currentState = result.nextState;
-      } catch (err) {
-        const toolErr =
-          err instanceof Error ? err : /* minify-error-disabled */ new Error(String(err));
-        onToolError?.(tc.name, toolErr);
-        output = JSON.stringify({ error: toolErr.message });
-      }
-
-      if (mutation) {
-        yield { type: 'state-mutation', mutation };
-      }
+      toolResults.push({
+        toolCallId: tc.id,
+        toolName: tc.name,
+        input: toolInput,
+        output: outcome.output,
+      });
       yield {
         type: 'tool-activity',
         toolCallId: tc.id,
         toolName: tc.name,
         phase: 'complete',
         input: toolInput,
-        output,
+        output: outcome.output,
       };
-      toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
     }
 
     // Build follow-up messages for next LLM turn

@@ -928,3 +928,167 @@ describe('runAgenticLoop — tool-call delta accumulation fallback (id without i
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });
+
+// ── Tool gating enforcement (T1-1) ───────────────────────────────────────────────
+
+describe('runAgenticLoop — tool gating enforcement (T1-1)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rejects an unadvertised tool call instead of executing it', async () => {
+    // Read-only assistant: only get_dashboard_state is advertised. A prompt-injected
+    // remove_page call must be rejected at dispatch time, not executed.
+    const state = createDefaultStudioState();
+    const seeded = {
+      ...state,
+      pages: {
+        ...state.pages,
+        'page-extra': { id: 'page-extra', title: 'Extra', widgetRows: [] as string[][] },
+      },
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_page', { pageId: 'page-extra' }))
+      .mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Delete a page')],
+        seeded,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // The excluded tool never mutated state, even though the page exists.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete' &&
+        (ev as { toolName?: string }).toolName === 'remove_page',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    const parsed = JSON.parse(complete!.output!) as { error?: string };
+    expect(parsed.error).toMatch(/unknown tool/i);
+    expect(parsed.error).toContain('remove_page');
+
+    // The loop recovers and finishes on the follow-up turn.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('does not run execute_query when it is excluded from allowedTools even with a resolver', async () => {
+    const resolve = vi.fn(async () => ({ rows: [{ secret: 1 }] }));
+    const dataResolver: StudioDataResolver = { resolve: resolve as StudioDataResolver['resolve'] };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('execute_query', { query: 'SELECT * FROM secrets' }))
+      .mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Run a query')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        undefined,
+        { ...BASE_OPTIONS, dataResolver },
+      ),
+    );
+
+    // The resolver was never invoked — no raw SQL ran through it.
+    expect(resolve).not.toHaveBeenCalled();
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete' &&
+        (ev as { toolName?: string }).toolName === 'execute_query',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!).error).toMatch(/unknown tool/i);
+  });
+});
+
+// ── privateMode tool gating (T1-2) ───────────────────────────────────────────────
+
+describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function offeredToolNames(options: Record<string, unknown>): Promise<string[]> {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+    await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        ...options,
+      }),
+    );
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools: { function: { name: string } }[];
+    };
+    return body.tools.map((t) => t.function.name);
+  }
+
+  it('excludes get_dashboard_state, list_pages, and summarise_page from the advertised set', async () => {
+    // pageSnapshot would normally enable summarise_page; privateMode still wins.
+    const names = await offeredToolNames({ privateMode: true, pageSnapshot: 'snapshot' });
+    expect(names).not.toContain('get_dashboard_state');
+    expect(names).not.toContain('list_pages');
+    expect(names).not.toContain('summarise_page');
+    // Non-state-reading tools are still offered.
+    expect(names).toContain('set_dashboard_title');
+  });
+
+  it('rejects a get_dashboard_state call in privateMode and never round-trips state to the provider', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Show me everything')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, privateMode: true },
+      ),
+    );
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete' &&
+        (ev as { toolName?: string }).toolName === 'get_dashboard_state',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!).error).toMatch(/unknown tool/i);
+
+    // The tool result fed back to the provider on the next turn is the rejection,
+    // not the dashboard JSON that privateMode promised to withhold.
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string) as {
+      messages: { role: string; content: string }[];
+    };
+    const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
+    expect(toolMsg?.content).toMatch(/unknown tool/i);
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});

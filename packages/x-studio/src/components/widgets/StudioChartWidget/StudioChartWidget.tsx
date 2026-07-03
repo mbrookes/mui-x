@@ -10,7 +10,6 @@ import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
 import { Box, Typography, useTheme } from '@mui/material';
 
 import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../models';
@@ -54,6 +53,7 @@ import { StudioSankeyChart } from './StudioSankeyChart';
 import { StudioGaugeChart } from './StudioGaugeChart';
 import { StudioScatterChart } from './StudioScatterChart';
 import { StudioMixedChart } from './StudioMixedChart';
+import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
@@ -68,10 +68,14 @@ import {
   makeValueFormatter,
   normalizeCrossFilterValue,
   crossFilterValueEquals,
+  resolveFieldDef,
 } from './chartWidgetHelpers';
-import { canDetectAnomalies, detectChartDataAnomalies } from '../../../internals/anomalyDetection';
+import {
+  canDetectAnomalies,
+  detectChartDataAnomalies,
+  isAnomalyAnnotation,
+} from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
-import { formatFieldValue } from '../../../internals/numberFormat';
 
 function EmptyLegend() {
   return null;
@@ -498,7 +502,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             crossFilterValueEquals((activeCrossFilter.value as unknown[])[0], filterValue);
         } else {
           isSingleActive =
-            activeCrossFilter?.field === config.xField && activeCrossFilter?.value === filterValue;
+            activeCrossFilter?.field === config.xField &&
+            crossFilterValueEquals(activeCrossFilter?.value, filterValue);
         }
         if (isSingleActive) {
           controller.clearCrossFilter(widget.id);
@@ -602,11 +607,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const useTemporalX = !isBarType && getTemporalAxisData(sourceLabels) != null;
 
     return allAnnotations.map((ann) => {
-      const isAnomalyAnnotation = ann.id.startsWith('anomaly-') || ann.label === '⚠';
-      const lineStyle = isAnomalyAnnotation
+      const isAnomaly = isAnomalyAnnotation(ann);
+      const lineStyle = isAnomaly
         ? { strokeDasharray: '4 2', stroke: '#c60000' }
         : { strokeDasharray: '4 2' };
-      const labelStyle = isAnomalyAnnotation ? { fill: '#c60000' } : undefined;
+      const labelStyle = isAnomaly ? { fill: '#c60000' } : undefined;
 
       let xValue: string | number | Date = ann.value;
       if (ann.axis === 'x' && useTemporalX && typeof xValue === 'string') {
@@ -1069,9 +1074,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
     const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
-    const valueFieldDef =
-      dataSource?.fields.find((f) => f.id === heatValueField) ??
-      expressionFields.find((f) => f.id === heatValueField);
+    const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
     const heatAggregation =
       (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
     const heatData = aggregateHeatmap(
@@ -1086,85 +1089,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       config.heatSortBy,
       config.heatSortDirection,
     );
-    const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
-    const seriesData: [number, number, number][] = [];
-    for (let xi = 0; xi < xLabels.length; xi += 1) {
-      for (let yi = 0; yi < yLabels.length; yi += 1) {
-        seriesData.push([xi, yi, cells.get(`${xLabels[xi]}\x00${yLabels[yi]}`) ?? 0]);
-      }
-    }
-    const colorScheme = config.heatColorScheme ?? 'primary';
-    const paletteColor = theme.palette[colorScheme].main;
-    // Size y-axis width to the longest label so owner names aren't truncated.
-    // 7px/char is a reasonable estimate for the default axis font; cap at 240px.
-    const longestYLabel = yLabels.reduce((max, l) => Math.max(max, String(l).length), 0);
-    const yAxisWidth = Math.min(Math.max(longestYLabel * 7 + 8, 64), 240);
-
-    const heatLegendPosition = config.heatLegendPosition ?? 'bottom';
-    const heatLegendAlign = (config.heatLegendAlign ?? 'center') as 'start' | 'center' | 'end';
-    const isVerticalHeatLegend = heatLegendPosition === 'left' || heatLegendPosition === 'right';
-    const heatLegendDirection: 'horizontal' | 'vertical' = isVerticalHeatLegend
-      ? 'vertical'
-      : 'horizontal';
-    const vertAlignMap = { start: 'top', center: 'middle', end: 'bottom' } as const;
-    const heatLegendPos = isVerticalHeatLegend
-      ? {
-          horizontal: (heatLegendPosition === 'left' ? 'start' : 'end') as 'start' | 'end',
-          vertical: vertAlignMap[heatLegendAlign],
-        }
-      : {
-          vertical: (heatLegendPosition === 'top' ? 'top' : 'bottom') as 'top' | 'bottom',
-          horizontal: heatLegendAlign,
-        };
     const heatFormatDef = valueFieldDef?.type
       ? (valueFieldDef as Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>)
       : undefined;
-    const heatValueFormatter = (v: number) => formatFieldValue(v, heatFormatDef);
 
     return (
-      <HeatmapPremium
+      <StudioHeatmapChart
         height={chartHeight}
-        series={[
-          {
-            data: seriesData,
-            valueFormatter: (v) => (v == null ? '' : heatValueFormatter(v)),
-          },
-        ]}
-        xAxis={[
-          {
-            data: xLabels,
-            label: xFieldDef?.label,
-            height: xFieldDef?.label ? 60 : 40,
-          },
-        ]}
-        yAxis={[
-          {
-            data: yLabels,
-            label: yFieldDef?.label,
-            width: yAxisWidth,
-          },
-        ]}
-        zAxis={[
-          {
-            colorMap: {
-              type: 'continuous',
-              color: ['#ffffff', paletteColor],
-              min: minValue,
-              max: maxValue,
-            },
-          },
-        ]}
-        hideLegend={heatLegendPosition === 'hidden'}
-        slotProps={{
-          legend: {
-            position: heatLegendPos,
-            direction: heatLegendDirection,
-            minLabel: ({ value }) => heatValueFormatter(value as number),
-            maxLabel: ({ value }) => heatValueFormatter(value as number),
-            // Match the map widget's legend dimensions (180px wide / 140px tall).
-            sx: isVerticalHeatLegend ? { height: 140 } : { width: 180 },
-          },
-        }}
+        heatData={heatData}
+        xFieldLabel={xFieldDef?.label}
+        yFieldLabel={yFieldDef?.label}
+        valueFieldDef={heatFormatDef}
+        colorScheme={config.heatColorScheme ?? 'primary'}
+        legendPosition={config.heatLegendPosition ?? 'bottom'}
+        legendAlign={config.heatLegendAlign ?? 'center'}
       />
     );
   }
@@ -1394,15 +1332,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // Scatter chart
   if (chartType === 'scatter') {
     const xAxisLabel =
-      (
-        dataSource?.fields.find((f) => f.id === config.xField) ??
-        expressionFields.find((ef) => ef.id === config.xField)
-      )?.label ?? config.xField;
+      resolveFieldDef(config.xField, dataSource, expressionFields)?.label ?? config.xField;
     const yAxisLabel =
-      (
-        dataSource?.fields.find((f) => f.id === config.yField) ??
-        expressionFields.find((ef) => ef.id === config.yField)
-      )?.label ?? config.yField;
+      resolveFieldDef(config.yField, dataSource, expressionFields)?.label ?? config.yField;
     return (
       <StudioScatterChart
         height={chartHeight}
@@ -1484,10 +1416,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             ),
           )
         : null;
-      const multiYBarFieldDefs = effectiveMultiYData.series.map(
-        (s) =>
-          dataSource?.fields.find((f) => f.id === s.fieldId) ??
-          expressionFields.find((ef) => ef.id === s.fieldId),
+      const multiYBarFieldDefs = effectiveMultiYData.series.map((s) =>
+        resolveFieldDef(s.fieldId, dataSource, expressionFields),
       );
       const yAxes = useIndependentAxes
         ? effectiveMultiYData.series.map((_s, i) => ({
@@ -1542,9 +1472,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           : null;
 
       const series = effectiveMultiYData.series.map((s, i) => {
-        const fieldDef =
-          dataSource?.fields.find((f) => f.id === s.fieldId) ??
-          expressionFields.find((ef) => ef.id === s.fieldId);
+        const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
         const data = totals100
           ? s.values.map((v, li) => {
               const total = totals100[li];
@@ -1837,12 +1765,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }
     }
 
-    const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(chartData.labels);
+    // When no "Other" grouping is applied, displayLabels === pieBaseData.labels (which is
+    // allChartData.labels while a cross-highlight is active, chartData.labels otherwise) —
+    // the same ordering the arcs below are rendered from. Compute the highlighted indices
+    // against that ordering so an own-selection plus an incoming cross-filter highlights the
+    // correct arc. (With pieMaxSlices the labels are re-sorted/grouped, so we skip highlighting.)
+    const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(displayLabels);
 
     // Value formatter for pie y-field — seriesValueFormatter isn't in scope here (declared after early return)
-    const pieYFieldDef =
-      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
-      expressionFields.find((ef) => ef.id === activeYFields[0]);
+    const pieYFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const pieValueFormatter = makeValueFormatter(
       pieYFieldDef?.format,
       pieYFieldDef?.currencyCode,
@@ -2133,9 +2064,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         ? allBarSeriesFieldData
         : barSeriesFieldData;
     const xAxisData = effectiveSFData.labels;
-    const yFieldDef =
-      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
-      expressionFields.find((ef) => ef.id === activeYFields[0]);
+    const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const isStacked =
       chartType === 'bar-stacked' ||
       chartType === 'bar-100' ||
@@ -2323,9 +2252,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       chartType === 'area-stacked' ||
       chartType === 'area-100')
   ) {
-    const yFieldDef =
-      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
-      expressionFields.find((ef) => ef.id === activeYFields[0]);
+    const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const isArea = chartType !== 'line';
     const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
     const is100 = chartType === 'area-100';
@@ -2465,10 +2392,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const selectedDataIndices = getSelectedDataIndices(effectiveLabels);
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
-    const multiYLineFieldDefs = multiYData.series.map(
-      (s) =>
-        dataSource?.fields.find((f) => f.id === s.fieldId) ??
-        expressionFields.find((ef) => ef.id === s.fieldId),
+    const multiYLineFieldDefs = multiYData.series.map((s) =>
+      resolveFieldDef(s.fieldId, dataSource, expressionFields),
     );
     const yAxes = useIndependentAxes
       ? multiYData.series.map((_s, i) => ({
@@ -2520,9 +2445,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 filteredSeries.values,
               )
             : multiYAllData.labels.map(() => null);
-          const fieldDef =
-            dataSource?.fields.find((f) => f.id === s.fieldId) ??
-            expressionFields.find((ef) => ef.id === s.fieldId);
+          const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
           return {
             id: `${s.fieldId}-${i}`,
             data: alignedValues,
@@ -2591,9 +2514,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? allBarChartData
       : singleSeriesChartData;
   const xAxisData = effectiveSingleSeriesData!.labels;
-  const yFieldDef =
-    dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
-    expressionFields.find((ef) => ef.id === activeYFields[0]);
+  const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? localeText.chartDefaultSeriesLabel;
   const seriesValueFormatter = makeValueFormatter(
     yFieldDef?.format,
@@ -2718,9 +2639,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                     connectNulls: true,
                     showMark: false,
                     disableHighlight: true,
-                    color: lineColor,
+                    // Faded baseline color set directly on the series (25% alpha), matching the
+                    // multi-Y / seriesField ghost paths. x-charts resolves `series.color ?? colors[i]`,
+                    // so the explicit color must already carry the alpha — a full-opacity color here
+                    // would make the ghost indistinguishable from the active series.
+                    color: `${lineColor}40`,
                     valueFormatter: seriesValueFormatter,
-                    // Override opacity via sx on the path — not available directly; use low-opacity color
                   } as const,
                 ]
               : []),
@@ -2730,6 +2654,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               label: seriesLabel,
               area: false,
               connectNulls: true,
+              color: lineColor,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: ghostLineValues
                 ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
@@ -2782,11 +2707,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 ]
               : []),
           ]}
-          colors={
-            ghostLineValues
-              ? [`${lineColor}40`, lineColor] // ghost at 25% opacity via hex alpha
-              : chartColors
-          }
+          colors={chartColors}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
@@ -2853,7 +2774,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                     connectNulls: true,
                     showMark: false,
                     disableHighlight: true,
-                    color: lineColor,
+                    // Faded baseline fill set directly on the series (~19% alpha for the area
+                    // variant), matching the multi-Y / seriesField ghost paths. x-charts resolves
+                    // `series.color ?? colors[i]`, so a full-opacity color here would make the
+                    // ghost area indistinguishable from the active series.
+                    color: `${lineColor}30`,
                     valueFormatter: seriesValueFormatter,
                   } as const,
                 ]
@@ -2864,6 +2789,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               label: seriesLabel,
               area: true,
               connectNulls: true,
+              color: lineColor,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: seriesValueFormatter,
             },
@@ -2883,7 +2809,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 ]
               : []),
           ]}
-          colors={ghostLineValues ? [`${lineColor}30`, lineColor] : chartColors}
+          colors={chartColors}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={

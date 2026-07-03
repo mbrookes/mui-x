@@ -1479,7 +1479,11 @@ describe('<StudioChartWidget />', () => {
         operator: 'equals' as const,
         value: 'Supplies',
         filterSourceId: 'source-order-items',
-        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-category', pageId: 'page-1' },
+        scope: {
+          kind: 'cross-filter' as const,
+          sourceWidgetId: 'widget-chart-category',
+          pageId: 'page-1',
+        },
       },
       {
         id: 'cf-date',
@@ -1488,7 +1492,11 @@ describe('<StudioChartWidget />', () => {
         value: { from: '2024-01-01', to: '2024-03-31' },
         filterSourceId: 'source-orders',
         fieldType: 'date' as const,
-        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-quarterly', pageId: 'page-1' },
+        scope: {
+          kind: 'cross-filter' as const,
+          sourceWidgetId: 'widget-chart-quarterly',
+          pageId: 'page-1',
+        },
       },
     ];
 
@@ -1531,6 +1539,86 @@ describe('<StudioChartWidget />', () => {
       expect(props.xAxis[0].data).toEqual(['Electronics', 'Furniture', 'Supplies']);
       // series data = all-category totals (ghost baseline): Electronics:200, Furniture:300, Supplies:250
       expect(props.series[0].data).toEqual([200, 300, 250]);
+    });
+
+    // Tier-1 #10: the single-series line/area cross-highlight ghost must carry its faded
+    // alpha directly on `series.color`, not rely on a positional `colors` array (which x-charts
+    // overrides with the explicit series color, rendering the ghost at full opacity). Since my
+    // fix sets active.color = lineColor and ghost.color = `${lineColor}40`/`30`, the ghost color
+    // must equal the active color plus the alpha suffix — a palette-independent invariant that
+    // fails on the pre-fix code (where ghost.color === active.color at full opacity).
+    it('Revenue by Category (line): renders the single-series line ghost at faded opacity', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-category',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'line',
+          xField: 'category',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      expect(lineChartSpy).toHaveBeenCalled();
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ id: string; color?: string }>;
+      };
+      const ghost = props.series.find((s) => s.id.endsWith('-ghost'));
+      const active = props.series.find((s) => s.id === 'cross-filter-series');
+      expect(ghost).toBeDefined();
+      expect(active?.color).toBeDefined();
+      expect(ghost!.color).toBe(`${active!.color}40`);
+      expect(ghost!.color).not.toBe(active!.color);
+    });
+
+    it('Revenue by Category (area): renders the single-series area ghost at faded opacity', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-category',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'area',
+          xField: 'category',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      expect(lineChartSpy).toHaveBeenCalled();
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ id: string; color?: string }>;
+      };
+      const ghost = props.series.find((s) => s.id.endsWith('-ghost'));
+      const active = props.series.find((s) => s.id === 'cross-filter-series');
+      expect(ghost).toBeDefined();
+      expect(active?.color).toBeDefined();
+      expect(ghost!.color).toBe(`${active!.color}30`);
+      expect(ghost!.color).not.toBe(active!.color);
     });
 
     it('Revenue by Country (ORDERS pie): renders a PieChart with cross-filter overlay when both cross-filters active', () => {

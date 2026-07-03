@@ -4,7 +4,34 @@ import {
   getTemporalAxisData,
 } from '../../../internals/temporalUtils';
 import { formatNumber } from '../../../internals/numberFormat';
-import type { StudioNumberFormat, StudioWidget } from '../../../models';
+import type {
+  StudioDataField,
+  StudioDataSource,
+  StudioExpressionField,
+  StudioNumberFormat,
+  StudioWidget,
+} from '../../../models';
+
+/**
+ * Resolves a field definition by id, checking the widget's data source first and
+ * then the expression (computed) fields. This is the single implementation of the
+ * `dataSource?.fields.find(...) ?? expressionFields.find(...)` lookup that was
+ * previously copy-pasted ~10× across `StudioChartWidget.tsx`. Both returned shapes
+ * carry the `format`/`currencyCode`/`precision`/`label` props chart formatting reads.
+ */
+export function resolveFieldDef(
+  fieldId: string | undefined,
+  dataSource: StudioDataSource | undefined,
+  expressionFields: StudioExpressionField[],
+): StudioDataField | StudioExpressionField | undefined {
+  if (!fieldId) {
+    return undefined;
+  }
+  return (
+    dataSource?.fields.find((field) => field.id === fieldId) ??
+    expressionFields.find((field) => field.id === fieldId)
+  );
+}
 
 export function alignFilteredToAllLabels(
   allLabels: (string | number | Date)[],

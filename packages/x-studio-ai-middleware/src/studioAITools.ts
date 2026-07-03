@@ -554,12 +554,10 @@ export const STUDIO_AI_TOOL_NAMES = STUDIO_AI_TOOLS.map(
  * descriptions above — and they had already drifted (`apply_bulk_update` was
  * approval-gated in chat but advertised as safe/idempotent to MCP clients).
  *
- * `mcp/toolMetadata.ts`'s `TOOL_ANNOTATIONS` derives its `destructiveHint`
- * defaults from this set. `agenticLoop.ts`'s `TOOLS_REQUIRING_APPROVAL` should
- * also derive from this export — that file is owned by another workstream, so
- * this is left as a follow-up for whoever next touches `agenticLoop.ts`: replace
- * its hand-maintained `Set(['remove_page', 'remove_widget', 'apply_bulk_update'])`
- * with `DESTRUCTIVE_TOOLS` (or a `Set` built from it) so the two can't drift again.
+ * Both consumers derive from this one export: `mcp/toolMetadata.ts`'s
+ * `TOOL_ANNOTATIONS` derives its `destructiveHint` defaults from it, and
+ * `agenticLoop.ts`'s `TOOLS_REQUIRING_APPROVAL` imports it directly, so the chat
+ * approval gate and the MCP annotations can't drift apart.
  */
 export const DESTRUCTIVE_TOOLS: ReadonlySet<StudioAIToolName> = new Set([
   'remove_page',

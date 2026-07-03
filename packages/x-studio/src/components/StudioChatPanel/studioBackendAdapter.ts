@@ -16,6 +16,7 @@ import type { StudioAIToolName } from './studioAITools';
 import { buildWidgetDataSummary } from './generateInsight';
 import { buildRichContext } from './richContext';
 import { parseSSEStream, serializeDashboardState } from './sseUtils';
+import { createMessageId } from './chatIds';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -166,11 +167,19 @@ export function createBackendChatAdapter(
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
-      const msgId = `msg-${Date.now()}`;
+      const msgId = createMessageId();
       const textPartId = `text-0`;
       const reasoningId = `r-thinking`;
       let textStarted = false;
       let reasoningEnded = false;
+      // Tracks whether the returned ReadableStream's controller has already been
+      // closed or errored, so it's only ever settled once — calling `close()`/`error()`
+      // a second time (e.g. once from a `finish` event and again from the cleanup
+      // below) throws. Also lets the cleanup path detect "the stream ended without
+      // a terminal `finish`/`error` event" (server closed the connection mid-response)
+      // and close the stream itself instead of leaving the chat panel hung in a
+      // permanently-streaming state.
+      let streamSettled = false;
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
@@ -224,6 +233,27 @@ export function createBackendChatAdapter(
           // while the server processes the request. It will be closed when real content arrives.
           streamController.enqueue({ type: 'reasoning-start', id: reasoningId });
 
+          // Close/error the stream exactly once. Guarding both here means every call
+          // site can settle the stream unconditionally instead of separately tracking
+          // whether some other branch already did — including the final cleanup below,
+          // which settles the stream if a `finish`/`error` event never arrives (e.g. the
+          // server closes the connection mid-response) so the chat panel never gets
+          // stuck in a permanently-streaming state.
+          const closeStream = () => {
+            if (streamSettled) {
+              return;
+            }
+            streamSettled = true;
+            streamController.close();
+          };
+          const errorStream = (err: unknown) => {
+            if (streamSettled) {
+              return;
+            }
+            streamSettled = true;
+            streamController.error(err);
+          };
+
           let response: Response;
           try {
             response = await fetch(chatUrl, {
@@ -252,9 +282,9 @@ export function createBackendChatAdapter(
               (err instanceof DOMException && err.name === 'AbortError')
             ) {
               streamController.enqueue({ type: 'abort', messageId: msgId });
-              streamController.close();
+              closeStream();
             } else {
-              streamController.error(err);
+              errorStream(err);
             }
             return;
           }
@@ -262,12 +292,16 @@ export function createBackendChatAdapter(
           if (!response.ok) {
             endReasoning(streamController);
             const errText = await response.text().catch(() => response.statusText);
-            streamController.error(new Error(`HTTP ${response.status}: ${errText}`));
+            errorStream(new Error(`HTTP ${response.status}: ${errText}`));
             return;
           }
 
-          // Parse the `StudioAISSEEvent` stream
-          const processEvent = (event: Record<string, unknown>) => {
+          // Parse the `StudioAISSEEvent` stream. Returning `false` from a branch signals
+          // `parseSSEStream` to stop reading further events — used for `finish`/`error`
+          // so that any event arriving after the stream has already been settled (e.g. a
+          // stray event batched in the same chunk) is never processed and never attempts
+          // to `enqueue` on an already-closed/errored controller, which would throw.
+          const processEvent = (event: Record<string, unknown>): void | false => {
             const { type } = event;
 
             if (type === 'text-delta') {
@@ -373,15 +407,18 @@ export function createBackendChatAdapter(
                 messageId: msgId,
                 finishReason: String(event.finishReason ?? 'stop'),
               });
-              streamController.close();
+              closeStream();
+              return false;
             } else if (type === 'error') {
               endReasoning(streamController);
-              streamController.error(
+              errorStream(
                 /* minify-error-disabled */ new Error(
                   String(event.message ?? 'Unknown server error'),
                 ),
               );
+              return false;
             }
+            return undefined;
           };
 
           try {
@@ -395,10 +432,16 @@ export function createBackendChatAdapter(
               endReasoning(streamController);
             }
             if (!input.signal?.aborted) {
-              streamController.error(err);
+              errorStream(err);
             }
           } finally {
             activeReader = null;
+            // The SSE stream ended (server closed the connection, proxy timeout, etc.)
+            // without ever emitting a `finish`/`error` event and without the abort or
+            // HTTP-error paths above having settled the stream either. Close it now so
+            // the chat panel doesn't stay in a streaming state indefinitely — a no-op
+            // if the stream was already settled by any of the branches above.
+            closeStream();
           }
         },
       });

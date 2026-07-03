@@ -591,6 +591,62 @@ describe('createBackendChatAdapter: unknown event types', () => {
   });
 });
 
+// ── stream lifecycle: ends without a `finish` event ──────────────────────────
+
+describe('createBackendChatAdapter: stream ends without finish', () => {
+  it('closes the stream cleanly when the connection ends without a finish event', async () => {
+    // No `finish` event — simulates the server closing the connection mid-response
+    // (proxy timeout, server restart). Without the fix, the returned ReadableStream's
+    // controller is never closed and `collectChunks` below would hang forever.
+    const sse = makeSseBody([{ type: 'text-delta', delta: 'partial' }]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('hi')]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+
+    expect(types).toContain('text-delta');
+    expect(types).not.toContain('finish');
+    // Reaching this point at all (collectChunks resolved instead of hanging) proves
+    // the stream was closed by the post-parseSSEStream cleanup.
+
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores any event that arrives after a finish event in the same payload', async () => {
+    // A stray event batched after `finish` in the same SSE payload must not be
+    // processed — `processEvent` returns `false` on `finish`, which stops
+    // `parseSSEStream` before it reaches this trailing event. Without that, the
+    // adapter would try to `enqueue`/`text-start` on an already-closed controller,
+    // which throws and would reject this stream instead of resolving cleanly.
+    const sse = makeSseBody([
+      { type: 'finish', finishReason: 'stop' },
+      { type: 'text-delta', delta: 'ignored' },
+    ]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('hi')]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+    const deltas = chatChunks
+      .filter((c) => c.type === 'text-delta')
+      .map((c) => (c as { type: 'text-delta'; delta: string }).delta);
+
+    expect(types).toContain('finish');
+    expect(deltas).not.toContain('ignored');
+
+    vi.unstubAllGlobals();
+  });
+});
+
 // ── POST body content ─────────────────────────────────────────────────────────
 
 describe('createBackendChatAdapter: POST body', () => {

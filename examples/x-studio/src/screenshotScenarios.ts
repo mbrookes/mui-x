@@ -305,9 +305,15 @@ export const SCREENSHOT_SCENARIOS: ScreenshotScenario[] = [
   // ── In-edit / interaction states ──────────────────────────────────────────────
   chartScenario(
     'chart-x-field-select-open',
-    'X / Category field dropdown open, showing field options (field unset — once a field ' +
-      'has a value, DataSourceFieldSelect renders a read-only chip, not a reopenable combobox)',
+    'X / Category field dropdown open, showing field options',
     { chartType: 'bar' },
+    [{ action: 'click', label: 'X / Category field' }],
+  ),
+  chartScenario(
+    'chart-x-field-reopen-when-filled',
+    'X / Category field already has a value — clicking it reopens the dropdown ' +
+      'instead of requiring the field to be cleared first',
+    { chartType: 'bar', xField: 'department', yField: 'total' },
     [{ action: 'click', label: 'X / Category field' }],
   ),
   chartScenario(

@@ -230,8 +230,30 @@ tests, all passing) and typecheck.
 
 ### Structural (shared component work, higher impact, sequence after quick fixes)
 
-1. **`DataSourceFieldSelect` filled-state caret** (cross-cutting #1) — the
-   single highest-value fix; touches Chart, KPI, Map, Pivot, Filter at once.
+1. ✅ **Fixed.** **`DataSourceFieldSelect` filled-state caret** (cross-cutting
+   #1) — the single highest-value fix; touches Chart, KPI, Map, Pivot, Filter
+   at once. The component had two entirely separate render branches: an
+   editable `Autocomplete` when empty, and a static read-only `TextField` with
+   only a clear button once filled — the latter is what made filled fields
+   un-reopenable without clearing first. Merged into one always-editable
+   `Autocomplete`, keeping the field-type icon as a `startAdornment` and
+   wiring the localized clear-button text (`dataSourceClearFieldAriaLabel`,
+   previously unused after removing the manual clear button) into
+   Autocomplete's own `clearText` prop.
+   Fixing this surfaced a second, related bug: the merged Autocomplete's
+   closed-state text reused `getOptionLabel`, which prefixes every option with
+   its source name ("Orders · Department") whenever a field list spans more
+   than one source — even when there's no actual name collision to
+   disambiguate. That made the already-narrow drawer's resting values longer
+   than before, not just restore-length. Tightened the qualification to fire
+   only when two sources genuinely share a field label (`hasAmbiguousLabels`,
+   replacing the old `hasMultipleSources` check), so an unambiguous field like
+   "Department" now again shows as just "Department" at rest, while a real
+   collision (e.g. two "Country" fields) would still get the qualified label.
+   Verified via the full x-studio suite (1543 tests, still all passing),
+   typecheck, and re-captured screenshots — including a new
+   `chart-x-field-reopen-when-filled` scenario added specifically to prove a
+   filled field reopens on click instead of requiring clear-first.
 2. **Unify the label system** (cross-cutting #2) — pick floating-outlined-label
    as the standard and sweep all panels; do this after #1 since both touch the
    same picker component.

@@ -4,13 +4,11 @@ import {
   Autocomplete,
   Button,
   Divider,
-  IconButton,
   InputAdornment,
   Paper,
   type PaperProps,
   TextField,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import { FieldOption } from './FieldOption';
 import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
@@ -185,15 +183,25 @@ export function DataSourceFieldSelect({
     );
   }, [computedFields, value, valueSourceId]);
 
-  const hasMultipleSources = React.useMemo(() => {
-    const sourceIds = new Set(computedFields.map((f) => f.sourceId));
-    return sourceIds.size > 1;
+  // Only qualify a field's label with its source when two sources genuinely share
+  // a field label — e.g. two "Country" fields. Qualifying every field whenever
+  // multiple sources are merely present (regardless of collision) made the
+  // resting, filled-in value needlessly long ("Orders · Department") in the
+  // narrow drawer, even though "Department" alone was already unambiguous.
+  const hasAmbiguousLabels = React.useMemo(() => {
+    const sourcesByLabel = new Map<string, Set<string>>();
+    for (const field of computedFields) {
+      const sources = sourcesByLabel.get(field.label) ?? new Set<string>();
+      sources.add(field.sourceId);
+      sourcesByLabel.set(field.label, sources);
+    }
+    return Array.from(sourcesByLabel.values()).some((sources) => sources.size > 1);
   }, [computedFields]);
 
   const getOptionLabel = React.useCallback(
     (option: DataSourceFieldEntry) =>
-      hasMultipleSources ? `${option.sourceLabel} · ${option.label}` : option.label,
-    [hasMultipleSources],
+      hasAmbiguousLabels ? `${option.sourceLabel} · ${option.label}` : option.label,
+    [hasAmbiguousLabels],
   );
 
   // BL-179: persistent "Add calculated field…" footer inside the Autocomplete popper.
@@ -227,70 +235,58 @@ export function DataSourceFieldSelect({
 
   return (
     <React.Fragment>
-      {selectedOption ? (
-        // BL-148: selected field shown as read-only with a clear icon
-        <TextField
-          size={size}
-          fullWidth={fullWidth}
-          label={label}
-          value={selectedOption.label}
-          slotProps={{
-            input: {
-              readOnly: true,
-              startAdornment: (
-                <InputAdornment position="start" sx={{ mr: 0.5 }}>
-                  <FieldTypeIcon
-                    type={(selectedOption.type as FieldType) ?? 'string'}
-                    generated={selectedOption.generated}
-                    size={14}
-                  />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    edge="end"
-                    aria-label={localeText.dataSourceClearFieldAriaLabel}
-                    onClick={() => onChange('', '')}
-                    disabled={disabled}
-                  >
-                    <CloseIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
-          helperText={helperText}
-        />
-      ) : (
-        <Autocomplete
-          size={size}
-          fullWidth={fullWidth}
-          options={computedFields}
-          groupBy={(option) => option.sourceLabel}
-          getOptionLabel={getOptionLabel}
-          renderOption={(liProps, option) => {
-            const { key, ...rest } = liProps;
-            return (
-              <li key={key} {...rest}>
-                <FieldOption label={option.label} type={option.type} generated={option.generated} />
-              </li>
-            );
-          }}
-          slots={calcFieldPaperSlot ? { paper: calcFieldPaperSlot } : undefined}
-          getOptionDisabled={getOptionDisabled}
-          disabled={disabled}
-          value={selectedOption}
-          onChange={(_e, newValue) => {
-            onChange(newValue?.id ?? '', newValue?.sourceId ?? '');
-          }}
-          renderInput={(params) => <TextField {...params} label={label} helperText={helperText} />}
-          isOptionEqualToValue={(option, val) =>
-            option.id === val.id && option.sourceId === val.sourceId
-          }
-        />
-      )}
+      <Autocomplete
+        size={size}
+        fullWidth={fullWidth}
+        options={computedFields}
+        groupBy={(option) => option.sourceLabel}
+        getOptionLabel={getOptionLabel}
+        clearText={localeText.dataSourceClearFieldAriaLabel}
+        renderOption={(liProps, option) => {
+          const { key, ...rest } = liProps;
+          return (
+            <li key={key} {...rest}>
+              <FieldOption label={option.label} type={option.type} generated={option.generated} />
+            </li>
+          );
+        }}
+        slots={calcFieldPaperSlot ? { paper: calcFieldPaperSlot } : undefined}
+        getOptionDisabled={getOptionDisabled}
+        disabled={disabled}
+        value={selectedOption}
+        onChange={(_e, newValue) => {
+          onChange(newValue?.id ?? '', newValue?.sourceId ?? '');
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={label}
+            helperText={helperText}
+            slotProps={{
+              ...params.slotProps,
+              input: {
+                ...params.slotProps.input,
+                // BL-148 kept the field-type icon as a start adornment once a value is
+                // picked — restored here now that the filled state stays a full
+                // Autocomplete (see the caret/re-open fix below) instead of a separate
+                // read-only TextField branch.
+                startAdornment: selectedOption ? (
+                  <InputAdornment position="start" sx={{ mr: 0.5 }}>
+                    <FieldTypeIcon
+                      type={(selectedOption.type as FieldType) ?? 'string'}
+                      generated={selectedOption.generated}
+                      size={14}
+                    />
+                  </InputAdornment>
+                ) : undefined,
+              },
+            }}
+          />
+        )}
+        isOptionEqualToValue={(option, val) =>
+          option.id === val.id && option.sourceId === val.sourceId
+        }
+      />
       {calcDialog}
     </React.Fragment>
   );

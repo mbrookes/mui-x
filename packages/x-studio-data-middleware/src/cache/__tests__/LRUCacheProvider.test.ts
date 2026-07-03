@@ -5,7 +5,7 @@
  * case. These tests target the prefix-index correctness (tenant isolation), the
  * fallback scan for non-indexed prefixes, value overwrite, and TTL expiry.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LRUCacheProvider } from '../LRUCacheProvider';
 import type { CacheEntry } from '../types';
 
@@ -14,11 +14,62 @@ function entry(rows: Record<string, unknown>[] = [{ id: 1 }]): CacheEntry {
 }
 
 describe('LRUCacheProvider', () => {
+  it('returns undefined for a key that was never set', async () => {
+    const cache = new LRUCacheProvider();
+    expect(await cache.get('nonexistent')).toBeUndefined();
+  });
+
   it('overwrites an existing key with a new value', async () => {
     const cache = new LRUCacheProvider();
     await cache.set('k1', entry([{ v: 1 }]));
     await cache.set('k1', entry([{ v: 2 }]));
     expect((await cache.get('k1'))?.rows).toEqual([{ v: 2 }]);
+  });
+
+  describe('TTL expiry under continuous reads (regression for updateAgeOnGet)', () => {
+    beforeEach(() => {
+      // `lru-cache` uses `performance.now()` (not `Date.now()`) as its clock
+      // source, and it captures a module-scoped reference to the *object*
+      // `globalThis.performance` at import time. Vitest's fake-timer install
+      // (`toFake: ['performance']`) swaps in a brand-new `performance` object
+      // rather than patching the existing one in place, so it would not be
+      // visible through lru-cache's already-captured reference. Instead, fake
+      // only `Date`/`setTimeout` and monkey-patch `performance.now` in place
+      // (same object, patched method) to track the fake `Date` clock — this
+      // is visible to any code holding a reference to the real `performance`
+      // object, including lru-cache.
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('expires an entry once its TTL elapses even when read more often than the TTL', async () => {
+      // Regression test for finding 1.2: `updateAgeOnGet: true` used to reset the
+      // TTL clock on every `get()`, so a key read faster than its TTL never
+      // expired. With `updateAgeOnGet: false`, the TTL is a hard staleness bound
+      // regardless of how often the entry is read.
+      const cache = new LRUCacheProvider({ ttlMs: 30 });
+      await cache.set('hot-key', entry([{ v: 1 }]));
+
+      // Read repeatedly at an interval much faster than the TTL — three reads
+      // 10ms apart (elapsed 0ms, 10ms, 20ms at each read), all comfortably
+      // inside the 30ms TTL window.
+      for (let i = 0; i < 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await cache.get('hot-key')).toBeDefined();
+        vi.advanceTimersByTime(10);
+      }
+
+      // 30ms have elapsed since the write. Advance past the TTL and confirm
+      // the entry now expires — despite every prior read landing well inside
+      // the TTL window, the reads themselves must not have extended it.
+      vi.advanceTimersByTime(15);
+      expect(await cache.get('hot-key')).toBeUndefined();
+    });
   });
 
   describe('invalidatePrefix — prefix index (tenant isolation)', () => {

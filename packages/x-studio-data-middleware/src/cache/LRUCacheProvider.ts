@@ -66,7 +66,12 @@ export class LRUCacheProvider implements CacheProvider {
       maxSize: maxSizeBytes,
       ttl: ttlMs,
       allowStale: false,
-      updateAgeOnGet: true,
+      // Do NOT refresh TTL on read: `ttlMs` is a staleness bound, not an idle
+      // timeout. A key read more often than `ttlMs` must still expire on schedule
+      // so out-of-band writes (ETL jobs, other services, direct DB writes) are
+      // picked up within the advertised TTL. This mirrors RedisCacheProvider,
+      // which does not refresh TTL on read either.
+      updateAgeOnGet: false,
       // Fast O(1) size estimate — avoids full JSON.stringify on every write.
       // Accurate enough for LRU eviction purposes; tune avgBytesPerRow if needed.
       sizeCalculation: (value: CacheEntry) => value.rows.length * avgBytesPerRow + 64,

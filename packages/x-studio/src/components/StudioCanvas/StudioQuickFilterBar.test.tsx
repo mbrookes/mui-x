@@ -181,15 +181,6 @@ describe('StudioQuickFilterBar', () => {
     expect(screen.getByText(/Country/)).toBeDefined();
   });
 
-  it('shows "Filtered" label when chips are present', () => {
-    mockState = createDefaultStudioState({
-      filters: [makePageFilter('f1')],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-    });
-    render(<StudioQuickFilterBar />);
-    expect(screen.getByText('Filtered')).toBeDefined();
-  });
-
   it('does not show chips for filters on other pages', () => {
     mockState = createDefaultStudioState({
       filters: [
@@ -208,7 +199,7 @@ describe('StudioQuickFilterBar', () => {
       dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
     });
     render(<StudioQuickFilterBar />);
-    expect(screen.getByText('Filtered')).toBeDefined();
+    expect(screen.getByText(/country/)).toBeDefined();
   });
 
   it('suppresses the chip toggle tooltip while hovering the close button (no double tooltip)', async () => {

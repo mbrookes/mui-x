@@ -417,7 +417,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 {...params}
                 label={localeText.gridSetupDataSourceLabel}
                 placeholder={localeText.gridSetupDataSourcePlaceholder}
-                helperText={!source ? localeText.gridSetupChooseSourceHelper : undefined}
               />
             )}
           />

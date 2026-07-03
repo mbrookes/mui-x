@@ -4,6 +4,7 @@ import {
   Autocomplete,
   Box,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -204,7 +205,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const widgetDateRangeFilter = React.useMemo(
     () =>
       allFilters.find(
-        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.dateRangePreset !== undefined,
+        (f) =>
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
+          f.dateRangePreset !== undefined,
       ),
     [allFilters, widgetId],
   );
@@ -314,6 +318,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             </MenuItem>
           ))}
         </Select>
+        {!hasValueField && (
+          <FormHelperText>{localeText.kpiSetupAggregationLockedHelperText}</FormHelperText>
+        )}
       </FormControl>
 
       {features.kpiSparkline !== false && (

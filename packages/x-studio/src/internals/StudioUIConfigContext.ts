@@ -517,10 +517,15 @@ export interface StudioLocaleText {
   chartSetupXFieldHorizontalHelperText: string;
   chartSetupXFieldGroupVertHelperText: string;
   chartSetupXFieldGroupHorizHelperText: string;
+  chartSetupXFieldPieDonutLabel: string;
+  chartSetupXFieldPieDonutHelperText: string;
+  chartSetupXFieldFunnelLabel: string;
+  chartSetupXFieldFunnelHelperText: string;
   chartSetupYMeasureFieldsLabel: string;
   chartSetupXMeasureFieldsLabel: string;
   chartSetupYMeasureFieldLabel: string;
   chartSetupXMeasureFieldLabel: string;
+  chartSetupYMeasurePieDonutLabel: string;
   chartSetupNoDataAlert: string;
   chartSetupSeriesLabel: (index: number) => string;
   chartSetupSeriesNumericHorizHelperText: string;
@@ -530,11 +535,13 @@ export interface StudioLocaleText {
   chartSetupCalculatedField: string;
   chartSetupCategoryFieldLabel: string;
   chartSetupRemoveSplitByTooltip: string;
+  chartSetupFieldlessCountSplitByTooltip: string;
   chartSetupInnerRingLabel: string;
   chartSetupSplitByLabel: string;
   chartSetupArcLabelsTitle: string;
   chartSetupSplitByHelperText: string;
   chartSetupSplitByDisabledHelperText: string;
+  chartSetupSplitByFieldlessCountHelperText: string;
   chartSetupInnerRingHelperText: string;
 
   // ── KPI setup panel ────────────────────────────────────────────────────────
@@ -551,6 +558,7 @@ export interface StudioLocaleText {
   kpiSetupPlotTypeLabel: string;
   kpiSetupValueFieldLabel: string;
   kpiSetupValueFieldHelperText: string;
+  kpiSetupAggregationLockedHelperText: string;
   kpiSetupSparklineLabel: string;
   kpiSetupGaugeMaxLabel: string;
   kpiSetupTrendLabel: string;
@@ -790,7 +798,7 @@ export interface StudioLocaleText {
   ganttHiddenRowsLabel: (count: number) => string;
 
   // ── Color input ───────────────────────────────────────────────────────────
-  /** Returns e.g. "Clear background colour" */
+  /** Returns e.g. "Clear background color" */
   colorInputClearAriaLabel: (label: string) => string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
@@ -1483,7 +1491,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupYFieldLabel: 'Y field (numeric)',
   chartSetupYFieldHelperText: 'Numeric field plotted on the vertical axis',
   chartSetupColorByLabel: 'Color by (optional)',
-  chartSetupColorByHelperText: 'Splits points into colour-coded series per category',
+  chartSetupColorByHelperText: 'Splits points into color-coded series per category',
   chartSetupSizeByLabel: 'Size by (optional)',
   chartSetupSizeByHelperText: 'Numeric field that controls bubble radius (produces a bubble chart)',
   chartSetupMinRadiusLabel: 'Min radius',
@@ -1510,9 +1518,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupHeatmapRowAxisLabel: 'Row axis field',
   chartSetupHeatmapRowAxisHelperText:
     'Field for the vertical (row) axis — any field type from the primary source, e.g. category, discount %, or hour of day',
-  chartSetupHeatmapValueLabel: 'Value / colour field',
-  chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
-  chartSetupHeatmapColourSchemeLabel: 'Colour scheme',
+  chartSetupHeatmapValueLabel: 'Value / color field',
+  chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine color intensity',
+  chartSetupHeatmapColourSchemeLabel: 'Color scheme',
   chartSetupHeatmapSortByLabel: 'Sort by',
   chartSetupHeatmapSortXAxis: 'Column axis (X)',
   chartSetupHeatmapSortYAxis: 'Row axis (Y)',
@@ -1521,7 +1529,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSankeyTargetLabel: 'Target (to) field',
   chartSetupSankeyTargetHelperText: 'Categorical field for the end node of each flow',
   chartSetupSankeyValueHelperText: 'Numeric field summed per source → target link',
-  chartSetupSankeyLinkColorLabel: 'Link colour',
+  chartSetupSankeyLinkColorLabel: 'Link color',
   chartSetupSankeyLinkColorSource: 'From source node',
   chartSetupSankeyLinkColorTarget: 'From target node',
   chartSetupSankeyShowValuesLabel: 'Show values on links',
@@ -1535,19 +1543,24 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupGanttStartDateHelperText: 'Date / datetime field for the start of each bar',
   chartSetupGanttEndDateLabel: 'End date field',
   chartSetupGanttEndDateHelperText: 'Date / datetime field for the end of each bar',
-  chartSetupGanttColourByLabel: 'Colour by (optional)',
+  chartSetupGanttColourByLabel: 'Color by (optional)',
   chartSetupGanttColourByHelperText:
-    'Categorical field used to colour-code bars (e.g. status or category)',
+    'Categorical field used to color-code bars (e.g. status or category)',
   chartSetupXFieldNumericLabel: 'X field (numeric)',
   chartSetupXFieldCategoryVertLabel: 'Y / Category field',
   chartSetupXFieldCategoryHorizLabel: 'X / Category field',
   chartSetupXFieldHorizontalHelperText: 'Plotted on the horizontal axis',
   chartSetupXFieldGroupVertHelperText: 'Groups data along the vertical axis',
   chartSetupXFieldGroupHorizHelperText: 'Groups data along the horizontal axis',
+  chartSetupXFieldPieDonutLabel: 'Slice category',
+  chartSetupXFieldPieDonutHelperText: 'Each unique value becomes a slice',
+  chartSetupXFieldFunnelLabel: 'Stage field',
+  chartSetupXFieldFunnelHelperText: 'Categorical field defining each funnel stage',
   chartSetupYMeasureFieldsLabel: 'Y / Measure fields',
   chartSetupXMeasureFieldsLabel: 'X / Measure fields',
   chartSetupYMeasureFieldLabel: 'Y / Measure field',
   chartSetupXMeasureFieldLabel: 'X / Measure field',
+  chartSetupYMeasurePieDonutLabel: 'Slice value',
   chartSetupNoDataAlert: 'No data fields available for chart configuration.',
   chartSetupSeriesLabel: (index) => `Series ${index + 1}`,
   chartSetupSeriesNumericHorizHelperText: 'Numeric field plotted along the horizontal axis',
@@ -1557,11 +1570,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupCalculatedField: 'Calculated field…',
   chartSetupCategoryFieldLabel: 'Category field',
   chartSetupRemoveSplitByTooltip: 'Remove extra measure fields to enable split-by',
+  chartSetupFieldlessCountSplitByTooltip: 'Pick a measure field to enable split-by',
   chartSetupInnerRingLabel: 'Inner ring category',
   chartSetupSplitByLabel: 'Split by (series field)',
   chartSetupArcLabelsTitle: 'Arc labels',
   chartSetupSplitByHelperText: 'Divides data into a separate series per value',
   chartSetupSplitByDisabledHelperText: 'Not available when multiple measure fields are configured',
+  chartSetupSplitByFieldlessCountHelperText:
+    'Not available for a fieldless count — pick a measure field first',
   chartSetupInnerRingHelperText: 'Adds a concentric inner ring grouped by this field',
 
   // KPI setup panel
@@ -1578,6 +1594,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupPlotTypeLabel: 'Plot type',
   kpiSetupValueFieldLabel: 'Value field',
   kpiSetupValueFieldHelperText: 'Field to aggregate',
+  kpiSetupAggregationLockedHelperText: 'Counts rows — pick a value field to sum, average, etc.',
   kpiSetupSparklineLabel: 'Sparkline',
   kpiSetupGaugeMaxLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
@@ -1590,7 +1607,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupCumulativeLabel: 'Cumulative (running total)',
   kpiSetupAutoDateFilterPrefix: 'Using date filter:',
   kpiSetupCalculatedField: 'Calculated field…',
-  kpiSetupInvertColours: 'Invert colours (lower is better)',
+  kpiSetupInvertColours: 'Invert colors (lower is better)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
   kpiSetupFixedWindowMonth: 'Last 30 days',
@@ -1646,7 +1663,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Map setup panel
   mapSetupMapTypeLabel: 'Map type',
   mapSetupValueFieldLabel: 'Value field (optional for count)',
-  mapSetupColourSchemeLabel: 'Colour scheme',
+  mapSetupColourSchemeLabel: 'Color scheme',
   mapSetupLegendPositionLabel: 'Legend position',
   mapSetupScaleFromZeroLabel: 'Scale from zero',
   mapSetupClickableLabel: 'Clickable (filter source)',
@@ -1748,14 +1765,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Page config panel
   pageConfigPageSectionTitle: 'Page',
   pageConfigCardsSectionTitle: 'Cards',
-  pageConfigBackgroundColourLabel: 'Background colour',
+  pageConfigBackgroundColourLabel: 'Background color',
   pageConfigBackgroundColourPlaceholder: 'e.g. #f5f5f5',
   pageConfigCardBackgroundLabel: 'Card background',
   pageConfigCardBackgroundPlaceholder: 'e.g. #ffffff',
   pageConfigPaddingLabel: 'Padding',
   pageConfigCornerRadiusLabel: 'Corner radius (px)',
   pageConfigCardBorderLabel: 'Card border',
-  pageConfigBorderColourLabel: 'Border colour',
+  pageConfigBorderColourLabel: 'Border color',
   pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
   pageConfigBorderWidthLabel: 'Border width (px)',
   pageConfigPaddingNone: 'None',

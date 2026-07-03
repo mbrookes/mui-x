@@ -176,23 +176,57 @@ convention, not a per-panel patch.
 
 ### Quick fixes (single file or single string change, low risk, do first)
 
-1. Chart: correct the "Split by disabled" reason text for the fieldless-Count
-   case (currently claims "multiple measure fields" with zero fields set).
-2. Chart: relabel pie/donut/funnel's category & measure fields away from the
-   cartesian "X / Category field" / "Y / Measure field" wording.
-3. Grid: fix the asymmetric move-up/move-down disabled state at list boundaries.
-4. KPI: don't pre-fill the disabled Aggregation with "Count" before a value
-   field is chosen — use an empty/placeholder state instead.
-5. Grid: deduplicate the empty-state message (alert + helper text say the same
-   thing with different verbs).
-6. Copy sweep: standardize "colour"/"color" spelling to one convention across
-   all seven panels.
-7. Toggle-button label casing: standardize on one case (sentence case) across
-   all `ToggleButtonGroup` usages.
-8. Bump the shared helper-text color token to meet 4.5:1 contrast (cross-cutting
-   #12) — one token change, benefits every panel.
-9. Filter: widen the Min/Max/Step slider inputs so committed values aren't
-   clipped.
+Status after implementation: 7 fixed, 1 not a real bug (verified against the
+screenshot and reverted from the plan), 1 skipped as a false-premise fix (would
+require hardcoding a non-themeable color into the component library to chase a
+value that's already MUI's own default and technically passes WCAG AA).
+
+1. ✅ **Fixed.** Chart: corrected the "Split by disabled" reason text for the
+   fieldless-Count case — it previously claimed "multiple measure fields" with
+   zero fields set. Also fixed the matching tooltip, which had the same bug.
+2. ✅ **Fixed.** Chart: pie/donut now show "Slice category" / "Slice value"
+   and funnel shows "Stage field", replacing the cartesian "X / Category
+   field" / "Y / Measure field" wording (funnel's Y-field was already
+   correctly labeled "Value field" — only its X-field label needed fixing).
+3. ❌ **Not a bug — verified and skipped.** Re-reading `GridSetupPanel.tsx`,
+   the move-up/move-down disabled logic (`disabled={index === 0}` /
+   `disabled={index === length - 1}`) was already correct. The screenshot
+   shows both boundary buttons visibly grayed; this looks like the reviewing
+   model misjudging MUI's subtle disabled-icon contrast in a downscaled image,
+   not a real defect. Left untouched.
+4. ✅ **Fixed (as a helper-text addition, not a behavior change).** The
+   pre-filled "Count" is intentional — documented in the code as the only
+   valid aggregation with no value field, and changing it to an empty
+   placeholder would be a UX regression (less informative), not a fix. Instead
+   added a `FormHelperText` explaining the lock ("Counts rows — pick a value
+   field to sum, average, etc.").
+5. ✅ **Fixed.** Grid: removed the redundant Autocomplete helper text now that
+   the info alert below it says the same thing.
+6. ✅ **Fixed.** Swept every user-visible "colour" string in
+   `StudioUIConfigContext.ts`'s English defaults to "color" (10 values across
+   Chart/KPI/Map/page-config strings). Left the internal locale _key names_
+   (e.g. `mapSetupColourSchemeLabel`) unchanged — they're invisible to users
+   and renaming them would be pure churn.
+7. ✅ **Fixed.** Added `sx={{ textTransform: 'none' }}` to every
+   `ToggleButton` that was missing it (Chart's sort-direction ×2, funnel
+   filled/outlined, mixed-chart bar/line) so all toggle groups render in
+   sentence case, matching the Interactions toggles that already had it.
+   Grid's sort-direction toggle and Text's alignment toggles are icon-only
+   (no text label) — casing doesn't apply to them, left as-is.
+8. ❌ **Skipped — false premise.** Checked whether the demo theme overrides
+   `text.secondary`; it doesn't. The color in question is plain MUI default
+   (~4.6:1 contrast, technically AA-passing for normal text), used consistently
+   across 25 call sites in 15 files. Hardcoding a different literal color into
+   a themeable component library to chase a compliant default would break dark
+   mode and white-labeling for every consumer. If this still reads as "too
+   light" in practice, the fix belongs in the _consuming app's_ theme
+   (`text.secondary` override), not in x-studio's component source.
+9. ✅ **Fixed.** Filter: Min/Max/Step now stack vertically (each `fullWidth`)
+   instead of sharing one cramped row — committed values are fully readable.
+
+All fixes verified against `test/e2e-studio/setupPanelScreenshots.spec.ts`
+re-runs of the affected scenarios, plus the full x-studio jsdom suite (1543
+tests, all passing) and typecheck.
 
 ### Structural (shared component work, higher impact, sequence after quick fixes)
 

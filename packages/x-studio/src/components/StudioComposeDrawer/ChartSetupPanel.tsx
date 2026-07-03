@@ -281,12 +281,20 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
   let seriesFieldHelperText = localeText.chartSetupSplitByHelperText;
-  if (seriesFieldDisabled) {
+  if (isFieldlessCount) {
+    seriesFieldHelperText = localeText.chartSetupSplitByFieldlessCountHelperText;
+  } else if (seriesFieldDisabled) {
     seriesFieldHelperText = localeText.chartSetupSplitByDisabledHelperText;
   } else if (isPieOrDonut) {
     seriesFieldHelperText = localeText.chartSetupInnerRingHelperText;
   } else {
     seriesFieldHelperText = localeText.chartSetupSplitByHelperText;
+  }
+  let seriesFieldDisabledTooltip = '';
+  if (isFieldlessCount) {
+    seriesFieldDisabledTooltip = localeText.chartSetupFieldlessCountSplitByTooltip;
+  } else if (seriesFieldDisabled) {
+    seriesFieldDisabledTooltip = localeText.chartSetupRemoveSplitByTooltip;
   }
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
@@ -338,6 +346,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     xFieldLabel = localeText.chartSetupSankeySourceLabel;
   } else if (isScatter) {
     xFieldLabel = localeText.chartSetupXFieldNumericLabel;
+  } else if (isPieOrDonut) {
+    xFieldLabel = localeText.chartSetupXFieldPieDonutLabel;
+  } else if (isFunnel) {
+    xFieldLabel = localeText.chartSetupXFieldFunnelLabel;
   } else if (isHorizontalBarChart) {
     xFieldLabel = localeText.chartSetupXFieldCategoryVertLabel;
   } else {
@@ -349,6 +361,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     xFieldHelperText = localeText.chartSetupSankeySourceHelperText;
   } else if (isScatter) {
     xFieldHelperText = localeText.chartSetupXFieldHorizontalHelperText;
+  } else if (isPieOrDonut) {
+    xFieldHelperText = localeText.chartSetupXFieldPieDonutHelperText;
+  } else if (isFunnel) {
+    xFieldHelperText = localeText.chartSetupXFieldFunnelHelperText;
   } else if (isHorizontalBarChart) {
     xFieldHelperText = localeText.chartSetupXFieldGroupVertHelperText;
   } else {
@@ -356,7 +372,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   }
 
   let yMeasureLabel: string;
-  if (supportsMultipleSeries) {
+  if (isPieOrDonut) {
+    yMeasureLabel = localeText.chartSetupYMeasurePieDonutLabel;
+  } else if (supportsMultipleSeries) {
     yMeasureLabel = isHorizontalBarChart
       ? localeText.chartSetupXMeasureFieldsLabel
       : localeText.chartSetupYMeasureFieldsLabel;
@@ -542,10 +560,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   aria-label={localeText.chartSetupSortDirectionAriaLabel}
                   sx={{ alignSelf: 'flex-start' }}
                 >
-                  <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+                  <ToggleButton
+                    value="asc"
+                    aria-label={localeText.sortAscendingAriaLabel}
+                    sx={{ textTransform: 'none' }}
+                  >
                     {localeText.sortAscendingAriaLabel}
                   </ToggleButton>
-                  <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+                  <ToggleButton
+                    value="desc"
+                    aria-label={localeText.sortDescendingAriaLabel}
+                    sx={{ textTransform: 'none' }}
+                  >
                     {localeText.sortDescendingAriaLabel}
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -722,10 +748,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   }}
                   size="small"
                 >
-                  <ToggleButton value="filled">
+                  <ToggleButton value="filled" sx={{ textTransform: 'none' }}>
                     {localeText.chartSetupFunnelStyleFilled}
                   </ToggleButton>
-                  <ToggleButton value="outlined">
+                  <ToggleButton value="outlined" sx={{ textTransform: 'none' }}>
                     {localeText.chartSetupFunnelStyleOutlined}
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -828,10 +854,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     aria-label={localeText.chartSetupSortDirectionAriaLabel}
                     sx={{ alignSelf: 'flex-start' }}
                   >
-                    <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+                    <ToggleButton
+                      value="asc"
+                      aria-label={localeText.sortAscendingAriaLabel}
+                      sx={{ textTransform: 'none' }}
+                    >
                       {localeText.sortAscendingAriaLabel}
                     </ToggleButton>
-                    <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+                    <ToggleButton
+                      value="desc"
+                      aria-label={localeText.sortDescendingAriaLabel}
+                      sx={{ textTransform: 'none' }}
+                    >
                       {localeText.sortDescendingAriaLabel}
                     </ToggleButton>
                   </ToggleButtonGroup>
@@ -984,10 +1018,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         }}
                         sx={{ mt: 0.5, mb: 0.5 }}
                       >
-                        <ToggleButton value="bar" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
+                        <ToggleButton
+                          value="bar"
+                          sx={{ px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none' }}
+                        >
                           {localeText.chartSetupMixedSeriesBar}
                         </ToggleButton>
-                        <ToggleButton value="line" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
+                        <ToggleButton
+                          value="line"
+                          sx={{ px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none' }}
+                        >
                           {localeText.chartSetupMixedSeriesLine}
                         </ToggleButton>
                       </ToggleButtonGroup>
@@ -1062,10 +1102,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               >
                 {localeText.chartSetupCategoryFieldLabel}
               </Typography>
-              <Tooltip
-                title={seriesFieldDisabled ? localeText.chartSetupRemoveSplitByTooltip : ''}
-                placement="top"
-              >
+              <Tooltip title={seriesFieldDisabledTooltip} placement="top">
                 <span>
                   <DataSourceFieldSelect
                     value={config.seriesField ?? ''}

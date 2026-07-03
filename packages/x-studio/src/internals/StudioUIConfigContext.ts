@@ -435,6 +435,8 @@ export interface StudioLocaleText {
   chartSetupValueFieldLabel: string;
   chartSetupValueFieldHelperText: string;
   chartSetupAggregationLabel: string;
+  /** Shown when the Aggregation control is disabled because no value/measure field is chosen yet. */
+  aggregationLockedHelperText: string;
   chartSetupMinLabel: string;
   chartSetupMaxLabel: string;
   chartSetupGroupByLabel: string;
@@ -558,7 +560,6 @@ export interface StudioLocaleText {
   kpiSetupPlotTypeLabel: string;
   kpiSetupValueFieldLabel: string;
   kpiSetupValueFieldHelperText: string;
-  kpiSetupAggregationLockedHelperText: string;
   kpiSetupSparklineLabel: string;
   kpiSetupGaugeMaxLabel: string;
   kpiSetupTrendLabel: string;
@@ -1468,6 +1469,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupValueFieldLabel: 'Value field',
   chartSetupValueFieldHelperText: 'Numeric field to aggregate',
   chartSetupAggregationLabel: 'Aggregation',
+  aggregationLockedHelperText: 'Counts rows — pick a value field to sum, average, etc.',
   chartSetupMinLabel: 'Min',
   chartSetupMaxLabel: 'Max',
   chartSetupGroupByLabel: 'Group by',
@@ -1596,7 +1598,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupPlotTypeLabel: 'Plot type',
   kpiSetupValueFieldLabel: 'Value field',
   kpiSetupValueFieldHelperText: 'Field to aggregate',
-  kpiSetupAggregationLockedHelperText: 'Counts rows — pick a value field to sum, average, etc.',
   kpiSetupSparklineLabel: 'Sparkline',
   kpiSetupGaugeMaxLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',

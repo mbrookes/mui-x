@@ -274,9 +274,20 @@ tests, all passing) and typecheck.
    explicitly set to `'none'`). Verified: typecheck, full suite (1543 tests),
    and re-captured `map-basic`/`map-switches-on` screenshots.
 4. **Shared empty/required-state pattern** (cross-cutting #3) — one component
-   used by KPI, Map, Pivot, Chart's per-field empty states.
-5. **Shared "why is this disabled" convention** (cross-cutting #11) — pairs
-   naturally with #4.
+   used by KPI, Map, Pivot, Chart's per-field empty states. Not yet done —
+   this is a genuine new-component design task, not a mechanical sweep.
+5. ✅ **Partially fixed.** **Shared "why is this disabled" convention**
+   (cross-cutting #11) — generalized the KPI-only
+   `kpiSetupAggregationLockedHelperText` into a shared
+   `aggregationLockedHelperText` and applied it everywhere a fieldless/
+   valueless Aggregation control is disabled: Chart's fieldless-Count select
+   (bar and pie/donut share the same code path), KPI's (already fixed in the
+   quick-fix pass), and Map's (previously had no explanation at all). Scoped
+   to the Aggregation control specifically, since that's the one place this
+   pattern repeats identically across three panels with the same root cause
+   (no value field chosen yet); the broader "every disabled control explains
+   itself" convention remains open for KPI's Sparkline/Trend sub-fields, whose
+   disabled state is more about a feature toggle than a missing value.
 6. **Chart form should relabel/reshape per chart type** — largely done by
    quick fix #2 above (pie/donut/funnel's category & measure labels). The
    remaining piece — sankey/heatmap/gantt already have their own per-type

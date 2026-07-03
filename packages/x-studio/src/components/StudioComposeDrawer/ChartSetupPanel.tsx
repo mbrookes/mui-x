@@ -8,6 +8,7 @@ import {
   Divider,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   IconButton,
   InputLabel,
   MenuItem,
@@ -1071,6 +1072,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Select label={localeText.chartSetupAggregationLabel} value="count">
                       <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
                     </Select>
+                    <FormHelperText>{localeText.aggregationLockedHelperText}</FormHelperText>
                   </FormControl>
                 )}
               </Stack>

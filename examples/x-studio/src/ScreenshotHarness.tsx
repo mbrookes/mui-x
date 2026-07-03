@@ -29,6 +29,7 @@ export default function ScreenshotHarness({ scenarioId }: { scenarioId: string }
     }
     const c = new StudioController(scenario.initialState);
     c.setSelectedWidget(scenario.widgetId);
+    scenario.postSetup?.(c);
     return c;
   }, [scenario]);
 
@@ -47,7 +48,7 @@ export default function ScreenshotHarness({ scenarioId }: { scenarioId: string }
     <ThemeProvider theme={theme}>
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <CssBaseline />
-        <StudioProvider controller={controller}>
+        <StudioProvider controller={controller} aiConfig={{ endpoint: 'about:blank' }}>
           <DrawerSubheaderContext.Provider value={subheaderCtx}>
             <Box
               data-testid="screenshot-root"

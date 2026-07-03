@@ -21,16 +21,25 @@ import {
 
 const OUTPUT_DIR = path.resolve(import.meta.dirname, 'screenshots/setup-panels');
 
+function resolveStepLocator(page: Page, step: ScreenshotInteractionStep) {
+  if (step.buttonName) {
+    return page.getByRole('button', { name: step.buttonName, exact: true });
+  }
+  if (step.menuItemName) {
+    return page.getByRole('menuitem', { name: step.menuItemName });
+  }
+  if (step.formControlText) {
+    return page
+      .locator('.MuiFormControl-root', { hasText: step.formControlText })
+      .getByRole('combobox');
+  }
+  // Not getByLabel: once the popper is open, its listbox shares the same
+  // aria-labelledby as the input, making a plain label lookup ambiguous.
+  return page.getByRole('combobox', { name: step.label! });
+}
+
 async function runInteraction(page: Page, step: ScreenshotInteractionStep) {
-  const locator = step.buttonName
-    ? page.getByRole('button', { name: step.buttonName, exact: true })
-    : step.formControlText
-      ? page
-          .locator('.MuiFormControl-root', { hasText: step.formControlText })
-          .getByRole('combobox')
-      : // Not getByLabel: once the popper is open, its listbox shares the same
-        // aria-labelledby as the input, making a plain label lookup ambiguous.
-        page.getByRole('combobox', { name: step.label! });
+  const locator = resolveStepLocator(page, step);
 
   if (step.action === 'hover') {
     await locator.hover();
@@ -79,7 +88,11 @@ test.describe('Setup panel documentation screenshots', () => {
       const root = page.locator('[data-testid="screenshot-root"]');
       await expect(root).toBeVisible();
 
+      // Steps must run in DOM order — each depends on the previous step's resulting
+      // state (e.g. opening a menu before clicking one of its items) — so they
+      // cannot be parallelized.
       for (const step of scenario.interactions ?? []) {
+        // eslint-disable-next-line no-await-in-loop
         await runInteraction(page, step);
       }
 

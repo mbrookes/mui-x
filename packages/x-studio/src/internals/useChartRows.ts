@@ -8,7 +8,7 @@ import {
   selectRelationships,
   selectExpressionFields,
 } from '../context';
-import { resolveChartRowsForAggregation, type ChartSupportResult } from './chartUtils';
+import { resolveChartRowsForAggregation, type ChartSupportResult } from './chartAggregation';
 
 type Row = Record<string, unknown>;
 

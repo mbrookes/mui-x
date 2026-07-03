@@ -5,7 +5,7 @@ import type {
   StudioRelationship,
   StudioState,
 } from '../models';
-import { resolveChartRowsForAggregation } from './chartUtils';
+import { resolveChartRowsForAggregation } from './chartAggregation';
 import { selectFiltersForWidget } from './filterScoping';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';

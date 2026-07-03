@@ -1,4 +1,4 @@
-import { resolveRows } from './chartUtils';
+import { resolveRows } from './dataSourceGraph';
 import type {
   StudioDataSource,
   StudioFilterState,

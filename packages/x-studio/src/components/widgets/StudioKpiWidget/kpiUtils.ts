@@ -3,7 +3,7 @@
  * Extracted here so they can be unit-tested independently of the React component.
  */
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
-import { normalizeToDate } from '../../../internals/chartUtils';
+import { normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
 import {
   isRelativeDateValue,

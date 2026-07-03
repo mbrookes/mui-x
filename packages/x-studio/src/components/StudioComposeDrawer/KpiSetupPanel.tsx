@@ -26,7 +26,7 @@ import {
 } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
-import { getReachableSourceIds } from '../../internals/chartUtils';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import type {
   StudioKpiAggregation,
   StudioCrossFilterMode,
@@ -204,7 +204,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const widgetDateRangeFilter = React.useMemo(
     () =>
       allFilters.find(
-        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.dateRangePreset !== undefined,
+        (f) =>
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
+          f.dateRangePreset !== undefined,
       ),
     [allFilters, widgetId],
   );

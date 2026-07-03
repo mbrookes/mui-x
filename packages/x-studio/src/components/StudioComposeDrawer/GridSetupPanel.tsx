@@ -42,7 +42,7 @@ import {
   selectExpressionFields,
   useStudioLocaleText,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/chartUtils';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';

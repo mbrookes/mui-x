@@ -30,11 +30,8 @@ import {
 } from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../../utils/fieldCapabilities';
-import {
-  analyzeChartSupport,
-  getChartSupportMessage,
-  getReachableSourceIds,
-} from '../../internals/chartUtils';
+import { analyzeChartSupport, getChartSupportMessage } from '../../internals/chartAggregation';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import type {
   StudioChartAnnotation,
   StudioChartType,

@@ -1,4 +1,4 @@
-import { normalizeDataSourceRows } from './chartUtils';
+import { normalizeDataSourceRows } from './temporalUtils';
 import type { StudioDataField, StudioDataSource } from '../models';
 
 type Row = Record<string, unknown>;

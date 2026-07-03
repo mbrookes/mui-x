@@ -19,6 +19,7 @@
 import type {
   JwtSecurityClaims,
   BatchWidgetDescriptor,
+  FilterPredicate,
   HavingPredicate,
   HandleBatchQueryOptions,
 } from '../security/types';
@@ -95,7 +96,22 @@ export function buildSecureQuery(
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
-  applyPredicates(query, descriptor.filters, 'read');
+  // Resolve `columnAliases` to the physical column BEFORE building the WHERE
+  // clause, exactly as SELECT / ORDER BY / aggregations do in `execute.ts`
+  // (`physicalCol`). Validation (`validateDescriptorColumns`) already resolves
+  // aliases when checking filter columns against `columnAllowlist`, so the
+  // executed column MUST be the same resolved physical column — otherwise a
+  // client can alias a non-allowlisted column onto an allowlisted one (e.g.
+  // `columnAliases: { ssn: 'amount' }`, `filters: [{ column: 'ssn', … }]`),
+  // pass validation against `amount`, yet have the query filter on the real
+  // `ssn` column: a column-allowlist bypass / comparison oracle.
+  const resolvedFilters = descriptor.filters?.map((predicate): FilterPredicate => {
+    const physical = descriptor.columnAliases?.[predicate.column];
+    return physical && physical !== predicate.column
+      ? { ...predicate, column: physical }
+      : predicate;
+  });
+  applyPredicates(query, resolvedFilters, 'read');
 
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
   // Only allowed against aggregation aliases (validated by handler.ts before

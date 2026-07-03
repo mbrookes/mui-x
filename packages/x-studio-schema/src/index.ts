@@ -17,11 +17,9 @@ export * from './expressionTypes';
 export * from './stateTypes';
 export * from './aiTypes';
 
-// `createDefaultWidget` and `normalizeGridColumn` are exported explicitly here (they
-// live in the `factories` runtime module, not a `export *`-ed type module).
-// `createDefaultStudioState` also lives in `./factories`, but is surfaced via the
-// back-compat re-export in `./stateTypes` (kept for pre-existing `./stateTypes` deep
-// imports); re-exporting it here too would be a duplicate export.
-export { createDefaultWidget, normalizeGridColumn } from './factories';
+// `createDefaultWidget`, `normalizeGridColumn`, and `createDefaultStudioState` are
+// exported explicitly here (they live in the `factories` runtime module, not a
+// `export *`-ed type module).
+export { createDefaultWidget, normalizeGridColumn, createDefaultStudioState } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
 export { applyMutation, mutationLabel } from './applyMutation';

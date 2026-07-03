@@ -9,10 +9,6 @@ import type { StudioDataSource, StudioDataField, StudioRelationship } from './da
 import type { StudioExpressionField } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
 
-// `createDefaultStudioState` lives in `./factories` (grouped with the other runtime
-// factories). Re-exported here so pre-existing deep imports (`./stateTypes`) keep working.
-export { createDefaultStudioState } from './factories';
-
 /**
  * Typed filter scope — a discriminated union that encodes scope and all
  * scope-dependent identifiers in a single field.

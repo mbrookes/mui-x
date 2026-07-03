@@ -315,7 +315,10 @@ describe('applyStateMutation: renameAIThread', () => {
         threads: [{ id: 't1', name: 'Old', createdAt: '2020-01-01T00:00:00.000Z', messages: [] }],
       },
     });
-    applyStateMutation({ type: 'renameAIThread', args: { name: 'New Name' } }, controller);
+    applyStateMutation(
+      { type: 'renameAIThread', args: { name: 'New Name', updatedAt: '2024-01-01T00:00:00.000Z' } },
+      controller,
+    );
     expect(controller.getState().ai?.threads[0].name).toBe('New Name');
   });
 });

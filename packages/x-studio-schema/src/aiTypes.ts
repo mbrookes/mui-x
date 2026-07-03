@@ -95,10 +95,10 @@ export type StateMutation =
          * ISO 8601 timestamp stamped once by the producer (server-side), so the
          * server-computed `nextState` and the client-applied result agree. The
          * reducer must never call `Date.now()`/`new Date()` itself — that would
-         * make this otherwise-pure reducer non-deterministic. Optional only so
-         * existing callers keep compiling; the sole producer always supplies it.
+         * make this otherwise-pure reducer non-deterministic. Required: the sole
+         * producer (`executeToolOnState`'s `rename_thread` handler) always supplies it.
          */
-        updatedAt?: string;
+        updatedAt: string;
       };
     };
 

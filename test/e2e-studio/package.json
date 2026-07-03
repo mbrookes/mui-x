@@ -1,5 +1,8 @@
 {
   "name": "@mui-x-internal/test-e2e-studio",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "x-studio-example": "workspace:*"
+  }
 }

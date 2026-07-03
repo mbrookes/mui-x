@@ -14,7 +14,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { SCREENSHOT_SCENARIOS } from '../../examples/x-studio/src/screenshotScenarios';
+import { SCREENSHOT_SCENARIOS } from 'x-studio-example/src/screenshotScenarios';
 
 const OUTPUT_DIR = path.resolve(import.meta.dirname, 'screenshots/setup-panels');
 

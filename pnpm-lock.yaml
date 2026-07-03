@@ -2838,7 +2838,11 @@ importers:
         specifier: 'catalog:'
         version: 4.22.3
 
-  test/e2e-studio: {}
+  test/e2e-studio:
+    devDependencies:
+      x-studio-example:
+        specifier: workspace:*
+        version: link:../../examples/x-studio
 
   test/performance-charts:
     devDependencies:

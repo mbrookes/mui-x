@@ -161,12 +161,27 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
           fontSize: '0.65rem',
         }}
       >
-        {/* Header row: category corner + mean-rank column + rank numbers */}
-        <Box sx={{ alignSelf: 'end', px: 0.5, pb: 0.5 }}>
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>
-            most important →
+        {/* Caption row: importance direction, spanning only the rank columns. */}
+        <Box sx={{ gridColumn: 'span 2' }} aria-hidden />
+        <Box
+          sx={{
+            gridColumn: `span ${rankCount}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            px: 0.25,
+            pb: 0.25,
+          }}
+        >
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+            most important
+          </Typography>
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+            least important
           </Typography>
         </Box>
+
+        {/* Column-label row: empty label corner + mean + rank numbers */}
+        <Box aria-hidden />
         <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
           <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
             mean

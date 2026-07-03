@@ -320,6 +320,20 @@ export interface StudioLocaleText {
   filterRankTop: string;
   filterRankBottom: string;
 
+  // ── Filter summary (drawer row / quick-filter-bar chip condensed descriptions) ──
+  /** Shown for a selection-mode filter with no values chosen, e.g. "any value" */
+  filterSummaryAnyValue: string;
+  /** Prefix for an inclusive selection summary, e.g. "is one of: A, B" */
+  filterSummaryIsOneOf: string;
+  /** Prefix for an exclusive (not_in) selection summary, e.g. "is not: A, B" */
+  filterSummaryIsNot: string;
+  /** Returns e.g. "and 2 more" appended after a truncated selection summary */
+  filterSummaryAndMore: (count: number) => string;
+  /** Returns e.g. "from 10" for a `between` condition with only a lower bound */
+  filterSummaryFrom: (value: string) => string;
+  /** Returns e.g. "until 20" for a `between` condition with only an upper bound */
+  filterSummaryUntil: (value: string) => string;
+
   // ── Filter operator labels (per field type) ───────────────────────────────
   // Keys follow `filterOperator_${fieldType}_${operator}`; see
   // `StudioFiltersDrawer/filterOperatorMetadata.ts` for the authoritative list
@@ -1344,6 +1358,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRankAggMinLabel: 'Min of all series',
   filterRankTop: 'Top',
   filterRankBottom: 'Bottom',
+
+  // Filter summary
+  filterSummaryAnyValue: 'any value',
+  filterSummaryIsOneOf: 'is one of:',
+  filterSummaryIsNot: 'is not:',
+  filterSummaryAndMore: (count) => `and ${count} more`,
+  filterSummaryFrom: (value) => `from ${value}`,
+  filterSummaryUntil: (value) => `until ${value}`,
 
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'Equals',

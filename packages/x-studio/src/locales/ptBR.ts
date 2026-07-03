@@ -274,6 +274,14 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterRankTop: 'Maiores',
   filterRankBottom: 'Menores',
 
+  // Filter summary
+  filterSummaryAnyValue: 'qualquer valor',
+  filterSummaryIsOneOf: 'é um de:',
+  filterSummaryIsNot: 'não é:',
+  filterSummaryAndMore: (count) => `e mais ${count}`,
+  filterSummaryFrom: (value) => `de ${value}`,
+  filterSummaryUntil: (value) => `até ${value}`,
+
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'É igual a',
   filterOperator_string_not_equals: 'Não é igual a',

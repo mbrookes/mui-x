@@ -276,6 +276,14 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   filterRankTop: 'Más grande',
   filterRankBottom: 'Menores',
 
+  // Filter summary
+  filterSummaryAnyValue: 'cualquier valor',
+  filterSummaryIsOneOf: 'es uno de:',
+  filterSummaryIsNot: 'no es:',
+  filterSummaryAndMore: (count) => `y ${count} más`,
+  filterSummaryFrom: (value) => `desde ${value}`,
+  filterSummaryUntil: (value) => `hasta ${value}`,
+
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'Es igual a',
   filterOperator_string_not_equals: 'No es igual a',

@@ -205,7 +205,7 @@ export function StudioQuickFilterBar() {
 
       {pageFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field;
-        const summary = summarizeFilter(filter);
+        const summary = summarizeFilter(filter, localeText);
         const chipLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         return (
           <QuickFilterChip

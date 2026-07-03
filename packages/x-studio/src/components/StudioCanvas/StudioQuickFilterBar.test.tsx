@@ -6,7 +6,9 @@ import type { StudioState } from '../../models';
 import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type ResolvedStudioFeatures,
+  type StudioLocaleText,
 } from '../../internals/StudioUIConfigContext';
+import { frLocaleText } from '../../locales/fr';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -18,6 +20,7 @@ import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 
 let mockState: StudioState;
 let mockFeatures: ResolvedStudioFeatures;
+let mockLocaleText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
 
 const controller = {
   setDrawerOpen: vi.fn(),
@@ -67,7 +70,7 @@ vi.mock('../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/StudioUIConfigContext')>();
   return {
     ...actual,
-    useStudioLocaleText: () => DEFAULT_STUDIO_LOCALE_TEXT,
+    useStudioLocaleText: () => mockLocaleText,
     useStudioFeatures: () => mockFeatures,
   };
 });
@@ -109,6 +112,7 @@ describe('StudioQuickFilterBar', () => {
 
   beforeEach(() => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
+    mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
@@ -228,5 +232,30 @@ describe('StudioQuickFilterBar', () => {
     // would render on top of it and the user would see two tooltips at once.
     fireEvent.mouseEnter(closeButton);
     await waitFor(() => expect(screen.queryByText('Disable filter')).toBeNull());
+  });
+
+  // Regression coverage for Tier-2 finding #7 / Tier-4 finding #11 in the architecture
+  // review: `summarizeFilter` used to hardcode English strings and call
+  // `getOperatorLabel` without locale text, so a quick-filter-bar chip rendered in
+  // English (e.g. "Country: Equals: France") regardless of the active locale even
+  // though the `filterOperator_*` tokens were already translated.
+  it('renders the chip summary translated under a non-English locale', () => {
+    mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
+    mockState = createDefaultStudioState({
+      filters: [makePageFilter('f1', 'country')],
+      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Source',
+          fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+          rows: [],
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+    // French translation of the `equals` operator label — not the hardcoded English "Equals".
+    expect(screen.getByText(/Est égal à: France/)).toBeDefined();
+    expect(screen.queryByText(/Equals: France/)).toBeNull();
   });
 });

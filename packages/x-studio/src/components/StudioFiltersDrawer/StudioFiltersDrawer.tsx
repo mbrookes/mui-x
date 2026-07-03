@@ -196,7 +196,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       return true;
     }
     const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
-    const summary = summarizeFilter(filter);
+    const summary = summarizeFilter(filter, localeText);
     return (
       fieldLabel.toLowerCase().includes(searchLower) || summary.toLowerCase().includes(searchLower)
     );

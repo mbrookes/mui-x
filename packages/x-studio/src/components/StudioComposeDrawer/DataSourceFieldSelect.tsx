@@ -114,6 +114,19 @@ interface DataSourceFieldSelectProps {
    * On save, the new field is selected via `onChange`. Omit to hide the affordance.
    */
   calculatedField?: DataSourceFieldSelectCalculatedFieldContext;
+  /**
+   * Marks the field as required: renders MUI's native required asterisk on the
+   * floating label (via the inner TextField) and sets the HTML `required`
+   * attribute (aria-required) on the combobox input. Does NOT put the field into
+   * an error/red state while empty — setup panels open with required fields
+   * legitimately blank, so the asterisk means "required," not "mistake." A field
+   * is required only when the widget cannot render without it (no fieldless/count
+   * fallback). Optional fields omit this prop; their optionality is conveyed ONLY
+   * by the absence of the asterisk — never by an "(optional)"/"(required)" suffix
+   * in label or helper copy.
+   * @default false
+   */
+  required?: boolean;
 }
 
 /**
@@ -135,6 +148,7 @@ export function DataSourceFieldSelect({
   size = 'small',
   fullWidth = true,
   calculatedField,
+  required = false,
 }: DataSourceFieldSelectProps) {
   const localeText = useStudioLocaleText();
   const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
@@ -261,9 +275,14 @@ export function DataSourceFieldSelect({
           <TextField
             {...params}
             label={label}
+            required={required}
             helperText={helperText}
             slotProps={{
               ...params.slotProps,
+              htmlInput: {
+                ...params.slotProps.htmlInput,
+                title: selectedOption ? getOptionLabel(selectedOption) : undefined,
+              },
               input: {
                 ...params.slotProps.input,
                 // BL-148 kept the field-type icon as a start adornment once a value is

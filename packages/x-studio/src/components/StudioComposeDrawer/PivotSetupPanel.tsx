@@ -165,6 +165,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
         fields={categoryFields}
         label={localeText.pivotSetupRowFieldLabel}
         helperText={localeText.pivotSetupRowFieldHelper}
+        required
       />
 
       <DataSourceFieldSelect
@@ -173,6 +174,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
         fields={categoryFields}
         label={localeText.pivotSetupColFieldLabel}
         helperText={localeText.pivotSetupColFieldHelper}
+        required
       />
 
       <Divider />
@@ -203,6 +205,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           fields={numericFields}
           label={localeText.pivotSetupValueFieldLabel}
           helperText={localeText.pivotSetupValueFieldHelper}
+          required
         />
       )}
 

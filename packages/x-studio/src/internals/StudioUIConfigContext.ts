@@ -564,6 +564,7 @@ export interface StudioLocaleText {
   kpiSetupGaugeMaxLabel: string;
   kpiSetupTrendLabel: string;
   kpiSetupDateRangeLabel: string;
+  kpiSetupDateRangePresetLabel: string;
   kpiSetupDateRangeFieldLabel: string;
   kpiSetupCompPeriodLabel: string;
   kpiSetupDateAggEarliest: string;
@@ -624,6 +625,7 @@ export interface StudioLocaleText {
   // ── Map setup panel ────────────────────────────────────────────────────────
   mapSetupMapTypeLabel: string;
   mapSetupValueFieldLabel: string;
+  mapSetupValueFieldHelperText: string;
   mapSetupColourSchemeLabel: string;
   mapSetupLegendPositionLabel: string;
   mapSetupScaleFromZeroLabel: string;
@@ -720,6 +722,10 @@ export interface StudioLocaleText {
   textSetupSubtitleHelper: string;
   textSetupBodyLabel: string;
   textSetupBodyHelper: string;
+  /** @default 'Prompt' */
+  textSetupPromptLabel: string;
+  /** @default 'Describe what the AI should write — it can query the data sources on this page' */
+  textSetupPromptHelper: string;
   /** @default 'AI mode' */
   textSetupAiModeLabel: string;
   /** @default 'Use your text as a prompt to generate AI content' */
@@ -1494,9 +1500,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupReferenceLineLabelLabel: 'Label',
   chartSetupYFieldLabel: 'Y field (numeric)',
   chartSetupYFieldHelperText: 'Numeric field plotted on the vertical axis',
-  chartSetupColorByLabel: 'Color by (optional)',
+  chartSetupColorByLabel: 'Color by',
   chartSetupColorByHelperText: 'Splits points into color-coded series per category',
-  chartSetupSizeByLabel: 'Size by (optional)',
+  chartSetupSizeByLabel: 'Size by',
   chartSetupSizeByHelperText: 'Numeric field that controls bubble radius (produces a bubble chart)',
   chartSetupMinRadiusLabel: 'Min radius',
   chartSetupMaxRadiusLabel: 'Max radius',
@@ -1547,7 +1553,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupGanttStartDateHelperText: 'Date / datetime field for the start of each bar',
   chartSetupGanttEndDateLabel: 'End date field',
   chartSetupGanttEndDateHelperText: 'Date / datetime field for the end of each bar',
-  chartSetupGanttColourByLabel: 'Color by (optional)',
+  chartSetupGanttColourByLabel: 'Color by',
   chartSetupGanttColourByHelperText:
     'Categorical field used to color-code bars (e.g. status or category)',
   chartSetupXFieldNumericLabel: 'X field (numeric)',
@@ -1602,6 +1608,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupGaugeMaxLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Date range',
+  kpiSetupDateRangePresetLabel: 'Range',
   kpiSetupDateRangeFieldLabel: 'Date field',
   kpiSetupCompPeriodLabel: 'Comparison period',
   kpiSetupDateAggEarliest: 'Earliest',
@@ -1665,7 +1672,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Map type',
-  mapSetupValueFieldLabel: 'Value field (optional for count)',
+  mapSetupValueFieldLabel: 'Value field',
+  mapSetupValueFieldHelperText: 'Leave empty to count rows',
   mapSetupColourSchemeLabel: 'Color scheme',
   mapSetupLegendPositionLabel: 'Legend position',
   mapSetupScaleFromZeroLabel: 'Scale from zero',
@@ -1764,6 +1772,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textSetupSubtitleHelper: 'Smaller text below the heading',
   textSetupBodyLabel: 'Body',
   textSetupBodyHelper: 'Main content of the widget; supports plain text',
+  textSetupPromptLabel: 'Prompt',
+  textSetupPromptHelper:
+    'Describe what the AI should write — it can query the data sources on this page',
   textSetupAiModeLabel: 'AI mode',
   textSetupAiModeHelper: 'Use your text as a prompt to generate AI content',
 

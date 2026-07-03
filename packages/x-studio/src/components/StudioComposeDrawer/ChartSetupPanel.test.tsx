@@ -96,10 +96,13 @@ describe('ChartSetupPanel', () => {
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
-  it('shows a section title for the category field', () => {
+  it('labels the split-by field with its own floating label only (no duplicate heading)', () => {
     render(<ChartSetupPanel widgetId="widget-1" />);
 
-    expect(screen.getByText('Category field')).toBeVisible();
+    // Rule B (label-system spec): a single control's own floating label is its only name —
+    // there is no separate "Category field" heading duplicating it.
+    expect(screen.getByLabelText('Split by (series field)')).toBeVisible();
+    expect(screen.queryByText('Category field')).to.equal(null);
   });
 
   it('keeps the split-by field visible and disabled when multiple measure fields are configured', () => {
@@ -126,7 +129,6 @@ describe('ChartSetupPanel', () => {
 
       render(<ChartSetupPanel widgetId="widget-1" />);
 
-      expect(screen.getByText('Category field')).toBeVisible();
       expect(screen.getByLabelText('Split by (series field)').getAttribute('disabled')).toBe('');
       expect(
         screen.getByText('Not available when multiple measure fields are configured'),
@@ -366,7 +368,9 @@ describe('ChartSetupPanel', () => {
       const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
       // Pick the X field — its source-anchoring side effect must also seed the row count.
-      const xInput = screen.getByLabelText('X / Category field');
+      // The picker is now marked `required` (BL-186 has no fieldless fallback for X), so its
+      // accessible label carries a trailing asterisk — match with `exact: false`.
+      const xInput = screen.getByLabelText('X / Category field', { exact: false });
       await user.click(xInput);
       const departmentOption = await screen.findByRole('option', { name: /Department$/ });
       await user.click(departmentOption);
@@ -435,7 +439,9 @@ describe('ChartSetupPanel', () => {
 
       const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
-      const xInput = screen.getByLabelText('Slice category');
+      // The picker is now marked `required` (no fieldless fallback for the pie slice
+      // category), so its accessible label carries a trailing asterisk.
+      const xInput = screen.getByLabelText('Slice category', { exact: false });
       await user.click(xInput);
       const departmentOption = await screen.findByRole('option', { name: /Department$/ });
       await user.click(departmentOption);

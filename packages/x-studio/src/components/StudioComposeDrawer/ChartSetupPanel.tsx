@@ -44,6 +44,7 @@ import type {
 } from '../../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import { SetupSection } from './SetupSection';
 
 function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
@@ -418,6 +419,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             fields={fieldsForCapability(allFields, 'numeric')}
             label={localeText.chartSetupValueFieldLabel}
             helperText={localeText.chartSetupValueFieldHelperText}
+            required
           />
 
           <FormControl size="small" fullWidth>
@@ -448,7 +450,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               onChange={(evt) =>
                 controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
               }
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
             />
             <TextField
               size="small"
@@ -458,7 +460,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               onChange={(evt) =>
                 controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
               }
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
             />
           </Stack>
         </Stack>
@@ -496,6 +498,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             }}
             label={xFieldLabel}
             helperText={xFieldHelperText}
+            required
           />
 
           {/* Group by — shown only when x field is a date/datetime type */}
@@ -537,6 +540,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     controller.updateWidgetConfig(widgetId, {
                       chartSortBy: evt.target.value as 'category' | 'value' | 'natural',
                     });
+                  }}
+                  SelectDisplayProps={{
+                    title: (() => {
+                      const sortBy = config.chartSortBy ?? 'category';
+                      if (sortBy === 'category') {
+                        return selectedXField?.label ?? localeText.chartSetupSortCategory;
+                      }
+                      if (sortBy === 'value') {
+                        return localeText.chartSetupSortValue;
+                      }
+                      return localeText.chartSetupSortNatural;
+                    })(),
                   }}
                 >
                   <MenuItem value="category">
@@ -594,6 +609,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={numericFields}
                 label={localeText.chartSetupYFieldLabel}
                 helperText={localeText.chartSetupYFieldHelperText}
+                required
               />
               <DataSourceFieldSelect
                 value={config.scatterColorField ?? ''}
@@ -630,7 +646,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       })
                     }
                     slotProps={{ htmlInput: { min: 1, max: 50 } }}
-                    sx={{ flex: 1 }}
+                    sx={{ flex: 1, minWidth: 0 }}
                   />
                   <TextField
                     size="small"
@@ -643,7 +659,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       })
                     }
                     slotProps={{ htmlInput: { min: 1, max: 100 } }}
-                    sx={{ flex: 1 }}
+                    sx={{ flex: 1, minWidth: 0 }}
                   />
                 </Stack>
               )}
@@ -664,6 +680,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={numericFields}
                 label={localeText.chartSetupValueFieldLabel}
                 helperText={localeText.chartSetupFunnelValueHelperText}
+                required
               />
               <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupFunnelLabelFormatLabel}</InputLabel>
@@ -783,6 +800,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={heatYFields}
                 label={localeText.chartSetupHeatmapRowAxisLabel}
                 helperText={localeText.chartSetupHeatmapRowAxisHelperText}
+                required
               />
               <DataSourceFieldSelect
                 value={config.yField ?? ySeries[0]?.fieldId ?? ''}
@@ -795,6 +813,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={numericFields}
                 label={localeText.chartSetupHeatmapValueLabel}
                 helperText={localeText.chartSetupHeatmapValueHelperText}
+                required
               />
               <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
@@ -829,6 +848,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         heatSortBy: evt.target.value as 'x-axis' | 'y-axis' | 'natural',
                       })
                     }
+                    SelectDisplayProps={{
+                      title: (() => {
+                        const v = config.heatSortBy ?? 'natural';
+                        if (v === 'x-axis') {
+                          return heatXFieldLabel ?? localeText.chartSetupHeatmapSortXAxis;
+                        }
+                        if (v === 'y-axis') {
+                          return heatYFieldLabel ?? localeText.chartSetupHeatmapSortYAxis;
+                        }
+                        return localeText.chartSetupSortNatural;
+                      })(),
+                    }}
                   >
                     <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
                     <MenuItem value="x-axis">
@@ -888,6 +919,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={categoryFields}
                 label={localeText.chartSetupSankeyTargetLabel}
                 helperText={localeText.chartSetupSankeyTargetHelperText}
+                required
               />
               <DataSourceFieldSelect
                 value={config.yField ?? ySeries[0]?.fieldId ?? ''}
@@ -900,6 +932,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 fields={numericFields}
                 label={localeText.chartSetupValueFieldLabel}
                 helperText={localeText.chartSetupSankeyValueHelperText}
+                required
               />
               <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
@@ -1097,13 +1130,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           {/* Split by / series field */}
           {supportsSeriesField && (
             <div>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mb: 0.5 }}
-              >
-                {localeText.chartSetupCategoryFieldLabel}
-              </Typography>
               <Tooltip title={seriesFieldDisabledTooltip} placement="top">
                 <span>
                   <DataSourceFieldSelect
@@ -1193,6 +1219,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             fields={allFields}
             label={localeText.chartSetupGanttLabelFieldLabel}
             helperText={localeText.chartSetupGanttLabelFieldHelperText}
+            required
           />
           <DataSourceFieldSelect
             value={config.ganttStartField ?? ''}
@@ -1202,6 +1229,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             fields={dateFields}
             label={localeText.chartSetupGanttStartDateLabel}
             helperText={localeText.chartSetupGanttStartDateHelperText}
+            required
           />
           <DataSourceFieldSelect
             value={config.ganttEndField ?? ''}
@@ -1211,6 +1239,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             fields={dateFields}
             label={localeText.chartSetupGanttEndDateLabel}
             helperText={localeText.chartSetupGanttEndDateHelperText}
+            required
           />
           <DataSourceFieldSelect
             value={config.ganttColorField ?? ''}
@@ -1298,7 +1327,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         ),
                       });
                     }}
-                    sx={{ flexGrow: 1 }}
+                    sx={{ flexGrow: 1, minWidth: 0 }}
                   />
                   <TextField
                     size="small"
@@ -1311,7 +1340,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         ),
                       });
                     }}
-                    sx={{ flexGrow: 1 }}
+                    sx={{ flexGrow: 1, minWidth: 0 }}
                   />
                   <Tooltip title={localeText.chartSetupRemoveAnnotation}>
                     <IconButton
@@ -1331,14 +1360,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           </div>
         )}
       {/* Interactions — cross-filter mode */}
-      <div>
-        <Divider sx={{ mb: 1.5 }} />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-          {localeText.chartSetupInteractionsTitle}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          {localeText.chartSetupInteractionsDescription}
-        </Typography>
+      <SetupSection
+        title={localeText.chartSetupInteractionsTitle}
+        description={localeText.chartSetupInteractionsDescription}
+      >
         <ToggleButtonGroup
           value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
           exclusive
@@ -1360,7 +1385,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             {localeText.crossFilterModeNone}
           </ToggleButton>
         </ToggleButtonGroup>
-      </div>
+      </SetupSection>
     </Stack>
   );
 }

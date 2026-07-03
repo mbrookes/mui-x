@@ -528,7 +528,10 @@ export function executeToolOnState(
         };
       }
       const trimmed = name.trim().slice(0, 40);
-      const mutation: StateMutation = { type: 'renameAIThread', args: { name: trimmed } };
+      const mutation: StateMutation = {
+        type: 'renameAIThread',
+        args: { name: trimmed, updatedAt: new Date().toISOString() },
+      };
       return {
         output: JSON.stringify({ success: true, name: trimmed }),
         mutation,

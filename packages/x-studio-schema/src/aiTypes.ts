@@ -89,7 +89,17 @@ export type StateMutation =
     }
   | {
       type: 'renameAIThread';
-      args: { name: string };
+      args: {
+        name: string;
+        /**
+         * ISO 8601 timestamp stamped once by the producer (server-side), so the
+         * server-computed `nextState` and the client-applied result agree. The
+         * reducer must never call `Date.now()`/`new Date()` itself — that would
+         * make this otherwise-pure reducer non-deterministic. Optional only so
+         * existing callers keep compiling; the sole producer always supplies it.
+         */
+        updatedAt?: string;
+      };
     };
 
 // ── Rich AI context ─────────────────────────────────────────────────────────

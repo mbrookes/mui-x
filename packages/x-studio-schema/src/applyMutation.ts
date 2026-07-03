@@ -24,10 +24,26 @@ function clampSpan(span: number): number {
   return Math.max(3, Math.min(12, Math.round(span)));
 }
 
-export function applyMutation(state: StudioState, mutation: StateMutation): StudioState {
-  switch (mutation.type) {
-    case 'addPage': {
-      const { id, title } = mutation.args;
+/**
+ * The `apply` (state transition) and `label` (human-readable log line) logic for
+ * a single mutation kind, co-located so the two can never drift apart.
+ */
+type MutationHandler<M extends StateMutation> = {
+  apply: (state: StudioState, args: M['args']) => StudioState;
+  label: (args: M['args']) => string;
+};
+
+/**
+ * Exhaustive dispatch table over every `StateMutation` variant. The mapped type
+ * `{ [M in StateMutation as M['type']]: MutationHandler<M> }` forces one entry
+ * per mutation kind: omitting an entry for any variant — or adding a new variant
+ * without a handler — is a compile-time error in this single place, rather than
+ * a silent runtime fallback spread across two parallel switch statements.
+ */
+const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M> } = {
+  addPage: {
+    apply: (state, args) => {
+      const { id, title } = args;
       return {
         ...state,
         pages: {
@@ -36,21 +52,27 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         },
         dashboard: { ...state.dashboard, activePageId: id },
       };
-    }
+    },
+    label: (args) => `addPage:${args.id}`,
+  },
 
-    case 'setDashboardTitle': {
+  setDashboardTitle: {
+    apply: (state, args) => {
       return {
         ...state,
-        dashboard: { ...state.dashboard, title: mutation.args.title },
+        dashboard: { ...state.dashboard, title: args.title },
       };
-    }
+    },
+    label: () => 'setDashboardTitle',
+  },
 
-    case 'addWidget': {
-      const { widget } = mutation.args;
+  addWidget: {
+    apply: (state, args) => {
+      const { widget } = args;
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads. Never relies on "whatever page happens to be active on
       // the applying side", which is the page-targeting divergence this fixes.
-      const pageId = mutation.args.pageId ?? state.dashboard.activePageId;
+      const pageId = args.pageId ?? state.dashboard.activePageId;
       const page = state.pages[pageId];
       if (!page) {
         return state;
@@ -66,10 +88,13 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
           },
         },
       };
-    }
+    },
+    label: (args) => `addWidget:${args.widget.kind}:${args.widget.id}`,
+  },
 
-    case 'updateWidget': {
-      const { widgetId, changes, config } = mutation.args;
+  updateWidget: {
+    apply: (state, args) => {
+      const { widgetId, changes, config } = args;
       const existing = state.widgets[widgetId];
       if (!existing) {
         return state;
@@ -98,10 +123,13 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         ...state,
         widgets: { ...state.widgets, [widgetId]: updated },
       };
-    }
+    },
+    label: (args) => `updateWidget:${args.widgetId}`,
+  },
 
-    case 'removeWidget': {
-      const { widgetId } = mutation.args;
+  removeWidget: {
+    apply: (state, args) => {
+      const { widgetId } = args;
       if (!state.widgets[widgetId]) {
         return state;
       }
@@ -135,9 +163,12 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         pages: nextPages,
         filters: nextFilters.length !== state.filters.length ? nextFilters : state.filters,
       };
-    }
+    },
+    label: (args) => `removeWidget:${args.widgetId}`,
+  },
 
-    case 'setWidgetLayout': {
+  setWidgetLayout: {
+    apply: (state, args) => {
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
       if (!activePage) {
@@ -147,13 +178,16 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         ...state,
         pages: {
           ...state.pages,
-          [activePageId]: { ...activePage, widgetRows: mutation.args.rows },
+          [activePageId]: { ...activePage, widgetRows: args.rows },
         },
       };
-    }
+    },
+    label: () => 'setWidgetLayout',
+  },
 
-    case 'setWidgetColSpan': {
-      const { widgetId, columns, rowWidgetIds } = mutation.args;
+  setWidgetColSpan: {
+    apply: (state, args) => {
+      const { widgetId, columns, rowWidgetIds } = args;
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
       if (!activePage) {
@@ -194,10 +228,13 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
           },
         },
       };
-    }
+    },
+    label: (args) => `setWidgetColSpan:${args.widgetId}`,
+  },
 
-    case 'renamePage': {
-      const { pageId, title } = mutation.args;
+  renamePage: {
+    apply: (state, args) => {
+      const { pageId, title } = args;
       const page = state.pages[pageId];
       if (!page) {
         return state;
@@ -206,10 +243,13 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         ...state,
         pages: { ...state.pages, [pageId]: { ...page, title } },
       };
-    }
+    },
+    label: (args) => `renamePage:${args.pageId}`,
+  },
 
-    case 'removePage': {
-      const { pageId } = mutation.args;
+  removePage: {
+    apply: (state, args) => {
+      const { pageId } = args;
       const page = state.pages[pageId];
       if (!page) {
         return state;
@@ -244,10 +284,13 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         filters: nextFilters,
         dashboard: { ...state.dashboard, activePageId: nextActivePageId },
       };
-    }
+    },
+    label: (args) => `removePage:${args.pageId}`,
+  },
 
-    case 'setActivePage': {
-      const { pageId } = mutation.args;
+  setActivePage: {
+    apply: (state, args) => {
+      const { pageId } = args;
       if (!state.pages[pageId]) {
         return state;
       }
@@ -255,28 +298,37 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
         ...state,
         dashboard: { ...state.dashboard, activePageId: pageId },
       };
-    }
+    },
+    label: (args) => `setActivePage:${args.pageId}`,
+  },
 
-    case 'addFilter': {
+  addFilter: {
+    apply: (state, args) => {
       // Applied verbatim — the filter already carries its target scope/page
       // (chosen server-side), so it is NOT re-stamped with the applying side's
       // active page (that would reintroduce a page-targeting divergence).
       return {
         ...state,
-        filters: [...state.filters, mutation.args.filter],
+        filters: [...state.filters, args.filter],
       };
-    }
+    },
+    label: (args) => `addFilter:${args.filter.field}`,
+  },
 
-    case 'removeFilter': {
-      const { filterId } = mutation.args;
+  removeFilter: {
+    apply: (state, args) => {
+      const { filterId } = args;
       const nextFilters = state.filters.filter((f: StudioFilterState) => f.id !== filterId);
       return nextFilters.length !== state.filters.length
         ? { ...state, filters: nextFilters }
         : state;
-    }
+    },
+    label: (args) => `removeFilter:${args.filterId}`,
+  },
 
-    case 'applyBulkUpdate': {
-      const { widgets, widgetRows, widgetColSpans, activePageId } = mutation.args;
+  applyBulkUpdate: {
+    apply: (state, args) => {
+      const { widgets, widgetRows, widgetColSpans, activePageId } = args;
       const page = state.pages[activePageId];
       if (!page) {
         return state;
@@ -289,31 +341,39 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
           [activePageId]: { ...page, widgetRows, widgetColSpans },
         },
       };
-    }
+    },
+    label: () => 'applyBulkUpdate',
+  },
 
-    case 'renameAIThread': {
+  renameAIThread: {
+    apply: (state, args) => {
       const activeThreadId = state.ai?.activeThreadId;
       if (!state.ai || !activeThreadId) {
         return state;
       }
+      // `updatedAt` is stamped once by the producer (server-side) and carried in
+      // the mutation, so the server-computed and client-applied results agree.
+      // The reducer must never call `new Date()` itself (would be non-deterministic).
       const updatedThreads = (state.ai.threads ?? []).map((t) =>
-        t.id === activeThreadId
-          ? { ...t, name: mutation.args.name, updatedAt: new Date().toISOString() }
-          : t,
+        t.id === activeThreadId ? { ...t, name: args.name, updatedAt: args.updatedAt } : t,
       );
       return {
         ...state,
         ai: { ...state.ai, threads: updatedThreads },
       };
-    }
+    },
+    label: () => 'renameAIThread',
+  },
+};
 
-    default: {
-      // Exhaustiveness guard — a new mutation type without a case is a compile error.
-      const exhaustiveCheck: never = mutation;
-      void exhaustiveCheck;
-      return state;
-    }
-  }
+export function applyMutation(state: StudioState, mutation: StateMutation): StudioState {
+  // A single cast at the dispatch boundary: TS cannot prove that
+  // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`
+  // (the correlation is lost once `mutation.type` is read), so we assert the
+  // handler as the general shape. The mapped type above still guarantees a
+  // handler exists for every variant.
+  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>;
+  return handler.apply(state, mutation.args);
 }
 
 /**
@@ -321,36 +381,6 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
  * log (client-side undo/redo history label + MCP `get_recent_changes`).
  */
 export function mutationLabel(mutation: StateMutation): string {
-  switch (mutation.type) {
-    case 'addPage':
-      return `addPage:${mutation.args.id}`;
-    case 'setDashboardTitle':
-      return 'setDashboardTitle';
-    case 'addWidget':
-      return `addWidget:${mutation.args.widget.kind}:${mutation.args.widget.id}`;
-    case 'updateWidget':
-      return `updateWidget:${mutation.args.widgetId}`;
-    case 'removeWidget':
-      return `removeWidget:${mutation.args.widgetId}`;
-    case 'setWidgetLayout':
-      return 'setWidgetLayout';
-    case 'setWidgetColSpan':
-      return `setWidgetColSpan:${mutation.args.widgetId}`;
-    case 'renamePage':
-      return `renamePage:${mutation.args.pageId}`;
-    case 'removePage':
-      return `removePage:${mutation.args.pageId}`;
-    case 'setActivePage':
-      return `setActivePage:${mutation.args.pageId}`;
-    case 'addFilter':
-      return `addFilter:${mutation.args.filter.field}`;
-    case 'removeFilter':
-      return `removeFilter:${mutation.args.filterId}`;
-    case 'applyBulkUpdate':
-      return 'applyBulkUpdate';
-    case 'renameAIThread':
-      return 'renameAIThread';
-    default:
-      return (mutation as { type: string }).type;
-  }
+  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>;
+  return handler.label(mutation.args);
 }

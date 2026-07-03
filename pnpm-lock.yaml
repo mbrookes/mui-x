@@ -2837,6 +2837,8 @@ importers:
         specifier: 'catalog:'
         version: 4.22.3
 
+  test/e2e-studio: {}
+
   test/performance-charts:
     devDependencies:
       '@emotion/react':

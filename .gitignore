@@ -26,6 +26,7 @@ __diff_output__
 /docs/public/x/
 /docs/public/chat/
 /test/regressions/screenshots/
+/test/e2e-studio/screenshots/
 /test/performance-charts/benchmarks/
 build/
 dist/

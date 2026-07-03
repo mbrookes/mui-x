@@ -1,0 +1,5 @@
+{
+  "name": "@mui-x-internal/test-e2e-studio",
+  "private": true,
+  "type": "module"
+}

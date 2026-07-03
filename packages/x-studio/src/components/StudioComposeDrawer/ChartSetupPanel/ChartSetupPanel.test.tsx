@@ -143,6 +143,26 @@ describe('ChartSetupPanel', () => {
     }
   });
 
+  it('shows "line" selected for a mixed-chart series carrying only the canonical `type` field', () => {
+    const previousConfig = mockState.widgets['widget-1'].config;
+
+    try {
+      mockState.widgets['widget-1'].config = {
+        ...previousConfig,
+        chartType: 'mixed',
+        ySeries: [{ fieldId: 'total', type: 'line' }],
+        yField: 'total',
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByRole('button', { name: 'Line', pressed: true })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Bar', pressed: false })).toBeVisible();
+    } finally {
+      mockState.widgets['widget-1'].config = { ...previousConfig };
+    }
+  });
+
   it('disables unsupported cross-source X field options', async () => {
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 

@@ -11,6 +11,7 @@ import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
 import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
 import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
 import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
+import { normalizeChartSeries } from '@mui/x-studio-schema';
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 import { makeValueFormatter } from './chartWidgetHelpers';
@@ -63,7 +64,7 @@ export function StudioMixedChart({
     // by index (aggregateBlendedSeries preserves ySeries order 1:1); otherwise match
     // by fieldId to stay robust to de-duplicated multi-Y series.
     const seriesConfig = isBlended ? ySeries[index] : ySeries.find((c) => c.fieldId === s.fieldId);
-    const seriesType = seriesConfig?.seriesType ?? seriesConfig?.type ?? 'bar';
+    const seriesType = (seriesConfig && normalizeChartSeries(seriesConfig).type) ?? 'bar';
     const seriesId = `${s.fieldId}-${index}`;
     const color = resolvedChartColors[index % resolvedChartColors.length];
     // The field may live in a foreign source for blended series — fall back across
@@ -104,9 +105,9 @@ export function StudioMixedChart({
     return (srcId ? dataSources[srcId] : dataSource)?.fields.find((f) => f.id === sc.fieldId);
   };
   const leftSeriesConfig =
-    ySeries.find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'bar') ?? ySeries[0];
+    ySeries.find((sc) => (normalizeChartSeries(sc).type ?? 'bar') === 'bar') ?? ySeries[0];
   const rightSeriesConfig = dualYAxis
-    ? ySeries.find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'line')
+    ? ySeries.find((sc) => (normalizeChartSeries(sc).type ?? 'bar') === 'line')
     : undefined;
   const leftAxisFieldDef = getMixedFieldDef(leftSeriesConfig);
   const rightAxisFieldDef = getMixedFieldDef(rightSeriesConfig);

@@ -18,6 +18,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { normalizeChartSeries } from '@mui/x-studio-schema';
 import {
   useStudioController,
   useStudioSelector,
@@ -279,7 +280,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const handleSeriesTypeChange = (index: number, seriesType: 'bar' | 'line') => {
-    const next = ySeries.map((s, i) => (i === index ? { ...s, seriesType } : s));
+    // Write the canonical `type` field (not the deprecated `seriesType` alias) so
+    // `normalizeChartSeries`'s type-wins precedence reflects this change even if a
+    // stale `seriesType` is still present on the series.
+    const next = ySeries.map((s, i) => (i === index ? { ...s, type: seriesType } : s));
     controller.updateWidgetConfig(widgetId, { ySeries: next });
   };
 
@@ -623,7 +627,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       <ToggleButtonGroup
                         size="small"
                         exclusive
-                        value={s.seriesType ?? 'bar'}
+                        value={normalizeChartSeries(s).type ?? 'bar'}
                         onChange={(_, val) => {
                           if (val) {
                             handleSeriesTypeChange(index, val);

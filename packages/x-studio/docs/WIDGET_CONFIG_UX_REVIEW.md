@@ -263,15 +263,47 @@ tests, all passing) and typecheck.
    used by KPI, Map, Pivot, Chart's per-field empty states.
 5. **Shared "why is this disabled" convention** (cross-cutting #11) — pairs
    naturally with #4.
-6. **Chart form should relabel/reshape per chart type** — the pie/donut/funnel
-   mislabeling and the "type picker changed but form still shows bar-chart
-   controls" finding are the same root cause: field slots need a per-chart-type
-   label/helper lookup, not hardcoded cartesian copy.
-7. Grid calculated-column dialog: make the body scrollable above a sticky
-   footer so the Input row is never clipped.
-8. Grid "Add column" menu: root-cause the apparently-blank source-group headers.
+6. **Chart form should relabel/reshape per chart type** — largely done by
+   quick fix #2 above (pie/donut/funnel's category & measure labels). The
+   remaining piece — sankey/heatmap/gantt already have their own per-type
+   field labels in `ChartSetupPanel.tsx` (`chartSetupSankeySourceLabel`,
+   heatmap's row/column labels, etc.), so this item is now complete; no
+   further per-type relabeling work identified.
+7. ❌ **Not a bug — verified and skipped.** Inspected the calculated-column
+   dialog's actual computed layout: `DialogContent`'s `overflow-y: auto` and
+   the Dialog's `maxHeight: calc(100% - 64px)` are both working correctly
+   (content `scrollHeight` 713px vs `clientHeight` 538px, properly clipped and
+   scrollable; `DialogActions` sits immediately below the content boundary,
+   not overlapping it). The screenshot just shows the dialog at its initial,
+   unscrolled position — the "Input 1" row is genuinely below the fold of a
+   working scrollable region, which is normal scroll behavior, not clipping.
+   MUI's `dividers` prop (already set) is the standard "more content below"
+   affordance. Left untouched.
+8. ❌ **Not a bug — verified and skipped.** Dumped the actual "Add column"
+   menu DOM: no `ListSubheader` element renders at all when
+   `addableFieldsBySource.size` is 1 (single source) — its render condition
+   (`size > 1`) is already correct, so there's no hidden/blank header. The
+   visual "gap" in the screenshot is just the `<hr>` Divider's normal margin
+   between the calculated-column entry and the first field. Left untouched.
 9. Panel-width text-overflow policy (cross-cutting #5) — a design-system rule
    (ellipsis + tooltip, minimum numeric-input width) applied across all panels.
+   Not yet implemented — this one is a genuine sweep across every panel's
+   label/helper copy and would benefit from being scoped as its own pass
+   rather than folded into this session's structural fixes.
+
+### Verification note
+
+Three findings from the original review did not survive independent
+re-verification against the actual source/DOM (in addition to quick-fix #3
+from the earlier pass): the move-arrow disabled state, the "Add column" menu's
+blank subheader, and the calculated-column dialog's clipping. All three were
+screenshot-only observations that looked plausible but turned out to be either
+a subtle rendering detail (disabled-icon contrast) or correct, working
+behavior (conditional rendering, scrollable regions) once checked against the
+component's actual logic or runtime DOM. This is normal signal-to-noise for a
+vision-model review pass over static screenshots — it's exactly why each
+structural finding was re-verified before treating it as real, rather than
+implementing fixes for problems that didn't actually exist.
 
 ### Needs a product/design decision (flagged, not triaged as a straightforward fix)
 

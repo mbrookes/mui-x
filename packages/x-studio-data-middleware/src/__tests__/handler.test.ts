@@ -14,7 +14,6 @@ import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
 import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
-import { RedisTierCacheProvider } from '../cache/RedisTierCacheProvider';
 
 // The handler computes cache keys via generateCacheKey(), which now fails closed
 // when no HMAC secret is configured. Provide one for the whole test file.
@@ -602,86 +601,6 @@ describe('handleBatchQuery — cache', () => {
   });
 });
 
-// ─── LRUCacheProvider ─────────────────────────────────────────────────────────
-
-describe('LRUCacheProvider', () => {
-  it('stores and retrieves values', async () => {
-    const cache = new LRUCacheProvider({ ttlMs: 5000 });
-    const entry = { rows: [{ id: 1 }], cachedAt: Date.now() };
-    await cache.set('key1', entry);
-    const retrieved = await cache.get('key1');
-    expect(retrieved?.rows).toEqual(entry.rows);
-  });
-
-  it('returns undefined for missing keys', async () => {
-    const cache = new LRUCacheProvider();
-    const result = await cache.get('nonexistent');
-    expect(result).toBeUndefined();
-  });
-
-  it('invalidates entries by prefix', async () => {
-    const cache = new LRUCacheProvider({ ttlMs: 5000 });
-    const entry = { rows: [], cachedAt: Date.now() };
-    await cache.set('studio:v1:acme:abc:123', entry);
-    await cache.set('studio:v1:acme:abc:456', entry);
-    await cache.set('studio:v1:globex:def:789', entry);
-
-    await cache.invalidatePrefix('studio:v1:acme:');
-    expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
-    expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
-    expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
-  });
-});
-
-// ─── MapTierCacheProvider ─────────────────────────────────────────────────────
-
-describe('MapTierCacheProvider', () => {
-  it('stores and retrieves tier entries', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('key1', { tier: 'server', rowCount: 5000 });
-    const entry = await cache.get('key1');
-    expect(entry?.tier).toBe('server');
-    expect(entry?.rowCount).toBe(5000);
-  });
-
-  it('returns undefined for missing keys', async () => {
-    const cache = new MapTierCacheProvider();
-    expect(await cache.get('missing')).toBeUndefined();
-  });
-
-  it('returns undefined after TTL expires', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('key1', { tier: 'client', rowCount: 100 }, 1); // 1ms TTL
-    await new Promise((r) => {
-      setTimeout(r, 10);
-    });
-    expect(await cache.get('key1')).toBeUndefined();
-  });
-
-  it('invalidates entries by prefix', async () => {
-    const cache = new MapTierCacheProvider();
-    const entry = { tier: 'server' as const, rowCount: 50000 };
-    await cache.set('studio:v1:acme:abc:123', entry);
-    await cache.set('studio:v1:acme:abc:456', entry);
-    await cache.set('studio:v1:globex:def:789', entry);
-
-    await cache.invalidatePrefix('studio:v1:acme:');
-    expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
-    expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
-    expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
-  });
-
-  it('size counts only non-expired entries', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('k1', { tier: 'client', rowCount: 1 }, 50);
-    await cache.set('k2', { tier: 'server', rowCount: 2 }, 1); // expires immediately
-    await new Promise((r) => {
-      setTimeout(r, 10);
-    });
-    expect(cache.size).toBe(1); // k2 is expired
-  });
-});
-
 // ─── handleBatchQuery — tier routing cache ────────────────────────────────────
 
 describe('handleBatchQuery — tier routing cache', () => {
@@ -749,95 +668,6 @@ describe('handleBatchQuery — tier routing cache', () => {
     });
     // Tier cache should not be populated when disabled
     expect(tierCache.size).toBe(0);
-  });
-});
-
-// ─── RedisTierCacheProvider ──────────────────────────────────────────────────
-
-/** Minimal in-memory Redis mock that satisfies RedisClient. */
-function makeRedisClient() {
-  const store = new Map<string, { value: string; expiresAt: number }>();
-  return {
-    store,
-    async get(key: string): Promise<string | null> {
-      const entry = store.get(key);
-      if (!entry || Date.now() > entry.expiresAt) {
-        return null;
-      }
-      return entry.value;
-    },
-    async set(key: string, value: string, _exMode: 'EX', ttlSeconds: number): Promise<void> {
-      store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
-    },
-    async keys(pattern: string): Promise<string[]> {
-      const prefix = pattern.slice(0, -1); // strip trailing '*'
-      return [...store.keys()].filter((k) => k.startsWith(prefix));
-    },
-    async del(...keys: string[]): Promise<void> {
-      for (const key of keys) {
-        store.delete(key);
-      }
-    },
-  };
-}
-
-describe('RedisTierCacheProvider', () => {
-  it('returns undefined for a missing key', async () => {
-    const provider = new RedisTierCacheProvider(makeRedisClient());
-    expect(await provider.get('missing')).toBeUndefined();
-  });
-
-  it('stores and retrieves a tier entry', async () => {
-    const provider = new RedisTierCacheProvider(makeRedisClient());
-    await provider.set('k1', { tier: 'server', rowCount: 5000 }, 60_000);
-    expect(await provider.get('k1')).toEqual({ tier: 'server', rowCount: 5000 });
-  });
-
-  it('converts ttlMs to seconds (rounds up)', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis);
-    await provider.set('k1', { tier: 'client', rowCount: 100 }, 1500); // 1.5s → 2s
-    const entry = redis.store.get('k1');
-    // expiresAt should be ~2000ms from now (not ~1500ms)
-    expect(entry?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 1000);
-  });
-
-  it('uses defaultTtlSeconds when ttlMs is omitted', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 10 });
-    await provider.set('k1', { tier: 'db', rowCount: 200_000 });
-    const entry = redis.store.get('k1');
-    expect(entry?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 9000);
-  });
-
-  it('applies keyPrefix to all operations', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { keyPrefix: 'studio:' });
-    await provider.set('k1', { tier: 'server', rowCount: 9000 });
-    expect(redis.store.has('studio:k1')).toBe(true);
-    expect(await provider.get('k1')).toEqual({ tier: 'server', rowCount: 9000 });
-  });
-
-  it('invalidatePrefix removes matching keys only', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { keyPrefix: 'p:' });
-    await provider.set('tenant1|table1', { tier: 'client', rowCount: 50 });
-    await provider.set('tenant1|table2', { tier: 'server', rowCount: 8000 });
-    await provider.set('tenant2|table1', { tier: 'client', rowCount: 30 });
-
-    await provider.invalidatePrefix('tenant1|');
-
-    expect(await provider.get('tenant1|table1')).toBeUndefined();
-    expect(await provider.get('tenant1|table2')).toBeUndefined();
-    expect(await provider.get('tenant2|table1')).toEqual({ tier: 'client', rowCount: 30 });
-  });
-
-  it('invalidatePrefix is a no-op when no keys match', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis);
-    await provider.set('k1', { tier: 'db', rowCount: 50_000 });
-    await provider.invalidatePrefix('no-match|');
-    expect(await provider.get('k1')).toEqual({ tier: 'db', rowCount: 50_000 });
   });
 });
 

@@ -152,7 +152,25 @@ export const StudioDashboard = React.memo(function StudioDashboard({
   const prevConfigRef = React.useRef<StudioState | null>(null);
   React.useEffect(() => {
     if (prevConfigRef.current !== null && prevConfigRef.current !== config) {
-      innerRef.current?.loadSerializedState(JSON.stringify(config));
+      // `loadSerializedState` expects the (de)serialized state shape, not a JSON string —
+      // it runs `config` through `migrateState`/`validateStateStructure`, which only checks
+      // `typeof state === 'object'`. Passing the object directly (rather than
+      // `JSON.stringify(config)`) is what actually lets migration succeed.
+      const result = innerRef.current?.loadSerializedState(config);
+      if (result && !result.success) {
+        console.error(
+          '[StudioDashboard] Failed to load the new `config` prop — the dashboard was left ' +
+            'showing its previous state. Errors:',
+          result.errors,
+        );
+      } else {
+        // `loadSerializedState` re-injects the *previous* controller state's `dataSources`
+        // (they are never part of the persisted/serialized shape), so the new config's own
+        // data sources must be explicitly re-applied or they'd silently disappear.
+        for (const dataSource of Object.values(config.dataSources)) {
+          innerRef.current?.upsertDataSource(dataSource);
+        }
+      }
     }
     prevConfigRef.current = config;
   }, [config]);

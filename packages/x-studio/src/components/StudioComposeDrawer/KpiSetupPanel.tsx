@@ -319,7 +319,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           ))}
         </Select>
         {!hasValueField && (
-          <FormHelperText>{localeText.kpiSetupAggregationLockedHelperText}</FormHelperText>
+          <FormHelperText>{localeText.aggregationLockedHelperText}</FormHelperText>
         )}
       </FormControl>
 

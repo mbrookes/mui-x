@@ -3,6 +3,7 @@ import * as React from 'react';
 import {
   FormControl,
   FormControlLabel,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -236,6 +237,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
           <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
         </Select>
+        {!config.mapValueField && (
+          <FormHelperText>{localeText.aggregationLockedHelperText}</FormHelperText>
+        )}
       </FormControl>
 
       <FormControl size="small" fullWidth>

@@ -7,8 +7,9 @@
  * SECURITY INVARIANTS:
  * 1. All WHERE values use Knex parameterized bindings (never string concat)
  * 2. Table and column names are validated against the caller's allowlists
- *    BEFORE this function is called — see handler.ts `validateColumns()`.
- *    This function trusts the descriptor has already been vetted.
+ *    BEFORE this function is called — see `shared/columnValidation.ts`
+ *    (`validateDescriptorColumns`). This function trusts the descriptor has
+ *    already been vetted.
  * 3. Security claims are applied FIRST and cannot be overridden by user filters
  * 4. The Knex `??` operator (double question mark) is used for identifier binding
  *

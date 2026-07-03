@@ -2408,12 +2408,13 @@ importers:
 
   packages/x-studio-data-middleware:
     dependencies:
-      knex:
-        specifier: ^3.1.0
-        version: 3.2.10(better-sqlite3@12.11.1)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.22.0)
       lru-cache:
         specifier: ^11.0.0
         version: 11.5.1
+    devDependencies:
+      knex:
+        specifier: ^3.1.0
+        version: 3.2.10(better-sqlite3@12.11.1)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.22.0)
       rimraf:
         specifier: 'catalog:'
         version: 6.1.3

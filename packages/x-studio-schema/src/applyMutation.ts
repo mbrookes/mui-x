@@ -371,9 +371,11 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
   // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`
   // (the correlation is lost once `mutation.type` is read), so we assert the
   // handler as the general shape. The mapped type above still guarantees a
-  // handler exists for every variant.
-  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>;
-  return handler.apply(state, mutation.args);
+  // handler exists for every variant known at compile time — but a value
+  // arriving over the wire (SSE payload, legacy/forward-incompatible client)
+  // is not guaranteed to match, so guard the lookup at runtime too.
+  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation> | undefined;
+  return handler ? handler.apply(state, mutation.args) : state;
 }
 
 /**
@@ -381,6 +383,6 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
  * log (client-side undo/redo history label + MCP `get_recent_changes`).
  */
 export function mutationLabel(mutation: StateMutation): string {
-  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>;
-  return handler.label(mutation.args);
+  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation> | undefined;
+  return handler ? handler.label(mutation.args) : (mutation as { type: string }).type;
 }

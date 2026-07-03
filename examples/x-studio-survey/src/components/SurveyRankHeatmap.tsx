@@ -309,7 +309,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
           pr: 0.5,
         }}
       >
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>fewer (0)</Typography>
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>0</Typography>
         <Box
           sx={{
             flexGrow: 0,
@@ -319,9 +319,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
             background: `linear-gradient(to right, color-mix(in srgb, ${PRIMARY_VAR} 12%, ${SURFACE_VAR}), ${PRIMARY_VAR})`,
           }}
         />
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>
-          more ({maxCount})
-        </Typography>
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>{maxCount}</Typography>
       </Box>
     </Box>
   );

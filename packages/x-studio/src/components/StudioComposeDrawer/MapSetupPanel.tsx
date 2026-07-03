@@ -11,7 +11,6 @@ import {
   Switch,
   ToggleButton,
   ToggleButtonGroup,
-  Typography,
 } from '@mui/material';
 import {
   useStudioController,
@@ -190,39 +189,29 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         </Select>
       </FormControl>
 
-      <div>
-        <Typography variant="subtitle2" gutterBottom>
-          {fieldLabel}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          {fieldHint}
-        </Typography>
-        <DataSourceFieldSelect
-          label={fieldLabel}
-          value={config.mapCountryField ?? ''}
-          valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
-          fields={allStringFields}
-          onChange={handleCountryFieldChange}
-        />
-      </div>
+      <DataSourceFieldSelect
+        label={fieldLabel}
+        helperText={fieldHint}
+        required
+        value={config.mapCountryField ?? ''}
+        valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
+        fields={allStringFields}
+        onChange={handleCountryFieldChange}
+      />
 
-      <div>
-        <Typography variant="subtitle2" gutterBottom>
-          {localeText.mapSetupValueFieldLabel}
-        </Typography>
-        <DataSourceFieldSelect
-          label={localeText.mapSetupValueFieldLabel}
-          value={config.mapValueField ?? ''}
-          valueSourceId={config.mapValueSourceId}
-          fields={numericFields}
-          onChange={(fieldId, sourceId) =>
-            update({
-              mapValueField: fieldId || undefined,
-              mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
-            })
-          }
-        />
-      </div>
+      <DataSourceFieldSelect
+        label={localeText.mapSetupValueFieldLabel}
+        helperText={localeText.mapSetupValueFieldHelperText}
+        value={config.mapValueField ?? ''}
+        valueSourceId={config.mapValueSourceId}
+        fields={numericFields}
+        onChange={(fieldId, sourceId) =>
+          update({
+            mapValueField: fieldId || undefined,
+            mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
+          })
+        }
+      />
 
       <FormControl size="small" fullWidth disabled={!config.mapValueField}>
         <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>

@@ -12,7 +12,10 @@ export function FieldOption({ label, type, generated }: FieldOptionProps) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
       <FieldTypeIcon type={(type as FieldType) ?? 'string'} generated={generated} size={14} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span
+        title={label}
+        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
         {label}
       </span>
     </Box>

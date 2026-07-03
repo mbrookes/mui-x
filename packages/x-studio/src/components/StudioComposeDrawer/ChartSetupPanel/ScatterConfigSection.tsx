@@ -38,6 +38,7 @@ export function ScatterConfigSection({
         fields={numericFields}
         label={localeText.chartSetupYFieldLabel}
         helperText={localeText.chartSetupYFieldHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.scatterColorField ?? ''}
@@ -74,7 +75,7 @@ export function ScatterConfigSection({
               })
             }
             slotProps={{ htmlInput: { min: 1, max: 50 } }}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 0 }}
           />
           <TextField
             size="small"
@@ -87,7 +88,7 @@ export function ScatterConfigSection({
               })
             }
             slotProps={{ htmlInput: { min: 1, max: 100 } }}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 0 }}
           />
         </Stack>
       )}

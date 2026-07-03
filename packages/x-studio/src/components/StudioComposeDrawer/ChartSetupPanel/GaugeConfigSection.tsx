@@ -38,6 +38,7 @@ export function GaugeConfigSection({
         fields={fieldsForCapability(allFields, 'numeric')}
         label={localeText.chartSetupValueFieldLabel}
         helperText={localeText.chartSetupValueFieldHelperText}
+        required
       />
 
       <FormControl size="small" fullWidth>
@@ -68,7 +69,7 @@ export function GaugeConfigSection({
           onChange={(evt) =>
             controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
           }
-          sx={{ flex: 1 }}
+          sx={{ flex: 1, minWidth: 0 }}
         />
         <TextField
           size="small"
@@ -78,7 +79,7 @@ export function GaugeConfigSection({
           onChange={(evt) =>
             controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
           }
-          sx={{ flex: 1 }}
+          sx={{ flex: 1, minWidth: 0 }}
         />
       </Stack>
     </Stack>

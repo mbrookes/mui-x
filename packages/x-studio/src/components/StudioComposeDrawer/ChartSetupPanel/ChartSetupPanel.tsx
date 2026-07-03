@@ -36,6 +36,7 @@ import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
 import type { StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../../../models';
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
+import { SetupSection } from '../SetupSection';
 import { GaugeConfigSection } from './GaugeConfigSection';
 import { ScatterConfigSection } from './ScatterConfigSection';
 import { FunnelConfigSection } from './FunnelConfigSection';
@@ -453,6 +454,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             }}
             label={xFieldLabel}
             helperText={xFieldHelperText}
+            required
           />
 
           {/* Group by — shown only when x field is a date/datetime type */}
@@ -494,6 +496,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     controller.updateWidgetConfig(widgetId, {
                       chartSortBy: evt.target.value as 'category' | 'value' | 'natural',
                     });
+                  }}
+                  SelectDisplayProps={{
+                    title: (() => {
+                      const sortBy = config.chartSortBy ?? 'category';
+                      if (sortBy === 'category') {
+                        return selectedXField?.label ?? localeText.chartSetupSortCategory;
+                      }
+                      if (sortBy === 'value') {
+                        return localeText.chartSetupSortValue;
+                      }
+                      return localeText.chartSetupSortNatural;
+                    })(),
                   }}
                 >
                   <MenuItem value="category">
@@ -740,13 +754,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           {/* Split by / series field */}
           {supportsSeriesField && (
             <div>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mb: 0.5 }}
-              >
-                {localeText.chartSetupCategoryFieldLabel}
-              </Typography>
               <Tooltip title={seriesFieldDisabledTooltip} placement="top">
                 <span>
                   <DataSourceFieldSelect
@@ -803,14 +810,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         chartType !== 'sankey' &&
         chartType !== 'heatmap' && <AnnotationsEditorSection widgetId={widgetId} config={config} />}
       {/* Interactions — cross-filter mode */}
-      <div>
-        <Divider sx={{ mb: 1.5 }} />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-          {localeText.chartSetupInteractionsTitle}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          {localeText.chartSetupInteractionsDescription}
-        </Typography>
+      <SetupSection
+        title={localeText.chartSetupInteractionsTitle}
+        description={localeText.chartSetupInteractionsDescription}
+      >
         <ToggleButtonGroup
           value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
           exclusive
@@ -832,7 +835,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             {localeText.crossFilterModeNone}
           </ToggleButton>
         </ToggleButtonGroup>
-      </div>
+      </SetupSection>
     </Stack>
   );
 }

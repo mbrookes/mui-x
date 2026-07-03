@@ -94,7 +94,7 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
                   ),
                 });
               }}
-              sx={{ flexGrow: 1 }}
+              sx={{ flexGrow: 1, minWidth: 0 }}
             />
             <TextField
               size="small"
@@ -107,7 +107,7 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
                   ),
                 });
               }}
-              sx={{ flexGrow: 1 }}
+              sx={{ flexGrow: 1, minWidth: 0 }}
             />
             <Tooltip title={localeText.chartSetupRemoveAnnotation}>
               <IconButton

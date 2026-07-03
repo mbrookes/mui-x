@@ -254,9 +254,31 @@ tests, all passing) and typecheck.
    typecheck, and re-captured screenshots — including a new
    `chart-x-field-reopen-when-filled` scenario added specifically to prove a
    filled field reopens on click instead of requiring clear-first.
-2. **Unify the label system** (cross-cutting #2) — pick floating-outlined-label
-   as the standard and sweep all panels; do this after #1 since both touch the
-   same picker component.
+2. ✅ **Fixed — "one control, one label."** The floating label already
+   rendered by the control itself (`InputLabel`+`Select`, `TextField` `label`,
+   `DataSourceFieldSelect` `label`) was already the baseline in ~90% of
+   controls, so it stays the single source of truth; no compliant panel was
+   redesigned. Removed the genuine duplicates instead: Map's `subtitle2`
+   headings sitting on top of the region/value pickers (deleted; the region
+   hint moved into the picker's own `helperText`, gaining an
+   `aria-describedby` association it lacked before); Chart's "Category field"
+   caption duplicating the split-by picker's own label (deleted); Chart's
+   hand-rolled Interactions `Divider`+caption block replaced with the shared
+   `SetupSection` (pixel-identical margins, now consistent with Grid/KPI/Map);
+   KPI's inner date-range preset `Select` relabeled from "Date range" (which
+   restated its own `CollapsibleFeatureSection` group header) to a new,
+   distinct "Range"; and three manual `Box`+`Typography`+`Switch` toggles
+   (KPI's Invert colours, plus Fill area/Cumulative in `KpiSparklineOptions`)
+   converted to the same `FormControlLabel` idiom already used everywhere else
+   in the drawer (`FormatPanel.tsx`), gaining click-to-toggle and dropping the
+   redundant manual `aria-label`. Deliberately left alone: Chart's Y-series
+   block, where a plural "Y measures" heading sits above one control at rest —
+   that's a collection heading (it also hosts the Add-series button), not a
+   duplicate label, and restructuring it risked the empty-state/mixed-series/
+   dual-Y logic for a cosmetic nit. Text's hardcoded "Prompt" label/helper
+   also got moved to locale text (`textSetupPromptLabel`/`textSetupPromptHelper`)
+   as part of the same sweep. Verified: typecheck, full suite (1543 tests),
+   eslint, and manual diff review of all touched files.
 3. ✅ **Partially fixed — the other half was re-scoped, not a mechanical bug.**
    Map actually had two _functionally different_ switches, not a single
    toggle styled inconsistently: "Clickable (filter source)"
@@ -273,9 +295,37 @@ tests, all passing) and typecheck.
    visual treatment), preserving the existing default (responds unless
    explicitly set to `'none'`). Verified: typecheck, full suite (1543 tests),
    and re-captured `map-basic`/`map-switches-on` screenshots.
-4. **Shared empty/required-state pattern** (cross-cutting #3) — one component
-   used by KPI, Map, Pivot, Chart's per-field empty states. Not yet done —
-   this is a genuine new-component design task, not a mechanical sweep.
+4. ✅ **Fixed — required-asterisk marking (fallback-gated) + tiered panel
+   Alert**, not a new shared component. Added a single `required?: boolean`
+   prop to the shared `DataSourceFieldSelect` (default `false`) that renders
+   MUI's native asterisk on the floating label and sets `aria-required`,
+   without ever forcing an error/red state on a legitimately-empty fresh
+   field — the asterisk means "required," not "mistake." The governing rule:
+   a field is required **iff the widget cannot render at all without it**
+   (no fieldless/count fallback). This ties directly to the existing
+   `aggregationLockedHelperText` convention (fix #5 below): wherever that
+   locked-Count helper can appear for an empty upstream field, that field is
+   optional and stays unmarked. Concretely: Chart's X/category and the
+   chart-type-specific no-fallback axes (gauge value, scatter Y, funnel
+   value, heatmap row-axis + value, sankey target + value, gantt
+   label/start/end) got `required`; Chart's multi-series Y pickers, KPI's
+   Value field, and Map's Value field did **not**, since all three fall back
+   to a locked row-count. Map's Country field, and Pivot's Row/Column/Value
+   fields (Pivot renders nothing without Row+Column; Value has no fallback
+   when shown) got `required`. Filter's field picker got `required`, and its
+   existing `<Alert severity="info">` was relocated from the bottom of the
+   panel to directly under the field picker it gates (asterisk = static "this
+   is required" cue, Alert = actionable "select this first" guidance — both
+   kept, per spec). Four locale strings that spelled out optionality in copy
+   (`"(optional)"`/`"(optional for count)"`) were stripped now that the
+   asterisk's absence is the only optionality signal: `chartSetupColorByLabel`,
+   `chartSetupSizeByLabel`, `chartSetupGanttColourByLabel`,
+   `mapSetupValueFieldLabel` (the removed "for count" meaning moved to a new
+   `mapSetupValueFieldHelperText`, "Leave empty to count rows"). Text is
+   structurally exempt (free-text fields, no data-source dependency). Verified:
+   typecheck, full suite (1543 tests), eslint, and manual diff review — including
+   confirming Chart's rewritten test assertions correctly account for the
+   asterisk's trailing text in `getByLabelText` lookups.
 5. ✅ **Partially fixed.** **Shared "why is this disabled" convention**
    (cross-cutting #11) — generalized the KPI-only
    `kpiSetupAggregationLockedHelperText` into a shared
@@ -310,11 +360,36 @@ tests, all passing) and typecheck.
    (`size > 1`) is already correct, so there's no hidden/blank header. The
    visual "gap" in the screenshot is just the `<hr>` Divider's normal margin
    between the calculated-column entry and the first field. Left untouched.
-9. Panel-width text-overflow policy (cross-cutting #5) — a design-system rule
-   (ellipsis + tooltip, minimum numeric-input width) applied across all panels.
-   Not yet implemented — this one is a genuine sweep across every panel's
-   label/helper copy and would benefit from being scoped as its own pass
-   rather than folded into this session's structural fixes.
+9. ✅ **Fixed — "clip-and-reveal" text-overflow policy.** One policy for the
+   215px drawer, two invariants: (1) every flexible child of a row `Stack`
+   (a `TextField`/`Select`/`Autocomplete` that can hold variable-length
+   content) gets `minWidth: 0` so flexbox can shrink it instead of pushing
+   siblings off-edge — applied to Chart's Gauge Min/Max, the reference-line
+   annotation Value/Label row, and the Scatter Min/Max radius row; (2) any
+   element that visibly clips a _display-role_ value (a looked-up/selected
+   label the user didn't just type, as opposed to a number/string they typed
+   themselves) gets a native `title` so the full value is always recoverable
+   on hover — never a MUI `<Tooltip>` wrapper, which would add layout cost for
+   no accessibility benefit given the value's real accessible name already
+   lives on the control's own label. Landed almost entirely in the two shared
+   components every panel already consumes: `DataSourceFieldSelect` (title on
+   the selected-value input, spreading `params.slotProps`/`slotProps.htmlInput`
+   first — required in MUI v9.1.1 to avoid clobbering the Autocomplete's own
+   input ref/adornments/`getInputProps()` wiring) and `FieldOption` (title on
+   the dropdown option's ellipsis span). The few panel-local fixes: Grid's
+   selected-column list (title on both the field-label and source-label rows,
+   plus a missing `minWidth:0` on the source label that was the actual
+   overflow-push-out culprit against the reorder/menu icon buttons) and Grid/
+   KPI's standalone data-source `Autocomplete` pickers (same spread-then-title
+   pattern); Chart's Sort By and Heatmap Sort By selects (`SelectDisplayProps.
+title` echoing the closed select's displayed text, including its
+   axis-label fallbacks). Map/Pivot/Filter/Text needed no changes — they
+   either consume only the shared `DataSourceFieldSelect` or have no
+   variable-length display text. Deliberately rejected: a new `OverflowText`
+   primitive (2 call-sites in one file doesn't warrant a shared component) and
+   widening the drawer. Verified: typecheck, full suite (1543 tests), eslint,
+   and manual diff review confirming every `slotProps` addition spreads the
+   Autocomplete's existing wiring rather than replacing it.
 
 ### Verification note
 

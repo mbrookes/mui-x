@@ -45,6 +45,7 @@ export function SankeyConfigSection({
         fields={categoryFields}
         label={localeText.chartSetupSankeyTargetLabel}
         helperText={localeText.chartSetupSankeyTargetHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
@@ -57,6 +58,7 @@ export function SankeyConfigSection({
         fields={numericFields}
         label={localeText.chartSetupValueFieldLabel}
         helperText={localeText.chartSetupSankeyValueHelperText}
+        required
       />
       <FormControl size="small" fullWidth>
         <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>

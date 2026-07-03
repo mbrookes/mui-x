@@ -46,6 +46,7 @@ export function FunnelConfigSection({
         fields={numericFields}
         label={localeText.chartSetupValueFieldLabel}
         helperText={localeText.chartSetupFunnelValueHelperText}
+        required
       />
       <FormControl size="small" fullWidth>
         <InputLabel>{localeText.chartSetupFunnelLabelFormatLabel}</InputLabel>

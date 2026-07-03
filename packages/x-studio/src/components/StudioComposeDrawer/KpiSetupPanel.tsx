@@ -2,8 +2,8 @@
 import * as React from 'react';
 import {
   Autocomplete,
-  Box,
   FormControl,
+  FormControlLabel,
   FormHelperText,
   InputLabel,
   MenuItem,
@@ -13,7 +13,6 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Typography,
 } from '@mui/material';
 import {
   useStudioController,
@@ -263,6 +262,13 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             label={localeText.gridSetupDataSourceLabel}
             placeholder={localeText.gridSetupDataSourcePlaceholder}
             helperText={!widgetSource ? localeText.gridSetupChooseSourceHelper : undefined}
+            slotProps={{
+              ...params.slotProps,
+              htmlInput: {
+                ...params.slotProps.htmlInput,
+                title: sourcePickerValue?.label,
+              },
+            }}
           />
         )}
       />
@@ -381,17 +387,21 @@ export function KpiSetupPanel(props: { widgetId: string }) {
               <MenuItem value="year-over-year">{localeText.kpiSetupCompSameLastYear}</MenuItem>
             </Select>
           </FormControl>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="body2">{localeText.kpiSetupInvertColours}</Typography>
-            <Switch
-              size="small"
-              checked={config.kpiTrendInvert ?? false}
-              slotProps={{ input: { 'aria-label': localeText.kpiSetupInvertColours } }}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
-              }
-            />
-          </Box>
+          <FormControlLabel
+            slotProps={{ typography: { variant: 'body2' } }}
+            control={
+              <Switch
+                size="small"
+                checked={config.kpiTrendInvert ?? false}
+                onChange={(event) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    kpiTrendInvert: event.target.checked,
+                  })
+                }
+              />
+            }
+            label={localeText.kpiSetupInvertColours}
+          />
         </CollapsibleFeatureSection>
       )}
 
@@ -430,9 +440,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             label={localeText.kpiSetupDateRangeFieldLabel}
           />
           <FormControl size="small" fullWidth>
-            <InputLabel>{localeText.kpiSetupDateRangeLabel}</InputLabel>
+            <InputLabel>{localeText.kpiSetupDateRangePresetLabel}</InputLabel>
             <Select
-              label={localeText.kpiSetupDateRangeLabel}
+              label={localeText.kpiSetupDateRangePresetLabel}
               value={activeDatePreset}
               onChange={(event) => {
                 const preset = event.target.value as StudioDateRangePreset | 'all_time';

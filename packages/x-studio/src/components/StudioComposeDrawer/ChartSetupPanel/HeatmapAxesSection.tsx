@@ -54,6 +54,7 @@ export function HeatmapAxesSection({
         fields={heatYFields}
         label={localeText.chartSetupHeatmapRowAxisLabel}
         helperText={localeText.chartSetupHeatmapRowAxisHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
@@ -66,6 +67,7 @@ export function HeatmapAxesSection({
         fields={numericFields}
         label={localeText.chartSetupHeatmapValueLabel}
         helperText={localeText.chartSetupHeatmapValueHelperText}
+        required
       />
       <FormControl size="small" fullWidth>
         <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
@@ -96,6 +98,18 @@ export function HeatmapAxesSection({
                 heatSortBy: evt.target.value as 'x-axis' | 'y-axis' | 'natural',
               })
             }
+            SelectDisplayProps={{
+              title: (() => {
+                const v = config.heatSortBy ?? 'natural';
+                if (v === 'x-axis') {
+                  return heatXFieldLabel ?? localeText.chartSetupHeatmapSortXAxis;
+                }
+                if (v === 'y-axis') {
+                  return heatYFieldLabel ?? localeText.chartSetupHeatmapSortYAxis;
+                }
+                return localeText.chartSetupSortNatural;
+              })(),
+            }}
           >
             <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
             <MenuItem value="x-axis">

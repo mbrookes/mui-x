@@ -34,6 +34,7 @@ export function GanttFieldsSection({
         fields={allFields}
         label={localeText.chartSetupGanttLabelFieldLabel}
         helperText={localeText.chartSetupGanttLabelFieldHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.ganttStartField ?? ''}
@@ -43,6 +44,7 @@ export function GanttFieldsSection({
         fields={dateFields}
         label={localeText.chartSetupGanttStartDateLabel}
         helperText={localeText.chartSetupGanttStartDateHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.ganttEndField ?? ''}
@@ -52,6 +54,7 @@ export function GanttFieldsSection({
         fields={dateFields}
         label={localeText.chartSetupGanttEndDateLabel}
         helperText={localeText.chartSetupGanttEndDateHelperText}
+        required
       />
       <DataSourceFieldSelect
         value={config.ganttColorField ?? ''}

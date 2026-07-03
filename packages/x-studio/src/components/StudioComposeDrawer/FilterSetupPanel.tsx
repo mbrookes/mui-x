@@ -138,7 +138,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         filterCapability={fieldCapability}
         getOptionDisabled={sliderGetOptionDisabled}
         label={localeText.filterFieldLabel}
+        required
       />
+
+      {!fieldId && <Alert severity="info">{localeText.filterSetupSelectFieldAlert}</Alert>}
 
       {/* Slider-specific: min / max / step */}
       {filterType === 'slider' && (
@@ -186,8 +189,6 @@ export function FilterSetupPanel(props: { widgetId: string }) {
           </Stack>
         </Stack>
       )}
-
-      {!fieldId && <Alert severity="info">{localeText.filterSetupSelectFieldAlert}</Alert>}
     </Stack>
   );
 }

@@ -3,8 +3,14 @@
  * middleware (`@mui/x-studio-ai-middleware`). Pure, dependency-free.
  */
 
-/** Median of a pre-sorted numeric array. */
-export function median(sorted: number[]): number {
+/**
+ * Median of a pre-sorted numeric array.
+ *
+ * File-private: this helper assumes its input is already sorted (a footgun for
+ * external callers), so it is intentionally not part of the package's public
+ * export surface. `detectAnomaliesIQR` below is the only intended caller.
+ */
+function median(sorted: number[]): number {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }

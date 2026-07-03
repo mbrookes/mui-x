@@ -4,3 +4,5 @@
 export * from '@mui/x-studio-schema';
 // React-dependent custom-widget registration types stay in this package.
 export * from './customWidgetTypes';
+// UI feature-flag prop types (component props, not persisted/AI-protocol state).
+export * from './featureFlags';

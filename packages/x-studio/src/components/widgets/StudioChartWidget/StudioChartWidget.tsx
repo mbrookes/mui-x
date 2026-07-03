@@ -20,11 +20,13 @@ import {
   normalizeToDate,
   getTemporalAxisData,
   truncateToGranularity,
+} from '../../../internals/temporalUtils';
+import {
   aggregateByField,
   aggregateFunnelReached,
   aggregateHeatmap,
   aggregateSankey,
-} from '../../../internals/chartUtils';
+} from '../../../internals/chartAggregation';
 import {
   useStudioController,
   useStudioSelector,
@@ -123,13 +125,13 @@ export interface StudioChartWidgetProps {
    * @param {StudioChartAnnotation[]} annotations The annotations produced by anomaly detection.
    */
   onAnomalyDetected?: (
-    annotations: import('../../../models/baseTypes').StudioChartAnnotation[],
+    annotations: import('../../../models/widgetTypes').StudioChartAnnotation[],
   ) => void;
   /**
    * Additional annotations generated outside the widget (e.g. anomaly detection markers).
    * Merged with `widget.config.annotations` when rendering reference lines.
    */
-  overlayAnnotations?: import('../../../models/baseTypes').StudioChartAnnotation[];
+  overlayAnnotations?: import('../../../models/widgetTypes').StudioChartAnnotation[];
   slots?: StudioChartWidgetSlots;
   slotProps?: StudioChartWidgetSlotProps;
 }
@@ -564,7 +566,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Use pre-aggregated chart data so annotation x-values match the chart's
     // actual x-axis labels. Edge buckets are trimmed — partial first/last
     // periods in the date range produce false-positive low outliers.
-    let annotations: import('../../../models/baseTypes').StudioChartAnnotation[] = [];
+    let annotations: import('../../../models/widgetTypes').StudioChartAnnotation[] = [];
     if (chartData && chartData.labels.length > 0) {
       annotations = detectChartDataAnomalies(widget.id, chartData.labels, chartData.values, true);
     } else if (multiYData && multiYData.labels.length > 0 && multiYData.series.length > 0) {

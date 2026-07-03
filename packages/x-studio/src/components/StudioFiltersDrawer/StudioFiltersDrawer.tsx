@@ -36,7 +36,7 @@ import {
   selectPages,
   selectCrossFilterAllPages,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/chartUtils';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';

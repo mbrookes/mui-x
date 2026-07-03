@@ -1,4 +1,4 @@
-import type { MultiYSeriesData } from '../../../internals/chartUtils';
+import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 import type { StudioChartType, StudioDataField } from '../../../models';
 import { makeValueFormatter } from './chartWidgetHelpers';
 

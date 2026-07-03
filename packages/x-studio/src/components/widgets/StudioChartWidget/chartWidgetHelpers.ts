@@ -2,7 +2,7 @@ import {
   fillTemporalLabelGaps,
   formatTemporalAxisLabel,
   getTemporalAxisData,
-} from '../../../internals/chartUtils';
+} from '../../../internals/temporalUtils';
 import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat, StudioWidget } from '../../../models';
 

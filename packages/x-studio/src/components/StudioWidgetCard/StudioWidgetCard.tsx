@@ -275,7 +275,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // ── Anomaly detection state ────────────────────────────────────────────────
   const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
   const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<
-    import('../../models/baseTypes').StudioChartAnnotation[]
+    import('../../models/widgetTypes').StudioChartAnnotation[]
   >([]);
   // Toggle anomaly detection; clear annotations immediately when disabling
   const handleAnomalyToggle = React.useCallback(() => {

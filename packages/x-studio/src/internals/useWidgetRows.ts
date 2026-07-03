@@ -248,21 +248,49 @@ export function useWidgetRows(
 
   // ── Sync (in-memory) path ───────────────────────────────────────────────
 
+  // The filters that can actually reach this widget — same page/widget/cross/
+  // interactive scoping `computeFilteredRows` applies below (via
+  // `selectFiltersForWidget`), built from the already-partitioned buckets.
+  // Used ONLY to derive `usedFieldIds` below; deliberately NOT deferred so the
+  // field set stays correct even while the (deferred) row computation lags.
+  const reachableFilters = React.useMemo(
+    () =>
+      selectFiltersForWidget(
+        [
+          ...partitioned.page,
+          ...(partitioned.byWidgetId.get(widget.id) ?? []),
+          ...partitioned.cross,
+          ...partitioned.interactive,
+        ],
+        {
+          widgetId: widget.id,
+          widgetSourceId: widget.sourceId,
+          activePageId: pageId,
+          include: 'all',
+          crossFilterAllPages,
+        },
+      ),
+    [partitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+  );
+
   // Compute the set of field IDs this widget actually uses in its config.
   // Passed to resolveRowsCached so enrichment is lazy-by-widget — adding an
   // unused expression field for the same source won't invalidate this widget's
-  // enriched-rows cache slot.
+  // enriched-rows cache slot. Scoped to `reachableFilters` (not the raw,
+  // dashboard-wide `filters` array) so a filter on a different page, or a
+  // widget-scoped filter that belongs to a different widget, can never widen
+  // this widget's field set or change its cache key.
   const usedFieldIds = React.useMemo((): ReadonlySet<string> => {
     const ids = new Set(collectSelectFields(widget));
-    // Also include any fields referenced in active filters (they need to be
-    // enriched so the filter can evaluate against them).
-    for (const f of filters) {
+    // Also include any fields referenced in filters that can reach this widget
+    // (they need to be enriched so the filter can evaluate against them).
+    for (const f of reachableFilters) {
       if (f.field) {
         ids.add(f.field);
       }
     }
     return ids;
-  }, [widget, filters]);
+  }, [widget, reachableFilters]);
 
   // ── Lazy per-widget normalization (L1) ─────────────────────────────────
   // The store holds raw data sources. Each widget normalizes only the fields it

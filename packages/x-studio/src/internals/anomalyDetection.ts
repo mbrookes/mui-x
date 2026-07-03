@@ -1,6 +1,6 @@
 import { detectAnomaliesIQR } from '@mui/x-studio-schema';
 import type { StudioWidget } from '../models';
-import type { StudioChartAnnotation } from '../models/baseTypes';
+import type { StudioChartAnnotation } from '../models/widgetTypes';
 // Tukey IQR detection now lives in the shared `@mui/x-studio-schema` package
 // (previously duplicated here and, byte-for-byte, in the AI middleware's mcp.ts).
 // Re-exported so existing callers importing it from this module keep working.

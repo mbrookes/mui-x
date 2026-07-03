@@ -730,3 +730,99 @@ describe('sync vs async parity', () => {
     expect(result.current.filteredRowsNoCross).toHaveLength(rows.length);
   });
 });
+
+// ── usedFieldIds cache-key scoping (Tier 3 #5 / architecture review item 4) ──
+//
+// `usedFieldIds` must be derived only from filters that can actually reach this
+// widget (its own page's page filters, its OWN widget-scoped filters, and
+// cross/interactive filters). A filter on a different page, or a widget-scoped
+// filter belonging to a DIFFERENT widget, must never widen this widget's field
+// set — doing so would change the content-based cache key that
+// `getCachedNormalizedDataSource` / `resolveRowsCached` key off of, forcing an
+// unnecessary re-normalization/re-enrichment/re-resolution pass even though the
+// filter could never apply to this widget.
+describe('usedFieldIds cache-key scoping', () => {
+  it('a page filter on a DIFFERENT page does not change this widget cache key', () => {
+    // Stable references across both mockState assignments — the underlying
+    // content-based caches gate on these object identities, so recreating them
+    // on every mockState reassignment would defeat the cache hit this test
+    // observes.
+    const stableDataSources = { src1: makeDataSource(rows) };
+    const stableRelationships: StudioState['relationships'] = [];
+    const stableExpressionFields: StudioState['expressionFields'] = [];
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [],
+    });
+    const { result, rerender } = renderHook(() =>
+      useWidgetRows(widget, stableDataSources.src1, 'page-1'),
+    );
+    const firstFilteredRows = result.current.filteredRows;
+    expect(firstFilteredRows).toHaveLength(3);
+
+    // Add a page-scoped filter for a completely different page, referencing a
+    // field this widget never uses. Before the fix, this field would still be
+    // folded into `usedFieldIds` (derived from the raw, dashboard-wide filters
+    // array), changing the cache key and forcing a fresh (if value-equal) array.
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [
+        makeFilter({
+          id: 'f-other-page',
+          scope: { kind: 'page', pageId: 'page-2' },
+          field: 'unrelatedField',
+          operator: 'equals',
+          value: 'x',
+        }),
+      ],
+    });
+    rerender();
+
+    expect(result.current.filteredRows).toBe(firstFilteredRows);
+  });
+
+  it('a widget-scoped filter belonging to a DIFFERENT widget does not change this widget cache key', () => {
+    const stableDataSources = { src1: makeDataSource(rows) };
+    const stableRelationships: StudioState['relationships'] = [];
+    const stableExpressionFields: StudioState['expressionFields'] = [];
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [],
+    });
+    const { result, rerender } = renderHook(() =>
+      useWidgetRows(widget, stableDataSources.src1, 'page-1'),
+    );
+    const firstFilteredRows = result.current.filteredRows;
+    expect(firstFilteredRows).toHaveLength(3);
+
+    // Widget-scoped filter owned by a DIFFERENT widget ('w-other'), referencing a
+    // field this widget never uses — can never apply to `widget` ('w1').
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [
+        makeFilter({
+          id: 'f-other-widget',
+          scope: { kind: 'widget', widgetId: 'w-other' },
+          field: 'unrelatedField',
+          operator: 'equals',
+          value: 'x',
+        }),
+      ],
+    });
+    rerender();
+
+    expect(result.current.filteredRows).toBe(firstFilteredRows);
+  });
+});

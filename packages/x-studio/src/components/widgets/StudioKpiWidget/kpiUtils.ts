@@ -3,7 +3,7 @@
  * Extracted here so they can be unit-tested independently of the React component.
  */
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
-import { normalizeToDate } from '../../../internals/chartUtils';
+import { normalizeToDate } from '../../../internals/temporalUtils';
 import { computeDateRangePreset } from '../../../internals/dateRangeUtils';
 import {
   isRelativeDateValue,
@@ -152,7 +152,10 @@ export function findDateFilter(
   dataSource: StudioDataSource,
 ): StudioFilterState | undefined {
   const relevant = filters.filter(
-    (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range' || (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
+    (f) =>
+      f.scope.kind === 'page' ||
+      f.scope.kind === 'dashboard-date-range' ||
+      (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
   );
   return relevant.find((f) => {
     // Prefer the stored fieldType — reliable even for cross-source filters

@@ -232,6 +232,61 @@ describe('buildSecureQuery', () => {
     });
   });
 
+  describe('columnAliases resolution (allowlist-bypass regression)', () => {
+    // Regression for the column-allowlist bypass: `validateDescriptorColumns`
+    // resolves `columnAliases` when checking a filter column against the
+    // allowlist, so execution MUST filter on the SAME resolved physical column.
+    // Before the fix, `buildSecureQuery` bound the raw logical column, letting a
+    // client alias a non-allowlisted column (`ssn`) onto an allowlisted one
+    // (`amount`), pass validation, yet run `WHERE ssn LIKE …` — a comparison
+    // oracle against any column in the table.
+    it('filters on the physical (allowlisted) column, not the raw logical alias', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { ssn: 'amount' },
+          filters: [{ column: 'ssn', operator: 'like', value: '123%' }],
+        }),
+      );
+      // The WHERE clause targets the validated physical column `amount`…
+      expect(calls).toContainEqual({ method: 'whereLike', args: ['amount', '123%'] });
+      // …and never the raw, non-allowlisted logical name `ssn`.
+      expect(calls.some((c) => c.method === 'whereLike' && c.args[0] === 'ssn')).toBe(false);
+    });
+
+    it('resolves aliases for every operator, including qualified physical columns', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { region: 'customers.region_id' },
+          filters: [{ column: 'region', operator: 'eq', value: 'us' }],
+        }),
+      );
+      expect(calls).toContainEqual({
+        method: 'where',
+        args: ['customers.region_id', '=', 'us'],
+      });
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'region')).toBe(false);
+    });
+
+    it('leaves a filter column unchanged when it has no alias entry', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { ssn: 'amount' },
+          filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+        }),
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['status', '=', 'active'] });
+    });
+  });
+
   describe('joins', () => {
     it('uses leftJoin for type "left" with a single join call + on() condition', () => {
       const { db, calls } = createRecordingDb();

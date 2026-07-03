@@ -166,7 +166,7 @@ export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';
-export { createDefaultStudioState } from './models';
+export { createDefaultStudioState, normalizeGridColumn } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
 export { serializeState, deserializeState, migrateState } from './store/statePersistence';
@@ -197,7 +197,6 @@ export type {
   StudioKpiAggregation,
   StudioGridSummaryAggregation,
   StudioGridColumn,
-  normalizeGridColumn,
   StudioNumberFormat,
   StudioChartType,
   StudioChartSeries,

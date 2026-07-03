@@ -762,13 +762,14 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
         field: 'status',
         operator: 'equals',
         value: 'pending',
-        scope: 'cross-filter',
-        sourceWidgetId: 'w1',
-        pageId: PAGE_ID,
+        scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: PAGE_ID },
       } as any,
     ];
     const server = buildStudioMcpServer({ current: state });
-    const result = (await getHandler(server, READ_RESOURCE)({
+    const result = (await getHandler(
+      server,
+      READ_RESOURCE,
+    )({
       params: { uri: 'studio://dashboard/system-prompt' },
       method: READ_RESOURCE,
     })) as any;
@@ -780,7 +781,10 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
   it('renders contextEnricher output into the system-prompt resource', async () => {
     const contextEnricher = vi.fn().mockResolvedValue({ notes: 'Enriched server-side.' });
     const server = buildStudioMcpServer({ current: makeStableState() }, { contextEnricher });
-    const result = (await getHandler(server, READ_RESOURCE)({
+    const result = (await getHandler(
+      server,
+      READ_RESOURCE,
+    )({
       params: { uri: 'studio://dashboard/system-prompt' },
       method: READ_RESOURCE,
     })) as any;
@@ -797,7 +801,10 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
       { current: makeStableState() },
       { contextEnricher, logger: { log: vi.fn(), error: errorLog } },
     );
-    const result = (await getHandler(server, READ_RESOURCE)({
+    const result = (await getHandler(
+      server,
+      READ_RESOURCE,
+    )({
       params: { uri: 'studio://dashboard/system-prompt' },
       method: READ_RESOURCE,
     })) as any;

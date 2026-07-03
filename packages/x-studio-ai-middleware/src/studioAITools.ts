@@ -1,3 +1,4 @@
+import type { StudioAIToolName } from './models/aiTypes';
 import { buildWidgetConfigDescription } from './widgetConfigMeta';
 
 /**
@@ -533,3 +534,29 @@ export const STUDIO_AI_TOOLS = [
     },
   },
 ] as const;
+
+/**
+ * The set of advertised tool names, derived from `STUDIO_AI_TOOLS` (which is
+ * `as const`). Kept as runtime data for the drift guard and any consumer that
+ * wants to enumerate tool names.
+ */
+export const STUDIO_AI_TOOL_NAMES = STUDIO_AI_TOOLS.map(
+  (tool) => tool.function.name,
+) as readonly StudioAIToolName[];
+
+// ── Tool-name drift guard ─────────────────────────────────────────────────────
+// `StudioAIToolName` lives in `@mui/x-studio-schema` so the client can import it
+// without depending on this (server) package, which is why it can't be *derived*
+// from `STUDIO_AI_TOOLS` here (that would invert the dependency). Instead we
+// assert — at compile time, in both directions — that the hand-maintained union
+// exactly equals the set of names actually advertised in `STUDIO_AI_TOOLS`.
+// Adding a tool without updating the union (or vice versa) is a compile error,
+// so the previously-observed drift (`list_pages`, `set_widget_forecast`) can't
+// recur. Fully deriving the union is a good follow-up if the import direction is
+// ever reworked.
+type AdvertisedToolName = (typeof STUDIO_AI_TOOLS)[number]['function']['name'];
+type AssertMutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+// If this errors, `StudioAIToolName` and the advertised tool names have drifted.
+const TOOL_NAME_UNION_IN_SYNC: AssertMutuallyAssignable<AdvertisedToolName, StudioAIToolName> =
+  true;
+void TOOL_NAME_UNION_IN_SYNC;

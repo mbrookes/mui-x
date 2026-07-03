@@ -488,15 +488,15 @@ function buildDashboardState(
     // Active filters on this page
     const activeFilters = filters.filter(
       (f: StudioFilterState) =>
-        (f.scope === 'page' && f.pageId === activePage.id) ||
-        (f.scope === 'widget' && activeWidgetIds.includes(f.widgetId ?? '')),
+        (f.scope.kind === 'page' && f.scope.pageId === activePage.id) ||
+        (f.scope.kind === 'widget' && activeWidgetIds.includes(f.scope.widgetId)),
     );
     if (activeFilters.length > 0) {
       lines.push(
         '## Active Filters (use remove_page_filter or remove_widget_filter with the filter id to remove)',
       );
       for (const f of activeFilters) {
-        const scopeLabel = f.scope === 'page' ? 'page' : `widget:${f.widgetId}`;
+        const scopeLabel = f.scope.kind === 'widget' ? `widget:${f.scope.widgetId}` : 'page';
         lines.push(
           `  - [id: ${f.id}] scope:${scopeLabel} — ${f.field} ${f.operator} ${JSON.stringify(f.value)}`,
         );
@@ -702,7 +702,9 @@ function buildRichContextBlock(
       );
     }
     if (richContext.omitted && richContext.omitted.length > 0) {
-      inner.push(`Note: context omitted to fit the token budget: ${richContext.omitted.join(', ')}.`);
+      inner.push(
+        `Note: context omitted to fit the token budget: ${richContext.omitted.join(', ')}.`,
+      );
     }
     if (inner.length > 0) {
       blocks.push(`<dashboard_context>\n${inner.join('\n\n')}\n</dashboard_context>`);

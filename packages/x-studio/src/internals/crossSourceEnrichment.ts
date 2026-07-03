@@ -1,4 +1,6 @@
 import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../models';
+import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
+import { indexRowsByKey, normalizeJoinKey } from './joinKeys';
 
 type Row = Record<string, unknown>;
 
@@ -51,13 +53,9 @@ export function enrichWithCrossSourceFields(
 
   const colMeta: ColMeta[] = [];
 
-  // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
-  const relIndex = new Map<string, (typeof relationships)[number]>();
-  for (const r of relationships) {
-    if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
-      relIndex.set(r.targetId, r);
-    }
-  }
+  // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
+  // see dataSourceGraph.buildManyToOneRelationshipIndex.
+  const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
 
   for (const ref of crossFields) {
     const rel = relIndex.get(ref.sourceId);
@@ -68,9 +66,9 @@ export function enrichWithCrossSourceFields(
     if (!relatedRows) {
       continue;
     }
-    const relatedIndex = new Map<string, Row>(
-      relatedRows.map((r) => [String(r[rel.targetField] ?? ''), r]),
-    );
+    // Index related rows by their PK using the shared join-key policy so a numeric
+    // PK matches a string FK etc. (see internals/joinKeys.ts).
+    const relatedIndex = indexRowsByKey(relatedRows, rel.targetField);
     colMeta.push({ fieldId: ref.fieldId, fkField: rel.sourceField, relatedIndex });
   }
 
@@ -81,8 +79,8 @@ export function enrichWithCrossSourceFields(
   return rows.map((row) => {
     let enriched: Row | null = null;
     for (const { fieldId, fkField, relatedIndex } of colMeta) {
-      const fkValue = String(row[fkField] ?? '');
-      const relatedRow = relatedIndex.get(fkValue);
+      const fkValue = normalizeJoinKey(row[fkField]);
+      const relatedRow = fkValue === null ? undefined : relatedIndex.get(fkValue);
       if (relatedRow && relatedRow[fieldId] !== undefined) {
         if (!enriched) {
           enriched = { ...row };

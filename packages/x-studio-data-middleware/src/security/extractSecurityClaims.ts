@@ -35,6 +35,14 @@ export function extractSecurityClaims(
   authorizationHeader: string | undefined,
   jwtSecret: string = process.env.JWT_SECRET ?? '',
 ): JwtSecurityClaims {
+  if (!jwtSecret) {
+    throw new Error(
+      'MUI X Studio Server: JWT_SECRET is not configured. ' +
+        'Without a secret the HMAC verification runs with an empty key, so forged tokens would be accepted as valid (no authentication). ' +
+        'Set the JWT_SECRET environment variable or pass an explicit secret to extractSecurityClaims().',
+    );
+  }
+
   if (!authorizationHeader) {
     throw new Error('MUI X Studio Server: Missing Authorization header');
   }
@@ -55,7 +63,13 @@ export function extractSecurityClaims(
   const signingInput = `${headerB64}.${payloadB64}`;
   const expectedSig = createHmac('sha256', jwtSecret).update(signingInput).digest('base64url');
 
-  if (!timingSafeEqual(Buffer.from(expectedSig), Buffer.from(signatureB64))) {
+  // Length pre-check: timingSafeEqual throws a RangeError on unequal buffer
+  // lengths, so a truncated/garbage signature would surface as an uncaught
+  // RangeError instead of a clean auth failure. Compare lengths first, then run
+  // the constant-time comparison only when they match.
+  const expectedBuf = Buffer.from(expectedSig);
+  const actualBuf = Buffer.from(signatureB64);
+  if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
     throw new Error('MUI X Studio Server: JWT signature verification failed');
   }
 

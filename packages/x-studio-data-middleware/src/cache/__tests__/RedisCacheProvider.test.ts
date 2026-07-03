@@ -7,7 +7,7 @@
  * and graceful handling of corrupt cache entries — all against an in-memory
  * Redis mock so no Redis server is required.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { RedisCacheProvider, type RedisClient } from '../RedisCacheProvider';
 import type { CacheEntry } from '../types';
 
@@ -77,6 +77,86 @@ function makeRedisClientWithTags() {
       }
     },
   };
+}
+
+/**
+ * Minimal in-memory mock shaped like a real **node-redis v4** client:
+ *   - `set(key, value, { EX: seconds })` — options-object TTL, not positional.
+ *   - camelCase `sAdd`/`sMembers`/`sRem` (single-array-arg for sAdd/sRem),
+ *     not the ioredis lowercase/rest-args shape.
+ *   - `expire(key, seconds)` — same name as ioredis.
+ *   - `scan(cursor, { MATCH, COUNT })` → `{ cursor, keys }`, not a `[cursor, keys]` tuple.
+ * Used to prove `RedisCacheProvider` actually works against this wire shape,
+ * not just the ioredis-shaped mock used elsewhere in this file.
+ */
+function makeNodeRedisV4Client() {
+  const store = new Map<string, { value: string; expiresAt: number }>();
+  const sets = new Map<string, Set<string>>();
+  const expiries = new Map<string, number>();
+
+  const client: RedisClient & { store: typeof store } = {
+    store,
+    async get(key: string) {
+      const entry = store.get(key);
+      if (!entry || Date.now() > entry.expiresAt) {
+        return null;
+      }
+      return entry.value;
+    },
+    async set(key: string, value: string, opts?: { EX?: number }) {
+      const ttlSeconds = opts?.EX ?? 60;
+      store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+    },
+    async del(...keys: string[]) {
+      for (const key of keys) {
+        store.delete(key);
+        sets.delete(key);
+        expiries.delete(key);
+      }
+    },
+    async expire(key: string, seconds: number) {
+      expiries.set(key, Date.now() + seconds * 1000);
+    },
+    async sAdd(key: string, members: string | string[]) {
+      let set = sets.get(key);
+      if (!set) {
+        set = new Set<string>();
+        sets.set(key, set);
+      }
+      for (const m of Array.isArray(members) ? members : [members]) {
+        set.add(m);
+      }
+    },
+    async sMembers(key: string) {
+      return [...(sets.get(key) ?? [])];
+    },
+    async sRem(key: string, members: string | string[]) {
+      const set = sets.get(key);
+      if (!set) {
+        return;
+      }
+      for (const m of Array.isArray(members) ? members : [members]) {
+        set.delete(m);
+      }
+      if (set.size === 0) {
+        sets.delete(key);
+      }
+    },
+    async scan(cursor: string, ...args: unknown[]) {
+      // node-redis v4 shape: scan(cursor, { MATCH, COUNT }) → { cursor, keys }
+      const opts = args[0] as { MATCH?: string; COUNT?: number } | undefined;
+      const pattern = opts?.MATCH ?? '*';
+      const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
+      const allKeys = [...store.keys()].filter((k) => k.startsWith(prefix));
+      // Simulate cursor pagination: one key per "page" to exercise the loop.
+      const pageSize = 1;
+      const start = Number(cursor);
+      const page = allKeys.slice(start, start + pageSize);
+      const nextCursor = start + pageSize >= allKeys.length ? '0' : String(start + pageSize);
+      return { cursor: nextCursor, keys: page };
+    },
+  };
+  return { client, sets, expiries };
 }
 
 const ENTRY: CacheEntry = { rows: [{ id: 1, amount: 10 }], cachedAt: 1_000 };
@@ -151,12 +231,20 @@ describe('RedisCacheProvider', () => {
       expect(await provider.get('k3')).toEqual(ENTRY);
     });
 
-    it('is a graceful no-op when the Redis client does not support smembers', async () => {
-      const redis = makeRedisClient(); // no sadd / smembers
+    it('does not throw, and warns once, when the Redis client supports neither naming convention', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const redis = makeRedisClient(); // no sadd/sAdd, no smembers/sMembers
       const provider = new RedisCacheProvider(redis);
       await provider.set('k1', ENTRY);
+
       await provider.deleteByTag('sales'); // must not throw
+      await provider.deleteByTag('orders'); // still must not throw
+
       expect(await provider.get('k1')).toEqual(ENTRY);
+      // Warn once, not once per call — repeated no-ops shouldn't spam logs.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('MUI X Studio Server');
+      warnSpy.mockRestore();
     });
 
     it('is a no-op when no keys are registered for the tag', async () => {
@@ -223,6 +311,93 @@ describe('RedisCacheProvider', () => {
       // After deleteByTag, only the globex key should have been in the forward index
       await provider.deleteByTag('sales');
       expect(await provider.get('studio:v1:globex:q1')).toBeUndefined();
+    });
+
+    it('uses SCAN (cursor iteration), not KEYS, when the client supports it', async () => {
+      const { client: redis } = makeNodeRedisV4Client();
+      const scanSpy = vi.spyOn(redis, 'scan');
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('studio:v1:acme:a', ENTRY);
+      await provider.set('studio:v1:acme:b', ENTRY);
+      await provider.set('studio:v1:acme:c', ENTRY);
+      await provider.set('studio:v1:globex:a', ENTRY);
+
+      await provider.invalidatePrefix('studio:v1:acme:');
+
+      // The fake node-redis client paginates one key per SCAN call, so
+      // invalidating 3 matching keys must issue more than one SCAN round-trip.
+      expect(scanSpy.mock.calls.length).toBeGreaterThan(1);
+      expect(await provider.get('studio:v1:acme:a')).toBeUndefined();
+      expect(await provider.get('studio:v1:acme:b')).toBeUndefined();
+      expect(await provider.get('studio:v1:acme:c')).toBeUndefined();
+      expect(await provider.get('studio:v1:globex:a')).toEqual(ENTRY);
+    });
+  });
+
+  describe('node-redis v4 client compatibility', () => {
+    it('writes via the { EX } options-object set() form, not the ioredis positional form', async () => {
+      const { client: redis } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('k1', ENTRY, { ttlMs: 5_000 });
+
+      const stored = redis.store.get('k1');
+      expect(stored).toBeDefined();
+      expect(stored?.expiresAt).toBeGreaterThan(Date.now());
+      expect(await provider.get('k1')).toEqual(ENTRY);
+    });
+
+    it('deleteByTag actually deletes matching entries against a node-redis-v4-shaped client', async () => {
+      const { client: redis } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('k1', ENTRY, { tags: ['sales'] });
+      await provider.set('k2', ENTRY, { tags: ['sales'] });
+      await provider.set('k3', ENTRY, { tags: ['orders'] });
+
+      await provider.deleteByTag('sales');
+
+      expect(await provider.get('k1')).toBeUndefined();
+      expect(await provider.get('k2')).toBeUndefined();
+      expect(await provider.get('k3')).toEqual(ENTRY);
+    });
+
+    it('does not warn about missing tag support against a node-redis v4 client', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { client: redis } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('k1', ENTRY, { tags: ['sales'] });
+      await provider.deleteByTag('sales');
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('tag/reverse-index expiry (finding 7 — unbounded Redis growth)', () => {
+    it('applies an expiry to both the forward tag index and the reverse key->tags index', async () => {
+      const { client: redis, expiries } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('k1', ENTRY, { tags: ['sales'], ttlMs: 10_000 });
+
+      expect(expiries.has('__tag__:sales')).toBe(true);
+      expect(expiries.has('__ktag__:k1')).toBe(true);
+    });
+
+    it('deleteByTag removes the reverse-index (__ktag__) key outright, not just the tag membership', async () => {
+      const { client: redis, sets } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.set('k1', ENTRY, { tags: ['sales'] });
+      expect(sets.has('__ktag__:k1')).toBe(true);
+
+      await provider.deleteByTag('sales');
+
+      // The whole reverse-index set for k1 must be gone, not merely missing 'sales'.
+      expect(sets.has('__ktag__:k1')).toBe(false);
     });
   });
 });

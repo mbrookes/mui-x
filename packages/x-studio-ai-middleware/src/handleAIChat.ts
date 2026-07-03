@@ -222,6 +222,16 @@ export interface StudioAIHandlerOptions {
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
   /**
+   * How long (ms) to wait for a pending tool approval before giving up.
+   *
+   * Forwarded to the agentic loop. When an approval is neither granted nor denied
+   * within this window, the loop tells the model the approval timed out and cleans
+   * up, rather than holding the SSE stream open indefinitely.
+   *
+   * @default 120000
+   */
+  approvalTimeoutMs?: number;
+  /**
    * Optional hook to attach DB-side metadata to the AI context.
    *
    * Called once per request, before the agentic loop starts. Use it to enrich
@@ -280,6 +290,18 @@ export function handleAIChat(
     richContext,
   } = body;
 
+  // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
+  // actually propagates into the agentic loop. It is also linked to any external
+  // `options.signal` so a host-wired abort still stops the loop.
+  const abortController = new AbortController();
+  if (options.signal) {
+    if (options.signal.aborted) {
+      abortController.abort();
+    } else {
+      options.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
+  }
+
   return new ReadableStream<string>({
     async start(controller) {
       try {
@@ -290,7 +312,7 @@ export function handleAIChat(
             enrichedContext = await options.contextEnricher({
               dashboardState,
               richContext,
-              signal: options.signal,
+              signal: abortController.signal,
             });
           } catch (err) {
             options.onToolError?.(
@@ -312,13 +334,14 @@ export function handleAIChat(
             apiKey: options.apiKey,
             model: options.model,
             headers: options.headers,
-            signal: options.signal,
+            signal: abortController.signal,
             onToolError: options.onToolError,
             skillHandlers: options.skillHandlers,
             dataResolver: options.dataResolver,
             privateMode,
             rateLimit: options.rateLimit,
             approvalPending: options.approvalPending,
+            approvalTimeoutMs: options.approvalTimeoutMs,
             pageSnapshot,
             richContext,
             enrichedContext,
@@ -333,10 +356,25 @@ export function handleAIChat(
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        controller.enqueue(encodeSSE({ type: 'error', message }));
+        // Guard the enqueue: if the stream was already cancelled/closed (e.g. the
+        // consumer called `reader.cancel()`), enqueueing throws — swallow it so the
+        // error path itself doesn't blow up.
+        try {
+          controller.enqueue(encodeSSE({ type: 'error', message }));
+        } catch {
+          // Stream already cancelled/closed — nothing to surface the error to.
+        }
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Stream already closed/cancelled.
+        }
       }
+    },
+    cancel() {
+      // Consumer stopped reading — propagate cancellation into the loop.
+      abortController.abort();
     },
   });
 }

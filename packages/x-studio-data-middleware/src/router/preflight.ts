@@ -23,49 +23,34 @@ type RoutingTier = 'client' | 'server' | 'db';
 
 interface PreflightResult {
   rowCount: number;
-  tier: RoutingTier;
 }
 
-const DEFAULT_CLIENT_THRESHOLD = 10_000;
-const DEFAULT_SERVER_MEMORY_THRESHOLD = 100_000;
-
 /**
- * Run a COUNT(*) pre-flight and determine the routing tier.
+ * Run a COUNT(*) pre-flight and return the row count.
  *
- * This is a pure COUNT(*) runner. Aggregation detection and tier-cache
- * lookups are handled upstream by `decideTierWithCache` in `tierDecision.ts`.
+ * This is a pure COUNT(*) runner. Aggregation detection, threshold-to-tier
+ * mapping, and tier-cache lookups all live in `tierDecision.ts` (the single
+ * source of truth for `DEFAULT_THRESHOLDS` / `tierFromRowCount`); this function
+ * only executes the count so callers can feed it into that decision.
  *
  * @param db - Knex instance (provided by host app)
  * @param claims - Verified security claims
  * @param descriptor - Widget query descriptor
- * @param thresholds - Optional tier boundary overrides
+ * @param options - Security/tenant options forwarded to `buildSecureQuery`
  */
 export async function runPreflight(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  thresholds?: { clientTier?: number; serverMemoryTier?: number },
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): Promise<PreflightResult> {
-  const clientThreshold = thresholds?.clientTier ?? DEFAULT_CLIENT_THRESHOLD;
-  const serverThreshold = thresholds?.serverMemoryTier ?? DEFAULT_SERVER_MEMORY_THRESHOLD;
-
   // Build the query without column selection — only security + user filters
   const query = buildSecureQuery(db, claims, descriptor, options).count('* as row_count');
 
   const result = (await query.first()) as { row_count: number | string } | undefined;
   const rowCount = Number(result?.row_count ?? 0);
 
-  let tier: RoutingTier;
-  if (rowCount <= clientThreshold) {
-    tier = 'client';
-  } else if (rowCount <= serverThreshold) {
-    tier = 'server';
-  } else {
-    tier = 'db';
-  }
-
-  return { rowCount, tier };
+  return { rowCount };
 }
 
 /**
@@ -80,7 +65,7 @@ export async function executeForTier(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   tier: RoutingTier,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): Promise<Record<string, unknown>[]> {
   /** Resolve a logical column ID to its physical SQL column (via columnAliases if set). */
   const physicalCol = (c: string): string => descriptor.columnAliases?.[c] ?? c;
@@ -174,8 +159,13 @@ export async function executeForTier(
   }
 
   if (descriptor.orderBy) {
+    // Map logical → physical columns for ORDER BY, matching the client/server
+    // tiers. An ORDER BY that targets an aggregation alias (e.g. `total`) must
+    // stay as the alias — it is not a physical column — so fall back to it as-is.
+    const aggAliases = new Set((descriptor.aggregations ?? []).map((a) => a.alias));
     for (const ob of descriptor.orderBy) {
-      query.orderBy(ob.column, ob.direction);
+      const orderColumn = aggAliases.has(ob.column) ? ob.column : physicalCol(ob.column);
+      query.orderBy(orderColumn, ob.direction);
     }
   }
   if (descriptor.limit) {

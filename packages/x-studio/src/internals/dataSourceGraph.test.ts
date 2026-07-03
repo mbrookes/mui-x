@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getReachableSourceIds, enrichRowsWithRelatedFields, resolveRows } from './dataSourceGraph';
+import {
+  getReachableSourceIds,
+  enrichRowsWithRelatedFields,
+  resolveRows,
+  buildManyToOneRelationshipIndex,
+} from './dataSourceGraph';
 import { analyzeChartSupport, resolveChartRowsForAggregation } from './chartAggregation';
 import type {
   StudioDataField,
@@ -532,6 +537,33 @@ describe('enrichRowsWithRelatedFields', () => {
     expect(result[0].country).toBe('Germany'); // ORD-1 → CUS-1
     expect(result[1].country).toBe('France'); // ORD-2 → CUS-2
     expect(result[2].country).toBe('Germany'); // ORD-3 → CUS-1
+  });
+
+  it('enriches across a numeric-vs-string FK/PK type mismatch (shared normalizeJoinKey policy)', () => {
+    const numericFkOrders = [
+      { id: 'ORD-1', customerId: 1 },
+      { id: 'ORD-2', customerId: 2 },
+    ];
+    const stringPkSources: Record<string, StudioDataSource> = {
+      ...dataSources,
+      customers: {
+        ...dataSources.customers,
+        rows: [
+          { id: '1', country: 'Germany', tier: 'gold' },
+          { id: '2', country: 'France', tier: 'silver' },
+        ],
+      },
+    };
+    const result = enrichRowsWithRelatedFields(
+      numericFkOrders,
+      'orders',
+      ['country'],
+      stringPkSources,
+      relationships,
+    );
+    // Before the fix these were undefined (raw 1 !== '1'); now they join.
+    expect(result[0].country).toBe('Germany');
+    expect(result[1].country).toBe('France');
   });
 
   it('enriches multiple fields in a single call', () => {
@@ -1072,6 +1104,49 @@ describe('many-to-many relationships', () => {
       expect(result).toHaveLength(4);
       const aliceWidget = result.find((r) => r.customer === 'Alice' && r.name === 'Widget');
       expect(aliceWidget?.qty).toBe(2);
+    });
+  });
+
+  // ─── buildManyToOneRelationshipIndex (shared traversal step, Part B item 6) ──
+
+  describe('buildManyToOneRelationshipIndex', () => {
+    it('indexes many-to-one relationships from widgetSourceId by targetId', () => {
+      const rels: StudioRelationship[] = [
+        {
+          id: 'r1',
+          type: 'many-to-one',
+          sourceId: 'order_items',
+          sourceField: 'orderId',
+          targetId: 'orders',
+          targetField: 'id',
+        },
+      ];
+      const idx = buildManyToOneRelationshipIndex('order_items', rels);
+      expect(idx.get('orders')).toBe(rels[0]);
+      expect(idx.size).toBe(1);
+    });
+
+    it('excludes relationships not owned by widgetSourceId or not many-to-one', () => {
+      const rels: StudioRelationship[] = [
+        {
+          id: 'r1',
+          type: 'many-to-one',
+          sourceId: 'other_source',
+          sourceField: 'x',
+          targetId: 'orders',
+          targetField: 'id',
+        },
+        {
+          id: 'r2',
+          type: 'one-to-one',
+          sourceId: 'order_items',
+          sourceField: 'x',
+          targetId: 'shipping',
+          targetField: 'id',
+        },
+      ];
+      const idx = buildManyToOneRelationshipIndex('order_items', rels);
+      expect(idx.size).toBe(0);
     });
   });
 });

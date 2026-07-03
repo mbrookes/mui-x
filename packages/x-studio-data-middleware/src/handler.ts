@@ -68,7 +68,8 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
-  const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn } = options;
+  const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn, securityColumns } =
+    options;
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =
@@ -106,6 +107,7 @@ export async function handleBatchQuery(
         tierCacheTtlMs,
         thresholds,
         tenantColumn,
+        securityColumns,
       ),
     ),
   );
@@ -120,8 +122,16 @@ export async function handleBatchQuery(
  * Validate all column references in a descriptor against the column allowlist.
  * Throws if any column is not in the allowed list for its table.
  *
+ * FAIL-CLOSED: when `columnAllowlist` is provided at all, every referenced table
+ * MUST have an entry. A table with no entry is rejected (rather than passing all
+ * columns through), closing the hole where a client could dodge validation by
+ * qualifying a column with a table name that has no allowlist entry. A host that
+ * wants to opt a table out of column checks can list `'*'` as its only allowed
+ * column.
+ *
  * Qualified names (`table.column`) are split and checked against the allowlist
  * for the named table. Unqualified names are checked against the primary table.
+ * Both sides of every `join.on` pair are validated too.
  */
 function validateColumns(
   descriptor: BatchWidgetDescriptor,
@@ -143,7 +153,17 @@ function validateColumns(
     const physical = descriptor.columnAliases?.[rawColumn] ?? rawColumn;
     const { table, column } = resolveColumn(physical, descriptor.table);
     const allowed = columnAllowlist[table];
-    if (allowed && !allowed.includes(column)) {
+    if (!allowed) {
+      throw new Error(
+        `MUI X Studio Server: Table "${table}" has no entry in the column allowlist (${context}). ` +
+          `When a column allowlist is supplied, every referenced table must declare its allowed columns so unlisted tables cannot be probed. ` +
+          `Add "${table}" to columnAllowlist (use ["*"] to allow all of its columns).`,
+      );
+    }
+    if (allowed.includes('*')) {
+      return;
+    }
+    if (!allowed.includes(column)) {
       throw new Error(
         `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}). ` +
           `Allowed columns for "${table}": ${allowed.join(', ')}`,
@@ -162,6 +182,15 @@ function validateColumns(
   }
   for (const agg of descriptor.aggregations ?? []) {
     check(agg.column, 'aggregations');
+  }
+  // Validate BOTH sides of every join.on pair — a join condition is an
+  // attacker-controlled channel (join foo ON secret.col = public.col) that must
+  // be constrained to allowlisted columns just like filters/columns.
+  for (const join of descriptor.joins ?? []) {
+    for (const [left, right] of join.on) {
+      check(left, 'join.on');
+      check(right, 'join.on');
+    }
   }
 
   // Validate HAVING aliases against declared aggregation aliases (SECURITY INVARIANT).
@@ -189,9 +218,10 @@ async function processWidget(
   tierCacheTtlMs: number,
   thresholds: HandleBatchQueryOptions['thresholds'],
   tenantColumn: HandleBatchQueryOptions['tenantColumn'],
+  securityColumns: HandleBatchQueryOptions['securityColumns'],
 ): Promise<WidgetQueryResult> {
   const cacheKey = generateCacheKey(claims, descriptor);
-  const queryOptions = { tenantColumn };
+  const queryOptions = { tenantColumn, securityColumns };
 
   try {
     // ── 1. Data cache check ────────────────────────────────────────────────
@@ -200,7 +230,10 @@ async function processWidget(
       return {
         id: descriptor.id,
         rows: cached.rows,
-        tier: 'server',
+        // Echo the tier that actually produced the cached rows (defaults to
+        // 'server' for entries written before tier was persisted). Reporting a
+        // 'client'-tier result as 'server' would change client-side behavior.
+        tier: cached.tier ?? 'server',
         rowCount: cached.rows.length,
       };
     }
@@ -215,7 +248,7 @@ async function processWidget(
     const tierDecision = await decideTierWithCache(
       hasAggregations,
       cacheKey,
-      () => runPreflight(db, claims, descriptor, thresholds, queryOptions).then((p) => p.rowCount),
+      () => runPreflight(db, claims, descriptor, queryOptions).then((p) => p.rowCount),
       tierCacheProvider,
       resolvedThresholds,
       tierCacheTtlMs,
@@ -234,12 +267,14 @@ async function processWidget(
 
     // ── 5. Populate data cache for client + server tiers ──────────────────
     // DB push-down returns aggregated rows — not suitable for re-filtering.
-    // Tag with the primary table so host apps can call deleteByTag(table) after a write.
+    // Tag with the primary table AND every joined table so a mutation to any of
+    // them invalidates this cached (joined) result — tagging only the primary
+    // table would leave joined rows stale until TTL.
     if (tier !== 'db') {
       await cacheProvider.set(
         cacheKey,
-        { rows, cachedAt: Date.now() },
-        { tags: [descriptor.table] },
+        { rows, cachedAt: Date.now(), tier },
+        { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
       );
     }
 

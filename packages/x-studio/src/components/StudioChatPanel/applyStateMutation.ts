@@ -1,6 +1,16 @@
 /**
- * Maps `StateMutation` objects (received from the x-studio-ai-middleware SSE stream)
- * to the corresponding `StudioController` method calls.
+ * Applies a `StateMutation` (received from the x-studio-ai-middleware SSE stream)
+ * to the local `StudioController`.
+ *
+ * Historically this file re-derived each mutation's effect by mapping it to
+ * individual `StudioController` methods — a second, independently-authored
+ * implementation of logic the server had already run to compute its threaded
+ * `nextState`. Those two implementations had already drifted (page-targeting).
+ *
+ * Now there is exactly one implementation of every mutation's effect: the shared
+ * `applyMutation` reducer in `@mui/x-studio-schema`. The controller applies it
+ * through `applyExternalMutation`, so the client-applied state is guaranteed to
+ * match the server-threaded state.
  */
 import type { StudioController } from '../../store/StudioController';
 import type { StateMutation } from '../../models';
@@ -11,130 +21,5 @@ import type { StateMutation } from '../../models';
  * Called by the thin client adapter whenever a `state-mutation` SSE event arrives.
  */
 export function applyStateMutation(mutation: StateMutation, controller: StudioController): void {
-  switch (mutation.type) {
-    case 'addPage': {
-      // The server already chose the page ID; we need to set state directly
-      // so IDs match the conversation history held by the server.
-      const state = controller.getState();
-      controller.setState({
-        ...state,
-        pages: {
-          ...state.pages,
-          [mutation.args.id]: { id: mutation.args.id, title: mutation.args.title, widgetRows: [] },
-        },
-        dashboard: { ...state.dashboard, activePageId: mutation.args.id },
-      });
-      break;
-    }
-
-    case 'setDashboardTitle': {
-      controller.setDashboardTitle(mutation.args.title);
-      break;
-    }
-
-    case 'addWidget': {
-      controller.addWidget(mutation.args.widget);
-      break;
-    }
-
-    case 'updateWidget': {
-      const { widgetId, changes, config } = mutation.args;
-      if (config !== undefined) {
-        controller.updateWidgetConfig(widgetId, config);
-      }
-      if (changes && Object.keys(changes).length > 0) {
-        controller.updateWidget(widgetId, changes);
-      }
-      break;
-    }
-
-    case 'removeWidget': {
-      controller.removeWidget(mutation.args.widgetId);
-      break;
-    }
-
-    case 'setWidgetLayout': {
-      controller.setWidgetLayout(mutation.args.rows);
-      break;
-    }
-
-    case 'setWidgetColSpan': {
-      controller.setWidgetColSpanInRow(
-        mutation.args.widgetId,
-        mutation.args.columns,
-        mutation.args.rowWidgetIds,
-      );
-      break;
-    }
-
-    case 'renamePage': {
-      controller.renamePage(mutation.args.pageId, mutation.args.title);
-      break;
-    }
-
-    case 'removePage': {
-      controller.removePage(mutation.args.pageId);
-      break;
-    }
-
-    case 'setActivePage': {
-      controller.setActivePage(mutation.args.pageId);
-      break;
-    }
-
-    case 'addFilter': {
-      controller.addFilter(mutation.args.filter);
-      break;
-    }
-
-    case 'removeFilter': {
-      controller.removeFilter(mutation.args.filterId);
-      break;
-    }
-
-    case 'applyBulkUpdate': {
-      const state = controller.getState();
-      const { widgets, widgetRows, widgetColSpans, activePageId } = mutation.args;
-      const activePage = state.pages[activePageId];
-      if (!activePage) {
-        break;
-      }
-      controller.setState({
-        ...state,
-        widgets,
-        pages: {
-          ...state.pages,
-          [activePageId]: { ...activePage, widgetRows, widgetColSpans },
-        },
-      });
-      break;
-    }
-
-    case 'renameAIThread': {
-      const state = controller.getState();
-      const activeThreadId = state.ai?.activeThreadId;
-      if (!activeThreadId || !state.ai) {
-        break;
-      }
-      const updatedThreads = (state.ai.threads ?? []).map((t) =>
-        t.id === activeThreadId
-          ? { ...t, name: mutation.args.name, updatedAt: new Date().toISOString() }
-          : t,
-      );
-      controller.setState({
-        ...state,
-        ai: { ...state.ai, threads: updatedThreads },
-      });
-      break;
-    }
-
-    default: {
-      // Exhaustiveness check — TypeScript will warn if a new mutation type is added
-      // without updating this function.
-      console.warn(
-        '[StudioChatAdapter] Unknown state mutation type:',
-        (mutation as { type: string }).type,
-      );
-    }
-  }
+  controller.applyExternalMutation(mutation);
 }

@@ -8,16 +8,19 @@
  * - `nextState`— the updated state after the tool ran (used to carry state forward
  *                across multiple tool calls in a single agentic loop turn)
  */
+import { applyMutation, createDefaultWidget } from '@mui/x-studio-schema';
 import type {
   StudioState,
   StudioCustomWidgetDef,
   StudioWidget,
   StudioFilterOperator,
   StudioDataField,
+  StudioFilterState,
 } from './models/studioTypes';
 import type { StateMutation } from './models/aiTypes';
-import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { createDefaultWidget } from './widgetFactory';
+// Shared pure functions: the widget factory (so AI-created and UI-created widgets
+// share defaults) and the single mutation reducer (so the server-threaded state
+// and the client-applied state are computed by the exact same code).
 
 export interface ToolExecutionResult {
   output: string;
@@ -42,8 +45,14 @@ export function executeToolOnState(
 
   switch (toolName) {
     case 'get_dashboard_state': {
+      // Canonical output contract, shared with the MCP transport: return the raw
+      // `StudioState`. Both `buildStudioMcpServer`'s `get_dashboard_state` handler
+      // (mcp.ts) and this chat-path handler now return the state object so the tool
+      // means the same thing on both surfaces. The full rendered system prompt is
+      // already the chat request's system message, so re-emitting it as tool output
+      // was redundant and diverged from MCP.
       return {
-        output: buildAISystemPrompt(state, customWidgets),
+        output: JSON.stringify(state),
         nextState: state,
       };
     }
@@ -71,31 +80,21 @@ export function executeToolOnState(
     case 'add_page': {
       const title = String(args.title ?? 'New Page');
       const id = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const nextState: StudioState = {
-        ...state,
-        pages: {
-          ...state.pages,
-          [id]: { id, title, widgetRows: [] },
-        },
-        dashboard: { ...state.dashboard, activePageId: id },
-      };
+      const mutation: StateMutation = { type: 'addPage', args: { id, title } };
       return {
         output: JSON.stringify({ success: true, pageId: id, title }),
-        mutation: { type: 'addPage', args: { id, title } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'set_dashboard_title': {
       const title = String(args.title ?? '');
-      const nextState: StudioState = {
-        ...state,
-        dashboard: { ...state.dashboard, title },
-      };
+      const mutation: StateMutation = { type: 'setDashboardTitle', args: { title } };
       return {
         output: JSON.stringify({ success: true, title }),
-        mutation: { type: 'setDashboardTitle', args: { title } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -104,6 +103,20 @@ export function executeToolOnState(
       const title = String(args.title ?? '');
       const sourceId = args.sourceId ? String(args.sourceId) : undefined;
       const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+
+      // Explicitly resolve (and validate) the target page server-side so the
+      // widget lands on the same page the model is told about, regardless of
+      // where the client's navigation happens to be. Error rather than spread
+      // an `undefined` page into state.
+      const pageId = state.dashboard.activePageId;
+      if (!state.pages[pageId]) {
+        return {
+          output: JSON.stringify({
+            error: 'Cannot add a widget: there is no active page. Call add_page first.',
+          }),
+          nextState: state,
+        };
+      }
 
       const customDef = customWidgets?.find((d) => d.kind === kind);
       const base = createDefaultWidget(kind);
@@ -120,23 +133,11 @@ export function executeToolOnState(
         config,
       };
 
-      const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
-      const nextState: StudioState = {
-        ...state,
-        widgets: { ...state.widgets, [widget.id]: widget },
-        pages: {
-          ...state.pages,
-          [activePageId]: {
-            ...activePage,
-            widgetRows: [...(activePage?.widgetRows ?? []), [widget.id]],
-          },
-        },
-      };
+      const mutation: StateMutation = { type: 'addWidget', args: { widget, pageId } };
       return {
         output: JSON.stringify({ success: true, widgetId: widget.id, title }),
-        mutation: { type: 'addWidget', args: { widget } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -166,46 +167,30 @@ export function executeToolOnState(
             } as StudioWidget['config'])
           : undefined;
 
-      const updatedWidget: StudioWidget = {
-        ...widget,
-        ...changes,
-        ...(newConfig !== undefined ? { config: newConfig } : {}),
-      };
-      const nextState: StudioState = {
-        ...state,
-        widgets: { ...state.widgets, [widgetId]: updatedWidget },
+      const mutation: StateMutation = {
+        type: 'updateWidget',
+        args: { widgetId, changes, ...(newConfig !== undefined ? { config: newConfig } : {}) },
       };
       return {
         output: JSON.stringify({ success: true, widgetId }),
-        mutation: {
-          type: 'updateWidget',
-          args: { widgetId, changes, ...(newConfig !== undefined ? { config: newConfig } : {}) },
-        },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'remove_widget': {
       const widgetId = String(args.widgetId ?? '');
-      const nextWidgets = { ...state.widgets };
-      delete nextWidgets[widgetId];
-
-      const nextPages = Object.fromEntries(
-        Object.entries(state.pages).map(([pid, page]) => [
-          pid,
-          {
-            ...page,
-            widgetRows: (page.widgetRows ?? [])
-              .map((row) => row.filter((id) => id !== widgetId))
-              .filter((row) => row.length > 0),
-          },
-        ]),
-      );
-      const nextState: StudioState = { ...state, widgets: nextWidgets, pages: nextPages };
+      if (!state.widgets[widgetId]) {
+        return {
+          output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
+          nextState: state,
+        };
+      }
+      const mutation: StateMutation = { type: 'removeWidget', args: { widgetId } };
       return {
         output: JSON.stringify({ success: true, widgetId }),
-        mutation: { type: 'removeWidget', args: { widgetId } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -218,21 +203,14 @@ export function executeToolOnState(
         };
       }
       const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
-      if (!activePage) {
+      if (!state.pages[activePageId]) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      const nextState: StudioState = {
-        ...state,
-        pages: {
-          ...state.pages,
-          [activePageId]: { ...activePage, widgetRows: rows },
-        },
-      };
+      const mutation: StateMutation = { type: 'setWidgetLayout', args: { rows } };
       return {
         output: JSON.stringify({ success: true, rows }),
-        mutation: { type: 'setWidgetLayout', args: { rows } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -246,26 +224,20 @@ export function executeToolOnState(
       }
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
-      const rowWidgetIds = activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [
+      if (!activePage) {
+        return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
+      }
+      const rowWidgetIds = activePage.widgetRows?.find((row) => row.includes(widgetId)) ?? [
         widgetId,
       ];
-      const nextColSpans = { ...(activePage?.widgetColSpans ?? {}) };
-      if (columns === null) {
-        delete nextColSpans[widgetId];
-      } else {
-        nextColSpans[widgetId] = columns;
-      }
-      const nextState: StudioState = {
-        ...state,
-        pages: {
-          ...state.pages,
-          [activePageId]: { ...activePage!, widgetColSpans: nextColSpans },
-        },
+      const mutation: StateMutation = {
+        type: 'setWidgetColSpan',
+        args: { widgetId, columns, rowWidgetIds },
       };
       return {
         output: JSON.stringify({ success: true, widgetId, columns }),
-        mutation: { type: 'setWidgetColSpan', args: { widgetId, columns, rowWidgetIds } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -276,39 +248,43 @@ export function executeToolOnState(
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
-      const nextState: StudioState = {
-        ...state,
-        pages: { ...state.pages, [pageId]: { ...page, title } },
-      };
+      const mutation: StateMutation = { type: 'renamePage', args: { pageId, title } };
       return {
         output: JSON.stringify({ success: true, pageId, title }),
-        mutation: { type: 'renamePage', args: { pageId, title } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'remove_page': {
       const pageId = String(args.pageId ?? '');
-      const nextPages = { ...state.pages };
-      delete nextPages[pageId];
-      const nextState: StudioState = { ...state, pages: nextPages };
+      const page = state.pages[pageId];
+      if (!page) {
+        return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
+      }
+
+      // `applyMutation`'s removePage mirrors `StudioController.removePage`
+      // exactly (drop the page, remove its widgets, remove its page-scoped
+      // filters, and reassign `activePageId` when the removed page was active),
+      // so the server-computed `nextState` matches what the client produces.
+      const mutation: StateMutation = { type: 'removePage', args: { pageId } };
       return {
         output: JSON.stringify({ success: true, pageId }),
-        mutation: { type: 'removePage', args: { pageId } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'set_active_page': {
       const pageId = String(args.pageId ?? '');
-      const nextState: StudioState = {
-        ...state,
-        dashboard: { ...state.dashboard, activePageId: pageId },
-      };
+      if (!state.pages[pageId]) {
+        return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
+      }
+      const mutation: StateMutation = { type: 'setActivePage', args: { pageId } };
       return {
         output: JSON.stringify({ success: true, pageId }),
-        mutation: { type: 'setActivePage', args: { pageId } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -319,24 +295,22 @@ export function executeToolOnState(
       const value = args.value;
       const fieldType = args.fieldType as StudioDataField['type'] | undefined;
       const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const filter = {
+      const filter: StudioFilterState = {
         id: filterId,
         field,
         filterSourceId: sourceId,
         operator,
         value,
         fieldType,
-        scope: 'page' as const,
-        pageId: state.dashboard.activePageId,
+        // Page target chosen server-side and carried in the filter's scope, so
+        // the client applies it to this page rather than its own active page.
+        scope: { kind: 'page', pageId: state.dashboard.activePageId },
       };
-      const nextState: StudioState = {
-        ...state,
-        filters: [...(state.filters ?? []), filter],
-      };
+      const mutation: StateMutation = { type: 'addFilter', args: { filter } };
       return {
         output: JSON.stringify({ success: true, filterId }),
-        mutation: { type: 'addFilter', args: { filter } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -348,38 +322,31 @@ export function executeToolOnState(
       const value = args.value;
       const fieldType = args.fieldType as StudioDataField['type'] | undefined;
       const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const filter = {
+      const filter: StudioFilterState = {
         id: filterId,
         field,
         filterSourceId: sourceId,
         operator,
         value,
         fieldType,
-        scope: 'widget' as const,
-        widgetId,
+        scope: { kind: 'widget', widgetId },
       };
-      const nextState: StudioState = {
-        ...state,
-        filters: [...(state.filters ?? []), filter],
-      };
+      const mutation: StateMutation = { type: 'addFilter', args: { filter } };
       return {
         output: JSON.stringify({ success: true, filterId }),
-        mutation: { type: 'addFilter', args: { filter } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'remove_page_filter':
     case 'remove_widget_filter': {
       const filterId = String(args.filterId ?? '');
-      const nextState: StudioState = {
-        ...state,
-        filters: (state.filters ?? []).filter((f) => f.id !== filterId),
-      };
+      const mutation: StateMutation = { type: 'removeFilter', args: { filterId } };
       return {
         output: JSON.stringify({ success: true, filterId }),
-        mutation: { type: 'removeFilter', args: { filterId } },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -496,13 +463,9 @@ export function executeToolOnState(
         }
       }
 
-      const nextState: StudioState = {
-        ...state,
-        widgets: pageWidgets,
-        pages: {
-          ...state.pages,
-          [activePageId]: { ...activePage, widgetRows, widgetColSpans: colSpans },
-        },
+      const mutation: StateMutation = {
+        type: 'applyBulkUpdate',
+        args: { widgets: pageWidgets, widgetRows, widgetColSpans: colSpans, activePageId },
       };
       return {
         output: JSON.stringify({
@@ -510,15 +473,32 @@ export function executeToolOnState(
           applied,
           ...(skipped.length > 0 ? { skipped } : {}),
         }),
-        mutation: {
-          type: 'applyBulkUpdate',
-          args: { widgets: pageWidgets, widgetRows, widgetColSpans: colSpans, activePageId },
-        },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 
     case 'summarise_page': {
+      // On the chat path the only row data available is the client-provided
+      // `pageSnapshot`, which is built for the *active* page. Unlike the MCP path
+      // (which can query any page's sources live), we cannot honor a `pageId` that
+      // points at a non-active page here. The tool schema advertises `pageId`, so
+      // rather than silently mislabel the active page's data as the requested page,
+      // reject the request with actionable guidance.
+      const requestedPageId = args.pageId ? String(args.pageId) : undefined;
+      const activePageId = state.dashboard.activePageId;
+      if (requestedPageId && requestedPageId !== activePageId) {
+        return {
+          output: JSON.stringify({
+            error:
+              `summarise_page cannot summarise page "${requestedPageId}" here. ` +
+              'In chat, live row data is only available for the active page, so a non-active ' +
+              `pageId cannot be honored. Call set_active_page with "${requestedPageId}" first, ` +
+              'then summarise_page, or omit pageId to summarise the active page.',
+          }),
+          nextState: state,
+        };
+      }
       if (pageSnapshot) {
         // Return the data snapshot as plain text so the model can read it directly
         // without unwrapping a JSON structure. The tool description instructs the model
@@ -548,10 +528,13 @@ export function executeToolOnState(
         };
       }
       const trimmed = name.trim().slice(0, 40);
+      const mutation: StateMutation = { type: 'renameAIThread', args: { name: trimmed } };
       return {
         output: JSON.stringify({ success: true, name: trimmed }),
-        mutation: { type: 'renameAIThread', args: { name: trimmed } },
-        nextState: state,
+        mutation,
+        // Server state carries no `ai` thread store, so this is a no-op here; the
+        // client applies the thread rename via the same reducer.
+        nextState: applyMutation(state, mutation),
       };
     }
 
@@ -594,23 +577,14 @@ export function executeToolOnState(
           }
         : { enabled: false };
 
-      const nextState: typeof state = {
-        ...state,
-        widgets: {
-          ...state.widgets,
-          [widgetId]: {
-            ...widget,
-            config: { ...widget.config, forecast: forecastConfig },
-          },
-        },
+      const mutation: StateMutation = {
+        type: 'updateWidget',
+        args: { widgetId, changes: { config: { ...widget.config, forecast: forecastConfig } } },
       };
       return {
         output: JSON.stringify({ success: true, widgetId, forecast: forecastConfig }),
-        mutation: {
-          type: 'updateWidget',
-          args: { widgetId, changes: { config: { ...widget.config, forecast: forecastConfig } } },
-        },
-        nextState,
+        mutation,
+        nextState: applyMutation(state, mutation),
       };
     }
 

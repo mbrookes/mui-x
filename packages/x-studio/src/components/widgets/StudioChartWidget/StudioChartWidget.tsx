@@ -73,6 +73,7 @@ import {
   createLineXAxisConfig,
   makeValueFormatter,
   normalizeCrossFilterValue,
+  crossFilterValueEquals,
 } from './chartWidgetHelpers';
 import { canDetectAnomalies, detectChartDataAnomalies } from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
@@ -494,19 +495,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
 
-      // Loose equality throughout: cross-filter values may be string or number depending
-      // on the source column, and a click always yields the label's own runtime type.
-      const looseEq = (a: unknown, b: unknown) =>
-        // eslint-disable-next-line eqeqeq
-        a == b;
-
       if (!shiftKey) {
         // Regular click: single-select toggle
         let isSingleActive: boolean;
         if (activeCrossFilter?.operator === 'in') {
           isSingleActive =
             (activeCrossFilter.value as unknown[]).length === 1 &&
-            looseEq((activeCrossFilter.value as unknown[])[0], filterValue);
+            crossFilterValueEquals((activeCrossFilter.value as unknown[])[0], filterValue);
         } else {
           isSingleActive =
             activeCrossFilter?.field === config.xField && activeCrossFilter?.value === filterValue;
@@ -534,9 +529,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         existing = [activeCrossFilter.value as string | number];
       }
 
-      const hasValue = existing.some((v) => looseEq(v, filterValue));
+      const hasValue = existing.some((v) => crossFilterValueEquals(v, filterValue));
       const next = hasValue
-        ? existing.filter((v) => !looseEq(v, filterValue))
+        ? existing.filter((v) => !crossFilterValueEquals(v, filterValue))
         : [...existing, filterValue as string | number];
 
       if (next.length === 0) {

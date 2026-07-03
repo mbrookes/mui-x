@@ -1,22 +1,12 @@
 'use client';
 import * as React from 'react';
-import { Box } from '@mui/material';
 import {
   useStudioSelector,
   selectWidgets,
   selectActivePageId,
   makeSelectWidgetSource,
-  useCustomWidgetMap,
 } from '../../context';
-import { StudioGridWidget } from '../widgets/StudioGridWidget';
-import { StudioChartWidget, CHART_MIN_HEIGHT } from '../widgets/StudioChartWidget';
-import { StudioKpiWidget } from '../widgets/StudioKpiWidget';
-import { StudioTextWidget } from '../widgets/StudioTextWidget';
-import { StudioFilterWidget } from '../widgets/StudioFilterWidget';
-import { StudioPivotWidget } from '../widgets/StudioPivotWidget';
-import { StudioMapWidget } from '../widgets/StudioMapWidget';
-
-const MAP_WIDGET_DEFAULT_HEIGHT = 400;
+import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 
 // ── Built-in widget preview ───────────────────────────────────────────────────
 
@@ -26,40 +16,12 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
   const selectSource = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
   const source = useStudioSelector(selectSource);
   const pageId = useStudioSelector(selectActivePageId);
-  const customWidgetMap = useCustomWidgetMap();
-  const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
+  const widgetDefMap = useWidgetDefMap();
+  const def = widget ? widgetDefMap.get(widget.kind) : undefined;
 
-  if (!widget) {
+  if (!widget || !def) {
     return null;
   }
 
-  return (
-    <React.Fragment>
-      {widget.kind === 'grid' && (
-        <StudioGridWidget widget={widget} dataSource={source} pageId={pageId} />
-      )}
-      {widget.kind === 'chart' && (
-        <StudioChartWidget
-          widget={widget}
-          dataSource={source}
-          pageId={pageId}
-          height={CHART_MIN_HEIGHT}
-        />
-      )}
-      {widget.kind === 'kpi' && (
-        <StudioKpiWidget widget={widget} dataSource={source} pageId={pageId} />
-      )}
-      {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-      {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
-      {widget.kind === 'pivot' && (
-        <StudioPivotWidget widget={widget} dataSource={source} pageId={pageId} />
-      )}
-      {widget.kind === 'map' && (
-        <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-          {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
-        </Box>
-      )}
-      {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}
-    </React.Fragment>
-  );
+  return <def.component widget={widget} dataSource={source} pageId={pageId} />;
 }

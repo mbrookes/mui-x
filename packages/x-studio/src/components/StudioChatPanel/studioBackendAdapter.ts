@@ -15,6 +15,7 @@ import { applyStateMutation } from './applyStateMutation';
 import type { StudioAIToolName } from './studioAITools';
 import { buildWidgetDataSummary } from './generateInsight';
 import { buildRichContext } from './richContext';
+import { parseSSEStream, serializeDashboardState } from './sseUtils';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -211,21 +212,9 @@ export function createBackendChatAdapter(
         : buildRichContext(state, controller, { budgetTokens: contextBudgetTokens });
 
       // Strip raw data rows and adapter instances before sending state to the server.
-      // The server uses state only for structural information (widget configs, filters, layout)
-      // and never reads dataSources.rows or dataSources.adapter. Sending raw rows can push
-      // the request body into tens of megabytes, exceeding server body-size limits.
       // The pageSnapshot (built above from live client-side pipeline rows) is the server's
       // source of truth for data analysis via the summarise_page tool.
-      const serializableState = {
-        ...state,
-        dataSources: Object.fromEntries(
-          Object.entries(state.dataSources).map(([id, source]) => {
-            /* eslint-disable-next-line @typescript-eslint/naming-convention -- omit rows/adapter via rest */
-            const { rows: _rows, adapter: _adapter, ...sourceWithoutData } = source;
-            return [id, sourceWithoutData];
-          }),
-        ),
-      };
+      const serializableState = serializeDashboardState(state);
 
       return new ReadableStream<ChatMessageChunk>({
         async start(streamController) {
@@ -278,32 +267,7 @@ export function createBackendChatAdapter(
           }
 
           // Parse the `StudioAISSEEvent` stream
-          const reader = response.body?.getReader();
-          if (!reader) {
-            endReasoning(streamController);
-            streamController.error(new Error('No response body.'));
-            return;
-          }
-          activeReader = reader;
-
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          const processLine = (line: string) => {
-            if (!line.startsWith('data: ')) {
-              return;
-            }
-            const payload = line.slice(6).trim();
-            if (!payload) {
-              return;
-            }
-            let event: Record<string, unknown>;
-            try {
-              event = JSON.parse(payload);
-            } catch {
-              return;
-            }
-
+          const processEvent = (event: Record<string, unknown>) => {
             const { type } = event;
 
             if (type === 'text-delta') {
@@ -421,23 +385,15 @@ export function createBackendChatAdapter(
           };
 
           try {
-            while (true) {
-              // Sequential SSE stream: each chunk depends on the previous read, so awaiting
-              // inside the loop is intentional (the reads cannot be parallelized).
-              // eslint-disable-next-line no-await-in-loop
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
-              }
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() ?? '';
-              for (const line of lines) {
-                processLine(line);
-              }
-            }
+            await parseSSEStream(response, processEvent, {
+              onReader: (reader) => {
+                activeReader = reader;
+              },
+            });
           } catch (err) {
+            if (err instanceof Error && err.message === 'No response body.') {
+              endReasoning(streamController);
+            }
             if (!input.signal?.aborted) {
               streamController.error(err);
             }

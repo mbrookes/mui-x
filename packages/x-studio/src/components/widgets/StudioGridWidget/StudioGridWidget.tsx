@@ -23,6 +23,7 @@ import { computeGridSummary } from '../../../utils/gridSummary';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
@@ -97,10 +98,17 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const activeCrossFilter = React.useMemo(
     () =>
       filters.find(
-        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widget.id && f.scope.pageId === pageId,
+        (f) =>
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId === widget.id &&
+          f.scope.pageId === pageId,
       ) ?? null,
     [filters, widget.id, pageId],
   );
+
+  // Write-back: enabled when the adapter implements submitMutation and gridPkField is set.
+  const pkField = widget.config.gridPkField;
+  const isEditable = Boolean(dataSource?.adapter?.submitMutation && pkField);
 
   // Build column defs for ALL data source fields so any field can be used for
   // grouping without dynamically adding/removing column definitions (which causes
@@ -124,6 +132,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         headerName: field?.label ?? expressionField?.label ?? fieldName,
         minWidth: 140,
         type: fieldType === 'number' ? 'number' : 'string',
+        // Enable editing for non-PK columns when write-back is configured
+        editable: isEditable && fieldName !== pkField,
         valueFormatter:
           fieldType === 'number' && fieldFormat
             ? (value: unknown) => {
@@ -142,7 +152,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             : undefined,
       };
     });
-  }, [dataSource, expressionFields, allFieldIds]);
+  }, [dataSource, expressionFields, allFieldIds, isEditable, pkField]);
 
   const {
     filteredRows,
@@ -208,6 +218,34 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [allFieldIds, visibleFields, rowGroupingModel],
   );
 
+  const processRowUpdate = React.useCallback(
+    async (newRow: GridValidRowModel, oldRow: GridValidRowModel): Promise<GridValidRowModel> => {
+      if (!dataSource?.adapter?.submitMutation || !pkField) {
+        return oldRow;
+      }
+      const changedValues: Record<string, unknown> = {};
+      for (const key of Object.keys(newRow)) {
+        if (newRow[key] !== oldRow[key]) {
+          changedValues[key] = newRow[key];
+        }
+      }
+      if (Object.keys(changedValues).length === 0) {
+        return newRow;
+      }
+      const result = await dataSource.adapter.submitMutation({
+        operation: 'update',
+        table: dataSource.tableName ?? dataSource.id,
+        values: changedValues,
+        where: [{ column: pkField, operator: 'eq', value: newRow[pkField] }],
+      });
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Mutation failed');
+      }
+      return newRow;
+    },
+    [dataSource, pkField],
+  );
+
   const handleCellClick = React.useCallback(
     (params: GridCellParams) => {
       // Don't cross-filter from the summary pinned row
@@ -222,7 +260,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       if (
         activeCrossFilter &&
         activeCrossFilter.field === fieldId &&
-        String(activeCrossFilter.value) === String(value)
+        crossFilterValueEquals(activeCrossFilter.value, value)
       ) {
         controller.clearCrossFilter(widget.id);
       } else {
@@ -356,7 +394,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           // Outgoing cross-filter: highlight the row this table is filtering on.
           if (activeCrossFilter) {
             const rowValue = (params.row as Record<string, unknown>)[activeCrossFilter.field];
-            return String(rowValue) === String(activeCrossFilter.value)
+            return crossFilterValueEquals(rowValue, activeCrossFilter.value)
               ? 'StudioGrid-crossFilterMatch'
               : '';
           }
@@ -380,6 +418,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         // positioning to fail and the summary row to disappear.
         experimentalFeatures={{ virtualizerLayoutMode: 'controlled' }}
         onCellClick={handleCellClick}
+        processRowUpdate={isEditable ? processRowUpdate : undefined}
         {...slotProps?.dataGrid}
       />
     </div>

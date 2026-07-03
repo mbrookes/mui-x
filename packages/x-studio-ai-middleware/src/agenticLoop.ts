@@ -162,6 +162,18 @@ export interface AgenticLoopOptions {
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
   /**
+   * How long (ms) to wait for a pending tool approval before giving up.
+   *
+   * When a destructive tool's approval is neither granted nor denied within this
+   * window, the loop stops waiting, feeds the model `{ denied: true, reason:
+   * 'approval timed out' }` so it can recover, and always removes its own
+   * `approvalPending` entry. Prevents an abandoned approval prompt from hanging the
+   * SSE stream and leaking server resources forever.
+   *
+   * @default 120000
+   */
+  approvalTimeoutMs?: number;
+  /**
    * Pre-built data snapshot of the active page's widgets, forwarded from the client
    * where live pipeline rows are available. When present, enables the `summarise_page`
    * tool so the model can produce business-focused data summaries.
@@ -209,6 +221,7 @@ export async function* runAgenticLoop(
     privateMode = false,
     rateLimit,
     approvalPending,
+    approvalTimeoutMs = 120_000,
     pageSnapshot,
     richContext,
     enrichedContext,
@@ -465,9 +478,11 @@ export async function* runAgenticLoop(
 
     for (const [, tc] of toolCallEntries) {
       let toolInput: unknown;
+      let argsParseFailed = false;
       try {
         toolInput = JSON.parse(tc.argsBuffer || '{}');
       } catch {
+        argsParseFailed = true;
         toolInput = {};
       }
 
@@ -478,6 +493,26 @@ export async function* runAgenticLoop(
         phase: 'start',
         input: toolInput,
       };
+
+      // The model streamed tool-call arguments that aren't valid JSON. Executing
+      // the tool with a coerced `{}` would run it with the wrong (empty) args and,
+      // for non-validating destructive tools, report a no-op as success. Instead,
+      // surface the parse failure to the model so it can retry with valid JSON.
+      if (argsParseFailed) {
+        const rawArgs = tc.argsBuffer ?? '';
+        const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
+        const output = JSON.stringify({ error: `invalid tool arguments: ${snippet}` });
+        toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+        yield {
+          type: 'tool-activity',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          phase: 'complete',
+          input: toolInput,
+          output,
+        };
+        continue;
+      }
 
       // Check if this is a server-tool skill
       const matchedSkill = skillHandlers
@@ -594,18 +629,67 @@ export async function* runAgenticLoop(
           input: toolInput,
         };
 
-        // Pause the loop and wait for the client to send an approval response.
-        // eslint-disable-next-line no-await-in-loop -- approval is an intentional blocking pause
-        const { approved, reason } = await new Promise<{ approved: boolean; reason?: string }>(
-          (resolve) => {
-            approvalPending.set(tc.id, (a, r) => resolve({ approved: a, reason: r }));
-          },
-        );
+        // Pause the loop and wait for the client to send an approval response,
+        // but never wait unconditionally: race the approval against the abort
+        // signal and a timeout so an abandoned prompt can't hang the stream and
+        // leak the map entry forever. Always delete the map entry in `finally`.
+        type ApprovalOutcome =
+          | { kind: 'resolved'; approved: boolean; reason?: string }
+          | { kind: 'timeout' }
+          | { kind: 'aborted' };
 
-        if (!approved) {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        let onAbort: (() => void) | undefined;
+        let outcome: ApprovalOutcome;
+        try {
+          // eslint-disable-next-line no-await-in-loop -- approval is an intentional bounded pause
+          outcome = await new Promise<ApprovalOutcome>((resolve) => {
+            approvalPending.set(tc.id, (a, r) =>
+              resolve({ kind: 'resolved', approved: a, reason: r }),
+            );
+            timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), approvalTimeoutMs);
+            if (signal) {
+              if (signal.aborted) {
+                resolve({ kind: 'aborted' });
+              } else {
+                onAbort = () => resolve({ kind: 'aborted' });
+                signal.addEventListener('abort', onAbort, { once: true });
+              }
+            }
+          });
+        } finally {
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+          if (signal && onAbort) {
+            signal.removeEventListener('abort', onAbort);
+          }
+          approvalPending.delete(tc.id);
+        }
+
+        // Abort: end silently, matching how aborts are handled elsewhere in this loop.
+        if (outcome.kind === 'aborted') {
+          return;
+        }
+
+        if (outcome.kind === 'timeout') {
+          output = JSON.stringify({ denied: true, reason: 'approval timed out' });
+          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+          yield {
+            type: 'tool-activity',
+            toolCallId: tc.id,
+            toolName: tc.name,
+            phase: 'complete',
+            input: toolInput,
+            output,
+          };
+          continue;
+        }
+
+        if (!outcome.approved) {
           output = JSON.stringify({
             denied: true,
-            reason: reason ?? 'User denied the operation.',
+            reason: outcome.reason ?? 'User denied the operation.',
           });
           toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
           yield {

@@ -51,6 +51,35 @@ describe('enrichWithCrossSourceColumns', () => {
     expect(result).toBe(orderRows); // same reference
   });
 
+  it('joins across a numeric-vs-string FK/PK type mismatch (shared normalizeJoinKey policy)', () => {
+    // orders.customerId is numeric, customers.id is a string — a realistic type drift.
+    const numericFkOrders = [
+      { id: 'o1', customerId: 1, total: 100 },
+      { id: 'o2', customerId: 2, total: 50 },
+    ];
+    const stringPkCustomers: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+      ],
+      rows: [
+        { id: '1', company: 'Acme' },
+        { id: '2', company: 'Globex' },
+      ],
+    };
+    const result = enrichWithCrossSourceColumns(
+      numericFkOrders,
+      'orders',
+      [{ fieldId: 'company', sourceId: 'customers' }],
+      { customers: stringPkCustomers },
+      relationships,
+    );
+    expect(result[0]).toMatchObject({ id: 'o1', company: 'Acme' });
+    expect(result[1]).toMatchObject({ id: 'o2', company: 'Globex' });
+  });
+
   it('joins a many-to-one related source field onto primary rows', () => {
     const columns = [
       { fieldId: 'id' },

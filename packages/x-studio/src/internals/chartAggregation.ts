@@ -4,8 +4,8 @@ import type {
   StudioFilterState,
   StudioRelationship,
 } from '../models';
-import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { enrichRowsWithRelatedFields } from './dataSourceGraph';
+import { findDirectRelationship } from './dataSourceGraph';
+import { resolveRowsAtGrain } from './grainResolution';
 import { truncateToGranularity, sortLabels, type XGroupBy } from './temporalUtils';
 
 type Row = Record<string, unknown>;
@@ -177,20 +177,6 @@ function hasRowLevelField(
   );
 }
 
-function findDirectRelationship(
-  sourceA: string,
-  sourceB: string,
-  relationships: StudioRelationship[],
-): StudioRelationship | null {
-  return (
-    relationships.find(
-      (relationship) =>
-        (relationship.sourceId === sourceA && relationship.targetId === sourceB) ||
-        (relationship.sourceId === sourceB && relationship.targetId === sourceA),
-    ) ?? null
-  );
-}
-
 function isSafeWidgetBridgeOwner(
   widgetSourceId: string,
   ownerSourceId: string,
@@ -286,24 +272,6 @@ function findDirectFieldOwner(
   }
 
   return null;
-}
-
-function enrichSourceRowsWithExpressions(
-  rows: Row[],
-  sourceId: string,
-  dataSources: Record<string, StudioDataSource>,
-  relationships: StudioRelationship[],
-  expressionFields: StudioExpressionField[],
-  usedFieldIds?: ReadonlySet<string>,
-): Row[] {
-  return getCachedEnrichedRows(
-    rows,
-    sourceId,
-    expressionFields,
-    dataSources,
-    relationships,
-    usedFieldIds,
-  );
 }
 
 export type ChartSupportReason =
@@ -471,7 +439,40 @@ export function analyzeChartSupport(
 //   - anchorRows changes   → inner miss → recompute ✓
 //   - same config, same data → both hit  → O(1) ✓
 //   - unrelated source changes → neither key changes → still hits ✓
-const rcfaCache = new WeakMap<Row[], WeakMap<Row[], Map<string, Row[]>>>();
+//
+// Row references alone are not enough: editing a relationship's join fields or an
+// anchor/widget-source expression formula changes the joined/re-anchored result
+// while every row array ref stays the same. The entry therefore also tracks the
+// `relationships` array ref and the object refs of the expression fields relevant
+// to this call (those owned by the widget/anchor/field-owner sources), and is
+// invalidated when either changes.
+interface RcfaEntry {
+  relationships: StudioRelationship[];
+  exprFields: StudioExpressionField[];
+  result: Row[];
+}
+const rcfaCache = new WeakMap<Row[], WeakMap<Row[], Map<string, RcfaEntry>>>();
+
+/** Non-measure expression fields owned by any of `sourceIds`, in declaration order. */
+function collectRelevantExprFields(
+  expressionFields: StudioExpressionField[],
+  sourceIds: ReadonlySet<string>,
+): StudioExpressionField[] {
+  return expressionFields.filter((ef) => !ef.isMeasure && sourceIds.has(ef.sourceId));
+}
+
+/** Reference-equality comparison of two expression-field lists (same objects, order, length). */
+function exprFieldsRefEqual(a: StudioExpressionField[], b: StudioExpressionField[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export function resolveChartRowsForAggregation(
   widgetRows: Row[],
@@ -528,163 +529,43 @@ export function resolveChartRowsForAggregation(
     byAnchor.set(anchorRows, byKey);
   }
 
-  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}`;
-  if (byKey.has(configKey)) {
-    return byKey.get(configKey)!;
-  }
-
   // Reuse fieldOwners precomputed by analyzeChartSupport — no need to traverse
   // the relationship graph again (O(fields × relationships) saved per call).
   const fieldOwners = support.fieldOwners ?? new Map<string, string>();
 
-  // Determine which requested fields are expression fields on the widget source.
-  const exprFieldIdsOnSource = new Set(
-    expressionFields.flatMap((ef) =>
-      ef.sourceId === anchorSourceId && !ef.isMeasure ? [ef.id] : [],
-    ),
-  );
-  const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
+  // Expression fields whose formula changes must invalidate this joined result:
+  // those owned by the widget source, the anchor source, or any field owner.
+  const relevantExprSourceIds = new Set<string>([widgetSourceId, anchorSourceId]);
+  for (const owner of fieldOwners.values()) {
+    relevantExprSourceIds.add(owner);
+  }
+  const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
 
-  let result: Row[];
-
-  if (anchorSourceId === widgetSourceId) {
-    const related = enrichRowsWithRelatedFields(
-      widgetRows,
-      widgetSourceId,
-      requestedFields,
-      dataSources,
-      relationships,
-    );
-    result = needsExpressionEnrichment
-      ? enrichSourceRowsWithExpressions(
-          related,
-          widgetSourceId,
-          dataSources,
-          relationships,
-          expressionFields,
-          new Set(requestedFields),
-        )
-      : related;
-  } else {
-    const anchorRelationship = findDirectRelationship(
-      widgetSourceId,
-      anchorSourceId,
-      relationships,
-    );
-
-    // ── Many-to-many anchor: anchorSourceId is the junction source ──────────────
-    const manyToManyRel = relationships.find(
-      (rel) =>
-        rel.type === 'many-to-many' &&
-        rel.junctionSourceId === anchorSourceId &&
-        (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
-    );
-
-    if (manyToManyRel && manyToManyRel.junctionSourceField && manyToManyRel.junctionTargetField) {
-      // Determine which junction field links back to widgetSource
-      const junctionWidgetField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.junctionSourceField
-          : manyToManyRel.junctionTargetField;
-      const junctionTargetField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.junctionTargetField
-          : manyToManyRel.junctionSourceField;
-      const widgetJoinField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.sourceField
-          : manyToManyRel.targetField;
-      const remoteSourceId =
-        manyToManyRel.sourceId === widgetSourceId ? manyToManyRel.targetId : manyToManyRel.sourceId;
-      const remoteJoinField =
-        manyToManyRel.sourceId === widgetSourceId
-          ? manyToManyRel.targetField
-          : manyToManyRel.sourceField;
-
-      // Build lookup maps for widget and remote source
-      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
-      const widgetRowLookup = new Map<unknown, Row>();
-      for (const row of widgetRows) {
-        widgetRowLookup.set(row[widgetJoinField], row);
-      }
-      const remoteRowLookup = new Map<unknown, Row>();
-      for (const row of dataSources[remoteSourceId]?.rows ?? []) {
-        remoteRowLookup.set(row[remoteJoinField], row);
-      }
-
-      const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
-      result = junctionRows.flatMap((jRow) => {
-        if (!allowedWidgetKeys.has(jRow[junctionWidgetField])) {
-          return [];
-        }
-        const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
-        const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
-        return [{ ...widgetRow, ...remoteRow, ...jRow }];
-      });
-    } else if (
-      !anchorRelationship ||
-      anchorRelationship.type === 'many-to-many' ||
-      anchorRelationship.sourceId !== anchorSourceId ||
-      anchorRelationship.targetId !== widgetSourceId
-    ) {
-      result = enrichRowsWithRelatedFields(
-        widgetRows,
-        widgetSourceId,
-        requestedFields,
-        dataSources,
-        relationships,
-      );
-    } else {
-      const widgetJoinField = anchorRelationship.targetField;
-      const anchorJoinField = anchorRelationship.sourceField;
-      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
-      // Pass only the fields owned by anchorSourceId so getCachedEnrichedRows
-      // builds a tighter field-set key and skips unrelated widget-source fields.
-      const anchorFieldIds = new Set(
-        requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
-      );
-      const enrichedAnchorRows = enrichSourceRowsWithExpressions(
-        dataSources[anchorSourceId]?.rows ?? [],
-        anchorSourceId,
-        dataSources,
-        relationships,
-        expressionFields,
-        anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
-      ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
-
-      const widgetRowsForLookup = enrichRowsWithRelatedFields(
-        widgetRows,
-        widgetSourceId,
-        requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
-        dataSources,
-        relationships,
-      );
-
-      const widgetRowLookup = new Map<unknown, Row>();
-      for (const row of widgetRowsForLookup) {
-        widgetRowLookup.set(row[widgetJoinField], row);
-      }
-
-      result = enrichedAnchorRows.map((anchorRow) => {
-        const widgetRow = widgetRowLookup.get(anchorRow[anchorJoinField]);
-        if (!widgetRow) {
-          return anchorRow;
-        }
-
-        const extras: Row = {};
-        for (const fieldId of requestedFields) {
-          if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
-            continue;
-          }
-          extras[fieldId] = widgetRow[fieldId];
-        }
-
-        return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;
-      });
-    }
+  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}`;
+  const cached = byKey.get(configKey);
+  if (
+    cached &&
+    cached.relationships === relationships &&
+    exprFieldsRefEqual(cached.exprFields, relevantExprFields)
+  ) {
+    return cached.result;
   }
 
-  byKey.set(configKey, result);
+  // Re-anchor the row set to the fan-out anchor's grain (shared L4 core, see
+  // internals/grainResolution.ts) so a plain per-row aggregation cannot
+  // double-count from a fan-out join.
+  const result = resolveRowsAtGrain(
+    widgetRows,
+    widgetSourceId,
+    anchorSourceId,
+    requestedFields,
+    fieldOwners,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
+
+  byKey.set(configKey, { relationships, exprFields: relevantExprFields, result });
   return result;
 }
 
@@ -713,6 +594,57 @@ function applyCategoryOrder(
   });
   if (sortDirection === 'desc') {
     labels.reverse();
+  }
+}
+
+/** Per-cell streaming accumulator shared by the multi-series aggregators. */
+interface CellAcc {
+  sum: number;
+  count: number;
+  min: number;
+  max: number;
+}
+
+/** Fold `value` into the accumulator stored at `key`, creating it on first sight. */
+function accumulateCell<K>(map: Map<K, CellAcc>, key: K, value: number): void {
+  const acc = map.get(key);
+  if (!acc) {
+    map.set(key, { sum: value, count: 1, min: value, max: value });
+    return;
+  }
+  acc.sum += value;
+  acc.count += 1;
+  if (value < acc.min) {
+    acc.min = value;
+  }
+  if (value > acc.max) {
+    acc.max = value;
+  }
+}
+
+/**
+ * Reduce a per-cell accumulator to a single value according to `aggregation`.
+ * Returns `null` for an empty cell so callers can distinguish "no data" from 0.
+ */
+function finalizeCell(
+  acc: CellAcc | undefined,
+  aggregation: 'sum' | 'count' | 'avg' | 'min' | 'max',
+): number | null {
+  if (!acc || acc.count === 0) {
+    return null;
+  }
+  switch (aggregation) {
+    case 'count':
+      return acc.count;
+    case 'avg':
+      return acc.sum / acc.count;
+    case 'min':
+      return acc.min;
+    case 'max':
+      return acc.max;
+    case 'sum':
+    default:
+      return acc.sum;
   }
 }
 
@@ -823,13 +755,14 @@ export function aggregateByTwoFields(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
+  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
   const seriesValuesSet = new Set<string | number>();
 
-  // Map: xValue -> seriesValue -> sum
-  const dataMap = new Map<string | number, Map<string | number, number>>();
+  // Map: xValue -> seriesValue -> per-cell accumulator (sum/count/min/max).
+  const dataMap = new Map<string | number, Map<string | number, CellAcc>>();
 
   for (const row of rows) {
     if (isEmptyXValue(row[xField])) {
@@ -843,67 +776,49 @@ export function aggregateByTwoFields(
     xValuesSet.add(xVal);
     seriesValuesSet.add(seriesVal);
 
-    if (!dataMap.has(xVal)) {
-      dataMap.set(xVal, new Map());
+    let seriesMap = dataMap.get(xVal);
+    if (!seriesMap) {
+      seriesMap = new Map();
+      dataMap.set(xVal, seriesMap);
     }
-    const seriesMap = dataMap.get(xVal)!;
-    seriesMap.set(seriesVal, (seriesMap.get(seriesVal) ?? 0) + yVal);
+    accumulateCell(seriesMap, seriesVal, yVal);
   }
 
   let labels = sortLabels(Array.from(xValuesSet));
   const seriesNames = sortLabels(Array.from(seriesValuesSet));
 
-  // Build series data arrays — use null (not 0) for missing points so that
-  // line/area charts render visible gaps instead of collapsing to zero.
-  const seriesData: Record<string | number, (number | null)[]> = {};
-  for (const seriesName of seriesNames) {
-    seriesData[seriesName] = labels.map((label) => {
-      const seriesMap = dataMap.get(label);
-      const val = seriesMap?.get(seriesName);
-      return val !== undefined ? val : null;
-    });
-  }
+  // Resolve a single cell to its aggregated value; `null` when the cell has no
+  // data so line/area charts render visible gaps instead of collapsing to zero.
+  const cellValue = (label: string | number, seriesName: string | number): number | null =>
+    finalizeCell(dataMap.get(label)?.get(seriesName), yAggregation);
+
+  const buildSeriesData = (): Record<string | number, (number | null)[]> => {
+    const data: Record<string | number, (number | null)[]> = {};
+    for (const seriesName of seriesNames) {
+      data[seriesName] = labels.map((label) => cellValue(label, seriesName));
+    }
+    return data;
+  };
 
   // Apply sort — for multi-series, 'value' sorts by the total across all series
   if (sortBy === 'value') {
     const dir = sortDirection === 'asc' ? 1 : -1;
-    const totals = labels.map((label, labelIdx) => {
+    const totals = labels.map((label) => {
       let sum = 0;
       for (const seriesName of seriesNames) {
-        sum += seriesData[seriesName][labelIdx] ?? 0;
+        sum += cellValue(label, seriesName) ?? 0;
       }
       return { label, sum };
     });
     totals.sort((a, b) => (a.sum - b.sum) * dir);
     labels = totals.map((t) => t.label);
-    for (const seriesName of seriesNames) {
-      seriesData[seriesName] = labels.map((label) => {
-        const seriesMap = dataMap.get(label);
-        const val = seriesMap?.get(seriesName);
-        return val !== undefined ? val : null;
-      });
-    }
   } else if (categoryOrder && categoryOrder.length > 0) {
     applyCategoryOrder(labels, categoryOrder, sortDirection);
-    for (const seriesName of seriesNames) {
-      seriesData[seriesName] = labels.map((label) => {
-        const seriesMap = dataMap.get(label);
-        const val = seriesMap?.get(seriesName);
-        return val !== undefined ? val : null;
-      });
-    }
   } else if (sortDirection === 'desc') {
     labels = [...labels].reverse();
-    for (const seriesName of seriesNames) {
-      seriesData[seriesName] = labels.map((label) => {
-        const seriesMap = dataMap.get(label);
-        const val = seriesMap?.get(seriesName);
-        return val !== undefined ? val : null;
-      });
-    }
   }
 
-  return { labels, seriesNames, seriesData };
+  return { labels, seriesNames, seriesData: buildSeriesData() };
 }
 
 /**
@@ -922,8 +837,10 @@ export function aggregateMultipleSeries(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
+  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
 ): MultiYSeriesData {
   // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
+  // A non-numeric field is always aggregated as a count regardless of yAggregation.
   const useCount = new Set<string>();
   for (const fieldId of yFields) {
     for (const row of rows) {
@@ -937,10 +854,13 @@ export function aggregateMultipleSeries(
     }
   }
 
+  const fieldAggregation = (fieldId: string): 'sum' | 'count' | 'avg' | 'min' | 'max' =>
+    useCount.has(fieldId) ? 'count' : yAggregation;
+
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
-  // Map: label → fieldId → sum (or count when useCount)
-  const dataMap = new Map<string | number, Map<string, number>>();
+  // Map: label → fieldId → per-cell accumulator (sum/count/min/max).
+  const dataMap = new Map<string | number, Map<string, CellAcc>>();
 
   for (const row of rows) {
     if (isEmptyXValue(row[xField])) {
@@ -955,14 +875,13 @@ export function aggregateMultipleSeries(
     }
     const fieldMap = dataMap.get(xVal)!;
     for (const fieldId of yFields) {
-      if (useCount.has(fieldId)) {
-        fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + 1);
-      } else {
-        const yVal = Number(row[fieldId] ?? 0);
-        fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + yVal);
-      }
+      // For count fields the value is irrelevant — accumulateCell only counts rows.
+      accumulateCell(fieldMap, fieldId, Number(row[fieldId] ?? 0));
     }
   }
+
+  const cellValue = (label: string | number, fieldId: string): number =>
+    finalizeCell(dataMap.get(label)?.get(fieldId), fieldAggregation(fieldId)) ?? 0;
 
   let sortedLabels = sortLabels(labelOrder);
 
@@ -971,7 +890,7 @@ export function aggregateMultipleSeries(
     sortedLabels = sortedLabels
       .map((label) => ({
         label,
-        total: yFields.reduce((sum, fId) => sum + (dataMap.get(label)?.get(fId) ?? 0), 0),
+        total: yFields.reduce((sum, fId) => sum + cellValue(label, fId), 0),
       }))
       .sort((a, b) => (a.total - b.total) * dir)
       .map((p) => p.label);
@@ -983,7 +902,7 @@ export function aggregateMultipleSeries(
 
   const series = yFields.map((fieldId) => ({
     fieldId,
-    values: sortedLabels.map((label) => dataMap.get(label)?.get(fieldId) ?? 0),
+    values: sortedLabels.map((label) => cellValue(label, fieldId)),
   }));
 
   return { labels: sortedLabels, series };

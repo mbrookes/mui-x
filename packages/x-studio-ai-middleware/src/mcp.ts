@@ -53,18 +53,16 @@ import {
   CompleteRequestSchema,
   type ToolAnnotations,
 } from '@modelcontextprotocol/sdk/types.js';
+import { detectAnomaliesIQR, mutationLabel } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
 import { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 import { renderChartSvg } from './chartRenderer';
 import type { ChartRendererInput } from './chartRenderer';
 import { buildPageLayoutContext } from './buildPageLayoutContext';
+// Shared pure helpers — previously hand-duplicated in this file.
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
-import type {
-  StateMutation,
-  StudioAIRecentMutation,
-  StudioAIEnrichedContext,
-} from './models/aiTypes';
+import type { StudioAIRecentMutation, StudioAIEnrichedContext } from './models/aiTypes';
 import type { StudioAIContextEnricher } from './handleAIChat';
 
 export type { StudioState };
@@ -329,8 +327,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
-// ── Anomaly detection helpers (inlined — mcp.ts cannot import from @mui/x-studio) ─
-// Canonical implementations: anomalyDetection.ts + temporalUtils.ts in @mui/x-studio.
+// ── Temporal helper (inlined — the pure `truncateToGranularity`/`normalizeToDate`
+// live in @mui/x-studio's temporalUtils.ts, which also pulls in unrelated
+// pipeline code, so only this small period-truncation helper is kept local).
+// The IQR anomaly detection is now imported from @mui/x-studio-schema.
 
 const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
 
@@ -343,13 +343,23 @@ function mcpIsoWeek(d: Date): { year: number; week: number } {
   return { year: tmp.getUTCFullYear(), week };
 }
 
-/** Truncate an ISO-date-string value to a period-key. Mirror of truncateToGranularity(). */
+/**
+ * Truncate a date-like value to a period-key. Mirror of truncateToGranularity().
+ *
+ * Includes the same fallback as `@mui/x-studio`'s `normalizeToDate`: numeric
+ * (millisecond) timestamps — as produced by some DB drivers — are converted via
+ * `Date`, so `summarise_page` does not silently drop every period bucket when a
+ * date column arrives as a number instead of an ISO string.
+ */
 function mcpTruncateToPeriod(value: unknown, granularity: string): string | null {
   let raw: string | null;
   if (typeof value === 'string') {
     raw = value;
   } else if (value instanceof Date) {
-    raw = value.toISOString();
+    raw = Number.isNaN(value.getTime()) ? null : value.toISOString();
+  } else if (typeof value === 'number') {
+    const d = new Date(value);
+    raw = Number.isNaN(d.getTime()) ? null : d.toISOString();
   } else {
     raw = null;
   }
@@ -378,33 +388,6 @@ function mcpTruncateToPeriod(value: unknown, granularity: string): string | null
     default:
       return null;
   }
-}
-
-/** Tukey IQR outlier detection. Mirror of detectAnomaliesIQR() in anomalyDetection.ts. */
-function mcpMedian(sorted: number[]): number {
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-function mcpDetectAnomaliesIQR(values: number[]): Set<number> {
-  if (values.length < 4) {
-    return new Set();
-  }
-  const sorted = values.toSorted((a, b) => a - b);
-  const q1 = mcpMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
-  const q3 = mcpMedian(sorted.slice(Math.ceil(sorted.length / 2)));
-  const iqr = q3 - q1;
-  if (iqr === 0) {
-    return new Set();
-  }
-  const lower = q1 - 1.5 * iqr;
-  const upper = q3 + 1.5 * iqr;
-  const result = new Set<number>();
-  for (let i = 0; i < values.length; i += 1) {
-    if (values[i] < lower || values[i] > upper) {
-      result.add(i);
-    }
-  }
-  return result;
 }
 
 /** JSON Schema for the `query_data_source` tool input. */
@@ -530,40 +513,6 @@ const QUERY_DATA_SOURCE_SCHEMA = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Derives a compact, semantic label for a state mutation, mirroring the labels
- * recorded by the client-side `StudioController` ring buffer. Surfaced via the
- * `get_recent_changes` tool so MCP clients can see what changed recently.
- */
-function mcpMutationLabel(m: StateMutation): string {
-  switch (m.type) {
-    case 'addPage':
-      return `addPage:${m.args.id}`;
-    case 'addWidget':
-      return `addWidget:${m.args.widget.kind}:${m.args.widget.id}`;
-    case 'updateWidget':
-      return `updateWidget:${m.args.widgetId}`;
-    case 'removeWidget':
-      return `removeWidget:${m.args.widgetId}`;
-    case 'setWidgetLayout':
-      return 'setWidgetLayout';
-    case 'setWidgetColSpan':
-      return `setWidgetColSpan:${m.args.widgetId}`;
-    case 'renamePage':
-      return `renamePage:${m.args.pageId}`;
-    case 'removePage':
-      return `removePage:${m.args.pageId}`;
-    case 'setActivePage':
-      return `setActivePage:${m.args.pageId}`;
-    case 'addFilter':
-      return `addFilter:${m.args.filter.field}`;
-    case 'removeFilter':
-      return `removeFilter:${m.args.filterId}`;
-    default:
-      return m.type;
-  }
-}
 
 /** Human-readable display titles for MCP tools (shown in Claude Desktop's permission editor). */
 const TOOL_TITLES: Record<string, string> = {
@@ -961,7 +910,10 @@ export function buildStudioMcpServer(
 
     let threw = false;
     try {
-      // ── get_dashboard_state — returns full state JSON for MCP context ────
+      // ── get_dashboard_state — returns the raw StudioState ───────────────
+      // Canonical output contract shared with the chat path (see
+      // executeToolOnState.ts `get_dashboard_state`): both transports return the
+      // raw `StudioState` so the tool means the same thing on both surfaces.
       if (toolName === 'get_dashboard_state') {
         return {
           content: [
@@ -1123,7 +1075,7 @@ export function buildStudioMcpServer(
                     }
                     tsLabels = [...grouped.keys()].sort();
                     tsValues = tsLabels.map((l) => grouped.get(l)!);
-                    const outlierIndices = mcpDetectAnomaliesIQR(tsValues);
+                    const outlierIndices = detectAnomaliesIQR(tsValues);
                     // Trim first and last period (partial periods cause false-positive low outliers).
                     const lastIdx = tsValues.length - 1;
                     const anomalyLabels = [...outlierIndices]
@@ -1607,7 +1559,7 @@ export function buildStudioMcpServer(
         if (result.mutation) {
           // Record the change in the session-scoped log surfaced by get_recent_changes.
           recentChanges.push({
-            label: mcpMutationLabel(result.mutation),
+            label: mutationLabel(result.mutation),
             at: new Date().toISOString(),
           });
           if (recentChanges.length > MAX_RECENT_CHANGES) {

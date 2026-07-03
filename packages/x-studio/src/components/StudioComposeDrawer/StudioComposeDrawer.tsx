@@ -2,25 +2,13 @@
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
-import {
-  useStudioSelector,
-  selectWidgets,
-  selectShell,
-  useCustomWidgetMap,
-  useStudioLocaleText,
-} from '../../context';
+import { useStudioSelector, selectWidgets, selectShell, useStudioLocaleText } from '../../context';
 import { StudioUIConfigContext } from '../../internals/StudioUIConfigContext';
+import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { AddWidgetView } from './AddWidgetView';
-import { ChartSetupPanel } from './ChartSetupPanel';
 import { FieldDetailView } from './FieldDetailView';
-import { FilterSetupPanel } from './FilterSetupPanel';
 import { FormatPanel } from './FormatPanel';
-import { GridSetupPanel } from './GridSetupPanel';
-import { KpiSetupPanel } from './KpiSetupPanel';
-import { MapSetupPanel } from './MapSetupPanel';
-import { PivotSetupPanel } from './PivotSetupPanel';
 import { TextFormatPanel } from './TextFormatPanel';
-import { TextSetupPanel } from './TextSetupPanel';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,8 +35,8 @@ function WidgetConfigView(props: { widgetId: string }) {
   const [tab, setTab] = React.useState(0);
   const localeText = useStudioLocaleText();
   const widget = useStudioSelector(selectWidgets)[widgetId];
-  const customWidgetMap = useCustomWidgetMap();
-  const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
+  const widgetDefMap = useWidgetDefMap();
+  const def = widget ? widgetDefMap.get(widget.kind) : undefined;
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),
@@ -80,14 +68,7 @@ function WidgetConfigView(props: { widgetId: string }) {
   return (
     <div>
       <TabPanel value={tab} index={0}>
-        {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'pivot' && <PivotSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
-        {customDef?.setupPanel && <customDef.setupPanel widgetId={widgetId} />}
+        {def?.setupPanel && <def.setupPanel widgetId={widgetId} />}
       </TabPanel>
       <TabPanel value={tab} index={1}>
         {widget.kind === 'text' ? (

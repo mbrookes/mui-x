@@ -9,7 +9,20 @@
  *
  * This class accepts any object that conforms to the minimal `RedisClient`
  * interface below — it is compatible with both `ioredis` and `node-redis` (v4+)
- * without requiring either as a peer dependency.
+ * without requiring either as a peer dependency. The two clients disagree on
+ * two things this provider cares about, so the constructor detects which one
+ * it was handed (or honors an explicit `clientStyle` option) and adapts:
+ *
+ *   - `SET key value EX seconds` — ioredis takes positional args
+ *     (`set(key, value, 'EX', seconds)`); node-redis v4 takes an options object
+ *     (`set(key, value, { EX: seconds })`). Calling the wrong shape against a
+ *     real client either throws or silently sets a value with no TTL.
+ *   - Set commands — ioredis exposes lowercase `sadd`/`smembers`/`srem`;
+ *     node-redis v4 exposes camelCase `sAdd`/`sMembers`/`sRem`. Checking only
+ *     the lowercase names (as earlier versions of this file did) means those
+ *     checks are `undefined` on a real node-redis v4 client, so tag indexing
+ *     and `deleteByTag` silently became no-ops — invalidation never happened
+ *     and nothing told you.
  *
  * ### ioredis
  * ```ts
@@ -40,13 +53,21 @@
  *   - `__tag__:<tag>`  — forward index: maps tag → set of data keys
  *   - `__ktag__:<key>` — reverse index: maps data key → set of tags it belongs to
  *
- * `deleteByTag(tag)` evicts all matching entries in one round-trip.
- * `invalidatePrefix(prefix)` uses the reverse index to remove stale tag entries
- * for every key it deletes, keeping the forward index clean.
+ * Both index sets are given an expiry (refreshed on every write that touches
+ * them, sized to the data key's own TTL) so that they don't outlive the data
+ * keys they describe and grow Redis memory unboundedly.
  *
- * Requires `sadd`, `smembers`, and `srem` on the Redis client (all three are
- * included in ioredis and node-redis v4+). If the client does not implement
- * them, both operations degrade gracefully (no tag cleanup, but no crash).
+ * `deleteByTag(tag)` evicts all matching data keys, deletes each one's reverse
+ * index (`__ktag__:<key>`) outright (it's meaningless once the data key is
+ * gone), and deletes the forward index itself.
+ * `invalidatePrefix(prefix)` uses the reverse index to remove stale tag entries
+ * for every key it deletes, keeping the forward index clean, and scans for
+ * matching keys via `SCAN` (never the blocking `KEYS` command).
+ *
+ * Requires `sAdd`/`sadd`, `sMembers`/`smembers`, and `sRem`/`srem` on the Redis
+ * client (all are included in ioredis and node-redis v4+). If the client
+ * implements neither naming convention, tag-based invalidation is unavailable;
+ * this is logged once via `console.warn` rather than silently doing nothing.
  *
  * ## Key format
  *
@@ -58,17 +79,40 @@
 
 import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
 
+/**
+ * Minimal structural interface compatible with both `ioredis` and `node-redis`
+ * v4+. `set`/`sAdd`/`sadd`/etc. are typed loosely (rest args / `unknown`)
+ * because the two client families disagree on exact call shapes — this
+ * provider normalizes over that disagreement at runtime instead of in types.
+ */
 export interface RedisClient {
   get(key: string): Promise<string | null>;
-  set(key: string, value: string, exMode: 'EX', ttlSeconds: number): Promise<unknown>;
-  keys(pattern: string): Promise<string[]>;
+  /**
+   * Accepts either the ioredis positional form (`set(key, value, 'EX', seconds)`)
+   * or the node-redis v4 options-object form (`set(key, value, { EX: seconds })`).
+   */
+  set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<unknown>;
-  /** Optional — required for tag-based invalidation (ioredis + node-redis v4+ include this). */
+  expire?(key: string, seconds: number): Promise<unknown>;
+  /** Legacy O(N) key listing — only used as a last-resort fallback when `scan` is unavailable. */
+  keys?(pattern: string): Promise<string[]>;
+  /** Cursor-based key iteration. Preferred over `keys()` in production. */
+  scan?(
+    cursor: string,
+    ...args: unknown[]
+  ): Promise<[string, string[]] | { cursor: string | number; keys: string[] }>;
+  /** ioredis-style SADD. */
   sadd?(key: string, ...members: string[]): Promise<unknown>;
-  /** Optional — required for tag-based invalidation. */
+  /** node-redis v4-style SADD. */
+  sAdd?(key: string, members: string | string[]): Promise<unknown>;
+  /** ioredis-style SMEMBERS. */
   smembers?(key: string): Promise<string[]>;
-  /** Optional — required for tag cleanup in invalidatePrefix when tags are in use. */
+  /** node-redis v4-style SMEMBERS. */
+  sMembers?(key: string): Promise<string[]>;
+  /** ioredis-style SREM. */
   srem?(key: string, ...members: string[]): Promise<unknown>;
+  /** node-redis v4-style SREM. */
+  sRem?(key: string, members: string | string[]): Promise<unknown>;
 }
 
 export interface RedisCacheProviderOptions {
@@ -83,17 +127,47 @@ export interface RedisCacheProviderOptions {
    * @example 'studio:prod:'
    */
   keyPrefix?: string;
+  /**
+   * Force a specific client wire convention instead of auto-detecting it from
+   * the shape of the injected client. Auto-detection checks for the presence
+   * of camelCase `sAdd` (node-redis v4) vs lowercase `sadd` (ioredis).
+   */
+  clientStyle?: 'ioredis' | 'node-redis';
+  /** Number of keys requested per SCAN iteration. @default 1000 */
+  scanCount?: number;
+}
+
+/**
+ * Detects which client naming convention `redis` implements.
+ * Exported so `RedisTierCacheProvider` (which shares the same `RedisClient`
+ * duck-typed interface) can reuse the same detection instead of duplicating it.
+ */
+export function detectClientStyle(redis: RedisClient): 'ioredis' | 'node-redis' {
+  if (typeof redis.sAdd === 'function') {
+    return 'node-redis';
+  }
+  return 'ioredis';
 }
 
 export class RedisCacheProvider implements CacheProvider {
   private readonly redis: RedisClient;
+
   private readonly defaultTtl: number;
+
   private readonly prefix: string;
+
+  private readonly clientStyle: 'ioredis' | 'node-redis';
+
+  private readonly scanCount: number;
+
+  private warnedTagsUnavailable = false;
 
   constructor(redis: RedisClient, options: RedisCacheProviderOptions = {}) {
     this.redis = redis;
     this.defaultTtl = options.defaultTtlSeconds ?? 60;
     this.prefix = options.keyPrefix ?? '';
+    this.clientStyle = options.clientStyle ?? detectClientStyle(redis);
+    this.scanCount = options.scanCount ?? 1000;
   }
 
   async get(key: string): Promise<CacheEntry | undefined> {
@@ -111,35 +185,41 @@ export class RedisCacheProvider implements CacheProvider {
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
     const ttlSeconds = opts?.ttlMs !== undefined ? Math.ceil(opts.ttlMs / 1000) : this.defaultTtl;
     const prefixedKey = this.prefix + key;
-    await this.redis.set(prefixedKey, JSON.stringify(value), 'EX', ttlSeconds);
+    await this.redisSetEx(prefixedKey, JSON.stringify(value), Math.max(1, ttlSeconds));
 
     // Maintain forward (tag→keys) and reverse (key→tags) indexes for clean invalidation.
     const tags = opts?.tags;
-    if (tags && tags.length > 0 && this.redis.sadd) {
-      for (const tag of tags) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.redis.sadd(this.tagKey(tag), prefixedKey);
+    if (tags && tags.length > 0) {
+      const supported = await this.sAdd(this.keyTagsKey(prefixedKey), tags);
+      if (supported) {
+        for (const tag of tags) {
+          // eslint-disable-next-line no-await-in-loop
+          await this.sAdd(this.tagKey(tag), [prefixedKey]);
+          // eslint-disable-next-line no-await-in-loop
+          await this.expire(this.tagKey(tag), Math.max(1, ttlSeconds));
+        }
+        // Reverse index TTL mirrors the data key's own TTL — it's meaningless
+        // once the data key it describes has expired.
+        await this.expire(this.keyTagsKey(prefixedKey), Math.max(1, ttlSeconds));
       }
-      // Reverse index: lets invalidatePrefix remove stale forward-index entries
-      await this.redis.sadd(this.keyTagsKey(prefixedKey), ...tags);
     }
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
     const pattern = `${this.prefix}${prefix}*`;
-    const keys = await this.redis.keys(pattern);
+    const keys = await this.scanKeys(pattern);
     if (keys.length === 0) {
       return;
     }
     // Clean up tag indexes when supported, so forward index stays accurate.
-    if (this.redis.smembers && this.redis.srem) {
+    if (await this.tagOpsSupported()) {
       for (const key of keys) {
         const keyTagsKey = this.keyTagsKey(key);
         // eslint-disable-next-line no-await-in-loop
-        const tags = await this.redis.smembers(keyTagsKey);
+        const tags = await this.sMembers(keyTagsKey);
         for (const tag of tags) {
           // eslint-disable-next-line no-await-in-loop
-          await this.redis.srem(this.tagKey(tag), key);
+          await this.sRem(this.tagKey(tag), [key]);
         }
       }
       await this.redis.del(...keys, ...keys.map((k) => this.keyTagsKey(k)));
@@ -149,21 +229,21 @@ export class RedisCacheProvider implements CacheProvider {
   }
 
   async deleteByTag(tag: string): Promise<void> {
-    // Graceful no-op when the Redis client doesn't support SET operations.
-    if (!this.redis.smembers) {
+    if (!(await this.tagOpsSupported())) {
+      // Loudly note that tag-based invalidation cannot run, instead of a
+      // silent no-op — the caller thinks the cache was invalidated.
+      this.warnTagsUnavailable();
       return;
     }
     const tagKey = this.tagKey(tag);
-    const keys = await this.redis.smembers(tagKey);
-    // Clean up the reverse index for each deleted key.
-    if (keys.length > 0 && this.redis.srem) {
-      for (const key of keys) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.redis.srem(this.keyTagsKey(key), tag);
-      }
+    const keys = await this.sMembers(tagKey);
+    if (keys.length === 0) {
+      return;
     }
-    // Delete all tagged data keys plus the forward-index set itself.
-    await this.redis.del(...keys, tagKey);
+    // Delete every tagged data key, its now-meaningless reverse-index entry,
+    // and the forward-index set itself, in one round-trip.
+    const ktagKeys = keys.map((key) => this.keyTagsKey(key));
+    await this.redis.del(...keys, ...ktagKeys, tagKey);
   }
 
   /** Redis key for the forward tag→keys index. */
@@ -174,5 +254,114 @@ export class RedisCacheProvider implements CacheProvider {
   /** Redis key for the reverse key→tags index. */
   private keyTagsKey(key: string): string {
     return `__ktag__:${key}`;
+  }
+
+  /** `SET key value EX seconds`, adapted to the detected client convention. */
+  private async redisSetEx(key: string, value: string, ttlSeconds: number): Promise<void> {
+    if (this.clientStyle === 'node-redis') {
+      await this.redis.set(key, value, { EX: ttlSeconds });
+    } else {
+      await this.redis.set(key, value, 'EX', ttlSeconds);
+    }
+  }
+
+  /** Whether this client exposes set operations under either naming convention. */
+  private async tagOpsSupported(): Promise<boolean> {
+    return Boolean(
+      (typeof this.redis.sAdd === 'function' || typeof this.redis.sadd === 'function') &&
+      (typeof this.redis.sMembers === 'function' || typeof this.redis.smembers === 'function'),
+    );
+  }
+
+  /** Normalized SADD — returns false (and does nothing) if unsupported. */
+  private async sAdd(key: string, members: string[]): Promise<boolean> {
+    if (typeof this.redis.sAdd === 'function') {
+      await this.redis.sAdd(key, members);
+      return true;
+    }
+    if (typeof this.redis.sadd === 'function') {
+      await this.redis.sadd(key, ...members);
+      return true;
+    }
+    this.warnTagsUnavailable();
+    return false;
+  }
+
+  /** Normalized SMEMBERS — returns `[]` if unsupported. */
+  private async sMembers(key: string): Promise<string[]> {
+    if (typeof this.redis.sMembers === 'function') {
+      return this.redis.sMembers(key);
+    }
+    if (typeof this.redis.smembers === 'function') {
+      return this.redis.smembers(key);
+    }
+    this.warnTagsUnavailable();
+    return [];
+  }
+
+  /** Normalized SREM — no-op if unsupported. */
+  private async sRem(key: string, members: string[]): Promise<void> {
+    if (typeof this.redis.sRem === 'function') {
+      await this.redis.sRem(key, members);
+    } else if (typeof this.redis.srem === 'function') {
+      await this.redis.srem(key, ...members);
+    } else {
+      this.warnTagsUnavailable();
+    }
+  }
+
+  /** Refresh a key's expiry; no-op if the client doesn't implement EXPIRE. */
+  private async expire(key: string, seconds: number): Promise<void> {
+    if (typeof this.redis.expire === 'function') {
+      await this.redis.expire(key, seconds);
+    }
+  }
+
+  private warnTagsUnavailable(): void {
+    if (this.warnedTagsUnavailable) {
+      return;
+    }
+    this.warnedTagsUnavailable = true;
+    console.warn(
+      'MUI X Studio Server: the Redis client passed to RedisCacheProvider implements neither ' +
+        'sAdd/sMembers/sRem (node-redis v4+) nor sadd/smembers/srem (ioredis). ' +
+        'Tag-based cache invalidation (deleteByTag) cannot run and is being skipped — ' +
+        'stale cached rows may be served after a mutation. Provide a client that implements ' +
+        'one of these method sets to enable table-level cache invalidation.',
+    );
+  }
+
+  /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    if (typeof this.redis.scan !== 'function') {
+      // Fallback for minimal clients that only implement KEYS.
+      if (typeof this.redis.keys === 'function') {
+        return this.redis.keys(pattern);
+      }
+      return [];
+    }
+
+    const results: string[] = [];
+    let cursor = '0';
+    // SCAN cursor iteration is inherently sequential — each call's cursor
+    // depends on the previous call's reply, so this cannot be parallelized.
+    do {
+      let reply: [string, string[]] | { cursor: string | number; keys: string[] };
+      if (this.clientStyle === 'node-redis') {
+        // eslint-disable-next-line no-await-in-loop
+        reply = await this.redis.scan(cursor, { MATCH: pattern, COUNT: this.scanCount });
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', this.scanCount);
+      }
+      if (Array.isArray(reply)) {
+        [cursor] = reply;
+        results.push(...reply[1]);
+      } else {
+        cursor = String(reply.cursor);
+        results.push(...reply.keys);
+      }
+    } while (cursor !== '0');
+    return results;
   }
 }

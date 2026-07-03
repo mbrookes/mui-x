@@ -16,6 +16,10 @@ import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
 import { RedisTierCacheProvider } from '../cache/RedisTierCacheProvider';
 
+// The handler computes cache keys via generateCacheKey(), which now fails closed
+// when no HMAC secret is configured. Provide one for the whole test file.
+process.env.JWT_SECRET ??= 'handler-test-hmac-secret';
+
 // ─── Test data ────────────────────────────────────────────────────────────────
 
 const SALES_ROWS = [
@@ -173,6 +177,74 @@ describe('extractSecurityClaims', () => {
     const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
     expect(claims.regionIds).toEqual([1, 2]);
     expect(claims.department).toBe('Sales');
+  });
+
+  it('throws (fail-closed) when the effective secret is empty', () => {
+    const token = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET);
+    expect(() => extractSecurityClaims(`Bearer ${token}`, '')).toThrow(
+      /JWT_SECRET is not configured/,
+    );
+  });
+
+  it('returns a clean auth error (not a RangeError) for a truncated signature', () => {
+    // A signature of the wrong length would make timingSafeEqual throw RangeError
+    // without the length pre-check. It must surface as a signature failure.
+    expect(() => extractSecurityClaims('Bearer aaaa.bbbb.cc', SECRET)).toThrow(
+      /signature verification failed/,
+    );
+  });
+});
+
+// ─── handleBatchQuery — fail-closed column allowlist ──────────────────────────
+
+describe('handleBatchQuery — column allowlist is fail-closed', () => {
+  it('rejects a referenced table that has no entry in the column allowlist', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }],
+    };
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        columnAllowlist: { orders: ['id'] }, // no 'sales' entry
+      }),
+    ).rejects.toThrow(/Table "sales" has no entry in the column allowlist/);
+  });
+
+  it('supports an explicit "*" wildcard to opt a table out of column checks', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region', 'amount'] }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist: { sales: ['*'] },
+    });
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  it('validates both sides of every join.on pair against the allowlist', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        },
+      ],
+    };
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        // 'sales' present, but no 'customers' entry → join.on right side is rejected.
+        columnAllowlist: { sales: ['region', 'customer_id'] },
+      }),
+    ).rejects.toThrow(/Table "customers" has no entry in the column allowlist \(join.on\)/);
   });
 });
 
@@ -397,7 +469,59 @@ describe('handleBatchQuery — cache', () => {
     const result2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
 
     expect(result2.results[0].rows).toEqual(result1.results[0].rows);
-    expect(result2.results[0].tier).toBe('server');
+    // The cache hit echoes the ORIGINATING tier. These few rows route to the
+    // 'client' tier, so the second (cached) response must also report 'client'
+    // — not a hardcoded 'server'.
+    expect(result1.results[0].tier).toBe('client');
+    expect(result2.results[0].tier).toBe('client');
+  });
+
+  it('a cache hit echoes the tier that produced the cached rows (not a hardcoded server)', async () => {
+    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache };
+
+    const first = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    const second = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    expect(second.results[0].tier).toBe(first.results[0].tier);
+  });
+
+  it('tags cached joined results with every joined table so a join mutation invalidates them', async () => {
+    // Capture the tags used at set() time.
+    const setTags: string[][] = [];
+    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    const originalSet = cache.set.bind(cache);
+    cache.set = async (key, value, setOpts) => {
+      setTags.push(setOpts?.tags ?? []);
+      return originalSet(key, value, setOpts);
+    };
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.leftJoin = () => qb;
+      qb.join = () => qb;
+      return qb;
+    };
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        },
+      ],
+    };
+    await handleBatchQuery(body, ACME_CLAIMS, {
+      db: joinCapableDb,
+      schemaAllowlist: ['sales', 'customers'],
+      cacheProvider: cache,
+    });
+    expect(setTags[0]).toEqual(['sales', 'customers']);
   });
 
   it('different tenants do not share cache entries', async () => {
@@ -1037,46 +1161,46 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     const mixedDb = (table: string) => {
       if (table === 'broken') {
         const stub: ReturnType<typeof goodDb> = {
-          where () {
+          where() {
             return this;
           },
-          whereIn () {
+          whereIn() {
             return this;
           },
-          whereLike () {
+          whereLike() {
             return this;
           },
-          whereBetween () {
+          whereBetween() {
             return this;
           },
-          havingRaw () {
+          havingRaw() {
             return this;
           },
-          count () {
+          count() {
             return this;
           },
-          select () {
+          select() {
             return this;
           },
-          orderBy () {
+          orderBy() {
             return this;
           },
-          limit () {
+          limit() {
             return this;
           },
-          sum () {
+          sum() {
             return this;
           },
-          avg () {
+          avg() {
             return this;
           },
-          min () {
+          min() {
             return this;
           },
-          max () {
+          max() {
             return this;
           },
-          groupBy () {
+          groupBy() {
             return this;
           },
           async first() {

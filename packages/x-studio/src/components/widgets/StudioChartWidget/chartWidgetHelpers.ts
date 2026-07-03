@@ -49,8 +49,12 @@ export function makeCrossHighlightLineFormatter(
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const baseline = baselineValues[dataIndex] ?? null;
-    if (value == null) {return `${baseFormatter(baseline)} (filtered out)`;}
-    if (value === baseline || baseline == null) {return baseFormatter(value);}
+    if (value == null) {
+      return `${baseFormatter(baseline)} (filtered out)`;
+    }
+    if (value === baseline || baseline == null) {
+      return baseFormatter(value);
+    }
     return `${baseFormatter(value)} / ${baseFormatter(baseline)}`;
   };
 }
@@ -89,23 +93,75 @@ export function createLineXAxisConfig(
   ];
 }
 
+export interface MakeValueFormatterOptions {
+  /**
+   * Whether to use `Intl` compact notation (e.g. "40K") for large numbers.
+   * Defaults to `true` to preserve the historical behavior of this function's
+   * chart call sites (axis/tooltip labels favor compact notation).
+   */
+  compact?: boolean;
+  /**
+   * What to return when there is no explicit `format`/`precision` config:
+   * - `'string'` (default): a formatter that falls back to `String(value)` — most
+   *   chart call sites always need *a* formatter to pass to MUI Charts.
+   * - `'undefined'`: return `undefined` so the caller can omit `valueFormatter`
+   *   entirely and let MUI Charts apply its own default number formatting.
+   */
+  noFormatFallback?: 'string' | 'undefined';
+}
+
+/**
+ * Builds a `valueFormatter` for a chart series/axis from a field's number-format
+ * config. This is the single shared implementation — do not re-declare a private
+ * copy elsewhere (see `lineSeries.ts`, which previously had a byte-for-byte
+ * divergent copy that returned `undefined` instead of falling back to `String`).
+ *
+ * Overloaded so the common 3-argument call (used throughout `StudioChartWidget.tsx`)
+ * keeps its historical "always returns a formatter" type, while callers that
+ * explicitly opt into `noFormatFallback: 'undefined'` (e.g. `lineSeries.ts`) get an
+ * accurately optional return type.
+ */
 export function makeValueFormatter(
   format?: StudioNumberFormat,
   currencyCode?: string,
   precision?: number,
-) {
+): (value: number | null) => string;
+export function makeValueFormatter(
+  format: StudioNumberFormat | undefined,
+  currencyCode: string | undefined,
+  precision: number | undefined,
+  options: MakeValueFormatterOptions & { noFormatFallback: 'undefined' },
+): ((value: number | null) => string) | undefined;
+export function makeValueFormatter(
+  format: StudioNumberFormat | undefined,
+  currencyCode: string | undefined,
+  precision: number | undefined,
+  options: MakeValueFormatterOptions & { noFormatFallback?: 'string' },
+): (value: number | null) => string;
+export function makeValueFormatter(
+  format?: StudioNumberFormat,
+  currencyCode?: string,
+  precision?: number,
+  options?: MakeValueFormatterOptions,
+): ((value: number | null) => string) | undefined {
+  const compact = options?.compact ?? true;
+
+  if (!format && precision == null) {
+    if (options?.noFormatFallback === 'undefined') {
+      return undefined;
+    }
+    return (value: number | null) => (value === null ? '' : String(value));
+  }
+
   return (value: number | null) => {
     if (value === null) {
       return '';
     }
-    if (!format && precision == null) {
-      return String(value);
-    }
-    return formatNumber(value, format, currencyCode, true, precision);
+    return formatNumber(value, format, currencyCode, compact, precision);
   };
 }
 
-export function normalizeCrossFilterValue(value: string | number | Date | undefined) {
+export function normalizeCrossFilterValue(value: unknown): string | null {
   if (value instanceof Date) {
     return value.toISOString();
   }
@@ -115,4 +171,18 @@ export function normalizeCrossFilterValue(value: string | number | Date | undefi
   }
 
   return String(value);
+}
+
+/**
+ * Consistent cross-filter value-equality check, used to decide whether clicking
+ * a chart/grid/map data point should toggle (clear) the currently-applied
+ * cross-filter or apply a new one.
+ *
+ * Normalizes both sides via `normalizeCrossFilterValue` before comparing so that
+ * number/string/date/null/undefined values compare correctly regardless of
+ * runtime type — unlike loose `==` (where `'' == 0` and `null == undefined` are
+ * both `true`) or `String(a) === String(b)` (where `String('') !== String(0)`).
+ */
+export function crossFilterValueEquals(a: unknown, b: unknown): boolean {
+  return normalizeCrossFilterValue(a) === normalizeCrossFilterValue(b);
 }

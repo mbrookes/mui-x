@@ -21,10 +21,19 @@ export type {
   BatchWidgetDescriptor,
   WidgetQueryResult,
   FilterPredicate,
+  HavingPredicate,
   OrderBy,
   AggregationSpec,
   JoinDescriptor,
+  SecurityColumns,
+  SecurityColumnsConfig,
   HandleBatchQueryOptions,
+  // Mutation types
+  MutationDescriptor,
+  MutationResult,
+  BatchMutationRequest,
+  BatchMutationResponse,
+  HandleMutationOptions,
 } from './security/types';
 
 // ─── Security utilities ────────────────────────────────────────────────────────
@@ -40,5 +49,6 @@ export type { RedisClient, RedisCacheProviderOptions } from './cache/RedisCacheP
 export { RedisTierCacheProvider } from './cache/RedisTierCacheProvider';
 export type { RedisTierCacheProviderOptions } from './cache/RedisTierCacheProvider';
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+// ─── Main handlers ────────────────────────────────────────────────────────────
 export { handleBatchQuery } from './handler';
+export { handleMutation } from './mutations/handleMutation';

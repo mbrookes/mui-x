@@ -26,10 +26,11 @@ import knexLib from 'knex';
 import {
   extractSecurityClaims,
   handleBatchQuery,
+  handleMutation,
   LRUCacheProvider,
   MapTierCacheProvider,
 } from '@mui/x-studio-data-middleware';
-import type { BatchQueryRequest } from '@mui/x-studio-data-middleware';
+import type { BatchQueryRequest, BatchMutationRequest } from '@mui/x-studio-data-middleware';
 import { handlePageSummary, handleAIChat } from '@mui/x-studio-ai-middleware';
 import type { PageSummaryRequest, StudioAIRequest } from '@mui/x-studio-ai-middleware';
 import { seedDatabase } from './seedDatabase.js';
@@ -197,6 +198,40 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal server error';
       error(`← 500 /api/ai/summary ${message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
+  // ── POST /api/mutations — write-back mutations (INSERT/UPDATE/DELETE) ─────────
+  // Uses the same schemaAllowlist and tenant isolation as /api/sales-data.
+  // The handler calls dataCache.deleteByTag(table) after each successful mutation
+  // so the next widget batch fetches fresh rows automatically.
+  if (req.url === '/api/mutations') {
+    log(`→ POST /api/mutations`);
+    try {
+      const rawBody = await readBody(req);
+      const body = JSON.parse(rawBody) as BatchMutationRequest;
+      let claims;
+      try {
+        claims = extractSecurityClaims(req.headers.authorization, DEMO_JWT_SECRET);
+      } catch {
+        claims = { tenantId: 'demo', userId: 'anonymous', roleIds: ['viewer'] };
+      }
+      const result = await handleMutation(body, claims, {
+        db,
+        schemaAllowlist: SCHEMA_ALLOWLIST,
+        // Allow writes to all non-system columns; expand per-table in production.
+        tenantColumn: undefined,
+        cacheProvider: dataCache,
+      });
+      log(`← 200 /api/mutations (${result.results.length} mutations)`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      error(`← 500 /api/mutations ${message}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: message }));
     }

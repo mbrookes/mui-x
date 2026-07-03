@@ -216,4 +216,79 @@ describe('handleAIChat', () => {
     expect(onToolError).toHaveBeenCalledWith('contextEnricher', expect.any(Error));
     expect(events.at(-1)?.type).toBe('finish');
   });
+
+  it('propagates consumer stream cancellation to the loop via an abort signal', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    // Return a stream that emits one frame then stays open, so the loop is mid-flight
+    // when we cancel.
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      capturedSignal = (init as RequestInit | undefined)?.signal ?? undefined;
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(
+            new TextEncoder().encode(
+              'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+            ),
+          );
+          // Intentionally never closed — the loop is left awaiting more chunks.
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+
+    const reader = handleAIChat(makeBody(), OPTIONS).getReader();
+    await reader.read(); // consume the first frame
+    expect(capturedSignal?.aborted).toBe(false);
+
+    await reader.cancel();
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it('ends cleanly when an already-aborted external signal is provided', async () => {
+    // Loop's fetch sees an aborted signal and returns silently — no finish, no error.
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      const signal = (init as RequestInit | undefined)?.signal;
+      return Promise.reject(
+        Object.assign(new DOMException('Aborted', 'AbortError'), { aborted: signal?.aborted }),
+      );
+    });
+
+    const ac = new AbortController();
+    ac.abort();
+
+    const events = parseEvents(
+      await readAll(handleAIChat(makeBody(), { ...OPTIONS, signal: ac.signal })),
+    );
+    const types = events.map((event) => event.type);
+    expect(types).not.toContain('finish');
+    expect(types).not.toContain('error');
+  });
+
+  it('does not throw from the error path when the stream was already cancelled', async () => {
+    const rejections: unknown[] = [];
+    const handler = (reason: unknown) => rejections.push(reason);
+    process.on('unhandledRejection', handler);
+    try {
+      let rejectFetch: (err: unknown) => void = () => {};
+      vi.mocked(fetch).mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFetch = reject;
+          }),
+      );
+
+      const reader = handleAIChat(makeBody(), OPTIONS).getReader();
+      await reader.cancel(); // controller is now closed/cancelled
+      // The pending transport now fails → the catch block tries to enqueue an error
+      // frame (and finally to close) on an already-cancelled controller. Both are
+      // guarded, so nothing should escape as an unhandled rejection.
+      rejectFetch(new Error('late transport failure'));
+      await new Promise((r) => {
+        setTimeout(r, 20);
+      });
+    } finally {
+      process.removeListener('unhandledRejection', handler);
+    }
+    expect(rejections).toHaveLength(0);
+  });
 });

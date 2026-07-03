@@ -28,9 +28,6 @@ function createRecordingDb() {
     'whereIn',
     'whereLike',
     'whereBetween',
-    'join',
-    'leftJoin',
-    'rightJoin',
     'count',
     'select',
     'orderBy',
@@ -40,6 +37,25 @@ function createRecordingDb() {
   for (const method of chainMethods) {
     builder[method] = (...args: unknown[]) => {
       calls.push({ method, args });
+      return builder;
+    };
+  }
+  // Join methods use Knex's callback form: `join(table, function () { this.on(...) })`.
+  // Record the join once (with only the table), then run the callback against a
+  // context whose `.on()` records each condition — so a composite-key join is a
+  // single join with multiple `on` calls (not one join per pair).
+  const joinCtx = {
+    on(...args: unknown[]) {
+      calls.push({ method: 'on', args });
+      return joinCtx;
+    },
+  };
+  for (const method of ['join', 'leftJoin', 'rightJoin']) {
+    builder[method] = (table: unknown, cb: unknown) => {
+      calls.push({ method, args: [table] });
+      if (typeof cb === 'function') {
+        (cb as (this: typeof joinCtx) => void).call(joinCtx);
+      }
       return builder;
     };
   }
@@ -217,7 +233,7 @@ describe('buildSecureQuery', () => {
   });
 
   describe('joins', () => {
-    it('uses leftJoin for type "left"', () => {
+    it('uses leftJoin for type "left" with a single join call + on() condition', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
@@ -228,9 +244,10 @@ describe('buildSecureQuery', () => {
           ],
         }),
       );
+      expect(calls).toContainEqual({ method: 'leftJoin', args: ['customers'] });
       expect(calls).toContainEqual({
-        method: 'leftJoin',
-        args: ['customers', 'sales.customer_id', '=', 'customers.id'],
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
       });
     });
 
@@ -245,9 +262,10 @@ describe('buildSecureQuery', () => {
           ],
         }),
       );
+      expect(calls).toContainEqual({ method: 'rightJoin', args: ['customers'] });
       expect(calls).toContainEqual({
-        method: 'rightJoin',
-        args: ['customers', 'sales.customer_id', '=', 'customers.id'],
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
       });
     });
 
@@ -264,14 +282,15 @@ describe('buildSecureQuery', () => {
         }),
       );
       const joinCalls = calls.filter((c) => c.method === 'join');
-      expect(joinCalls).toHaveLength(2);
-      expect(joinCalls[1]).toEqual({
-        method: 'join',
-        args: ['regions', 'sales.region_id', '=', 'regions.id'],
-      });
+      expect(joinCalls).toEqual([
+        { method: 'join', args: ['customers'] },
+        { method: 'join', args: ['regions'] },
+      ]);
     });
 
-    it('emits one join call per "on" pair (composite keys)', () => {
+    it('joins a composite-key table exactly once, with one on() per pair', () => {
+      // Regression: the previous per-pair loop called join() once per pair,
+      // joining the same table twice → "table name not unique" on real DBs.
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
@@ -288,7 +307,15 @@ describe('buildSecureQuery', () => {
           ],
         }),
       );
-      expect(calls.filter((c) => c.method === 'join')).toHaveLength(2);
+      // Exactly one join call for the table…
+      expect(calls.filter((c) => c.method === 'join')).toEqual([
+        { method: 'join', args: ['customers'] },
+      ]);
+      // …and one on() condition per pair.
+      expect(calls.filter((c) => c.method === 'on')).toEqual([
+        { method: 'on', args: ['sales.a', '=', 'customers.a'] },
+        { method: 'on', args: ['sales.b', '=', 'customers.b'] },
+      ]);
     });
 
     it('applies joins BEFORE security predicates', () => {
@@ -306,6 +333,63 @@ describe('buildSecureQuery', () => {
       const joinIdx = indexOf(calls, 'leftJoin');
       const securityIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.tenant_id');
       expect(joinIdx).toBeLessThan(securityIdx);
+    });
+  });
+
+  describe('configurable security columns', () => {
+    it('uses a custom region column name from securityColumns', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [7] }, descriptor(), {
+        securityColumns: { region: 'sales_region' },
+      });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', [7]] });
+    });
+
+    it('uses a custom department column name from securityColumns', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, department: 'ops' }, descriptor(), {
+        securityColumns: { department: 'dept_code' },
+      });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.dept_code', '=', 'ops'] });
+    });
+
+    it('defaults to region_id / department when securityColumns is omitted', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1], department: 'ops' }, descriptor());
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1]] });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
+    });
+
+    it('scopes a joined table that has a configured tenant column', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        {
+          tenantColumn: 'tenant_id',
+          securityColumns: { perTable: { customers: { tenant: 'tenant_id' } } },
+        },
+      );
+      // Both the primary table and the joined table get a tenant predicate.
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+    });
+
+    it('does NOT scope a joined table without a configured tenant column (shared table)', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'regions', on: [['sales.region_id', 'regions.id']] }],
+        }),
+        { tenantColumn: 'tenant_id' },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+      expect(calls.some((c) => c.args[0] === 'regions.tenant_id')).toBe(false);
     });
   });
 

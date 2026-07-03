@@ -31,6 +31,8 @@ import type {
   StudioQueryDescriptor,
   StudioQueryResult,
   StudioRelationship,
+  ClientMutationDescriptor,
+  ClientMutationResult,
 } from '../models';
 import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
 
@@ -162,6 +164,17 @@ export interface BatchingAdapterOptions {
    */
   fetchFn?: typeof fetch;
   /**
+   * Endpoint URL for write-back mutations (INSERT/UPDATE/DELETE).
+   *
+   * When provided, the returned adapter exposes a `submitMutation()` method
+   * that POSTs to this endpoint using the `handleMutation` batch format.
+   * Grid widgets call this automatically from `processRowUpdate` when the
+   * widget's `config.gridPkField` is set.
+   *
+   * @example '/api/mutations'
+   */
+  mutationEndpoint?: string;
+  /**
    * All data sources in the current Studio state, keyed by source ID.
    *
    * When provided together with `relationships`, the adapter automatically
@@ -210,6 +223,7 @@ export function createBatchingAdapter(
     dataSources,
     relationships,
     expressionFields,
+    mutationEndpoint,
   } = options;
 
   function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
@@ -350,6 +364,39 @@ export function createBatchingAdapter(
       return loader.load(descriptor);
     },
   };
+
+  // Attach submitMutation when a mutation endpoint is configured.
+  if (mutationEndpoint) {
+    adapter.submitMutation = async (
+      descriptor: ClientMutationDescriptor,
+    ): Promise<ClientMutationResult> => {
+      let response: Response;
+      try {
+        response = await fetchFn(mutationEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Wrap in BatchMutationRequest format expected by handleMutation()
+          body: JSON.stringify({
+            mutations: [{ id: 'client-mutation', ...descriptor }],
+          }),
+        });
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : 'Network error',
+        };
+      }
+      if (!response.ok) {
+        return { ok: false, error: `${response.status} ${response.statusText}` };
+      }
+      const json = (await response.json()) as {
+        results?: Array<{ id: string; ok: boolean; rowsAffected?: number; error?: string }>;
+      };
+      const result = json.results?.[0];
+      return result ?? { ok: false, error: 'No result in response' };
+    };
+  }
+
   // Tag the adapter with its endpoint URL for cross-endpoint relationship validation.
   (adapter as unknown as Record<symbol, unknown>)[BATCHING_ENDPOINT] = endpoint;
   return adapter;

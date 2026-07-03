@@ -546,4 +546,38 @@ describe('getCachedEnrichedRows', () => {
     // Same object reference — no recompute.
     expect(secondResult).toBe(firstResult);
   });
+
+  // ─── WeakMap-by-rows keying (Part A item 4) ─────────────────────────────────
+
+  it('keeps independent cache slots for two distinct rows arrays of the same source', () => {
+    // Two <Studio> instances inject same-named sources with DISTINCT rows arrays.
+    // Under the old sourceId-keyed Map, the second instance's call evicted the
+    // first's entry (thrash). With WeakMap-by-rows keying, each stays warm.
+    const rowsA = makeRows(5);
+    const rowsB = makeRows(5); // different array reference, same sourceId 'orders'
+    const expr = makeOrdersExprField();
+    const dsA = makeDataSources(rowsA);
+    const dsB = makeDataSources(rowsB);
+
+    const a1 = getCachedEnrichedRows(rowsA, 'orders', [expr], dsA, NO_RELATIONSHIPS);
+    const b1 = getCachedEnrichedRows(rowsB, 'orders', [expr], dsB, NO_RELATIONSHIPS);
+    expect(a1).not.toBe(b1);
+
+    // Re-request each: both slots must still be warm (independent entries).
+    const a2 = getCachedEnrichedRows(rowsA, 'orders', [expr], dsA, NO_RELATIONSHIPS);
+    const b2 = getCachedEnrichedRows(rowsB, 'orders', [expr], dsB, NO_RELATIONSHIPS);
+    expect(a2).toBe(a1);
+    expect(b2).toBe(b1);
+  });
+
+  it('shares one entry when two calls pass the SAME rows reference', () => {
+    // Two instances that legitimately share a rows reference should share the entry.
+    const shared = makeRows(8);
+    const expr = makeOrdersExprField();
+    const ds = makeDataSources(shared);
+
+    const first = getCachedEnrichedRows(shared, 'orders', [expr], ds, NO_RELATIONSHIPS);
+    const second = getCachedEnrichedRows(shared, 'orders', [expr], ds, NO_RELATIONSHIPS);
+    expect(second).toBe(first);
+  });
 });

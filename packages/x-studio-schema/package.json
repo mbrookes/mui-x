@@ -1,0 +1,22 @@
+{
+  "name": "@mui/x-studio-schema",
+  "version": "8.25.0",
+  "description": "Shared, dependency-free data-model types and pure functions for MUI X Studio (client + AI middleware)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "require": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typescript": "tsc -p tsconfig.json",
+    "build": "echo 'build not yet implemented'",
+    "test:unit": "vitest --config vitest.config.node.mts"
+  },
+  "devDependencies": {
+    "@mui/x-chat-headless": "workspace:*"
+  }
+}

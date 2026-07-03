@@ -1,4 +1,8 @@
 import { Store } from '@mui/x-internals/store';
+// The shared mutation reducer + label helper — the same code the AI middleware
+// server uses to compute its threaded `nextState`, so AI state changes applied
+// on the client match the server exactly.
+import { applyMutation, mutationLabel, type StateMutation } from '@mui/x-studio-schema';
 
 import {
   createDefaultStudioState,
@@ -124,6 +128,25 @@ export class StudioController {
    * a sense of what the user changed recently.
    */
   getRecentMutations = (): StudioAIRecentMutation[] => [...this.mutationLog];
+
+  /**
+   * Applies a `StateMutation` produced by the AI backend (streamed as a
+   * `state-mutation` SSE event) through the shared `applyMutation` reducer — the
+   * exact same pure function the server used to compute the `nextState` it
+   * threaded to the model. This closes the "mutation applied twice, by two
+   * hand-written implementations" gap: the client no longer re-derives each
+   * mutation's effect via individual controller methods, so the client-applied
+   * state can no longer diverge from the server-threaded state (e.g. an
+   * `addWidget` now lands on the server-chosen `pageId`, not wherever the client
+   * happens to be navigated).
+   *
+   * The result is committed through the normal undo-stack + recent-mutation-log
+   * machinery, so AI edits remain undoable and are surfaced back to the model.
+   */
+  applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
+    const nextState = applyMutation(this.store.state, mutation);
+    this.commitState(nextState, { label });
+  };
 
   setState = (state: StudioState) => {
     this.commitState(state);

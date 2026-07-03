@@ -18,23 +18,15 @@
 import type {
   JwtSecurityClaims,
   BatchWidgetDescriptor,
-  FilterPredicate,
   HavingPredicate,
   HandleBatchQueryOptions,
 } from '../security/types';
-
-// Allowlist of operators that may be used in user-supplied filters
-const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
-  'eq',
-  'neq',
-  'in',
-  'lt',
-  'lte',
-  'gt',
-  'gte',
-  'like',
-  'between',
-]);
+import {
+  applyPredicates,
+  applySecurityPredicates,
+  resolveJoinSecurityColumns,
+  resolvePrimarySecurityColumns,
+} from '../shared/predicates';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -52,12 +44,16 @@ export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): any {
   const query = db(descriptor.table);
 
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
+  // Each join uses the Knex callback form so ALL `on` pairs become `.on()`
+  // conditions within a SINGLE join — a per-pair call would join the same table
+  // once per pair, producing invalid SQL ("table name not unique") for composite
+  // keys.
   for (const join of descriptor.joins ?? []) {
     let joinMethod: string;
     if (join.type === 'left') {
@@ -67,29 +63,38 @@ export function buildSecureQuery(
     } else {
       joinMethod = 'join';
     }
-    for (const [left, right] of join.on) {
-      query[joinMethod](join.table, left, '=', right);
-    }
+    query[joinMethod](join.table, function joinOn(this: any) {
+      for (const [left, right] of join.on) {
+        this.on(left, '=', right);
+      }
+    });
   }
 
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
-  // These use Knex parameterized bindings — never raw values in SQL strings.
-  if (options?.tenantColumn) {
-    query.where(`${descriptor.table}.${options.tenantColumn}`, '=', claims.tenantId);
-  }
+  // Applied to the primary table and to any joined table that has a configured
+  // tenant column (shared lookup tables without one are intentionally not scoped).
+  applySecurityPredicates(
+    query,
+    descriptor.table,
+    claims,
+    resolvePrimarySecurityColumns(
+      descriptor.table,
+      options?.securityColumns,
+      options?.tenantColumn,
+    ),
+  );
 
-  if (claims.regionIds && claims.regionIds.length > 0) {
-    query.whereIn(`${descriptor.table}.region_id`, claims.regionIds);
-  }
-
-  if (claims.department) {
-    query.where(`${descriptor.table}.department`, '=', claims.department);
+  for (const join of descriptor.joins ?? []) {
+    applySecurityPredicates(
+      query,
+      join.table,
+      claims,
+      resolveJoinSecurityColumns(join.table, options?.securityColumns),
+    );
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
-  for (const predicate of descriptor.filters ?? []) {
-    applyPredicate(query, predicate);
-  }
+  applyPredicates(query, descriptor.filters, 'read');
 
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
   // Only allowed against aggregation aliases (validated by handler.ts before
@@ -122,61 +127,4 @@ function applyHaving(query: any, h: HavingPredicate): void {
   }
   // havingRaw with ?? binding for the alias identifier, ? for the value
   query.havingRaw(`?? ${op} ?`, [h.alias, h.value]);
-}
-
-/**
- * Apply a single structured filter predicate to a Knex query.
- * Column names are bound via `??` (identifier escaping); values via `?` (value binding).
- */
-
-function applyPredicate(query: any, predicate: FilterPredicate): void {
-  if (!SAFE_OPERATORS.has(predicate.operator)) {
-    throw new Error(
-      `MUI X Studio Server: Unsupported filter operator "${predicate.operator}". ` +
-        `Allowed: ${[...SAFE_OPERATORS].join(', ')}`,
-    );
-  }
-
-  const { column, operator, value } = predicate;
-
-  switch (operator) {
-    case 'eq':
-      query.where(column, '=', value);
-      break;
-    case 'neq':
-      query.where(column, '!=', value);
-      break;
-    case 'in':
-      // Skip empty IN lists — `WHERE x IN ()` is a SQL error in MySQL/SQLite
-      // and semantically means "match nothing" (no rows pass). Dropping the
-      // predicate here is the autoRemove pattern: a no-op filter that would
-      // produce zero results is omitted rather than forwarded to the DB.
-      if (value.length === 0) {
-        break;
-      }
-      query.whereIn(column, value);
-      break;
-    case 'lt':
-      query.where(column, '<', value);
-      break;
-    case 'lte':
-      query.where(column, '<=', value);
-      break;
-    case 'gt':
-      query.where(column, '>', value);
-      break;
-    case 'gte':
-      query.where(column, '>=', value);
-      break;
-    case 'like':
-      query.whereLike(column, value);
-      break;
-    case 'between': {
-      const [lo, hi] = value;
-      query.whereBetween(column, [lo, hi]);
-      break;
-    }
-    default:
-      break;
-  }
 }

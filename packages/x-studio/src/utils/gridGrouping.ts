@@ -4,6 +4,8 @@ import type {
   StudioGridSummaryAggregation,
   StudioRelationship,
 } from '../models';
+import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
+import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
 
 function aggregateGridValue(
   rows: Record<string, unknown>[],
@@ -61,8 +63,10 @@ function symmetricAggregate(
   const deduped: Record<string, unknown>[] = [];
 
   for (const row of groupRows) {
-    const fkValue = String(row[fkField] ?? '');
-    if (!seenFks.has(fkValue)) {
+    // Normalized join key (shared policy, internals/joinKeys.ts). A missing FK
+    // (null/undefined) never joins, so an unlinked row contributes nothing.
+    const fkValue = normalizeJoinKey(row[fkField]);
+    if (fkValue !== null && !seenFks.has(fkValue)) {
       seenFks.add(fkValue);
       const relatedRow = relatedRowMap.get(fkValue);
       if (relatedRow) {
@@ -96,13 +100,9 @@ export function buildGroupedGridRows(
   >();
 
   if (columns && dataSources && relationships && widgetSourceId) {
-    // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
-    const relIndex = new Map<string, (typeof relationships)[number]>();
-    for (const r of relationships) {
-      if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
-        relIndex.set(r.targetId, r);
-      }
-    }
+    // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
+    // see dataSourceGraph.buildManyToOneRelationshipIndex.
+    const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
 
     for (const col of columns) {
       if (!col.sourceId || col.sourceId === widgetSourceId) {
@@ -117,10 +117,11 @@ export function buildGroupedGridRows(
       if (!relatedSource?.rows) {
         continue;
       }
-      // Index related rows by their PK for fast look-up
-      const pkField = rel.targetField;
-      const relatedRowMap = new Map<string, Record<string, unknown>>(
-        (relatedSource.rows as Record<string, unknown>[]).map((r) => [String(r[pkField] ?? ''), r]),
+      // Index related rows by their PK for fast look-up, using the shared join-key
+      // policy (internals/joinKeys.ts) so a numeric PK matches a string FK etc.
+      const relatedRowMap = indexRowsByKey(
+        relatedSource.rows as Record<string, unknown>[],
+        rel.targetField,
       );
       crossSourceMeta.set(col.fieldId, { fkField: rel.sourceField, relatedRowMap });
     }

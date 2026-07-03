@@ -48,11 +48,10 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
 
   const crossFilters: StudioAICrossFilterEdge[] = state.filters.flatMap((f) => {
     if (
-      (f.scope === 'cross-filter' || f.scope === 'interactive') &&
-      f.pageId === pageId &&
-      f.sourceWidgetId
+      (f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive') &&
+      f.scope.pageId === pageId
     ) {
-      return [{ sourceWidgetId: f.sourceWidgetId, field: f.field, scope: f.scope }];
+      return [{ sourceWidgetId: f.scope.sourceWidgetId, field: f.field, scope: f.scope.kind }];
     }
     return [];
   });

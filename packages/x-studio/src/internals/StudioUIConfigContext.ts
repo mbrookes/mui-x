@@ -6,6 +6,10 @@ import type {
   ChartFeatureFlags,
   GridFeatureFlags,
   StudioCustomWidgetDef,
+  StudioCustomWidgetSetupPanelProps,
+  StudioWidget,
+  StudioDataSource,
+  StudioChartAnnotation,
 } from '../models';
 import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import {
@@ -72,7 +76,6 @@ export interface StudioLocaleText {
   quickFilterBarOpenFilters: string;
   quickFilterBarCloseFilters: string;
   quickFilterBarClearAll: string;
-  quickFilterBarFiltered: string;
   quickFilterBarEnableFilter: string;
   quickFilterBarDisableFilter: string;
   quickFilterBarRemoveFilter: string;
@@ -316,6 +319,50 @@ export interface StudioLocaleText {
   filterRankAggMinLabel: string;
   filterRankTop: string;
   filterRankBottom: string;
+
+  // ── Filter operator labels (per field type) ───────────────────────────────
+  // Keys follow `filterOperator_${fieldType}_${operator}`; see
+  // `StudioFiltersDrawer/filterOperatorMetadata.ts` for the authoritative list
+  // of (fieldType, operator) pairs and their English fallback labels.
+  filterOperator_string_equals: string;
+  filterOperator_string_not_equals: string;
+  filterOperator_string_contains: string;
+  filterOperator_string_does_not_contain: string;
+  filterOperator_string_starts_with: string;
+  filterOperator_string_not_starts_with: string;
+  filterOperator_string_ends_with: string;
+  filterOperator_string_not_ends_with: string;
+  filterOperator_string_is_empty: string;
+  filterOperator_string_is_not_empty: string;
+  filterOperator_number_equals: string;
+  filterOperator_number_not_equals: string;
+  filterOperator_number_greater_than: string;
+  filterOperator_number_greater_than_or_equal: string;
+  filterOperator_number_less_than: string;
+  filterOperator_number_less_than_or_equal: string;
+  filterOperator_number_between: string;
+  filterOperator_number_is_empty: string;
+  filterOperator_number_is_not_empty: string;
+  filterOperator_date_equals: string;
+  filterOperator_date_not_equals: string;
+  filterOperator_date_less_than: string;
+  filterOperator_date_greater_than: string;
+  filterOperator_date_less_than_or_equal: string;
+  filterOperator_date_greater_than_or_equal: string;
+  filterOperator_date_between: string;
+  filterOperator_date_is_empty: string;
+  filterOperator_date_is_not_empty: string;
+  filterOperator_datetime_equals: string;
+  filterOperator_datetime_not_equals: string;
+  filterOperator_datetime_greater_than: string;
+  filterOperator_datetime_less_than: string;
+  filterOperator_datetime_greater_than_or_equal: string;
+  filterOperator_datetime_less_than_or_equal: string;
+  filterOperator_datetime_between: string;
+  filterOperator_datetime_is_empty: string;
+  filterOperator_datetime_is_not_empty: string;
+  filterOperator_boolean_equals: string;
+  filterOperator_boolean_not_equals: string;
 
   // ── Expression field dialog ────────────────────────────────────────────────
   exprNodeTypeField: string;
@@ -1065,7 +1112,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   quickFilterBarOpenFilters: 'Open filters panel',
   quickFilterBarCloseFilters: 'Close filters panel',
   quickFilterBarClearAll: 'Clear all filters',
-  quickFilterBarFiltered: 'Filtered',
   quickFilterBarEnableFilter: 'Enable filter',
   quickFilterBarDisableFilter: 'Disable filter',
   quickFilterBarRemoveFilter: 'Remove filter',
@@ -1298,6 +1344,47 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRankAggMinLabel: 'Min of all series',
   filterRankTop: 'Top',
   filterRankBottom: 'Bottom',
+
+  // Filter operator labels (per field type)
+  filterOperator_string_equals: 'Equals',
+  filterOperator_string_not_equals: 'Not equals',
+  filterOperator_string_contains: 'Contains',
+  filterOperator_string_does_not_contain: 'Does not contain',
+  filterOperator_string_starts_with: 'Starts with',
+  filterOperator_string_not_starts_with: 'Does not start with',
+  filterOperator_string_ends_with: 'Ends with',
+  filterOperator_string_not_ends_with: 'Does not end with',
+  filterOperator_string_is_empty: 'Is empty',
+  filterOperator_string_is_not_empty: 'Is not empty',
+  filterOperator_number_equals: '=',
+  filterOperator_number_not_equals: '≠',
+  filterOperator_number_greater_than: '>',
+  filterOperator_number_greater_than_or_equal: '≥',
+  filterOperator_number_less_than: '<',
+  filterOperator_number_less_than_or_equal: '≤',
+  filterOperator_number_between: 'Between',
+  filterOperator_number_is_empty: 'Is empty',
+  filterOperator_number_is_not_empty: 'Is not empty',
+  filterOperator_date_equals: 'On',
+  filterOperator_date_not_equals: 'Not on',
+  filterOperator_date_less_than: 'Before',
+  filterOperator_date_greater_than: 'After',
+  filterOperator_date_less_than_or_equal: 'On or before',
+  filterOperator_date_greater_than_or_equal: 'On or after',
+  filterOperator_date_between: 'Between',
+  filterOperator_date_is_empty: 'Is empty',
+  filterOperator_date_is_not_empty: 'Is not empty',
+  filterOperator_datetime_equals: 'At',
+  filterOperator_datetime_not_equals: 'Not at',
+  filterOperator_datetime_greater_than: 'After',
+  filterOperator_datetime_less_than: 'Before',
+  filterOperator_datetime_greater_than_or_equal: 'At or after',
+  filterOperator_datetime_less_than_or_equal: 'At or before',
+  filterOperator_datetime_between: 'Between',
+  filterOperator_datetime_is_empty: 'Is empty',
+  filterOperator_datetime_is_not_empty: 'Is not empty',
+  filterOperator_boolean_equals: 'Is',
+  filterOperator_boolean_not_equals: 'Is not',
 
   // Expression field dialog
   exprNodeTypeField: 'Field',
@@ -2018,6 +2105,94 @@ export function useCustomWidgetMap(): CustomWidgetMap {
     [widgetKindsKey],
   );
 }
+
+// ── Widget-kind registry (built-in + custom, unified) ───────────────────────
+//
+// Kind → component/setup-panel/capability dispatch used to be a hardcoded
+// if/else chain repeated at every call site (`StudioWidgetCard`,
+// `StudioComposeDrawer`, `StudioWidgetEditDialog`, `BuiltinWidgetPreview`),
+// with one site (`StudioWidgetEditDialog`) missing custom-widget handling
+// entirely. `BUILTIN_WIDGET_DEFS` below registers every built-in kind using
+// the same `StudioCustomWidgetDef` shape consumers already use for
+// `customWidgets`, and `useWidgetDefMap()` layers custom defs over it so
+// every dispatch site can do a single map lookup regardless of whether a
+// kind is built-in or consumer-defined.
+
+/**
+ * Normalized prop bag passed to a `StudioWidgetDef.component`. A superset of
+ * every built-in kind's actual widget-component props, plus `extraProps` for
+ * forwarding call-site-specific `slotProps` (currently only used by
+ * `StudioWidgetCard`). Fields that only apply to specific kinds (e.g.
+ * `chartContainerRef` for chart) are simply ignored by every other kind's
+ * render wrapper.
+ */
+export interface StudioWidgetRenderProps {
+  widget: StudioWidget;
+  dataSource?: StudioDataSource;
+  /** ID of the page the widget belongs to. Required by every built-in kind except `text`/`filter`. */
+  pageId: string;
+  /** Chart only: pixel height of the rendered chart area. */
+  height?: number;
+  /** Chart only: whether client-side anomaly detection is active. */
+  anomalyEnabled?: boolean;
+  /** Chart only: called with the detected anomaly annotations. */
+  onAnomalyDetected?: (annotations: StudioChartAnnotation[]) => void;
+  /** Chart only: ref to the element wrapping the chart's rendered SVG (used for PNG export). */
+  chartContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Text only: ref exposing an imperative AI-content-refresh function. */
+  aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
+  /** Pivot only: ref exposing an imperative export function once data is available. */
+  exportRef?: React.MutableRefObject<(() => void) | null>;
+  /** Extra props forwarded from a call site's per-kind `slotProps` (e.g. `StudioWidgetCardProps.slotProps`). */
+  extraProps?: Record<string, unknown>;
+}
+
+/**
+ * Capability flags consolidating what used to be scattered
+ * `widget.kind === '…'` conditionals at each dispatch site (export
+ * availability, AI-insight eligibility, card min-height, …).
+ */
+export interface StudioWidgetCapabilities {
+  /** Export format offered in the widget card action overlay. Omit to disable export for this kind. */
+  export?: 'csv' | 'png';
+  /** Whether the full-screen "expand" dialog is available (chart only today). */
+  expand?: boolean;
+  /** Whether the edit dialog's Filters tab / widget-filters panel applies to this kind. */
+  widgetFilters?: boolean;
+  /** Fixed `minHeight` (px) applied to the widget card's outer Paper shell. */
+  minHeight?: number;
+  /** Extra `sx` merged onto the Box wrapping the rendered widget content. */
+  contentSx?: object;
+  /** Height (px) of the Skeleton placeholder shown before first paint. May read the widget's own config. */
+  skeletonHeight?: (widget: StudioWidget) => number;
+}
+
+/**
+ * Registration record for a widget kind — built-in or custom — consumed by
+ * every kind-dispatch site. Mirrors {@link StudioCustomWidgetDef} (the
+ * existing `customWidgets` registration shape): `kind`/`label`/`description`/
+ * `icon`/`requiresDataSource`/`fullBleed`/`shouldHide`/`defaultConfig`/
+ * `aiInsight` are inherited unchanged, `component`/`setupPanel` get the
+ * normalized signatures built-ins need, and `capabilities` adds the
+ * additional per-kind flags built-ins require beyond what custom widgets
+ * already support.
+ */
+export interface StudioWidgetDef extends Omit<StudioCustomWidgetDef, 'component' | 'setupPanel'> {
+  component: React.ComponentType<StudioWidgetRenderProps>;
+  setupPanel?: React.ComponentType<StudioCustomWidgetSetupPanelProps>;
+  capabilities: StudioWidgetCapabilities;
+}
+
+// `BUILTIN_WIDGET_DEFS` and `useWidgetDefMap()` — the values that complete this
+// registry — live in `internals/builtinWidgetDefs.ts`, NOT here. That file needs
+// direct component references to every built-in widget/setup-panel, and those
+// widget/setup-panel modules import hooks (`useStudioFeatures`, `useStudioGeographies`,
+// `useStudioUIConfig`) back from *this* file — so importing them here would create a
+// real module cycle (in a couple of cases a literal self-cycle, e.g.
+// `ChartSetupPanel.tsx` -> here -> `ChartSetupPanel.tsx`). That combination broke
+// several existing tests that `vi.mock('../../context', ...)`, so the concrete
+// component wiring is kept in a separate file that depends on this one but is never
+// depended on by it.
 
 /**
  * Returns all geography definitions — built-ins merged with any consumer-provided

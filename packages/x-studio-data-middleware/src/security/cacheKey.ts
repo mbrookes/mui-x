@@ -97,6 +97,13 @@ export function generateCacheKey(
   descriptor: BatchWidgetDescriptor,
   hmacSecret: string = process.env.CACHE_HMAC_SECRET ?? process.env.JWT_SECRET ?? '',
 ): string {
+  if (!hmacSecret) {
+    throw new Error(
+      'MUI X Studio Server: No cache HMAC secret is configured. ' +
+        'With an empty key the security hash is guessable, breaking the "a client cannot forge another tenant\'s cache key" guarantee. ' +
+        'Set CACHE_HMAC_SECRET (or JWT_SECRET) or pass an explicit secret to generateCacheKey().',
+    );
+  }
   const securityHash = computeSecurityHash(claims, hmacSecret);
   const queryHash = computeQueryHash(descriptor);
   return `studio:v1:${claims.tenantId}:${securityHash}:${queryHash}`;

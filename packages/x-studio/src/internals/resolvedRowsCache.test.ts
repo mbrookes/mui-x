@@ -342,4 +342,288 @@ describe('resolveRowsCached', () => {
     // Same content → same filterKey → same WeakMap entry → same Row[] reference
     expect(result2).toBe(result1);
   });
+
+  // ─── Fingerprint: operator/field/mode changes (Part A item 1) ────────────────
+
+  it('invalidates the cache when a filter operator changes (same id and value)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const equalsFilter = [
+      makeFilter({ id: 'f1', field: 'region', operator: 'equals', value: 'EU' }),
+    ];
+    const notEqualsFilter = [
+      makeFilter({ id: 'f1', field: 'region', operator: 'not_equals', value: 'EU' }),
+    ];
+
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      equalsFilter,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      notEqualsFilter,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+
+    // Old cache keyed only on id:value → would have served the stale `equals` result.
+    expect(result1.map((r) => r.id)).toEqual(['1', '3']);
+    expect(result2.map((r) => r.id)).toEqual(['2']);
+    expect(result2).not.toBe(result1);
+  });
+
+  it('invalidates the cache when a filter second condition changes (same id/operator/value)', () => {
+    const ownRows = [
+      { id: '1', region: 'EU', amount: 100 },
+      { id: '2', region: 'US', amount: 200 },
+      { id: '3', region: 'EU', amount: 300 },
+    ];
+    const dataSources = makeDataSources(ownRows);
+    const base = {
+      id: 'f1',
+      field: 'amount',
+      operator: 'greater_than' as const,
+      value: 250,
+      conjunction: 'or' as const,
+      operator2: 'less_than' as const,
+    };
+    const v1 = [makeFilter({ ...base, value2: 50 })]; // amount>250 OR amount<50 → id 3
+    const v2 = [makeFilter({ ...base, value2: 150 })]; // amount>250 OR amount<150 → ids 1,3
+
+    const result1 = resolveRowsCached(ownRows, 'orders', v1, dataSources, relationships, []);
+    const result2 = resolveRowsCached(ownRows, 'orders', v2, dataSources, relationships, []);
+
+    expect(result1.map((r) => r.id)).toEqual(['3']);
+    expect(result2.map((r) => r.id)).toEqual(['1', '3']);
+    expect(result2).not.toBe(result1);
+  });
+
+  // ─── Derived cross-filter dependency (Part A item 2a) ────────────────────────
+
+  it('invalidates when the foreign rows of a DERIVED cross-filter source change', () => {
+    // A page filter (no filterSourceId) whose field is an expression owned by
+    // another source is rerouted internally as a cross-filter with a derived
+    // filterSourceId. The cache must track that derived source's rows.
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+      { id: 'o3', customerId: 'c3' },
+    ];
+    const customersV1 = [
+      { id: 'c1', score: 10 },
+      { id: 'c2', score: 10 },
+      { id: 'c3', score: 1 },
+    ];
+    const customersV2 = [
+      { id: 'c1', score: 10 },
+      { id: 'c2', score: 1 }, // c2 no longer matches
+      { id: 'c3', score: 1 },
+    ];
+    const rel: StudioRelationship = {
+      id: 'rel-orders-customers',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    };
+    const scoreExpr = {
+      id: 'scoreDup',
+      label: 'Score',
+      sourceId: 'customers',
+      isMeasure: false,
+      expression: { operator: 'multiply', inputs: [{ id: 'score' }, { type: 'number', value: 1 }] },
+    } as unknown as StudioExpressionField;
+    const exprFields = [scoreExpr];
+
+    const pageFilter = makeFilter({
+      id: 'pf1',
+      scope: { kind: 'page' },
+      field: 'scoreDup',
+      operator: 'equals',
+      value: 10,
+    });
+
+    const dataSources1: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'score', label: 'Score', type: 'number' }],
+        rows: customersV1,
+      } as unknown as StudioDataSource,
+    };
+
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [pageFilter],
+      dataSources1,
+      [rel],
+      exprFields,
+    );
+    expect(result1.map((r) => r.id)).toEqual(['o1', 'o2']);
+
+    const dataSources2: Record<string, StudioDataSource> = {
+      orders: dataSources1.orders,
+      customers: { ...dataSources1.customers, rows: customersV2 } as StudioDataSource,
+    };
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [pageFilter],
+      dataSources2,
+      [rel],
+      exprFields,
+    );
+    // Without derived-source tracking this would still show o1,o2 (stale).
+    expect(result2.map((r) => r.id)).toEqual(['o1']);
+    expect(result2).not.toBe(result1);
+  });
+
+  // ─── Junction rows dependency (Part A item 2b) ───────────────────────────────
+
+  it('invalidates when a many-to-many junction source rows change', () => {
+    const productsRows = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }];
+    const tagsRows = [
+      { id: 't1', name: 'sale' },
+      { id: 't2', name: 'new' },
+    ];
+    const junctionV1 = [
+      { pid: 'p1', tid: 't1' },
+      { pid: 'p2', tid: 't1' },
+      { pid: 'p3', tid: 't2' },
+    ];
+    const junctionV2 = [
+      { pid: 'p1', tid: 't1' },
+      { pid: 'p2', tid: 't2' }, // p2 now links to t2 instead of t1
+      { pid: 'p3', tid: 't2' },
+    ];
+    const rel: StudioRelationship = {
+      id: 'rel-m2m',
+      type: 'many-to-many',
+      sourceId: 'products',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'product_tags',
+      junctionSourceField: 'pid',
+      junctionTargetField: 'tid',
+    } as unknown as StudioRelationship;
+
+    const crossFilter = makeFilter({
+      id: 'cf-tags',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w', pageId: 'p1' },
+      filterSourceId: 'tags',
+      field: 'name',
+      operator: 'equals',
+      value: 'sale',
+    });
+
+    const makeDs = (junction: Record<string, unknown>[]): Record<string, StudioDataSource> => ({
+      products: { id: 'products', label: 'Products', fields: [], rows: productsRows },
+      tags: { id: 'tags', label: 'Tags', fields: [], rows: tagsRows },
+      product_tags: { id: 'product_tags', label: 'PT', fields: [], rows: junction },
+    });
+
+    const result1 = resolveRowsCached(
+      productsRows,
+      'products',
+      [crossFilter],
+      makeDs(junctionV1),
+      [rel],
+      [],
+    );
+    expect(result1.map((r) => r.id)).toEqual(['p1', 'p2']);
+
+    const result2 = resolveRowsCached(
+      productsRows,
+      'products',
+      [crossFilter],
+      makeDs(junctionV2),
+      [rel],
+      [],
+    );
+    // Junction changed (tags unchanged) → only p1 links to 'sale' now.
+    expect(result2.map((r) => r.id)).toEqual(['p1']);
+    expect(result2).not.toBe(result1);
+  });
+
+  // ─── Expression-formula / relationship edits (Part A item 3) ─────────────────
+
+  it('invalidates when a widget-source expression formula changes (rows unchanged)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const exprV1 = {
+      id: 'doubled',
+      label: 'Doubled',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'amount' }, { type: 'number', value: 2 }],
+      },
+    } as unknown as StudioExpressionField;
+    const exprV2 = {
+      id: 'doubled',
+      label: 'Doubled',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'amount' }, { type: 'number', value: 3 }],
+      },
+    } as unknown as StudioExpressionField;
+
+    const result1 = resolveRowsCached(ownRows, 'orders', [], dataSources, relationships, [exprV1]);
+    const result2 = resolveRowsCached(ownRows, 'orders', [], dataSources, relationships, [exprV2]);
+
+    expect(result1[0].doubled).toBe(200); // amount 100 * 2
+    expect(result2[0].doubled).toBe(300); // amount 100 * 3 — must reflect the edit
+    expect(result2).not.toBe(result1);
+  });
+
+  it('invalidates when the relationships array reference changes', () => {
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const customers = [
+      { id: 'c1', region: 'EU' },
+      { id: 'c2', region: 'EU' },
+    ];
+    const crossFilter = makeFilter({
+      id: 'cf1',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w', pageId: 'p1' },
+      filterSourceId: 'customers',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+    const ds: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+      customers: { id: 'customers', label: 'Customers', fields: [], rows: customers },
+    };
+    const rel1: StudioRelationship[] = [
+      {
+        id: 'r',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const rel2: StudioRelationship[] = [{ ...rel1[0] }]; // new array + object ref
+
+    const result1 = resolveRowsCached(ordersRows, 'orders', [crossFilter], ds, rel1, []);
+    const result2 = resolveRowsCached(ordersRows, 'orders', [crossFilter], ds, rel2, []);
+    expect(result2).not.toBe(result1);
+  });
 });

@@ -244,13 +244,9 @@ for (const scale of SCALES) {
     'B5 runPreflight (COUNT(*) + tier routing)',
     `${scale.toLocaleString()} rows`,
     async () => {
-      await runPreflight(
-        db,
-        { ...ACME_CLAIMS, tenantId },
-        descriptor,
-        { clientTier: 10_000, serverMemoryTier: 100_000 },
-        { tenantColumn: 'tenant_id' },
-      );
+      await runPreflight(db, { ...ACME_CLAIMS, tenantId }, descriptor, {
+        tenantColumn: 'tenant_id',
+      });
     },
   ).then((r) => results.push(r));
 }

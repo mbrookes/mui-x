@@ -172,24 +172,33 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       ? filteredRowsNoChartCross
       : filteredRows;
 
-  // IDs of rows that pass the chart cross-filter — used to determine which rows to highlight.
-  const highlightedRowIds = React.useMemo((): Set<unknown> | null => {
+  // Row OBJECT REFERENCES (not `row.id`) that pass the chart cross-filter — used to
+  // determine which rows to highlight.
+  //
+  // `row.id` is `undefined` for id-less data sources (an explicitly supported case — see
+  // the synthetic-id fallback in `rows` below), which previously made every row appear
+  // "unmatched" and get dimmed regardless of whether it actually passed the cross-filter.
+  // `filteredRows` and `baseRows` (`filteredRowsNoChartCross` in cross-highlight mode) are
+  // both derived by filtering the *same* underlying pipeline-cached row array (see
+  // `useWidgetRows`/`resolveRowsCached`), so a row present in `filteredRows` is the exact
+  // same JS object reference as its counterpart in `baseRows` — reference identity is a
+  // reliable match key here even when no natural id exists.
+  const highlightedRowRefs = React.useMemo((): Set<Record<string, unknown>> | null => {
     if (!hasChartCrossFilters || crossFilterMode !== 'cross-highlight') {
       return null;
     }
-    const ids = new Set<unknown>();
-    for (const row of filteredRows) {
-      ids.add(row.id);
-    }
-    return ids;
+    return new Set(filteredRows);
   }, [hasChartCrossFilters, crossFilterMode, filteredRows]);
 
   const rows = React.useMemo(() => {
     return baseRows.map((row, index) => ({
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
+      // Stashed during this same pass (while `row` still has its original identity) so
+      // `getRowClassName` below never needs to re-derive matching from `row.id`.
+      __highlighted: highlightedRowRefs ? highlightedRowRefs.has(row) : undefined,
     }));
-  }, [baseRows, widget.id]);
+  }, [baseRows, widget.id, highlightedRowRefs]);
 
   // Native DataGridPremium row grouping
   const rowGroupingModel = React.useMemo(
@@ -388,8 +397,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             return '';
           }
           // Incoming chart cross-highlight: dim rows that don't match the cross-filter.
-          if (highlightedRowIds !== null) {
-            return highlightedRowIds.has(params.row.id) ? '' : 'StudioGrid-dimmed';
+          if (highlightedRowRefs !== null) {
+            // eslint-disable-next-line no-underscore-dangle -- internal synthetic flag stashed in `rows` above
+            return (params.row as Record<string, unknown>).__highlighted ? '' : 'StudioGrid-dimmed';
           }
           // Outgoing cross-filter: highlight the row this table is filtering on.
           if (activeCrossFilter) {

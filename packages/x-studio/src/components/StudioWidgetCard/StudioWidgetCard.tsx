@@ -16,6 +16,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
@@ -128,6 +129,7 @@ export interface StudioWidgetCardProps {
 }
 
 function DefaultLoadingOverlay() {
+  const theme = useTheme();
   return (
     <Box
       sx={{
@@ -136,7 +138,7 @@ function DefaultLoadingOverlay() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: 'rgba(255,255,255,0.6)',
+        bgcolor: alpha(theme.palette.background.paper, 0.6),
         zIndex: 1,
         borderRadius: 'inherit',
         backdropFilter: 'blur(2px)',
@@ -339,12 +341,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const pivotExportRef = React.useRef<(() => void) | null>(null);
   const textAiRefreshRef = React.useRef<(() => void) | null>(null);
   // Detect when filter recomputation is in-flight (deferred rendering).
-  // Only relevant for chart and grid widgets that go through useWidgetRows.
-  // Detect when filter recomputation is in-flight (deferred rendering).
+  // Only relevant for chart/grid/pivot widgets that go through useWidgetRows, and only
+  // for the sync in-memory pipeline. Adapter-backed widgets already signal their own
+  // fetch via `isLoading` — this mirrors `useWidgetRows.ts`'s `isRecomputing`
+  // (`!hasAdapter && deferredBasePartitioned !== basePartitioned`), which excludes them
+  // for the same reason. Without the `hasAdapter` exclusion here, this independent
+  // computation showed a loading overlay on top of a widget that was already showing
+  // its own adapter-driven loading state.
   // Scoped to this widget's own page so inactive pages don't show spurious spinners.
   const partitioned = useStudioSelector(selectBasePartitioned);
   const deferredPartitioned = React.useDeferredValue(partitioned);
+  const hasAdapter = Boolean(source?.adapter);
   const isRecomputing =
+    !hasAdapter &&
     (widget?.kind === 'chart' || widget?.kind === 'grid' || widget?.kind === 'pivot') &&
     deferredPartitioned !== partitioned;
 

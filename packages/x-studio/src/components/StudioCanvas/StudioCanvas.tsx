@@ -43,6 +43,29 @@ export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
   return MIN_SPAN;
 }
 
+/**
+ * Removes `widgetId`'s entry from `colSpans` (if present), collapsing an empty result to
+ * `undefined` so a page with no manual spans left doesn't carry around an empty object.
+ *
+ * Used by `handleDrop` (below) in three places: clearing a destination-row span when the
+ * dropped widget lands as a new singleton, clearing it when the destination row's spans
+ * would overflow `GRID_COLS`, and — the cross-page-move col-span leak fix — clearing the
+ * moved widget's stale entry from the SOURCE page once it has moved to a different page
+ * (previously only `widgetRows` was cleaned up there, leaving `widgetColSpans` behind to
+ * resurface if the widget was later moved back).
+ */
+export function pruneWidgetColSpan(
+  colSpans: Record<string, number> | undefined,
+  widgetId: string,
+): Record<string, number> | undefined {
+  if (!colSpans || colSpans[widgetId] == null) {
+    return colSpans;
+  }
+  const { [widgetId]: removedSpan, ...rest } = colSpans;
+  void removedSpan;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 /** State describing an in-progress resize drag between two adjacent widgets in a row. */
 export interface LiveDragState {
   leftId: string;
@@ -231,11 +254,7 @@ function StudioPageRows({
         // its span would push the row total beyond 12 columns.
         let nextColSpans = widgetColSpansRef.current;
         if (isNewSingleton) {
-          if (nextColSpans?.[widgetId] != null) {
-            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
-            void removedSpan;
-            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
-          }
+          nextColSpans = pruneWidgetColSpan(nextColSpans, widgetId);
         } else if (nextColSpans?.[widgetId] != null) {
           // Check if the destination row's total spans exceed 12
           const destSpanTotal = destRow.reduce((sum, id) => {
@@ -243,9 +262,7 @@ function StudioPageRows({
             return sum + (s ?? 0);
           }, 0);
           if (destSpanTotal > GRID_COLS) {
-            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
-            void removedSpan;
-            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
+            nextColSpans = pruneWidgetColSpan(nextColSpans, widgetId);
           }
         }
 
@@ -258,9 +275,17 @@ function StudioPageRows({
             const row = r.filter((id) => id !== widgetId);
             return row.length > 0 ? [row] : [];
           });
+          // Also drop the moved widget's entry from the SOURCE page's widgetColSpans —
+          // otherwise a stale span lingers there and can resurface if the widget is later
+          // moved back to this page.
+          const nextSrcColSpans = pruneWidgetColSpan(
+            state.pages[sourcePageId].widgetColSpans,
+            widgetId,
+          );
           sourcePageUpdate[sourcePageId] = {
             ...state.pages[sourcePageId],
             widgetRows: srcRows,
+            widgetColSpans: nextSrcColSpans,
           };
         }
 

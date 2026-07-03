@@ -148,7 +148,7 @@ Given a validated `BatchWidgetDescriptor`, builds (but does not execute) a Knex 
 
 1. **Joins** — for each `descriptor.joins[]`, a single `join`/`leftJoin`/`rightJoin` call with one `.on()` per `[left, right]` pair inside a callback, so a composite-key join produces one join clause, not one per pair (avoiding "table name not unique" SQL errors).
 2. **Security predicates** — `applySecurityPredicates` for the primary table (via `resolvePrimarySecurityColumns`), then for each joined table (via `resolveJoinSecurityColumns`, which no-ops for tables without a `perTable` tenant column).
-3. **User filters** — `applyPredicates(query, descriptor.filters, 'read')`.
+3. **User filters** — each predicate's column is first resolved through `descriptor.columnAliases` (logical ID → physical column, the same resolution `validateDescriptorColumns` already applies when checking the column against `columnAllowlist`), then `applyPredicates(query, resolvedFilters, 'read')` builds the WHERE clause against the resolved physical column. Filter columns must be alias-resolved before execution for the same reason SELECT/ORDER BY/aggregation columns already are (`execute.ts`'s `physicalCol`) — otherwise a client could pass an allowlisted alias for validation while the WHERE clause silently ran against the real, unresolved (and potentially non-allowlisted) column name.
 4. **HAVING** — `applyHaving()` for each `descriptor.having[]` entry, using `query.havingRaw('?? op ?', [alias, value])` (identifier-bound alias, parameterized value); the alias is pre-validated by `handler.ts` (via `validateHavingAliases()` in `shared/columnValidation.ts`) against `aggregations[].alias`.
 
 ### `runPreflight` (`router/preflight.ts`) / `executeForTier` (`router/execute.ts`)

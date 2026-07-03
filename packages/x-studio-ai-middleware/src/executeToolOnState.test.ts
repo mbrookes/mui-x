@@ -415,13 +415,35 @@ describe('executeToolOnState: remove_widget', () => {
 });
 
 describe('executeToolOnState: set_widget_layout', () => {
-  it('emits a setWidgetLayout mutation', () => {
+  it('emits a setWidgetLayout mutation stamped with the active pageId', () => {
     const state = makeState();
     const rows = [['widget-1']];
     const result = executeToolOnState('set_widget_layout', { rows }, state);
     expect(result.mutation?.type).toBe('setWidgetLayout');
-    const mut = result.mutation as { type: string; args: { rows: string[][] } };
+    const mut = result.mutation as { type: string; args: { rows: string[][]; pageId?: string } };
     expect(mut.args.rows).toEqual(rows);
+    // The target page is stamped server-side (mirrors add_widget) so a page switch
+    // while the model is thinking cannot land the layout on the wrong page.
+    expect(mut.args.pageId).toBe('page-1');
+  });
+
+  it('rejects malformed (flat) rows without mutating state', () => {
+    const state = makeState();
+    // A flat array of strings is valid JSON but corrupts widgetRows.
+    const result = executeToolOnState('set_widget_layout', { rows: ['widget-1'] }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/array of rows/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('rejects rows referencing unknown widget IDs', () => {
+    const state = makeState();
+    const result = executeToolOnState('set_widget_layout', { rows: [['ghost']] }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/unknown widget id/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
   });
 });
 
@@ -440,6 +462,9 @@ describe('executeToolOnState: set_widget_width', () => {
     };
     expect(mut.args.widgetId).toBe('widget-1');
     expect(mut.args.columns).toBe(6);
+    // Stamped with the active page so the span lands on the right page.
+    const stamped = result.mutation as { args: { pageId?: string } };
+    expect(stamped.args.pageId).toBe('page-1');
   });
 
   it('returns an error when there is no active page (no undefined spread)', () => {
@@ -583,6 +608,84 @@ describe('executeToolOnState: apply_bulk_update', () => {
     const state = makeState();
     const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-1'] }, state);
     expect(result.nextState.widgets['widget-1']).toBeUndefined();
+  });
+
+  it('skips a removal for a widget that lives on another page (no dangling reference)', () => {
+    const base = makeState();
+    // widget-2 lives on page-2, but the active page is page-1.
+    const state: StudioState = {
+      ...base,
+      pages: {
+        ...base.pages,
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+      },
+      widgets: {
+        ...base.widgets,
+        'widget-2': { id: 'widget-2', kind: 'chart', title: 'Other', config: { chartType: 'bar' } },
+      },
+    };
+    const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-2'] }, state);
+    const out = parseOutput(result.output);
+    expect(out.skipped).toEqual(['remove widget-2: not on the active page']);
+    // widget-2 must survive on page-2 — it was not deleted from `widgets`.
+    expect(result.nextState.widgets['widget-2']).toBeDefined();
+    expect(result.nextState.pages['page-2'].widgetRows).toEqual([['widget-2']]);
+  });
+
+  it('builds additions via the shared helper: layered config + a unique id', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetAdditions: [{ kind: 'chart', title: 'A', config: { chartType: 'line' } }] },
+      state,
+    );
+    const addedIds = Object.keys(result.nextState.widgets).filter((id) => id !== 'widget-1');
+    expect(addedIds).toHaveLength(1);
+    const added = result.nextState.widgets[addedIds[0]];
+    expect(added.id).toMatch(/^widget-/);
+    // Factory default (chartType) is overlaid by the model-supplied config.
+    expect(added.config.chartType).toBe('line');
+  });
+});
+
+// ── rename_thread ─────────────────────────────────────────────────────────────
+
+describe('executeToolOnState: rename_thread', () => {
+  it('trims the name to 40 chars and stamps a server-side updatedAt', () => {
+    const state = makeState();
+    const longName = 'x'.repeat(60);
+    const result = executeToolOnState('rename_thread', { name: longName }, state);
+    const mut = result.mutation as {
+      type: string;
+      args: { name: string; updatedAt: string; threadId?: string };
+    };
+    expect(mut.type).toBe('renameAIThread');
+    expect(mut.args.name).toHaveLength(40);
+    expect(typeof mut.args.updatedAt).toBe('string');
+  });
+
+  it('stamps the threadId from the request state so the rename targets that thread', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      ai: {
+        activeThreadId: 't-req',
+        threads: [
+          { id: 't-req', name: 'Old', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+        ],
+      },
+    };
+    const result = executeToolOnState('rename_thread', { name: 'New name' }, state);
+    const mut = result.mutation as { args: { threadId?: string } };
+    expect(mut.args.threadId).toBe('t-req');
+  });
+
+  it('rejects a non-string name', () => {
+    const state = makeState();
+    const result = executeToolOnState('rename_thread', { name: 123 }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/non-empty name/i);
+    expect(result.mutation).toBeUndefined();
   });
 });
 

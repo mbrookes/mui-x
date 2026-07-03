@@ -152,7 +152,7 @@ export const STUDIO_AI_TOOLS = [
       name: 'set_widget_width',
       description:
         'Sets the column-span (width) of a specific widget on the active page. ' +
-        'The canvas uses a 12-column grid; valid values are 3–12. ' +
+        'The canvas uses a 24-column grid; valid values are 6–24. ' +
         'Set `columns` to null to reset the widget to auto-fill (equal share of row width). ' +
         'Has no effect on a widget that is the only widget in its row (it always fills 100%). ' +
         'Use set_widget_layout first to put multiple widgets on the same row if needed.',

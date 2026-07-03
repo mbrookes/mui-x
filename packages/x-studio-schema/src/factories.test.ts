@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultWidget, createDefaultStudioState } from './factories';
+import {
+  createDefaultWidget,
+  createDefaultStudioState,
+  createWidgetId,
+  normalizeChartSeries,
+} from './factories';
 
 // The per-kind default title/config below is transcribed directly from the current
 // `BUILTIN_WIDGET_DEFAULTS` table in `factories.ts` (it is a file-private const, not
@@ -70,6 +75,46 @@ describe('createDefaultWidget', () => {
     const widgetB = createDefaultWidget('grid');
     expect(widgetA.config.columns).toEqual(widgetB.config.columns);
     expect(widgetA.config.columns).not.toBe(widgetB.config.columns);
+  });
+
+  it('mints unique ids across a tight loop (would flake under the old Date.now()-only scheme)', () => {
+    const ids = Array.from({ length: 1000 }, () => createDefaultWidget('chart').id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('createWidgetId', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const ids = Array.from({ length: 1000 }, () => createWidgetId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids with the `widget-` prefix', () => {
+    expect(createWidgetId()).toMatch(/^widget-/);
+  });
+});
+
+describe('normalizeChartSeries', () => {
+  it('leaves a series that already uses the canonical `type` unchanged (same reference)', () => {
+    const series = { fieldId: 'revenue', type: 'line' as const };
+    expect(normalizeChartSeries(series)).toBe(series);
+  });
+
+  it('promotes the deprecated `seriesType` alias to canonical `type` and drops the alias', () => {
+    const result = normalizeChartSeries({ fieldId: 'revenue', seriesType: 'line' });
+    expect(result.type).toBe('line');
+    expect('seriesType' in result).toBe(false);
+  });
+
+  it('prefers `type` over `seriesType` when both are present', () => {
+    const result = normalizeChartSeries({ fieldId: 'revenue', seriesType: 'bar', type: 'line' });
+    expect(result.type).toBe('line');
+    expect('seriesType' in result).toBe(false);
+  });
+
+  it('leaves a series carrying neither spelling unchanged (same reference)', () => {
+    const series = { fieldId: 'revenue' };
+    expect(normalizeChartSeries(series)).toBe(series);
   });
 });
 

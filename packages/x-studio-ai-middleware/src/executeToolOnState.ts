@@ -29,6 +29,37 @@ export interface ToolExecutionResult {
 }
 
 /**
+ * Builds a `StudioWidget` from AI-tool arguments, layering config in one canonical
+ * order — factory defaults → custom-widget `defaultConfig` → model-supplied config —
+ * and minting the id through the shared `createDefaultWidget` (its
+ * `createWidgetId` scheme is collision-resistant). Used by both `add_widget` and
+ * `apply_bulk_update`'s additions so the two paths cannot drift (they were
+ * previously character-for-character duplicates, including a hand-copied id scheme).
+ */
+function buildWidgetFromArgs(
+  args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
+  customWidgets?: StudioCustomWidgetDef[],
+): StudioWidget {
+  const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
+  const title = String(args.title ?? '');
+  const sourceId = args.sourceId ? String(args.sourceId) : undefined;
+  const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+  const customDef = customWidgets?.find((d) => d.kind === kind);
+  const base = createDefaultWidget(kind);
+  const config = {
+    ...base.config,
+    ...(customDef?.defaultConfig ?? {}),
+    ...aiConfig,
+  } as StudioWidget['config'];
+  return {
+    ...base,
+    title,
+    sourceId: sourceId ?? base.sourceId,
+    config,
+  };
+}
+
+/**
  * Execute a single built-in tool against the provided `StudioState`.
  *
  * Returns the tool output string plus an optional state mutation (for write tools).
@@ -99,11 +130,6 @@ export function executeToolOnState(
     }
 
     case 'add_widget': {
-      const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
-      const title = String(args.title ?? '');
-      const sourceId = args.sourceId ? String(args.sourceId) : undefined;
-      const aiConfig = (args.config ?? {}) as StudioWidget['config'];
-
       // Explicitly resolve (and validate) the target page server-side so the
       // widget lands on the same page the model is told about, regardless of
       // where the client's navigation happens to be. Error rather than spread
@@ -118,24 +144,10 @@ export function executeToolOnState(
         };
       }
 
-      const customDef = customWidgets?.find((d) => d.kind === kind);
-      const base = createDefaultWidget(kind);
-      const config = {
-        ...base.config,
-        ...(customDef?.defaultConfig ?? {}),
-        ...aiConfig,
-      } as StudioWidget['config'];
-      const widget: StudioWidget = {
-        ...base,
-        id: `widget-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title,
-        sourceId: sourceId ?? base.sourceId,
-        config,
-      };
-
+      const widget = buildWidgetFromArgs(args, customWidgets);
       const mutation: StateMutation = { type: 'addWidget', args: { widget, pageId } };
       return {
-        output: JSON.stringify({ success: true, widgetId: widget.id, title }),
+        output: JSON.stringify({ success: true, widgetId: widget.id, title: widget.title }),
         mutation,
         nextState: applyMutation(state, mutation),
       };
@@ -195,18 +207,47 @@ export function executeToolOnState(
     }
 
     case 'set_widget_layout': {
-      const rows = args.rows as string[][];
-      if (!Array.isArray(rows)) {
+      const rawRows = args.rows;
+      // Validate the SHAPE, not just `Array.isArray`: a flat `["w1","w2"]` (the
+      // exact mistake the system prompt warns about) is a valid array but corrupts
+      // `widgetRows` — every downstream `row.map`/`row.filter` then throws on a
+      // string, killing the next turn's `buildDashboardState`.
+      if (
+        !Array.isArray(rawRows) ||
+        !rawRows.every((row) => Array.isArray(row) && row.every((id) => typeof id === 'string'))
+      ) {
         return {
-          output: JSON.stringify({ error: 'set_widget_layout requires a "rows" array.' }),
+          output: JSON.stringify({
+            error:
+              'set_widget_layout requires "rows" to be an array of rows, where each row is an ' +
+              'array of widget-ID strings (e.g. [["w1","w2"],["w3"]]).',
+          }),
           nextState: state,
         };
       }
+      const rows = rawRows as string[][];
       const activePageId = state.dashboard.activePageId;
       if (!state.pages[activePageId]) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      const mutation: StateMutation = { type: 'setWidgetLayout', args: { rows } };
+      // Validate MEMBERSHIP: every id must be a known widget (widgets added earlier
+      // this turn are already threaded into `state.widgets`). Unknown ids would
+      // otherwise be stored as phantom layout entries (blank cards).
+      const unknownIds = [...new Set(rows.flat())].filter((id) => !state.widgets[id]);
+      if (unknownIds.length > 0) {
+        return {
+          output: JSON.stringify({
+            error:
+              `set_widget_layout received unknown widget IDs: ${unknownIds.join(', ')}. ` +
+              'Call get_dashboard_state to get the current widget IDs.',
+          }),
+          nextState: state,
+        };
+      }
+      const mutation: StateMutation = {
+        type: 'setWidgetLayout',
+        args: { rows, pageId: activePageId },
+      };
       return {
         output: JSON.stringify({ success: true, rows }),
         mutation,
@@ -232,7 +273,7 @@ export function executeToolOnState(
       ];
       const mutation: StateMutation = {
         type: 'setWidgetColSpan',
-        args: { widgetId, columns, rowWidgetIds },
+        args: { widgetId, columns, rowWidgetIds, pageId: activePageId },
       };
       return {
         output: JSON.stringify({ success: true, widgetId, columns }),
@@ -365,10 +406,20 @@ export function executeToolOnState(
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
 
       // 1. Removals
+      // `pageWidgets` is the GLOBAL widget record, but this handler only rewrites
+      // the ACTIVE page's `widgetRows`. Removing a widget that lives on another
+      // page would delete it from `widgets` while leaving a dangling id in that
+      // other page's rows (blank card). Only remove widgets that are on the active
+      // page; report the rest as `skipped`, mirroring the not-found handling.
+      const activePageWidgetIds = new Set(activePage.widgetRows.flat());
       const removals = (args.widgetRemovals as string[] | undefined) ?? [];
       for (const wid of removals) {
         if (!pageWidgets[wid]) {
           skipped.push(`remove ${wid}: not found`);
+          continue;
+        }
+        if (!activePageWidgetIds.has(wid)) {
+          skipped.push(`remove ${wid}: not on the active page`);
           continue;
         }
         delete pageWidgets[wid];
@@ -390,26 +441,9 @@ export function executeToolOnState(
             }>
           | undefined) ?? [];
       for (const addition of additions) {
-        const kind = String(addition.kind ?? 'chart') as StudioWidget['kind'];
-        const title = String(addition.title ?? '');
-        const sourceId = addition.sourceId ? String(addition.sourceId) : undefined;
-        const aiConfig = (addition.config ?? {}) as StudioWidget['config'];
-        const customDef = customWidgets?.find((d) => d.kind === kind);
-        const base = createDefaultWidget(kind);
-        const config = {
-          ...base.config,
-          ...(customDef?.defaultConfig ?? {}),
-          ...aiConfig,
-        } as StudioWidget['config'];
-        const widget: StudioWidget = {
-          ...base,
-          id: `widget-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          title,
-          sourceId: sourceId ?? base.sourceId,
-          config,
-        };
+        const widget = buildWidgetFromArgs(addition, customWidgets);
         pageWidgets[widget.id] = widget;
-        addedTitleToId[title] = widget.id;
+        addedTitleToId[widget.title] = widget.id;
         widgetRows.push([widget.id]);
         applied.added += 1;
       }
@@ -455,9 +489,12 @@ export function executeToolOnState(
       }
 
       // 5. Column spans
+      // Accept spans in the 24-column unit system the canvas renders (matches
+      // `canvasGridConstants.GRID_COLS` = 24 / `MIN_SPAN` = 6 in `@mui/x-studio`
+      // and the `setWidgetColSpan` reducer's clamp).
       const colSpanPatch = (args.colSpans as Record<string, number> | undefined) ?? {};
       for (const [wid, span] of Object.entries(colSpanPatch)) {
-        if (typeof span === 'number' && span >= 3 && span <= 12) {
+        if (typeof span === 'number' && span >= 6 && span <= 24) {
           colSpans[wid] = span;
           applied.colSpans += 1;
         }
@@ -528,9 +565,18 @@ export function executeToolOnState(
         };
       }
       const trimmed = name.trim().slice(0, 40);
+      // Stamp the thread the request belongs to (the active thread in the request's
+      // state snapshot) so the reducer renames THAT thread on the client, even if
+      // the user has since switched threads while the model was running. Falls back
+      // to the applying side's active thread for legacy/omitted payloads.
+      const threadId = state.ai?.activeThreadId;
       const mutation: StateMutation = {
         type: 'renameAIThread',
-        args: { name: trimmed, updatedAt: new Date().toISOString() },
+        args: {
+          name: trimmed,
+          updatedAt: new Date().toISOString(),
+          ...(threadId ? { threadId } : {}),
+        },
       };
       return {
         output: JSON.stringify({ success: true, name: trimmed }),

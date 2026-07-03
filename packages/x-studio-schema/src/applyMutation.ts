@@ -19,9 +19,31 @@ import type { StudioState, StudioFilterState } from './stateTypes';
 import type { StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 
-/** Clamp a widget column span to the supported 3–12 range. */
+/**
+ * Widget column-span unit system. This MUST match `canvasGridConstants.ts`
+ * (`GRID_COLS` / `MIN_SPAN`) in `@mui/x-studio`, which is what `StudioCanvas`
+ * actually renders and what the drag-resize handle
+ * (`StudioController.setAdjacentWidgetColSpans`) commits. This package is
+ * dependency-free (no React), so it cannot import that module — the constants are
+ * mirrored here, and the round-trip test pins the two systems to the same values.
+ *
+ * The AI `set_widget_width` tool flows through the `setWidgetColSpan` handler
+ * below, so it must clamp/rebalance in the SAME 24-column unit system the canvas
+ * uses; otherwise a user drag-resize (24-col) and an AI resize (formerly 12-col)
+ * would corrupt each other's layout.
+ */
+const GRID_COLS = 24;
+/** Minimum column span any widget can be clamped to (~1/4 of the full row width). */
+const MIN_SPAN = Math.round(GRID_COLS / 4);
+
+/** Clamp a widget column span to the supported `MIN_SPAN`–`GRID_COLS` range. */
 function clampSpan(span: number): number {
-  return Math.max(3, Math.min(12, Math.round(span)));
+  // Guard non-finite input (a malformed wire payload can carry `NaN`, which would
+  // otherwise survive clamping and serialize to `null` via JSON).
+  if (!Number.isFinite(span)) {
+    return MIN_SPAN;
+  }
+  return Math.max(MIN_SPAN, Math.min(GRID_COLS, Math.round(span)));
 }
 
 /**
@@ -44,6 +66,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addPage: {
     apply: (state, args) => {
       const { id, title } = args;
+      // Idempotent: re-delivery of an addPage event for an existing id must not
+      // reset that page's `widgetRows: []` (which would orphan its widgets). Only
+      // re-activate it.
+      if (state.pages[id]) {
+        return state.dashboard.activePageId === id
+          ? state
+          : { ...state, dashboard: { ...state.dashboard, activePageId: id } };
+      }
       return {
         ...state,
         pages: {
@@ -115,9 +145,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       // `changes` is a shallow merge onto the widget (may itself carry a full
       // `config` object, which replaces the partial-merge result above — this
-      // matches the historical client dispatch order).
-      if (changes && Object.keys(changes).length > 0) {
-        updated = { ...updated, ...changes };
+      // matches the historical client dispatch order). Keys whose value is
+      // `undefined` are skipped so an in-process caller cannot void a required
+      // field (e.g. `changes: { title: undefined }`) via the shallow merge.
+      if (changes) {
+        const definedChanges: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(changes)) {
+          if (value !== undefined) {
+            definedChanges[key] = value;
+          }
+        }
+        if (Object.keys(definedChanges).length > 0) {
+          updated = { ...updated, ...(definedChanges as Partial<StudioWidget>) };
+        }
       }
       return {
         ...state,
@@ -136,25 +176,43 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const nextWidgets = { ...state.widgets };
       delete nextWidgets[widgetId];
 
-      // Remove the widget from every page's rows (drop now-empty rows).
+      // Remove the widget from every page's rows (drop now-empty rows), and clean
+      // up column spans: drop the removed widget's own span, and clear the span of
+      // any widget left as the sole occupant of its row (a lone widget always fills
+      // the row, so a leftover span would render it half-width). Mirrors the
+      // client's `StudioController.removeWidget` so AI-driven and user-driven
+      // removals produce identical layouts.
       const nextPages = Object.fromEntries(
-        Object.entries(state.pages).map(([pid, page]) => [
-          pid,
-          {
-            ...page,
-            widgetRows: (page.widgetRows ?? [])
-              .map((row) => row.filter((id) => id !== widgetId))
-              .filter((row) => row.length > 0),
-          },
-        ]),
+        Object.entries(state.pages).map(([pid, page]) => {
+          const newRows = (page.widgetRows ?? []).map((row) => row.filter((id) => id !== widgetId));
+          const nonEmptyRows = newRows.filter((row) => row.length > 0);
+
+          const oldSpans = page.widgetColSpans;
+          let nextSpans: Record<string, number> | undefined = oldSpans;
+          if (oldSpans && (widgetId in oldSpans || nonEmptyRows.some((row) => row.length === 1))) {
+            const { [widgetId]: removedSpan, ...rest } = oldSpans;
+            void removedSpan;
+            for (const row of nonEmptyRows) {
+              if (row.length === 1 && rest[row[0]] != null) {
+                delete rest[row[0]];
+              }
+            }
+            nextSpans = Object.keys(rest).length > 0 ? rest : undefined;
+          }
+
+          return [pid, { ...page, widgetRows: nonEmptyRows, widgetColSpans: nextSpans }];
+        }),
       );
 
-      // Drop filters that only made sense while the widget existed
-      // (widget-scoped conditions and interactive cross-filters it emitted).
+      // Drop filters that only made sense while the widget existed: widget-scoped
+      // conditions, the interactive filters it emitted, and the cross-filters it
+      // emitted (a removed source widget would otherwise leave the whole page
+      // filtered with no way to clear it — its clearing affordance is gone).
       const nextFilters = state.filters.filter(
         (f: StudioFilterState) =>
           !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId) &&
-          !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId),
+          !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
+          !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId),
       );
 
       return {
@@ -169,16 +227,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setWidgetLayout: {
     apply: (state, args) => {
-      const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
-      if (!activePage) {
+      // Explicit, server-chosen target page — falls back to the active page for
+      // legacy payloads, mirroring `addWidget.pageId`.
+      const targetPageId = args.pageId ?? state.dashboard.activePageId;
+      const targetPage = state.pages[targetPageId];
+      if (!targetPage) {
         return state;
       }
       return {
         ...state,
         pages: {
           ...state.pages,
-          [activePageId]: { ...activePage, widgetRows: args.rows },
+          [targetPageId]: { ...targetPage, widgetRows: args.rows },
         },
       };
     },
@@ -188,13 +248,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setWidgetColSpan: {
     apply: (state, args) => {
       const { widgetId, columns, rowWidgetIds } = args;
-      const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
-      if (!activePage) {
+      // Explicit, server-chosen target page — falls back to the active page for
+      // legacy payloads, mirroring `addWidget.pageId`.
+      const targetPageId = args.pageId ?? state.dashboard.activePageId;
+      const targetPage = state.pages[targetPageId];
+      if (!targetPage) {
         return state;
       }
       const clamped = columns == null ? null : clampSpan(columns);
-      const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
+      const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
 
       if (clamped == null) {
         delete newSpans[widgetId];
@@ -202,10 +264,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         newSpans[widgetId] = clamped;
         const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
         const otherTotal = otherIds.reduce((sum, id) => sum + (newSpans[id] ?? 0), 0);
-        if (clamped + otherTotal > 12) {
+        if (clamped + otherTotal > GRID_COLS) {
           if (otherIds.length === 1) {
-            const remaining = 12 - clamped;
-            if (remaining >= 3) {
+            const remaining = GRID_COLS - clamped;
+            if (remaining >= MIN_SPAN) {
               newSpans[otherIds[0]] = remaining;
             } else {
               delete newSpans[otherIds[0]];
@@ -222,8 +284,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ...state,
         pages: {
           ...state.pages,
-          [activePageId]: {
-            ...activePage,
+          [targetPageId]: {
+            ...targetPage,
             widgetColSpans: Object.keys(newSpans).length > 0 ? newSpans : undefined,
           },
         },
@@ -266,9 +328,26 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
       );
 
+      // Drop filters that no longer have a home: those scoped directly to the page
+      // (they carry `pageId`), plus widget/interactive/cross-filter scopes that
+      // target a widget that lived on the removed page. A `{ kind: 'widget' }`
+      // scope carries no `pageId`, so without this its filter would survive as a
+      // permanent orphan (its anchor widget is gone, so no UI can ever remove it).
       const nextFilters = state.filters.filter((f: StudioFilterState) => {
         const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        return p !== pageId;
+        if (p === pageId) {
+          return false;
+        }
+        if (f.scope.kind === 'widget' && widgetIdsOnPage.has(f.scope.widgetId)) {
+          return false;
+        }
+        if (
+          (f.scope.kind === 'interactive' || f.scope.kind === 'cross-filter') &&
+          widgetIdsOnPage.has(f.scope.sourceWidgetId)
+        ) {
+          return false;
+        }
+        return true;
       });
 
       const remainingPageIds = Object.keys(nextPages);
@@ -304,6 +383,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   addFilter: {
     apply: (state, args) => {
+      // Idempotent: re-delivery of the same addFilter SSE event must not append a
+      // duplicate (unlike a fresh filter, the id already exists).
+      if (state.filters.some((f) => f.id === args.filter.id)) {
+        return state;
+      }
       // Applied verbatim — the filter already carries its target scope/page
       // (chosen server-side), so it is NOT re-stamped with the applying side's
       // active page (that would reintroduce a page-targeting divergence).
@@ -347,15 +431,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   renameAIThread: {
     apply: (state, args) => {
-      const activeThreadId = state.ai?.activeThreadId;
-      if (!state.ai || !activeThreadId) {
+      if (!state.ai) {
+        return state;
+      }
+      // Explicit, server-stamped target thread — falls back to the applying side's
+      // active thread only for legacy payloads. Targeting an explicit id keeps the
+      // rename on the thread the request belongs to even if the user switched
+      // threads while the model was running.
+      const targetThreadId = args.threadId ?? state.ai.activeThreadId;
+      if (!targetThreadId) {
         return state;
       }
       // `updatedAt` is stamped once by the producer (server-side) and carried in
       // the mutation, so the server-computed and client-applied results agree.
       // The reducer must never call `new Date()` itself (would be non-deterministic).
       const updatedThreads = (state.ai.threads ?? []).map((t) =>
-        t.id === activeThreadId ? { ...t, name: args.name, updatedAt: args.updatedAt } : t,
+        t.id === targetThreadId ? { ...t, name: args.name, updatedAt: args.updatedAt } : t,
       );
       return {
         ...state,

@@ -483,31 +483,6 @@ export class StudioController {
   };
 
   /**
-   * Sets an explicit column span (3–12) for a widget on the active page.
-   * Pass `null` to remove the explicit span and revert to auto-fill (`flex: 1`).
-   */
-  setWidgetColSpan = (widgetId: string, span: number | null): void => {
-    const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    if (!activePage) {
-      return;
-    }
-    const { [widgetId]: removedWidgetSpan, ...restSpans } = activePage.widgetColSpans ?? {};
-    void removedWidgetSpan;
-    const newSpans =
-      span == null
-        ? restSpans
-        : { ...restSpans, [widgetId]: Math.max(3, Math.min(12, Math.round(span))) };
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: { ...activePage, widgetColSpans: newSpans },
-      },
-    });
-  };
-
-  /**
    * Sets the responsive stack breakpoint for the active page.
    * When the canvas width drops below this value in view mode, all widgets stack to full width.
    * Pass `undefined` to clear the per-page override and inherit the global `stackBreakpoint` prop.
@@ -524,57 +499,6 @@ export class StudioController {
       pages: {
         ...state.pages,
         [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
-      },
-    });
-  };
-
-  /**
-   * Sets the column span for `widgetId` and, if the row's total would exceed 12,
-   * adjusts sibling spans to keep the row valid:
-   * - 2-widget row: sibling is shrunk to the remaining columns (12 - span)
-   * - 3+ widget row: siblings' explicit spans are cleared so they share remaining space via flex:1
-   */
-  setWidgetColSpanInRow = (widgetId: string, span: number | null, rowWidgetIds: string[]): void => {
-    const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    if (!activePage) {
-      return;
-    }
-    const clamped = span == null ? null : Math.max(3, Math.min(12, Math.round(span)));
-    const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
-
-    if (clamped == null) {
-      delete newSpans[widgetId];
-    } else {
-      newSpans[widgetId] = clamped;
-      const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
-      const otherTotal = otherIds.reduce((sum, id) => sum + (newSpans[id] ?? 0), 0);
-      if (clamped + otherTotal > 12) {
-        if (otherIds.length === 1) {
-          // Shrink the sibling to the remaining space
-          const remaining = 12 - clamped;
-          if (remaining >= 3) {
-            newSpans[otherIds[0]] = remaining;
-          } else {
-            delete newSpans[otherIds[0]];
-          }
-        } else {
-          // Clear all siblings — they share remaining space via flex:1
-          for (const id of otherIds) {
-            delete newSpans[id];
-          }
-        }
-      }
-    }
-
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetColSpans: Object.keys(newSpans).length > 0 ? newSpans : undefined,
-        },
       },
     });
   };
@@ -620,53 +544,19 @@ export class StudioController {
 
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    const { [widgetId]: removedWidget, ...remainingWidgets } = state.widgets;
-    void removedWidget;
-    const widgetRows = activePage.widgetRows || [];
-    // Remove widgetId from all rows, and filter out empty rows
-    const newWidgetRows = widgetRows.flatMap((row: string[]) => {
-      const r = row.filter((id: string) => id !== widgetId);
-      return r.length > 0 ? [r] : [];
-    });
-    // Clean up the removed widget's span, and also clear spans for any widgets that are
-    // now the sole occupant of their row (orphaned singleton — span no longer meaningful).
-    const { [widgetId]: removedSpan, ...remainingSpans } = activePage.widgetColSpans ?? {};
-    void removedSpan;
-    for (const row of newWidgetRows) {
-      if (row.length === 1 && remainingSpans[row[0]] != null) {
-        delete remainingSpans[row[0]];
-      }
+    if (!state.widgets[widgetId]) {
+      return;
     }
-    this.commitState(
-      {
-        ...state,
-        widgets: remainingWidgets,
-        pages: {
-          ...state.pages,
-          [activePage.id]: {
-            ...activePage,
-            widgetRows: newWidgetRows,
-            widgetColSpans: Object.keys(remainingSpans).length > 0 ? remainingSpans : undefined,
-          },
-        },
-        filters: (() => {
-          const nextFilters = state.filters.filter(
-            (f: StudioFilterState) =>
-              !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
-              !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
-          );
-          // Preserve reference stability when no filters were removed (avoids re-renders)
-          return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
-        })(),
-        shell: {
-          ...state.shell,
-          selectedWidgetId:
-            state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
-        },
-      },
-      { label: `removeWidget:${widgetId}` },
-    );
+    // Delegate the full state transform to the shared reducer — the single
+    // implementation that sweeps every page's rows, cleans column spans (removed
+    // widget + orphaned singletons), and drops the widget's widget/interactive/
+    // cross-filter filters. Layer only the client-only shell-selection reset on top.
+    const nextState = applyMutation(state, { type: 'removeWidget', args: { widgetId } });
+    const withShell =
+      state.shell.selectedWidgetId === widgetId
+        ? { ...nextState, shell: { ...nextState.shell, selectedWidgetId: null } }
+        : nextState;
+    this.commitState(withShell, { label: `removeWidget:${widgetId}` });
   };
 
   updateWidget = (widgetId: string, changes: Partial<Omit<StudioWidget, 'id'>>) => {
@@ -908,6 +798,45 @@ export class StudioController {
   };
 
   /**
+   * Builds one managed date-range `StudioFilterState`. Shared by the three
+   * date-range setters below, which previously re-implemented this custom-vs-preset
+   * value logic near-identically. A `'custom'` preset carries the explicit
+   * `{ from, to }` in `value`; every other preset stores `value: null` and is
+   * resolved fresh at query time by `resolveDateRangePreset` (regardless of scope),
+   * so the stored filter never holds stale absolute dates. Returns `null` when a
+   * `'custom'` preset has neither boundary — the caller then clears instead.
+   */
+  private buildDateRangeFilter(args: {
+    id: string;
+    field: string;
+    fieldType: StudioDataField['type'];
+    sourceId: string;
+    preset: StudioDateRangePreset;
+    scope: StudioFilterState['scope'];
+    customFrom?: string;
+    customTo?: string;
+  }): StudioFilterState | null {
+    let value: { from: string; to: string } | null = null;
+    if (args.preset === 'custom') {
+      if (!args.customFrom && !args.customTo) {
+        return null;
+      }
+      value = { from: args.customFrom ?? '', to: args.customTo ?? '' };
+    }
+    return {
+      id: args.id,
+      dateRangePreset: args.preset,
+      field: args.field,
+      fieldType: args.fieldType,
+      filterSourceId: args.sourceId,
+      filterMode: 'condition',
+      operator: 'between',
+      value,
+      scope: args.scope,
+    };
+  }
+
+  /**
    * Sets or clears the dashboard-level date range filter for a page.
    *
    * - Pass `null` for `preset` (or `fieldId`) to remove the date range filter.
@@ -933,36 +862,24 @@ export class StudioController {
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
-    if (!preset || !fieldId || !sourceId) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
+    const newFilter =
+      preset && fieldId && sourceId
+        ? this.buildDateRangeFilter({
+            id: `dashboard-date-range-${pageId}`,
+            field: fieldId,
+            fieldType: fieldType ?? 'date',
+            sourceId,
+            preset,
+            scope: { kind: 'dashboard-date-range', sourceId, pageId },
+            customFrom,
+            customTo,
+          })
+        : null;
 
-    let value: { from: string; to: string } | null = null;
-
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
-    // dates at query time so the stored filter never holds stale absolute dates.
-
-    const newFilter: import('../models').StudioFilterState = {
-      id: `dashboard-date-range-${pageId}`,
-      dateRangePreset: preset,
-      field: fieldId,
-      fieldType: fieldType ?? 'date',
-      filterSourceId: sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: { kind: 'dashboard-date-range', sourceId, pageId },
-    };
-
-    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+    this.commitState({
+      ...state,
+      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
+    });
   };
 
   /**
@@ -984,33 +901,20 @@ export class StudioController {
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
-    if (fields.length === 0) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
-
-    let value: { from: string; to: string } | null = null;
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-
-    const newFilters: import('../models').StudioFilterState[] = fields.map(
-      ({ fieldId, sourceId, fieldType }) => ({
-        id: `dashboard-date-range-${pageId}-${sourceId}`,
-        dateRangePreset: preset,
-        field: fieldId,
-        fieldType,
-        filterSourceId: sourceId,
-        filterMode: 'condition' as const,
-        operator: 'between' as const,
-        value,
-        scope: { kind: 'dashboard-date-range' as const, sourceId, pageId },
-      }),
-    );
+    const newFilters = fields
+      .map(({ fieldId, sourceId, fieldType }) =>
+        this.buildDateRangeFilter({
+          id: `dashboard-date-range-${pageId}-${sourceId}`,
+          field: fieldId,
+          fieldType,
+          sourceId,
+          preset,
+          scope: { kind: 'dashboard-date-range', sourceId, pageId },
+          customFrom,
+          customTo,
+        }),
+      )
+      .filter((f): f is StudioFilterState => f !== null);
 
     this.commitState({ ...state, filters: [...withoutExisting, ...newFilters] });
   };
@@ -1039,36 +943,24 @@ export class StudioController {
       (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
     );
 
-    if (!preset || !fieldId || !sourceId) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
+    const newFilter =
+      preset && fieldId && sourceId
+        ? this.buildDateRangeFilter({
+            id: `widget-date-range-${widgetId}`,
+            field: fieldId,
+            fieldType: fieldType ?? 'date',
+            sourceId,
+            preset,
+            scope: { kind: 'widget', widgetId },
+            customFrom,
+            customTo,
+          })
+        : null;
 
-    let value: { from: string; to: string } | null = null;
-
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
-    // dates at query time so the stored filter never holds stale absolute dates.
-
-    const newFilter: import('../models').StudioFilterState = {
-      id: `widget-date-range-${widgetId}`,
-      dateRangePreset: preset,
-      field: fieldId,
-      fieldType: fieldType ?? 'date',
-      filterSourceId: sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: { kind: 'widget', widgetId },
-    };
-
-    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+    this.commitState({
+      ...state,
+      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
+    });
   };
 
   applyInteractiveFilter = (
@@ -1341,42 +1233,14 @@ export class StudioController {
    */
   removePage = (pageId: string) => {
     const state = this.store.state;
-    const page = state.pages[pageId];
-    if (!page) {
+    if (!state.pages[pageId]) {
       return;
     }
-
-    // Collect widget IDs that are only on this page
-    const widgetIdsOnPage = new Set((page.widgetRows ?? []).flat());
-
-    /* eslint-disable-next-line @typescript-eslint/naming-convention */
-    const { [pageId]: _removed, ...remainingPages } = state.pages;
-
-    // Remove widgets that belong to this page
-    const remainingWidgets = Object.fromEntries(
-      Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
-    );
-
-    // Remove filters scoped to this page
-    const remainingFilters = state.filters.filter((f: StudioFilterState) => {
-      const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
-      return p !== pageId;
-    });
-
-    const pageIds = Object.keys(remainingPages);
-    const nextActivePageId =
-      state.dashboard.activePageId === pageId ? (pageIds[0] ?? '') : state.dashboard.activePageId;
-
-    this.commitState(
-      {
-        ...state,
-        pages: remainingPages,
-        widgets: remainingWidgets,
-        filters: remainingFilters,
-        dashboard: { ...state.dashboard, activePageId: nextActivePageId },
-      },
-      { label: `removePage:${pageId}` },
-    );
+    // Delegate the full state transform to the shared reducer — the single
+    // implementation that drops the page and its widgets, cleans page-scoped AND
+    // widget-scoped (orphaned) filters, and reassigns `activePageId`. This is a
+    // pure transform with no client-only effect, so it can delegate wholesale.
+    this.applyExternalMutation({ type: 'removePage', args: { pageId } }, `removePage:${pageId}`);
   };
 
   /**

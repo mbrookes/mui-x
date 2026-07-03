@@ -277,6 +277,14 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filterRankTop: 'Premiers',
   filterRankBottom: 'Derniers',
 
+  // Filter summary
+  filterSummaryAnyValue: 'valeur quelconque',
+  filterSummaryIsOneOf: 'est l’un de :',
+  filterSummaryIsNot: 'n’est pas :',
+  filterSummaryAndMore: (count) => `et ${count} de plus`,
+  filterSummaryFrom: (value) => `depuis ${value}`,
+  filterSummaryUntil: (value) => `jusqu’à ${value}`,
+
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'Est égal à',
   filterOperator_string_not_equals: "N'est pas égal à",

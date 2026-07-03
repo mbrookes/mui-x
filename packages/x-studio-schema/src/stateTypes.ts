@@ -5,9 +5,13 @@ import type {
   StudioCrossFilterMode,
 } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
-import type { StudioDataSource, StudioDataField } from './dataTypes';
-import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
+import type { StudioDataSource, StudioDataField, StudioRelationship } from './dataTypes';
+import type { StudioExpressionField } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
+
+// `createDefaultStudioState` lives in `./factories` (grouped with the other runtime
+// factories). Re-exported here so pre-existing deep imports (`./stateTypes`) keep working.
+export { createDefaultStudioState } from './factories';
 
 /**
  * Typed filter scope — a discriminated union that encodes scope and all
@@ -24,6 +28,21 @@ export type StudioFilterScope =
    *  widgets whose sourceId matches and runs on the given page. */
   | { kind: 'dashboard-date-range'; sourceId: string; pageId: string };
 
+/**
+ * Preset options for the dashboard-level date range bar. Each preset resolves to a
+ * concrete start/end window at evaluation time; `'custom'` uses user-supplied dates.
+ * - `'this_month'` — first day of the current month through today
+ * - `'last_3_months'` — three months ago through today
+ * - `'last_12_months'` — twelve months ago through today
+ * - `'ytd'` — January 1 of the current year through today
+ * - `'this_calendar_year'` — January 1 through December 31 of the current year
+ * - `'last_calendar_year'` — the full previous calendar year
+ * - `'last_2_calendar_years'` — the two full previous calendar years
+ * - `'this_quarter'` — the current calendar quarter
+ * - `'last_quarter'` — the previous calendar quarter
+ * - `'this_and_last_quarter'` — the current and previous calendar quarters
+ * - `'custom'` — user-supplied start/end dates
+ */
 export type StudioDateRangePreset =
   | 'this_month'
   | 'last_3_months'
@@ -146,65 +165,4 @@ export interface StudioState {
    * the first thread on the user's first message.
    */
   ai?: StudioAIState;
-}
-
-const defaultPageId = 'page-1';
-
-export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
-  const baseState: StudioState = {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: {
-      id: 'dashboard-1',
-      title: 'Untitled Dashboard',
-      activePageId: defaultPageId,
-    },
-    pages: {
-      [defaultPageId]: {
-        id: defaultPageId,
-        title: 'Page 1',
-        widgetRows: [], // No widgets by default
-      },
-    },
-    widgets: {},
-    dataSources: {},
-    relationships: [],
-    filters: [],
-    expressionFields: [],
-    shell: {
-      openDrawers: {
-        data: true,
-        compose: true,
-        filters: false,
-      },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-    },
-  };
-
-  return {
-    ...baseState,
-    ...overrides,
-    dashboard: {
-      ...baseState.dashboard,
-      ...overrides?.dashboard,
-    },
-    shell: {
-      ...baseState.shell,
-      ...overrides?.shell,
-      openDrawers: {
-        ...baseState.shell.openDrawers,
-        ...overrides?.shell?.openDrawers,
-      },
-      selectedFieldId: overrides?.shell?.selectedFieldId ?? null,
-      selectedSourceId: overrides?.shell?.selectedSourceId ?? null,
-    },
-    pages: overrides?.pages ?? baseState.pages,
-    widgets: overrides?.widgets ?? baseState.widgets,
-    dataSources: overrides?.dataSources ?? baseState.dataSources,
-    relationships: overrides?.relationships ?? baseState.relationships,
-    filters: overrides?.filters ?? baseState.filters,
-    expressionFields: overrides?.expressionFields ?? baseState.expressionFields,
-  };
 }

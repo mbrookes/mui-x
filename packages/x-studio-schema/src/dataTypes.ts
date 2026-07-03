@@ -215,3 +215,52 @@ export interface StudioDataSource {
    */
   aiDescription?: string;
 }
+
+export interface StudioRelationship {
+  id: string;
+  /**
+   * For `many-to-one` / `one-to-one`: the "many" (or first) side source ID (e.g. `order_items`).
+   * For `many-to-many`: one of the two endpoint source IDs (e.g. `products`).
+   */
+  sourceId: string;
+  /**
+   * For `many-to-one` / `one-to-one`: FK field in `sourceId` joining to `targetId`.
+   * For `many-to-many`: PK/FK field in `sourceId` that the junction table references
+   * (e.g. `id` on products, matched by `junctionSourceField`).
+   */
+  sourceField: string;
+  /**
+   * For `many-to-one` / `one-to-one`: the "one" side source ID (e.g. `customers`).
+   * For `many-to-many`: the other endpoint source ID (e.g. `orders`).
+   */
+  targetId: string;
+  /**
+   * For `many-to-one` / `one-to-one`: PK field in `targetId`.
+   * For `many-to-many`: PK/FK field in `targetId` that the junction table references
+   * (e.g. `id` on orders, matched by `junctionTargetField`).
+   */
+  targetField: string;
+  type: 'many-to-one' | 'one-to-one' | 'many-to-many';
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The ID of the junction (bridge) `StudioDataSource` (e.g. `order_items`).
+   */
+  junctionSourceId?: string;
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The field in the junction source that references `sourceId.sourceField`
+   * (e.g. `product_id` on `order_items`).
+   */
+  junctionSourceField?: string;
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The field in the junction source that references `targetId.targetField`
+   * (e.g. `order_id` on `order_items`).
+   */
+  junctionTargetField?: string;
+  /**
+   * When `true`, this relationship is defined by the data layer (not the user) and
+   * should be displayed read-only — the Edit and Delete controls are hidden.
+   */
+  predefined?: boolean;
+}

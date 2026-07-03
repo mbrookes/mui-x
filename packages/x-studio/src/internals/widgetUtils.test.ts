@@ -349,9 +349,12 @@ describe('createDefaultWidget', () => {
     expect(widget.config.filterWidgetType).toBe('multi-select');
   });
 
-  it('generates an id with a "widget-<kind>-<timestamp>" format', () => {
+  it('generates a collision-resistant "widget-<timestamp>-..." id (not kind-scoped)', () => {
+    // IDs are minted by the shared `createWidgetId()` generator (timestamp + a
+    // monotonic counter + a random suffix) rather than embedding the widget kind,
+    // so two same-kind widgets created in the same millisecond cannot collide.
     const widget = createDefaultWidget('kpi');
-    expect(widget.id).toMatch(/^widget-kpi-\d+$/);
+    expect(widget.id).toMatch(/^widget-\d+-/);
   });
 
   it('custom kind: returns minimal widget with customConfig', () => {

@@ -6,8 +6,33 @@
  * UI-created and AI-created objects get identical defaults.
  */
 import type { BuiltinStudioWidgetKind, StudioWidgetKind } from './baseTypes';
-import type { StudioGridColumn, StudioWidget, StudioWidgetConfig } from './widgetTypes';
+import type {
+  StudioChartSeries,
+  StudioGridColumn,
+  StudioWidget,
+  StudioWidgetConfig,
+} from './widgetTypes';
 import type { StudioState } from './stateTypes';
+
+/**
+ * Mints a collision-resistant widget ID.
+ *
+ * The previous `widget-${kind}-${Date.now()}` scheme was millisecond-resolution,
+ * so two widgets created within the same millisecond received identical IDs — and
+ * a collision silently overwrites a widget via `{ ...state.widgets, [id]: widget }`.
+ * Both consumers (the client UI and the AI middleware) mint IDs through this one
+ * generator, so the anti-collision suffix lives in a single place.
+ *
+ * Combines the timestamp with a per-process monotonic counter (deterministically
+ * unique within one process — no birthday-paradox risk from a short random string
+ * alone under a tight creation loop) plus a random component (so ids minted by
+ * separate processes, e.g. client + server, still don't collide).
+ */
+let widgetIdSequence = 0;
+export function createWidgetId(): string {
+  widgetIdSequence += 1;
+  return `widget-${Date.now()}-${widgetIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
 /**
  * Default title + config per built-in widget kind.
@@ -43,7 +68,7 @@ export function createDefaultWidget(
   kind: StudioWidgetKind,
   overrides?: { title?: string; customConfig?: Record<string, unknown> },
 ): StudioWidget {
-  const id = `widget-${kind}-${Date.now()}`;
+  const id = createWidgetId();
 
   if (!(kind in BUILTIN_WIDGET_DEFAULTS)) {
     // Custom widget kind
@@ -70,6 +95,26 @@ export function createDefaultWidget(
  */
 export function normalizeGridColumn(col: string | StudioGridColumn): StudioGridColumn {
   return typeof col === 'string' ? { fieldId: col } : col;
+}
+
+/**
+ * Normalise a chart series that may carry the render kind under either the
+ * canonical `type` field or the deprecated `seriesType` alias.
+ *
+ * `type` is the canonical spelling (see its JSDoc on `StudioChartSeries`); when
+ * both are present `type` wins. The returned series always expresses the render
+ * kind through `type` and never carries the deprecated `seriesType`, so every
+ * consumer can read a single field instead of guessing precedence. Call this
+ * when reading persisted state (same pattern as `normalizeGridColumn`).
+ */
+export function normalizeChartSeries(series: StudioChartSeries): StudioChartSeries {
+  const resolvedType = series.type ?? series.seriesType;
+  if (series.seriesType === undefined && series.type === resolvedType) {
+    // Already canonical (no alias present); avoid churning object identity.
+    return series;
+  }
+  const { seriesType, ...rest } = series;
+  return resolvedType === undefined ? rest : { ...rest, type: resolvedType };
 }
 
 const defaultPageId = 'page-1';

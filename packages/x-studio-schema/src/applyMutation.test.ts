@@ -91,6 +91,45 @@ describe('applyMutation', () => {
     expect(next.dashboard.activePageId).toBe('');
   });
 
+  it("removePage also drops widget-scoped filters targeting the deleted page's widgets", () => {
+    const state = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
+      },
+      widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      filters: [
+        // Widget-scope filters carry no pageId — without the fix these survive as
+        // permanent orphans once their anchor widget's page is removed.
+        {
+          id: 'fw1',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'widget', widgetId: 'w1' },
+        },
+        {
+          id: 'fx1',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+        },
+        // A widget-scope filter for a widget on the surviving page must be kept.
+        {
+          id: 'fw2',
+          field: 'x',
+          operator: 'equals',
+          value: 2,
+          scope: { kind: 'widget', widgetId: 'w2' },
+        },
+      ],
+    });
+    const next = applyMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    expect(next.filters.map((f) => f.id)).toEqual(['fw2']);
+  });
+
   it('removeWidget drops the widget from every page and its widget-scoped filters', () => {
     const state = createDefaultStudioState({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -131,6 +170,47 @@ describe('applyMutation', () => {
     expect(next.filters).toHaveLength(0);
   });
 
+  it('removeWidget also drops cross-filter-scope filters emitted by the removed widget', () => {
+    const state = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'w2']] } },
+      widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      filters: [
+        {
+          id: 'fx',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+        },
+      ],
+    });
+    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    // The cross-filter emitted by the removed source widget must not survive (its
+    // clearing affordance is gone, so it would filter the page permanently).
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it("removeWidget cleans its own span and collapses a now-sole-occupant sibling's span", () => {
+    const state = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 16, w2: 8 },
+        },
+      },
+      widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+    });
+    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    // w1's span is gone, and w2 (now alone in its row) has its span cleared so it
+    // renders full-width — matching the user-driven removal path.
+    expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
+    expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+  });
+
   it('addFilter appends the filter verbatim (scope not re-stamped)', () => {
     const state = twoPageState('page-1');
     const filter = {
@@ -142,6 +222,20 @@ describe('applyMutation', () => {
     };
     const next = applyMutation(state, { type: 'addFilter', args: { filter } });
     expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-9' });
+  });
+
+  it('addFilter is idempotent: re-delivering the same filter id does not duplicate it', () => {
+    const filter = {
+      id: 'f',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+    };
+    const state = applyMutation(twoPageState('page-1'), { type: 'addFilter', args: { filter } });
+    const next = applyMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(1);
   });
 
   it('removeFilter: unknown filterId is a no-op', () => {
@@ -168,6 +262,20 @@ describe('applyMutation', () => {
       });
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
       expect('xGroupBy' in next.widgets.w1.config).toBe(false);
+    });
+
+    it('skips an undefined-valued key in `changes` so it cannot void a required field', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'Keep me', config: { chartType: 'bar' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: undefined } },
+      });
+      // The required `title` is not voided to `undefined` by the shallow merge.
+      expect(next.widgets.w1.title).toBe('Keep me');
     });
 
     it('changes.config wholesale-replaces the config-patch result rather than merging with it', () => {
@@ -205,7 +313,10 @@ describe('applyMutation', () => {
   });
 
   describe('setWidgetColSpan', () => {
-    it('clamps a too-small requested span up to 3', () => {
+    // Spans are in the 24-column unit system the canvas renders (GRID_COLS = 24,
+    // MIN_SPAN = 6) — the SAME system the drag-resize path commits, so AI-resize
+    // and drag-resize can no longer corrupt each other's layout.
+    it('clamps a too-small requested span up to MIN_SPAN (6)', () => {
       const state = createDefaultStudioState({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
@@ -214,19 +325,31 @@ describe('applyMutation', () => {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 2, rowWidgetIds: ['w1'] },
       });
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 3 });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 6 });
     });
 
-    it('clamps a too-large requested span down to 12', () => {
+    it('clamps a too-large requested span down to GRID_COLS (24)', () => {
       const state = createDefaultStudioState({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       });
       const next = applyMutation(state, {
         type: 'setWidgetColSpan',
-        args: { widgetId: 'w1', columns: 15, rowWidgetIds: ['w1'] },
+        args: { widgetId: 'w1', columns: 30, rowWidgetIds: ['w1'] },
       });
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 24 });
+    });
+
+    it('guards a NaN span, clamping it to MIN_SPAN rather than storing NaN', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: NaN, rowWidgetIds: ['w1'] },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 6 });
     });
 
     it('rounds a non-integer span', () => {
@@ -260,7 +383,7 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
 
-    it('overflow with exactly one other widget: reduces its span to the remainder when >= 3', () => {
+    it('overflow with exactly one other widget: reduces its span to the remainder when >= MIN_SPAN', () => {
       const state = createDefaultStudioState({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -268,20 +391,20 @@ describe('applyMutation', () => {
             id: 'page-1',
             title: 'P1',
             widgetRows: [['w1', 'w2']],
-            widgetColSpans: { w2: 8 },
+            widgetColSpans: { w2: 16 },
           },
         },
       });
       const next = applyMutation(state, {
         type: 'setWidgetColSpan',
-        args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1', 'w2'] },
+        args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'w2'] },
       });
-      // clamped(w1) = 6, other total = 8, 6 + 8 = 14 > 12, one other widget
-      // => remaining = 12 - 6 = 6, which is >= 3, so w2 is reduced (not deleted).
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 6, w2: 6 });
+      // clamped(w1) = 12, other total = 16, 12 + 16 = 28 > 24, one other widget
+      // => remaining = 24 - 12 = 12, which is >= 6, so w2 is reduced (not deleted).
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12, w2: 12 });
     });
 
-    it('overflow with exactly one other widget: deletes its span entirely when the remainder is < 3', () => {
+    it('overflow with exactly one other widget: deletes its span entirely when the remainder is < MIN_SPAN', () => {
       const state = createDefaultStudioState({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -289,16 +412,16 @@ describe('applyMutation', () => {
             id: 'page-1',
             title: 'P1',
             widgetRows: [['w1', 'w2']],
-            widgetColSpans: { w2: 5 },
+            widgetColSpans: { w2: 10 },
           },
         },
       });
       const next = applyMutation(state, {
         type: 'setWidgetColSpan',
-        args: { widgetId: 'w1', columns: 10, rowWidgetIds: ['w1', 'w2'] },
+        args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
       });
-      // remaining = 12 - 10 = 2, which is < 3, so w2's span is dropped entirely.
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 10 });
+      // remaining = 24 - 20 = 4, which is < 6, so w2's span is dropped entirely.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 20 });
     });
 
     it('overflow with two or more other widgets: deletes all of their spans (not just reduces)', () => {
@@ -309,15 +432,15 @@ describe('applyMutation', () => {
             id: 'page-1',
             title: 'P1',
             widgetRows: [['w1', 'w2', 'w3']],
-            widgetColSpans: { w2: 5, w3: 5 },
+            widgetColSpans: { w2: 10, w3: 10 },
           },
         },
       });
       const next = applyMutation(state, {
         type: 'setWidgetColSpan',
-        args: { widgetId: 'w1', columns: 8, rowWidgetIds: ['w1', 'w2', 'w3'] },
+        args: { widgetId: 'w1', columns: 16, rowWidgetIds: ['w1', 'w2', 'w3'] },
       });
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 8 });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 16 });
     });
 
     it('missing active page is a no-op', () => {
@@ -330,6 +453,23 @@ describe('applyMutation', () => {
       });
       expect(next).toBe(state);
     });
+
+    it("targets the explicit pageId, not the applying side's active page", () => {
+      // Active page is page-2, but the mutation targets page-1.
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1'], pageId: 'page-1' },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+      expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+    });
   });
 
   describe('addPage', () => {
@@ -338,6 +478,21 @@ describe('applyMutation', () => {
       const next = applyMutation(state, { type: 'addPage', args: { id: 'page-3', title: 'New' } });
       expect(next.pages['page-3']).toMatchObject({ id: 'page-3', title: 'New' });
       expect(next.dashboard.activePageId).toBe('page-3');
+    });
+
+    it('is idempotent for an existing id: re-activates it without resetting its widgetRows', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+      });
+      const next = applyMutation(state, { type: 'addPage', args: { id: 'page-1', title: 'X' } });
+      // The existing page keeps its widgets (not reset to []) and its title.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(next.pages['page-1'].title).toBe('P1');
+      expect(next.dashboard.activePageId).toBe('page-1');
     });
   });
 
@@ -349,6 +504,17 @@ describe('applyMutation', () => {
         args: { rows: [['a', 'b'], ['c']] },
       });
       expect(next.pages['page-1'].widgetRows).toEqual([['a', 'b'], ['c']]);
+      expect(next.pages['page-2'].widgetRows).toEqual([]);
+    });
+
+    it("targets the explicit pageId, not the applying side's active page", () => {
+      // Active page is page-2, but the mutation targets page-1.
+      const state = twoPageState('page-2');
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['a']], pageId: 'page-1' },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['a']]);
       expect(next.pages['page-2'].widgetRows).toEqual([]);
     });
   });
@@ -449,6 +615,43 @@ describe('applyMutation', () => {
       expect(next.ai?.threads[0].updatedAt).toBe('2024-06-01T00:00:00.000Z');
       expect(next.ai?.threads[1].name).toBe('Old2');
       expect(next.ai?.threads[1].updatedAt).toBeUndefined();
+    });
+
+    it("renames the explicit threadId, not the applying side's active thread", () => {
+      // Active thread is t1, but the mutation targets t2 — the thread the request
+      // belonged to, even though the user has since switched to t1.
+      const state = createDefaultStudioState({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+            { id: 't2', name: 'Old2', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'renameAIThread',
+        args: { name: 'New2', updatedAt: '2024-06-01T00:00:00.000Z', threadId: 't2' },
+      });
+      expect(next.ai?.threads[0].name).toBe('Old1');
+      expect(next.ai?.threads[1].name).toBe('New2');
+      expect(next.ai?.threads[1].updatedAt).toBe('2024-06-01T00:00:00.000Z');
+    });
+
+    it('falls back to the active thread when threadId is omitted (legacy payloads)', () => {
+      const state = createDefaultStudioState({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'renameAIThread',
+        args: { name: 'New1', updatedAt: '2024-06-01T00:00:00.000Z' },
+      });
+      expect(next.ai?.threads[0].name).toBe('New1');
     });
 
     it('returns the same reference for a no-op (no active thread)', () => {

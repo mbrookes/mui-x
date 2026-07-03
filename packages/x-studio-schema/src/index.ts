@@ -17,9 +17,14 @@ export * from './expressionTypes';
 export * from './stateTypes';
 export * from './aiTypes';
 
-// `createDefaultWidget`, `normalizeGridColumn`, and `createDefaultStudioState` are
-// exported explicitly here (they live in the `factories` runtime module, not a
-// `export *`-ed type module).
-export { createDefaultWidget, normalizeGridColumn, createDefaultStudioState } from './factories';
+// The `factories` runtime module's functions are exported explicitly here (they
+// live in a runtime module, not a `export *`-ed type module).
+export {
+  createDefaultWidget,
+  createWidgetId,
+  normalizeGridColumn,
+  normalizeChartSeries,
+  createDefaultStudioState,
+} from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
 export { applyMutation, mutationLabel } from './applyMutation';

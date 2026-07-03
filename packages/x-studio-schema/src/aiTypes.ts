@@ -68,10 +68,34 @@ export type StateMutation =
       };
     }
   | { type: 'removeWidget'; args: { widgetId: string } }
-  | { type: 'setWidgetLayout'; args: { rows: string[][] } }
+  | {
+      type: 'setWidgetLayout';
+      args: {
+        rows: string[][];
+        /**
+         * Explicit target page whose rows are replaced, chosen server-side.
+         * Mirrors `addWidget.pageId`: if the user navigates to another page while
+         * the model is thinking, the layout still lands on the page the model was
+         * reasoning about rather than overwriting whatever page is now active.
+         * Falls back to the active page when omitted (legacy payloads).
+         */
+        pageId?: string;
+      };
+    }
   | {
       type: 'setWidgetColSpan';
-      args: { widgetId: string; columns: number | null; rowWidgetIds: string[] };
+      args: {
+        widgetId: string;
+        columns: number | null;
+        rowWidgetIds: string[];
+        /**
+         * Explicit target page for the span change, chosen server-side. Mirrors
+         * `addWidget.pageId` — the span is written to this page's `widgetColSpans`
+         * regardless of which page happens to be active on the applying side.
+         * Falls back to the active page when omitted (legacy payloads).
+         */
+        pageId?: string;
+      };
     }
   | { type: 'renamePage'; args: { pageId: string; title: string } }
   | { type: 'removePage'; args: { pageId: string } }
@@ -81,6 +105,20 @@ export type StateMutation =
   | {
       type: 'applyBulkUpdate';
       args: {
+        /**
+         * HAZARD — lost update: this wholesale-replaces the ENTIRE dashboard's
+         * `widgets` record (not just the active page's widgets), while `widgetRows`
+         * and `widgetColSpans` only touch `activePageId`. The producer builds this
+         * map from the server-threaded state at the start of the agentic turn, so
+         * any widget the user creates or edits on ANY page while the turn is running
+         * is silently reverted — and a widget deleted from this map while it still
+         * lives in another page's `widgetRows` leaves a dangling id (blank card).
+         *
+         * The proper fix is to narrow this mutation to a per-page delta
+         * (`removedWidgetIds` / `upsertedWidgets`) applied on top of the receiver's
+         * `state.widgets`, rather than a global snapshot. That is a larger redesign
+         * deferred to a future pass; do not rely on this shape being stable.
+         */
         widgets: Record<string, StudioWidget>;
         widgetRows: string[][];
         widgetColSpans: Record<string, number>;
@@ -99,6 +137,15 @@ export type StateMutation =
          * producer (`executeToolOnState`'s `rename_thread` handler) always supplies it.
          */
         updatedAt: string;
+        /**
+         * Explicit target thread, stamped from the originating request's thread
+         * context (server-side). The reducer renames `threads.find(t => t.id ===
+         * threadId)` rather than whatever thread happens to be active on the
+         * applying side — so a rename cannot land on the wrong thread when the user
+         * switches threads while the model is running. Falls back to the active
+         * thread when omitted (legacy payloads).
+         */
+        threadId?: string;
       };
     };
 

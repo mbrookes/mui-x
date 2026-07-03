@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { applyMutation } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
 import type { StudioFilterState, StudioWidget } from '../models';
+import { resolveDateRangePreset } from '../internals/filterUtils';
+import { GRID_COLS, MIN_SPAN } from '../components/StudioCanvas/canvasGridConstants';
 
 function makeFilter(
   overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] },
@@ -1161,5 +1164,194 @@ describe('StudioController.serializeSession / restoreSession', () => {
     const result = controller.restoreSession({ nope: true });
     expect(result.success).toBe(false);
     expect(controller.getState().dashboard.title).toBe('Keep me');
+  });
+});
+
+// ─── StudioController.removeWidget — delegation to the shared reducer ────────
+// Since `removeWidget` now delegates its state transform to `applyMutation`,
+// these pin the cleanup that used to be reducer-only (cross-filter, colSpans)
+// now also happening via the controller's user-driven path.
+
+describe('StudioController.removeWidget — cross-filter and col-span cleanup', () => {
+  it('removes a cross-filter emitted by the removed widget', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('chart-1', { kind: 'chart' }));
+    controller.applyCrossFilter('chart-1', 'category', 'Books');
+
+    controller.removeWidget('chart-1');
+
+    expect(
+      controller
+        .getState()
+        .filters.filter(
+          (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === 'chart-1',
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("clears the removed widget's span and collapses a now-sole sibling's span", () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    // Put both widgets in the same row with explicit spans.
+    controller.setWidgetLayout([['w1', 'w2']]);
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+    expect(controller.getState().pages[activePageId].widgetColSpans).toEqual({ w1: 16, w2: 8 });
+
+    controller.removeWidget('w1');
+
+    // w2 is now alone in its row — its span is cleared so it renders full-width.
+    expect(controller.getState().pages[activePageId].widgetColSpans).toBeUndefined();
+  });
+});
+
+// ─── StudioController.removePage — delegation to the shared reducer ─────────
+
+describe('StudioController.removePage', () => {
+  it('removes the page, its widgets, and reassigns the active page', () => {
+    const controller = new StudioController();
+    const firstPageId = controller.getState().dashboard.activePageId;
+    const secondPageId = controller.addPage('Second');
+    controller.setActivePage(firstPageId);
+    controller.addWidget(makeWidget('w1'));
+
+    controller.removePage(firstPageId);
+
+    expect(controller.getState().pages[firstPageId]).toBeUndefined();
+    expect(controller.getState().widgets.w1).toBeUndefined();
+    expect(controller.getState().dashboard.activePageId).toBe(secondPageId);
+  });
+
+  it('drops widget-scoped filters targeting a widget on the removed page (no orphan)', () => {
+    const controller = new StudioController();
+    controller.addPage('Second');
+    const firstPageId = Object.keys(controller.getState().pages)[0];
+    controller.setActivePage(firstPageId);
+    controller.addWidget(makeWidget('w1'));
+    controller.addFilter(makeFilter({ id: 'fw1', scope: { kind: 'widget', widgetId: 'w1' } }));
+
+    controller.removePage(firstPageId);
+
+    // The widget-scope filter has no pageId of its own — without cleanup it would
+    // survive as a permanent orphan once its anchor widget's page is gone.
+    expect(controller.getState().filters.find((f) => f.id === 'fw1')).toBeUndefined();
+  });
+
+  it('is a no-op for an unknown pageId', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Keep me');
+    const before = controller.getState();
+    controller.removePage('does-not-exist');
+    expect(controller.getState()).toBe(before);
+  });
+});
+
+// ─── StudioController date-range presets ─────────────────────────────────────
+// Zero tests existed for this surface prior to fixing the widget-scoped preset
+// bug (a non-custom preset stored with `value: null` was silently dropped as
+// "incomplete" because resolution only handled `dashboard-date-range` scope).
+
+describe('StudioController.setWidgetDateRange', () => {
+  it('stores a non-custom preset with value: null and scope.kind "widget"', () => {
+    const controller = new StudioController();
+    controller.setWidgetDateRange('kpi-1', 'orderDate', 'src1', 'date', 'last_3_months');
+    const filter = controller.getState().filters.find((f) => f.id === 'widget-date-range-kpi-1');
+    expect(filter).toBeDefined();
+    expect(filter!.value).toBeNull();
+    expect(filter!.scope).toEqual({ kind: 'widget', widgetId: 'kpi-1' });
+    expect(filter!.dateRangePreset).toBe('last_3_months');
+  });
+
+  it('is resolved to a concrete range by resolveDateRangePreset (the widget-scoped preset bug)', () => {
+    const controller = new StudioController();
+    controller.setWidgetDateRange('kpi-1', 'orderDate', 'src1', 'date', 'last_3_months');
+    const filter = controller.getState().filters.find((f) => f.id === 'widget-date-range-kpi-1')!;
+    const resolved = resolveDateRangePreset(filter);
+    expect(resolved.value).not.toBeNull();
+    expect(resolved.value).toHaveProperty('from');
+    expect(resolved.value).toHaveProperty('to');
+  });
+
+  it('stores a custom preset with the explicit from/to value', () => {
+    const controller = new StudioController();
+    controller.setWidgetDateRange(
+      'kpi-1',
+      'orderDate',
+      'src1',
+      'date',
+      'custom',
+      '2024-01-01',
+      '2024-01-31',
+    );
+    const filter = controller.getState().filters.find((f) => f.id === 'widget-date-range-kpi-1')!;
+    expect(filter.value).toEqual({ from: '2024-01-01', to: '2024-01-31' });
+  });
+
+  it('clears the widget date range when preset is null', () => {
+    const controller = new StudioController();
+    controller.setWidgetDateRange('kpi-1', 'orderDate', 'src1', 'date', 'last_3_months');
+    controller.setWidgetDateRange('kpi-1', null, null, null, null);
+    expect(
+      controller.getState().filters.find((f) => f.id === 'widget-date-range-kpi-1'),
+    ).toBeUndefined();
+  });
+
+  it('does not affect a dashboard-date-range filter on the same page', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().dashboard.activePageId;
+    controller.setDashboardDateRange(pageId, 'orderDate', 'src1', 'date', 'this_month');
+    controller.setWidgetDateRange('kpi-1', 'orderDate', 'src1', 'date', 'last_3_months');
+    expect(controller.getState().filters).toHaveLength(2);
+  });
+});
+
+// ─── Col-span unit system round-trip (24-column, GRID_COLS) ──────────────────
+// Pins the fix for the two-incompatible-unit-systems bug: drag-resize
+// (`setAdjacentWidgetColSpans`) and AI-resize (the shared `applyMutation`
+// reducer's `setWidgetColSpan` handler) must agree on the same GRID_COLS=24
+// unit system, or one path silently corrupts the other's layout.
+
+describe('Col-span unit system round-trip', () => {
+  it('drag-resize and AI-resize (applyMutation) agree on GRID_COLS units', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1', 'w2']]);
+    const activePageId = controller.getState().dashboard.activePageId;
+
+    // Drag-resize: user sets a 16/8 split in 24-column units.
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+    expect(controller.getState().pages[activePageId].widgetColSpans).toEqual({ w1: 16, w2: 8 });
+
+    // AI-resize: the shared reducer resizes w1 to 12 — must clamp/rebalance in
+    // the SAME 24-column system, not silently reinterpret the stored 8 as a
+    // 12-column-system value.
+    const state = controller.getState();
+    const next = applyMutation(state, {
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'w2'] },
+    });
+    // 12 + 8 = 20 <= 24, so no rebalancing is needed — w2's span is untouched.
+    expect(next.pages[activePageId].widgetColSpans).toEqual({ w1: 12, w2: 8 });
+  });
+
+  it('AI-resize clamps to the same MIN_SPAN/GRID_COLS bounds as the canvas grid constants', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    const state = controller.getState();
+
+    const tooSmall = applyMutation(state, {
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'w1', columns: 1, rowWidgetIds: ['w1'] },
+    });
+    expect(tooSmall.pages[activePageId].widgetColSpans).toEqual({ w1: MIN_SPAN });
+
+    const tooLarge = applyMutation(state, {
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'w1', columns: 100, rowWidgetIds: ['w1'] },
+    });
+    expect(tooLarge.pages[activePageId].widgetColSpans).toEqual({ w1: GRID_COLS });
   });
 });

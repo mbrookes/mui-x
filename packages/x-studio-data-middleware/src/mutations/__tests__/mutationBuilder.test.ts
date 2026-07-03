@@ -139,7 +139,7 @@ describe('validateMutation', () => {
       values: { status: 'pending', total: 100 },
     };
     expect(() =>
-      validateMutation(descriptor, {
+      validateMutation(descriptor, CLAIMS, {
         writableColumns: { orders: ['status', 'total', 'notes'] },
       }),
     ).not.toThrow();
@@ -152,7 +152,7 @@ describe('validateMutation', () => {
       table: 'orders',
       values: { status: 'shipped' },
     };
-    expect(() => validateMutation(descriptor, {})).toThrow(/requires at least one "where"/);
+    expect(() => validateMutation(descriptor, CLAIMS, {})).toThrow(/requires at least one "where"/);
   });
 
   it('throws when a delete has no WHERE predicates', () => {
@@ -162,7 +162,7 @@ describe('validateMutation', () => {
       table: 'orders',
       where: [],
     };
-    expect(() => validateMutation(descriptor, {})).toThrow(/requires at least one "where"/);
+    expect(() => validateMutation(descriptor, CLAIMS, {})).toThrow(/requires at least one "where"/);
   });
 
   it('throws when a value key is not in the writable columns list', () => {
@@ -172,9 +172,9 @@ describe('validateMutation', () => {
       table: 'orders',
       values: { status: 'ok', secret_field: 'bad' },
     };
-    expect(() => validateMutation(descriptor, { writableColumns: { orders: ['status'] } })).toThrow(
-      /not in the writable columns allowlist/,
-    );
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, { writableColumns: { orders: ['status'] } }),
+    ).toThrow(/not in the column allowlist/);
   });
 
   it('throws when the client tries to set the tenant column', () => {
@@ -185,7 +185,7 @@ describe('validateMutation', () => {
       values: { tenant_id: 'other-tenant', status: 'ok' },
     };
     expect(() =>
-      validateMutation(descriptor, {
+      validateMutation(descriptor, CLAIMS, {
         writableColumns: { orders: ['status', 'tenant_id'] },
         tenantColumn: 'tenant_id',
       }),
@@ -201,7 +201,7 @@ describe('validateMutation', () => {
       where: [{ column: 'id', operator: 'eq', value: 42 }],
     };
     expect(() =>
-      validateMutation(descriptor, { writableColumns: { orders: ['status', 'notes'] } }),
+      validateMutation(descriptor, CLAIMS, { writableColumns: { orders: ['status', 'notes'] } }),
     ).not.toThrow();
   });
 
@@ -213,8 +213,8 @@ describe('validateMutation', () => {
       where: [{ column: 'secret_internal_flag', operator: 'eq', value: true }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
-    ).toThrow(/not in the column allowlist for "where" predicates/);
+      validateMutation(descriptor, CLAIMS, { columnAllowlist: { orders: ['id', 'status'] } }),
+    ).toThrow(/not in the column allowlist/);
   });
 
   it('passes when all WHERE columns are in the column allowlist', () => {
@@ -226,7 +226,7 @@ describe('validateMutation', () => {
       where: [{ column: 'id', operator: 'eq', value: 42 }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+      validateMutation(descriptor, CLAIMS, { columnAllowlist: { orders: ['id', 'status'] } }),
     ).not.toThrow();
   });
 
@@ -238,7 +238,7 @@ describe('validateMutation', () => {
       where: [{ column: 'orders.deleted_at', operator: 'eq', value: null as unknown as number }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+      validateMutation(descriptor, CLAIMS, { columnAllowlist: { orders: ['id', 'status'] } }),
     ).toThrow(/Column "deleted_at" on table "orders"/);
   });
 });
@@ -641,5 +641,174 @@ describe('write-path security scoping', () => {
     });
     expect(count).toBe(1);
     expect(db.snapshot().orders.find((r) => r.id === 2)?.status).toBe('pending');
+  });
+});
+
+// ── INSERT tenant stamping via `securityColumns` (no legacy tenantColumn) ──────
+//
+// Regression for finding 1.1 (CRITICAL): a deployment configuring tenancy ONLY
+// through `securityColumns: { tenant: 'tenant_id' }` must still stamp inserts and
+// reject a client-supplied tenant value — the legacy `tenantColumn` path is not
+// the only way tenancy is configured.
+
+describe('INSERT tenant stamping via securityColumns', () => {
+  const SEC_COLS = { tenant: 'tenant_id' };
+
+  it('stamps the tenant column resolved from securityColumns (no tenantColumn set)', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'pending', total: 100 },
+    };
+    // No tenantColumn — only securityColumns.
+    await buildInsertMutation(db, CLAIMS, descriptor, undefined, SEC_COLS);
+    const { orders } = db.snapshot();
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({ status: 'pending', total: 100, tenant_id: 'acme' });
+  });
+
+  it('rejects a client-supplied tenant value when tenancy is configured via securityColumns', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { tenant_id: 'victim-tenant', status: 'ok' },
+    };
+    // No tenantColumn — the rejection must come from the resolved securityColumns.
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        securityColumns: SEC_COLS,
+        writableColumns: { orders: ['status', 'tenant_id'] },
+      }),
+    ).toThrow(/tenant isolation column/);
+  });
+
+  it('resolves the tenant column from a perTable override', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'pending' },
+    };
+    await buildInsertMutation(db, CLAIMS, descriptor, undefined, {
+      perTable: { orders: { tenant: 'org_id' } },
+    });
+    expect(db.snapshot().orders[0]).toMatchObject({ status: 'pending', org_id: 'acme' });
+  });
+});
+
+// ── INSERT region / department scope validation (finding 1.5) ─────────────────
+
+describe('INSERT region/department scope validation', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+  const DEPT_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], department: 'Sales' };
+
+  it('rejects an insert whose region_id is outside the caller regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 6 },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        tenantColumn: 'tenant_id',
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/outside the caller's permitted regions/);
+  });
+
+  it('allows an insert whose region_id is inside the caller regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 5 },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        tenantColumn: 'tenant_id',
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects an insert whose department is outside the caller department', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', department: 'Finance' },
+    };
+    expect(() =>
+      validateMutation(descriptor, DEPT_CLAIMS, {
+        tenantColumn: 'tenant_id',
+        writableColumns: { orders: ['status', 'department'] },
+      }),
+    ).toThrow(/outside the caller's department/);
+  });
+});
+
+// ── Write-path column validation is fail-closed + wildcard-aware (finding 1.4) ─
+
+describe('write-path column validation (fail-closed + wildcard)', () => {
+  it('rejects a value key when the target table has NO writableColumns entry (fail-closed)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    // writableColumns supplied, but 'orders' has no entry — must reject, not pass.
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        writableColumns: { customers: ['name'] },
+      }),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+
+  it('rejects a WHERE column when the target table has NO columnAllowlist entry (fail-closed)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'status', operator: 'eq', value: 'x' }],
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        columnAllowlist: { customers: ['id'] },
+      }),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+
+  it('honors ["*"] as an opt-out for writable value keys', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', anything: 1 },
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        writableColumns: { orders: ['*'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('honors ["*"] as an opt-out for WHERE columns', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'whatever', operator: 'eq', value: 'x' }],
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        columnAllowlist: { orders: ['*'] },
+      }),
+    ).not.toThrow();
   });
 });

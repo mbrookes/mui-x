@@ -33,6 +33,7 @@ import {
   buildUpdateMutation,
   buildDeleteMutation,
 } from './mutationBuilder';
+import { assertTablesAllowed } from '../shared/assertTablesAllowed';
 
 /**
  * Handle a batch of mutation operations from a Studio client.
@@ -49,21 +50,21 @@ export async function handleMutation(
   const { schemaAllowlist } = options;
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
-  const invalidTables = body.mutations
-    .map((m) => m.table)
-    .filter((t) => !schemaAllowlist.includes(t));
-
-  if (invalidTables.length > 0) {
-    throw new Error(
-      `MUI X Studio Server: Requested table(s) not in schema allowlist: ${invalidTables.join(', ')}. ` +
-        `Allowed tables: ${schemaAllowlist.join(', ')}`,
-    );
-  }
-
-  // ── Per-mutation processing with error isolation ──────────────────────────
-  const results = await Promise.all(
-    body.mutations.map((descriptor) => processMutation(descriptor, claims, options)),
+  assertTablesAllowed(
+    body.mutations.map((m) => m.table),
+    schemaAllowlist,
   );
+
+  // ── Per-mutation processing — SEQUENTIAL with error isolation ─────────────
+  // Mutations run in array order (not concurrently) so a batch like
+  // `[insert row, update that row]` is deterministic: the update observes the
+  // insert's effect instead of racing it. Batch sizes are small, so correctness
+  // beats the marginal latency of `Promise.all`.
+  const results: MutationResult[] = [];
+  for (const descriptor of body.mutations) {
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await processMutation(descriptor, claims, options));
+  }
 
   return { results };
 }
@@ -84,14 +85,26 @@ async function processMutation(
       );
     }
 
-    // Validate invariants (writable columns, required WHERE) before building query
-    validateMutation(descriptor, { writableColumns, tenantColumn, columnAllowlist });
+    // Validate invariants (writable columns, required WHERE, tenant/region/
+    // department scope on values) before building query
+    validateMutation(descriptor, claims, {
+      writableColumns,
+      tenantColumn,
+      columnAllowlist,
+      securityColumns,
+    });
 
     let rowsAffected: number;
 
     switch (descriptor.operation) {
       case 'insert': {
-        const result = await buildInsertMutation(db, claims, descriptor, tenantColumn);
+        const result = await buildInsertMutation(
+          db,
+          claims,
+          descriptor,
+          tenantColumn,
+          securityColumns,
+        );
         // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others.
         if (Array.isArray(result)) {
           rowsAffected = result.length;

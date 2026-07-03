@@ -628,6 +628,8 @@ export interface StudioLocaleText {
   mapSetupScaleFromZeroLabel: string;
   mapSetupClickableLabel: string;
   mapSetupCrossFilterLabel: string;
+  mapSetupInteractionsTitle: string;
+  mapSetupInteractionsDescription: string;
   mapSetupColorBlues: string;
   mapSetupColorReds: string;
   mapSetupColorGreens: string;
@@ -1668,6 +1670,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupScaleFromZeroLabel: 'Scale from zero',
   mapSetupClickableLabel: 'Clickable (filter source)',
   mapSetupCrossFilterLabel: 'Respond to cross-filters',
+  mapSetupInteractionsTitle: 'Interactions',
+  mapSetupInteractionsDescription: 'When other widgets are clicked, this map…',
   mapSetupColorBlues: 'Blues',
   mapSetupColorReds: 'Reds',
   mapSetupColorGreens: 'Greens',

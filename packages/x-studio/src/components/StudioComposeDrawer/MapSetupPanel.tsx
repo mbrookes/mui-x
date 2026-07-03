@@ -8,6 +8,8 @@ import {
   Select,
   Stack,
   Switch,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import {
@@ -19,8 +21,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
+import type { StudioCrossFilterMode } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import { SetupSection } from './SetupSection';
 
 interface MapSetupPanelProps {
   widgetId: string;
@@ -271,18 +275,29 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         label={localeText.mapSetupClickableLabel}
       />
 
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
-            checked={crossFilterMode !== 'none'}
-            onChange={(event) =>
-              update({ crossFilterMode: event.target.checked ? 'cross-highlight' : 'none' })
+      <SetupSection
+        title={localeText.mapSetupInteractionsTitle}
+        description={localeText.mapSetupInteractionsDescription}
+      >
+        <ToggleButtonGroup
+          value={(crossFilterMode !== 'none' ? 'cross-filter' : 'none') as StudioCrossFilterMode}
+          exclusive
+          onChange={(_e, value: StudioCrossFilterMode | null) => {
+            if (value) {
+              update({ crossFilterMode: value });
             }
-          />
-        }
-        label={localeText.mapSetupCrossFilterLabel}
-      />
+          }}
+          size="small"
+          fullWidth
+        >
+          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeFilter}
+          </ToggleButton>
+          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeNone}
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </SetupSection>
     </Stack>
   );
 }

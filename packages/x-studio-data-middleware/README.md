@@ -98,6 +98,10 @@ Table names are validated against `schemaAllowlist` before any query is built. C
 
 Cache keys incorporate a security hash so users with different row-level permissions never share cache entries. The client's `cacheKey` is never used server-side.
 
+### Sanitize error messages in production
+
+For developer convenience, error results echo the underlying message verbatim — this can include driver SQL text (with bound values and column names) and, for allowlist violations, the full list of allowed tables/columns. Before returning a per-item `error` (or a thrown handler error) to an untrusted client, **sanitize or redact it in production**: log the detailed message server-side and surface a generic message (and a correlation ID) to the caller so you do not hand a prober your schema inventory.
+
 ## API
 
 ### `handleBatchQuery(body, claims, options)`

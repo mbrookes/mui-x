@@ -23,3 +23,4 @@ export * from './aiTypes';
 export { createDefaultWidget, normalizeGridColumn, createDefaultStudioState } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
 export { applyMutation, mutationLabel } from './applyMutation';
+export { isoWeek, truncateToPeriod } from './temporalUtils';

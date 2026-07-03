@@ -10,7 +10,7 @@
  * wires them into the `tools/call` dispatch table.
  */
 
-import { detectAnomaliesIQR } from '@mui/x-studio-schema';
+import { detectAnomaliesIQR, truncateToPeriod } from '@mui/x-studio-schema';
 import { renderChartSvg } from '../chartRenderer';
 import type { ChartRendererInput } from '../chartRenderer';
 import type { StudioAIRecentMutation } from '../models/aiTypes';
@@ -25,68 +25,24 @@ import type {
   StudioStateBox,
 } from './types';
 
-// ── Temporal helper (inlined — the pure `truncateToGranularity`/`normalizeToDate`
-// live in @mui/x-studio's temporalUtils.ts, which also pulls in unrelated
-// pipeline code, so only this small period-truncation helper is kept local).
-// The IQR anomaly detection is now imported from @mui/x-studio-schema.
+// The period-truncation (`truncateToPeriod`) and IQR anomaly-detection
+// (`detectAnomaliesIQR`) helpers both live in `@mui/x-studio-schema` — the
+// zero-dependency package shared with `@mui/x-studio`'s client-side
+// `internals/temporalUtils.ts`, so the two packages no longer hand-maintain
+// separate copies of the same date-bucketing logic.
 
 const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
 
-/** ISO week number for a UTC date. Mirror of isoWeek() in temporalUtils.ts. */
-function mcpIsoWeek(d: Date): { year: number; week: number } {
-  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return { year: tmp.getUTCFullYear(), week };
-}
-
 /**
- * Truncate a date-like value to a period-key. Mirror of truncateToGranularity().
- *
- * Includes the same fallback as `@mui/x-studio`'s `normalizeToDate`: numeric
- * (millisecond) timestamps — as produced by some DB drivers — are converted via
- * `Date`, so `summarise_page` does not silently drop every period bucket when a
- * date column arrives as a number instead of an ISO string.
+ * `yAggregation` values for which summing per-x-value aggregates into a period
+ * bucket is mathematically sound. `avg`/`min`/`max` are excluded: summing daily
+ * averages is not a monthly average, summing daily maxes is not a monthly max,
+ * etc. — combining those correctly needs a per-bucket count (for a weighted
+ * mean) or a running min/max, neither of which is tracked here, so the anomaly
+ * path is skipped entirely for those aggregations rather than feeding
+ * `detectAnomaliesIQR` a mathematically bogus input.
  */
-function mcpTruncateToPeriod(value: unknown, granularity: string): string | null {
-  let raw: string | null;
-  if (typeof value === 'string') {
-    raw = value;
-  } else if (value instanceof Date) {
-    raw = Number.isNaN(value.getTime()) ? null : value.toISOString();
-  } else if (typeof value === 'number') {
-    const d = new Date(value);
-    raw = Number.isNaN(d.getTime()) ? null : d.toISOString();
-  } else {
-    raw = null;
-  }
-  if (!raw) {
-    return null;
-  }
-  const y = Number(raw.slice(0, 4));
-  const m = Number(raw.slice(5, 7)) - 1; // 0-indexed
-  const day = Number(raw.slice(8, 10));
-  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(day)) {
-    return null;
-  }
-  switch (granularity) {
-    case 'day':
-      return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    case 'week': {
-      const { year, week } = mcpIsoWeek(new Date(Date.UTC(y, m, day)));
-      return `${year}-W${String(week).padStart(2, '0')}`;
-    }
-    case 'month':
-      return `${y}-${String(m + 1).padStart(2, '0')}`;
-    case 'quarter':
-      return `${y}-Q${Math.floor(m / 3) + 1}`;
-    case 'year':
-      return String(y);
-    default:
-      return null;
-  }
-}
+const ANOMALY_SAFE_AGGREGATIONS = new Set(['sum', 'count']);
 
 /** Dependencies shared by the data-query and utility tool handlers. */
 export interface DataToolDeps {
@@ -442,10 +398,14 @@ export function createSummarisePageHandler(deps: {
     const widgetIds = (activePage.widgetRows ?? []).flat();
     const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
     type SectionItem = { text: string };
-    const sections: SectionItem[] = [];
+    // Pre-sized, index-addressed array: each widget's query runs concurrently
+    // (via Promise.all below), but writing to `results[i]` instead of pushing
+    // onto a shared array preserves page/layout order in the final summary
+    // regardless of which query settles first.
+    const results: (SectionItem | null)[] = new Array(widgets.length).fill(null);
 
     await Promise.all(
-      widgets.map(async (widget) => {
+      widgets.map(async (widget, i) => {
         const sourceId = widget.sourceId;
         if (!sourceId) {
           return;
@@ -531,7 +491,11 @@ export function createSummarisePageHandler(deps: {
               | 'min'
               | 'max';
             const xGroupBy = widget.config.xGroupBy!;
-            if (xField && yField) {
+            // Summing per-x-value aggregates into a period bucket is only valid
+            // for sum/count — see ANOMALY_SAFE_AGGREGATIONS' doc comment. For
+            // avg/min/max, skip the anomaly path entirely rather than feed
+            // detectAnomaliesIQR a mathematically bogus combined value.
+            if (xField && yField && ANOMALY_SAFE_AGGREGATIONS.has(yAgg)) {
               const aggResult = await withTimeout(
                 data.queryDataSource({
                   sourceId,
@@ -545,7 +509,7 @@ export function createSummarisePageHandler(deps: {
               );
               const grouped = new Map<string, number>();
               for (const row of aggResult.rows) {
-                const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
+                const periodKey = truncateToPeriod(row[xField], xGroupBy);
                 if (!periodKey) {
                   continue;
                 }
@@ -565,7 +529,7 @@ export function createSummarisePageHandler(deps: {
             }
           }
 
-          sections.push({ text: lines.join('\n') });
+          results[i] = { text: lines.join('\n') };
         } catch (err) {
           logger?.error(
             `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${err instanceof Error ? err.message : String(err)}`,
@@ -574,6 +538,7 @@ export function createSummarisePageHandler(deps: {
       }),
     );
 
+    const sections = results.filter((r): r is SectionItem => r != null);
     const pageLabel = activePage.title || resolvedPageId || 'active page';
 
     if (sections.length === 0) {
@@ -588,8 +553,10 @@ export function createSummarisePageHandler(deps: {
     }
 
     // Return the page summary as a single coherent text block: a heading
-    // followed by one section per widget. (Splitting into separate content
-    // items fragments the summary for MCP clients that render only the first.)
+    // followed by one section per widget, in page/layout order (not query-
+    // completion order — see the `results` array above).
+    // (Splitting into separate content items fragments the summary for MCP
+    // clients that render only the first.)
     const summaryText = [`## ${pageLabel}`, ...sections.map((s) => s.text)].join('\n\n');
 
     return { content: [{ type: 'text' as const, text: summaryText }] };

@@ -429,3 +429,84 @@ describe('handleMutation — tenant isolation', () => {
     expect(orders.find((r) => r.id === 2)?.status).toBe('pending'); // rival untouched
   });
 });
+
+// ── Tenant isolation via securityColumns (no legacy tenantColumn) ──────────────
+//
+// Regression for finding 1.1 (CRITICAL): the highest-value missing test in the
+// package. A deployment configuring tenancy ONLY through `securityColumns` must
+// stamp inserts with the caller's tenant AND reject a client-supplied tenant.
+
+describe('handleMutation — tenant isolation via securityColumns', () => {
+  it('stamps the caller tenant on insert when tenancy is configured via securityColumns only', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok' } }],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      // NO tenantColumn — only securityColumns.
+      securityColumns: { tenant: 'tenant_id' },
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true });
+    // (a) the stored row carries the caller's tenant.
+    expect(db.snapshot().orders[0].tenant_id).toBe('acme');
+  });
+
+  it('rejects a client-supplied tenant value in insert values (securityColumns only)', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { status: 'ok', tenant_id: 'victim-tenant' },
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      securityColumns: { tenant: 'tenant_id' },
+      writableColumns: { orders: ['status', 'tenant_id'] },
+    });
+    // (b) a client-supplied tenant value is rejected — no row injected.
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/tenant isolation column/);
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+});
+
+// ── Intra-batch mutation ordering (finding 1.6) ───────────────────────────────
+
+describe('handleMutation — batch ordering', () => {
+  it('processes mutations sequentially so [insert, update-that-row] is deterministic', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'ins', operation: 'insert', table: 'orders', values: { id: 1, status: 'new' } },
+        {
+          id: 'upd',
+          operation: 'update',
+          table: 'orders',
+          values: { status: 'processed' },
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenantColumn: 'tenant_id',
+    });
+    // The update ran AFTER the insert and observed the inserted row.
+    expect(results.find((r) => r.id === 'ins')?.ok).toBe(true);
+    expect(results.find((r) => r.id === 'upd')).toMatchObject({ ok: true, rowsAffected: 1 });
+    expect(db.snapshot().orders[0]).toMatchObject({
+      id: 1,
+      status: 'processed',
+      tenant_id: 'acme',
+    });
+  });
+});

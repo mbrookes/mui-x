@@ -3,12 +3,14 @@
  *
  * This function:
  * 1. Validates all requested tables against the schema allowlist
- * 2. For each widget in the batch:
+ * 2. Validates HAVING aliases (unconditionally) and column references
+ *    (when a column allowlist is configured) for every widget
+ * 3. For each widget in the batch:
  *    a. Checks the server-side cache (security-scoped key)
  *    b. Runs a COUNT(*) pre-flight to determine routing tier
  *    c. Executes the query via the appropriate tier
  *    d. Populates the cache for server/client tiers
- * 3. Returns a BatchQueryResponse with all results
+ * 4. Returns a BatchQueryResponse with all results
  *
  * PURE FUNCTION GUARANTEE:
  * - No HTTP imports (no express, fastify, koa, etc.)
@@ -33,8 +35,11 @@ import type {
 import { generateCacheKey } from './security/cacheKey';
 import { LRUCacheProvider } from './cache/LRUCacheProvider';
 import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
-import { runPreflight, executeForTier } from './router/preflight';
+import { runPreflight } from './router/preflight';
+import { executeForTier } from './router/execute';
 import { decideTierWithCache, DEFAULT_THRESHOLDS } from './router/tierDecision';
+import { assertTablesAllowed } from './shared/assertTablesAllowed';
+import { validateDescriptorColumns, validateHavingAliases } from './shared/columnValidation';
 import type { CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
@@ -75,24 +80,26 @@ export async function handleBatchQuery(
   const tierCacheProvider =
     tierCacheTtlMs > 0 ? (options.tierCacheProvider ?? getDefaultTierCache()) : null;
 
-  // ── Phase 2: Validate all requested tables upfront (Zero-Knowledge Rule) ──
-  const allTables = body.widgets.flatMap((w: BatchWidgetDescriptor) => [
-    w.table,
-    ...(w.joins?.map((j) => j.table) ?? []),
-  ]);
-  const invalidTables = allTables.filter((t: string) => !schemaAllowlist.includes(t));
+  // ── Validate all requested tables upfront (Zero-Knowledge Rule) ────────────
+  assertTablesAllowed(
+    body.widgets.flatMap((w: BatchWidgetDescriptor) => [
+      w.table,
+      ...(w.joins?.map((j) => j.table) ?? []),
+    ]),
+    schemaAllowlist,
+  );
 
-  if (invalidTables.length > 0) {
-    throw new Error(
-      `MUI X Studio Server: Requested table(s) not in schema allowlist: ${invalidTables.join(', ')}. ` +
-        `Allowed tables: ${schemaAllowlist.join(', ')}`,
-    );
+  // ── Validate HAVING aliases for every widget (SECURITY INVARIANT) ──────────
+  // Runs UNCONDITIONALLY — a HAVING predicate may only reference an aggregation
+  // alias, regardless of whether a column allowlist is configured.
+  for (const descriptor of body.widgets) {
+    validateHavingAliases(descriptor);
   }
 
-  // ── Phase 2: Validate all column references (SECURITY INVARIANT #2) ────────
+  // ── Validate all column references (SECURITY INVARIANT #2) ─────────────────
   if (columnAllowlist) {
     for (const descriptor of body.widgets) {
-      validateColumns(descriptor, columnAllowlist);
+      validateDescriptorColumns(descriptor, columnAllowlist);
     }
   }
 
@@ -116,97 +123,6 @@ export async function handleBatchQuery(
     pageId: body.pageId,
     results,
   };
-}
-
-/**
- * Validate all column references in a descriptor against the column allowlist.
- * Throws if any column is not in the allowed list for its table.
- *
- * FAIL-CLOSED: when `columnAllowlist` is provided at all, every referenced table
- * MUST have an entry. A table with no entry is rejected (rather than passing all
- * columns through), closing the hole where a client could dodge validation by
- * qualifying a column with a table name that has no allowlist entry. A host that
- * wants to opt a table out of column checks can list `'*'` as its only allowed
- * column.
- *
- * Qualified names (`table.column`) are split and checked against the allowlist
- * for the named table. Unqualified names are checked against the primary table.
- * Both sides of every `join.on` pair are validated too.
- */
-function validateColumns(
-  descriptor: BatchWidgetDescriptor,
-  columnAllowlist: Record<string, string[]>,
-): void {
-  const resolveColumn = (
-    rawColumn: string,
-    defaultTable: string,
-  ): { table: string; column: string } => {
-    const dotIdx = rawColumn.indexOf('.');
-    if (dotIdx !== -1) {
-      return { table: rawColumn.slice(0, dotIdx), column: rawColumn.slice(dotIdx + 1) };
-    }
-    return { table: defaultTable, column: rawColumn };
-  };
-
-  const check = (rawColumn: string, context: string): void => {
-    // If the logical column ID has a physical alias, validate the physical column instead
-    const physical = descriptor.columnAliases?.[rawColumn] ?? rawColumn;
-    const { table, column } = resolveColumn(physical, descriptor.table);
-    const allowed = columnAllowlist[table];
-    if (!allowed) {
-      throw new Error(
-        `MUI X Studio Server: Table "${table}" has no entry in the column allowlist (${context}). ` +
-          `When a column allowlist is supplied, every referenced table must declare its allowed columns so unlisted tables cannot be probed. ` +
-          `Add "${table}" to columnAllowlist (use ["*"] to allow all of its columns).`,
-      );
-    }
-    if (allowed.includes('*')) {
-      return;
-    }
-    if (!allowed.includes(column)) {
-      throw new Error(
-        `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}). ` +
-          `Allowed columns for "${table}": ${allowed.join(', ')}`,
-      );
-    }
-  };
-
-  for (const col of descriptor.columns ?? []) {
-    check(col, 'columns');
-  }
-  for (const pred of descriptor.filters ?? []) {
-    check(pred.column, 'filters');
-  }
-  for (const ob of descriptor.orderBy ?? []) {
-    check(ob.column, 'orderBy');
-  }
-  for (const agg of descriptor.aggregations ?? []) {
-    check(agg.column, 'aggregations');
-  }
-  // Validate BOTH sides of every join.on pair — a join condition is an
-  // attacker-controlled channel (join foo ON secret.col = public.col) that must
-  // be constrained to allowlisted columns just like filters/columns.
-  for (const join of descriptor.joins ?? []) {
-    for (const [left, right] of join.on) {
-      check(left, 'join.on');
-      check(right, 'join.on');
-    }
-  }
-
-  // Validate HAVING aliases against declared aggregation aliases (SECURITY INVARIANT).
-  // Prevents referencing arbitrary columns or injecting identifiers via the HAVING clause.
-  if (descriptor.having && descriptor.having.length > 0) {
-    const aggAliases = new Set((descriptor.aggregations ?? []).map((a) => a.alias));
-    for (const h of descriptor.having) {
-      if (!aggAliases.has(h.alias)) {
-        throw new Error(
-          `MUI X Studio Server: HAVING alias "${h.alias}" does not match any aggregation alias. ` +
-            `Declared aliases: ${[...aggAliases].join(', ') || '(none)'}. ` +
-            `Only aggregation aliases may be used in HAVING predicates.`,
-        );
-      }
-    }
-  }
 }
 
 async function processWidget(
@@ -234,7 +150,12 @@ async function processWidget(
         // 'server' for entries written before tier was persisted). Reporting a
         // 'client'-tier result as 'server' would change client-side behavior.
         tier: cached.tier ?? 'server',
-        rowCount: cached.rows.length,
+        // Echo the ORIGINATING rowCount (the preflight COUNT(*)) — not
+        // `cached.rows.length`, which is the (possibly limit-truncated) row
+        // count and would flip the reported total between the cold-miss and
+        // cache-hit responses. Falls back to the row length for entries written
+        // before rowCount was persisted.
+        rowCount: cached.rowCount ?? cached.rows.length,
       };
     }
 
@@ -269,11 +190,12 @@ async function processWidget(
     // DB push-down returns aggregated rows — not suitable for re-filtering.
     // Tag with the primary table AND every joined table so a mutation to any of
     // them invalidates this cached (joined) result — tagging only the primary
-    // table would leave joined rows stale until TTL.
+    // table would leave joined rows stale until TTL. Persist `rowCount` so a
+    // later cache hit reports the same total as the cold miss.
     if (tier !== 'db') {
       await cacheProvider.set(
         cacheKey,
-        { rows, cachedAt: Date.now(), tier },
+        { rows, cachedAt: Date.now(), tier, rowCount },
         { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
       );
     }

@@ -8,7 +8,8 @@
  * aggregation alias must be left as-is).
  */
 import { describe, it, expect } from 'vitest';
-import { runPreflight, executeForTier } from '../preflight';
+import { runPreflight } from '../preflight';
+import { executeForTier } from '../execute';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
 const CLAIMS: JwtSecurityClaims = { tenantId: 'acme', userId: 'u1', roleIds: [] };
@@ -134,5 +135,36 @@ describe('executeForTier — db tier ORDER BY column aliases', () => {
     await executeForTier(db, CLAIMS, descriptor, 'db');
     const orderByCall = calls.find((c) => c.method === 'orderBy');
     expect(orderByCall).toEqual({ method: 'orderBy', args: ['total', 'desc'] });
+  });
+});
+
+// ─── executeForTier — client/server tier ORDER BY qualification (finding 1.12) ─
+
+describe('executeForTier — client/server tier ORDER BY qualification', () => {
+  it('qualifies an unqualified ORDER BY column with the primary table', async () => {
+    const { db, calls } = createRecordingDb();
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region'],
+      orderBy: [{ column: 'region', direction: 'asc' }],
+    };
+    await executeForTier(db, CLAIMS, descriptor, 'client');
+    const orderByCall = calls.find((c) => c.method === 'orderBy');
+    // Must be qualified so it is unambiguous when a JOIN is present.
+    expect(orderByCall).toEqual({ method: 'orderBy', args: ['sales.region', 'asc'] });
+  });
+
+  it('leaves an already-qualified ORDER BY column untouched', async () => {
+    const { db, calls } = createRecordingDb();
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['customers.name'],
+      orderBy: [{ column: 'customers.name', direction: 'desc' }],
+    };
+    await executeForTier(db, CLAIMS, descriptor, 'server');
+    const orderByCall = calls.find((c) => c.method === 'orderBy');
+    expect(orderByCall).toEqual({ method: 'orderBy', args: ['customers.name', 'desc'] });
   });
 });

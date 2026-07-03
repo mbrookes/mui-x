@@ -204,7 +204,12 @@ export function createMockDb(
         return qb;
       },
       orderBy(column: string, dir = 'asc') {
-        orderByClauses.push({ column, dir });
+        // Strip any "table." qualifier so the sort key matches the row keys
+        // (rows are keyed by the bare column name in this mock). The real
+        // `executeForTier` qualifies unqualified ORDER BY columns with the
+        // primary table to avoid join ambiguity.
+        const key = column.includes('.') ? column.split('.').pop()! : column;
+        orderByClauses.push({ column: key, dir });
         return qb;
       },
       limit(n: number) {

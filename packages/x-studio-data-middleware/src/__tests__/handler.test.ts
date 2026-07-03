@@ -599,6 +599,32 @@ describe('handleBatchQuery — cache', () => {
     expect([...acmeTenantIds]).toEqual(['acme']);
     expect([...globexTenantIds]).toEqual(['globex']);
   });
+
+  it('reports a stable rowCount across cold miss and cache hit when limit truncates (finding 1.7)', async () => {
+    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    // 4 acme rows, but limit truncates the returned rows to 2. The reported
+    // rowCount must reflect the preflight total (4) on BOTH the cold miss and the
+    // subsequent cache hit — not flip to rows.length (2) on the hit.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', limit: 2 }],
+    };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      cacheProvider: cache,
+      tenantColumn: 'tenant_id',
+    };
+
+    const first = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    const second = await handleBatchQuery(body, ACME_CLAIMS, opts);
+
+    expect(first.results[0].rows).toHaveLength(2);
+    expect(first.results[0].rowCount).toBe(4);
+    // Cache hit: rows still truncated, but rowCount stays the preflight total.
+    expect(second.results[0].rows).toHaveLength(2);
+    expect(second.results[0].rowCount).toBe(4);
+  });
 });
 
 // ─── handleBatchQuery — tier routing cache ────────────────────────────────────
@@ -955,6 +981,54 @@ describe('handleBatchQuery — HAVING predicates', () => {
         columnAllowlist,
       }),
     ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+
+  it('rejects an undeclared HAVING alias even with NO columnAllowlist (finding 1.3)', async () => {
+    // The HAVING-alias check must run unconditionally — not only when a column
+    // allowlist is configured. Without this, HAVING becomes an arbitrary-column
+    // comparison oracle.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'raw_amount', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        // NO columnAllowlist supplied.
+      }),
+    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+
+  it('rejects HAVING when the descriptor declares no aggregations at all', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          // No aggregations — HAVING would compare an arbitrary raw column.
+          having: [{ alias: 'total', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+      }),
+    ).rejects.toThrow(/require at least one aggregation/);
   });
 
   it('DB error from an expression-field aggregation column is returned in the widget result, not thrown', async () => {

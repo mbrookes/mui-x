@@ -183,6 +183,12 @@ export function buildStudioMcpServer(
     return !DEFAULT_EXCLUDED_TOOLS.has(name);
   });
 
+  // Names of every STUDIO_AI_TOOL, used to enforce `allowedTools` gating before
+  // the special-case dispatch table (T1-3). Tools outside this set (render_chart,
+  // get_recent_changes, data-query tools) are always-available by design.
+  const studioAiToolNames = new Set<string>(STUDIO_AI_TOOLS.map((t) => t.function.name));
+  const registeredToolNames = new Set<string>(toolsToRegister.map((t) => t.function.name));
+
   // ── tools/list ───────────────────────────────────────────────────────────
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -236,6 +242,18 @@ export function buildStudioMcpServer(
 
     let threw = false;
     try {
+      // T1-3 — enforce `allowedTools` gating BEFORE the special-case dispatch
+      // table for any tool that is a STUDIO_AI_TOOL. `get_dashboard_state` (always
+      // in the table) and `summarise_page` (in the table when `data` is configured)
+      // are STUDIO_AI_TOOLS, so without this check they would be callable even when
+      // the host excluded them via `allowedTools` (e.g. `allowedTools: []` still
+      // serving full dashboard state). Non-STUDIO_AI_TOOLS (render_chart,
+      // get_recent_changes, data-query tools) are always-available by design and
+      // fall through to the table unchanged.
+      if (studioAiToolNames.has(toolName) && !registeredToolNames.has(toolName)) {
+        return errorResult(`Unknown tool: ${toolName}`);
+      }
+
       const handler = toolHandlers[toolName];
       if (handler) {
         return await handler(args);
@@ -243,7 +261,7 @@ export function buildStudioMcpServer(
 
       // ── dashboard-mutation tools ──────────────────────────────────────────
 
-      if (!toolsToRegister.some((t) => t.function.name === toolName)) {
+      if (!registeredToolNames.has(toolName)) {
         return errorResult(`Unknown tool: ${toolName}`);
       }
 

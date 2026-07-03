@@ -813,3 +813,43 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
     expect(errorLog).toHaveBeenCalled();
   });
 });
+
+const CALL_TOOL = 'tools/call';
+
+describe('buildStudioMcpServer — tools/call allowedTools gating (T1-3)', () => {
+  it('rejects a table-backed tool (get_dashboard_state) excluded via allowedTools', async () => {
+    const stateBox = { current: makeStableState() };
+    // allowedTools excludes get_dashboard_state, which is otherwise always in the
+    // special-case dispatch table. It must be rejected, not served.
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['add_page'] });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/unknown tool/i);
+    // The real dashboard state (title "Test") was never leaked.
+    expect(JSON.stringify(result)).not.toContain('"Test"');
+  });
+
+  it('still serves get_dashboard_state when it is in allowedTools', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['get_dashboard_state'] });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result)).toContain('Test');
+  });
+});

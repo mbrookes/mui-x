@@ -80,10 +80,18 @@ describe('PivotSetupPanel', () => {
   it('shows the row/column field pickers and the aggregation control', () => {
     render(<PivotSetupPanel widgetId="widget-1" />);
 
-    expect(screen.getByLabelText('Row field').getAttribute('value')).toBe('Category');
-    expect(screen.getByLabelText('Column field').getAttribute('value')).toBe('Region');
+    // Row/column/value pickers are marked `required` (no fieldless fallback), so their
+    // accessible label carries a trailing asterisk — match with `exact: false`.
+    expect(screen.getByLabelText('Row field', { exact: false }).getAttribute('value')).toBe(
+      'Category',
+    );
+    expect(screen.getByLabelText('Column field', { exact: false }).getAttribute('value')).toBe(
+      'Region',
+    );
     expect(screen.getAllByText('Aggregation').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Total');
+    expect(screen.getByLabelText('Value field', { exact: false }).getAttribute('value')).toBe(
+      'Total',
+    );
   });
 
   it('updates the aggregation via the aggregation select', async () => {
@@ -129,7 +137,7 @@ describe('PivotSetupPanel', () => {
 
     const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
 
-    const rowInput = screen.getByLabelText('Row field');
+    const rowInput = screen.getByLabelText('Row field', { exact: false });
     await user.click(rowInput);
     const segmentOption = await screen.findByRole('option', { name: /Segment$/ });
     await user.click(segmentOption);

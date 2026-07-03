@@ -79,17 +79,23 @@ describe('MapSetupPanel', () => {
   it('shows the region field section for the default (world) geography', () => {
     render(<MapSetupPanel widgetId="widget-1" />);
 
-    // "Country field" renders more than once (section title + field label + notched-outline legend).
+    // "Country field" renders more than once (field label + notched-outline legend).
     expect(screen.getAllByText('Country field').length).toBeGreaterThan(0);
     expect(
       screen.getByText(
         'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
       ),
     ).toBeVisible();
-    expect(screen.getByLabelText('Country field').getAttribute('value')).toBe('Country');
-    expect(screen.getByLabelText('Value field (optional for count)').getAttribute('value')).toBe(
-      'Total',
+    // Country field is marked `required` (no fieldless fallback), so its accessible label
+    // carries a trailing asterisk — match with `exact: false`. Value field stays unmarked
+    // (falls back to a row count) and its label dropped the "(optional for count)" suffix.
+    // The displayed value is qualified with its source ("Orders · Country") since both
+    // fixture sources have a field literally labeled "Country" (DataSourceFieldSelect's
+    // ambiguous-label rule).
+    expect(screen.getByLabelText('Country field', { exact: false }).getAttribute('value')).toBe(
+      'Orders · Country',
     );
+    expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Total');
   });
 
   it('merges a full config update when the map type changes', async () => {
@@ -149,7 +155,7 @@ describe('MapSetupPanel', () => {
 
     const { user } = render(<MapSetupPanel widgetId="widget-1" />);
 
-    const countryInput = screen.getByLabelText('Country field');
+    const countryInput = screen.getByLabelText('Country field', { exact: false });
     await user.click(countryInput);
     // Both sources contribute a field literally labeled "Country"; the option list groups
     // by source ("Orders" then "Customers"), so the second "Country" option is the customers one.

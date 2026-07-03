@@ -73,7 +73,12 @@ describe('FilterSetupPanel', () => {
     render(<FilterSetupPanel widgetId="widget-1" />);
 
     expect(screen.getAllByText('Control type').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('Field').getAttribute('value')).toBe('Status');
+    // The field picker is marked `required` (no fieldless fallback), so its accessible
+    // label carries a trailing asterisk — match with `exact: false`, scoped to the input
+    // so it doesn't also match the filled-state "Clear field" button's aria-label.
+    expect(
+      screen.getByLabelText('Field', { exact: false, selector: 'input' }).getAttribute('value'),
+    ).toBe('Status');
     expect(screen.queryByText('Select a field to configure the filter control.')).toBeNull();
   });
 

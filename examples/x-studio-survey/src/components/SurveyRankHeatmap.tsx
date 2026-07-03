@@ -1,6 +1,11 @@
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
-import type { StudioCustomWidgetDef, StudioCustomWidgetProps } from '@mui/x-studio';
+import { Box, Stack, Switch, Typography } from '@mui/material';
+import { useStudioController, useStudioSelector } from '@mui/x-studio';
+import type {
+  StudioCustomWidgetDef,
+  StudioCustomWidgetProps,
+  StudioCustomWidgetSetupPanelProps,
+} from '@mui/x-studio';
 
 /**
  * Custom x-studio widget that visualises a *ranking* question as a heatmap.
@@ -18,6 +23,12 @@ import type { StudioCustomWidgetDef, StudioCustomWidgetProps } from '@mui/x-stud
 interface RankHeatmapConfig {
   /** Field id whose cells hold the rank-ordered, comma-separated answer. */
   field?: string;
+  /** Show the respondent count inside each heat cell. @default true */
+  showCellNumbers?: boolean;
+  /** Show the mean-rank column between the labels and the heat cells. @default true */
+  showMeanColumn?: boolean;
+  /** Show the "most important / least important" axis labels. @default true */
+  showImportanceLabels?: boolean;
 }
 
 interface RankMatrix {
@@ -138,6 +149,18 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
 
   const { categories, rankCount, matrix, meanRanks, maxCount } = data;
 
+  // Display toggles (all default on) — driven by the compose-panel switches.
+  const showCellNumbers = config.showCellNumbers ?? true;
+  const showMeanColumn = config.showMeanColumn ?? true;
+  const showImportanceLabels = config.showImportanceLabels ?? true;
+
+  // Grid columns: category label, an optional mean-rank column, then the heat cells.
+  const gridTemplateColumns = showMeanColumn
+    ? `minmax(280px, 2.4fr) minmax(36px, auto) repeat(${rankCount}, minmax(28px, 1fr))`
+    : `minmax(280px, 2.4fr) repeat(${rankCount}, minmax(28px, 1fr))`;
+  // Non-rank leading columns (label + optional mean) that the importance caption skips over.
+  const leadingColumns = showMeanColumn ? 2 : 1;
+
   // Colour ramp: empty cells stay near the card surface, the most popular cell is solid primary.
   // Mixing primary into the card surface (rather than an alpha overlay) keeps the ramp legible on
   // whichever surface the active scheme uses.
@@ -151,42 +174,51 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       <Box
         sx={{
           display: 'grid',
-          // Columns: category label, then the mean-rank column, then the heat cells. The
-          // category column is wide enough to hold the long Q29 "Excel like features (…)"
+          // The category column is wide enough to hold the long Q29 "Excel like features (…)"
           // label in (at most) two lines. Labels clamp to 2 lines; two lines fit within
           // the heat cells' min height, so every row stays the same height.
-          gridTemplateColumns: `minmax(280px, 2.4fr) minmax(36px, auto) repeat(${rankCount}, minmax(28px, 1fr))`,
+          gridTemplateColumns,
           gap: '2px',
           minWidth: 'min-content',
           fontSize: '0.65rem',
         }}
       >
         {/* Caption row: importance direction, spanning only the rank columns. */}
-        <Box sx={{ gridColumn: 'span 2' }} aria-hidden />
-        <Box
-          sx={{
-            gridColumn: `span ${rankCount}`,
-            display: 'flex',
-            justifyContent: 'space-between',
-            px: 0.25,
-            pb: 0.25,
-          }}
-        >
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
-            most important
-          </Typography>
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
-            least important
-          </Typography>
-        </Box>
+        {showImportanceLabels && (
+          <React.Fragment>
+            <Box sx={{ gridColumn: `span ${leadingColumns}` }} aria-hidden />
+            <Box
+              sx={{
+                gridColumn: `span ${rankCount}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                px: 0.25,
+                pb: 0.25,
+              }}
+            >
+              <Typography
+                sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}
+              >
+                most important
+              </Typography>
+              <Typography
+                sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}
+              >
+                least important
+              </Typography>
+            </Box>
+          </React.Fragment>
+        )}
 
-        {/* Column-label row: empty label corner + mean + rank numbers */}
+        {/* Column-label row: empty label corner + optional mean + rank numbers */}
         <Box aria-hidden />
-        <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
-          <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
-            mean
-          </Typography>
-        </Box>
+        {showMeanColumn && (
+          <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
+              mean
+            </Typography>
+          </Box>
+        )}
         {Array.from({ length: rankCount }, (_, rankIndex) => (
           <Box
             key={`rank-${rankIndex}`}
@@ -229,19 +261,21 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
                 {category}
               </Box>
             </Box>
-            <Box
-              title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'text.secondary',
-                fontVariantNumeric: 'tabular-nums',
-                fontWeight: 600,
-              }}
-            >
-              {meanRanks[catIndex].toFixed(1)}
-            </Box>
+            {showMeanColumn && (
+              <Box
+                title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'text.secondary',
+                  fontVariantNumeric: 'tabular-nums',
+                  fontWeight: 600,
+                }}
+              >
+                {meanRanks[catIndex].toFixed(1)}
+              </Box>
+            )}
             {matrix[catIndex].map((count, rankIndex) => (
               <Box
                 key={`${category}-${rankIndex}`}
@@ -257,7 +291,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {count > 0 ? count : ''}
+                {showCellNumbers && count > 0 ? count : ''}
               </Box>
             ))}
           </React.Fragment>
@@ -293,10 +327,58 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
   );
 }
 
+/** Compose-drawer setup panel: toggles for the heatmap's optional display elements. */
+function RankHeatmapSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
+  const controller = useStudioController();
+  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+
+  if (!widget) {
+    return null;
+  }
+
+  const custom = (widget.config.customConfig ?? {}) as RankHeatmapConfig;
+  const update = (changes: Partial<RankHeatmapConfig>) => {
+    controller.updateWidgetConfig(widgetId, { customConfig: { ...custom, ...changes } });
+  };
+
+  const toggles: {
+    label: string;
+    key: 'showCellNumbers' | 'showMeanColumn' | 'showImportanceLabels';
+  }[] = [
+    { label: 'Numbers in cells', key: 'showCellNumbers' },
+    { label: 'Mean column', key: 'showMeanColumn' },
+    { label: 'Most/least important labels', key: 'showImportanceLabels' },
+  ];
+
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle2" color="text.secondary">
+        Rank heatmap
+      </Typography>
+      {toggles.map((toggle) => (
+        <Box
+          key={toggle.key}
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <Typography variant="body2">{toggle.label}</Typography>
+          <Switch
+            size="small"
+            checked={custom[toggle.key] ?? true}
+            onChange={(event) =>
+              update({ [toggle.key]: event.target.checked } as Partial<RankHeatmapConfig>)
+            }
+          />
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 export const rankHeatmapWidgetDef: StudioCustomWidgetDef = {
   kind: 'survey-rank-heatmap',
   label: 'Rank heatmap',
   description: 'Heatmap of how respondents ranked each category by position',
   component: SurveyRankHeatmap,
+  setupPanel: RankHeatmapSetupPanel,
   requiresDataSource: true,
 };

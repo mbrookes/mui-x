@@ -104,6 +104,7 @@ export interface AppLocaleText {
   ) => string;
   dashboardLoadedMessage: string;
   dashboardLoadFailedMessage: string;
+  saveErrorMessage: string;
 }
 
 const enAppLocaleText: AppLocaleText = {
@@ -187,6 +188,7 @@ const enAppLocaleText: AppLocaleText = {
     `Dashboard loaded and migrated from v${fromVersion} to v${toVersion}`,
   dashboardLoadedMessage: 'Dashboard loaded successfully',
   dashboardLoadFailedMessage: 'Failed to load dashboard',
+  saveErrorMessage: "Couldn't save your changes to the server — retrying…",
 };
 
 const ptBrAppLocaleText: AppLocaleText = {
@@ -272,6 +274,7 @@ const ptBrAppLocaleText: AppLocaleText = {
     `Painel carregado e migrado da v${fromVersion} para a v${toVersion}`,
   dashboardLoadedMessage: 'Painel carregado com sucesso',
   dashboardLoadFailedMessage: 'Falha ao carregar o painel',
+  saveErrorMessage: 'Não foi possível salvar suas alterações no servidor — tentando novamente…',
 };
 
 export interface LocaleBundle {

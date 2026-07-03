@@ -194,17 +194,35 @@ export default function App() {
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Last-seen server boot id, for detecting a reset/redeployment while the app stays open.
   const serverInstanceRef = React.useRef<string | null>(null);
+  // Whether the next debounced save carries a genuine edit-mode change. Only those surface a
+  // failure to the user — background saves (viewer navigation, initial seed, redeploy re-seed)
+  // fail silently so viewers never see a spurious "couldn't save" warning.
+  const notifyOnSaveErrorRef = React.useRef(false);
+  // True while an edit-mode save is failing; drives the persistent "couldn't save" indicator.
+  const [saveError, setSaveError] = React.useState(false);
 
-  const flushSave = React.useCallback((keepalive = false) => {
-    const session = studioRef.current?.serializeSession();
-    if (!session) {
-      return;
-    }
-    saveSession(session, keepalive).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('[x-studio-survey] Failed to save dashboard state', err);
-    });
-  }, []);
+  const flushSave = React.useCallback(
+    (options: { keepalive?: boolean; notifyOnError?: boolean } = {}) => {
+      const { keepalive = false, notifyOnError = false } = options;
+      const session = studioRef.current?.serializeSession();
+      if (!session) {
+        return;
+      }
+      saveSession(session, keepalive)
+        .then(() => {
+          // Any successful save means the server is reachable — clear a prior failure.
+          setSaveError(false);
+        })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('[x-studio-survey] Failed to save dashboard state', err);
+          if (notifyOnError) {
+            setSaveError(true);
+          }
+        });
+    },
+    [],
+  );
 
   const scheduleSave = React.useCallback(() => {
     if (!hydratedRef.current || !statePersistenceEnabled) {
@@ -213,8 +231,22 @@ export default function App() {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
-    saveTimerRef.current = setTimeout(() => flushSave(), 800);
+    saveTimerRef.current = setTimeout(() => {
+      const notifyOnError = notifyOnSaveErrorRef.current;
+      notifyOnSaveErrorRef.current = false;
+      flushSave({ notifyOnError });
+    }, 800);
   }, [flushSave]);
+
+  // While an edit-mode save is failing, keep retrying so the indicator clears itself once the
+  // server recovers — even if the user makes no further edits.
+  React.useEffect(() => {
+    if (!saveError) {
+      return undefined;
+    }
+    const id = window.setInterval(() => flushSave({ notifyOnError: true }), 5000);
+    return () => window.clearInterval(id);
+  }, [saveError, flushSave]);
 
   // The page-sync effect rewrites the URL on mount, so capture the original query string at
   // first render before applyInitialNav (which can run a microtask later) reads it.
@@ -321,7 +353,7 @@ export default function App() {
       if (hydratedRef.current && saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        flushSave(true);
+        flushSave({ keepalive: true });
       }
     };
     window.addEventListener('pagehide', onHide);
@@ -395,6 +427,11 @@ export default function App() {
       );
       setCanUndo(studioRef.current?.canUndo() ?? false);
       setCanRedo(studioRef.current?.canRedo() ?? false);
+      // Only edit-mode changes are the user's authored work — flag the pending save so its
+      // failure is surfaced. View-mode changes (e.g. navigation) save silently.
+      if (state.mode === 'edit') {
+        notifyOnSaveErrorRef.current = true;
+      }
       scheduleSave();
     },
     [scheduleSave],
@@ -670,6 +707,13 @@ export default function App() {
               sx={{ width: '100%' }}
             >
               {snackbar.message}
+            </Alert>
+          </Snackbar>
+          {/* Persistent indicator while an edit-mode save is failing; clears itself once the
+              retry loop succeeds. Anchored away from the transient snackbar above. */}
+          <Snackbar open={saveError} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
+            <Alert severity="warning" variant="filled" sx={{ width: '100%' }}>
+              {t.saveErrorMessage}
             </Alert>
           </Snackbar>
           <SettingsDialog

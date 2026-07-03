@@ -62,8 +62,8 @@ It exports:
 
 - All `StudioState` data-model types: `baseTypes.ts`, `dataTypes.ts`, `widgetTypes.ts`, `expressionTypes.ts`, `stateTypes.ts`
 - AI-protocol types (`aiTypes.ts`): `SerializableSkill`, `StateMutation`, `StudioAIToolName`, `StudioAIRichContext` and its constituent types (`StudioAIFieldStat`, `StudioAILayoutWidget`, `StudioAICrossFilterEdge`, `StudioAIPageLayout`, `StudioAIRecentMutation`), and the persisted `StudioAIState`/`StudioAIChatThread` conversation types
-- `createDefaultWidget` (`widgetFactory.ts`) — shared so AI-created and UI-created widgets get identical defaults
-- `detectAnomaliesIQR`, `median` (`anomalyDetection.ts`) — the Tukey-IQR outlier check used by `summarise_page`'s time-series anomaly detection, on both the client and the MCP `summarise_page` handler
+- `createDefaultWidget` (`factories.ts`) — shared so AI-created and UI-created widgets get identical defaults
+- `detectAnomaliesIQR` (`anomalyDetection.ts`) — the Tukey-IQR outlier check used by `summarise_page`'s time-series anomaly detection, on both the client and the MCP `summarise_page` handler
 - `applyMutation`, `mutationLabel` (`applyMutation.ts`) — see below
 
 Server-only AI types (`StudioAISkill` with its `execute` function, `SkillExecuteResult`, `StudioDataResolver`, rate-limit/usage/enriched-context types) are **not** part of the shared schema — they live in this package's `models/aiTypes.ts` since the client never needs them.
@@ -72,7 +72,7 @@ Server-only AI types (`StudioAISkill` with its `execute` function, `SkillExecute
 
 ### `applyMutation` — the single mutation reducer
 
-`applyMutation(state: StudioState, mutation: StateMutation): StudioState` (`packages/x-studio-schema/src/applyMutation.ts`) is a pure, exhaustive switch over every `StateMutation` variant (`addPage`, `setDashboardTitle`, `addWidget`, `updateWidget`, `removeWidget`, `setWidgetLayout`, `setWidgetColSpan`, `renamePage`, `removePage`, `setActivePage`, `addFilter`, `removeFilter`, `applyBulkUpdate`, `renameAIThread`). A `never`-typed exhaustiveness check makes adding a `StateMutation` variant without a matching `case` a compile error.
+`applyMutation(state: StudioState, mutation: StateMutation): StudioState` (`packages/x-studio-schema/src/applyMutation.ts`) is a pure reducer dispatched through a `MUTATION_HANDLERS` table keyed by `mutation.type`, covering every `StateMutation` variant (`addPage`, `setDashboardTitle`, `addWidget`, `updateWidget`, `removeWidget`, `setWidgetLayout`, `setWidgetColSpan`, `renamePage`, `removePage`, `setActivePage`, `addFilter`, `removeFilter`, `applyBulkUpdate`, `renameAIThread`). Each entry co-locates its `apply` (state transition) and `label` (human-readable log line) logic, so the two can never drift apart; the table's mapped type (`{ [M in StateMutation as M['type']]: ... }`) makes a variant missing a handler a compile error. At runtime, an unrecognized `mutation.type` (a malformed or forward-incompatible payload) is a graceful no-op rather than a throw.
 
 Both transports use this same function for the state-transformation step:
 
@@ -125,7 +125,7 @@ Notable per-tool behavior:
 - **`apply_bulk_update`** is a single atomic operation: it applies removals, then additions, then partial updates, then an optional full-page relayout (widget references in `layout` may be given by the newly-added widget's `title`, resolved to its generated id), then column-span patches (clamped to 3–12), building one `applyBulkUpdate` mutation for the whole batch. Skipped operations (referencing an unknown widget id) are collected into a `skipped` array in the output rather than throwing.
 - **`summarise_page`** behaves differently depending on transport: on the chat path it can only honor the _active_ page (only the client-provided `pageSnapshot` has live row data, and that snapshot is built for the active page) — if the model passes a `pageId` for a non-active page, the tool returns an actionable error telling it to call `set_active_page` first. On the MCP path (`mcp/dataTools.ts`'s `createSummarisePageHandler`), the server can query any page's sources directly via `data.queryDataSource`, so a `pageId` argument is honored without switching pages.
 - **`set_widget_forecast`** validates that the target widget's `chartType` is `line` or `area` before accepting the change, since forecast overlays are meaningless otherwise.
-- **`rename_thread`** builds a `renameAIThread` mutation for the client to apply to `state.ai`; since the server-side `StudioState` carries no `ai` thread store, `applyMutation` for this case is effectively a no-op on the server's own copy — only the client's application of the same mutation actually renames the thread.
+- **`rename_thread`** builds a `renameAIThread` mutation, stamping `args.updatedAt` once here (`new Date().toISOString()`) so the server-computed and client-applied results share the identical timestamp — the reducer itself never calls `Date.now()`, keeping it pure. The mutation is for the client to apply to `state.ai`; since the server-side `StudioState` carries no `ai` thread store, `applyMutation` for this case is effectively a no-op on the server's own copy — only the client's application of the same mutation actually renames the thread.
 
 ## MCP surface
 

@@ -1,123 +1,405 @@
-# Architecture & technical-debt review (Fable)
+# Architecture review — `@mui/x-studio-data-middleware`
 
-Independent review by the Fable model, run in two passes: (1) a review of `ARCHITECTURE.md` across all three Studio packages, verified against source and extended with new findings; (2) a dedicated technical-debt sweep of this package. Read-only analysis — no code was changed to produce this report. See also [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the baseline this review evaluates.
+Independent ground-up review of the package as of 2026-07-03. Every claim below was verified
+against the current source under `packages/x-studio-data-middleware/src/`; `ARCHITECTURE.md` was
+used as a map only. Findings are grouped by the project's four-tier taxonomy and ranked by
+severity within each tier.
 
-None of the findings below are cross-cutting with the other two packages — this package has no dependency on `@mui/x-studio` or `@mui/x-studio-ai-middleware`.
+Overall assessment: the core read-path security model (shared predicate module, unconditional
+security predicates applied first, parameterized bindings everywhere, fail-closed read-path
+column allowlist, HMAC-scoped cache keys) is sound and well tested. The serious problems are
+concentrated on the **mutation path's handling of the newer `securityColumns` config** and one
+**cache-staleness bug in the default data-cache provider**.
 
 ---
 
-## Part 1 — Architecture proposals concerning this package
+## Tier 1 — Correctness / security bugs
 
-### Proposal: Row-level security is asymmetric — read path enforces region/department, write path doesn't; joins are never security-scoped
+### 1.1 CRITICAL — INSERT tenant stamping ignores `securityColumns`; cross-tenant row injection
 
-**Problem**: `buildSecureQuery` applies three security predicates to reads — tenant, region, department (`router/queryBuilder.ts:77-87`). The mutation builders apply **only** the tenant predicate: `buildUpdateMutation` (`mutations/mutationBuilder.ts:126-128`) and `buildDeleteMutation` (`mutationBuilder.ts:160-162`) never add `regionIds`/`department` scoping. Additionally, all security predicates are applied to `descriptor.table` only — joined tables get none (`queryBuilder.ts:61-73`; documented as a caveat in `security/types.ts:133` but not reflected in `ARCHITECTURE.md`'s invariant #2, which claims "a client can never override, remove, or AND-away these predicates"). The region/department column names are hardcoded literals `region_id`/`department` (`queryBuilder.ts:82,86`) in an otherwise schema-agnostic package — only `tenantColumn` is configurable.
+- `src/mutations/mutationBuilder.ts:96-110` (`buildInsertMutation`), `:70-74` (`validateMutation`
+  tenant-column rejection), and `src/mutations/handleMutation.ts:94` (call site).
 
-**Architectural cost**: A user whose JWT restricts them to region 5 can UPDATE/DELETE any row in _any region_ of their tenant — the invariant "security predicates are unconditional" silently holds only for reads. Joined tables can leak rows belonging to other tenants whenever join keys collide across tenants. Any deployment whose region column isn't literally named `region_id` gets a SQL error on every query for users carrying `regionIds` claims.
-
-**Recommended change**: Extract a single `applySecurityPredicates(query, table, claims, securityConfig)` used by both `buildSecureQuery` and all three mutation builders. Replace the hardcoded column names with a config shape: `securityColumns?: { tenant?: string; region?: string; department?: string }` (per-table overrides: `Record<string, {...}>`), defaulting to current names for compatibility. Call it for `descriptor.table` **and** for each `join.table` that has a configured tenant column (tables without one are declared "shared" explicitly, making cross-tenant exposure an opt-in, not a default).
-
-**Effort/risk**: Medium. Hosts whose joined tables genuinely are shared (lookup tables) need the opt-out; adding predicates to joins changes result sets for existing deployments, so gate the join-scoping behind an option defaulting on with a clear changelog entry. Write-path region scoping is a pure tightening — low break risk, high win.
-
-### Proposal: Empty-`IN` predicate silently bypasses the "UPDATE/DELETE must have a WHERE" invariant
-
-**Problem**: `validateMutation` enforces ≥1 `where` predicate for update/delete (`mutations/mutationBuilder.ts:34-39`). But `applyMutationPredicate` **drops** an `in` predicate whose value array is empty (`mutationBuilder.ts:184-189`, copied from `router/queryBuilder.ts:150-157`). So `{operation: 'delete', table: 'orders', where: [{column: 'id', operator: 'in', value: []}]}` passes validation, the predicate is dropped, and the query becomes `DELETE FROM orders WHERE tenant_id = ?` — a full-tenant-table wipe, precisely what invariant #4 exists to prevent. On the read path the drop is defensible (mirrors the client's empty-selection-means-no-filter semantics in `x-studio/src/internals/filterUtils.ts:105-111,342-343`), but on the write path "no filter" means "mutate everything," inverting the intent from match-nothing to match-all. **The tech-debt sweep below found this is worse than it looks**: the write-path operator switch has **no `SAFE_OPERATORS` guard at all** (unlike the read path), so an unrecognized/typo'd operator is also silently dropped rather than rejected — a second, independent path to the same table-wipe outcome.
-
-**Architectural cost**: Direct data-loss bug reachable from a single malformed client request (e.g. a UI that builds the `in` list from a selection that happens to be empty). Plus the documented keep-in-sync-by-hand burden for every new operator.
-
-**Recommended change**: Create `src/shared/predicates.ts` exporting `applyPredicates(query, predicates, mode: 'read' | 'write')` and `countEffectivePredicates(predicates)`. In `'write'` mode, an empty `in` **throws** (`MUI X Studio Server: "in" predicate with an empty value list would make the mutation unscoped...`) and an unrecognized operator also throws (matching the read path's `SAFE_OPERATORS` check, currently absent on write); in `'read'` mode an empty `in` is dropped as today. `validateMutation` switches from `where.length >= 1` to `countEffectivePredicates(where) >= 1`. Both builders delete their local switches.
-
-**Effort/risk**: Small (one new module, two call-site swaps, tests for the empty-IN delete case and the unknown-operator case). Risk: near zero — the only behavior change is rejecting requests that today destroy data.
-
-### Proposal: Fail-open security defaults — empty-string JWT/HMAC secrets and per-table column allowlist holes
-
-**Problem**: Three independent fail-open paths:
-
-- `extractSecurityClaims(header, jwtSecret = process.env.JWT_SECRET ?? '')` (`security/extractSecurityClaims.ts:36`) — if `JWT_SECRET` is unset, verification proceeds with an **empty HMAC key**, so anyone can forge a valid HS256 token. It never throws on missing secret.
-- Same pattern in `generateCacheKey` (`security/cacheKey.ts:98`): `hmacSecret = ... ?? ''` breaks the documented "opaque, cannot guess another tenant's key" guarantee (invariant #4).
-- `validateColumns` checks `if (allowed && !allowed.includes(column))` (`handler.ts:145-146`) — any table _without_ an entry in `columnAllowlist` passes all columns, and a client can dodge validation entirely by table-qualifying a column with a name that has no allowlist entry. Also, `join.on` column pairs are never validated at all, even though `security/types.ts:53-54` explicitly claims "Column names in `on` predicates are validated against `columnAllowlist`" — the docs and type comments assert a check that doesn't exist.
-- Minor: `timingSafeEqual` throws `RangeError` on length mismatch (`extractSecurityClaims.ts:58`) instead of a clean auth error.
-
-**Architectural cost**: The package's entire security story ("Zero-Knowledge Rule", trust boundary at `JwtSecurityClaims`) rests on these functions; a forgotten env var currently degrades to _no authentication_ with zero warning. `join.on` is a live probing channel (`join other ON orders.secret_col = other.public_col` and observe row counts).
-
-**Recommended change**: Throw at call time when the effective secret is empty (`if (!jwtSecret) throw new Error('MUI X Studio Server: JWT_SECRET is not configured...')`; same for the cache HMAC). Make the column allowlist fail-closed when provided: a referenced table with no allowlist entry is an error (mirroring `schemaAllowlist`'s all-or-nothing posture, with an explicit `'*'` escape hatch per table). Validate both sides of every `join.on` pair in `validateColumns`, making the code match its own type docs. Wrap `timingSafeEqual` with a length pre-check.
-
-**Effort/risk**: Small. Fail-closed allowlisting could break hosts relying on partial allowlists — release note covers it.
-
-### Proposal: Multi-condition joins build invalid SQL
-
-**Problem**: `JoinDescriptor.on` is typed `[string, string][]` — explicitly an array of column pairs (`security/types.ts:68`). But `buildSecureQuery` loops `for (const [left, right] of join.on) { query[joinMethod](join.table, left, '=', right); }` (`router/queryBuilder.ts:70-72`) — calling Knex's join once **per pair**, which joins the same table twice. Two `on` pairs produce `JOIN t ON a=b JOIN t ON c=d` → "table name not unique" error on real databases (the in-memory `mockDb.ts` test double doesn't catch this).
-
-**Architectural cost**: Any composite-key join (common: `(tenant_id, order_id)` pairs — exactly what the security-scoping proposal above wants for joins) fails at runtime in production while passing tests. Silent trap baked into the public wire type.
-
-**Recommended change**:
+`buildInsertMutation` only stamps `claims.tenantId` when the **legacy** `tenantColumn` option is
+set, and `handleMutation` passes only `tenantColumn` to it — `securityColumns` is never consulted
+on the insert path:
 
 ```ts
-query[joinMethod](join.table, function joinOn() {
-  for (const [left, right] of join.on) {
-    this.on(left, '=', right);
-  }
-});
+// handleMutation.ts:94
+const result = await buildInsertMutation(db, claims, descriptor, tenantColumn);
+// mutationBuilder.ts:105-107
+if (tenantColumn) {
+  values[tenantColumn] = claims.tenantId;
+}
 ```
 
-Add a real-SQL test (a dev-dep like `better-sqlite3`, test-only — doesn't violate the no-Knex-import invariant, which applies to core logic) covering a two-pair join.
+Likewise `validateMutation`'s "client may not set the tenant column" check compares only against
+`options.tenantColumn` (`col === options.tenantColumn`, line 70).
 
-**Effort/risk**: Small; single-pair behavior is unchanged, multi-pair goes from broken to working.
+Consequence: a deployment that configures tenancy **only** through the newer shape —
+`securityColumns: { tenant: 'tenant_id' }` (or a `perTable` override) — gets correct read/update/
+delete scoping (`resolvePrimarySecurityColumns` falls through `override → config → tenantColumn`),
+but INSERTs are **not stamped with the caller's tenant at all**, and the client may freely supply
+`tenant_id: 'victim-tenant'` in `values` (the rejection check passes because
+`options.tenantColumn` is `undefined`). That is a cross-tenant write: an attacker can create rows
+that appear inside another tenant's dashboards. The same mismatch occurs when `tenantColumn` and
+`securityColumns.perTable[table].tenant` disagree — inserts stamp the wrong column.
 
-### Smaller observation relevant to this package
+This directly contradicts design invariant #2 in `ARCHITECTURE.md` ("update/delete always
+overwrite/strip `values[tenantColumn]` … nor move a row to another tenant") for the insert case.
 
-- **`handler.ts:42-57` module-level default cache singletons** contradict the file's own "no global state mutation" banner (line 16); harmless functionally (keys are claims-scoped) but the pure-function claim in `ARCHITECTURE.md` is overstated — `options.cacheProvider` should be documented as effectively required for multi-config hosts. (See the tech-debt sweep's finding #13 below for the fuller picture, including an unbounded default tier cache.)
+**Recommendation:** resolve the tenant column once via
+`resolvePrimarySecurityColumns(descriptor.table, options.securityColumns, options.tenantColumn)`
+in both `validateMutation` (for the values rejection) and `buildInsertMutation` (for stamping),
+exactly as `buildUpdateMutation`/`buildDeleteMutation` already do. Add the missing test (see 4.1).
 
-### Verification notes on the two seeded items from this package
+### 1.2 HIGH — `LRUCacheProvider` uses `updateAgeOnGet: true`; hot cache entries never expire
 
-- **Filter-operator duplication** (`applyPredicate` vs `applyMutationPredicate`) — confirmed, and upgraded: the duplication is currently hiding the data-loss bug above (empty-`IN` + no operator guard on write), which makes it clearly worth fixing now, not just a style cleanup.
-- **Multi-column join bug** — confirmed as a genuine runtime SQL error against real databases, invisible in the current test suite because the mock DB doesn't validate join uniqueness.
+- `src/cache/LRUCacheProvider.ts:69`.
+
+The default data-cache provider configures `lru-cache` with `updateAgeOnGet: true`. In
+`lru-cache`, this resets an entry's TTL clock on every `get()` — a key read more often than every
+30 s (the default TTL) **never expires**. A dashboard that polls a widget on any interval shorter
+than the TTL will be served the same cached rows indefinitely; the only refresh path left is
+`deleteByTag` from `handleMutation`, which does not fire for out-of-band writes (ETL jobs, other
+services, direct DB writes). The TTL is supposed to be the staleness bound; this option silently
+removes it for exactly the entries that matter most.
+
+Note the behavioral drift with `RedisCacheProvider`, which (correctly) does not refresh TTL on
+read — the same deployment behaves differently on one node vs. multi-node.
+
+**Recommendation:** set `updateAgeOnGet: false` (the `lru-cache` default). If read-driven
+retention is desired for LRU _ordering_, that already happens via recency; it must not extend TTL.
+Add a test asserting an entry expires after `ttlMs` even under continuous reads (see 4.2).
+
+### 1.3 MODERATE — HAVING-alias validation only runs when `columnAllowlist` is configured
+
+- `src/handler.ts:93-97` (gate) and `:196-209` (the check, inside `validateColumns`).
+
+The "HAVING alias must match a declared aggregation alias" security check lives inside
+`validateColumns()`, which is only invoked when `options.columnAllowlist` is supplied. Without a
+column allowlist (explicitly supported, "backward compatible" per `security/types.ts`), a client
+can send `having: [{ alias: 'any_real_column', operator: 'gt', value: N }]` with **no**
+aggregations. `buildSecureQuery` then emits `havingRaw('?? > ?', [alias, value])`
+(`router/queryBuilder.ts:102-130`) — injection-safe via `??` binding, but it turns HAVING into a
+comparison oracle on arbitrary columns the widget never selected, and produces confusing SQL
+errors from the COUNT(\*) preflight for non-aggregated queries. The check does not depend on the
+allowlist at all — it validates `having[].alias` against `descriptor.aggregations[].alias`, both
+part of the descriptor.
+
+`ARCHITECTURE.md` (§ Read path, step 2) presents this check as _the_ thing that "stops HAVING
+from reaching arbitrary raw columns" — that claim is only true when a column allowlist is set.
+
+**Recommendation:** hoist the HAVING-alias loop out of `validateColumns` into `handleBatchQuery`
+so it runs unconditionally for every widget. Also reject `having` on descriptors with no
+`aggregations` (currently guaranteed only as a side effect of the alias-set being empty).
+
+### 1.4 MODERATE — Write-path column validation is fail-open per table (read path is fail-closed)
+
+- `src/mutations/mutationBuilder.ts:49-62` (`where` columns) and `:65-84` (`values` keys).
+
+Both write-path checks skip validation when the target table has no allowlist entry:
+
+- `where` predicates: `if (allowed && !allowed.includes(column))` — a qualified column
+  `sometable.col` where `sometable` has no `columnAllowlist` entry passes silently.
+- `values` keys: the whole block is inside `if (allowed)` — a table present in `schemaAllowlist`
+  but missing from `writableColumns` accepts **every** column, including `region_id` /
+  `department` / any other sensitive column.
+
+The read path (`handler.ts:136-172`) was deliberately hardened to fail closed, with an explicit
+`['*']` wildcard escape hatch, and its docblock explains why fail-open is a probing hole. The
+write path never got the same treatment — and it also does not honor `'*'`, so a host that uses
+the wildcard convention on reads gets spurious rejections on writes for the same table.
+
+**Recommendation:** mirror the read-path semantics: when `columnAllowlist` / `writableColumns`
+is supplied, a referenced table with no entry is an error; support `['*']` as the explicit
+opt-out. Best done by sharing one implementation (see 2.2).
+
+### 1.5 MODERATE — INSERT enforces tenant only; region/department scope not applied to inserts
+
+- `src/mutations/mutationBuilder.ts:96-110`.
+
+Reads, updates and deletes all enforce region/department claims via `applySecurityPredicates`,
+but INSERT neither stamps nor validates them. A user restricted to `regionIds: [5]` can insert
+rows with `region_id: 6` (subject only to `writableColumns`, which is fail-open per 1.4). The row
+lands in a slice of data the writer cannot even read back — and pollutes region-6 users' widgets.
+
+**Recommendation:** at minimum document this asymmetry in `HandleMutationOptions.securityColumns`;
+preferably validate `values[regionColumn] ∈ claims.regionIds` and
+`values[departmentColumn] === claims.department` when those claims are present, in
+`validateMutation`.
+
+### 1.6 LOW — Mutations in a batch execute concurrently with no ordering or atomicity
+
+- `src/mutations/handleMutation.ts:64-67` (`Promise.all(body.mutations.map(...))`).
+
+A batch like `[insert row, update that row]` races: `Promise.all` starts all mutations
+concurrently, so ordering depends on the driver. Clients typically assume a mutation batch runs
+in array order (that is what "batch" implies for writes), and nothing documents otherwise. There
+is also no transaction: a mid-batch failure leaves earlier mutations committed (per-item error
+isolation is deliberate, but the _concurrency_ is not called out anywhere).
+
+**Recommendation:** process mutations sequentially (`for … await`) — batch sizes are small and
+correctness beats latency on the write path — or document the concurrency contract explicitly in
+`BatchMutationRequest`.
+
+### 1.7 LOW — Cache hits misreport `rowCount` when `limit` truncates the result
+
+- `src/handler.ts:229-238` (hit path: `rowCount: cached.rows.length`) vs. `:257` (miss path:
+  preflight count).
+
+On a cold miss, a non-aggregated widget reports `rowCount` = COUNT(\*) result (e.g. 5 000) while
+`rows` is truncated to `descriptor.limit` (e.g. 100). On the subsequent cache hit for the same
+request, `rowCount` becomes `cached.rows.length` (100). Any client logic keyed on `rowCount`
+(pagination, "showing X of Y" labels, tier heuristics) sees the value flip between requests.
+
+**Recommendation:** persist `rowCount` on `CacheEntry` (alongside the existing `tier` field, with
+the same optional/backward-compatible treatment) and echo it on hits.
+
+### 1.8 LOW — `db`-tier fallback for large _non-aggregated_ queries silently deduplicates rows
+
+- `src/router/preflight.ts:102-135` (db branch), reachable via `tierFromRowCount` returning
+  `'db'` for > `server` threshold rows with no `aggregations`.
+
+With no `AggregationSpec`s, `measureColSet` is empty, so **every** selected column goes into both
+SELECT and GROUP BY — the widget receives `SELECT DISTINCT`-equivalent rows instead of raw rows,
+with `rowCount` still reporting the raw preflight count. `security/types.ts:151` documents "the
+db tier returns grouped rows without aggregation", but the result-shape change is invisible to
+the client (the `tier` field is the only hint) and the rowCount/rows mismatch is unambiguous.
+
+**Recommendation:** for the non-aggregated db tier, drop the `groupBy` and return plain
+`SELECT … LIMIT` rows (the tier is about _where_ work happens, not about changing semantics), or
+make the dedup explicit in `WidgetQueryResult`.
+
+### 1.9 LOW — Redis tag forward-index TTL is overwritten by the most recent write
+
+- `src/cache/RedisCacheProvider.ts:195-204`.
+
+`set()` refreshes `EXPIRE __tag__:<tag>` to the **current** entry's TTL. If entry A is written
+with `ttlMs: 300_000` and entry B (same tag) later with `ttlMs: 1_000`, the shared forward index
+expires after 1 s — after which `deleteByTag(tag)` finds no members and A survives until its own
+TTL despite a mutation. Not reachable through `handler.ts` today (it never passes `ttlMs`, so all
+writes share `defaultTtl`), but the public `CacheProvider.set(opts.ttlMs)` contract invites
+per-entry TTLs.
+
+**Recommendation:** only extend, never shorten: skip the `EXPIRE` when the index's remaining TTL
+(via `TTL` command) exceeds the new value, or unconditionally set the index expiry to the
+provider's max expected TTL.
+
+### 1.10 LOW — Module-level default caches are shared across all callers, keyed without DB identity
+
+- `src/handler.ts:42-57`.
+
+`defaultCache` / `defaultTierCache` are process-global singletons, and `generateCacheKey` encodes
+tenant + claims + query shape but **not** which `db` the query ran against. A single process
+serving two databases (e.g. staging + prod Knex instances, or per-customer DBs sharing a tenant-id
+scheme) through the default providers will cross-serve cached rows between databases. It also
+quietly contradicts the file's own "PURE FUNCTION GUARANTEE: No global state mutation" docblock
+(lines 13-17).
+
+**Recommendation:** document that the default providers are process-global and single-DB only,
+and warn hosts with multiple `db` instances to pass distinct `cacheProvider`s. (Embedding a DB
+identity in the key is not possible while `db` is opaque.)
+
+### 1.11 INFO — Error strings leak schema/SQL details to the client
+
+- `src/handler.ts:287-295` and `src/mutations/handleMutation.ts:139-145` return `err.message`
+  verbatim in the per-item result; driver errors typically embed full SQL text (including bound
+  tenant values and column names). Allowlist-violation errors also echo the entire
+  `schemaAllowlist` (`handler.ts:86-89`, `handleMutation.ts:57-60`), handing a prober the full
+  table inventory. Deliberate DX trade-offs, but worth an explicit "sanitize in production" note
+  in the README, or a `redactErrors` option.
+
+### 1.12 INFO — ORDER BY columns are not table-qualified
+
+- `src/router/preflight.ts:91-94` and `:161-170`. SELECT and GROUP BY qualify unqualified columns
+  with the primary table to avoid join ambiguity, but ORDER BY does not — an unqualified order
+  column shared by both joined tables fails with "ambiguous column" only when ordering. Apply the
+  same `qualify()` helper (excluding aggregation aliases, as the db branch already distinguishes).
 
 ---
 
-## Part 2 — Technical debt: this package (full sweep)
+## Tier 2 — Structural duplication
 
-Ordered by impact. No TODO/FIXME/HACK markers exist anywhere in the package (grep confirmed) — the debt below is entirely unmarked.
+### 2.1 Redis plumbing duplicated between the two Redis providers
 
-**1. `knex` is already a hard dependency, so the `db: any` justification is void — type safety is recoverable for free**
-`package.json:23,28` vs. `security/types.ts:266,329`, `router/queryBuilder.ts:52`, `router/preflight.ts:44,79`, `mutations/mutationBuilder.ts:92,118,153`, `handler.ts:184`. Every `db` parameter is `any` with the comment "typed as any to avoid hard Knex dependency at import time" — but `package.json` lists `knex: ^3.1.0` in **both** `dependencies` and `peerDependencies`. The dependency the `any` is supposed to avoid is already there. All query-builder call sites (`.where`, `.sum`, `.havingRaw`, join methods) are unchecked as a result — exactly how the multi-column-join bug above survived. Fix: use `import type { Knex } from 'knex'` (erased at runtime, works fine as a peer-only dep) and type `db: Knex`; or follow the package's own precedent — the minimal structural `RedisClient` interface in `RedisCacheProvider.ts:61-72` — and define a ~15-method `MinimalKnex` interface. Remove `knex` from `dependencies` (keep the peer); also move `rimraf` (`package.json:25`) to `devDependencies`.
+- `src/cache/RedisCacheProvider.ts:334-366` and `src/cache/RedisTierCacheProvider.ts:149-181`
+  contain **byte-identical** `scanKeys()` implementations (cursor loop, ioredis vs node-redis
+  reply-shape normalization). The `SET key value EX seconds` client-style branching is also
+  implemented twice (`redisSetEx` at `RedisCacheProvider.ts:260-266` vs inline at
+  `RedisTierCacheProvider.ts:134-138`), as are the constructor option quartets
+  (`defaultTtl`/`prefix`/`clientStyle`/`scanCount`). `detectClientStyle` is already shared —
+  the precedent exists.
 
-**2. Duplicated filter-operator logic with behavioral drift: unknown operators throw on read, silently drop on write**
-`router/queryBuilder.ts:132-182` (`applyPredicate`) vs `mutations/mutationBuilder.ts:175-213` (`applyMutationPredicate`). See the empty-`IN` proposal in Part 1 for the full writeup — this is the duplication that hides that bug.
+**Recommendation:** extract a `src/cache/redisCompat.ts` with `scanKeys(redis, style, pattern,
+count)` and `setEx(redis, style, key, value, seconds)`; both providers shrink by ~50 lines and a
+future client-quirk fix lands in one place.
 
-**3. Cache tags omit joined tables → mutations serve stale joined query results**
-`handler.ts:238-243` (tags only `descriptor.table`) vs `mutations/handleMutation.ts:121-123` (`deleteByTag(descriptor.table)`). A cached query on `orders` joined to `customers` is tagged only `['orders']`. A mutation to `customers` invalidates only the `customers` tag, so the cached joined rows survive until TTL — a silent data-staleness bug that contradicts the documented guarantee in `handleMutation.ts:17-20`. Fix: `tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])]` at `handler.ts:242`. Relatedly, mutations never touch the **tier** cache — a bulk insert/delete that crosses a tier threshold leaves a wrong tier cached for the full tier TTL; document this or add tag support to the tier cache.
+### 2.2 Column-reference validation implemented twice, already drifted
 
-**4. `decideTier` is dead production code duplicating `decideTierWithCache`, including a leftover empty `if` block**
-`router/tierDecision.ts:56-90` vs `:97-124`. Only `decideTierWithCache` is used by production code (`handler.ts:215`); `decideTier` isn't exported from `index.ts` and is referenced only by its own tests. It also contains an empty `if (tierCacheProvider) { /* stale comment */ }` block (lines 82-87) describing a design that was never implemented. Fix: delete `decideTier`, make `tierCacheTtlMs` an optional param of `decideTierWithCache` (rename to `decideTier`), port the tests.
+- `src/handler.ts:136-210` (`validateColumns`) vs `src/mutations/mutationBuilder.ts:49-62`.
 
-**5. `runPreflight` duplicates the threshold constants and tier mapping, and its tier output is discarded in production**
-`router/preflight.ts:29-30,50-51,59-66` vs `router/tierDecision.ts:29,34-45`; `handler.ts:210-218`. `DEFAULT_CLIENT_THRESHOLD`/`DEFAULT_SERVER_MEMORY_THRESHOLD` (10k/100k) and the rowCount→tier ladder both exist in two files. The handler then resolves thresholds itself and uses only `runPreflight`'s `.rowCount` — the `tier` it computes is dead in the main path. Fix: make `runPreflight` a pure COUNT(\*) runner returning `rowCount` only (its docblock already claims this); import `DEFAULT_THRESHOLDS`/`tierFromRowCount` from `tierDecision.ts` anywhere a mapping is still needed.
+Both split qualified `table.column` names and check a per-table allowlist, but they have already
+diverged in security-relevant ways: fail-closed + `'*'` wildcard on reads vs fail-open + no
+wildcard on writes (finding 1.4). This is the textbook "same concept, two implementations, silent
+drift" case — and it sits on the security boundary.
 
-**6. Redis providers: documented node-redis v4 compatibility doesn't hold, and the resulting no-ops are silent**
-`cache/RedisCacheProvider.ts:24-30,61-72,114` and `RedisTierCacheProvider.ts:24-31,105`. The docblocks promise compatibility with "node-redis (v4+)", but `set(key, value, 'EX', ttlSeconds)` is the ioredis positional signature — node-redis v4 takes `set(key, value, { EX })`; and node-redis v4 exposes camelCase `sAdd`/`sMembers`/`sRem`, so `this.redis.sadd`/`smembers` checks are `undefined` → tag indexing and `deleteByTag` become **silent no-ops**. With node-redis v4, mutations stop invalidating the cache and nobody is told. Fix: detect capability once in the constructor and either adapt (map camelCase methods, wrap `set`) or warn loudly when tag invalidation is unavailable; add an integration-style test with a node-redis-v4-shaped fake.
+**Recommendation:** move a single `checkColumnAgainstAllowlist(rawColumn, defaultTable,
+allowlist, context)` (fail-closed, wildcard-aware, alias-resolving hook) into `src/shared/` next
+to `predicates.ts`, and call it from both paths.
 
-**7. Redis tag/reverse-index keys have no TTL and are never fully cleaned → unbounded Redis growth**
-`cache/RedisCacheProvider.ts:118-125` (SADD without expiry), `:151-167` (`deleteByTag` deletes data keys + forward set but leaves each key's `__ktag__` reverse set). Data keys expire via `EX`, but `__tag__:<tag>` and `__ktag__:<key>` sets never do — a slow, unbounded memory leak in the shared Redis instance. `invalidatePrefix` also uses `KEYS pattern` (an O(N) blocking command Redis docs forbid in production) instead of `SCAN`; the per-tag/per-key `await` loops should be pipelined. Fix: set an expiry on index sets on each write; delete `__ktag__:<key>` outright in `deleteByTag`; switch `KEYS` to `SCAN`.
+### 2.3 Table-allowlist check + error message duplicated
 
-**8. Error-handling gaps: malformed requests and pass-through DB errors**
-`handler.ts:78`, `mutations/handleMutation.ts:52`, `handler.ts:252-259`, `security/extractSecurityClaims.ts:58`. A body missing `widgets`/`mutations` throws a raw `TypeError` instead of a `MUI X Studio Server:` message. `processWidget`'s catch forwards `err.message` verbatim into the client-visible response — raw Knex/driver errors reach the browser un-contextualized. `extractSecurityClaims`'s `timingSafeEqual` throws a cryptic `RangeError` for a truncated/garbage signature instead of "JWT signature verification failed". Fix: validate request shape upfront with a clear error; wrap widget/mutation errors with context; length-check the signature before `timingSafeEqual`.
+- `src/handler.ts:79-90` vs `src/mutations/handleMutation.ts:52-61`: same filter, same error text
+  (including the "Allowed tables:" disclosure discussed in 1.11). Trivial to share via a
+  `assertTablesAllowed(tables, schemaAllowlist)` helper in `src/shared/`. Low risk today, but the
+  error-message wording has to be updated in two places (and `extract-error-codes` will mint two
+  codes for one message).
 
-**9. Three divergent mock-DB implementations across the test suite**
-`__tests__/mockDb.ts` (324 lines, read path), two copies of `createMutableMockDb` in `mutations/__tests__/mutationBuilder.test.ts` and `handleMutation.test.ts` (the second literally commented "same as mutationBuilder.test.ts"), plus a fourth call-recording builder in `router/__tests__/queryBuilder.test.ts`. The duplicated mutation mocks support only `=, !=, <, >` (no `lte/gte/in-empty/between/like`) and resolve qualified columns differently from `mockDb.ts` — semantics silently differ between suites, and the narrow operator set is why the mutation predicate paths (finding 2, and the empty-`IN` case) have no coverage. Fix: extend `__tests__/mockDb.ts` with the mutation verbs and delete both inline copies.
+### 2.4 Cache providers are tested twice, in two files that can drift
 
-**10. Missing test coverage in the highest-risk areas**
-No test that `where: [{ operator: 'in', value: [] }]` on update/delete widens the write to the whole tenant. `LRUCacheProvider.test.ts` never exercises `maxSizeBytes`/`sizeCalculation`/TTL expiry under real byte-pressure eviction. `RedisCacheProvider.set` with `ttlMs: 0` produces `SET … EX 0` (a Redis error); `RedisTierCacheProvider.ts:104` guards with `Math.max(1, …)` but `RedisCacheProvider.ts:112` does not — untested parity gap. `mockDb.ts` has no `db.raw()`, so any descriptor using `columnAliases` crashes — only the error path for expression fields is tested, not the success path. Fix: add the mutation-predicate cases, an LRU byte-eviction test, a `ttlMs: 0` parity test for both Redis providers (with the `Math.max(1, …)` guard added), and a `raw()` implementation in `mockDb.ts`.
+- `src/__tests__/handler.test.ts` contains full `describe('LRUCacheProvider')` (line 607),
+  `describe('MapTierCacheProvider')` (line 638) and `describe('RedisTierCacheProvider')`
+  (line 784) suites, while dedicated, more thorough suites exist in
+  `src/cache/__tests__/{LRUCacheProvider,MapTierCacheProvider,RedisTierCacheProvider,RedisCacheProvider}.test.ts`.
+  The handler-file copies are strict subsets (basic get/set/TTL/prefix). Two homes for the same
+  assertions means a behavior change gets "fixed" in one and silently diverges in the other.
 
-**11. `orderBy` ignores `columnAliases` on the db tier but not on client/server tiers**
-`router/preflight.ts:108` (`query.orderBy(physicalCol(ob.column), …)`) vs `:178` (`query.orderBy(ob.column, …)`). Ordering an aggregation query by an expression field emits `ORDER BY "expr-order-country"` — a nonexistent column against a real database — while `mockDb.ts` sorts by output-row key and hides it. Fix: use `physicalCol(ob.column)` at line 178 too, unless it matches an aggregation alias.
+**Recommendation:** delete the three provider describes from `handler.test.ts` (keeping only
+handler-integration assertions that _use_ the providers) — the dedicated files already cover
+everything they do.
 
-**12. Data-cache hits misreport the routing tier as `'server'`**
-`handler.ts:199-205`; `CacheEntry` (`cache/types.ts:42-45`) stores no tier. Any cache hit returns `tier: 'server'` even if the entry was produced by the `client` tier. Per `WidgetQueryResult`'s contract, `'client'` tells the browser to filter rows itself — a client-tier result replayed as `'server'` can change client-side behavior on the second request. Fix: persist `tier` in `CacheEntry` and echo it on hits.
+### 2.5 Two threshold shapes for one concept
 
-**13. Module-level default cache singletons and an unbounded default tier cache**
-`handler.ts:42-57`; `cache/MapTierCacheProvider.ts:25-49`. `defaultCache`/`defaultTierCache` are process-global — every caller that omits providers shares them (cross-configuration bleed, test pollution). `MapTierCacheProvider` never evicts by size: expired entries are removed only if that exact key is `get()` again, so a stream of unique query shapes grows the Map indefinitely, unlike the byte-bounded LRU data cache next to it. There's also a three-way TTL-default inconsistency: the handler default is 30s, `MapTierCacheProvider.set` defaults to 300s, and its docblock/`RedisTierCacheProvider` both advertise 5 min "the default" — three different defaults for the same knob. Fix: cap the tier map (reuse `lru-cache` with `max`+`ttl`, already a dependency); document or key defaults per options object; reconcile the TTL documentation.
+- `HandleBatchQueryOptions.thresholds` uses `{ clientTier, serverMemoryTier }`
+  (`security/types.ts:445-450`) while `tierDecision.ts` uses `TierThresholds { client, server }`,
+  with a mapping shim in `handler.ts:243-246`. Harmless today, but any third threshold has to be
+  added in three places. Recommendation: accept `TierThresholds` in the public options (keeping
+  the old keys as deprecated aliases) or centralize the mapping in `tierDecision.ts`.
 
-**14. Minor: option-type duplication, missing export, stale comments**
-`HandleMutationOptions` and `HandleBatchQueryOptions` duplicate `db`/`schemaAllowlist`/`columnAllowlist`/`tenantColumn`/`cacheProvider` with near-identical 20-line docblocks — extract a shared base interface. `HavingPredicate` is part of the public `BatchWidgetDescriptor` API but isn't exported from `src/index.ts` — consumers can't name the type. `LRUCacheProvider.ts:172`'s comment says "Find the 4th colon" while the code stops at the 3rd; `benchmarks/run.ts:282`'s "TTL=0 → never caches" comment is backwards for lru-cache semantics.
+---
 
-**Benchmark/mock realism**: beyond findings 10/11, `mockDb.ts` resolves synchronously (no I/O, so `Promise.all` fan-out in `handler.ts:98` is never truly concurrent), implements `!=`/`whereIn` with JS semantics (NULL rows pass `!=`, unlike SQL three-valued logic), makes `whereLike` case-insensitive (real Postgres `LIKE` is case-sensitive), and has no `join`/`raw` at all — so the benchmark numbers measure JS array filtering, and no benchmark or handler test can exercise joined or expression-field queries end-to-end.
+## Tier 3 — God-files / structural cohesion
+
+The package is small (~2 100 non-test source lines) and mostly well factored — `shared/predicates.ts`,
+`tierDecision.ts`, `cacheKey.ts` and the cache providers are each genuinely single-purpose. Three
+mild issues and two hygiene items:
+
+### 3.1 `router/preflight.ts` is misnamed — it contains the whole execution engine
+
+- `src/router/preflight.ts:63-176`. `runPreflight` (the COUNT(\*), 14 lines) shares the file with
+  `executeForTier` (113 lines: projection, alias resolution, GROUP BY/measure splitting,
+  aggregation application, ORDER BY mapping, LIMIT — the largest piece of query logic in the
+  package). Anyone hunting for "where SELECT clauses are built" will not look in a file named
+  `preflight`. Move `executeForTier` to `router/execute.ts` (or fold it into `queryBuilder.ts`,
+  which is where the docblock already points readers for query construction).
+
+### 3.2 `handler.ts` mixes four concerns
+
+- `src/handler.ts`: module-global default-provider singletons (42-57), batch-level table
+  validation (79-90), the 75-line `validateColumns` (136-210), and per-widget orchestration
+  (212-296). The validation half is the natural extraction — a `src/router/validate.ts` (or
+  `shared/validation.ts`, combined with 2.2) would leave `handler.ts` as pure orchestration and
+  make the fix for 1.3 (unconditional HAVING check) structurally obvious.
+
+### 3.3 `security/types.ts` is a 473-line grab-bag
+
+- Only `JwtSecurityClaims` / `SecurityColumns*` are security types; the rest is the entire wire
+  protocol (batch request/response, mutations, join/aggregation specs, both option bags). Not
+  urgent, but `models/` or a top-level `types.ts` would stop every module in the package from
+  importing "security" for its DTOs.
+
+### 3.4 `package.json` dependency hygiene
+
+- `knex` appears in **both** `dependencies` and `peerDependencies` — the `dependencies` entry
+  forces an install of Knex for every consumer even though `src/` never imports it (the package's
+  own invariant #6). Keep it in `peerDependencies` (+ `devDependencies` for local type-checking)
+  only. `rimraf` is a build-time tool and belongs in `devDependencies`.
+
+### 3.5 Stale usage example in `RedisTierCacheProvider` docblock
+
+- `src/cache/RedisTierCacheProvider.ts:53-62`: the example calls
+  `handleBatchQuery(payload, { db, allowedTables: [...] , ... })` — the option is named
+  `schemaAllowlist`, and the mandatory `claims` argument is missing entirely. Copy-pasting the
+  example fails to compile; fix the snippet.
+
+---
+
+## Tier 4 — Testing gaps
+
+Existing coverage is genuinely strong (fail-closed read allowlist, tenant isolation both paths,
+empty-`in` write guard, node-redis v4 wire shapes, multi-page SCAN, byte-budget LRU eviction).
+The gaps cluster exactly where the Tier 1 findings live:
+
+### 4.1 No mutation test uses `securityColumns` for tenancy without legacy `tenantColumn`
+
+- All insert-stamping tests (`src/mutations/__tests__/handleMutation.test.ts:391-403`,
+  `mutationBuilder.test.ts:249-262`) pass `tenantColumn: 'tenant_id'`. A single test —
+  `handleMutation` insert with `securityColumns: { tenant: 'tenant_id' }` and no `tenantColumn`,
+  asserting the stored row carries the caller's tenant and that client-supplied `tenant_id` in
+  `values` is rejected — would have caught finding 1.1. This is the highest-value missing test in
+  the package.
+
+### 4.2 No test that a data-cache entry actually expires under continuous reads
+
+- `src/cache/__tests__/LRUCacheProvider.test.ts` covers overwrite, prefix/tag invalidation and
+  byte eviction, but never TTL expiry at all (the only TTL-expiry tests in the repo are for the
+  _tier_ cache). A fake-timers test — write with `ttlMs: 30`, `get()` every 10 ms, assert a miss
+  after 30 ms — currently **fails** because of `updateAgeOnGet` (finding 1.2), which is exactly
+  why it should exist.
+
+### 4.3 No HAVING test without a `columnAllowlist`
+
+- Every HAVING test (`src/__tests__/handler.test.ts:1044-1129`) supplies `columnAllowlist`. Add:
+  (a) `having` with an undeclared alias and **no** `columnAllowlist` is rejected (fails today —
+  finding 1.3); (b) `having` present with empty `aggregations` is rejected.
+
+### 4.4 No fail-open write-validation tests
+
+- `mutationBuilder.test.ts` verifies rejection of columns _outside_ an existing allowlist entry
+  (lines 208-246) but never the missing-table-entry case (`columnAllowlist`/`writableColumns`
+  provided, target table absent → currently passes everything), nor `['*']` wildcard behavior on
+  the write path. Pin down whichever semantics 1.4's fix chooses.
+
+### 4.5 No mixed-TTL tag-index test for `RedisCacheProvider`
+
+- `RedisCacheProvider.test.ts:418-436` checks that the tag/reverse indexes _receive_ an expiry,
+  but not the shortening interaction in finding 1.9 (long-TTL entry + short-TTL entry sharing a
+  tag → `deleteByTag` after the short TTL must still evict the long-lived entry). The fake client
+  already tracks per-key TTLs, so this is cheap to add.
+
+### 4.6 No test of intra-batch mutation ordering
+
+- Nothing pins whether `[insert X, update X]` in one batch behaves deterministically
+  (finding 1.6). Whatever contract is chosen (sequential or documented-concurrent), encode it.
+
+### 4.7 The non-aggregated `db`-tier fallback path is untested
+
+- Every db-tier test in `handler.test.ts` uses `aggregations`. The `rowCount > serverMemoryTier`,
+  no-aggregations route (which currently GROUP BYs all columns — finding 1.8) has zero coverage;
+  a test with `thresholds: { serverMemoryTier: 2 }` over 5 rows would document today's dedup
+  behavior and catch regressions when 1.8 is addressed.
+
+### 4.8 LOW — `extractSecurityClaims` payload-shape edge cases
+
+- No tests for a payload whose `tenantId` is a non-string truthy value (object/number flows
+  straight into cache keys and WHERE bindings), for `nbf`, or for a non-HS256 `alg` header (the
+  code always recomputes HS256, so this is safe, but a test would document it). Acceptable for a
+  demo-grade verifier, but 1-2 cheap tests would harden the trust boundary object.
+
+---
+
+## What is in good shape (no findings manufactured)
+
+- `shared/predicates.ts` — genuinely single-source for read/write predicate translation; the
+  read/write empty-`in` divergence is deliberate, documented, and tested from both sides.
+- `security/cacheKey.ts` — deterministic, order-independent, HMAC-scoped, fail-closed on empty
+  secret, bounded memo; the test suite covers each property individually.
+- `router/tierDecision.ts` — small, pure, exhaustively tested including the aggregation bypass
+  and the no-TTL "decide without write" mode.
+- Read-path tenant/region/department scoping (`queryBuilder` + `predicates`) — applied before
+  user filters, verified for custom column names, joined-table opt-in/opt-out, and predicate
+  ordering.
+- Redis client-family compatibility (`{ EX }` vs positional, camelCase vs lowercase set ops,
+  SCAN reply shapes) — normalized once and tested against both fake client shapes, including the
+  warn-once path for clients lacking set commands.

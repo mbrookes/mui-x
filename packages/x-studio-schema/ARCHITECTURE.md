@@ -1,0 +1,116 @@
+# Architecture
+
+Internal reference for how `@mui/x-studio-schema` is put together.
+
+## Overview
+
+`x-studio-schema` is the shared, dependency-free data model for MUI X Studio: every `StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure functions whose behavior both consuming packages must agree on bit-for-bit. It has **zero runtime dependencies** — no React, no Node built-ins — so it is importable from both a browser bundle (`@mui/x-studio`) and a server bundle (`@mui/x-studio-ai-middleware`). This is the single place a `StudioState` shape change is made; the two consuming packages re-export from here rather than maintaining independent copies, so they cannot drift.
+
+The package holds two kinds of module, and the split is deliberate:
+
+- **Type modules** (`baseTypes.ts`, `dataTypes.ts`, `widgetTypes.ts`, `expressionTypes.ts`, `stateTypes.ts`, `aiTypes.ts`) — pure TypeScript types and interfaces, no runtime code. `index.ts` re-exports each with `export *`.
+- **Function modules** (`factories.ts`, `anomalyDetection.ts`, `applyMutation.ts`) — pure functions with no side effects (no `Date.now()`, no randomness, no I/O). `index.ts` re-exports these **explicitly by name**, not via `export *`, so the package's runtime surface is always visible at a glance from `index.ts` alone.
+
+Anything that is only a pure state-shape transform (mutation reducers, default-state/default-widget factories, anomaly math) belongs here. Anything that touches React, MUI components, the DOM, in-memory row data, or is a UI component prop rather than persisted state (e.g. feature-flag props) stays in the consuming package — `@mui/x-studio`'s `models/featureFlags.ts` is the example: those four interfaces look like they'd belong here, but the AI middleware never references them, so they live client-side instead.
+
+## Directory layout
+
+```
+src/
+  baseTypes.ts            Widget-kind/mode/format/operator unions — the genuinely "base" primitives
+  dataTypes.ts             StudioDataSource, StudioDataField, StudioRelationship, query/mutation descriptors
+  widgetTypes.ts           StudioWidgetConfig (composed from per-kind config interfaces), StudioWidget, StudioPage
+  expressionTypes.ts       StudioExpression AST (function/value/field/join-field), StudioExpressionField
+  stateTypes.ts            StudioFilterState/scope, StudioDashboardState, StudioShellState, StudioState
+  aiTypes.ts                StateMutation union, StudioAIToolName, rich-context types, chat-thread/skill types
+  factories.ts              createDefaultWidget, createDefaultStudioState, normalizeGridColumn
+  anomalyDetection.ts       detectAnomaliesIQR (+ private median helper)
+  applyMutation.ts          applyMutation / mutationLabel — the single mutation reducer
+  index.ts                  Public export surface
+```
+
+Every module has a co-located `*.test.ts` except the pure type modules (`baseTypes.ts`, `dataTypes.ts`, `widgetTypes.ts`, `expressionTypes.ts`, `stateTypes.ts`, `aiTypes.ts`), which carry no runtime behavior to test.
+
+## Type modules
+
+- **`baseTypes.ts`** — `StudioMode`, `StudioDrawer`, `BuiltinStudioWidgetKind`/`StudioWidgetKind` (the latter widens to `string & {}` so consumer-defined custom widget kinds typecheck), `StudioFilterWidgetType`, `StudioCrossFilterMode`, `StudioChartType`, `StudioBarLayout`, `StudioNumberFormat`, `StudioKpiAggregation`, `StudioGridSummaryAggregation`, `StudioFilterOperator`. Intentionally small (~85 lines) — every widget-config-shaped or data-model-shaped type lives in `widgetTypes.ts`/`dataTypes.ts` instead, not here.
+- **`dataTypes.ts`** — `StudioDataField` (+ `FieldCapability`), `StudioFilterNode` (the wire-shape filter tree data adapters/middleware consume), `StudioQueryDescriptor`/`StudioQueryResult`, `ClientMutationDescriptor`/`ClientMutationResult`, `StudioDataSourceAdapter` (the contract a host implements to wire a data source to a remote backend), `StudioDataSource`, `StudioRelationship` (cross-source join definitions — data-model concept, not an expression concept, so it lives here rather than in `expressionTypes.ts`).
+- **`widgetTypes.ts`** — the widget-config type surface:
+  - Building blocks used by chart/grid configs: `StudioConditionalFormatStyle`/`StudioConditionalFormat`, `StudioGridColumn`, `StudioChartSeries`, `StudioChartAnnotation`, `StudioWidgetForecast`.
+  - Per-kind config interfaces: `StudioGridConfig`, `StudioChartConfig` (covers every chart sub-shape — bar/line/area/mixed/heatmap/funnel/gantt/sankey/pie/donut/scatter/gauge — rather than being split further, since sub-shapes share axis/series/annotation keys), `StudioKpiConfig`, `StudioTextConfig`, `StudioFilterWidgetConfig`, `StudioPivotConfig`, `StudioMapConfig`, and `StudioSharedWidgetConfig` (keys common across every kind, e.g. `titleFontSize`, `cardExpandTitle`, custom-widget keys).
+  - `StudioWidgetConfig extends StudioSharedWidgetConfig, Partial<StudioGridConfig>, Partial<StudioChartConfig>, ...` — composed from the per-kind interfaces above rather than one flat interface. Every kind's keys remain optional via `Partial<...>` because a widget can carry keys authored while it was a different kind (switching a widget's `kind` doesn't clear its `config`). The combined shape is identical to what a single flat interface would produce; the split exists so a widget's setup panel can reference a focused per-kind type (`StudioGridConfig`) instead of the 100+-key union.
+  - `StudioWidget` (`id`, `kind`, `title`/`titleMode`, `subtitle`/`subtitleMode`, `sourceId`, `config`), `StudioPageTheme`, `StudioPage` (`id`, `title`, `widgetRows: string[][]` — a 2D layout grid of widget IDs, `widgetColSpans?`).
+- **`expressionTypes.ts`** — `StudioExpressionOperator`, `StudioFunctionExpression`/`StudioValueExpression`/`StudioFieldExpression`/`StudioJoinFieldExpression` (the `StudioExpression` AST node variants), `StudioExpressionField` (a user-authored calculated column/measure definition).
+- **`stateTypes.ts`** — `StudioFilterScope` (a discriminated union: `{kind:'page'}` / `{kind:'widget';widgetId}` / `{kind:'cross-filter';sourceWidgetId;pageId}` / `{kind:'interactive';sourceWidgetId;pageId}` / `{kind:'dashboard-date-range';sourceId;pageId}` — the sole scope descriptor, no separate boolean/ID fields to keep in sync), `StudioDateRangePreset` (11 presets), `StudioFilterState`, `StudioShellState` (transient UI state — open drawers, selection), `StudioDashboardState` (title, `activePageId`, date range, theme), `StudioFilterPreset`, and the root `StudioState` interface: `schemaVersion`, `mode`, `dashboard`, `pages`, `widgets`, `dataSources` (never persisted — host-injected at runtime), `relationships`, `filters`, `expressionFields`, `filterPresets?`, `shell`, `ai?` (AI chat thread state, `undefined` until the first message).
+- **`aiTypes.ts`** — `SerializableSkill` (the client-safe subset of a skill definition, stripped of its non-JSON `execute` function before crossing the wire), `StateMutation` (the discriminated union covering all 14 mutation kinds — see `applyMutation.ts` below), `StudioAIFieldStat`/`StudioAILayoutWidget`/`StudioAICrossFilterEdge`/`StudioAIPageLayout`/`StudioAIRecentMutation` (constituents of `StudioAIRichContext`, the purely-additive client-derived signal attached to every chat request), `StudioAIToolName`, `StudioAIChatThread`/`StudioAIState` (persisted conversation state). Server-only AI types (`StudioAISkill` with its `execute` function, `SkillExecuteResult`, `StudioDataResolver`, rate-limit/usage types) are **not** part of this package — they live in `@mui/x-studio-ai-middleware`'s own `models/aiTypes.ts`, since the client never needs them.
+
+## Function modules
+
+### `factories.ts`
+
+- **`createDefaultWidget(kind, overrides?)`** — the single factory both the UI ("Add widget" drawer) and the AI (`addWidget` tool) call, so UI-created and AI-created widgets always start from identical defaults. Dispatches through a `BUILTIN_WIDGET_DEFAULTS: Record<BuiltinStudioWidgetKind, () => { title: string; config: StudioWidgetConfig }>` table — a factory-function-per-kind (not a plain object table) so that mutable defaults like `config.columns: []` get a fresh array on every call rather than being shared by reference across widget instances. A kind not present in the table (i.e. any custom kind) falls through to a generic default (`title` defaults to the kind string, `config` defaults to `overrides?.customConfig ?? {}`). Because the table is a `Record` over `BuiltinStudioWidgetKind`, adding a new built-in kind without an entry is a compile error, not a silent fallthrough.
+- **`normalizeGridColumn(col)`** — normalizes a grid widget's `config.columns` entries (a column can be persisted as either a bare field-name string or a full `StudioGridColumn` object) into the full object shape, for forward-compatible column-shape handling during deserialization.
+- **`createDefaultStudioState(overrides?)`** — builds the default `StudioState` (one page, no widgets, `schemaVersion: 1`). The override merge is intentionally asymmetric: `dashboard` and `shell` (including `shell.openDrawers`) are deep-merged with the defaults so a partial override doesn't clobber sibling keys, while `pages`/`widgets`/`dataSources`/`relationships`/`filters`/`expressionFields` are wholesale-replaced when supplied (an override completely replaces the default single page rather than merging with it).
+
+### `anomalyDetection.ts`
+
+`detectAnomaliesIQR(values)` — Tukey IQR outlier detection (returns a `Set<number>` of anomalous _indices_ into `values`, not the values themselves), shared so the AI's anomaly-detection tool (`summarise_page`) and the chart widget's client-side detection agree. Guards on `values.length < 4` (returns no anomalies — too few points for a meaningful quartile split). `median` (sorted-input average-of-middle-two-or-one helper) is a file-private implementation detail, not exported — it has no consumer outside this file's own IQR calculation, and its pre-sorted-input contract is a footgun not worth exposing publicly.
+
+### `applyMutation.ts` — the single mutation reducer
+
+`applyMutation(state: StudioState, mutation: StateMutation): StudioState` is the pure reducer for every AI-driven state change. Both transports use it for the state-transformation step:
+
+- The AI middleware server (`executeToolOnState.ts` in `@mui/x-studio-ai-middleware`) computes `nextState = applyMutation(state, mutation)`, threading it across tool calls in the same turn and, for MCP, across a whole session.
+- The client (`StudioController.applyExternalMutation` in `@mui/x-studio`) applies the identical function when a `state-mutation` SSE event arrives.
+
+Because it is the _one_ implementation of every mutation's effect, the server-threaded state and the client-applied state cannot disagree about what a tool call did (page-targeting, config-merge order, and similar edge cases are handled once, not hand-synced across two implementations).
+
+**Dispatch shape.** Rather than two parallel `switch` statements (one computing the state transition, one computing a human-readable label — the shape that predates this package), the reducer is a single dispatch table:
+
+```ts
+type MutationHandler<M extends StateMutation> = {
+  apply: (state: StudioState, args: M['args']) => StudioState;
+  label: (args: M['args']) => string;
+};
+
+const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M> } = {
+  /* one entry per mutation kind */
+};
+```
+
+Each of the 14 mutation kinds (`addPage`, `setDashboardTitle`, `addWidget`, `updateWidget`, `removeWidget`, `setWidgetLayout`, `setWidgetColSpan`, `renamePage`, `removePage`, `setActivePage`, `addFilter`, `removeFilter`, `applyBulkUpdate`, `renameAIThread`) has one table entry co-locating its `apply` and `label` logic, so the two can never drift apart the way two independently-maintained switches could. The mapped type over `StateMutation` requires an entry for every variant — a new `StateMutation` kind added without a table entry is a compile-time error (`Property '<kind>' is missing`), not a silent runtime fallback. At the dispatch boundary, an unrecognized `mutation.type` — a malformed payload or one from a forward-incompatible client — is a graceful no-op (`return state`) rather than a throw, since a value arriving over the wire isn't guaranteed to match what TypeScript can prove about compile-time-known variants.
+
+**Notable semantics baked into specific handlers:**
+
+- **`addWidget`** takes an explicit, server-chosen target `pageId` in `mutation.args` (falling back to the applying side's active page only for legacy payloads without one) — guarantees the widget lands on the same page the model was told about, even if the client has since navigated elsewhere.
+- **`updateWidget`** layers two independent changes in a specific order: a `config` patch (keys with an explicit `undefined` value are deleted from the widget's config) is applied first, then `changes` is shallow-merged onto the widget — so if `changes` itself carries a `config` key, that wholesale-replaces the already-patched config rather than merging with it.
+- **`setWidgetColSpan`** clamps the requested span to 3–12 columns (rounding non-integer input), and when the clamped span plus the row's other widgets' spans exceeds 12, either shrinks the sole other widget in the row (deleting its span entirely if the remainder would be under 3) or clears every other widget's span if there are two or more.
+- **`removeWidget`** drops the widget from every page's `widgetRows` (removing now-empty rows) and drops filters that only made sense while the widget existed: its own `widget`-scope filters and `interactive`-scope cross-filters it emitted.
+- **`removePage`** performs full cleanup mirroring `StudioController.removePage`: drops the page, removes every widget that lived on it, drops page-scoped filters targeting it, and reassigns `dashboard.activePageId` to another remaining page (or `''` if none remain) when the removed page was active.
+- **`addFilter`** applies the filter verbatim, without re-stamping its scope to the applying side's active page — the filter already carries its target page/widget, chosen server-side.
+- **`renameAIThread`** takes a producer-supplied `args.updatedAt` timestamp rather than calling `new Date()` inside the reducer — the one place a naive implementation would otherwise break purity. The sole producer, `executeToolOnState.ts`'s `rename_thread` tool handler, stamps `updatedAt` once so the server-computed and client-applied results agree byte-for-byte.
+
+Side effects a pure reducer cannot own — undo-stack management, title inference from live data sources, React shell selection — are intentionally **not** performed here; they stay in `StudioController` on the client.
+
+`mutationLabel(mutation)` produces a compact human-readable label (e.g. `addWidget:chart:widget-123`, `removeFilter:filter-9`) via the same dispatch table's `label` function, used for the AI recent-mutation log (client-side undo/redo history + MCP's `get_recent_changes` tool).
+
+## Consumers
+
+- **`@mui/x-studio`** — `src/models/index.ts` re-exports this package (`export * from '@mui/x-studio-schema'`) alongside the package's own React-dependent `customWidgetTypes.ts` (custom-widget registration types referencing `React.ReactNode`/`React.ComponentType`, which can't live in a dependency-free package) and `featureFlags.ts` (UI-only `<Studio>`/`<StudioProvider>` prop types — not part of this schema since the AI middleware never touches them).
+- **`@mui/x-studio-ai-middleware`** — `src/models/studioTypes.ts` thinly re-exports this package's state/widget/data types plus the server-local `StudioCustomWidgetDef`; `src/widgetFactory.ts` re-exports `createDefaultWidget` via that module (a shim preserving a pre-existing internal import path); `src/models/aiTypes.ts` re-exports the shared AI-protocol types alongside its own server-only additions.
+
+Application code should import from `@mui/x-studio`'s or `@mui/x-studio-ai-middleware`'s public surface (or their internal `models` barrels) rather than from `@mui/x-studio-schema` directly — this package is an implementation detail the two happen to share, not a place app code is expected to import from.
+
+## Testing conventions
+
+`vitest.config.node.mts` runs this package's suite in a plain Node environment (no DOM), reflecting that nothing here touches React or the browser. Three test files:
+
+- **`applyMutation.test.ts`** — one or more `it` per mutation kind, covering both the happy path and every documented edge case (unknown-ID no-ops, the `setWidgetColSpan` clamp/overflow branches, `updateWidget`'s config-patch-then-changes-merge order, the unrecognized-mutation-type no-op for both `applyMutation` and `mutationLabel`).
+- **`anomalyDetection.test.ts`** — `detectAnomaliesIQR` edge cases (too few points, zero IQR, negative/positive outliers); `median`'s even/odd-length averaging is pinned indirectly through these rather than tested in isolation, since it's file-private.
+- **`factories.test.ts`** — one assertion per built-in kind's default config (values are hand-transcribed from `BUILTIN_WIDGET_DEFAULTS` in a comment at the top of the file, since the table is file-private and the test can't import and assert against it programmatically — update these assertions if that table changes), the custom-kind fallback, `overrides.title`/`customConfig`, a regression pin that two `createDefaultWidget('grid', ...)` calls don't share the same `config.columns` array reference, and `createDefaultStudioState`'s deep-merge-vs-replace override semantics.
+
+## Extension points
+
+- **New `StudioState` field**: add it to the relevant type module (`stateTypes.ts` for dashboard/shell/state-root fields, `widgetTypes.ts` for widget-config fields, etc.) — both consumers pick it up automatically via `export *`.
+- **New built-in widget kind**: add the kind string to `BuiltinStudioWidgetKind` (`baseTypes.ts`), add a per-kind config interface to `widgetTypes.ts` (or extend an existing one) and fold it into `StudioWidgetConfig`'s `extends` list, and add an entry to `factories.ts`'s `BUILTIN_WIDGET_DEFAULTS` table — a missing entry fails to compile.
+- **New AI mutation kind**: add the variant to `StateMutation` (`aiTypes.ts`) and an entry to `applyMutation.ts`'s `MUTATION_HANDLERS` table (co-locating `apply` and `label`) — the mapped type makes a missing entry a compile error in both consuming packages.

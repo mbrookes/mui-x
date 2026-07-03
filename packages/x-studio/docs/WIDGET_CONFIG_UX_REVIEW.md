@@ -257,8 +257,22 @@ tests, all passing) and typecheck.
 2. **Unify the label system** (cross-cutting #2) — pick floating-outlined-label
    as the standard and sweep all panels; do this after #1 since both touch the
    same picker component.
-3. **Shared Interactions component** (cross-cutting #4) — replace Map's switch
-   pair and unify Chart/KPI's toggle option sets.
+3. ✅ **Partially fixed — the other half was re-scoped, not a mechanical bug.**
+   Map actually had two _functionally different_ switches, not a single
+   toggle styled inconsistently: "Clickable (filter source)"
+   (`mapCrossFilterEmit`) controls whether clicking a region _emits_ a
+   cross-filter — a capability no other panel exposes at all (Chart/Grid/KPI
+   always emit unconditionally on click, with no way to disable it). Forcing
+   that into the shared toggle would either drop the capability or require
+   adding emit-toggles everywhere — a real product-scope decision, not a
+   mechanical fix, so it's left as its own switch.
+   The _other_ switch ("Respond to cross-filters") does map onto the exact
+   same `crossFilterMode` field Chart/Grid/KPI already expose via
+   `SetupSection` + `ToggleButtonGroup` — converted it to that pattern
+   (Filter/None, matching KPI's option set since a map has no "highlight"
+   visual treatment), preserving the existing default (responds unless
+   explicitly set to `'none'`). Verified: typecheck, full suite (1543 tests),
+   and re-captured `map-basic`/`map-switches-on` screenshots.
 4. **Shared empty/required-state pattern** (cross-cutting #3) — one component
    used by KPI, Map, Pivot, Chart's per-field empty states.
 5. **Shared "why is this disabled" convention** (cross-cutting #11) — pairs

@@ -117,6 +117,15 @@ function makeNodeRedisV4Client() {
     async expire(key: string, seconds: number) {
       expiries.set(key, Date.now() + seconds * 1000);
     },
+    async ttl(key: string) {
+      // Redis TTL semantics: -2 if the key doesn't exist, -1 if it exists
+      // with no expiry, else remaining seconds.
+      const expiresAt = expiries.get(key);
+      if (expiresAt === undefined) {
+        return sets.has(key) || store.has(key) ? -1 : -2;
+      }
+      return Math.ceil((expiresAt - Date.now()) / 1000);
+    },
     async sAdd(key: string, members: string | string[]) {
       let set = sets.get(key);
       if (!set) {
@@ -437,6 +446,32 @@ describe('RedisCacheProvider', () => {
 
       // The whole reverse-index set for k1 must be gone, not merely missing 'sales'.
       expect(sets.has('__ktag__:k1')).toBe(false);
+    });
+
+    it('does not shorten the forward tag index TTL on a later short-TTL write for the same tag (finding 1.9)', async () => {
+      const { client: redis, expiries } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      // Entry A: long TTL, tagged 'sales'.
+      await provider.set('long-lived', ENTRY, { tags: ['sales'], ttlMs: 300_000 });
+      const expiryAfterLongWrite = expiries.get('__tag__:sales');
+      expect(expiryAfterLongWrite).toBeDefined();
+
+      // Entry B: same tag, much shorter TTL, written afterward. Before the fix,
+      // this unconditionally reset the shared forward index's expiry down to
+      // B's 1s TTL — stranding A, which is still supposed to be tracked.
+      await provider.set('short-lived', ENTRY, { tags: ['sales'], ttlMs: 1_000 });
+      const expiryAfterShortWrite = expiries.get('__tag__:sales');
+
+      // The index's expiry must never move backward — only extend, never shorten.
+      expect(expiryAfterShortWrite).toBeGreaterThanOrEqual(expiryAfterLongWrite!);
+
+      // And functionally: deleteByTag still finds and evicts the long-TTL
+      // entry via the (still-alive) forward index, well after the short TTL
+      // would have elapsed on its own.
+      await provider.deleteByTag('sales');
+      expect(await provider.get('long-lived')).toBeUndefined();
+      expect(await provider.get('short-lived')).toBeUndefined();
     });
   });
 });

@@ -78,6 +78,7 @@
  */
 
 import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
+import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
 
 /**
  * Minimal structural interface compatible with both `ioredis` and `node-redis`
@@ -94,6 +95,13 @@ export interface RedisClient {
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<unknown>;
   expire?(key: string, seconds: number): Promise<unknown>;
+  /**
+   * Remaining TTL of a key in seconds, Redis `TTL` semantics: `-2` if the key
+   * doesn't exist, `-1` if it exists with no expiry, otherwise seconds
+   * remaining. Optional — clients without it fall back to always extending
+   * the tag index's expiry unconditionally (the pre-existing behavior).
+   */
+  ttl?(key: string): Promise<number>;
   /** Legacy O(N) key listing — only used as a last-resort fallback when `scan` is unavailable. */
   keys?(pattern: string): Promise<string[]>;
   /** Cursor-based key iteration. Preferred over `keys()` in production. */
@@ -196,7 +204,7 @@ export class RedisCacheProvider implements CacheProvider {
           // eslint-disable-next-line no-await-in-loop
           await this.sAdd(this.tagKey(tag), [prefixedKey]);
           // eslint-disable-next-line no-await-in-loop
-          await this.expire(this.tagKey(tag), Math.max(1, ttlSeconds));
+          await this.extendTagIndexExpiry(this.tagKey(tag), Math.max(1, ttlSeconds));
         }
         // Reverse index TTL mirrors the data key's own TTL — it's meaningless
         // once the data key it describes has expired.
@@ -258,11 +266,7 @@ export class RedisCacheProvider implements CacheProvider {
 
   /** `SET key value EX seconds`, adapted to the detected client convention. */
   private async redisSetEx(key: string, value: string, ttlSeconds: number): Promise<void> {
-    if (this.clientStyle === 'node-redis') {
-      await this.redis.set(key, value, { EX: ttlSeconds });
-    } else {
-      await this.redis.set(key, value, 'EX', ttlSeconds);
-    }
+    await setEx(this.redis, this.clientStyle, key, value, ttlSeconds);
   }
 
   /** Whether this client exposes set operations under either naming convention. */
@@ -317,6 +321,30 @@ export class RedisCacheProvider implements CacheProvider {
     }
   }
 
+  /**
+   * Extend the forward tag index's (`__tag__:<tag>`) expiry, but never shorten
+   * it (finding 1.9). The index is shared across every entry tagged with
+   * `tag`; if entry A is written with a long TTL and entry B (same tag) is
+   * later written with a short TTL, unconditionally resetting the index's
+   * expiry to B's TTL would let the index expire out from under A while A is
+   * still live — silently breaking `deleteByTag` for A.
+   *
+   * When the client supports `TTL`, only call `EXPIRE` if doing so would
+   * actually extend the index's remaining life. When it doesn't, fall back to
+   * the previous unconditional-extend behavior (best effort).
+   */
+  private async extendTagIndexExpiry(tagKey: string, ttlSeconds: number): Promise<void> {
+    if (typeof this.redis.ttl === 'function') {
+      const remaining = await this.redis.ttl(tagKey);
+      // remaining >= 0 means the key exists with an active expiry. If it
+      // already outlives the new entry's TTL, leave it alone.
+      if (remaining >= 0 && remaining >= ttlSeconds) {
+        return;
+      }
+    }
+    await this.expire(tagKey, ttlSeconds);
+  }
+
   private warnTagsUnavailable(): void {
     if (this.warnedTagsUnavailable) {
       return;
@@ -333,35 +361,6 @@ export class RedisCacheProvider implements CacheProvider {
 
   /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
   private async scanKeys(pattern: string): Promise<string[]> {
-    if (typeof this.redis.scan !== 'function') {
-      // Fallback for minimal clients that only implement KEYS.
-      if (typeof this.redis.keys === 'function') {
-        return this.redis.keys(pattern);
-      }
-      return [];
-    }
-
-    const results: string[] = [];
-    let cursor = '0';
-    // SCAN cursor iteration is inherently sequential — each call's cursor
-    // depends on the previous call's reply, so this cannot be parallelized.
-    do {
-      let reply: [string, string[]] | { cursor: string | number; keys: string[] };
-      if (this.clientStyle === 'node-redis') {
-        // eslint-disable-next-line no-await-in-loop
-        reply = await this.redis.scan(cursor, { MATCH: pattern, COUNT: this.scanCount });
-      } else {
-        // eslint-disable-next-line no-await-in-loop
-        reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', this.scanCount);
-      }
-      if (Array.isArray(reply)) {
-        [cursor] = reply;
-        results.push(...reply[1]);
-      } else {
-        cursor = String(reply.cursor);
-        results.push(...reply.keys);
-      }
-    } while (cursor !== '0');
-    return results;
+    return scanKeysCompat(this.redis, this.clientStyle, pattern, this.scanCount);
   }
 }

@@ -151,24 +151,25 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       <Box
         sx={{
           display: 'grid',
-          // Category column wide enough to hold the long Q29 "Excel like features (…)"
+          // Columns: category label, then the mean-rank column, then the heat cells. The
+          // category column is wide enough to hold the long Q29 "Excel like features (…)"
           // label in (at most) two lines. Labels clamp to 2 lines; two lines fit within
           // the heat cells' min height, so every row stays the same height.
-          gridTemplateColumns: `minmax(36px, auto) minmax(280px, 2.4fr) repeat(${rankCount}, minmax(28px, 1fr))`,
+          gridTemplateColumns: `minmax(280px, 2.4fr) minmax(36px, auto) repeat(${rankCount}, minmax(28px, 1fr))`,
           gap: '2px',
           minWidth: 'min-content',
           fontSize: '0.65rem',
         }}
       >
-        {/* Header row: mean-rank column + category corner + rank numbers */}
-        <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
-          <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
-            mean
-          </Typography>
-        </Box>
+        {/* Header row: category corner + mean-rank column + rank numbers */}
         <Box sx={{ alignSelf: 'end', px: 0.5, pb: 0.5 }}>
           <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>
             most important →
+          </Typography>
+        </Box>
+        <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
+          <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
+            mean
           </Typography>
         </Box>
         {Array.from({ length: rankCount }, (_, rankIndex) => (
@@ -189,19 +190,6 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
         {/* One row per category */}
         {categories.map((category, catIndex) => (
           <React.Fragment key={category}>
-            <Box
-              title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'text.secondary',
-                fontVariantNumeric: 'tabular-nums',
-                fontWeight: 600,
-              }}
-            >
-              {meanRanks[catIndex].toFixed(1)}
-            </Box>
             <Box
               title={category}
               sx={{
@@ -225,6 +213,19 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
               >
                 {category}
               </Box>
+            </Box>
+            <Box
+              title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'text.secondary',
+                fontVariantNumeric: 'tabular-nums',
+                fontWeight: 600,
+              }}
+            >
+              {meanRanks[catIndex].toFixed(1)}
             </Box>
             {matrix[catIndex].map((count, rankIndex) => (
               <Box

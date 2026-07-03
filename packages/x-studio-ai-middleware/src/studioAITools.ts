@@ -165,9 +165,9 @@ export const STUDIO_AI_TOOLS = [
           },
           columns: {
             type: ['integer', 'null'],
-            description: 'Column span (3–12) or null to reset to auto-fill.',
-            minimum: 3,
-            maximum: 12,
+            description: 'Column span (6–24) or null to reset to auto-fill.',
+            minimum: 6,
+            maximum: 24,
           },
         },
         required: ['widgetId', 'columns'],
@@ -439,7 +439,7 @@ export const STUDIO_AI_TOOLS = [
           colSpans: {
             type: 'object',
             description:
-              'Map of widgetId → column span (3–12). Only include widgets whose width should change.',
+              'Map of widgetId → column span (6–24). Only include widgets whose width should change.',
             additionalProperties: { type: 'number' },
           },
         },

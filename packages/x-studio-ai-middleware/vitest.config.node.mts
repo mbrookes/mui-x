@@ -7,7 +7,7 @@ const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
-    name: getTestName(import.meta.url),
+    name: `${getTestName(import.meta.url)}-node`,
     environment: 'node',
     include: ['src/**/__tests__/**/*.test.ts'],
     root: resolve(CURRENT_DIR),

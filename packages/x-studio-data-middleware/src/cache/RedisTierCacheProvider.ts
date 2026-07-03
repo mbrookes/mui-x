@@ -53,9 +53,9 @@
  * const dataCache  = new RedisCacheProvider(redis, { defaultTtlSeconds: 30 });
  * const tierCache  = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 300 });
  *
- * await handleBatchQuery(payload, {
+ * await handleBatchQuery(body, claims, {
  *   db,
- *   allowedTables: [...],
+ *   schemaAllowlist: [...],
  *   cacheProvider:     dataCache,
  *   tierCacheProvider: tierCache,
  * });
@@ -69,6 +69,7 @@
  */
 
 import { detectClientStyle, type RedisClient } from './RedisCacheProvider';
+import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
 import type { TierCacheProvider, TierEntry } from './types';
 
 export interface RedisTierCacheProviderOptions {
@@ -131,11 +132,7 @@ export class RedisTierCacheProvider implements TierCacheProvider {
     const ttlSeconds = ttlMs !== undefined ? Math.max(1, Math.ceil(ttlMs / 1000)) : this.defaultTtl;
     const prefixedKey = this.prefix + key;
     const payload = JSON.stringify(value);
-    if (this.clientStyle === 'node-redis') {
-      await this.redis.set(prefixedKey, payload, { EX: ttlSeconds });
-    } else {
-      await this.redis.set(prefixedKey, payload, 'EX', ttlSeconds);
-    }
+    await setEx(this.redis, this.clientStyle, prefixedKey, payload, ttlSeconds);
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
@@ -148,35 +145,6 @@ export class RedisTierCacheProvider implements TierCacheProvider {
 
   /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
   private async scanKeys(pattern: string): Promise<string[]> {
-    if (typeof this.redis.scan !== 'function') {
-      // Fallback for minimal clients that only implement KEYS.
-      if (typeof this.redis.keys === 'function') {
-        return this.redis.keys(pattern);
-      }
-      return [];
-    }
-
-    const results: string[] = [];
-    let cursor = '0';
-    // SCAN cursor iteration is inherently sequential — each call's cursor
-    // depends on the previous call's reply, so this cannot be parallelized.
-    do {
-      let reply: [string, string[]] | { cursor: string | number; keys: string[] };
-      if (this.clientStyle === 'node-redis') {
-        // eslint-disable-next-line no-await-in-loop
-        reply = await this.redis.scan(cursor, { MATCH: pattern, COUNT: this.scanCount });
-      } else {
-        // eslint-disable-next-line no-await-in-loop
-        reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', this.scanCount);
-      }
-      if (Array.isArray(reply)) {
-        [cursor] = reply;
-        results.push(...reply[1]);
-      } else {
-        cursor = String(reply.cursor);
-        results.push(...reply.keys);
-      }
-    } while (cursor !== '0');
-    return results;
+    return scanKeysCompat(this.redis, this.clientStyle, pattern, this.scanCount);
   }
 }

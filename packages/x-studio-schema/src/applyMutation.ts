@@ -176,31 +176,66 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const nextWidgets = { ...state.widgets };
       delete nextWidgets[widgetId];
 
-      // Remove the widget from every page's rows (drop now-empty rows), and clean
-      // up column spans: drop the removed widget's own span, and clear the span of
-      // any widget left as the sole occupant of its row (a lone widget always fills
-      // the row, so a leftover span would render it half-width). Mirrors the
-      // client's `StudioController.removeWidget` so AI-driven and user-driven
-      // removals produce identical layouts.
+      // Remove the widget from its page's rows (drop the now-empty row), and clean
+      // up column spans: drop the removed widget's own span, and clear the span of a
+      // widget that this removal leaves as the *sole occupant of the row it shared
+      // with the removed widget* (that widget now auto-fills the row, so the span it
+      // carried from the old multi-widget layout is stale). Mirrors the client's
+      // `StudioController.removeWidget` so AI-driven and user-driven removals produce
+      // identical layouts.
+      //
+      // Scoping is deliberate and load-bearing: only the row the widget was actually
+      // removed from is collapsed, and only on the page that held it. A pre-existing
+      // single-widget row can legitimately carry a stored span (see `setWidgetColSpan`
+      // — e.g. an AI `set_widget_width` narrowing a lone widget to half-width), so
+      // such spans on other rows/pages, and singleton rows that were already
+      // singletons before this removal, must be left untouched. Sweeping every
+      // singleton row across every page (the previous behavior) silently wiped those
+      // intentional spans dashboard-wide on any unrelated removal.
       const nextPages = Object.fromEntries(
         Object.entries(state.pages).map(([pid, page]) => {
-          const newRows = (page.widgetRows ?? []).map((row) => row.filter((id) => id !== widgetId));
-          const nonEmptyRows = newRows.filter((row) => row.length > 0);
+          const oldRows = page.widgetRows ?? [];
+          // Widgets left alone in a row *because* this removal took their last
+          // sibling — the only widgets whose stored span this removal makes stale.
+          const orphanedSoleOccupants: string[] = [];
+          let pageHeldWidget = false;
+          const newRows: string[][] = [];
+          for (const row of oldRows) {
+            if (!row.includes(widgetId)) {
+              newRows.push(row);
+              continue;
+            }
+            pageHeldWidget = true;
+            const filtered = row.filter((id) => id !== widgetId);
+            // 2→1 collapse: several widgets shared this row and the removal leaves
+            // exactly one behind, so that survivor's stored span is now stale.
+            if (row.length >= 2 && filtered.length === 1) {
+              orphanedSoleOccupants.push(filtered[0]);
+            }
+            if (filtered.length > 0) {
+              newRows.push(filtered);
+            }
+          }
+
+          // Only the page that actually held the removed widget can have spans made
+          // stale by this removal; leave every other page entirely untouched
+          // (including any intentional single-widget-row spans it carries).
+          if (!pageHeldWidget) {
+            return [pid, page];
+          }
 
           const oldSpans = page.widgetColSpans;
           let nextSpans: Record<string, number> | undefined = oldSpans;
-          if (oldSpans && (widgetId in oldSpans || nonEmptyRows.some((row) => row.length === 1))) {
+          if (oldSpans && (widgetId in oldSpans || orphanedSoleOccupants.length > 0)) {
             const { [widgetId]: removedSpan, ...rest } = oldSpans;
             void removedSpan;
-            for (const row of nonEmptyRows) {
-              if (row.length === 1 && rest[row[0]] != null) {
-                delete rest[row[0]];
-              }
+            for (const soleOccupantId of orphanedSoleOccupants) {
+              delete rest[soleOccupantId];
             }
             nextSpans = Object.keys(rest).length > 0 ? rest : undefined;
           }
 
-          return [pid, { ...page, widgetRows: nonEmptyRows, widgetColSpans: nextSpans }];
+          return [pid, { ...page, widgetRows: newRows, widgetColSpans: nextSpans }];
         }),
       );
 

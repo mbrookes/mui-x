@@ -211,6 +211,51 @@ describe('applyMutation', () => {
     expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
   });
 
+  it('removeWidget leaves intentional pre-existing single-widget-row spans untouched (only collapses the row it removed from)', () => {
+    // Regression for the over-broad "sole-occupant collapse": removing a widget used
+    // to sweep the col-span of *every* singleton row on *every* page, silently
+    // snapping intentionally-narrowed lone widgets back to full width. The collapse
+    // must only affect the specific row the widget was removed from.
+    const state = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
+      pages: {
+        // Unrelated page: a lone widget intentionally narrowed to half-width
+        // (e.g. via an AI `set_widget_width`). Must survive the removal on page-2.
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['a']],
+          widgetColSpans: { a: 12 },
+        },
+        // Removal happens here. `b` is a pre-existing intentional singleton-row span
+        // (unrelated to the removal); `c`/`d` share a row and `c` is removed.
+        'page-2': {
+          id: 'page-2',
+          title: 'P2',
+          widgetRows: [['b'], ['c', 'd']],
+          widgetColSpans: { b: 10, c: 14, d: 10 },
+        },
+      },
+      widgets: {
+        a: chartWidget('a'),
+        b: chartWidget('b'),
+        c: chartWidget('c'),
+        d: chartWidget('d'),
+      },
+    });
+    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'c' } });
+
+    // Unrelated page is completely untouched (same object reference, span intact).
+    expect(next.pages['page-1']).toBe(state.pages['page-1']);
+    expect(next.pages['page-1'].widgetColSpans).toEqual({ a: 12 });
+
+    // On the removal page: `c`'s own span is dropped, and `d` (its former
+    // row-mate, now alone) has its stale span cleared by the 2→1 collapse — but
+    // `b`, a pre-existing singleton-row span in a *different* row, is left alone.
+    expect(next.pages['page-2'].widgetRows).toEqual([['b'], ['d']]);
+    expect(next.pages['page-2'].widgetColSpans).toEqual({ b: 10 });
+  });
+
   it('addFilter appends the filter verbatim (scope not re-stamped)', () => {
     const state = twoPageState('page-1');
     const filter = {

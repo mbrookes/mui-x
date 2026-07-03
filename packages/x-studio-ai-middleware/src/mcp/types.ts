@@ -50,6 +50,24 @@ export interface StudioDataOrderBy {
   direction: 'asc' | 'desc';
 }
 
+/**
+ * Tool names registered directly by the MCP server that are NOT part of
+ * `StudioAIToolName` (the built-in `STUDIO_AI_TOOLS` shared with the chat
+ * transport): the read-only data-access tools (registered when `data` is
+ * configured) plus the two tools registered unconditionally.
+ *
+ * `mcp/toolMetadata.ts` types `TOOL_TITLES`/`TOOL_ANNOTATIONS` as
+ * `Record<StudioAIToolName | McpExtraToolName, …>` so a missing or phantom
+ * entry for any MCP-registered tool is a compile error.
+ */
+export type McpExtraToolName =
+  | 'query_data_source'
+  | 'describe_data_source'
+  | 'get_field_values'
+  | 'compute_field_stats'
+  | 'render_chart'
+  | 'get_recent_changes';
+
 /** Post-aggregation HAVING predicate for `query_data_source`. */
 export interface StudioDataHavingPredicate {
   /** Aggregation alias (from `aggregations[].alias`) to filter on. */

@@ -28,3 +28,4 @@ export {
 } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
 export { applyMutation, mutationLabel } from './applyMutation';
+export { isoWeek, truncateToPeriod } from './temporalUtils';

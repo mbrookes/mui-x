@@ -8,10 +8,27 @@
  */
 
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+import type { StudioAIToolName } from '../models/aiTypes';
+import { DESTRUCTIVE_TOOLS } from '../studioAITools';
+import type { McpExtraToolName } from './types';
 
-/** Human-readable display titles for MCP tools (shown in Claude Desktop's permission editor). */
-export const TOOL_TITLES: Record<string, string> = {
+/** Union of every tool name `TOOL_TITLES`/`TOOL_ANNOTATIONS` must cover. */
+type McpToolName = StudioAIToolName | McpExtraToolName;
+
+/**
+ * Human-readable display titles for MCP tools (shown in Claude Desktop's
+ * permission editor).
+ *
+ * Typed against `McpToolName` (rather than a plain `Record<string, string>`) so
+ * a missing entry for a real tool, or a phantom entry for a tool that doesn't
+ * exist, is a compile error — mirroring the `STUDIO_AI_TOOL_NAMES` drift guard
+ * in `studioAITools.ts`. This caught two real bugs: `list_pages` was missing
+ * here (MCP `tools/list` emitted `title: undefined` for it) while `get_current_date`
+ * was a phantom entry for a tool that exists nowhere in the package.
+ */
+export const TOOL_TITLES: Record<McpToolName, string> = {
   get_dashboard_state: 'Get dashboard state',
+  list_pages: 'List pages',
   set_dashboard_title: 'Set dashboard title',
   add_page: 'Add page',
   rename_page: 'Rename page',
@@ -31,7 +48,6 @@ export const TOOL_TITLES: Record<string, string> = {
   apply_bulk_update: 'Apply bulk update',
   rename_thread: 'Rename thread',
   execute_query: 'Execute query',
-  get_current_date: 'Get current date',
   query_data_source: 'Query data source',
   describe_data_source: 'Describe data source',
   get_field_values: 'Get field values',
@@ -40,8 +56,23 @@ export const TOOL_TITLES: Record<string, string> = {
   get_recent_changes: 'Get recent changes',
 };
 
+/**
+ * Default `destructiveHint` for a tool.
+ *
+ * Derives from `DESTRUCTIVE_TOOLS` (`studioAITools.ts`) — the single source of
+ * truth for tool destructiveness, also consumed by `agenticLoop.ts`'s chat
+ * approval gate. `override` lets an entry below diverge from that default for a
+ * documented reason (e.g. `remove_page_filter`/`remove_widget_filter` are
+ * marked destructive here even though they aren't chat-approval-gated, because
+ * MCP clients have no separate confirmation step and the tool permanently
+ * deletes an entity).
+ */
+function destructiveHintFor(name: McpToolName, override?: boolean): boolean {
+  return override ?? DESTRUCTIVE_TOOLS.has(name as StudioAIToolName);
+}
+
 /** MCP tool annotations for each tool name (both built-in and dynamically added tools). */
-export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
+export const TOOL_ANNOTATIONS: Record<McpToolName, ToolAnnotations> = {
   // Read-only — never modifies state.
   get_dashboard_state: {
     readOnlyHint: true,
@@ -103,26 +134,76 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  // Destructive — permanently deletes an entity.
-  remove_widget: { destructiveHint: true, openWorldHint: false },
-  remove_page: { destructiveHint: true, openWorldHint: false },
-  remove_page_filter: { destructiveHint: true, openWorldHint: false },
-  remove_widget_filter: { destructiveHint: true, openWorldHint: false },
+  // Destructive — permanently deletes an entity. `destructiveHint` for
+  // `remove_widget`/`remove_page`/`apply_bulk_update` comes straight from
+  // `DESTRUCTIVE_TOOLS`; the two filter-removal tools opt into `true` via an
+  // explicit override (see `destructiveHintFor`'s doc comment).
+  remove_widget: { destructiveHint: destructiveHintFor('remove_widget'), openWorldHint: false },
+  remove_page: { destructiveHint: destructiveHintFor('remove_page'), openWorldHint: false },
+  remove_page_filter: {
+    destructiveHint: destructiveHintFor('remove_page_filter', true),
+    openWorldHint: false,
+  },
+  remove_widget_filter: {
+    destructiveHint: destructiveHintFor('remove_widget_filter', true),
+    openWorldHint: false,
+  },
   // Idempotent setters — applying the same args twice has no additional effect.
-  set_dashboard_title: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  set_widget_layout: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  set_widget_width: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  rename_page: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  set_active_page: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  update_widget: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  apply_bulk_update: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  rename_thread: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  set_widget_forecast: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  set_dashboard_title: {
+    destructiveHint: destructiveHintFor('set_dashboard_title'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  set_widget_layout: {
+    destructiveHint: destructiveHintFor('set_widget_layout'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  set_widget_width: {
+    destructiveHint: destructiveHintFor('set_widget_width'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  rename_page: {
+    destructiveHint: destructiveHintFor('rename_page'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  set_active_page: {
+    destructiveHint: destructiveHintFor('set_active_page'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  update_widget: {
+    destructiveHint: destructiveHintFor('update_widget'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  // `apply_bulk_update` mass-removes widgets and repeated calls with
+  // `widgetAdditions` create duplicates — it is destructive AND not idempotent,
+  // so (unlike the other entries in this section) it omits `idempotentHint`.
+  apply_bulk_update: {
+    destructiveHint: destructiveHintFor('apply_bulk_update'),
+    openWorldHint: false,
+  },
+  rename_thread: {
+    destructiveHint: destructiveHintFor('rename_thread'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  set_widget_forecast: {
+    destructiveHint: destructiveHintFor('set_widget_forecast'),
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   // Additive — each call creates a new entity; not idempotent.
-  add_page: { destructiveHint: false, openWorldHint: false },
-  add_widget: { destructiveHint: false, openWorldHint: false },
-  add_page_filter: { destructiveHint: false, openWorldHint: false },
-  add_widget_filter: { destructiveHint: false, openWorldHint: false },
+  add_page: { destructiveHint: destructiveHintFor('add_page'), openWorldHint: false },
+  add_widget: { destructiveHint: destructiveHintFor('add_widget'), openWorldHint: false },
+  add_page_filter: { destructiveHint: destructiveHintFor('add_page_filter'), openWorldHint: false },
+  add_widget_filter: {
+    destructiveHint: destructiveHintFor('add_widget_filter'),
+    openWorldHint: false,
+  },
 };
 
 /** JSON Schema for the `query_data_source` tool input. */

@@ -13,10 +13,46 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { test, expect } from '@playwright/test';
-import { SCREENSHOT_SCENARIOS } from 'x-studio-example/src/screenshotScenarios';
+import { test, expect, type Page } from '@playwright/test';
+import {
+  SCREENSHOT_SCENARIOS,
+  type ScreenshotInteractionStep,
+} from 'x-studio-example/src/screenshotScenarios';
 
 const OUTPUT_DIR = path.resolve(import.meta.dirname, 'screenshots/setup-panels');
+
+async function runInteraction(page: Page, step: ScreenshotInteractionStep) {
+  const locator = step.buttonName
+    ? page.getByRole('button', { name: step.buttonName, exact: true })
+    : step.formControlText
+      ? page
+          .locator('.MuiFormControl-root', { hasText: step.formControlText })
+          .getByRole('combobox')
+      : // Not getByLabel: once the popper is open, its listbox shares the same
+        // aria-labelledby as the input, making a plain label lookup ambiguous.
+        page.getByRole('combobox', { name: step.label! });
+
+  if (step.action === 'hover') {
+    await locator.hover();
+    // Let the MUI Tooltip's show-delay + fade transition finish.
+    await page.waitForTimeout(400);
+  } else {
+    await locator.click();
+    // A native Select opens its menu on click alone. Autocomplete (openOnFocus
+    // unset) sometimes does too — but not reliably (e.g. a field that already
+    // has a value renders as a read-only-looking chip) — so force it open with
+    // ArrowDown unless the click already expanded it.
+    if (
+      step.label &&
+      !step.formControlText &&
+      (await locator.getAttribute('aria-expanded')) !== 'true'
+    ) {
+      await locator.press('ArrowDown');
+    }
+    // Let the opening Popper's fade transition finish.
+    await page.waitForTimeout(200);
+  }
+}
 
 test.describe('Setup panel documentation screenshots', () => {
   test.beforeAll(async () => {
@@ -43,9 +79,21 @@ test.describe('Setup panel documentation screenshots', () => {
       const root = page.locator('[data-testid="screenshot-root"]');
       await expect(root).toBeVisible();
 
+      for (const step of scenario.interactions ?? []) {
+        await runInteraction(page, step);
+      }
+
       const panelDir = path.join(OUTPUT_DIR, scenario.panel);
       await fs.mkdir(panelDir, { recursive: true });
-      await root.screenshot({ path: path.join(panelDir, `${scenario.id}.png`) });
+      const screenshotPath = path.join(panelDir, `${scenario.id}.png`);
+
+      if (scenario.interactions?.length) {
+        // Open dropdowns/menus/tooltips render in a MUI Popper portaled onto
+        // <body>, outside the drawer root — capture the full page instead.
+        await page.screenshot({ path: screenshotPath });
+      } else {
+        await root.screenshot({ path: screenshotPath });
+      }
 
       expect(errors, errors.join('\n')).toHaveLength(0);
     });

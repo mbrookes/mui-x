@@ -10,12 +10,36 @@
  */
 import type { StudioState, StudioWidgetConfig, StudioDataSource } from '@mui/x-studio';
 
+/**
+ * A scripted step run by the Playwright spec after mount, before the screenshot is
+ * taken. Needed for open dropdowns/menus/tooltips: MUI portals poppers outside the
+ * drawer's DOM subtree, so scenarios with `interactions` are screenshotted at the
+ * full-page level instead of just the drawer root (see setupPanelScreenshots.spec.ts).
+ */
+export interface ScreenshotInteractionStep {
+  action: 'click' | 'hover';
+  /** Resolves via Playwright's getByLabel (works when the control's InputLabel is
+   * properly aria-associated, as DataSourceFieldSelect's Autocomplete fields are). */
+  label?: string;
+  /** Resolves via Playwright's getByRole('button', { name }). */
+  buttonName?: string;
+  /**
+   * Fallback for controls whose InputLabel text is NOT aria-associated with the
+   * control (getByLabel finds nothing) — targets the combobox inside the nearest
+   * MUI FormControl containing this visible text. Needed for ChartSetupPanel's
+   * "Sort by" / "Group by" native Selects — a real gap worth flagging in review,
+   * not just a harness workaround.
+   */
+  formControlText?: string;
+}
+
 export interface ScreenshotScenario {
   id: string;
   panel: 'chart' | 'grid' | 'kpi' | 'map' | 'pivot' | 'filter' | 'text';
   description: string;
   widgetId: string;
   initialState: Partial<StudioState>;
+  interactions?: ScreenshotInteractionStep[];
 }
 
 const ORDERS_SOURCE: StudioDataSource = {
@@ -49,6 +73,7 @@ function chartScenario(
   id: string,
   description: string,
   config: StudioWidgetConfig,
+  interactions?: ScreenshotInteractionStep[],
 ): ScreenshotScenario {
   return {
     id,
@@ -61,6 +86,7 @@ function chartScenario(
         w1: { id: 'w1', kind: 'chart', title: 'Widget', sourceId: 'orders', config },
       },
     },
+    ...(interactions && { interactions }),
   };
 }
 
@@ -178,5 +204,31 @@ export const SCREENSHOT_SCENARIOS: ScreenshotScenario[] = [
       xField: 'country',
       yField: 'total',
     },
+  ),
+  // ── In-edit / interaction states ──────────────────────────────────────────────
+  chartScenario(
+    'chart-x-field-select-open',
+    'X / Category field dropdown open, showing field options (field unset — once a field ' +
+      'has a value, DataSourceFieldSelect renders a read-only chip, not a reopenable combobox)',
+    { chartType: 'bar' },
+    [{ action: 'click', label: 'X / Category field' }],
+  ),
+  chartScenario(
+    'chart-y-field-select-open',
+    'Y / Measure field dropdown open, showing field options',
+    { chartType: 'bar', xField: 'department' },
+    [{ action: 'click', label: 'Y / Measure field' }],
+  ),
+  chartScenario(
+    'chart-sort-by-select-open',
+    'Sort by dropdown open, showing category/value/natural options',
+    { chartType: 'bar', xField: 'department', yField: 'total' },
+    [{ action: 'click', formControlText: 'Sort by' }],
+  ),
+  chartScenario(
+    'chart-type-picker-hover-tooltip',
+    'Chart type picker, hovering the Sankey option — tooltip visible',
+    { chartType: 'bar', xField: 'department', yField: 'total' },
+    [{ action: 'hover', buttonName: 'Sankey' }],
   ),
 ];

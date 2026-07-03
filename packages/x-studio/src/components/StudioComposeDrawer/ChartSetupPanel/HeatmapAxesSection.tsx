@@ -122,10 +122,18 @@ export function HeatmapAxesSection({
             aria-label={localeText.chartSetupSortDirectionAriaLabel}
             sx={{ alignSelf: 'flex-start' }}
           >
-            <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+            <ToggleButton
+              value="asc"
+              aria-label={localeText.sortAscendingAriaLabel}
+              sx={{ textTransform: 'none' }}
+            >
               {localeText.sortAscendingAriaLabel}
             </ToggleButton>
-            <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+            <ToggleButton
+              value="desc"
+              aria-label={localeText.sortDescendingAriaLabel}
+              sx={{ textTransform: 'none' }}
+            >
               {localeText.sortDescendingAriaLabel}
             </ToggleButton>
           </ToggleButtonGroup>

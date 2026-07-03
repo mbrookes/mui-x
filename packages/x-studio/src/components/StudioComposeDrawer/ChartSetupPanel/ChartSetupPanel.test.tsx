@@ -313,7 +313,7 @@ describe('ChartSetupPanel', () => {
       // Sankey-specific field controls (labels render twice via the notched outline)
       expect(screen.getAllByText('Source (from) field').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Target (to) field').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Link colour').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Link color').length).toBeGreaterThan(0);
       expect(screen.getByText('Show values on links')).toBeVisible();
       // Irrelevant controls are hidden for sankey (split-by section title)
       expect(screen.queryByText('Category field')).toBeNull();
@@ -455,7 +455,7 @@ describe('ChartSetupPanel', () => {
 
       const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
-      const xInput = screen.getByLabelText('X / Category field');
+      const xInput = screen.getByLabelText('Slice category');
       await user.click(xInput);
       const departmentOption = await screen.findByRole('option', { name: /Department$/ });
       await user.click(departmentOption);

@@ -4,6 +4,7 @@ import {
   Autocomplete,
   Box,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -317,6 +318,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             </MenuItem>
           ))}
         </Select>
+        {!hasValueField && (
+          <FormHelperText>{localeText.kpiSetupAggregationLockedHelperText}</FormHelperText>
+        )}
       </FormControl>
 
       {features.kpiSparkline !== false && (

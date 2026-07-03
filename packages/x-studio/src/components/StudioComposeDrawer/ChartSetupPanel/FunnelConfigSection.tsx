@@ -122,8 +122,12 @@ export function FunnelConfigSection({
           }}
           size="small"
         >
-          <ToggleButton value="filled">{localeText.chartSetupFunnelStyleFilled}</ToggleButton>
-          <ToggleButton value="outlined">{localeText.chartSetupFunnelStyleOutlined}</ToggleButton>
+          <ToggleButton value="filled" sx={{ textTransform: 'none' }}>
+            {localeText.chartSetupFunnelStyleFilled}
+          </ToggleButton>
+          <ToggleButton value="outlined" sx={{ textTransform: 'none' }}>
+            {localeText.chartSetupFunnelStyleOutlined}
+          </ToggleButton>
         </ToggleButtonGroup>
       </Stack>
       <TextField

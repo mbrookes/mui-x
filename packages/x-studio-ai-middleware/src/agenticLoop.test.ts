@@ -1055,6 +1055,23 @@ describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
     expect(names).toContain('set_dashboard_title');
   });
 
+  it('excludes execute_query in privateMode even when a dataResolver is configured', async () => {
+    // A resolver would normally advertise execute_query; privateMode still wins,
+    // because its output is live database rows sent straight to the provider.
+    const names = await offeredToolNames({
+      privateMode: true,
+      dataResolver: { resolve: async () => ({ rows: [] }) },
+    });
+    expect(names).not.toContain('execute_query');
+  });
+
+  it('advertises execute_query when a dataResolver is configured and privateMode is off', async () => {
+    const names = await offeredToolNames({
+      dataResolver: { resolve: async () => ({ rows: [] }) },
+    });
+    expect(names).toContain('execute_query');
+  });
+
   it('rejects a get_dashboard_state call in privateMode and never round-trips state to the provider', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))

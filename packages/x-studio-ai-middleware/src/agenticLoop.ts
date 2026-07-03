@@ -19,7 +19,7 @@ import type {
   StudioAIEnrichedContext,
 } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { STUDIO_AI_TOOLS } from './studioAITools';
+import { STUDIO_AI_TOOLS, DESTRUCTIVE_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
 import { executeToolOnState } from './executeToolOnState';
 import type { StudioAISSEEvent } from './models/protocol';
@@ -260,7 +260,7 @@ interface ToolDispatchContext {
   /** Names of tools actually advertised to the model this request (T1-1 gate). */
   advertisedToolNames: Set<string>;
   /** Tools that pause for user approval before execution. */
-  toolsRequiringApproval: Set<string>;
+  toolsRequiringApproval: ReadonlySet<string>;
 }
 
 /**
@@ -536,8 +536,11 @@ export async function* runAgenticLoop(
     enrichedContext,
   } = options;
 
-  // Tools that pause for user approval before execution.
-  const TOOLS_REQUIRING_APPROVAL = new Set(['remove_page', 'remove_widget', 'apply_bulk_update']);
+  // Tools that pause for user approval before execution. Derived directly from
+  // `DESTRUCTIVE_TOOLS` (`studioAITools.ts`) — the single source of truth for
+  // "which tools are destructive" — so the chat approval gate and the MCP
+  // `destructiveHint` annotations can't drift apart.
+  const TOOLS_REQUIRING_APPROVAL = DESTRUCTIVE_TOOLS;
 
   const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills, {
     privateMode,
@@ -550,14 +553,20 @@ export async function* runAgenticLoop(
   // so sensitive business data is never sent to the provider, but these tools
   // return that same data (field distinct values, widget configs, filter values,
   // source labels) which then round-trips back to the provider in the tool-result
-  // message. We use approach (a) from the review — exclude them from the advertised
-  // built-in list entirely — rather than redacting tool output, keeping the fix
-  // self-contained to this file. Combined with the T1-1 dispatch-time gate, an
-  // injected call to one of these is rejected as an unadvertised tool.
+  // message. `execute_query` belongs here for the same reason: when a
+  // `dataResolver` is configured it returns live database rows straight to the
+  // provider as tool output — at least as sensitive as dashboard structure or
+  // field values — so private mode must withhold it too, even when a resolver is
+  // present. We use approach (a) from the review — exclude them from the
+  // advertised built-in list entirely — rather than redacting tool output,
+  // keeping the fix self-contained to this file. Combined with the T1-1
+  // dispatch-time gate, an injected call to one of these is rejected as an
+  // unadvertised tool.
   const PRIVATE_MODE_EXCLUDED_TOOLS = new Set([
     'get_dashboard_state',
     'list_pages',
     'summarise_page',
+    'execute_query',
   ]);
 
   // Build effective tool list.

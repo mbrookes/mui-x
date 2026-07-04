@@ -54,6 +54,57 @@ async function readText(result: any): Promise<string> {
 }
 
 describe('createDataToolHandlers', () => {
+  describe('query_data_source', () => {
+    it('returns an error when data access is not configured', async () => {
+      const handlers = createDataToolHandlers(makeDeps());
+      const result: any = await handlers.query_data_source({ sourceId: 'source-orders' });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/not available/i);
+    });
+
+    it('requires a sourceId', async () => {
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource: vi.fn() } }));
+      const result: any = await handlers.query_data_source({});
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/sourceId is required/);
+    });
+
+    it('returns a descriptive error for an unknown sourceId (never queries a phantom table)', async () => {
+      // Regression guard: an unknown/unregistered sourceId must be rejected up front
+      // with the same descriptive error the sibling handlers return — it must NOT be
+      // forwarded to queryDataSource as a physical table name (which would surface a
+      // raw DB error, or query an unintended table).
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.query_data_source({ sourceId: 'not-a-real-source' });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
+      // The query was never dispatched against the bogus table name.
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('resolves the physical table name and forwards the structured query for a known source', async () => {
+      const queryDataSource = vi.fn(
+        async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.query_data_source({
+        sourceId: 'source-orders',
+        columns: ['id', 'total'],
+      });
+      expect(result.isError).toBeFalsy();
+      expect(queryDataSource).toHaveBeenCalledTimes(1);
+      expect(queryDataSource.mock.calls[0][0]).toMatchObject({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        columns: ['id', 'total'],
+      });
+    });
+  });
+
   describe('describe_data_source', () => {
     it('returns an error when data access is not configured', async () => {
       const handlers = createDataToolHandlers(makeDeps());

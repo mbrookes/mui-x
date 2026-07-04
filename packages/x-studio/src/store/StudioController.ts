@@ -147,6 +147,13 @@ export class StudioController {
    *
    * The result is committed through the normal undo-stack + recent-mutation-log
    * machinery, so AI edits remain undoable and are surfaced back to the model.
+   *
+   * This is a typed, non-validating in-process API: it trusts `mutation` to be a
+   * well-formed `StateMutation` (it is also called with locally-constructed values,
+   * e.g. `removePage` below). A caller passing wire-sourced data (deserialized
+   * network input) MUST validate it through `parseStateMutation` first —
+   * `StudioBackendAdapter`'s SSE `state-mutation` handler is the one such caller and
+   * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
     const nextState = applyMutation(this.store.state, mutation);

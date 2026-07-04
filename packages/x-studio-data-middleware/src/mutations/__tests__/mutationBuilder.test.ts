@@ -644,6 +644,82 @@ describe('write-path security scoping', () => {
   });
 });
 
+// ── Empty-region scope (regionIds: []) is fail-CLOSED on writes ────────────────
+//
+// Regression: `regionIds: []` means "authorized for zero regions" and must NOT
+// be conflated with `regionIds: undefined` ("this deployment is not region
+// scoped"). On the write path an empty region scope must REJECT the mutation
+// rather than silently drop the region predicate (which would widen it).
+
+describe('write-path empty-region scope (regionIds: [])', () => {
+  const ZERO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [] };
+
+  it('REJECTS an update when the caller is authorized for zero regions', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    expect(() => buildUpdateMutation(db, ZERO_REGION_CLAIMS, descriptor, 'tenant_id')).toThrow(
+      /authorized for zero regions/,
+    );
+    // Nothing was updated.
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('REJECTS a delete when the caller is authorized for zero regions', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'cancelled' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
+    };
+    expect(() => buildDeleteMutation(db, ZERO_REGION_CLAIMS, descriptor, 'tenant_id')).toThrow(
+      /authorized for zero regions/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('REJECTS an insert that stamps ANY region_id when authorized for zero regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 3 },
+    };
+    expect(() =>
+      validateMutation(descriptor, ZERO_REGION_CLAIMS, {
+        tenantColumn: 'tenant_id',
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/outside the caller's permitted regions/);
+  });
+
+  it('still allows an update with regionIds: undefined (deployment is not region-scoped)', async () => {
+    const NO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'] };
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', region_id: 1, status: 'pending' },
+        { id: 2, tenant_id: 'acme', region_id: 2, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    // No region scoping → both tenant rows are updated (undefined ≠ []).
+    const count = await buildUpdateMutation(db, NO_REGION_CLAIMS, descriptor, 'tenant_id');
+    expect(count).toBe(2);
+  });
+});
+
 // ── INSERT tenant stamping via `securityColumns` (no legacy tenantColumn) ──────
 //
 // Regression for finding 1.1 (CRITICAL): a deployment configuring tenancy ONLY

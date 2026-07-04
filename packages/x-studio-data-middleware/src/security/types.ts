@@ -52,26 +52,41 @@ export interface SecurityColumns {
  *
  * The top-level `tenant` / `region` / `department` names act as defaults for the
  * primary table (they default to `tenantColumn`, `'region_id'` and `'department'`
- * respectively for backward compatibility). Per-table overrides — including the
- * opt-in that makes a **joined** table security-scoped — go in `perTable`.
+ * respectively for backward compatibility). Per-table overrides — and the
+ * explicit opt-out that marks a **joined** table as an unscoped shared/lookup
+ * table — go in `perTable`.
  *
- * A joined table is only scoped when it has a `perTable` entry with a `tenant`
- * column; tables without such an entry are treated as shared lookup tables and
- * receive no predicate (preserving the previous behavior for those).
+ * SECURITY — joined tables are scoped by DEFAULT (fail-closed). A joined table
+ * with no `perTable` entry inherits the primary table's resolved
+ * tenant/region/department column names, so an unregistered join can no longer
+ * silently fan out to every tenant's rows. A per-table entry overrides the
+ * column names for a table using a different convention.
+ *
+ * OPT-OUT — a genuinely shared/lookup table with no tenant column (e.g. a
+ * country-codes table) opts out with `perTable[table] = null`, which joins it
+ * unscoped. A table joins unscoped ONLY when explicitly declared shared.
  *
  * @example
  * securityColumns: {
- *   // primary table uses non-default names
+ *   // primary table uses a non-default region column
  *   region: 'sales_region',
  *   perTable: {
- *     // a joined table that must be tenant-scoped
- *     customers: { tenant: 'tenant_id', region: 'region_id' },
+ *     // a joined table that uses a different tenant column name
+ *     customers: { tenant: 'org_id', region: 'region_id' },
+ *     // a shared lookup table with no tenant column — opt out of scoping
+ *     country_codes: null,
  *   },
  * }
  */
 export interface SecurityColumnsConfig extends SecurityColumns {
-  /** Per-table column overrides. Required to security-scope a joined table. */
-  perTable?: Record<string, SecurityColumns>;
+  /**
+   * Per-table column overrides.
+   *
+   * - An object overrides individual security-column names for that table.
+   * - `null` marks a shared/lookup table that has no tenant column and must join
+   *   unscoped (the only way to opt a joined table OUT of the default inheritance).
+   */
+  perTable?: Record<string, SecurityColumns | null>;
 }
 
 /**

@@ -99,8 +99,27 @@ export function validateDescriptorColumns(
   }
   for (const join of descriptor.joins ?? []) {
     for (const [left, right] of join.on) {
-      check(left, 'join.on');
-      check(right, 'join.on');
+      // Per `JoinDescriptor.on`, the LEFT column conventionally references the
+      // PRIMARY table and the RIGHT column the JOINED table. Validate each side
+      // against the table it actually belongs to so an UNQUALIFIED column is
+      // checked against the allowlist for the table Knex will resolve it against
+      // at execution time. Using the primary table for the right side would let a
+      // column allowlisted only on the primary table, but present and sensitive
+      // on the joined table, pass validation yet execute against the joined table.
+      checkColumnAgainstAllowlist(
+        left,
+        descriptor.table,
+        columnAllowlist,
+        'join.on',
+        descriptor.columnAliases,
+      );
+      checkColumnAgainstAllowlist(
+        right,
+        join.table,
+        columnAllowlist,
+        'join.on',
+        descriptor.columnAliases,
+      );
     }
   }
 }

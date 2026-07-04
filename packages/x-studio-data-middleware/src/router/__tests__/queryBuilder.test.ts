@@ -101,10 +101,20 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1, 2]] });
     });
 
-    it('does not apply a region predicate when regionIds is an empty array', () => {
+    it('does not apply a region predicate when regionIds is undefined (no region scoping)', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: undefined }, descriptor());
+      expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
+    });
+
+    it('applies a match-nothing region predicate when regionIds is an empty array (fail-closed)', () => {
+      // Regression: `regionIds: []` means "authorized for zero regions" — it must
+      // NOT be conflated with `undefined` (no region scoping). On reads we emit
+      // `whereIn(col, [])`, which Knex renders as `1 = 0` (matches zero rows),
+      // instead of dropping the predicate and returning the full tenant table.
       const { db, calls } = createRecordingDb();
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [] }, descriptor());
-      expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', []] });
     });
 
     it('applies a department predicate when department is present', () => {
@@ -528,18 +538,54 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
     });
 
-    it('does NOT scope a joined table without a configured tenant column (shared table)', () => {
+    it('scopes a joined table by DEFAULT (inherits primary security columns) with no perTable entry', () => {
+      // Regression (cross-tenant fan-out): an unregistered joined table used to be
+      // fully unscoped, so a tenant-filtered primary joined to it on a non-unique
+      // key pulled in every other tenant's rows. Now the joined table inherits the
+      // primary table's resolved tenant column by default.
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
         BASE_CLAIMS,
         descriptor({
-          joins: [{ table: 'regions', on: [['sales.region_id', 'regions.id']] }],
+          joins: [{ table: 'customers', on: [['sales.region_id', 'customers.region_id']] }],
         }),
         { tenantColumn: 'tenant_id' },
       );
       expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
-      expect(calls.some((c) => c.args[0] === 'regions.tenant_id')).toBe(false);
+      // The joined table is now scoped by the inherited tenant column — no leak.
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+    });
+
+    it('inherits region/department scoping onto a joined table by default', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [1, 2], department: 'ops' },
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        { tenantColumn: 'tenant_id' },
+      );
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['customers.region_id', [1, 2]] });
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.department', '=', 'ops'] });
+    });
+
+    it('does NOT scope a joined table explicitly opted out via perTable[table] = null (shared lookup)', () => {
+      // A genuinely shared/lookup table (no tenant column) opts out with an
+      // explicit `null` sentinel and still joins successfully, unscoped.
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [1] },
+        descriptor({
+          joins: [{ table: 'country_codes', on: [['sales.country', 'country_codes.code']] }],
+        }),
+        { tenantColumn: 'tenant_id', securityColumns: { perTable: { country_codes: null } } },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+      // No predicate of any kind is emitted against the opted-out shared table.
+      expect(calls.some((c) => String(c.args[0]).startsWith('country_codes.'))).toBe(false);
     });
   });
 

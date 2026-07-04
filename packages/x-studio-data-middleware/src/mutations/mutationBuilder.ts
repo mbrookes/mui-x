@@ -55,10 +55,13 @@ function validateSecurityColumnValues(
     );
   }
 
+  // Distinguish "no region scoping" (`regionIds === undefined`) from "authorized
+  // for zero regions" (`regionIds === []`). With `[]`, `[].includes(region)` is
+  // always false, so ANY region value in `values` is (correctly) rejected — a
+  // caller scoped to zero regions must not be able to stamp a row into any region.
   if (
     cols.region &&
-    claims.regionIds &&
-    claims.regionIds.length > 0 &&
+    claims.regionIds !== undefined &&
     Object.prototype.hasOwnProperty.call(values, cols.region)
   ) {
     const region = values[cols.region] as number;
@@ -66,7 +69,7 @@ function validateSecurityColumnValues(
       throw new Error(
         `MUI X Studio Server: Column "${cols.region}" value "${String(region)}" is outside the caller's permitted regions. ` +
           `A mutation cannot write a row into a region the caller cannot access. ` +
-          `Permitted region(s): ${claims.regionIds.join(', ')}.`,
+          `Permitted region(s): ${claims.regionIds.join(', ') || '(none)'}.`,
       );
     }
   }
@@ -186,7 +189,9 @@ export function buildUpdateMutation(
   const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
 
   // Unconditional security scope — applied first so it cannot be AND-ed away.
-  applySecurityPredicates(query, descriptor.table, claims, cols);
+  // 'write' mode: an empty region scope (`regionIds: []`) throws rather than
+  // silently dropping the region predicate and widening the mutation.
+  applySecurityPredicates(query, descriptor.table, claims, cols, 'write');
 
   // 'write' mode: an empty `in` list or an unknown operator throws rather than
   // silently widening the mutation to the whole tenant table.
@@ -220,7 +225,7 @@ export function buildDeleteMutation(
   const query = db(descriptor.table);
   const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
 
-  applySecurityPredicates(query, descriptor.table, claims, cols);
+  applySecurityPredicates(query, descriptor.table, claims, cols, 'write');
 
   // 'write' mode: an empty `in` list or an unknown operator throws rather than
   // silently widening the mutation to the whole tenant table.

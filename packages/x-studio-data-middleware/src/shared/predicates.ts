@@ -61,25 +61,42 @@ export function resolvePrimarySecurityColumns(
 /**
  * Resolve the security column names for a JOINED table.
  *
- * A joined table is only scoped when it has an explicit `perTable` entry with a
- * `tenant` column — tables without one are treated as shared lookup tables and
- * receive no predicate. Region/department are opt-in per joined table (no
- * defaults) because we cannot assume an arbitrary joined table has those columns.
+ * SECURITY — joined tables are scoped by DEFAULT (fail-closed). A joined table
+ * with no `perTable` entry INHERITS the same resolved tenant/region/department
+ * column names as the primary table (most multi-tenant schemas share one
+ * tenant-column-name convention across every table). This closes the
+ * cross-tenant fan-out leak where a tenant-filtered primary table `LEFT JOIN`s
+ * an unregistered table on a non-unique key (e.g. `region_id`) and pulls in
+ * every other tenant's rows that share that key.
  *
- * Returns `undefined` when the table should not be scoped.
+ * A per-table entry may override individual column names for a joined table that
+ * uses a different convention (e.g. `perTable: { customers: { tenant: 'org_id' } }`).
+ *
+ * OPT-OUT — a genuinely shared/lookup table that has no tenant column (e.g. a
+ * country-codes table) opts out of scoping with an explicit `perTable[table] =
+ * null` sentinel, which returns `undefined` (no predicate). This is deliberate:
+ * a table joins unscoped ONLY when the host explicitly declares it shared, never
+ * merely because the host forgot to register it.
+ *
+ * Returns `undefined` only when the table is explicitly opted out (shared lookup).
  */
 export function resolveJoinSecurityColumns(
   table: string,
   config: SecurityColumnsConfig | undefined,
+  tenantColumnFallback: string | undefined,
 ): SecurityColumns | undefined {
   const override = config?.perTable?.[table];
-  if (!override?.tenant) {
+  // Explicit opt-out: this joined table is a shared/lookup table with no tenant
+  // column and must join unscoped.
+  if (override === null) {
     return undefined;
   }
+  // Default: inherit the primary table's resolved security columns (fail-closed),
+  // letting an explicit per-table entry override individual column names.
   return {
-    tenant: override.tenant,
-    region: override.region,
-    department: override.department,
+    tenant: override?.tenant ?? config?.tenant ?? tenantColumnFallback,
+    region: override?.region ?? config?.region ?? 'region_id',
+    department: override?.department ?? config?.department ?? 'department',
   };
 }
 
@@ -87,14 +104,27 @@ export function resolveJoinSecurityColumns(
  * Apply the row-level security predicates for one table to a Knex query.
  *
  * Applied FIRST (before user filters) so they can never be overridden or
- * AND-ed away. Only the dimensions with a configured column name AND a matching
+ * AND-ed away. Only the dimensions with a configured column name AND a present
  * claim are emitted.
+ *
+ * Region scope — `undefined` vs empty array are DIFFERENT claims and must not be
+ * conflated:
+ *   - `regionIds === undefined` → this deployment does not do region scoping;
+ *     no region predicate is emitted (correctly unrestricted).
+ *   - `regionIds === []` → the caller is authorized for ZERO regions and must
+ *     see/affect zero region-scoped rows. This mirrors the empty-`in` convention
+ *     in `applyPredicate`:
+ *       - `mode: 'read'`  → emit `whereIn(col, [])`; Knex renders this as
+ *         `1 = 0` (matches no rows) — NOT dropped, which would fail OPEN.
+ *       - `mode: 'write'` → throw; silently dropping the scope would widen the
+ *         UPDATE/DELETE beyond the caller's (empty) region set.
  */
 export function applySecurityPredicates(
   query: any,
   table: string,
   claims: JwtSecurityClaims,
   securityColumns: SecurityColumns | undefined,
+  mode: 'read' | 'write',
 ): void {
   if (!securityColumns) {
     return;
@@ -104,7 +134,19 @@ export function applySecurityPredicates(
     query.where(`${table}.${securityColumns.tenant}`, '=', claims.tenantId);
   }
 
-  if (securityColumns.region && claims.regionIds && claims.regionIds.length > 0) {
+  // Distinguish "no region scoping" (undefined) from "authorized for zero
+  // regions" ([]). Only `undefined` skips the predicate.
+  if (securityColumns.region && claims.regionIds !== undefined) {
+    if (mode === 'write' && claims.regionIds.length === 0) {
+      throw new Error(
+        `MUI X Studio Server: The caller is authorized for zero regions (regionIds: []), ` +
+          `so a region-scoped mutation on table "${table}" can match no row and is rejected. ` +
+          `Silently dropping an empty region scope would widen the UPDATE/DELETE beyond the caller's regions. ` +
+          `Grant at least one region, or use "regionIds: undefined" if this deployment is not region-scoped.`,
+      );
+    }
+    // Read path (or write with a non-empty set): an empty list renders as
+    // `1 = 0` in Knex, matching zero rows instead of failing open.
     query.whereIn(`${table}.${securityColumns.region}`, claims.regionIds);
   }
 

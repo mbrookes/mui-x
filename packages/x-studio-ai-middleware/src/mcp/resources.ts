@@ -41,6 +41,13 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
   // ── resources/list ───────────────────────────────────────────────────────
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    // `hidden` is a listing-only declutter flag (see `@mui/x-studio-schema`'s
+    // dataTypes.ts: "hidden from the data drawer and widget config selects"), not
+    // an access-control boundary. It only removes the source from *this listing* —
+    // a hidden source read directly by id via `studio://schema/{id}` /
+    // `studio://data/{id}` is still served by design (a decluttered join/lookup
+    // source must stay addressable). Hosts needing a hard boundary enforce it in
+    // their `queryDataSource` implementation, not via `hidden`.
     const sources = Object.values(stateBox.current.dataSources).filter((s) => !s.hidden);
 
     const schemaResources = sources.map((s) => ({

@@ -142,11 +142,14 @@ export interface StudioMcpOptions {
   serverVersion?: string;
   /**
    * Subset of STUDIO_AI_TOOL names to expose via MCP.
-   * When omitted, all tools except `execute_query` are registered.
+   * When omitted, all tools except those with no functional MCP handler are registered.
    * - `summarise_page` works when `data` is configured (queries sources server-side);
    *   falls back to a descriptive error when `data` is not provided.
-   * - `execute_query` runs raw SQL against a live DB connection — opt in explicitly
-   *   only if your server validates and sandboxes the queries.
+   * - `execute_query` cannot be enabled via MCP. It runs arbitrary SQL, which on
+   *   the chat path is backed by `handleAIChat`'s `dataResolver`; `StudioMcpOptions`
+   *   has no equivalent resolver hook, so there is no handler to dispatch it to.
+   *   Listing it here has no effect — it is excluded unconditionally so an opted-in
+   *   call cannot dead-end on an `Unknown tool` error.
    */
   allowedTools?: string[];
   /**

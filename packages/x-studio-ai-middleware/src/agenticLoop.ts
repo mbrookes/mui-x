@@ -584,19 +584,30 @@ export async function* runAgenticLoop(
   // `destructiveHint` annotations can't drift apart.
   const TOOLS_REQUIRING_APPROVAL = DESTRUCTIVE_TOOLS;
 
-  // Skills come from the client-asserted request body, so a `server-tool` skill's
-  // tool name could collide with a built-in `STUDIO_AI_TOOLS` name. A collision is
-  // ignored (the built-in always wins): advertising it would let a body-declared
-  // skill shadow a built-in in `tools/list`, and — because the `execute_query`
-  // dispatch branch runs before the unregistered-skill check — a skill literally
-  // named `execute_query` would otherwise be routed to `dataResolver.resolve`
-  // rather than handled as the built-in tool. Dropping collisions here (before the
-  // advertised list, the prompt, and the dispatch context are built) keeps a
-  // built-in name resolving only to its built-in handler.
+  // A `server-tool` whose tool name collides with a built-in `STUDIO_AI_TOOLS`
+  // name is ignored — the built-in handler always wins for a built-in name. This
+  // holds for BOTH sources of server-tools:
+  //
+  //  - Client-declared `skills` (request body): advertising a collision would let a
+  //    body-declared skill shadow a built-in in `tools/list`, and — because the
+  //    `execute_query` dispatch branch runs before the unregistered-skill check — a
+  //    skill literally named `execute_query` would be routed to `dataResolver.resolve`
+  //    rather than the built-in.
+  //  - Host-registered `skillHandlers` (`options.skillHandlers`): the `matchedSkill`
+  //    lookup in `dispatchToolCall` runs BEFORE the approval-required branch, so a
+  //    host that registered `skillHandlers['remove_page']` would silently route the
+  //    destructive built-in to its own handler and skip the approval pause. Nothing
+  //    about `skillHandlers` is meant to override built-ins, so the same guard drops
+  //    those collisions too.
+  //
+  // Dropping collisions here (before the advertised list, the prompt, and the
+  // dispatch context are built) keeps a built-in name resolving only to its
+  // built-in handler.
   const builtInToolNameSet = new Set<string>(STUDIO_AI_TOOL_NAMES);
-  const effectiveSkills = (skills ?? []).filter(
-    (s) => !(s.mode === 'server-tool' && s.tool && builtInToolNameSet.has(s.tool.name)),
-  );
+  const collidesWithBuiltIn = (entry: { mode: string; tool?: { name: string } }): boolean =>
+    entry.mode === 'server-tool' && Boolean(entry.tool) && builtInToolNameSet.has(entry.tool!.name);
+  const effectiveSkills = (skills ?? []).filter((s) => !collidesWithBuiltIn(s));
+  const effectiveSkillHandlers = skillHandlers.filter((s) => !collidesWithBuiltIn(s));
 
   const systemPrompt = buildAISystemPrompt(
     initialState,
@@ -680,7 +691,7 @@ export async function* runAgenticLoop(
 
   // Static per-request context shared by every tool dispatch.
   const dispatchCtx: ToolDispatchContext = {
-    skillHandlers,
+    skillHandlers: effectiveSkillHandlers,
     skills: effectiveSkills,
     dataResolver,
     customWidgets,

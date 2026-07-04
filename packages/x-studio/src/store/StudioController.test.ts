@@ -1311,6 +1311,19 @@ describe('StudioController.setWidgetDateRange', () => {
 // (`setAdjacentWidgetColSpans`) and AI-resize (the shared `applyMutation`
 // reducer's `setWidgetColSpan` handler) must agree on the same GRID_COLS=24
 // unit system, or one path silently corrupts the other's layout.
+//
+// `GRID_COLS`/`MIN_SPAN` are now single-sourced in `@mui/x-studio-schema` (and
+// re-exported through `canvasGridConstants`), so these no longer guard against two
+// *diverging literal copies* of the base constants. They remain a live sanity
+// check that the reducer's clamp bounds equal the constants the canvas renders
+// with, exercised end-to-end through the client controller.
+//
+// NOTE (known follow-up, out of scope here): the per-widget-kind minimum
+// `KPI_NO_SPARKLINE_MIN_SPAN` (canvas-only, in `StudioCanvas.tsx`) is NOT mirrored
+// by the reducer's clamp — so an AI resize of a sparkline-less KPI can still clamp
+// to `MIN_SPAN` (6) rather than that widget's rendered minimum (4). Consolidating
+// the base constant does not fix that per-kind semantic drift; it is left for a
+// later pass.
 
 describe('Col-span unit system round-trip', () => {
   it('drag-resize and AI-resize (applyMutation) agree on GRID_COLS units', () => {

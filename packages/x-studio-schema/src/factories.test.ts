@@ -60,6 +60,22 @@ describe('createDefaultWidget', () => {
     expect(widget.config).toEqual({ customConfig: {} });
   });
 
+  it.each(['constructor', '__proto__', 'hasOwnProperty', 'toString'])(
+    'treats prototype-chain name %j as an unknown custom kind, not a built-in (no corrupted widget)',
+    (kind) => {
+      // Regression: `kind in BUILTIN_WIDGET_DEFAULTS` returned true for these
+      // (prototype-chain lookup), so an untrusted/LLM-supplied kind resolved to
+      // `Object.prototype[kind]` and produced a widget with `title: undefined` /
+      // `config: undefined` that crashes on the first `widget.config.*` access.
+      const widget = createDefaultWidget(kind);
+      expect(widget.kind).toBe(kind);
+      // Handled via the unknown-custom-kind branch: title defaults to the kind and
+      // config is a well-formed `{ customConfig: {} }`, never `undefined`.
+      expect(widget.title).toBe(kind);
+      expect(widget.config).toEqual({ customConfig: {} });
+    },
+  );
+
   it('a custom kind honors overrides.customConfig when provided', () => {
     const widget = createDefaultWidget('acme-weather', { customConfig: { units: 'metric' } });
     expect(widget.config).toEqual({ customConfig: { units: 'metric' } });

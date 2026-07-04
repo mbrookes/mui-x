@@ -148,11 +148,25 @@ export interface StudioAIRateLimit {
    */
   maxTurnsPerRequest?: number;
   /**
+   * Maximum number of state mutations that may be COMMITTED across all agentic
+   * loop iterations in a single `handleAIChat` call. A built-in mutating tool call
+   * that would push the committed-mutation count over this cap is denied — the
+   * model is fed a `{ error }` tool result so it can adapt, and the stream is NOT
+   * killed (unlike the token budget). Read-only tool calls never count against it.
+   *
+   * When omitted, there is no mutation cap (the historical unlimited behavior).
+   *
+   * @example
+   * // Allow at most 10 committed mutations per request
+   * rateLimit: { maxMutationsPerRequest: 10 }
+   */
+  maxMutationsPerRequest?: number;
+  /**
    * Called when a limit is reached before the loop would naturally finish.
    * Use this to increment a quota counter, log the overage, or trigger an alert.
    *
-   * @param {'tokens' | 'turns'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached.
+   * @param {'tokens' | 'turns' | 'mutations'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached; `'mutations'` — mutation budget exceeded.
    * @param {StudioAIUsage} usage  Token counts and iteration number at the point the limit was hit.
    */
-  onLimitReached?: (reason: 'tokens' | 'turns', usage: StudioAIUsage) => void;
+  onLimitReached?: (reason: 'tokens' | 'turns' | 'mutations', usage: StudioAIUsage) => void;
 }

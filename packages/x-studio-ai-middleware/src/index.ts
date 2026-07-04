@@ -85,6 +85,21 @@ export type { AgenticLoopOptions } from './agenticLoop';
 export { executeToolOnState } from './executeToolOnState';
 export type { ToolExecutionResult } from './executeToolOnState';
 
+// Tool policy — the authorization chokepoint shared by both transports
+export {
+  computeToolEffects,
+  createDefaultToolPolicy,
+  createEffectsAwareToolPolicy,
+  executeToolWithPolicy,
+} from './toolPolicy';
+export type {
+  ToolEffectSummary,
+  ToolPolicy,
+  ToolPolicyContext,
+  ToolPolicyDecision,
+  ExecuteToolWithPolicyResult,
+} from './toolPolicy';
+
 // MCP (Model Context Protocol) server factory
 // Requires @modelcontextprotocol/sdk to be installed in the consuming project.
 export { buildStudioMcpServer } from './mcp';

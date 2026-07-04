@@ -9,6 +9,7 @@
 
 import type { StudioState, StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIContextEnricher } from '../handleAIChat';
+import type { ToolPolicy, ToolPolicyContext } from '../toolPolicy';
 
 export type { StudioState };
 
@@ -249,6 +250,39 @@ export interface StudioMcpOptions {
    * built without it. Keep the payload small — it adds to every read.
    */
   contextEnricher?: StudioAIContextEnricher;
+  /**
+   * Per-call authorization policy — the single chokepoint every state-mutating
+   * `tools/call` passes through.
+   *
+   * IMPORTANT: the default when omitted is an ALLOW-ALL policy (`() => ({ action:
+   * 'allow' })`), NOT `createDefaultToolPolicy()`. MCP has no approval-pause channel
+   * today, so an existing integration that omits this must keep executing every tool
+   * exactly as before. Supply a custom policy to `deny`/`require-approval`/`allow`
+   * per call; pair `require-approval` with `approvalHandler` to actually gate it.
+   */
+  toolPolicy?: ToolPolicy;
+  /**
+   * Bridges a `require-approval` policy decision to a host-controlled approval
+   * channel (MCP has no built-in pause). When a call needs approval and this is
+   * configured, it is awaited: `true` commits the mutation, `false` denies it with a
+   * clear reason. When a call needs approval and this is NOT configured, the call is
+   * denied cleanly (never thrown) with a message explaining no approval channel is
+   * wired up.
+   *
+   * @param {ToolPolicyContext} ctx The policy context for the call awaiting approval (tool name, args, pre-execution state, and — for a mutating call — the proposed mutation/effects).
+   * @returns {Promise<boolean>} `true` to commit the mutation, `false` to deny it.
+   */
+  approvalHandler?: (ctx: ToolPolicyContext) => Promise<boolean>;
+  /**
+   * Per-session mutation budget. Once `maxMutationsPerSession` committed mutations
+   * are reached, any further mutating `tools/call` is denied with a clear reason and
+   * `onLimitReached('mutations', count)` fires once per breach. Read-only calls never
+   * count against it. Omit for no cap (current behavior).
+   */
+  rateLimit?: {
+    maxMutationsPerSession?: number;
+    onLimitReached?: (reason: 'mutations', count: number) => void;
+  };
 }
 
 /**

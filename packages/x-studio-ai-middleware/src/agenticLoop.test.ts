@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAgenticLoop } from './agenticLoop';
+import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioAISkill, StudioDataResolver } from './models/aiTypes';
 import type { SerializableSkill } from './models/protocol';
@@ -1351,6 +1352,185 @@ describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
     const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
     expect(toolMsg?.content).toMatch(/unknown tool/i);
 
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Tool policy (chokepoint) ─────────────────────────────────────────────────────
+
+describe('runAgenticLoop — tool policy chokepoint', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('toolPolicy deny discards the mutation and feeds an error back to the model', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'Nope' }))
+      .mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    const denyPolicy: ToolPolicy = () => ({ action: 'deny', reason: 'policy says no' });
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+          toolPolicy: denyPolicy,
+        },
+      ),
+    );
+
+    // No state-mutation event — the mutation was discarded, not committed.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(JSON.parse(complete!.output!).error).toMatch(/policy says no/);
+
+    // The next turn's tool result carries the denial, not the mutation success.
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string) as {
+      messages: { role: string; content: string }[];
+    };
+    const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
+    expect(toolMsg?.content).toMatch(/policy says no/);
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('effects-aware policy pauses an orphaning set_widget_layout (not a DESTRUCTIVE_TOOLS member)', async () => {
+    const state = createDefaultStudioState();
+    const activePageId = state.dashboard.activePageId;
+    const seeded = {
+      ...state,
+      widgets: {
+        w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+        w2: { id: 'w2', kind: 'chart' as const, title: 'W2', sourceId: 's', config: {} },
+      },
+      pages: {
+        ...state.pages,
+        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1', 'w2']] },
+      },
+    };
+
+    // Layout keeps only w1 → orphans w2. `set_widget_layout` is NOT destructive, so a
+    // default policy would never pause it — the effects-aware policy does.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_widget_layout', { rows: [['w1']] }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Rearrange')],
+      seeded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        ...BASE_OPTIONS,
+        toolPolicy: createEffectsAwareToolPolicy(),
+        approvalPending,
+        approvalTimeoutMs: 60_000,
+      },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        const id = (ev as { toolCallId: string }).toolCallId;
+        setTimeout(() => approvalPending.get(id)?.(true), 0);
+      }
+    }
+
+    const approvalReq = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-approval-request' &&
+        (ev as { toolName?: string }).toolName === 'set_widget_layout',
+    );
+    expect(approvalReq).toBeDefined();
+    // Approved → the layout mutation is applied.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('denies mutating calls past maxMutationsPerRequest without killing the stream', async () => {
+    const onLimitReached = vi.fn();
+
+    // Two mutating calls, budget of 1: the second is denied, the loop still finishes.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'A' }))
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'B' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename twice')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+          rateLimit: { maxMutationsPerRequest: 1, onLimitReached },
+        },
+      ),
+    );
+
+    // Only the first mutation committed.
+    const mutations = events.filter((ev) => (ev as { type: string }).type === 'state-mutation');
+    expect(mutations).toHaveLength(1);
+
+    // The second tool call was denied with a clear budget error.
+    const completes = events.filter(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as Array<{ output?: string }>;
+    const denied = completes.find((ev) => /budget exceeded/i.test(String(ev.output)));
+    expect(denied).toBeDefined();
+
+    expect(onLimitReached).toHaveBeenCalledWith('mutations', expect.any(Object));
+
+    // The stream still completes normally — the budget denial does NOT kill it.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('applies mutations normally when maxMutationsPerRequest is not configured', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'A' }))
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'B' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename twice')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+        },
+      ),
+    );
+
+    const mutations = events.filter((ev) => (ev as { type: string }).type === 'state-mutation');
+    expect(mutations).toHaveLength(2);
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });

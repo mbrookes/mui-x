@@ -55,6 +55,7 @@
  * ```
  */
 import { runAgenticLoop } from './agenticLoop';
+import type { ToolPolicy } from './toolPolicy';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
   StudioAISkill,
@@ -258,6 +259,31 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   contextEnricher?: StudioAIContextEnricher;
+  /**
+   * Server-enforced tool allowlist. The effective tool set is the INTERSECTION of
+   * this and the request body's `allowedTools` (a body that omits `allowedTools`
+   * allows all tools, so the intersection is this list). Omit to preserve the
+   * current behavior (the client-asserted `body.allowedTools` is trusted as-is).
+   *
+   * Use this when a host must guarantee an integration can never call certain tools
+   * regardless of what the client puts in the request body.
+   */
+  allowedTools?: string[];
+  /**
+   * Server-enforced private mode. The effective private mode is
+   * `options.privateMode || body.privateMode`: the client can opt INTO private mode
+   * but can never opt OUT of a server-mandated one. Omit to preserve the current
+   * behavior (the client-asserted `body.privateMode` is trusted as-is).
+   */
+  privateMode?: boolean;
+  /**
+   * Per-call authorization policy — the single chokepoint every built-in mutating
+   * tool call passes through. Defaults to `createDefaultToolPolicy()` (require
+   * approval for `DESTRUCTIVE_TOOLS`, allow everything else). Supply a custom policy
+   * to `deny`/`require-approval`/`allow` per call based on tool name, args, and the
+   * derived structural effects.
+   */
+  toolPolicy?: ToolPolicy;
 }
 
 /**
@@ -283,12 +309,32 @@ export function handleAIChat(
     dashboardState,
     customWidgets,
     focusedWidgetId,
-    allowedTools,
+    allowedTools: bodyAllowedTools,
     skills,
-    privateMode,
+    privateMode: bodyPrivateMode,
     pageSnapshot,
     richContext,
   } = body;
+
+  // Server-side allowlist / private-mode enforcement (invariant 10: the client
+  // asserts these in the body; a host that needs a hard guarantee overrides them
+  // here). The effective tool set is the INTERSECTION of the server allowlist and
+  // the body's — a body omitting `allowedTools` allows all, so intersecting yields
+  // the server list. Effective private mode is `server || body`: the client may opt
+  // in but never out of a server-mandated private mode. When both server options are
+  // omitted, both values are bit-identical to the raw body values (current behavior).
+  let effectiveAllowedTools: string[] | undefined;
+  if (!options.allowedTools) {
+    // No server allowlist — trust the body's list (or its absence = all tools).
+    effectiveAllowedTools = bodyAllowedTools;
+  } else if (bodyAllowedTools) {
+    // Both present — intersect (server can only ever narrow the client's list).
+    effectiveAllowedTools = options.allowedTools.filter((t) => bodyAllowedTools.includes(t));
+  } else {
+    // Body omits its list (allows all) — the server list is the effective set.
+    effectiveAllowedTools = options.allowedTools;
+  }
+  const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
   // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
   // actually propagates into the agentic loop. It is also linked to any external
@@ -307,7 +353,7 @@ export function handleAIChat(
       try {
         // Best-effort server-side context enrichment. Failures never abort the chat.
         let enrichedContext: StudioAIEnrichedContext | undefined;
-        if (options.contextEnricher && !privateMode) {
+        if (options.contextEnricher && !effectivePrivateMode) {
           try {
             enrichedContext = await options.contextEnricher({
               dashboardState,
@@ -327,7 +373,7 @@ export function handleAIChat(
           dashboardState,
           customWidgets,
           focusedWidgetId,
-          allowedTools,
+          effectiveAllowedTools,
           skills,
           {
             endpoint: options.endpoint,
@@ -338,8 +384,9 @@ export function handleAIChat(
             onToolError: options.onToolError,
             skillHandlers: options.skillHandlers,
             dataResolver: options.dataResolver,
-            privateMode,
+            privateMode: effectivePrivateMode,
             rateLimit: options.rateLimit,
+            toolPolicy: options.toolPolicy,
             approvalPending: options.approvalPending,
             approvalTimeoutMs: options.approvalTimeoutMs,
             pageSnapshot,

@@ -19,9 +19,9 @@ import type {
   StudioAIEnrichedContext,
 } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES, DESTRUCTIVE_TOOLS } from './studioAITools';
+import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { parseSSE } from './parseSSE';
-import { executeToolOnState } from './executeToolOnState';
+import { createDefaultToolPolicy, executeToolWithPolicy, type ToolPolicy } from './toolPolicy';
 import type { StudioAISSEEvent } from './models/protocol';
 
 // ── OpenAI message types ──────────────────────────────────────────────────────
@@ -259,8 +259,18 @@ interface ToolDispatchContext {
   onToolError?: (toolName: string, error: Error) => void;
   /** Names of tools actually advertised to the model this request (T1-1 gate). */
   advertisedToolNames: Set<string>;
-  /** Tools that pause for user approval before execution. */
-  toolsRequiringApproval: ReadonlySet<string>;
+  /**
+   * The per-call authorization policy (the single chokepoint). Consulted after the
+   * pure dry-run for built-in mutating tools (`proposed` present) and args-only for
+   * server-tool skills / `execute_query` (`proposed: undefined`).
+   */
+  toolPolicy: ToolPolicy;
+  /**
+   * Mutable per-request usage counters, threaded into the policy context and
+   * incremented as tools run/commit. `committedMutations` is bumped only when a
+   * mutation is actually committed (never for a denied/timed-out/aborted approval).
+   */
+  usage: { committedMutations: number; toolCalls: number };
 }
 
 /**
@@ -309,6 +319,66 @@ function buildApprovalDisplayInput(
   return toolInput;
 }
 
+/** Result of the shared human-in-the-loop approval pause. */
+type ApprovalFlowResult =
+  | { kind: 'aborted' }
+  | { kind: 'denied'; output: string }
+  | { kind: 'approved' };
+
+/**
+ * The single approval-pause implementation, shared by the built-in
+ * `require-approval` path and the args-only (skill / `execute_query`)
+ * `require-approval` path so the pause/timeout/abort race lives in exactly one
+ * place. Yields the `tool-approval-request` event, then reuses `waitForApproval`
+ * verbatim.
+ *
+ * When `approvalPending` is not configured there is no channel to pause on, so —
+ * matching the historical behavior where destructive tools executed without
+ * approval when no `approvalPending` map was supplied — the call is treated as
+ * approved and proceeds.
+ */
+async function* runApprovalFlow(
+  toolCallId: string,
+  toolName: string,
+  displayInput: unknown,
+  ctx: ToolDispatchContext,
+): AsyncGenerator<StudioAISSEEvent, ApprovalFlowResult> {
+  if (!ctx.approvalPending) {
+    return { kind: 'approved' };
+  }
+  yield {
+    type: 'tool-approval-request',
+    toolCallId,
+    toolName,
+    input: displayInput,
+  };
+  const outcome = await waitForApproval(
+    toolCallId,
+    ctx.approvalPending,
+    ctx.signal,
+    ctx.approvalTimeoutMs,
+  );
+  if (outcome.kind === 'aborted') {
+    return { kind: 'aborted' };
+  }
+  if (outcome.kind === 'timeout') {
+    return {
+      kind: 'denied',
+      output: JSON.stringify({ denied: true, reason: 'approval timed out' }),
+    };
+  }
+  if (!outcome.approved) {
+    return {
+      kind: 'denied',
+      output: JSON.stringify({
+        denied: true,
+        reason: outcome.reason ?? 'User denied the operation.',
+      }),
+    };
+  }
+  return { kind: 'approved' };
+}
+
 /**
  * Executes one tool call, owning the full dispatch decision (parse-failure →
  * gating → server-tool skill → execute_query → unregistered skill → approval +
@@ -354,11 +424,37 @@ async function* dispatchToolCall(
     .find((s) => s.tool!.name === name);
 
   if (matchedSkill?.tool?.execute) {
+    // Server-tool skills are SIDE-EFFECTFUL: their `execute` runs real work, so the
+    // policy must be consulted args-only (`proposed: undefined`) BEFORE it runs —
+    // never as a post-hoc dry-run. See the purity invariant in `toolPolicy.ts`.
+    ctx.usage.toolCalls += 1;
+    const decision = await ctx.toolPolicy({
+      transport: 'chat',
+      toolName: name,
+      input: toolInput,
+      state: currentState,
+      proposed: undefined,
+      usage: ctx.usage,
+    });
+    if (decision.action === 'deny') {
+      return { kind: 'result', output: JSON.stringify({ error: decision.reason }) };
+    }
+    if (decision.action === 'require-approval') {
+      const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
+      const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+      if (approval.kind === 'aborted') {
+        return { kind: 'aborted' };
+      }
+      if (approval.kind === 'denied') {
+        return { kind: 'result', output: approval.output };
+      }
+    }
     try {
       const result = await Promise.resolve(
         matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
       );
       if (result.mutation) {
+        ctx.usage.committedMutations += 1;
         yield { type: 'state-mutation', mutation: result.mutation };
       }
       return { kind: 'result', output: result.output, nextState: result.nextState };
@@ -371,6 +467,30 @@ async function* dispatchToolCall(
 
   // execute_query — resolved via the app-provided dataResolver.
   if (name === 'execute_query') {
+    // `execute_query` is SIDE-EFFECTFUL (runs a live query), so the policy is
+    // consulted args-only BEFORE `resolve` runs, never as a post-hoc dry-run.
+    ctx.usage.toolCalls += 1;
+    const decision = await ctx.toolPolicy({
+      transport: 'chat',
+      toolName: name,
+      input: toolInput,
+      state: currentState,
+      proposed: undefined,
+      usage: ctx.usage,
+    });
+    if (decision.action === 'deny') {
+      return { kind: 'result', output: JSON.stringify({ error: decision.reason }) };
+    }
+    if (decision.action === 'require-approval') {
+      const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
+      const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+      if (approval.kind === 'aborted') {
+        return { kind: 'aborted' };
+      }
+      if (approval.kind === 'denied') {
+        return { kind: 'result', output: approval.output };
+      }
+    }
     let output: string;
     try {
       if (!ctx.dataResolver) {
@@ -406,64 +526,66 @@ async function* dispatchToolCall(
     };
   }
 
-  // Built-in tool — pause for user approval first when required.
-  if (ctx.toolsRequiringApproval.has(name) && ctx.approvalPending) {
-    // The human-facing approval display must reflect the real target from state,
-    // not a title the (possibly prompt-injected) model chose. See
-    // `buildApprovalDisplayInput`.
-    const approvalInput = buildApprovalDisplayInput(name, toolInput, currentState);
-    yield {
-      type: 'tool-approval-request',
-      toolCallId: tc.id,
-      toolName: name,
-      input: approvalInput,
-    };
-
-    const outcome = await waitForApproval(
-      tc.id,
-      ctx.approvalPending,
-      ctx.signal,
-      ctx.approvalTimeoutMs,
-    );
-
-    // Abort: end silently, matching how aborts are handled elsewhere in the loop.
-    if (outcome.kind === 'aborted') {
-      return { kind: 'aborted' };
-    }
-    if (outcome.kind === 'timeout') {
-      return {
-        kind: 'result',
-        output: JSON.stringify({ denied: true, reason: 'approval timed out' }),
-      };
-    }
-    if (!outcome.approved) {
-      return {
-        kind: 'result',
-        output: JSON.stringify({
-          denied: true,
-          reason: outcome.reason ?? 'User denied the operation.',
-        }),
-      };
-    }
-  }
-
+  // Built-in tool — run through the policy chokepoint (execute-then-gate). This is
+  // the single point where the pure dry-run, the effect diff, and the policy
+  // decision happen for every built-in tool. A read-only tool produces no mutation,
+  // so `executeToolWithPolicy` simply returns `allowed` with no `state-mutation`.
+  let outcome: Awaited<ReturnType<typeof executeToolWithPolicy>>;
   try {
-    const result = executeToolOnState(
-      name,
-      toolInput,
-      currentState,
-      ctx.customWidgets,
-      ctx.pageSnapshot,
-    );
-    if (result.mutation) {
-      yield { type: 'state-mutation', mutation: result.mutation };
-    }
-    return { kind: 'result', output: result.output, nextState: result.nextState };
+    outcome = await executeToolWithPolicy(name, toolInput, currentState, {
+      policy: ctx.toolPolicy,
+      customWidgets: ctx.customWidgets,
+      pageSnapshot: ctx.pageSnapshot,
+      transport: 'chat',
+      usage: ctx.usage,
+    });
   } catch (err) {
     const toolErr = toError(err);
     ctx.onToolError?.(name, toolErr);
     return { kind: 'result', output: JSON.stringify({ error: toolErr.message }) };
   }
+
+  if (outcome.kind === 'denied') {
+    return { kind: 'result', output: JSON.stringify({ error: outcome.reason }) };
+  }
+
+  if (outcome.kind === 'needs-approval') {
+    // The human-facing approval display must reflect the real target from state,
+    // not a title the (possibly prompt-injected) model chose. See
+    // `buildApprovalDisplayInput`.
+    const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
+    const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+    if (approval.kind === 'aborted') {
+      return { kind: 'aborted' };
+    }
+    if (approval.kind === 'denied') {
+      // Denied/timed-out: discard — do NOT adopt nextState, no state-mutation event,
+      // no committed-mutation increment.
+      return { kind: 'result', output: approval.output };
+    }
+    // Approved: commit exactly like the allow path below.
+    if (outcome.result.mutation) {
+      ctx.usage.committedMutations += 1;
+      yield { type: 'state-mutation', mutation: outcome.result.mutation };
+    }
+    return {
+      kind: 'result',
+      output: outcome.result.output,
+      nextState: outcome.result.nextState,
+    };
+  }
+
+  // Allowed (no approval needed) — commit immediately, indistinguishable from the
+  // historical behavior for every tool not gated by the policy.
+  if (outcome.result.mutation) {
+    ctx.usage.committedMutations += 1;
+    yield { type: 'state-mutation', mutation: outcome.result.mutation };
+  }
+  return {
+    kind: 'result',
+    output: outcome.result.output,
+    nextState: outcome.result.nextState,
+  };
 }
 
 // ── Loop options ──────────────────────────────────────────────────────────────
@@ -500,6 +622,19 @@ export interface AgenticLoopOptions {
    * Use this to cap LLM spend per call and protect against runaway agentic loops.
    */
   rateLimit?: StudioAIRateLimit;
+  /**
+   * Per-call authorization policy — the single chokepoint every built-in mutating
+   * tool call passes through. Defaults to `createDefaultToolPolicy()`, which
+   * requires approval for `DESTRUCTIVE_TOOLS` and allows everything else (the
+   * historical `TOOLS_REQUIRING_APPROVAL` behavior). Supply a custom policy to
+   * `deny`, `require-approval`, or `allow` per call based on the tool name, args,
+   * and — for built-in mutating tools — the derived structural effects.
+   *
+   * When `rateLimit.maxMutationsPerRequest` is set, a mutation-budget check runs
+   * BEFORE this policy and denies once the budget is exhausted, so a host policy's
+   * `allow` cannot exceed the configured cap.
+   */
+  toolPolicy?: ToolPolicy;
   /**
    * Shared map of pending tool approval callbacks.
    *
@@ -578,11 +713,51 @@ export async function* runAgenticLoop(
     enrichedContext,
   } = options;
 
-  // Tools that pause for user approval before execution. Derived directly from
-  // `DESTRUCTIVE_TOOLS` (`studioAITools.ts`) — the single source of truth for
-  // "which tools are destructive" — so the chat approval gate and the MCP
-  // `destructiveHint` annotations can't drift apart.
-  const TOOLS_REQUIRING_APPROVAL = DESTRUCTIVE_TOOLS;
+  // The per-call authorization policy. Defaults to `createDefaultToolPolicy()`,
+  // which requires approval for `DESTRUCTIVE_TOOLS` and allows everything else —
+  // byte-for-byte the historical `TOOLS_REQUIRING_APPROVAL` behavior (that set is
+  // this policy's default `approvalTools`, so the chat approval gate and the MCP
+  // `destructiveHint` annotations still can't drift apart).
+  const hostToolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
+
+  // Mutable per-request usage, threaded into the policy context. `committedMutations`
+  // is bumped only when a mutation is actually committed; the mutation-budget check
+  // below reads it to enforce `rateLimit.maxMutationsPerRequest`.
+  const toolUsage = { committedMutations: 0, toolCalls: 0 };
+
+  // Token/iteration usage accumulator across all iterations. Declared here (before the
+  // budget wrapper closes over it) so the `onLimitReached('mutations', …)` call can
+  // report the token usage at the point of the breach.
+  const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
+
+  // Mutation budget. Layered as a wrapper that runs BEFORE the host policy: once the
+  // committed-mutation count reaches the cap, any further MUTATING call (i.e. one the
+  // dry-run produced a `proposed` mutation for) is denied outright, without even
+  // consulting the host policy. This must NOT kill the stream — the denial surfaces
+  // to the model as a `{ error }` tool result and the loop continues (still bounded
+  // by `maxTurnsPerRequest`). `onLimitReached('mutations', …)` fires once per breach.
+  const maxMutations = rateLimit?.maxMutationsPerRequest;
+  let mutationLimitFired = false;
+  const toolPolicy: ToolPolicy = (ctx) => {
+    if (
+      ctx.proposed &&
+      maxMutations !== undefined &&
+      ctx.usage.committedMutations >= maxMutations
+    ) {
+      if (!mutationLimitFired) {
+        mutationLimitFired = true;
+        rateLimit?.onLimitReached?.('mutations', { ...usage });
+      }
+      return {
+        action: 'deny',
+        reason:
+          'MUI X Studio: Mutation budget exceeded — this request may commit at most ' +
+          `${maxMutations} state mutation${maxMutations === 1 ? '' : 's'} ` +
+          `(already committed ${ctx.usage.committedMutations}). This change was not applied.`,
+      };
+    }
+    return hostToolPolicy(ctx);
+  };
 
   // A `server-tool` whose tool name collides with a built-in `STUDIO_AI_TOOLS`
   // name is ignored — the built-in handler always wins for a built-in name. This
@@ -701,14 +876,13 @@ export async function* runAgenticLoop(
     signal,
     onToolError,
     advertisedToolNames,
-    toolsRequiringApproval: TOOLS_REQUIRING_APPROVAL,
+    toolPolicy,
+    usage: toolUsage,
   };
 
   let currentMessages = toOpenAIMessages(systemPrompt, messages);
   let currentState = initialState;
 
-  // Token usage accumulator across all iterations
-  const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
   const maxTurns = rateLimit?.maxTurnsPerRequest ?? 10;
 
   // Safety limit on agentic turns

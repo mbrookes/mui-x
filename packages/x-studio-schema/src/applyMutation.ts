@@ -471,14 +471,44 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   applyBulkUpdate: {
     apply: (state, args) => {
-      const { widgets, widgetRows, widgetColSpans, activePageId } = args;
+      const { removedWidgetIds, addedWidgets, updatedWidgets, widgetRows, widgetColSpans } = args;
+      const { activePageId } = args;
       const page = state.pages[activePageId];
       if (!page) {
         return state;
       }
+      // Apply the widget deltas on top of the CURRENT `state.widgets` — never a
+      // turn-start snapshot — so any widget the user concurrently created or edited
+      // (on this page or any other) while the agentic turn was running survives.
+      // Only the specifically-listed remove/add/update targets are touched.
+      const nextWidgets = { ...state.widgets };
+      for (const id of removedWidgetIds ?? []) {
+        delete nextWidgets[id];
+      }
+      for (const widget of addedWidgets ?? []) {
+        nextWidgets[widget.id] = widget;
+      }
+      for (const update of updatedWidgets ?? []) {
+        const existing = nextWidgets[update.widgetId];
+        // Skip patches for widgets that no longer exist (e.g. removed out from under
+        // the update by a concurrent edit) rather than resurrecting a partial widget.
+        if (!existing) {
+          continue;
+        }
+        nextWidgets[update.widgetId] = {
+          ...existing,
+          ...(update.title !== undefined ? { title: update.title } : {}),
+          ...(update.sourceId !== undefined ? { sourceId: update.sourceId } : {}),
+          // `config` is a shallow-merge patch onto the LIVE widget's config, so a
+          // concurrent edit to a different config key is preserved.
+          ...(update.config
+            ? { config: { ...existing.config, ...update.config } as StudioWidget['config'] }
+            : {}),
+        };
+      }
       return {
         ...state,
-        widgets,
+        widgets: nextWidgets,
         pages: {
           ...state.pages,
           [activePageId]: { ...page, widgetRows, widgetColSpans },

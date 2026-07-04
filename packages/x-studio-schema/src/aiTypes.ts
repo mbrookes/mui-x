@@ -106,20 +106,34 @@ export type StateMutation =
       type: 'applyBulkUpdate';
       args: {
         /**
-         * HAZARD — lost update: this wholesale-replaces the ENTIRE dashboard's
-         * `widgets` record (not just the active page's widgets), while `widgetRows`
-         * and `widgetColSpans` only touch `activePageId`. The producer builds this
-         * map from the server-threaded state at the start of the agentic turn, so
-         * any widget the user creates or edits on ANY page while the turn is running
-         * is silently reverted — and a widget deleted from this map while it still
-         * lives in another page's `widgetRows` leaves a dangling id (blank card).
+         * Lost-update-safe delta shape. Rather than carrying a snapshot of the
+         * ENTIRE `widgets` record (which wholesale-replaced `state.widgets` and
+         * silently reverted any widget the user edited on ANY page between the
+         * agentic turn's start snapshot and this mutation applying), this mutation
+         * carries only the specific widgets to remove/add/update. The reducer
+         * applies these deltas on top of the receiver's CURRENT `state.widgets`, so
+         * widgets not named here — including ones concurrently edited while the turn
+         * was running — are preserved, and a delete only drops the named ids
+         * (which the producer restricts to widgets on `activePageId`).
          *
-         * The proper fix is to narrow this mutation to a per-page delta
-         * (`removedWidgetIds` / `upsertedWidgets`) applied on top of the receiver's
-         * `state.widgets`, rather than a global snapshot. That is a larger redesign
-         * deferred to a future pass; do not rely on this shape being stable.
+         * `widgetRows`/`widgetColSpans` still replace the layout of `activePageId`
+         * only (never any other page), matching `setWidgetLayout`'s per-page scope.
          */
-        widgets: Record<string, StudioWidget>;
+        /** Widget IDs to delete. Producer only lists ids that live on `activePageId`. */
+        removedWidgetIds: string[];
+        /** Fully-built new widget objects to insert. */
+        addedWidgets: StudioWidget[];
+        /**
+         * Partial patches to existing widgets, applied against the CURRENT widget.
+         * `config` is a shallow-merge patch (merged onto the live widget's config),
+         * so a concurrent edit to a different config key survives.
+         */
+        updatedWidgets: Array<{
+          widgetId: string;
+          title?: string;
+          sourceId?: string;
+          config?: StudioWidget['config'];
+        }>;
         widgetRows: string[][];
         widgetColSpans: Record<string, number>;
         activePageId: string;

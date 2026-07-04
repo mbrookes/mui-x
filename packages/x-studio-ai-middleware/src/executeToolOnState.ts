@@ -401,20 +401,35 @@ export function executeToolOnState(
       const skipped: string[] = [];
       const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
 
-      const pageWidgets = { ...state.widgets };
       let widgetRows = activePage.widgetRows.map((row) => [...row]);
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
 
+      // The mutation carries only DELTAS (remove/add/update), applied by the reducer
+      // against the receiver's CURRENT `state.widgets` — never a snapshot of the
+      // whole `widgets` record. This is the lost-update fix: a widget the user edits
+      // on any page while this agentic turn is running is no longer reverted, because
+      // only the ids named below are touched.
+      const removedWidgetIds: string[] = [];
+      const addedWidgets: StudioWidget[] = [];
+      const updatedWidgets: Array<{
+        widgetId: string;
+        title?: string;
+        sourceId?: string;
+        config?: StudioWidget['config'];
+      }> = [];
+
       // 1. Removals
-      // `pageWidgets` is the GLOBAL widget record, but this handler only rewrites
-      // the ACTIVE page's `widgetRows`. Removing a widget that lives on another
-      // page would delete it from `widgets` while leaving a dangling id in that
-      // other page's rows (blank card). Only remove widgets that are on the active
-      // page; report the rest as `skipped`, mirroring the not-found handling.
+      // This handler only rewrites the ACTIVE page's `widgetRows`. Removing a widget
+      // that lives on another page would delete it from `widgets` while leaving a
+      // dangling id in that other page's rows (blank card). Only remove widgets that
+      // are on the active page; report the rest as `skipped`, mirroring the not-found
+      // handling. `liveWidgetIds` tracks the ids that exist after each delta step so
+      // later update/validation checks match the pre-delta-refactor behavior.
       const activePageWidgetIds = new Set(activePage.widgetRows.flat());
+      const liveWidgetIds = new Set(Object.keys(state.widgets));
       const removals = (args.widgetRemovals as string[] | undefined) ?? [];
       for (const wid of removals) {
-        if (!pageWidgets[wid]) {
+        if (!liveWidgetIds.has(wid)) {
           skipped.push(`remove ${wid}: not found`);
           continue;
         }
@@ -422,7 +437,8 @@ export function executeToolOnState(
           skipped.push(`remove ${wid}: not on the active page`);
           continue;
         }
-        delete pageWidgets[wid];
+        removedWidgetIds.push(wid);
+        liveWidgetIds.delete(wid);
         widgetRows = widgetRows
           .map((row) => row.filter((id) => id !== wid))
           .filter((row) => row.length > 0);
@@ -442,13 +458,17 @@ export function executeToolOnState(
           | undefined) ?? [];
       for (const addition of additions) {
         const widget = buildWidgetFromArgs(addition, customWidgets);
-        pageWidgets[widget.id] = widget;
+        addedWidgets.push(widget);
+        liveWidgetIds.add(widget.id);
         addedTitleToId[widget.title] = widget.id;
         widgetRows.push([widget.id]);
         applied.added += 1;
       }
 
       // 3. Updates
+      // Emit each update as a partial patch (never the merged widget snapshot). The
+      // reducer merges it onto the LIVE widget, so a concurrent edit to a different
+      // key on that widget survives too.
       const updates =
         (args.widgetUpdates as
           | Array<{
@@ -460,22 +480,16 @@ export function executeToolOnState(
           | undefined) ?? [];
       for (const update of updates) {
         const wid = String(update.widgetId ?? '');
-        const widget = pageWidgets[wid];
-        if (!widget) {
+        if (!liveWidgetIds.has(wid)) {
           skipped.push(`update ${wid}: not found`);
           continue;
         }
-        pageWidgets[wid] = {
-          ...widget,
+        updatedWidgets.push({
+          widgetId: wid,
           ...(update.title !== undefined ? { title: String(update.title) } : {}),
           ...(update.sourceId !== undefined ? { sourceId: String(update.sourceId) } : {}),
-          config: update.config
-            ? ({
-                ...widget.config,
-                ...(update.config as StudioWidget['config']),
-              } as StudioWidget['config'])
-            : widget.config,
-        };
+          ...(update.config ? { config: update.config as StudioWidget['config'] } : {}),
+        });
         applied.updated += 1;
       }
 
@@ -502,7 +516,14 @@ export function executeToolOnState(
 
       const mutation: StateMutation = {
         type: 'applyBulkUpdate',
-        args: { widgets: pageWidgets, widgetRows, widgetColSpans: colSpans, activePageId },
+        args: {
+          removedWidgetIds,
+          addedWidgets,
+          updatedWidgets,
+          widgetRows,
+          widgetColSpans: colSpans,
+          activePageId,
+        },
       };
       return {
         output: JSON.stringify({

@@ -664,7 +664,7 @@ describe('applyMutation', () => {
   });
 
   describe('applyBulkUpdate', () => {
-    it('replaces widgets globally but only touches widgetRows/widgetColSpans on activePageId', () => {
+    it('applies add/remove/update deltas and only touches widgetRows/widgetColSpans on activePageId', () => {
       const state = createDefaultStudioState({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -678,17 +678,21 @@ describe('applyMutation', () => {
         },
         widgets: { old1: chartWidget('old1'), old2: chartWidget('old2') },
       });
-      const newWidgets = { new1: chartWidget('new1') };
       const next = applyMutation(state, {
         type: 'applyBulkUpdate',
         args: {
-          widgets: newWidgets,
+          removedWidgetIds: ['old1'],
+          addedWidgets: [chartWidget('new1')],
+          updatedWidgets: [],
           widgetRows: [['new1']],
           widgetColSpans: { new1: 6 },
           activePageId: 'page-1',
         },
       });
-      expect(next.widgets).toEqual(newWidgets);
+      // old1 removed, new1 added; old2 (another page) preserved — not a wholesale replace.
+      expect(next.widgets.old1).toBeUndefined();
+      expect(next.widgets.new1).toEqual(chartWidget('new1'));
+      expect(next.widgets.old2).toEqual(chartWidget('old2'));
       expect(next.pages['page-1'].widgetRows).toEqual([['new1']]);
       expect(next.pages['page-1'].widgetColSpans).toEqual({ new1: 6 });
       // page-2, not the active page, is untouched.
@@ -696,11 +700,102 @@ describe('applyMutation', () => {
       expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
     });
 
+    it('does NOT revert a widget concurrently edited between snapshot and apply (lost-update fix)', () => {
+      // Two widgets exist on the active page; a third (w3) was concurrently edited
+      // on another page AFTER the producer built its delta but BEFORE this mutation
+      // applies. The bulk update names only w1/w2/w4, so the reducer must apply its
+      // deltas on top of the CURRENT `state.widgets` and leave the concurrently
+      // edited w3 exactly as the user left it.
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w3']] },
+        },
+        widgets: {
+          w1: chartWidget('w1', 'W1'),
+          w2: chartWidget('w2', 'W2'),
+          // The user's concurrent edit is already reflected in current state.
+          w3: { ...chartWidget('w3', 'User Renamed'), config: { chartType: 'line' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w2'],
+          addedWidgets: [chartWidget('w4', 'W4')],
+          updatedWidgets: [{ widgetId: 'w1', title: 'W1 renamed by AI' }],
+          widgetRows: [['w1'], ['w4']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.widgets.w1.title).toBe('W1 renamed by AI');
+      expect(next.widgets.w2).toBeUndefined();
+      expect(next.widgets.w4).toEqual(chartWidget('w4', 'W4'));
+      // The untouched, concurrently edited widget survives verbatim.
+      expect(next.widgets.w3).toEqual({
+        ...chartWidget('w3', 'User Renamed'),
+        config: { chartType: 'line' },
+      });
+    });
+
+    it('shallow-merges an update patch onto the live widget config (preserves other keys)', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { ...chartWidget('w1', 'W1'), config: { chartType: 'bar', xField: 'category' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', config: { chartType: 'line' } }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      // Patched key changes; the untouched key survives the shallow merge.
+      expect(next.widgets.w1.config).toEqual({ chartType: 'line', xField: 'category' });
+    });
+
+    it('skips an update whose target widget no longer exists', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1', 'W1') },
+      });
+      const next = applyMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'ghost', title: 'nope' }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.widgets.ghost).toBeUndefined();
+      expect(Object.keys(next.widgets)).toEqual(['w1']);
+    });
+
     it('missing activePageId page is a no-op', () => {
       const state = twoPageState();
       const next = applyMutation(state, {
         type: 'applyBulkUpdate',
-        args: { widgets: {}, widgetRows: [], widgetColSpans: {}, activePageId: 'nope' },
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [],
+          widgetColSpans: {},
+          activePageId: 'nope',
+        },
       });
       expect(next).toBe(state);
     });
@@ -790,7 +885,14 @@ describe('mutationLabel', () => {
     expect(
       mutationLabel({
         type: 'applyBulkUpdate',
-        args: { widgets: {}, widgetRows: [], widgetColSpans: {}, activePageId: 'p' },
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [],
+          widgetColSpans: {},
+          activePageId: 'p',
+        },
       }),
     ).toBe('applyBulkUpdate');
     expect(

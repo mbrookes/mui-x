@@ -274,18 +274,26 @@ describe('applyStateMutation: removeFilter', () => {
 // ── applyBulkUpdate ───────────────────────────────────────────────────────────
 
 describe('applyStateMutation: applyBulkUpdate', () => {
-  it('replaces the widget map and the active page layout', () => {
+  it('applies remove/add deltas and the active page layout', () => {
     const controller = makeController();
-    const widgets = { 'w-new': chartWidget('w-new', 'New') };
+    const added = chartWidget('w-new', 'New');
     applyStateMutation(
       {
         type: 'applyBulkUpdate',
-        args: { widgets, widgetRows: [['w-new']], widgetColSpans: {}, activePageId: 'page-1' },
+        args: {
+          // Remove the seeded widget-1 and add w-new — net result is a single new widget.
+          removedWidgetIds: ['widget-1'],
+          addedWidgets: [added],
+          updatedWidgets: [],
+          widgetRows: [['w-new']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
       },
       controller,
     );
     const state = controller.getState();
-    expect(state.widgets).toEqual(widgets);
+    expect(state.widgets).toEqual({ 'w-new': added });
     expect(state.pages['page-1'].widgetRows).toEqual([['w-new']]);
   });
 
@@ -295,7 +303,14 @@ describe('applyStateMutation: applyBulkUpdate', () => {
     applyStateMutation(
       {
         type: 'applyBulkUpdate',
-        args: { widgets: {}, widgetRows: [], widgetColSpans: {}, activePageId: 'nope' },
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [],
+          widgetColSpans: {},
+          activePageId: 'nope',
+        },
       },
       controller,
     );

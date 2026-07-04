@@ -277,6 +277,39 @@ function toError(err: unknown): Error {
 }
 
 /**
+ * Builds the `input` payload shown in a `tool-approval-request` event for a
+ * destructive tool, deriving any human-readable entity label from the ACTUAL
+ * current state rather than trusting the model-supplied label argument.
+ *
+ * `remove_widget`/`remove_page` accept a `widgetTitle`/`pageTitle` arg described
+ * as "used in the confirmation message", but nothing binds it to the real entity
+ * the id points at. A prompt-injected model could claim `widgetTitle: "harmless
+ * widget"` while `widgetId` targets something else, so the human would approve a
+ * removal based on a title the model chose. Overwriting the display label with
+ * `state.widgets[widgetId]?.title` / `state.pages[pageId]?.title` makes the
+ * approval prompt reflect what will really be removed. The model-supplied field is
+ * only ever a display hint (execution keys off the id), so overriding it here does
+ * not change what the tool does once approved. If the entity does not exist in
+ * state (a case the executed tool then rejects), the input is left untouched.
+ */
+function buildApprovalDisplayInput(
+  toolName: string,
+  toolInput: unknown,
+  state: StudioState,
+): unknown {
+  const input = (toolInput ?? {}) as Record<string, unknown>;
+  if (toolName === 'remove_widget') {
+    const realTitle = state.widgets[String(input.widgetId ?? '')]?.title;
+    return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
+  }
+  if (toolName === 'remove_page') {
+    const realTitle = state.pages[String(input.pageId ?? '')]?.title;
+    return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
+  }
+  return toolInput;
+}
+
+/**
  * Executes one tool call, owning the full dispatch decision (parse-failure →
  * gating → server-tool skill → execute_query → unregistered skill → approval +
  * built-in). Yields the side-effect events that must precede the result
@@ -375,7 +408,16 @@ async function* dispatchToolCall(
 
   // Built-in tool — pause for user approval first when required.
   if (ctx.toolsRequiringApproval.has(name) && ctx.approvalPending) {
-    yield { type: 'tool-approval-request', toolCallId: tc.id, toolName: name, input: toolInput };
+    // The human-facing approval display must reflect the real target from state,
+    // not a title the (possibly prompt-injected) model chose. See
+    // `buildApprovalDisplayInput`.
+    const approvalInput = buildApprovalDisplayInput(name, toolInput, currentState);
+    yield {
+      type: 'tool-approval-request',
+      toolCallId: tc.id,
+      toolName: name,
+      input: approvalInput,
+    };
 
     const outcome = await waitForApproval(
       tc.id,
@@ -542,19 +584,30 @@ export async function* runAgenticLoop(
   // `destructiveHint` annotations can't drift apart.
   const TOOLS_REQUIRING_APPROVAL = DESTRUCTIVE_TOOLS;
 
-  // Skills come from the client-asserted request body, so a `server-tool` skill's
-  // tool name could collide with a built-in `STUDIO_AI_TOOLS` name. A collision is
-  // ignored (the built-in always wins): advertising it would let a body-declared
-  // skill shadow a built-in in `tools/list`, and — because the `execute_query`
-  // dispatch branch runs before the unregistered-skill check — a skill literally
-  // named `execute_query` would otherwise be routed to `dataResolver.resolve`
-  // rather than handled as the built-in tool. Dropping collisions here (before the
-  // advertised list, the prompt, and the dispatch context are built) keeps a
-  // built-in name resolving only to its built-in handler.
+  // A `server-tool` whose tool name collides with a built-in `STUDIO_AI_TOOLS`
+  // name is ignored — the built-in handler always wins for a built-in name. This
+  // holds for BOTH sources of server-tools:
+  //
+  //  - Client-declared `skills` (request body): advertising a collision would let a
+  //    body-declared skill shadow a built-in in `tools/list`, and — because the
+  //    `execute_query` dispatch branch runs before the unregistered-skill check — a
+  //    skill literally named `execute_query` would be routed to `dataResolver.resolve`
+  //    rather than the built-in.
+  //  - Host-registered `skillHandlers` (`options.skillHandlers`): the `matchedSkill`
+  //    lookup in `dispatchToolCall` runs BEFORE the approval-required branch, so a
+  //    host that registered `skillHandlers['remove_page']` would silently route the
+  //    destructive built-in to its own handler and skip the approval pause. Nothing
+  //    about `skillHandlers` is meant to override built-ins, so the same guard drops
+  //    those collisions too.
+  //
+  // Dropping collisions here (before the advertised list, the prompt, and the
+  // dispatch context are built) keeps a built-in name resolving only to its
+  // built-in handler.
   const builtInToolNameSet = new Set<string>(STUDIO_AI_TOOL_NAMES);
-  const effectiveSkills = (skills ?? []).filter(
-    (s) => !(s.mode === 'server-tool' && s.tool && builtInToolNameSet.has(s.tool.name)),
-  );
+  const collidesWithBuiltIn = (entry: { mode: string; tool?: { name: string } }): boolean =>
+    entry.mode === 'server-tool' && Boolean(entry.tool) && builtInToolNameSet.has(entry.tool!.name);
+  const effectiveSkills = (skills ?? []).filter((s) => !collidesWithBuiltIn(s));
+  const effectiveSkillHandlers = skillHandlers.filter((s) => !collidesWithBuiltIn(s));
 
   const systemPrompt = buildAISystemPrompt(
     initialState,
@@ -638,7 +691,7 @@ export async function* runAgenticLoop(
 
   // Static per-request context shared by every tool dispatch.
   const dispatchCtx: ToolDispatchContext = {
-    skillHandlers,
+    skillHandlers: effectiveSkillHandlers,
     skills: effectiveSkills,
     dataResolver,
     customWidgets,

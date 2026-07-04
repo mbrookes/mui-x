@@ -88,14 +88,23 @@ export type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Tools that are registered in STUDIO_AI_TOOLS but are not suitable for MCP
- * because they require live widget row data only available client-side.
+ * Tools declared in STUDIO_AI_TOOLS that have **no functional MCP handler** and
+ * are therefore never registered on the MCP surface — regardless of whether the
+ * host lists them in `allowedTools`.
+ *
+ * `execute_query` runs arbitrary SQL. On the chat path it is backed by
+ * `options.dataResolver` (an app-supplied `resolve(query, sourceId)` function),
+ * but `StudioMcpOptions` has no equivalent resolver hook — `options.data` only
+ * exposes structured `queryDataSource(params)`, not arbitrary SQL — and no
+ * dispatch branch handles `execute_query` in this composition root. Advertising
+ * it as opt-in-able via `allowedTools` was a dead end: an opted-in call fell
+ * through to `executeToolOnState`'s default case and returned
+ * `{"error":"Unknown tool: execute_query"}`. Until an MCP resolver hook exists it
+ * is excluded unconditionally, so `tools/list` never advertises it and a
+ * `tools/call` for it is rejected as `Unknown tool`. The chat loop's use of
+ * `execute_query` via `dataResolver` is unaffected.
  */
-const DEFAULT_EXCLUDED_TOOLS = new Set([
-  // execute_query runs raw SQL against a live DB connection — not safe to expose
-  // via MCP without explicit opt-in. Add it to allowedTools if you need it.
-  'execute_query',
-]);
+const MCP_UNSUPPORTED_TOOLS = new Set(['execute_query']);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
@@ -173,14 +182,19 @@ export function buildStudioMcpServer(
   const subscribedUris = new Set<string>();
 
   // Determine which dashboard-mutation tools to expose.
-  // - By default, exclude tools that require live client-side row data.
+  // - Tools with no functional MCP handler (`MCP_UNSUPPORTED_TOOLS`) are never
+  //   registered, even if the host lists them in `allowedTools` — there is
+  //   nothing to dispatch them to, so advertising them would only dead-end.
   // - If allowedTools is provided, use that exact list (caller takes responsibility).
   const toolsToRegister = STUDIO_AI_TOOLS.filter((toolDef) => {
     const name = toolDef.function.name;
+    if (MCP_UNSUPPORTED_TOOLS.has(name)) {
+      return false;
+    }
     if (allowedTools) {
       return allowedTools.includes(name);
     }
-    return !DEFAULT_EXCLUDED_TOOLS.has(name);
+    return true;
   });
 
   // Names of every STUDIO_AI_TOOL, used to enforce `allowedTools` gating before

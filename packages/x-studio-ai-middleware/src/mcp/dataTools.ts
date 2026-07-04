@@ -123,9 +123,19 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
         return errorResult('sourceId is required');
       }
 
-      // Resolve the physical table name from the current dashboard state.
+      // Validate the sourceId against registered sources *before* building a query —
+      // matching the identical check in describe_data_source / get_field_values /
+      // compute_field_stats. Without it, an unknown/unregistered sourceId would fall
+      // straight through as a physical table name and hit the DB, producing a raw
+      // driver error (or worse, querying an unintended table) instead of this clear,
+      // actionable message.
       const source = stateBox.current.dataSources[sourceId];
-      const tableName = source?.tableName ?? sourceId;
+      if (!source || !source.tableName) {
+        return errorResult(
+          `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
+        );
+      }
+      const tableName = source.tableName as string;
 
       try {
         const result = await data.queryDataSource({

@@ -913,6 +913,62 @@ describe('StudioController undo/redo', () => {
     expect(controller.canUndo()).toBe(undoDepth);
   });
 
+  it('upsertDataSource does not push an undo entry (host data injection is not undoable)', () => {
+    const controller = new StudioController();
+
+    // Host injects data (e.g. a periodic refresh / config-swap reload) with no prior
+    // authored edit. This must NOT create an undo entry — otherwise a stray Ctrl+Z would
+    // wipe freshly loaded data the user never authored.
+    controller.upsertDataSource({
+      id: 'src1',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.undo()).toBe(false);
+    expect(controller.getState().dataSources.src1.rows).toHaveLength(1);
+  });
+
+  it('setDataSourceRows does not push an undo entry (host data refresh is not undoable)', () => {
+    const controller = new StudioController({
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Orders',
+          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+          rows: [{ amount: 1 }],
+        },
+      },
+    });
+
+    // Host pushes fresh rows into the live source — infrastructure, not an authored edit.
+    controller.setDataSourceRows('src1', [{ amount: 2 }, { amount: 3 }]);
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.undo()).toBe(false);
+    expect(controller.getState().dataSources.src1.rows).toHaveLength(2);
+  });
+
+  it('a data injection between authored edits adds no extra undo step', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Step 1'); // the only undoable action
+
+    // A host data refresh lands between authored edits — it must not become its own step.
+    controller.upsertDataSource({
+      id: 'src1',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+
+    // Exactly one authored change is on the stack: one undo empties it. If the injection
+    // had been undoable, `canUndo()` would still be true here.
+    expect(controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+  });
+
   it('caps undo history at MAX_UNDO_HISTORY (100)', () => {
     const controller = new StudioController();
     for (let i = 0; i < 101; i += 1) {

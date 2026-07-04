@@ -25,10 +25,25 @@ export class StudioRequestCache {
   /** Reverse index: sourceId → set of cacheKeys with that sourceId prefix. */
   private readonly sourceIndex = new Map<string, Set<string>>();
 
+  /**
+   * Monotonic generation token per sourceId, bumped by `invalidateSource`. Captured
+   * when a request goes in-flight; a resolved result is only written to the cache if
+   * the source's generation is still the one captured at request-start time. This
+   * prevents an in-flight request that was invalidated mid-flight from re-inserting
+   * its now-stale result with a fresh TTL (which would otherwise serve as a cache HIT
+   * for later callers using the unchanged descriptor).
+   */
+  private readonly sourceGeneration = new Map<string, number>();
+
   private readonly ttlMs: number;
 
   constructor(ttlMs: number = TTL_MS) {
     this.ttlMs = ttlMs;
+  }
+
+  /** Current generation for a sourceId (0 if never invalidated). */
+  private getGeneration(sourceId: string): number {
+    return this.sourceGeneration.get(sourceId) ?? 0;
   }
 
   /** Returns a cached result if present and not expired, otherwise undefined. */
@@ -74,9 +89,17 @@ export class StudioRequestCache {
    */
   addInflight(cacheKey: string, promise: Promise<StudioQueryResult>): Promise<StudioQueryResult> {
     this.inflight.set(cacheKey, promise);
+    // Capture the source's generation at request-start time. If `invalidateSource`
+    // runs before this resolves, the generation will have advanced and we must NOT
+    // cache the (now stale) result — otherwise an unchanged descriptor would get a
+    // cache HIT on it. The awaiting caller still receives this one result.
+    const sourceId = cacheKey.split(':')[0];
+    const generationAtStart = this.getGeneration(sourceId);
     promise.then(
       (result) => {
-        this.set(cacheKey, result);
+        if (this.getGeneration(sourceId) === generationAtStart) {
+          this.set(cacheKey, result);
+        }
         this.inflight.delete(cacheKey);
       },
       () => {
@@ -99,8 +122,11 @@ export class StudioRequestCache {
       }
       this.sourceIndex.delete(sourceId);
     }
-    // In-flight requests for this source will still resolve but their results
-    // will be re-fetched on the next descriptor change.
+    // Bump the generation so any request that is currently in-flight for this source
+    // will detect (on resolve) that it was invalidated mid-flight and skip writing its
+    // now-stale result back into the cache. The next descriptor evaluation then misses
+    // the cache and triggers a genuine re-fetch.
+    this.sourceGeneration.set(sourceId, this.getGeneration(sourceId) + 1);
   }
 
   /** Clears all cached entries and in-flight requests. Primarily for testing. */
@@ -108,6 +134,7 @@ export class StudioRequestCache {
     this.cache.clear();
     this.inflight.clear();
     this.sourceIndex.clear();
+    this.sourceGeneration.clear();
   }
 }
 

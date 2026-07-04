@@ -205,6 +205,14 @@ export function useWidgetRows(
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
       setAdapterRows(cached.rows);
+      // Must clear isLoading here too: if a previous descriptor (A) missed the cache
+      // and set isLoading=true, then the descriptor switched to B (this cache hit)
+      // before A resolved, A's cleanup marks it cancelled and its `.then` never runs —
+      // so nothing else would ever reset isLoading and the overlay would stay stuck
+      // forever even though valid data is already rendered. When isLoading is already
+      // false (the common repeated cache-hit case) React bails on the no-op setState,
+      // so this does not reintroduce a flash of loading state.
+      setIsLoading(false);
       // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional
       setIsError(false);
       // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional

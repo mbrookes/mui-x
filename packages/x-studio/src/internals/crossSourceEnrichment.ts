@@ -1,6 +1,7 @@
 import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../models';
 import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
 import { indexRowsByKey, normalizeJoinKey } from './joinKeys';
+import { ensureRowIdentity } from './rowIdentity';
 
 type Row = Record<string, unknown>;
 
@@ -77,6 +78,18 @@ export function enrichWithCrossSourceFields(
   }
 
   return rows.map((row) => {
+    // Tag the (shared, pre-clone) source row with a stable identity token BEFORE the
+    // `{ ...row }` clone below. Cross-source enrichment is the point where a row's object
+    // identity is otherwise lost: each baseline (`filteredRows` vs `filteredRowsNoChartCross`)
+    // is enriched by a separate `.map()` pass, and the spread clones a fresh object for every
+    // row that receives a cross-source value — so the two baselines end up holding *different*
+    // instances for the same logical row, silently breaking any reference-equality match (e.g.
+    // the grid's cross-highlight Set). Because both baselines are filtered from the same
+    // pipeline-cached array, their same-logical-row entries are the *same* object here; tagging
+    // it once (idempotent) means both passes clone from an already-tagged original, and the
+    // enumerable symbol tag is carried forward by the spread — giving a match key that survives
+    // cloning. See rowIdentity.ts for why an enumerable symbol (not a WeakMap) is required.
+    ensureRowIdentity(row);
     let enriched: Row | null = null;
     for (const { fieldId, fkField, relatedIndex } of colMeta) {
       const fkValue = normalizeJoinKey(row[fkField]);

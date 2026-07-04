@@ -163,22 +163,19 @@ describe('computeToolEffects', () => {
 // ── createDefaultToolPolicy ─────────────────────────────────────────────────
 
 describe('createDefaultToolPolicy', () => {
-  it('exactly matches DESTRUCTIVE_TOOLS membership for every advertised tool name', async () => {
+  it.each(STUDIO_AI_TOOL_NAMES)('matches DESTRUCTIVE_TOOLS membership for %s', async (name) => {
     const policy = createDefaultToolPolicy();
     const state = createDefaultStudioState();
-    for (const name of STUDIO_AI_TOOL_NAMES) {
-      // eslint-disable-next-line no-await-in-loop -- sequential drift-guard assertion
-      const decision = await policy({
-        transport: 'chat',
-        toolName: name,
-        input: {},
-        state,
-        proposed: undefined,
-        usage: EMPTY_USAGE(),
-      });
-      const expected = DESTRUCTIVE_TOOLS.has(name) ? 'require-approval' : 'allow';
-      expect(decision.action, name).toBe(expected);
-    }
+    const decision = await policy({
+      transport: 'chat',
+      toolName: name,
+      input: {},
+      state,
+      proposed: undefined,
+      usage: EMPTY_USAGE(),
+    });
+    const expected = DESTRUCTIVE_TOOLS.has(name) ? 'require-approval' : 'allow';
+    expect(decision.action).toBe(expected);
   });
 
   it('honors a custom approvalTools set', async () => {

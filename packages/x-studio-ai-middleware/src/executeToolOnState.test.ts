@@ -944,15 +944,15 @@ describe('executeToolOnState: purity (never mutates the input state in place)', 
     set_widget_forecast: { widgetId: 'widget-1', enabled: false },
   };
 
-  it('does not throw for any built-in tool when the input state is deep-frozen', () => {
-    for (const toolName of STUDIO_AI_TOOL_NAMES) {
+  it.each(STUDIO_AI_TOOL_NAMES)(
+    'does not throw for %s when the input state is deep-frozen',
+    (toolName) => {
       const frozen = deepFreeze(makeState());
-      expect(
-        () => executeToolOnState(toolName, ARGS_BY_TOOL[toolName] ?? {}, frozen),
-        toolName,
+      expect(() =>
+        executeToolOnState(toolName, ARGS_BY_TOOL[toolName] ?? {}, frozen),
       ).not.toThrow();
-    }
-  });
+    },
+  );
 });
 
 // ── handleAIChat integration ──────────────────────────────────────────────────

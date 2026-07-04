@@ -19,7 +19,7 @@ import type {
   StudioAIEnrichedContext,
 } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { STUDIO_AI_TOOLS, DESTRUCTIVE_TOOLS } from './studioAITools';
+import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES, DESTRUCTIVE_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
 import { executeToolOnState } from './executeToolOnState';
 import type { StudioAISSEEvent } from './models/protocol';
@@ -542,11 +542,31 @@ export async function* runAgenticLoop(
   // `destructiveHint` annotations can't drift apart.
   const TOOLS_REQUIRING_APPROVAL = DESTRUCTIVE_TOOLS;
 
-  const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills, {
-    privateMode,
-    richContext,
-    enrichedContext,
-  });
+  // Skills come from the client-asserted request body, so a `server-tool` skill's
+  // tool name could collide with a built-in `STUDIO_AI_TOOLS` name. A collision is
+  // ignored (the built-in always wins): advertising it would let a body-declared
+  // skill shadow a built-in in `tools/list`, and — because the `execute_query`
+  // dispatch branch runs before the unregistered-skill check — a skill literally
+  // named `execute_query` would otherwise be routed to `dataResolver.resolve`
+  // rather than handled as the built-in tool. Dropping collisions here (before the
+  // advertised list, the prompt, and the dispatch context are built) keeps a
+  // built-in name resolving only to its built-in handler.
+  const builtInToolNameSet = new Set<string>(STUDIO_AI_TOOL_NAMES);
+  const effectiveSkills = (skills ?? []).filter(
+    (s) => !(s.mode === 'server-tool' && s.tool && builtInToolNameSet.has(s.tool.name)),
+  );
+
+  const systemPrompt = buildAISystemPrompt(
+    initialState,
+    customWidgets,
+    focusedWidgetId,
+    effectiveSkills,
+    {
+      privateMode,
+      richContext,
+      enrichedContext,
+    },
+  );
 
   // T1-2 — state-reading tools whose output would defeat `privateMode`. In
   // private mode the `<dashboard_state>` block is withheld from the system prompt
@@ -598,7 +618,7 @@ export async function* runAgenticLoop(
     return true;
   });
 
-  const skillToolDefs = (skills ?? [])
+  const skillToolDefs = effectiveSkills
     .filter((s) => s.mode === 'server-tool' && s.tool)
     .map((s) => ({
       type: 'function' as const,
@@ -619,7 +639,7 @@ export async function* runAgenticLoop(
   // Static per-request context shared by every tool dispatch.
   const dispatchCtx: ToolDispatchContext = {
     skillHandlers,
-    skills,
+    skills: effectiveSkills,
     dataResolver,
     customWidgets,
     pageSnapshot,

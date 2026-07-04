@@ -627,6 +627,117 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetRows).toEqual([['a']]);
       expect(next.pages['page-2'].widgetRows).toEqual([]);
     });
+
+    // Col-span invariant enforcement (the cleanup the drag-and-drop path and
+    // removeWidget already do, previously skipped on the AI-driven layout path).
+
+    it('clears a survivor span when a layout change collapses its row from two widgets to one', () => {
+      // w1 and w2 shared a row with an explicit 16/8 split. The new layout drops each
+      // into its own row; each becomes the sole occupant of a row it previously
+      // shared, so both stale multi-widget-era spans are cleared (map empties out).
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2']],
+            widgetColSpans: { w1: 16, w2: 8 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1'], ['w2']] },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
+    it('rebalances an overflowing merged row by clearing its spans (falls back to equal flex)', () => {
+      // A layout change merges w1 (16) and w2 (16) into one row: 16 + 16 = 32 > 24.
+      // With no explicit anchor, both spans are dropped so the row falls back to
+      // equal distribution — matching setWidgetColSpan's multi-other-widget overflow
+      // branch (which drops all sibling spans rather than inventing new clamping).
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 16, w2: 16 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1', 'w2']] },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
+    it('leaves a valid merged row (spans sum <= GRID_COLS) untouched', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 10, w2: 8 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1', 'w2']] },
+      });
+      // 10 + 8 = 18 <= 24, so the spans are preserved.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 10, w2: 8 });
+    });
+
+    it('preserves an intentional pre-existing single-widget span (no false collapse)', () => {
+      // w1 was already a lone occupant with an intentional narrowed span; a layout
+      // change that only reorders rows must not treat it as a 2->1 collapse.
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w2'], ['w1']] },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
+
+    it('drops a span for a widget no longer present in the new rows', () => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12, w2: 8 },
+          },
+        },
+      });
+      // The new layout no longer references w2, so its stale span here is pruned.
+      const next = applyMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1']] },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
   });
 
   describe('renamePage', () => {
@@ -703,6 +814,103 @@ describe('applyMutation', () => {
         args: { widgets: {}, widgetRows: [], widgetColSpans: {}, activePageId: 'nope' },
       });
       expect(next).toBe(state);
+    });
+
+    it("drops a genuinely-removed widget's filters and its stale col-span on other pages", () => {
+      // w1 lives only on page-1 (active) and is dropped by this bulk update (absent
+      // from the replacement map and from the new active-page rows). Its
+      // widget-scoped filter and the stale col-span it left on page-2 (where it is
+      // NOT in the rows) must be cleaned up the same way `removeWidget` would.
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': {
+            id: 'page-2',
+            title: 'P2',
+            widgetRows: [['w2']],
+            widgetColSpans: { w1: 8, w2: 6 }, // stale w1 span (w1 not in these rows)
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+        filters: [
+          {
+            id: 'fw1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+          {
+            id: 'fi1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+          // A filter for the surviving w2 must be kept.
+          {
+            id: 'fw2',
+            field: 'x',
+            operator: 'equals',
+            value: 2,
+            scope: { kind: 'widget', widgetId: 'w2' },
+          },
+        ],
+      });
+      const next = applyMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          widgets: { w2: chartWidget('w2') },
+          widgetRows: [['w2']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      // w1's filters are dropped; w2's is kept.
+      expect(next.filters.map((f) => f.id)).toEqual(['fw2']);
+      // w1's stale span on page-2 is pruned; w2's own span there survives.
+      expect(next.pages['page-2'].widgetColSpans).toEqual({ w2: 6 });
+    });
+
+    it('does NOT remove a widget dropped from the map that still lives on another page (cross-page rejection)', () => {
+      // old2 is dropped from the replacement widgets map but is still referenced in
+      // page-2's rows — a dangling cross-page reference, not a removal. Its filter
+      // and span must be preserved (not purged).
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['old1']] },
+          'page-2': {
+            id: 'page-2',
+            title: 'P2',
+            widgetRows: [['old2']],
+            widgetColSpans: { old2: 6 },
+          },
+        },
+        widgets: { old1: chartWidget('old1'), old2: chartWidget('old2') },
+        filters: [
+          {
+            id: 'f2',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: 'old2' },
+          },
+        ],
+      });
+      const next = applyMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          widgets: { new1: chartWidget('new1') },
+          widgetRows: [['new1']],
+          widgetColSpans: { new1: 6 },
+          activePageId: 'page-1',
+        },
+      });
+      // old2 is still on page-2, so its filter and span are untouched.
+      expect(next.filters.map((f) => f.id)).toEqual(['f2']);
+      expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
     });
   });
 

@@ -46,6 +46,119 @@ function clampSpan(span: number): number {
   return Math.max(MIN_SPAN, Math.min(GRID_COLS, Math.round(span)));
 }
 
+// Drop widget/interactive/cross-filter-scoped filters anchored to any removed
+// widget. Extracted from `removeWidget` so `applyBulkUpdate` can enforce the same
+// invariant for every widget its bulk replacement drops (a removed source widget
+// would otherwise leave the page permanently filtered with no clearing affordance).
+// Returns the same array reference when nothing is dropped, preserving the
+// reference-stable no-op behaviour callers rely on.
+function dropWidgetScopedFilters(
+  filters: StudioFilterState[],
+  isRemoved: (widgetId: string) => boolean,
+): StudioFilterState[] {
+  const next = filters.filter(
+    (f) =>
+      !(f.scope.kind === 'widget' && isRemoved(f.scope.widgetId)) &&
+      !(f.scope.kind === 'interactive' && isRemoved(f.scope.sourceWidgetId)) &&
+      !(f.scope.kind === 'cross-filter' && isRemoved(f.scope.sourceWidgetId)),
+  );
+  return next.length === filters.length ? filters : next;
+}
+
+/**
+ * Remove the given widget ids' entries from a page's `widgetColSpans`, collapsing
+ * an emptied map to `undefined`. Returns the same reference when no entry matched
+ * (so callers can skip rebuilding the page). `ids` is looked up via a `Set` so an
+ * untrusted id (`'constructor'`, `'__proto__'`) can never reach into the record's
+ * prototype chain. Shared by `removeWidget` (its own span + orphaned sole-occupant
+ * spans) and `applyBulkUpdate` (removed widgets' stale spans on other pages).
+ */
+function removeSpanEntries(
+  spans: Record<string, number> | undefined,
+  ids: Iterable<string>,
+): Record<string, number> | undefined {
+  if (!spans) {
+    return spans;
+  }
+  const idSet = ids instanceof Set ? (ids as Set<string>) : new Set(ids);
+  let changed = false;
+  const rest: Record<string, number> = {};
+  for (const key of Object.keys(spans)) {
+    if (idSet.has(key)) {
+      changed = true;
+    } else {
+      rest[key] = spans[key];
+    }
+  }
+  if (!changed) {
+    return spans;
+  }
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+/**
+ * Enforce the col-span invariants a fresh `widgetRows` layout must satisfy, given
+ * the layout it replaced. Used by `setWidgetLayout`, whose AI-driven path was
+ * previously the only layout mutation that skipped the cleanup the user
+ * drag-and-drop path (`pruneWidgetColSpan` in `StudioCanvas`) and `removeWidget`
+ * both perform. Three invariants, matching the existing paths' semantics:
+ *
+ *  - **2→1 collapse:** a widget left alone in a row that it previously shared with
+ *    others has a stale multi-widget-era span, so its span is cleared (mirrors
+ *    `removeWidget`'s sole-occupant handling). A widget that was *already* a lone
+ *    occupant keeps its intentional span (e.g. an AI `set_widget_width` narrowing).
+ *  - **row overflow:** a row whose members' spans sum to more than `GRID_COLS` is
+ *    invalid; with no explicit anchor to rebalance around, every span in that row
+ *    is dropped so it falls back to equal flex distribution — matching
+ *    `setWidgetColSpan`'s multi-other-widget overflow branch (which drops all
+ *    sibling spans rather than inventing new clamping).
+ *  - **orphaned span:** a span for a widget no longer present in this page's rows
+ *    is dead weight and is dropped.
+ */
+function enforceLayoutColSpans(
+  oldRows: string[][],
+  newRows: string[][],
+  spans: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+  if (!spans) {
+    return spans;
+  }
+  const oldRowLenByWidget = new Map<string, number>();
+  for (const row of oldRows) {
+    for (const id of row) {
+      oldRowLenByWidget.set(id, row.length);
+    }
+  }
+  const next: Record<string, number> = { ...spans };
+  const present = new Set<string>();
+  for (const row of newRows) {
+    for (const id of row) {
+      present.add(id);
+    }
+    if (row.length === 1) {
+      const id = row[0];
+      // Clear a survivor's stale span only when its row actually collapsed from
+      // several widgets to one — never a pre-existing intentional singleton span.
+      if (Object.hasOwn(next, id) && (oldRowLenByWidget.get(id) ?? 1) >= 2) {
+        delete next[id];
+      }
+    } else if (row.length >= 2) {
+      const sum = row.reduce((acc, id) => acc + (Object.hasOwn(next, id) ? next[id] : 0), 0);
+      if (sum > GRID_COLS) {
+        for (const id of row) {
+          delete next[id];
+        }
+      }
+    }
+  }
+  for (const id of Object.keys(next)) {
+    if (!present.has(id)) {
+      delete next[id];
+    }
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 /**
  * The `apply` (state transition) and `label` (human-readable log line) logic for
  * a single mutation kind, co-located so the two can never drift apart.
@@ -245,16 +358,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             return [pid, page];
           }
 
-          const oldSpans = page.widgetColSpans;
-          let nextSpans: Record<string, number> | undefined = oldSpans;
-          if (oldSpans && (widgetId in oldSpans || orphanedSoleOccupants.length > 0)) {
-            const { [widgetId]: removedSpan, ...rest } = oldSpans;
-            void removedSpan;
-            for (const soleOccupantId of orphanedSoleOccupants) {
-              delete rest[soleOccupantId];
-            }
-            nextSpans = Object.keys(rest).length > 0 ? rest : undefined;
-          }
+          // Drop the removed widget's own span plus any survivor's now-stale span,
+          // via the shared `removeSpanEntries` helper (Set-based lookup, so an
+          // untrusted `widgetId` can't reach the record's prototype chain the way a
+          // bare `widgetId in oldSpans` could).
+          const nextSpans = removeSpanEntries(page.widgetColSpans, [
+            widgetId,
+            ...orphanedSoleOccupants,
+          ]);
 
           return [pid, { ...page, widgetRows: newRows, widgetColSpans: nextSpans }];
         }),
@@ -264,18 +375,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // conditions, the interactive filters it emitted, and the cross-filters it
       // emitted (a removed source widget would otherwise leave the whole page
       // filtered with no way to clear it — its clearing affordance is gone).
-      const nextFilters = state.filters.filter(
-        (f: StudioFilterState) =>
-          !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId) &&
-          !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
-          !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId),
-      );
+      const nextFilters = dropWidgetScopedFilters(state.filters, (id) => id === widgetId);
 
       return {
         ...state,
         widgets: nextWidgets,
         pages: nextPages,
-        filters: nextFilters.length !== state.filters.length ? nextFilters : state.filters,
+        filters: nextFilters,
       };
     },
     label: (args) => `removeWidget:${args.widgetId}`,
@@ -286,15 +392,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
-      const targetPage = state.pages[targetPageId];
-      if (!targetPage) {
+      // `Object.hasOwn` guard (not truthy `state.pages[targetPageId]`) so an
+      // untrusted `pageId` can't resolve to a prototype member.
+      if (!Object.hasOwn(state.pages, targetPageId)) {
         return state;
       }
+      const targetPage = state.pages[targetPageId];
+      // Replacing a page's rows verbatim can leave the col-spans invalid: a row
+      // collapsed to a sole occupant keeps its stale multi-widget span, and a row
+      // merged from two widgets can sum past `GRID_COLS`. Enforce the same
+      // invariants the user drag-and-drop path (`pruneWidgetColSpan`) and
+      // `removeWidget` already do, diffing the old rows against the new ones.
+      const nextSpans = enforceLayoutColSpans(
+        targetPage.widgetRows ?? [],
+        args.rows,
+        targetPage.widgetColSpans,
+      );
       return {
         ...state,
         pages: {
           ...state.pages,
-          [targetPageId]: { ...targetPage, widgetRows: args.rows },
+          [targetPageId]: { ...targetPage, widgetRows: args.rows, widgetColSpans: nextSpans },
         },
       };
     },
@@ -493,17 +611,64 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   applyBulkUpdate: {
     apply: (state, args) => {
       const { widgets, widgetRows, widgetColSpans, activePageId } = args;
-      const page = state.pages[activePageId];
-      if (!page) {
+      // `Object.hasOwn` guard so an untrusted `activePageId` can't match a prototype member.
+      if (!Object.hasOwn(state.pages, activePageId)) {
         return state;
       }
+      const page = state.pages[activePageId];
+
+      const nextPages: StudioState['pages'] = {
+        ...state.pages,
+        [activePageId]: { ...page, widgetRows, widgetColSpans },
+      };
+
+      // A widget is *genuinely removed* by this bulk update only when it is dropped
+      // from the replacement `widgets` map AND no surviving page still references it
+      // in its rows. A widget that still lives on another page is a dangling
+      // cross-page reference (the documented `applyBulkUpdate` hazard), NOT a
+      // removal — so its filters/spans are preserved rather than purged. This is the
+      // cross-page-removal-rejection the "page-2 untouched" test pins.
+      const stillReferenced = new Set<string>();
+      for (const p of Object.values(nextPages)) {
+        for (const row of p.widgetRows ?? []) {
+          for (const id of row) {
+            stillReferenced.add(id);
+          }
+        }
+      }
+      // Mirror `removeWidget`'s per-widget cleanup for each genuinely-removed widget:
+      // drop its widget/interactive/cross-filter-scoped filters, and prune any stale
+      // col-span entry it left on OTHER pages (the active page's spans are replaced
+      // wholesale above, so only other pages can still carry them).
+      const removedIds = new Set<string>();
+      for (const id of Object.keys(state.widgets)) {
+        if (!Object.hasOwn(widgets, id) && !stillReferenced.has(id)) {
+          removedIds.add(id);
+        }
+      }
+
+      if (removedIds.size > 0) {
+        for (const [pid, p] of Object.entries(nextPages)) {
+          if (pid === activePageId) {
+            continue;
+          }
+          const prunedSpans = removeSpanEntries(p.widgetColSpans, removedIds);
+          if (prunedSpans !== p.widgetColSpans) {
+            nextPages[pid] = { ...p, widgetColSpans: prunedSpans };
+          }
+        }
+      }
+
+      const nextFilters =
+        removedIds.size > 0
+          ? dropWidgetScopedFilters(state.filters, (id) => removedIds.has(id))
+          : state.filters;
+
       return {
         ...state,
         widgets,
-        pages: {
-          ...state.pages,
-          [activePageId]: { ...page, widgetRows, widgetColSpans },
-        },
+        pages: nextPages,
+        filters: nextFilters,
       };
     },
     label: () => 'applyBulkUpdate',

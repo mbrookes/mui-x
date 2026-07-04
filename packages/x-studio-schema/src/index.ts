@@ -27,5 +27,7 @@ export {
   createDefaultStudioState,
 } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
-export { applyMutation, mutationLabel, GRID_COLS, MIN_SPAN } from './applyMutation';
+export { applyMutation, mutationLabel, GRID_COLS, MIN_SPAN, MUTATION_TYPES } from './applyMutation';
+export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
+export type { ParseStateMutationResult } from './parseStateMutation';
 export { isoWeek, truncateToPeriod } from './temporalUtils';

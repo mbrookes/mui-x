@@ -741,6 +741,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   },
 };
 
+/**
+ * The mutation-type discriminants the reducer knows how to apply, derived at
+ * runtime from the `MUTATION_HANDLERS` table's own keys. Exported so a runtime
+ * table-sync test can pin that `parseStateMutation`'s validator table covers
+ * exactly these variants — the mapped types on both tables already guarantee
+ * this at compile time, but this turns it into an observable assertion a
+ * reviewer can read, not just a type a reviewer must trust.
+ */
+export const MUTATION_TYPES = Object.keys(MUTATION_HANDLERS) as StateMutation['type'][];
+
 export function applyMutation(state: StudioState, mutation: StateMutation): StudioState {
   // A single cast at the dispatch boundary: TS cannot prove that
   // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`

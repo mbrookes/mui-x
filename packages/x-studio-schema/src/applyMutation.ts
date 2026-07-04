@@ -107,6 +107,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!page) {
         return state;
       }
+      // Idempotent: re-delivery of the same addWidget event (e.g. an SSE at-least-once
+      // re-delivery) must not append a *second* `[widget.id]` row to the target page —
+      // that would render the widget twice. Mirrors the existing-id guards in
+      // `addPage`/`addFilter`: if the widget already exists AND this page's rows already
+      // hold it, the mutation is already applied, so return `state` unchanged.
+      if (
+        state.widgets[widget.id] &&
+        (page.widgetRows ?? []).some((row) => row.includes(widget.id))
+      ) {
+        return state;
+      }
       return {
         ...state,
         widgets: { ...state.widgets, [widget.id]: widget },
@@ -282,7 +293,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setWidgetColSpan: {
     apply: (state, args) => {
-      const { widgetId, columns, rowWidgetIds } = args;
+      const { widgetId, columns } = args;
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
@@ -290,6 +301,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!targetPage) {
         return state;
       }
+      // Derive the row's membership from the *current* state's `widgetRows` (which row
+      // actually holds `widgetId` right now) rather than trusting `args.rowWidgetIds`.
+      // The producer (`executeToolOnState`'s `set_widget_width`) computed
+      // `rowWidgetIds` from the server's turn-start snapshot; if the user drags widgets
+      // between rows on the client while an agentic turn is still running, that
+      // wire-supplied grouping goes stale, and rebalancing/clearing spans against it
+      // would touch widgets that no longer share this widget's row. This is the same
+      // stale-snapshot class the explicit `pageId` arg fixed for page targeting.
+      // Fall back to `args.rowWidgetIds` only when the widget isn't in any row yet
+      // (mirrors the producer's own `?? [widgetId]` fallback for a not-yet-placed
+      // widget) — otherwise the derived current row wins.
+      const currentRow = (targetPage.widgetRows ?? []).find((row) => row.includes(widgetId));
+      const rowWidgetIds = currentRow ?? args.rowWidgetIds;
       const clamped = columns == null ? null : clampSpan(columns);
       const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
 

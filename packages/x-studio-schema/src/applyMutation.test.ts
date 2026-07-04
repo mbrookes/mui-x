@@ -46,6 +46,19 @@ describe('applyMutation', () => {
     expect(next.pages['page-2'].widgetRows.flat()).toContain('w1');
   });
 
+  it('addWidget is idempotent: re-delivering the same event does not add a duplicate row', () => {
+    const mutation = {
+      type: 'addWidget' as const,
+      args: { widget: chartWidget('w1'), pageId: 'page-1' },
+    };
+    const state = applyMutation(twoPageState('page-1'), mutation);
+    const next = applyMutation(state, mutation);
+    // No duplicate row for the already-placed widget, and reference-stable no-op.
+    expect(next).toBe(state);
+    expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+    expect(next.pages['page-1'].widgetRows.flat().filter((id) => id === 'w1')).toHaveLength(1);
+  });
+
   it('removePage cleans up widgets, page-scoped filters, and reassigns activePageId', () => {
     const state = createDefaultStudioState({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -514,6 +527,58 @@ describe('applyMutation', () => {
       });
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
       expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+    });
+
+    it('rebalances against the current row membership, not stale wire-supplied rowWidgetIds', () => {
+      // Server snapshot grouped w1 and w2 in one row, so the mutation carries
+      // rowWidgetIds: ['w1', 'w2']. But the user has since dragged w2 into its own
+      // row, so w1 is now alone. Applying the mutation must rebalance against the
+      // CURRENT grouping (w1 alone) and leave w2's span untouched — not shrink w2 as
+      // the stale grouping would demand.
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w2: 16 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetColSpan',
+        // Stale: reflects the old shared-row grouping. clamped(w1) = 20, and with the
+        // stale grouping w1 + w2 = 20 + 16 = 36 > 24 would reduce w2 to 24 - 20 = 4
+        // (< MIN_SPAN → deleted). Against the current grouping (w1 alone) there is no
+        // overflow, so w2 must keep its 16.
+        args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 20, w2: 16 });
+    });
+
+    it('still rebalances when the widget is not yet in any row, using rowWidgetIds as fallback', () => {
+      // The widget hasn't been placed into widgetRows yet, so no current row can be
+      // derived; the wire-supplied rowWidgetIds is the only membership signal and is
+      // used as the documented fallback (mirrors the producer's `?? [widgetId]`).
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [],
+            widgetColSpans: { w2: 16 },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
+      });
+      // Fallback grouping applies: 20 + 16 = 36 > 24, one other widget, remainder
+      // 24 - 20 = 4 < MIN_SPAN, so w2's span is dropped.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 20 });
     });
   });
 

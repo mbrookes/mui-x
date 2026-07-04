@@ -4,7 +4,7 @@ Internal reference for how `@mui/x-studio-schema` is put together.
 
 ## Overview
 
-`x-studio-schema` is the shared, dependency-free data model for MUI X Studio: every `StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure functions whose behavior both consuming packages must agree on bit-for-bit. It has **zero runtime dependencies** — no React, no Node built-ins — so it is importable from both a browser bundle (`@mui/x-studio`) and a server bundle (`@mui/x-studio-ai-middleware`). This is the single place a `StudioState` shape change is made; the two consuming packages re-export from here rather than maintaining independent copies, so they cannot drift.
+`x-studio-schema` is the shared, dependency-free data model for MUI X Studio: every `StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure functions whose behavior both consuming packages must agree on bit-for-bit. It has **zero runtime dependencies** — no React, no Node built-ins — so it is importable from both a browser bundle (`@mui/x-studio`) and a server bundle (`@mui/x-studio-ai-middleware`). (It is not 100% type-isolated, though: `aiTypes.ts` has a single **type-only** `import type { ChatMessage }` from `@mui/x-chat-headless`, which compiles away to nothing at runtime — so it is not a runtime dependency, but it is the one type this package borrows rather than defines, and would break if that package renamed it.) This is the single place a `StudioState` shape change is made; the two consuming packages re-export from here rather than maintaining independent copies, so they cannot drift.
 
 The package holds two kinds of module, and the split is deliberate:
 

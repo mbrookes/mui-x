@@ -594,6 +594,45 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(result.mutation?.type).toBe('applyBulkUpdate');
   });
 
+  it('emits a DELTA-shaped mutation (remove/add/update lists), not a full widgets snapshot', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetRemovals: ['widget-1'],
+        widgetAdditions: [{ kind: 'chart', title: 'Added' }],
+        widgetUpdates: [{ widgetId: 'widget-1', title: 'ignored (removed above)' }],
+      },
+      state,
+    );
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    // The lost-update fix: the mutation carries deltas, never a `widgets` snapshot
+    // of the whole record (which would revert concurrent edits on apply).
+    expect(args).not.toHaveProperty('widgets');
+    expect(args.removedWidgetIds).toEqual(['widget-1']);
+    const addedWidgets = args.addedWidgets as Array<{ id: string; title: string }>;
+    expect(addedWidgets).toHaveLength(1);
+    expect(addedWidgets[0].title).toBe('Added');
+    expect(addedWidgets[0].id).toMatch(/^widget-/);
+    // widget-1 was removed this turn, so the update targeting it is skipped, not emitted.
+    expect(args.updatedWidgets).toEqual([]);
+  });
+
+  it('carries an update as a partial config patch (not a pre-merged widget snapshot)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', config: { chartType: 'line' } }] },
+      state,
+    );
+    const args = (
+      result.mutation as {
+        args: { updatedWidgets: Array<{ widgetId: string; config?: Record<string, unknown> }> };
+      }
+    ).args;
+    expect(args.updatedWidgets).toEqual([{ widgetId: 'widget-1', config: { chartType: 'line' } }]);
+  });
+
   it('applies widget updates in nextState', () => {
     const state = makeState();
     const result = executeToolOnState(

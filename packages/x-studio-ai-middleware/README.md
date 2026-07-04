@@ -255,7 +255,7 @@ type StateMutation =
   | { type: 'setActivePage'; args: { pageId: string } }
   | { type: 'addFilter'; args: { filter: StudioFilterState } }
   | { type: 'removeFilter'; args: { filterId: string } }
-  | { type: 'applyBulkUpdate'; args: { widgets, widgetRows, widgetColSpans, activePageId } };
+  | { type: 'applyBulkUpdate'; args: { removedWidgetIds, addedWidgets, updatedWidgets, widgetRows, widgetColSpans, activePageId } };
 ```
 
 ---

@@ -209,6 +209,40 @@ describe('createBackendChatAdapter: state-mutation', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('drops a malformed state-mutation event but still delivers text and reaches finish', async () => {
+    // The one bad event must be dropped without killing the stream: the controller
+    // is never touched by it, yet the following text-delta and finish arrive normally.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const sse = makeSseBody([
+      {
+        type: 'state-mutation',
+        mutation: { type: 'setWidgetLayout', args: { rows: 'not-a-matrix' } },
+      },
+      { type: 'text-delta', delta: 'Hello' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const controller = makeController();
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, controller);
+    const stream = await adapter.sendMessage(makeSendInput([]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+    const deltas = chatChunks
+      .filter((c) => c.type === 'text-delta')
+      .map((c) => (c as { type: 'text-delta'; delta: string }).delta);
+
+    expect(controller.applyExternalMutation).not.toHaveBeenCalled();
+    expect(deltas).toContain('Hello');
+    expect(types).toContain('finish');
+
+    errorSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── tool-activity handling ────────────────────────────────────────────────────

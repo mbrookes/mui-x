@@ -10,7 +10,7 @@
  */
 import type { ChatAdapter, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
-import type { StudioCustomWidgetDef, StateMutation, SerializableSkill } from '../../models';
+import type { StudioCustomWidgetDef, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
 import type { StudioAIToolName } from './studioAITools';
 import { buildWidgetDataSummary } from './generateInsight';
@@ -387,7 +387,12 @@ export function createBackendChatAdapter(
               });
             } else if (type === 'state-mutation') {
               try {
-                applyStateMutation((event as { mutation: StateMutation }).mutation, controller);
+                // Untyped forward: `event.mutation` is untrusted wire data, so it is
+                // passed as `unknown` and validated inside `applyStateMutation` via
+                // `parseStateMutation`. The try/catch is now only a secondary safety
+                // net — `applyStateMutation` drops a malformed payload itself rather
+                // than throwing, so this catches only unexpected controller-side errors.
+                applyStateMutation((event as { mutation?: unknown }).mutation, controller);
               } catch (err) {
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }

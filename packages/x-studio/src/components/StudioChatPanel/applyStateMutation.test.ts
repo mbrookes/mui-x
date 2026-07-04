@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyStateMutation } from './applyStateMutation';
 import { StudioController } from '../../store/StudioController';
 import type { StudioWidget } from '../../models';
@@ -355,8 +355,51 @@ describe('applyStateMutation: undo integration', () => {
 describe('applyStateMutation: unknown/unhandled', () => {
   it('does not throw for a malformed mutation', () => {
     const controller = makeController();
+    // Dropping an unknown mutation now logs a descriptive reason via console.error;
+    // suppress it so the repo's fail-on-console guard doesn't flag the expected log.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() =>
       applyStateMutation({ type: 'unknownMutation' as never, args: {} as never }, controller),
     ).not.toThrow();
+    errorSpy.mockRestore();
+  });
+});
+
+// ── runtime validation boundary ───────────────────────────────────────────────
+//
+// `applyStateMutation` now accepts `unknown` and validates it through
+// `parseStateMutation` before touching the controller, since the SSE payload it
+// receives is untrusted wire data.
+
+describe('applyStateMutation: runtime validation boundary', () => {
+  it('drops a structurally-malformed value: controller is never touched, reason logged', () => {
+    const controller = makeController();
+    const applySpy = vi.spyOn(controller, 'applyExternalMutation');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // `rows` is a string, not the string[][] the reducer would destructure.
+    applyStateMutation({ type: 'setWidgetLayout', args: { rows: 'not-a-matrix' } }, controller);
+
+    expect(applySpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('rows'));
+
+    errorSpy.mockRestore();
+    applySpy.mockRestore();
+  });
+
+  it('does not throw for a completely malformed value or a prototype-chain type', () => {
+    const controller = makeController();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => applyStateMutation(undefined, controller)).not.toThrow();
+    expect(() => applyStateMutation({ type: 'constructor', args: {} }, controller)).not.toThrow();
+
+    errorSpy.mockRestore();
+  });
+
+  it('applies a valid value exactly as before validation was added', () => {
+    const controller = makeController();
+    applyStateMutation({ type: 'setDashboardTitle', args: { title: 'Validated' } }, controller);
+    expect(controller.getState().dashboard.title).toBe('Validated');
   });
 });

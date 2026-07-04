@@ -1031,6 +1031,61 @@ describe('handleBatchQuery — HAVING predicates', () => {
     ).rejects.toThrow(/require at least one aggregation/);
   });
 
+  it.each([
+    ['a backtick', 'total`--'],
+    ['a space', 'total sales'],
+    ['a SQL keyword with punctuation', 'total; DROP TABLE sales'],
+    ['a parenthesis', 'count(*)'],
+  ])('rejects an aggregation alias containing %s (unsafe identifier)', async (_label, alias) => {
+    // `agg.alias` is the one free-form, attacker-controlled token interpolated
+    // into the SQL projection as an identifier — it must be constrained to a safe
+    // identifier charset and rejected fail-closed otherwise.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        columnAllowlist,
+      }),
+    ).rejects.toThrow(/Aggregation alias .* contains characters outside the allowed set/);
+  });
+
+  it('accepts a normal snake_case aggregation alias', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total_sales' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => typeof r.total_sales !== 'undefined')).toBe(true);
+  });
+
   it('DB error from an expression-field aggregation column is returned in the widget result, not thrown', async () => {
     // Simulate a DB that fails when SUM-ing a virtual/expression column.
     // The HAVING alias is valid (matches the aggregation alias), but the DB

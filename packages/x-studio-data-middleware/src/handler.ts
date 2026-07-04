@@ -39,7 +39,11 @@ import { runPreflight } from './router/preflight';
 import { executeForTier } from './router/execute';
 import { decideTierWithCache, DEFAULT_THRESHOLDS } from './router/tierDecision';
 import { assertTablesAllowed } from './shared/assertTablesAllowed';
-import { validateDescriptorColumns, validateHavingAliases } from './shared/columnValidation';
+import {
+  validateAggregationAliases,
+  validateDescriptorColumns,
+  validateHavingAliases,
+} from './shared/columnValidation';
 import type { CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
@@ -94,6 +98,7 @@ export async function handleBatchQuery(
   // alias, regardless of whether a column allowlist is configured.
   for (const descriptor of body.widgets) {
     validateHavingAliases(descriptor);
+    validateAggregationAliases(descriptor);
   }
 
   // ── Validate all column references (SECURITY INVARIANT #2) ─────────────────

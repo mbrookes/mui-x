@@ -274,7 +274,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
             </Box>
             {showMeanColumn && (
               <Box
-                title={`Mean rank ${meanRanks[catIndex].toFixed(2)}`}
+                title={t.heatmapMeanRankTooltip(meanRanks[catIndex].toFixed(2))}
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -290,7 +290,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
             {matrix[catIndex].map((count, rankIndex) => (
               <Box
                 key={`${category}-${rankIndex}`}
-                title={`${count} respondent${count === 1 ? '' : 's'} ranked “${category}” #${rankIndex + 1}`}
+                title={t.heatmapCellTooltip(count, category, rankIndex + 1)}
                 sx={{
                   backgroundColor: cellColor(count),
                   borderRadius: '2px',

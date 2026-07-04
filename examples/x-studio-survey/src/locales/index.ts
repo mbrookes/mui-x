@@ -115,6 +115,8 @@ export interface AppLocaleText {
   heatmapToggleMeanColumn: string;
   heatmapToggleImportanceLabels: string;
   heatmapToggleLegend: string;
+  heatmapMeanRankTooltip: (mean: string) => string;
+  heatmapCellTooltip: (count: number, category: string, rank: number) => string;
 }
 
 const enAppLocaleText: AppLocaleText = {
@@ -208,6 +210,9 @@ const enAppLocaleText: AppLocaleText = {
   heatmapToggleMeanColumn: 'Mean column',
   heatmapToggleImportanceLabels: 'Most/least important labels',
   heatmapToggleLegend: 'Colour legend',
+  heatmapMeanRankTooltip: (mean) => `Mean rank ${mean}`,
+  heatmapCellTooltip: (count, category, rank) =>
+    `${count} respondent${count === 1 ? '' : 's'} ranked “${category}” #${rank}`,
 };
 
 const ptBrAppLocaleText: AppLocaleText = {
@@ -303,6 +308,11 @@ const ptBrAppLocaleText: AppLocaleText = {
   heatmapToggleMeanColumn: 'Coluna de média',
   heatmapToggleImportanceLabels: 'Rótulos de mais/menos importante',
   heatmapToggleLegend: 'Legenda de cor',
+  heatmapMeanRankTooltip: (mean) => `Posição média ${mean}`,
+  heatmapCellTooltip: (count, category, rank) =>
+    `${count} respondente${count === 1 ? '' : 's'} ${
+      count === 1 ? 'classificou' : 'classificaram'
+    } “${category}” em #${rank}`,
 };
 
 export interface LocaleBundle {

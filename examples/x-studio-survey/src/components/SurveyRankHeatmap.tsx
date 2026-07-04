@@ -6,6 +6,11 @@ import type {
   StudioCustomWidgetProps,
   StudioCustomWidgetSetupPanelProps,
 } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
+
+// Below this many rank columns the "most important / least important" end labels would collide,
+// so they are suppressed regardless of the toggle.
+const MIN_RANKS_FOR_IMPORTANCE_LABELS = 5;
 
 /**
  * Custom x-studio widget that visualises a *ranking* question as a heatmap.
@@ -29,6 +34,8 @@ interface RankHeatmapConfig {
   showMeanColumn?: boolean;
   /** Show the "most important / least important" axis labels. @default true */
   showImportanceLabels?: boolean;
+  /** Show the colour-scale legend below the grid. @default true */
+  showLegend?: boolean;
 }
 
 interface RankMatrix {
@@ -129,6 +136,7 @@ const CONTRAST_VAR = 'var(--mui-palette-primary-contrastText)';
 const SURFACE_VAR = 'var(--mui-palette-background-paper)';
 
 function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
+  const t = useAppLocaleText();
   const config = (widget.config.customConfig ?? {}) as RankHeatmapConfig;
   const field = config.field;
 
@@ -142,7 +150,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
   if (!data || data.categories.length === 0 || data.rankCount === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
-        No ranking data available.
+        {t.heatmapNoData}
       </Typography>
     );
   }
@@ -152,7 +160,10 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
   // Display toggles (all default on) — driven by the compose-panel switches.
   const showCellNumbers = config.showCellNumbers ?? true;
   const showMeanColumn = config.showMeanColumn ?? true;
-  const showImportanceLabels = config.showImportanceLabels ?? true;
+  // Suppressed when there are too few rank columns for the end labels to fit without colliding.
+  const showImportanceLabels =
+    (config.showImportanceLabels ?? true) && rankCount >= MIN_RANKS_FOR_IMPORTANCE_LABELS;
+  const showLegend = config.showLegend ?? true;
 
   // Grid columns: category label, an optional mean-rank column, then the heat cells.
   const gridTemplateColumns = showMeanColumn
@@ -199,12 +210,12 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
               <Typography
                 sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}
               >
-                most important
+                {t.heatmapMostImportant}
               </Typography>
               <Typography
                 sx={{ fontSize: '0.6rem', color: 'text.secondary', whiteSpace: 'nowrap' }}
               >
-                least important
+                {t.heatmapLeastImportant}
               </Typography>
             </Box>
           </React.Fragment>
@@ -215,7 +226,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
         {showMeanColumn && (
           <Box sx={{ alignSelf: 'end', textAlign: 'center', pb: 0.5 }}>
             <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: 'text.secondary' }}>
-              mean
+              {t.heatmapMean}
             </Typography>
           </Box>
         )}
@@ -299,28 +310,30 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
       </Box>
 
       {/* Colour scale legend */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 1,
-          mt: 1,
-          pr: 0.5,
-        }}
-      >
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>0</Typography>
+      {showLegend && (
         <Box
           sx={{
-            flexGrow: 0,
-            width: 120,
-            height: 8,
-            borderRadius: 1,
-            background: `linear-gradient(to right, color-mix(in srgb, ${PRIMARY_VAR} 12%, ${SURFACE_VAR}), ${PRIMARY_VAR})`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 1,
+            mt: 1,
+            pr: 0.5,
           }}
-        />
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>{maxCount}</Typography>
-      </Box>
+        >
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>0</Typography>
+          <Box
+            sx={{
+              flexGrow: 0,
+              width: 120,
+              height: 8,
+              borderRadius: 1,
+              background: `linear-gradient(to right, color-mix(in srgb, ${PRIMARY_VAR} 12%, ${SURFACE_VAR}), ${PRIMARY_VAR})`,
+            }}
+          />
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>{maxCount}</Typography>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -329,6 +342,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
 function RankHeatmapSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const t = useAppLocaleText();
 
   if (!widget) {
     return null;
@@ -341,17 +355,18 @@ function RankHeatmapSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) 
 
   const toggles: {
     label: string;
-    key: 'showCellNumbers' | 'showMeanColumn' | 'showImportanceLabels';
+    key: 'showCellNumbers' | 'showMeanColumn' | 'showImportanceLabels' | 'showLegend';
   }[] = [
-    { label: 'Numbers in cells', key: 'showCellNumbers' },
-    { label: 'Mean column', key: 'showMeanColumn' },
-    { label: 'Most/least important labels', key: 'showImportanceLabels' },
+    { label: t.heatmapToggleCellNumbers, key: 'showCellNumbers' },
+    { label: t.heatmapToggleMeanColumn, key: 'showMeanColumn' },
+    { label: t.heatmapToggleImportanceLabels, key: 'showImportanceLabels' },
+    { label: t.heatmapToggleLegend, key: 'showLegend' },
   ];
 
   return (
     <Stack spacing={1}>
       <Typography variant="subtitle2" color="text.secondary">
-        Rank heatmap
+        {t.heatmapSettingsTitle}
       </Typography>
       {toggles.map((toggle) => (
         <Box

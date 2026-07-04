@@ -105,6 +105,16 @@ export interface AppLocaleText {
   dashboardLoadedMessage: string;
   dashboardLoadFailedMessage: string;
   saveErrorMessage: string;
+  // Rank heatmap custom widget
+  heatmapNoData: string;
+  heatmapMean: string;
+  heatmapMostImportant: string;
+  heatmapLeastImportant: string;
+  heatmapSettingsTitle: string;
+  heatmapToggleCellNumbers: string;
+  heatmapToggleMeanColumn: string;
+  heatmapToggleImportanceLabels: string;
+  heatmapToggleLegend: string;
 }
 
 const enAppLocaleText: AppLocaleText = {
@@ -189,6 +199,15 @@ const enAppLocaleText: AppLocaleText = {
   dashboardLoadedMessage: 'Dashboard loaded successfully',
   dashboardLoadFailedMessage: 'Failed to load dashboard',
   saveErrorMessage: "Couldn't save your changes to the server — retrying…",
+  heatmapNoData: 'No ranking data available.',
+  heatmapMean: 'mean',
+  heatmapMostImportant: 'most important',
+  heatmapLeastImportant: 'least important',
+  heatmapSettingsTitle: 'Rank heatmap',
+  heatmapToggleCellNumbers: 'Numbers in cells',
+  heatmapToggleMeanColumn: 'Mean column',
+  heatmapToggleImportanceLabels: 'Most/least important labels',
+  heatmapToggleLegend: 'Colour legend',
 };
 
 const ptBrAppLocaleText: AppLocaleText = {
@@ -275,6 +294,15 @@ const ptBrAppLocaleText: AppLocaleText = {
   dashboardLoadedMessage: 'Painel carregado com sucesso',
   dashboardLoadFailedMessage: 'Falha ao carregar o painel',
   saveErrorMessage: 'Não foi possível salvar suas alterações no servidor — tentando novamente…',
+  heatmapNoData: 'Nenhum dado de classificação disponível.',
+  heatmapMean: 'média',
+  heatmapMostImportant: 'mais importante',
+  heatmapLeastImportant: 'menos importante',
+  heatmapSettingsTitle: 'Mapa de calor de classificação',
+  heatmapToggleCellNumbers: 'Números nas células',
+  heatmapToggleMeanColumn: 'Coluna de média',
+  heatmapToggleImportanceLabels: 'Rótulos de mais/menos importante',
+  heatmapToggleLegend: 'Legenda de cor',
 };
 
 export interface LocaleBundle {

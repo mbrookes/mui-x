@@ -285,13 +285,20 @@ export class StudioController {
     if (dataSource.adapter) {
       studioRequestCache.invalidateSource(dataSource.id);
     }
-    this.commitState({
-      ...state,
-      dataSources: {
-        ...state.dataSources,
-        [dataSource.id]: dataSource,
+    // Host-driven data injection (e.g. a periodic refresh or a config-swap reload)
+    // is infrastructure, not an authored edit — it must not create an undo-stack
+    // entry (a user pressing Ctrl+Z should never revert live data to stale rows or
+    // remove a source's rows). Same convention as interactive filter selection.
+    this.commitState(
+      {
+        ...state,
+        dataSources: {
+          ...state.dataSources,
+          [dataSource.id]: dataSource,
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   /**
@@ -333,13 +340,18 @@ export class StudioController {
     if (!source) {
       return;
     }
-    this.commitState({
-      ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: { ...source, rows },
+    // Host-driven data injection — not an authored edit, so it must not be undoable
+    // (see upsertDataSource). Same convention as interactive filter selection.
+    this.commitState(
+      {
+        ...state,
+        dataSources: {
+          ...state.dataSources,
+          [sourceId]: { ...source, rows },
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   updateDataSourceField = (

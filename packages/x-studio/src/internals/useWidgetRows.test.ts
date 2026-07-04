@@ -529,6 +529,54 @@ describe('async adapter path', () => {
     // Rows remain empty after failure
     expect(result.current.filteredRows).toHaveLength(0);
   });
+
+  it('does not stay stuck loading when the descriptor changes to a cached one before the first fetch resolves', async () => {
+    // Regression: descriptor A misses the cache → isLoading becomes true with an in-flight
+    // fetch. Before A resolves, the descriptor switches to B, which IS already cached. A's
+    // effect cleanup marks its (never-resolving) promise cancelled, so its `.then` never
+    // runs; the B branch serves the cached result synchronously. That synchronous cache-hit
+    // branch must reset isLoading — otherwise the loading overlay stays true forever even
+    // though valid data is already rendered.
+    const { buildQueryDescriptor } = await import('./queryDescriptor');
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    // Descriptor B — a page filter on region=EU — pre-seeded into the cache so switching to
+    // it produces a synchronous cache hit.
+    const filtersB = [
+      makeFilter({
+        id: 'f-page',
+        scope: { kind: 'page' },
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+      }),
+    ];
+    const descriptorB = buildQueryDescriptor(widget, filtersB, 'page-1', undefined, []);
+    studioRequestCache.set(descriptorB.cacheKey, { rows: [{ id: 'cached-B', region: 'EU' }] });
+
+    // State A — no filters → descriptor A, NOT cached → an in-flight fetch that never resolves.
+    mockState = createState({ filters: [] });
+    const neverResolves = new Promise<StudioQueryResult>(() => {});
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockReturnValue(neverResolves),
+    };
+    const dataSource = makeDataSource([], { adapter });
+
+    const { result, rerender } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    // A missed the cache → loading, fetch still in-flight.
+    expect(result.current.isLoading).toBe(true);
+
+    // Switch to descriptor B (cache hit) before A ever resolves. `rerender` flushes effects
+    // (it wraps in act internally), so the synchronous cache-hit branch runs before we assert.
+    mockState = createState({ filters: filtersB });
+    rerender();
+
+    // The cache-hit branch cleared isLoading — not left it stuck true — and served B's data.
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.filteredRows).toHaveLength(1);
+    expect(result.current.filteredRows[0]).toMatchObject({ id: 'cached-B' });
+  });
 });
 
 // ── Parity: sync vs async produce the same filtered result ─────────────────

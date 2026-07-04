@@ -124,6 +124,49 @@ describe('StudioRequestCache', () => {
     expect(cache.get('source-customers:key-1')).toBe(RESULT_A);
   });
 
+  it('does NOT re-cache an in-flight result that was invalidated mid-flight', async () => {
+    // Regression: a request already in flight when `invalidateSource` runs would, on
+    // resolving, still write its (now stale) result into the cache with a fresh TTL — so a
+    // later call with the SAME (unchanged) descriptor got a cache HIT on the stale data
+    // instead of triggering a genuine re-fetch.
+    const cacheKey = 'source-orders:key-1';
+    let resolve!: (r: StudioQueryResult) => void;
+    const promise = new Promise<StudioQueryResult>((res) => {
+      resolve = res;
+    });
+    cache.addInflight(cacheKey, promise);
+
+    // Source is invalidated (e.g. host pushed fresh data) while the request is still pending.
+    cache.invalidateSource('source-orders');
+
+    // The in-flight request now resolves with its pre-invalidation result.
+    resolve(RESULT_A);
+    await promise;
+
+    // The awaiting caller still received RESULT_A (asserted below), but the cache must NOT
+    // have been populated with it — a subsequent lookup must miss so a fresh fetch happens.
+    expect(await promise).toBe(RESULT_A);
+    expect(cache.get(cacheKey)).toBeUndefined();
+  });
+
+  it('re-caches normally for a request that was NOT invalidated mid-flight', async () => {
+    // Guards against over-invalidating: a request whose source was never invalidated (or
+    // was invalidated for a DIFFERENT source) must still populate the cache on resolve.
+    const cacheKey = 'source-orders:key-1';
+    let resolve!: (r: StudioQueryResult) => void;
+    const promise = new Promise<StudioQueryResult>((res) => {
+      resolve = res;
+    });
+    cache.addInflight(cacheKey, promise);
+
+    cache.invalidateSource('source-customers'); // unrelated source
+
+    resolve(RESULT_A);
+    await promise;
+
+    expect(cache.get(cacheKey)).toBe(RESULT_A);
+  });
+
   it('invalidateSource does not affect sources with a similar prefix', () => {
     cache.set('source-order:key-1', RESULT_A);
     cache.set('source-orders:key-1', RESULT_B);

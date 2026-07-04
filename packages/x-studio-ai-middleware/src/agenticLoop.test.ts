@@ -573,7 +573,7 @@ describe('runAgenticLoop — tool approval', () => {
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 
-  it('shows the widget’s real title in the approval prompt, not a model-supplied one', async () => {
+  it("shows the widget's real title in the approval prompt, not a model-supplied one", async () => {
     // The model claims a benign `widgetTitle` while `widgetId` targets a widget
     // whose real title is different. The approval prompt must display the ACTUAL
     // title from state so the human approves based on what will really be removed.

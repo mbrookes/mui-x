@@ -391,6 +391,101 @@ describe('buildSecureQuery', () => {
     });
   });
 
+  describe('join columnAliases resolution (allowlist-bypass regression)', () => {
+    // Regression for the join-predicate variant of the column-allowlist bypass:
+    // `validateDescriptorColumns` resolves `columnAliases` when checking BOTH
+    // sides of every `join.on` pair against the allowlist, so execution MUST join
+    // on the SAME resolved physical columns. Before the fix, `buildSecureQuery`
+    // built `.on()` from the raw alias names, letting a client alias a
+    // non-allowlisted column (`sales.ssn`) onto an allowlisted one
+    // (`sales.amount`), pass validation, yet run `ON sales.ssn = customers.id` —
+    // a correlation oracle against a forbidden column.
+    it('joins on the physical (allowlisted) column, not the raw logical alias', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.ssn': 'sales.amount' },
+          joins: [{ table: 'customers', on: [['sales.ssn', 'customers.id']] }],
+        }),
+      );
+      // The join condition targets the validated physical column `sales.amount`…
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.amount', '=', 'customers.id'],
+      });
+      // …and never the raw, non-allowlisted logical name `sales.ssn`.
+      expect(calls.some((c) => c.method === 'on' && c.args[0] === 'sales.ssn')).toBe(false);
+    });
+
+    it('resolves an alias on the RIGHT side of a join pair as well', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'customers.secret': 'customers.id' },
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.secret']] }],
+        }),
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+      expect(calls.some((c) => c.method === 'on' && c.args[1] === 'customers.secret')).toBe(false);
+    });
+
+    it('leaves a join pass through unchanged when neither side is aliased', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.ssn': 'sales.amount' },
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+    });
+
+    it('resolves EVERY pair of a composite-key join, not just the first', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.a_alias': 'sales.a', 'customers.b_alias': 'customers.b' },
+          joins: [
+            {
+              table: 'customers',
+              on: [
+                ['sales.a_alias', 'customers.a'],
+                ['sales.b', 'customers.b_alias'],
+              ],
+            },
+          ],
+        }),
+      );
+      // Both pairs are resolved to their physical columns…
+      expect(calls.filter((c) => c.method === 'on')).toEqual([
+        { method: 'on', args: ['sales.a', '=', 'customers.a'] },
+        { method: 'on', args: ['sales.b', '=', 'customers.b'] },
+      ]);
+      // …and neither raw alias reaches the executed join.
+      expect(
+        calls.some(
+          (c) =>
+            c.method === 'on' &&
+            (c.args[0] === 'sales.a_alias' || c.args[1] === 'customers.b_alias'),
+        ),
+      ).toBe(false);
+    });
+  });
+
   describe('configurable security columns', () => {
     it('uses a custom region column name from securityColumns', () => {
       const { db, calls } = createRecordingDb();

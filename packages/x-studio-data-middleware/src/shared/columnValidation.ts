@@ -138,3 +138,30 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
     }
   }
 }
+
+/** Safe identifier charset for aggregation aliases (letters, digits, underscore). */
+const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
+
+/**
+ * Validate every aggregation alias in a read descriptor against a safe-identifier
+ * charset.
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured). `agg.column` is allowlist-validated,
+ * but `agg.alias` is free-form client text that `execute.ts` interpolates into the
+ * projection (`` `${col} as ${agg.alias}` ``) rather than passing through a Knex
+ * `?`/`??` binding. Constraining it to `[A-Za-z0-9_]` (fail-closed) keeps the one
+ * attacker-controlled token in the query-building path from carrying quoting,
+ * whitespace, or SQL syntax into the identifier position.
+ */
+export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): void {
+  for (const agg of descriptor.aggregations ?? []) {
+    if (!SAFE_ALIAS_PATTERN.test(agg.alias)) {
+      throw new Error(
+        `MUI X Studio Server: Aggregation alias "${agg.alias}" contains characters outside the allowed set. ` +
+          `The alias is interpolated into the SQL projection as an identifier, so it must be a safe identifier to avoid altering the query. ` +
+          `Use only letters, digits and underscores (matching ${SAFE_ALIAS_PATTERN}).`,
+      );
+    }
+  }
+}

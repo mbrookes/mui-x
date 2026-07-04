@@ -50,12 +50,27 @@ export function buildSecureQuery(
 ): any {
   const query = db(descriptor.table);
 
+  /** Resolve a logical column ID to its physical SQL column (via columnAliases if set). */
+  const physicalCol = (c: string): string => descriptor.columnAliases?.[c] ?? c;
+
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
   // Each join uses the Knex callback form so ALL `on` pairs become `.on()`
   // conditions within a SINGLE join — a per-pair call would join the same table
   // once per pair, producing invalid SQL ("table name not unique") for composite
   // keys.
+  //
+  // Resolve `columnAliases` to the physical column for BOTH sides of every `on`
+  // pair BEFORE building the `.on(...)` clause — exactly as the filter
+  // predicates (below) and SELECT / ORDER BY / aggregations (`execute.ts`,
+  // `physicalCol`) do. Validation (`validateDescriptorColumns`) already resolves
+  // aliases when checking both sides of every join pair against the allowlist,
+  // so the executed join MUST target the same resolved physical columns.
+  // Otherwise a client can alias a non-allowlisted column onto an allowlisted
+  // one (e.g. `columnAliases: { 'sales.ssn': 'sales.amount' }`,
+  // `on: [['sales.ssn', 'customers.id']]`), pass validation against the resolved
+  // `sales.amount`, yet have the query join on the real `sales.ssn` column: a
+  // column-allowlist bypass / correlation oracle on a forbidden column.
   for (const join of descriptor.joins ?? []) {
     let joinMethod: string;
     if (join.type === 'left') {
@@ -67,7 +82,7 @@ export function buildSecureQuery(
     }
     query[joinMethod](join.table, function joinOn(this: any) {
       for (const [left, right] of join.on) {
-        this.on(left, '=', right);
+        this.on(physicalCol(left), '=', physicalCol(right));
       }
     });
   }

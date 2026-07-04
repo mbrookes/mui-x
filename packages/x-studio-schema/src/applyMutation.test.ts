@@ -774,6 +774,86 @@ describe('applyMutation', () => {
     });
   });
 
+  // Untrusted ids ultimately trace back to LLM tool-call arguments / wire input.
+  // A bare `record[id]` / `id in record` existence check matches prototype-chain
+  // members (`'constructor'`, `'__proto__'`, `'hasOwnProperty'`), so such an id used
+  // to pass the "exists?" guard and drive the handler against a phantom entry. Every
+  // id-keyed lookup now goes through `Object.hasOwn`, so these are clean no-ops.
+  describe('prototype-chain ids are clean unknown-id no-ops (not corrupted writes)', () => {
+    const pollutingIds = ['constructor', '__proto__', 'hasOwnProperty'];
+
+    it.each(pollutingIds)('updateWidget targeting %j on a widgetless state is a no-op', (id) => {
+      const state = twoPageState();
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: id, changes: { title: 'x' } },
+      });
+      expect(next).toBe(state);
+    });
+
+    it.each(pollutingIds)('removeWidget targeting %j on a widgetless state is a no-op', (id) => {
+      const state = twoPageState();
+      const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: id } });
+      expect(next).toBe(state);
+      expect(next.widgets).toEqual({});
+    });
+
+    it.each(pollutingIds)('setWidgetColSpan targeting %j does not throw or pollute', (id) => {
+      const state = createDefaultStudioState({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: id, columns: 12, rowWidgetIds: [id] },
+      });
+      // No global prototype pollution leaked out of the reducer.
+      expect(({} as Record<string, unknown>).leaked).toBeUndefined();
+      // The resulting span map only ever carries the literal id as an own key —
+      // never an inherited/corrupted value (and may be undefined for `__proto__`,
+      // whose assignment is silently ignored). No key other than the literal id.
+      const spans = next.pages['page-1'].widgetColSpans;
+      expect(Object.keys(spans ?? {}).filter((k) => k !== id)).toEqual([]);
+    });
+
+    it.each(pollutingIds)(
+      'setWidgetColSpan overflow math treats a prototype-name row-mate as span 0 (no NaN — rebalance still fires)',
+      (id) => {
+        // Row holds a real w2 (span 16) plus a prototype-name phantom row-mate. The
+        // overflow sum must read the phantom as 0 — so the real total is 12 + 16 = 28
+        // > 24 and the multi-other-widget rebalance drops the siblings' spans. With
+        // the old `newSpans[id] ?? 0`, the phantom resolved to the `Object` prototype
+        // member, poisoning the sum to NaN so `NaN > 24` was false and the overflow
+        // was silently skipped (w2's span wrongly kept).
+        const state = createDefaultStudioState({
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          pages: {
+            'page-1': {
+              id: 'page-1',
+              title: 'P1',
+              widgetRows: [['w1', 'w2', id]],
+              widgetColSpans: { w2: 16 },
+            },
+          },
+        });
+        const next = applyMutation(state, {
+          type: 'setWidgetColSpan',
+          args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'w2', id] },
+        });
+        // 12 + (16 + 0) = 28 > 24, two+ other widgets → all sibling spans dropped.
+        expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+      },
+    );
+
+    it.each(pollutingIds)('setActivePage / renamePage targeting %j are no-ops', (id) => {
+      const state = twoPageState();
+      expect(applyMutation(state, { type: 'setActivePage', args: { pageId: id } })).toBe(state);
+      expect(applyMutation(state, { type: 'renamePage', args: { pageId: id, title: 'X' } })).toBe(
+        state,
+      );
+    });
+  });
+
   it('an unrecognized mutation type is a graceful no-op', () => {
     const state = twoPageState();
     const bogus = { type: 'bogusMutation', args: {} } as any;

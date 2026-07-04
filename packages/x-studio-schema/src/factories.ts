@@ -70,7 +70,15 @@ export function createDefaultWidget(
 ): StudioWidget {
   const id = createWidgetId();
 
-  if (!(kind in BUILTIN_WIDGET_DEFAULTS)) {
+  // `Object.hasOwn` (not `kind in BUILTIN_WIDGET_DEFAULTS`) so an untrusted kind
+  // like `'constructor'`/`'hasOwnProperty'` — e.g. from an LLM tool call — is
+  // treated as an unknown custom kind rather than matching a prototype-chain
+  // member and invoking `Object.prototype.constructor` as a defaults factory
+  // (which would mint a corrupted `title: undefined`/`config: undefined` widget
+  // that crashes on the first `widget.config.*` access downstream). The table
+  // stays a `Record<BuiltinStudioWidgetKind, …>` so the per-kind exhaustiveness
+  // check is preserved; only the membership test is hardened.
+  if (!Object.hasOwn(BUILTIN_WIDGET_DEFAULTS, kind)) {
     // Custom widget kind
     return {
       id,

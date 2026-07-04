@@ -68,8 +68,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const { id, title } = args;
       // Idempotent: re-delivery of an addPage event for an existing id must not
       // reset that page's `widgetRows: []` (which would orphan its widgets). Only
-      // re-activate it.
-      if (state.pages[id]) {
+      // re-activate it. `Object.hasOwn` (not `id in`/truthy access) so an untrusted
+      // id like `'constructor'` can't match a prototype-chain member.
+      if (Object.hasOwn(state.pages, id)) {
         return state.dashboard.activePageId === id
           ? state
           : { ...state, dashboard: { ...state.dashboard, activePageId: id } };
@@ -103,17 +104,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // legacy payloads. Never relies on "whatever page happens to be active on
       // the applying side", which is the page-targeting divergence this fixes.
       const pageId = args.pageId ?? state.dashboard.activePageId;
-      const page = state.pages[pageId];
-      if (!page) {
+      // `Object.hasOwn` existence check (not truthy `state.pages[pageId]`) so an
+      // untrusted `pageId` like `'constructor'` resolves to "no such page" instead
+      // of the `Object` prototype member (which would be treated as a page object).
+      if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      const page = state.pages[pageId];
       // Idempotent: re-delivery of the same addWidget event (e.g. an SSE at-least-once
       // re-delivery) must not append a *second* `[widget.id]` row to the target page —
       // that would render the widget twice. Mirrors the existing-id guards in
       // `addPage`/`addFilter`: if the widget already exists AND this page's rows already
       // hold it, the mutation is already applied, so return `state` unchanged.
       if (
-        state.widgets[widget.id] &&
+        Object.hasOwn(state.widgets, widget.id) &&
         (page.widgetRows ?? []).some((row) => row.includes(widget.id))
       ) {
         return state;
@@ -136,10 +140,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   updateWidget: {
     apply: (state, args) => {
       const { widgetId, changes, config } = args;
-      const existing = state.widgets[widgetId];
-      if (!existing) {
+      // `Object.hasOwn` (not truthy `state.widgets[widgetId]`) so an untrusted
+      // `widgetId` like `'constructor'` is a clean "unknown id" no-op rather than
+      // resolving to the `Object` prototype member and corrupting a write.
+      if (!Object.hasOwn(state.widgets, widgetId)) {
         return state;
       }
+      const existing = state.widgets[widgetId];
       let updated: StudioWidget = existing;
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
@@ -181,7 +188,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removeWidget: {
     apply: (state, args) => {
       const { widgetId } = args;
-      if (!state.widgets[widgetId]) {
+      // `Object.hasOwn` (not truthy `state.widgets[widgetId]`) so an untrusted
+      // `widgetId` like `'constructor'`/`'__proto__'` is a clean no-op instead of
+      // matching a prototype member and deleting/cleaning against a phantom widget.
+      if (!Object.hasOwn(state.widgets, widgetId)) {
         return state;
       }
       const nextWidgets = { ...state.widgets };
@@ -297,10 +307,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
-      const targetPage = state.pages[targetPageId];
-      if (!targetPage) {
+      // `Object.hasOwn` guard (not truthy `state.pages[targetPageId]`) so an
+      // untrusted `pageId` can't resolve to a prototype member.
+      if (!Object.hasOwn(state.pages, targetPageId)) {
         return state;
       }
+      const targetPage = state.pages[targetPageId];
       // Derive the row's membership from the *current* state's `widgetRows` (which row
       // actually holds `widgetId` right now) rather than trusting `args.rowWidgetIds`.
       // The producer (`executeToolOnState`'s `set_widget_width`) computed
@@ -322,7 +334,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       } else {
         newSpans[widgetId] = clamped;
         const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
-        const otherTotal = otherIds.reduce((sum, id) => sum + (newSpans[id] ?? 0), 0);
+        // `Object.hasOwn` per id (not `newSpans[id] ?? 0`) so an untrusted id from
+        // the wire-supplied `rowWidgetIds` reads 0, never an `Object` prototype
+        // member (which would poison the sum with `NaN`).
+        const otherTotal = otherIds.reduce(
+          (sum, id) => sum + (Object.hasOwn(newSpans, id) ? newSpans[id] : 0),
+          0,
+        );
         if (clamped + otherTotal > GRID_COLS) {
           if (otherIds.length === 1) {
             const remaining = GRID_COLS - clamped;
@@ -356,10 +374,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   renamePage: {
     apply: (state, args) => {
       const { pageId, title } = args;
-      const page = state.pages[pageId];
-      if (!page) {
+      // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
+      if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      const page = state.pages[pageId];
       return {
         ...state,
         pages: { ...state.pages, [pageId]: { ...page, title } },
@@ -371,10 +390,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removePage: {
     apply: (state, args) => {
       const { pageId } = args;
-      const page = state.pages[pageId];
-      if (!page) {
+      // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
+      if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      const page = state.pages[pageId];
       // Full cleanup, matching StudioController.removePage:
       //   drop the page, remove widgets that lived on it, drop page-scoped
       //   filters for it, and reassign activePageId when it was the active page.
@@ -429,7 +449,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setActivePage: {
     apply: (state, args) => {
       const { pageId } = args;
-      if (!state.pages[pageId]) {
+      // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
+      if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
       return {

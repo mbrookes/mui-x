@@ -2,7 +2,12 @@ import { Store } from '@mui/x-internals/store';
 // The shared mutation reducer + label helper — the same code the AI middleware
 // server uses to compute its threaded `nextState`, so AI state changes applied
 // on the client match the server exactly.
-import { applyMutation, mutationLabel, type StateMutation } from '@mui/x-studio-schema';
+import {
+  applyMutation,
+  mutationLabel,
+  MIN_SPAN as MIN_SPAN_COLS,
+  type StateMutation,
+} from '@mui/x-studio-schema';
 
 import {
   createDefaultStudioState,
@@ -36,10 +41,10 @@ import {
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 
-/** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
-const GRID_COLS = 24;
-/** Minimum column span any widget can be clamped to. */
-const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
+// `MIN_SPAN_COLS` (the minimum widget column span) is imported from
+// `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
+// the reducer that clamps AI-driven resizes and with `canvasGridConstants.ts`.
+// (Kept under the local `MIN_SPAN_COLS` name it is used by below.)
 
 const MAX_UNDO_HISTORY = 100;
 

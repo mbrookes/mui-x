@@ -1,10 +1,10 @@
 import * as React from 'react';
 
-/** Total column count for the widget resize grid. */
-export const GRID_COLS = 24;
-
-/** Minimum column span any widget can be resized to (~12.5% of full width in a 2-widget row). */
-export const MIN_SPAN = Math.round(GRID_COLS / 4);
+// `GRID_COLS`/`MIN_SPAN` are owned by `@mui/x-studio-schema` (the shared reducer
+// that clamps AI-driven resizes must agree with what the canvas renders). Import
+// and re-export them here so existing `./canvasGridConstants` importers are
+// unaffected, but the value is defined in exactly one place.
+export { GRID_COLS, MIN_SPAN } from '@mui/x-studio-schema';
 
 /**
  * Returns true when a horizontal insertion point at `rowIndex` would produce no

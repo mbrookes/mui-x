@@ -20,21 +20,25 @@ import type { StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 
 /**
- * Widget column-span unit system. This MUST match `canvasGridConstants.ts`
- * (`GRID_COLS` / `MIN_SPAN`) in `@mui/x-studio`, which is what `StudioCanvas`
- * actually renders and what the drag-resize handle
- * (`StudioController.setAdjacentWidgetColSpans`) commits. This package is
- * dependency-free (no React), so it cannot import that module — the constants are
- * mirrored here, and the round-trip test pins the two systems to the same values.
+ * Widget column-span unit system, and the single source of truth for it.
+ * `canvasGridConstants.ts` (what `StudioCanvas` renders) and `StudioController`
+ * (what the drag-resize handle `setAdjacentWidgetColSpans` commits) in
+ * `@mui/x-studio` both import these exact values from here.
+ *
+ * The dependency arrow runs `x-studio` → `x-studio-schema` (the client depends on
+ * the schema package, never the reverse), so this dependency-free package is the
+ * correct single home for the constant — there is no cycle risk, and the previous
+ * four-way duplication (this file + `canvasGridConstants.ts` + `StudioController`
+ * + the round-trip test) is consolidated here.
  *
  * The AI `set_widget_width` tool flows through the `setWidgetColSpan` handler
  * below, so it must clamp/rebalance in the SAME 24-column unit system the canvas
  * uses; otherwise a user drag-resize (24-col) and an AI resize (formerly 12-col)
  * would corrupt each other's layout.
  */
-const GRID_COLS = 24;
+export const GRID_COLS = 24;
 /** Minimum column span any widget can be clamped to (~1/4 of the full row width). */
-const MIN_SPAN = Math.round(GRID_COLS / 4);
+export const MIN_SPAN = Math.round(GRID_COLS / 4);
 
 /** Clamp a widget column span to the supported `MIN_SPAN`–`GRID_COLS` range. */
 function clampSpan(span: number): number {

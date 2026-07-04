@@ -928,3 +928,159 @@ describe('buildStudioMcpServer — execute_query is never available via MCP', ()
     expect(result.content[0].text).toMatch(/unknown tool/i);
   });
 });
+
+describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
+  it('deny leaves stateBox untouched, records no change, and does not fire onStateChange', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const onStateChange = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      onStateChange,
+      toolPolicy: () => ({ action: 'deny', reason: 'blocked by policy' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Nope' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/blocked by policy/);
+    // The state box was never written.
+    expect(stateBox.current).toBe(before);
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    // No recentChanges entry was recorded.
+    const changes = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const { output } = JSON.parse(changes.content[0].text);
+    expect(output).toHaveLength(0);
+  });
+
+  it('require-approval without an approvalHandler denies cleanly (no throw, isError)', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Needs approval' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/no approval channel/i);
+    expect(stateBox.current).toBe(before);
+  });
+
+  it('approvalHandler returning true commits the mutation', async () => {
+    const stateBox = { current: makeStableState() };
+    const approvalHandler = vi.fn(async () => true);
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Approved Page' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    expect(result.isError).toBeFalsy();
+    expect(
+      Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'Approved Page',
+      ),
+    ).toBe(true);
+  });
+
+  it('approvalHandler returning false denies and leaves state untouched', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler: async () => false,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Denied' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(stateBox.current).toBe(before);
+  });
+
+  it('maxMutationsPerSession denies further mutating calls once exceeded', async () => {
+    const stateBox = { current: makeStableState() };
+    const onLimitReached = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      rateLimit: { maxMutationsPerSession: 1, onLimitReached },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const first = (await call({
+      params: { name: 'add_page', arguments: { title: 'P1' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(first.isError).toBeFalsy();
+
+    const second = (await call({
+      params: { name: 'add_page', arguments: { title: 'P2' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(second.isError).toBe(true);
+    expect(second.content[0].text).toMatch(/budget exceeded/i);
+    expect(onLimitReached).toHaveBeenCalledWith('mutations', 1);
+
+    // Only the first page was committed.
+    expect(
+      Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'P2',
+      ),
+    ).toBe(false);
+  });
+
+  it('omitted toolPolicy preserves current execute-everything behavior (remove_page runs)', async () => {
+    // Critical regression guard: the MCP default is allow-all, NOT createDefaultToolPolicy().
+    // A destructive tool must still execute with no approval pause when no policy is set.
+    const state = makeStableState();
+    (state.pages as Record<string, unknown>)['page-2'] = {
+      id: 'page-2',
+      title: 'Page 2',
+      widgetRows: [],
+    };
+    const stateBox = { current: state };
+    const server = buildStudioMcpServer(stateBox);
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'remove_page', arguments: { pageId: 'page-2' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(stateBox.current.pages['page-2']).toBeUndefined();
+  });
+});

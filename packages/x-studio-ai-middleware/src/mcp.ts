@@ -53,10 +53,12 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { mutationLabel } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
-import { executeToolOnState } from './executeToolOnState';
+import type { ToolExecutionResult } from './executeToolOnState';
+import { executeToolWithPolicy, type ToolPolicy } from './toolPolicy';
 import type { StudioAIRecentMutation } from './models/aiTypes';
 import { errorResult, jsonResult, type ToolHandler } from './mcp/helpers';
 import {
@@ -153,9 +155,48 @@ export function buildStudioMcpServer(
     onStateChange,
     logger,
     contextEnricher,
+    approvalHandler,
+    rateLimit,
   } = options;
 
   const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
+
+  // Session-scoped usage, threaded into the policy context. `committedMutations` is
+  // bumped only when a mutation is actually committed to `stateBox.current`.
+  const sessionUsage = { committedMutations: 0, toolCalls: 0 };
+
+  // CRITICAL compatibility default: when the host omits `toolPolicy`, the policy is
+  // ALLOW-ALL — NOT `createDefaultToolPolicy()`. MCP has no approval-pause channel
+  // today, so defaulting to require-approval for `remove_page` etc. would break every
+  // existing MCP integration. This keeps the historical "execute everything" behavior.
+  const hostToolPolicy: ToolPolicy = options.toolPolicy ?? (() => ({ action: 'allow' }));
+
+  // Per-session mutation budget, layered BEFORE the host policy: once the cap is
+  // reached, any further mutating call (one whose dry-run produced a `proposed`
+  // mutation) is denied without consulting the host policy. `onLimitReached` fires
+  // once per breach.
+  const maxSessionMutations = rateLimit?.maxMutationsPerSession;
+  let mutationLimitFired = false;
+  const sessionToolPolicy: ToolPolicy = (ctx) => {
+    if (
+      ctx.proposed &&
+      maxSessionMutations !== undefined &&
+      sessionUsage.committedMutations >= maxSessionMutations
+    ) {
+      if (!mutationLimitFired) {
+        mutationLimitFired = true;
+        rateLimit?.onLimitReached?.('mutations', sessionUsage.committedMutations);
+      }
+      return {
+        action: 'deny',
+        reason:
+          'MUI X Studio: Mutation budget exceeded — this MCP session may commit at most ' +
+          `${maxSessionMutations} state mutation${maxSessionMutations === 1 ? '' : 's'} ` +
+          `(already committed ${sessionUsage.committedMutations}). This change was not applied.`,
+      };
+    }
+    return hostToolPolicy(ctx);
+  };
 
   // Session-scoped log of recent state mutations (oldest first), surfaced via the
   // `get_recent_changes` tool. Only captures changes made through this MCP
@@ -249,6 +290,69 @@ export function buildStudioMcpServer(
     toolHandlers.summarise_page = createSummarisePageHandler({ stateBox, data, logger });
   }
 
+  /**
+   * Commit a policy-cleared tool result to the session: write `nextState` back into
+   * the box, record + notify the mutation, and run the host's `onStateChange`
+   * persistence hook. This runs ONLY on allow / approved-true — the exact steps that
+   * previously ran unconditionally, now gated behind the policy chokepoint.
+   */
+  async function commitMutation(
+    result: ToolExecutionResult,
+    toolName: string,
+  ): Promise<CallToolResult> {
+    // Persist the updated state — next tool call in this session sees it.
+    stateBox.current = result.nextState;
+
+    if (result.mutation) {
+      sessionUsage.committedMutations += 1;
+      // Record the change in the session-scoped log surfaced by get_recent_changes.
+      recentChanges.push({
+        label: mutationLabel(result.mutation),
+        at: new Date().toISOString(),
+      });
+      if (recentChanges.length > MAX_RECENT_CHANGES) {
+        recentChanges.shift();
+      }
+
+      // Notify any subscribed clients that the dashboard state has changed.
+      const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
+      for (const uri of urisToNotify) {
+        if (subscribedUris.has(uri)) {
+          server.sendResourceUpdated({ uri }).catch(() => {
+            // Swallow errors — client may have disconnected
+          });
+        }
+      }
+    }
+
+    const responsePayload: Record<string, unknown> = { output: result.output };
+    if (result.mutation) {
+      responsePayload.mutation = result.mutation;
+    }
+
+    // The state mutation has already applied to the session's live `stateBox` by
+    // this point, so the tool-call result MUST report success now, before invoking
+    // the host's persistence hook. `onStateChange` is the host's persistence concern
+    // and runs AFTER the mutation is committed to session state: if it throws, that
+    // is a persistence failure the host must surface through its own monitoring — it
+    // must NOT make an already-applied mutation look failed to the calling AI, which
+    // would otherwise retry and duplicate the mutation. We log it server-side (when a
+    // logger is configured) and otherwise swallow it, leaving the successful
+    // tool-call result untouched.
+    if (result.mutation && onStateChange) {
+      try {
+        await onStateChange(stateBox.current);
+      } catch (persistErr) {
+        logger?.error(
+          `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
+            `${persistErr instanceof Error ? (persistErr.stack ?? persistErr.message) : String(persistErr)}`,
+        );
+      }
+    }
+
+    return jsonResult(responsePayload);
+  }
+
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
     const t0 = Date.now();
@@ -280,57 +384,53 @@ export function buildStudioMcpServer(
       }
 
       try {
-        const result = executeToolOnState(toolName, args ?? {}, stateBox.current, customWidgets);
-        // Persist the updated state — next tool call in this session sees it.
-        stateBox.current = result.nextState;
+        // Run through the single policy chokepoint (execute-then-gate). The pure
+        // dry-run + effect diff + policy decision all happen here; nothing is written
+        // to the session state box until the policy allows/approves the commit.
+        const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
+          policy: sessionToolPolicy,
+          customWidgets,
+          transport: 'mcp',
+          usage: sessionUsage,
+        });
 
-        // Notify any subscribed clients that the dashboard state has changed.
-        if (result.mutation) {
-          // Record the change in the session-scoped log surfaced by get_recent_changes.
-          recentChanges.push({
-            label: mutationLabel(result.mutation),
-            at: new Date().toISOString(),
-          });
-          if (recentChanges.length > MAX_RECENT_CHANGES) {
-            recentChanges.shift();
-          }
-
-          const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
-          for (const uri of urisToNotify) {
-            if (subscribedUris.has(uri)) {
-              server.sendResourceUpdated({ uri }).catch(() => {
-                // Swallow errors — client may have disconnected
-              });
-            }
-          }
+        if (outcome.kind === 'denied') {
+          // A tool result (not a protocol error), matching the errorResult convention.
+          return errorResult(outcome.reason);
         }
 
-        const responsePayload: Record<string, unknown> = { output: result.output };
-        if (result.mutation) {
-          responsePayload.mutation = result.mutation;
-        }
-
-        // The state mutation has already applied to the session's live `stateBox`
-        // by this point, so the tool-call result MUST report success now, before
-        // invoking the host's persistence hook. `onStateChange` is the host's
-        // persistence concern and runs AFTER the mutation is committed to session
-        // state: if it throws, that is a persistence failure the host must surface
-        // through its own monitoring — it must NOT make an already-applied mutation
-        // look failed to the calling AI, which would otherwise retry and duplicate
-        // the mutation. We log it server-side (when a logger is configured) and
-        // otherwise swallow it, leaving the successful tool-call result untouched.
-        if (result.mutation && onStateChange) {
-          try {
-            await onStateChange(stateBox.current);
-          } catch (persistErr) {
-            logger?.error(
-              `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
-                `${persistErr instanceof Error ? (persistErr.stack ?? persistErr.message) : String(persistErr)}`,
+        if (outcome.kind === 'needs-approval') {
+          // MCP has no built-in pause channel — bridge to the host's approvalHandler.
+          if (!approvalHandler) {
+            return errorResult(
+              'This tool call requires human approval and this MCP session has no approval ' +
+                'channel configured. Set StudioMcpOptions.approvalHandler to enable it.',
             );
           }
+          const approved = await approvalHandler({
+            transport: 'mcp',
+            toolName,
+            input: args ?? {},
+            state: stateBox.current,
+            proposed: outcome.result.mutation
+              ? {
+                  mutation: outcome.result.mutation,
+                  nextState: outcome.result.nextState,
+                  effects: outcome.effects,
+                }
+              : undefined,
+            usage: sessionUsage,
+          });
+          if (!approved) {
+            return errorResult(
+              'This tool call was not approved by the configured approvalHandler.',
+            );
+          }
+          return await commitMutation(outcome.result, toolName);
         }
 
-        return jsonResult(responsePayload);
+        // Allowed — commit exactly like today, just gated now.
+        return await commitMutation(outcome.result, toolName);
       } catch (err) {
         return errorResult(String(err));
       }

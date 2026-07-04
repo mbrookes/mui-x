@@ -273,6 +273,53 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
       }),
     ).rejects.toThrow(/Column "id" on table "customers" is not in the column allowlist/);
   });
+
+  // Pins the invariant every alias-resolution call site relies on `resolveAlias`
+  // (shared/columnValidation.ts) for: a `columnAliases` entry can only ever
+  // RELABEL a column the caller could already reach — it can never make a query
+  // touch a column outside the allowlist. Exercised end-to-end through
+  // `handleBatchQuery` (not just `buildSecureQuery` in isolation) so the
+  // assertion covers validation and execution agreeing, not just one side.
+  // 'ssn'/'customers.ssn' is never allowlisted on either table in the shared
+  // options below — an alias resolving to it must be rejected regardless of
+  // which clause (columns/filters/join.on) used it.
+  it.each<[string, BatchQueryRequest['widgets'][number]]>([
+    [
+      'columns',
+      { id: 'w1', table: 'sales', columns: ['revenue'], columnAliases: { revenue: 'ssn' } },
+    ],
+    [
+      'filters',
+      {
+        id: 'w1',
+        table: 'sales',
+        columns: ['region'],
+        columnAliases: { customerSsn: 'ssn' },
+        filters: [{ column: 'customerSsn', operator: 'eq', value: '123-45-6789' }],
+      },
+    ],
+    [
+      'join.on',
+      {
+        id: 'w1',
+        table: 'sales',
+        columns: ['region'],
+        columnAliases: { customerSsn: 'customers.ssn' },
+        joins: [{ table: 'customers', on: [['sales.customer_id', 'customerSsn']] }],
+      },
+    ],
+  ])(
+    'rejects a columnAliases target that is not in the column allowlist (%s)',
+    async (_context, widget) => {
+      await expect(
+        handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
+          db: makeDb(),
+          schemaAllowlist: ['sales', 'customers'],
+          columnAllowlist: { sales: ['region', 'revenue', 'customer_id'], customers: [] },
+        }),
+      ).rejects.toThrow(/is not in the column allowlist/);
+    },
+  );
 });
 
 // ─── handleBatchQuery — empty-region scope (regionIds: []) is fail-closed ──────
@@ -543,8 +590,8 @@ describe('handleBatchQuery — columnAliases success path', () => {
   // but `mockDb.ts`'s aggregation branch builds output rows directly from its
   // `groupBy()` columns rather than from `select()`'s projection list, so it does
   // not honor column-alias renaming for aggregated queries. Extending the mock's
-  // aggregation-grouping code to do so is out of scope here (see ARCHITECTURE_REVIEW.md
-  // finding 10) — the client/server-tier case above already proves the renamed-output
+  // aggregation-grouping code to do so is a known, currently out-of-scope gap in
+  // this test double — the client/server-tier case above already proves the renamed-output
   // success path that was previously untestable at all.
 });
 

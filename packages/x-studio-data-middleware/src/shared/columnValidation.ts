@@ -16,31 +16,61 @@
  *
  * Qualified names (`table.column`) are split and checked against the allowlist for
  * the named table; unqualified names are checked against `defaultTable`.
- * Logical field IDs are resolved to their physical column via `columnAliases`
- * (when supplied) BEFORE splitting, so aliased expression fields are validated
- * against the real physical table/column.
+ * Logical field IDs are resolved to their physical column via `resolveAlias`
+ * BEFORE splitting, so aliased expression fields are validated against the real
+ * physical table/column.
  */
 import type { BatchWidgetDescriptor } from '../security/types';
 
 /**
- * Validate a single column reference against a per-table allowlist.
- * Throws (fail-closed) when the table has no entry or the column is not allowed.
+ * Resolve a logical column/field reference to its physical SQL column via the
+ * descriptor's `columnAliases` map (a client-declared logical-ID → physical-column
+ * mapping, derived from the dashboard's expression fields/relationships). Returns
+ * `column` unchanged when no alias is declared for it.
  *
- * @param rawColumn - The column reference (may be `table.column`, or a logical ID).
- * @param defaultTable - Table used when `rawColumn` is unqualified.
+ * This is the ONE place alias resolution happens. Every site that touches a
+ * descriptor's column references — allowlist validation, filter predicates, join
+ * conditions, SELECT/ORDER BY/aggregation projection — must resolve through this
+ * function rather than re-implementing the `columnAliases?.[x] ?? x` lookup
+ * inline. That invariant is what guarantees validation and execution can never
+ * disagree about which physical column a client's logical reference points to:
+ * this package hit that exact divergence twice (once for filter predicates, once
+ * for join predicates) before this function existed, because two independent
+ * inline lookups were free to drift. With one implementation, a new descriptor
+ * field that touches columns either calls this function (and is safe by
+ * construction) or visibly doesn't (a code-review-catchable omission, not a
+ * silent gap).
+ *
+ * Because every resolution path funnels through here and `checkColumnAgainstAllowlist`
+ * validates whatever physical column comes out, this mechanism can only ever
+ * RELABEL a column the caller could already reach — it cannot make a query touch
+ * a column that isn't in the allowlist. (See `columnAliases resolution
+ * (allowlist-bypass regression)` in `queryBuilder.test.ts` for the pinned property.)
+ */
+export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string): string {
+  return descriptor.columnAliases?.[column] ?? column;
+}
+
+/**
+ * Validate a single (already alias-resolved) column reference against a
+ * per-table allowlist. Throws (fail-closed) when the table has no entry or the
+ * column is not allowed.
+ *
+ * Callers must resolve logical field IDs via `resolveAlias` BEFORE calling this
+ * — it never reads `columnAliases` itself, so there is no second, independent
+ * resolution path for it to disagree with the caller's.
+ *
+ * @param physical - The physical column reference (may be `table.column`), already alias-resolved.
+ * @param defaultTable - Table used when `physical` is unqualified.
  * @param allowlist - Per-table allowlist (`{ table: [...columns] }`).
  * @param context - Short label describing where the reference came from (e.g. `'columns'`, `'where'`).
- * @param columnAliases - Optional logical-ID → physical-column map.
  */
 export function checkColumnAgainstAllowlist(
-  rawColumn: string,
+  physical: string,
   defaultTable: string,
   allowlist: Record<string, string[]>,
   context: string,
-  columnAliases?: Record<string, string>,
 ): void {
-  // If the logical column ID has a physical alias, validate the physical column instead.
-  const physical = columnAliases?.[rawColumn] ?? rawColumn;
   const dotIdx = physical.indexOf('.');
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;
@@ -78,11 +108,10 @@ export function validateDescriptorColumns(
 ): void {
   const check = (rawColumn: string, context: string): void =>
     checkColumnAgainstAllowlist(
-      rawColumn,
+      resolveAlias(descriptor, rawColumn),
       descriptor.table,
       columnAllowlist,
       context,
-      descriptor.columnAliases,
     );
 
   for (const col of descriptor.columns ?? []) {
@@ -107,18 +136,16 @@ export function validateDescriptorColumns(
       // column allowlisted only on the primary table, but present and sensitive
       // on the joined table, pass validation yet execute against the joined table.
       checkColumnAgainstAllowlist(
-        left,
+        resolveAlias(descriptor, left),
         descriptor.table,
         columnAllowlist,
         'join.on',
-        descriptor.columnAliases,
       );
       checkColumnAgainstAllowlist(
-        right,
+        resolveAlias(descriptor, right),
         join.table,
         columnAllowlist,
         'join.on',
-        descriptor.columnAliases,
       );
     }
   }

@@ -29,6 +29,7 @@ import {
   resolveJoinSecurityColumns,
   resolvePrimarySecurityColumns,
 } from '../shared/predicates';
+import { resolveAlias } from '../shared/columnValidation';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -50,9 +51,6 @@ export function buildSecureQuery(
 ): any {
   const query = db(descriptor.table);
 
-  /** Resolve a logical column ID to its physical SQL column (via columnAliases if set). */
-  const physicalCol = (c: string): string => descriptor.columnAliases?.[c] ?? c;
-
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
   // Each join uses the Knex callback form so ALL `on` pairs become `.on()`
@@ -60,17 +58,12 @@ export function buildSecureQuery(
   // once per pair, producing invalid SQL ("table name not unique") for composite
   // keys.
   //
-  // Resolve `columnAliases` to the physical column for BOTH sides of every `on`
-  // pair BEFORE building the `.on(...)` clause — exactly as the filter
-  // predicates (below) and SELECT / ORDER BY / aggregations (`execute.ts`,
-  // `physicalCol`) do. Validation (`validateDescriptorColumns`) already resolves
-  // aliases when checking both sides of every join pair against the allowlist,
-  // so the executed join MUST target the same resolved physical columns.
-  // Otherwise a client can alias a non-allowlisted column onto an allowlisted
-  // one (e.g. `columnAliases: { 'sales.ssn': 'sales.amount' }`,
-  // `on: [['sales.ssn', 'customers.id']]`), pass validation against the resolved
-  // `sales.amount`, yet have the query join on the real `sales.ssn` column: a
-  // column-allowlist bypass / correlation oracle on a forbidden column.
+  // Resolve every `on` pair through the shared `resolveAlias` — the SAME function
+  // `validateDescriptorColumns` already used to check both sides against the
+  // allowlist — so execution can never target a different physical column than
+  // validation approved. (One shared resolver, not an independent inline lookup,
+  // is what makes that guarantee structural rather than something to re-verify
+  // at every new call site — see `resolveAlias`'s doc comment.)
   for (const join of descriptor.joins ?? []) {
     let joinMethod: string;
     if (join.type === 'left') {
@@ -82,7 +75,7 @@ export function buildSecureQuery(
     }
     query[joinMethod](join.table, function joinOn(this: any) {
       for (const [left, right] of join.on) {
-        this.on(physicalCol(left), '=', physicalCol(right));
+        this.on(resolveAlias(descriptor, left), '=', resolveAlias(descriptor, right));
       }
     });
   }
@@ -115,20 +108,13 @@ export function buildSecureQuery(
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
-  // Resolve `columnAliases` to the physical column BEFORE building the WHERE
-  // clause, exactly as SELECT / ORDER BY / aggregations do in `execute.ts`
-  // (`physicalCol`). Validation (`validateDescriptorColumns`) already resolves
-  // aliases when checking filter columns against `columnAllowlist`, so the
-  // executed column MUST be the same resolved physical column — otherwise a
-  // client can alias a non-allowlisted column onto an allowlisted one (e.g.
-  // `columnAliases: { ssn: 'amount' }`, `filters: [{ column: 'ssn', … }]`),
-  // pass validation against `amount`, yet have the query filter on the real
-  // `ssn` column: a column-allowlist bypass / comparison oracle.
+  // Resolve every filter column through the shared `resolveAlias` before
+  // building the WHERE clause — the same resolver `validateDescriptorColumns`
+  // used to check filter columns against `columnAllowlist`, so execution can
+  // never target a different physical column than validation approved.
   const resolvedFilters = descriptor.filters?.map((predicate): FilterPredicate => {
-    const physical = descriptor.columnAliases?.[predicate.column];
-    return physical && physical !== predicate.column
-      ? { ...predicate, column: physical }
-      : predicate;
+    const physical = resolveAlias(descriptor, predicate.column);
+    return physical !== predicate.column ? { ...predicate, column: physical } : predicate;
   });
   applyPredicates(query, resolvedFilters, 'read');
 

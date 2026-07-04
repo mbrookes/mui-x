@@ -13,6 +13,7 @@ import type {
   HandleBatchQueryOptions,
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
+import { resolveAlias } from '../shared/columnValidation';
 
 type RoutingTier = 'client' | 'server' | 'db';
 
@@ -30,8 +31,8 @@ export async function executeForTier(
   tier: RoutingTier,
   options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): Promise<Record<string, unknown>[]> {
-  /** Resolve a logical column ID to its physical SQL column (via columnAliases if set). */
-  const physicalCol = (c: string): string => descriptor.columnAliases?.[c] ?? c;
+  /** Resolve a logical column ID to its physical SQL column via the shared resolver. */
+  const physicalCol = (c: string): string => resolveAlias(descriptor, c);
 
   // Qualify an unqualified physical column with the primary table to prevent
   // "ambiguous column name" errors when JOINs are present (e.g. an ORDER BY on a

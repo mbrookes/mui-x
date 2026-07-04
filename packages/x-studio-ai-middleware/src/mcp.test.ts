@@ -543,6 +543,41 @@ describe('buildStudioMcpServer', () => {
       });
       expect(onStateChange).not.toHaveBeenCalled();
     });
+
+    it('reports the tool call as successful even when onStateChange throws', async () => {
+      // The state mutation has already applied to the session by the time the
+      // persistence hook runs; a hook failure must NOT surface as a failed tool
+      // call (an AI would retry and duplicate the mutation). It is the host's
+      // concern to surface through their own monitoring.
+      const stateBox = { current: makeStableState() };
+      const logger = { log: vi.fn(), error: vi.fn() };
+      const onStateChange = vi.fn(() => {
+        throw new Error('DB write failed');
+      });
+      const server = buildStudioMcpServer(stateBox, { onStateChange, logger });
+
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'add_page', arguments: { title: 'New Page' } },
+        method: CALL_TOOL,
+      })) as { isError?: boolean; content: Array<{ text: string }> };
+
+      // The persistence hook threw, but the tool call still reports success.
+      expect(onStateChange).toHaveBeenCalledOnce();
+      expect(result.isError).toBeUndefined();
+      const payload = JSON.parse(result.content[0].text) as { output?: string };
+      expect(payload.output).toBeDefined();
+      // The mutation applied to the live session state regardless of the hook.
+      expect(
+        Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'New Page',
+        ),
+      ).toBe(true);
+      // The failure was logged server-side rather than swallowed silently.
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
 
   describe('summarise_page tool', () => {

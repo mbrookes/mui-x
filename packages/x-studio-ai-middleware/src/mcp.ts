@@ -303,13 +303,31 @@ export function buildStudioMcpServer(
               });
             }
           }
-          // Notify consumer so they can persist the new state.
-          await onStateChange?.(stateBox.current);
         }
 
         const responsePayload: Record<string, unknown> = { output: result.output };
         if (result.mutation) {
           responsePayload.mutation = result.mutation;
+        }
+
+        // The state mutation has already applied to the session's live `stateBox`
+        // by this point, so the tool-call result MUST report success now, before
+        // invoking the host's persistence hook. `onStateChange` is the host's
+        // persistence concern and runs AFTER the mutation is committed to session
+        // state: if it throws, that is a persistence failure the host must surface
+        // through its own monitoring — it must NOT make an already-applied mutation
+        // look failed to the calling AI, which would otherwise retry and duplicate
+        // the mutation. We log it server-side (when a logger is configured) and
+        // otherwise swallow it, leaving the successful tool-call result untouched.
+        if (result.mutation && onStateChange) {
+          try {
+            await onStateChange(stateBox.current);
+          } catch (persistErr) {
+            logger?.error(
+              `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
+                `${persistErr instanceof Error ? (persistErr.stack ?? persistErr.message) : String(persistErr)}`,
+            );
+          }
         }
 
         return jsonResult(responsePayload);

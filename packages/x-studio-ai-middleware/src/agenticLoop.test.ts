@@ -572,6 +572,66 @@ describe('runAgenticLoop — tool approval', () => {
     expect(approvalPending.size).toBe(0);
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
+
+  it('shows the widget’s real title in the approval prompt, not a model-supplied one', async () => {
+    // The model claims a benign `widgetTitle` while `widgetId` targets a widget
+    // whose real title is different. The approval prompt must display the ACTUAL
+    // title from state so the human approves based on what will really be removed.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        toolCallResponse('remove_widget', {
+          widgetId: 'w1',
+          widgetTitle: 'harmless placeholder',
+        }),
+      )
+      .mockResolvedValueOnce(textResponse('removed', 10, 5));
+
+    const state = createDefaultStudioState();
+    const activePageId = state.dashboard.activePageId;
+    const seeded = {
+      ...state,
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart' as const,
+          title: 'Confidential Revenue Chart',
+          sourceId: 's',
+          config: {},
+        },
+      },
+      pages: {
+        ...state.pages,
+        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1']] },
+      },
+    };
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Remove the widget')],
+      seeded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        const id = (ev as { toolCallId: string }).toolCallId;
+        setTimeout(() => approvalPending.get(id)?.(true), 0);
+      }
+    }
+
+    const approvalReq = events.find(
+      (ev) => (ev as { type: string }).type === 'tool-approval-request',
+    ) as { input?: { widgetId?: string; widgetTitle?: string } } | undefined;
+    expect(approvalReq).toBeDefined();
+    // The displayed title comes from state, not the model's claimed value.
+    expect(approvalReq?.input?.widgetTitle).toBe('Confidential Revenue Chart');
+    expect(approvalReq?.input?.widgetId).toBe('w1');
+  });
 });
 
 // ── Server-tool skills ──────────────────────────────────────────────────────────

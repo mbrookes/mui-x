@@ -277,6 +277,39 @@ function toError(err: unknown): Error {
 }
 
 /**
+ * Builds the `input` payload shown in a `tool-approval-request` event for a
+ * destructive tool, deriving any human-readable entity label from the ACTUAL
+ * current state rather than trusting the model-supplied label argument.
+ *
+ * `remove_widget`/`remove_page` accept a `widgetTitle`/`pageTitle` arg described
+ * as "used in the confirmation message", but nothing binds it to the real entity
+ * the id points at. A prompt-injected model could claim `widgetTitle: "harmless
+ * widget"` while `widgetId` targets something else, so the human would approve a
+ * removal based on a title the model chose. Overwriting the display label with
+ * `state.widgets[widgetId]?.title` / `state.pages[pageId]?.title` makes the
+ * approval prompt reflect what will really be removed. The model-supplied field is
+ * only ever a display hint (execution keys off the id), so overriding it here does
+ * not change what the tool does once approved. If the entity does not exist in
+ * state (a case the executed tool then rejects), the input is left untouched.
+ */
+function buildApprovalDisplayInput(
+  toolName: string,
+  toolInput: unknown,
+  state: StudioState,
+): unknown {
+  const input = (toolInput ?? {}) as Record<string, unknown>;
+  if (toolName === 'remove_widget') {
+    const realTitle = state.widgets[String(input.widgetId ?? '')]?.title;
+    return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
+  }
+  if (toolName === 'remove_page') {
+    const realTitle = state.pages[String(input.pageId ?? '')]?.title;
+    return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
+  }
+  return toolInput;
+}
+
+/**
  * Executes one tool call, owning the full dispatch decision (parse-failure →
  * gating → server-tool skill → execute_query → unregistered skill → approval +
  * built-in). Yields the side-effect events that must precede the result
@@ -375,7 +408,16 @@ async function* dispatchToolCall(
 
   // Built-in tool — pause for user approval first when required.
   if (ctx.toolsRequiringApproval.has(name) && ctx.approvalPending) {
-    yield { type: 'tool-approval-request', toolCallId: tc.id, toolName: name, input: toolInput };
+    // The human-facing approval display must reflect the real target from state,
+    // not a title the (possibly prompt-injected) model chose. See
+    // `buildApprovalDisplayInput`.
+    const approvalInput = buildApprovalDisplayInput(name, toolInput, currentState);
+    yield {
+      type: 'tool-approval-request',
+      toolCallId: tc.id,
+      toolName: name,
+      input: approvalInput,
+    };
 
     const outcome = await waitForApproval(
       tc.id,

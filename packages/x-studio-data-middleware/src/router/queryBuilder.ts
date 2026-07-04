@@ -88,8 +88,10 @@ export function buildSecureQuery(
   }
 
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
-  // Applied to the primary table and to any joined table that has a configured
-  // tenant column (shared lookup tables without one are intentionally not scoped).
+  // Applied to the primary table and, by default, to every joined table — a
+  // joined table inherits the primary table's resolved security columns unless
+  // the host explicitly opts it out as a shared/lookup table (`perTable[table] =
+  // null`). See `resolveJoinSecurityColumns`.
   applySecurityPredicates(
     query,
     descriptor.table,
@@ -99,6 +101,7 @@ export function buildSecureQuery(
       options?.securityColumns,
       options?.tenantColumn,
     ),
+    'read',
   );
 
   for (const join of descriptor.joins ?? []) {
@@ -106,7 +109,8 @@ export function buildSecureQuery(
       query,
       join.table,
       claims,
-      resolveJoinSecurityColumns(join.table, options?.securityColumns),
+      resolveJoinSecurityColumns(join.table, options?.securityColumns, options?.tenantColumn),
+      'read',
     );
   }
 

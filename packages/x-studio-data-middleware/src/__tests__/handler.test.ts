@@ -245,6 +245,75 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
       }),
     ).rejects.toThrow(/Table "customers" has no entry in the column allowlist \(join.on\)/);
   });
+
+  it('validates an UNQUALIFIED join.on right-side column against the JOINED table, not the primary', async () => {
+    // Regression: the right side of a join `on` pair conventionally belongs to
+    // the JOINED table. An unqualified column allowlisted only on the primary
+    // table, but sensitive on the joined table, used to pass validation (checked
+    // against the primary allowlist) while Knex resolves it against the joined
+    // table at execution time. It must now be validated against `join.table`.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          // `id` is allowlisted on `sales` (primary) but NOT on `customers`; as
+          // the unqualified RIGHT side it belongs to `customers` and is rejected.
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'id']] }],
+        },
+      ],
+    };
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        columnAllowlist: { sales: ['region', 'customer_id', 'id'], customers: ['name'] },
+      }),
+    ).rejects.toThrow(/Column "id" on table "customers" is not in the column allowlist/);
+  });
+});
+
+// ─── handleBatchQuery — empty-region scope (regionIds: []) is fail-closed ──────
+
+describe('handleBatchQuery — empty-region scope (regionIds: []) is fail-closed on reads', () => {
+  const REGION_ROWS = [
+    { id: 1, tenant_id: 'acme', region_id: 1, product: 'a' },
+    { id: 2, tenant_id: 'acme', region_id: 2, product: 'b' },
+  ];
+  const body: BatchQueryRequest = {
+    pageId: 'p1',
+    widgets: [{ id: 'w1', table: 'orders', columns: ['id'] }],
+  };
+
+  it('returns ZERO rows when the caller is authorized for zero regions (regionIds: [])', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS, regionIds: [] },
+      {
+        db: createMockDb({ orders: REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenantColumn: 'tenant_id',
+      },
+    );
+    // `regionIds: []` must NOT widen to the whole tenant table — zero rows.
+    expect(res.results[0].rows).toHaveLength(0);
+  });
+
+  it('returns all tenant rows when regionIds is undefined (deployment not region-scoped)', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS },
+      {
+        db: createMockDb({ orders: REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenantColumn: 'tenant_id',
+      },
+    );
+    // undefined ≠ [] — no region restriction, so both tenant rows are returned.
+    expect(res.results[0].rows).toHaveLength(2);
+  });
 });
 
 // ─── handleBatchQuery — allowlist ─────────────────────────────────────────────

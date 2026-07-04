@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
+import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioState } from './models/studioTypes';
 
@@ -894,6 +895,63 @@ describe('executeToolOnState: set_widget_forecast', () => {
       areaState,
     );
     expect(result.nextState.widgets['widget-1'].config.forecast?.showConfidenceBands).toBe(true);
+  });
+});
+
+// ── Purity guard (frozen input) ────────────────────────────────────────────────
+
+/** Recursively freeze an object graph so any in-place mutation throws. */
+function deepFreeze<T>(obj: T): T {
+  if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+    Object.freeze(obj);
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      deepFreeze((obj as Record<string, unknown>)[key]);
+    }
+  }
+  return obj;
+}
+
+describe('executeToolOnState: purity (never mutates the input state in place)', () => {
+  // Representative args per built-in tool, pointing at entities in `makeState()` so
+  // the mutation path (not just the not-found error path) is exercised where possible.
+  const ARGS_BY_TOOL: Record<string, Record<string, unknown>> = {
+    get_dashboard_state: {},
+    list_pages: {},
+    add_page: { title: 'New' },
+    set_dashboard_title: { title: 'T' },
+    add_widget: { kind: 'chart', title: 'W' },
+    update_widget: { widgetId: 'widget-1', title: 'U' },
+    remove_widget: { widgetId: 'widget-1' },
+    set_widget_layout: { rows: [['widget-1']] },
+    set_widget_width: { widgetId: 'widget-1', columns: 12 },
+    rename_page: { pageId: 'page-1', title: 'R' },
+    remove_page: { pageId: 'page-1' },
+    set_active_page: { pageId: 'page-1' },
+    add_page_filter: { field: 'revenue', sourceId: 'src1', operator: 'greater_than', value: 1 },
+    remove_page_filter: { filterId: 'filter-1' },
+    add_widget_filter: {
+      widgetId: 'widget-1',
+      field: 'revenue',
+      sourceId: 'src1',
+      operator: 'equals',
+      value: 1,
+    },
+    remove_widget_filter: { filterId: 'filter-1' },
+    summarise_page: {},
+    apply_bulk_update: { widgetUpdates: [{ widgetId: 'widget-1', title: 'Bulk' }] },
+    rename_thread: { name: 'Thread' },
+    execute_query: { query: 'SELECT 1' },
+    set_widget_forecast: { widgetId: 'widget-1', enabled: false },
+  };
+
+  it('does not throw for any built-in tool when the input state is deep-frozen', () => {
+    for (const toolName of STUDIO_AI_TOOL_NAMES) {
+      const frozen = deepFreeze(makeState());
+      expect(
+        () => executeToolOnState(toolName, ARGS_BY_TOOL[toolName] ?? {}, frozen),
+        toolName,
+      ).not.toThrow();
+    }
   });
 });
 

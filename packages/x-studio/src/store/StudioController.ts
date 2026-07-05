@@ -187,12 +187,51 @@ export class StudioController {
       /** Client-only state layering, applied AFTER the reducer. */
       transform?: (next: StudioState) => StudioState;
     },
+  ) => this.commitMutations([mutation], options);
+
+  /**
+   * The multi-mutation sibling of {@link commitMutation}: folds an ORDERED
+   * SEQUENCE of `StateMutation`s through the shared `applyMutation` reducer with
+   * `Array.prototype.reduce`, then commits the final state as ONE undoable step,
+   * one subscriber notification, and one recent-mutation-log line.
+   *
+   * Because `applyMutation` is pure, the whole fold happens before the store is
+   * touched — so a single user gesture that internally needs several mutations
+   * (e.g. a cross-page move = "remove from page A's rows" + "add to page B's
+   * rows") still collapses to a single undo entry, rather than two.
+   *
+   * Behaviour it centralizes (mirrors `commitMutation`):
+   *  - **Whole-fold no-op detection**: if every mutation in the sequence returns
+   *    the same state reference (the fold's result is identical to the starting
+   *    state), nothing is committed — no undo entry, no log line.
+   *  - **Labeling**: `label` defaults to the mutations' own `mutationLabel`s
+   *    joined with `' + '`; pass `null` to suppress logging entirely.
+   *  - **Client-only layering**: `transform` runs AFTER the reducer fold to apply
+   *    effects a pure reducer intentionally does not own (React shell selection).
+   *
+   * `commitMutation` delegates here with a single-element array — a one-element
+   * `.map(mutationLabel).join(' + ')` produces exactly `mutationLabel(mutation)`
+   * (a one-element join has no separator), so every existing single-mutation
+   * caller is byte-identical in observable behaviour.
+   */
+  private commitMutations = (
+    mutations: StateMutation[],
+    options?: {
+      /** Recent-mutation-log label. `null` = do not log; omit = reducer default. */
+      label?: string | null;
+      undoable?: boolean;
+      /** Client-only state layering, applied AFTER the reducer fold. */
+      transform?: (next: StudioState) => StudioState;
+    },
   ) => {
-    const next = applyMutation(this.store.state, mutation);
+    const next = mutations.reduce(applyMutation, this.store.state);
     if (next === this.store.state) {
       return;
     }
-    const label = options?.label === null ? undefined : (options?.label ?? mutationLabel(mutation));
+    const label =
+      options?.label === null
+        ? undefined
+        : (options?.label ?? mutations.map(mutationLabel).join(' + '));
     this.commitState(options?.transform ? options.transform(next) : next, {
       undoable: options?.undoable,
       label,
@@ -477,6 +516,39 @@ export class StudioController {
     this.commitMutation(
       { type: 'addWidget', args: { widget, pageId: state.dashboard.activePageId } },
       {
+        transform: (next) => ({
+          ...next,
+          shell: { ...next.shell, selectedWidgetId: widget.id },
+        }),
+      },
+    );
+  };
+
+  /**
+   * Inserts a brand-new widget at an arbitrary row/column position on `pageId`.
+   * `rows` is the page's COMPLETE desired final layout including `widget.id` — the
+   * caller (the canvas drop handler) owns the geometry/splice math, since the drop
+   * position is a pixel/pointer detail the pure reducer has no business deriving.
+   *
+   * Composes the shared `addWidget` + `setWidgetLayout` reducer mutations as ONE
+   * commit (one undo step, one log line) via `commitMutations`, rather than adding
+   * a new `StateMutation` variant for "insert at position" (deliberately avoided —
+   * every mutation variant is nominally AI-tool-facing wire surface, and this is a
+   * client-only geometry detail). `addWidget` first appends `widget.id` as a new
+   * trailing row; `setWidgetLayout` then rewrites the page's rows into the caller's
+   * exact desired arrangement (and runs `enforceLayoutColSpans` for span cleanup).
+   * The client-only shell selection is layered on afterwards via `transform`.
+   */
+  insertWidgetAt = (widget: StudioWidget, pageId: string, rows: string[][]) => {
+    this.commitMutations(
+      [
+        { type: 'addWidget', args: { widget, pageId } },
+        { type: 'setWidgetLayout', args: { rows: rows.filter((r) => r.length > 0), pageId } },
+      ],
+      {
+        // Matches `addWidget()`'s reducer-default label shape so the compose-drawer
+        // insert is indistinguishable from a plain add in the recent-mutation log.
+        label: `addWidget:${widget.kind}:${widget.id}`,
         transform: (next) => ({
           ...next,
           shell: { ...next.shell, selectedWidgetId: widget.id },
@@ -1314,9 +1386,79 @@ export class StudioController {
   };
 
   /**
+   * Single implementation of "move a widget between (or within) pages' rows",
+   * shared by the canvas drag-and-drop entry point ({@link moveWidget}) and the
+   * context-menu "move to page" action ({@link moveWidgetToPage}).
+   *
+   * For a cross-page move this is TWO `setWidgetLayout` mutations — the source
+   * page minus the widget, and the target page with it — folded into ONE commit
+   * via `commitMutations` (one undo step, one log line). For a same-page move it
+   * is a single `setWidgetLayout` on the target page. Either way, each page's
+   * column-span invariants are enforced by the reducer's `enforceLayoutColSpans`
+   * (stale singleton spans cleared, overflowing rows collapsed to flex), so no
+   * manual span-pruning logic lives here — the reducer is the single authority.
+   *
+   * `targetRows` is the target page's COMPLETE desired final layout including
+   * `widgetId`; the caller owns the geometry/splice math. An unknown `widgetId`
+   * (or a missing source page) is a clean no-op.
+   */
+  private commitWidgetMove = (
+    widgetId: string,
+    sourcePageId: string,
+    targetPageId: string,
+    targetRows: string[][],
+    options?: { label?: string | null; transform?: (next: StudioState) => StudioState },
+  ) => {
+    const state = this.store.state;
+    if (!Object.hasOwn(state.widgets, widgetId)) {
+      return;
+    }
+    const mutations: StateMutation[] = [];
+    // Cross-page move: first rewrite the source page's rows without the widget.
+    if (sourcePageId !== targetPageId && Object.hasOwn(state.pages, sourcePageId)) {
+      const sourceRows = (state.pages[sourcePageId].widgetRows ?? [])
+        .map((row) => row.filter((id) => id !== widgetId))
+        .filter((row) => row.length > 0);
+      mutations.push({
+        type: 'setWidgetLayout',
+        args: { rows: sourceRows, pageId: sourcePageId },
+      });
+    }
+    mutations.push({
+      type: 'setWidgetLayout',
+      args: { rows: targetRows.filter((r) => r.length > 0), pageId: targetPageId },
+    });
+    this.commitMutations(mutations, {
+      label: options?.label === null ? null : (options?.label ?? `moveWidget:${widgetId}`),
+      transform: options?.transform,
+    });
+  };
+
+  /**
+   * Canvas drag-and-drop entry point for moving a widget within or across pages.
+   * `targetRows` is the target page's complete desired final layout (the canvas
+   * drop handler computes it). Selects the moved widget after committing.
+   */
+  moveWidget = (
+    widgetId: string,
+    sourcePageId: string,
+    targetPageId: string,
+    targetRows: string[][],
+  ) => {
+    this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows, {
+      transform: (next) => ({ ...next, shell: { ...next.shell, selectedWidgetId: widgetId } }),
+    });
+  };
+
+  /**
    * Moves a widget from the active page to the specified target page.
    * The widget is appended as a new row on the target page.
-   * Widget filters scoped to the current page are re-scoped to the target page.
+   * Widget filters scoped to the current page carry only a `widgetId` (no pageId),
+   * so they need no re-scoping and are preserved automatically.
+   *
+   * Context-menu action — unlike {@link moveWidget} it does NOT select the moved
+   * widget (parity with its historical behaviour). Delegates the actual row/span
+   * transforms to the shared {@link commitWidgetMove} core.
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
     const state = this.store.state;
@@ -1329,38 +1471,9 @@ export class StudioController {
     if (!sourcePage || !targetPage || !state.widgets[widgetId]) {
       return;
     }
-
-    // Remove from source page rows
-    const sourceRows = (sourcePage.widgetRows ?? []).flatMap((row: string[]) => {
-      const r = row.filter((id: string) => id !== widgetId);
-      return r.length > 0 ? [r] : [];
-    });
-    const { [widgetId]: removedSourceSpan, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
-    void removedSourceSpan;
-
-    // Append as a new row on the target page
+    // Append the widget as a new trailing row on the target page (unchanged landing spot).
     const targetRows = [...(targetPage.widgetRows ?? []), [widgetId]];
-
-    // Re-scope widget-level filters to the target page
-    // (widget-scoped filters have no pageId in scope, so no re-scoping needed)
-    const updatedFilters = state.filters;
-
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [sourcePageId]: {
-          ...sourcePage,
-          widgetRows: sourceRows,
-          widgetColSpans: Object.keys(sourceSpans).length > 0 ? sourceSpans : undefined,
-        },
-        [targetPageId]: {
-          ...targetPage,
-          widgetRows: targetRows,
-        },
-      },
-      filters: updatedFilters,
-    });
+    this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows);
   };
 
   /**

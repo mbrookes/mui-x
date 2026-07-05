@@ -1,69 +1,107 @@
 import { describe, expect, it } from 'vitest';
-import { pruneWidgetColSpan } from './StudioCanvas';
+import { StudioController } from '../../store/StudioController';
+import type { StudioWidget } from '../../models';
+import { GRID_COLS } from './canvasGridConstants';
 
 /**
- * Regression coverage for the architecture-review finding: "Cross-page widget move leaks
- * `widgetColSpans`" — `handleDrop`'s cross-page branch removed the moved widget from the
- * source page's `widgetRows` but left its entry in the source page's `widgetColSpans`,
- * which could resurface (a stale span suddenly applied) if the widget was later moved back
- * to that page.
+ * Column-span cleanup on a drag-and-drop widget move — now covered at the CONTROLLER
+ * level (`StudioController.moveWidget`) rather than by unit-testing a `StudioCanvas`
+ * helper.
  *
- * `handleDrop` itself is a `useCallback` closure inside `StudioPageRows` wired up to real
- * pragmatic-drag-and-drop targets (native `dragstart`/`dragover`/`drop` sequencing), which
- * isn't reliably simulatable in this jsdom test environment. The fix extracted the shared
- * col-span-removal logic — used at all three cleanup sites in `handleDrop`, including the
- * new source-page cleanup — into `pruneWidgetColSpan`, exported here specifically so this
- * logic (not just the pure UI wiring around it) is directly testable.
+ * History: `handleDrop`'s canvas-widget branch used to hand-roll all col-span cleanup
+ * (`pruneWidgetColSpan` + an `isNewSingleton`/overflow check + a cross-page source-page
+ * rebuild) and commit via `controller.updateState(...)`. That branch has been converged
+ * onto `controller.moveWidget(...)`, which folds the source/target `setWidgetLayout`
+ * mutations through the shared `applyMutation` reducer — so `enforceLayoutColSpans` now
+ * governs ALL span cleanup for drag-and-drop, exactly as it already does for the
+ * keyboard-reorder path (`setWidgetLayout`). `pruneWidgetColSpan` was deleted with the
+ * hand-rolled logic, so this file no longer tests it directly.
+ *
+ * The scenario the old file pinned — "a survivor left behind by a move KEEPS its span" —
+ * is deliberately INVERTED here (D9): adopting the reducer's semantics means the survivor's
+ * now-stale multi-widget-era span is CLEARED. jsdom cannot drive pragmatic-drag-and-drop,
+ * so these exercise `moveWidget` (the branch's new commit path) directly instead of
+ * simulating a drag gesture.
  */
-describe('pruneWidgetColSpan (cross-page widgetColSpans leak)', () => {
-  it('removes the widget entry and preserves the rest', () => {
-    const result = pruneWidgetColSpan({ w1: 8, w2: 16 }, 'w1');
-    expect(result).toEqual({ w2: 16 });
+
+function makeWidget(id: string): StudioWidget {
+  return { id, kind: 'kpi', title: id, config: { kpiAggregation: 'sum' } };
+}
+
+/** Build a controller with two pages and the given page-1 rows/spans. */
+function twoPageController(
+  widgetIds: string[],
+  page1Rows: string[][],
+  page1Spans?: Record<string, number>,
+) {
+  return new StudioController({
+    dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+    pages: {
+      'page-1': {
+        id: 'page-1',
+        title: 'Page 1',
+        widgetRows: page1Rows,
+        widgetColSpans: page1Spans,
+      },
+      'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+    },
+    widgets: Object.fromEntries(widgetIds.map((id) => [id, makeWidget(id)])),
+  });
+}
+
+describe('StudioController.moveWidget — col-span cleanup (drag-and-drop convergence)', () => {
+  it('D9: moving a widget out of a 2-widget row clears the now-stale span of the survivor', () => {
+    // page-1: w1 + w2 share a row with an explicit 16/8 split. Dragging w1 to page-2
+    // leaves w2 alone — its 8-column span is now stale (it auto-fills the row), so the
+    // reducer clears it. (The OLD canvas behaviour KEPT that span; D9 inverts it.)
+    const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
+
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+
+    const state = controller.getState();
+    // w2's stale span is cleared (map collapses to undefined once empty).
+    expect(state.pages['page-1'].widgetColSpans).toBeUndefined();
+    expect(state.pages['page-1'].widgetRows).toEqual([['w2']]);
+    expect(state.pages['page-2'].widgetRows).toEqual([['w1']]);
   });
 
-  it('collapses to undefined when removing the only entry', () => {
-    const result = pruneWidgetColSpan({ w1: 8 }, 'w1');
-    expect(result).toBeUndefined();
+  it('cross-page move drops the moved-widget stale span from the SOURCE page (no leak-back)', () => {
+    // The original "leak" scenario: w1 must not leave its span behind on page-1, so a
+    // later move back can never resurrect it. (Here the survivor sibling's span is also
+    // cleared per D9, so the whole map collapses to undefined.)
+    const controller = twoPageController(['w1', 'w-sibling'], [['w1', 'w-sibling']], {
+      w1: 8,
+      'w-sibling': 16,
+    });
+
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+
+    const page1 = controller.getState().pages['page-1'];
+    expect(page1.widgetColSpans).toBeUndefined();
+    expect(page1.widgetColSpans?.w1).toBeUndefined();
   });
 
-  it('is a no-op (same reference) when the widget has no entry', () => {
-    const colSpans = { w2: 16 };
-    expect(pruneWidgetColSpan(colSpans, 'w1')).toBe(colSpans);
+  it('D10: a widget already alone in its row KEEPS its intentional span when moved to a new singleton row', () => {
+    // w1 is a lone occupant with a deliberate narrow 12-col span; w2 is alone in row 1.
+    // Reordering the two singleton rows never collapses a 2→1 row, so w1's intentional
+    // span survives — it is not cleared just for landing alone again.
+    const controller = twoPageController(['w1', 'w2'], [['w1'], ['w2']], { w1: 12 });
+
+    controller.moveWidget('w1', 'page-1', 'page-1', [['w2'], ['w1']]);
+
+    expect(controller.getState().pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
   });
 
-  it('is a no-op when colSpans is undefined', () => {
-    expect(pruneWidgetColSpan(undefined, 'w1')).toBeUndefined();
-  });
+  it('D11: moving a widget into a row that then overflows GRID_COLS clears ALL spans in that row', () => {
+    // w1 (span 20) and w2 (span 20) each start alone. Dragging w1 into w2's row makes the
+    // row total 40 > GRID_COLS (24); with no anchor to rebalance around, EVERY span in the
+    // row is dropped so it falls back to equal flex — not just the incoming widget's.
+    const controller = twoPageController(['w1', 'w2'], [['w1'], ['w2']], { w1: 20, w2: 20 });
+    expect(20 + 20).toBeGreaterThan(GRID_COLS);
 
-  it('models the cross-page move scenario: source page widgetColSpans no longer references the moved widget', () => {
-    // Widget "w1" starts on page-1 (manually resized to a 8/16 split with "w-sibling"),
-    // then the user drags it onto page-2. `handleDrop`'s cross-page branch calls
-    // `pruneWidgetColSpan(state.pages[sourcePageId].widgetColSpans, widgetId)` to build the
-    // updated source page — this reproduces that exact call.
-    const sourcePage = {
-      id: 'page-1',
-      title: 'Page 1',
-      widgetRows: [['w1', 'w-sibling']],
-      widgetColSpans: { w1: 8, 'w-sibling': 16 },
-    };
+    controller.moveWidget('w1', 'page-1', 'page-1', [['w1', 'w2']]);
 
-    const widgetRowsAfterRemoval = sourcePage.widgetRows
-      .map((row) => row.filter((id) => id !== 'w1'))
-      .filter((row) => row.length > 0);
-    const widgetColSpansAfterRemoval = pruneWidgetColSpan(sourcePage.widgetColSpans, 'w1');
-
-    const updatedSourcePage = {
-      ...sourcePage,
-      widgetRows: widgetRowsAfterRemoval,
-      widgetColSpans: widgetColSpansAfterRemoval,
-    };
-
-    expect(updatedSourcePage.widgetRows).toEqual([['w-sibling']]);
-    expect(updatedSourcePage.widgetColSpans).toEqual({ 'w-sibling': 16 });
-    expect(updatedSourcePage.widgetColSpans).not.toHaveProperty('w1');
-
-    // If "w1" is later moved back to page-1 as a new singleton row, it must not inherit
-    // the stale 8-column span from before it ever left.
-    expect(updatedSourcePage.widgetColSpans?.w1).toBeUndefined();
+    expect(controller.getState().pages['page-1'].widgetColSpans).toBeUndefined();
+    expect(controller.getState().pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
   });
 });

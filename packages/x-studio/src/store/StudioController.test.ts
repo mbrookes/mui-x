@@ -731,6 +731,180 @@ describe('StudioController.moveWidgetToPage', () => {
   });
 });
 
+// ─── StudioController.insertWidgetAt (compose-drawer drop convergence) ─────────
+// The canvas compose-drawer drop branch now composes `addWidget` + `setWidgetLayout`
+// through `insertWidgetAt` (one commit, one undo step, one log line) instead of a
+// hand-rolled `controller.updateState({...})`.
+
+describe('StudioController.insertWidgetAt', () => {
+  it('inserts a new widget at a horizontal position (new row) and selects it', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().dashboard.activePageId;
+    controller.addWidget(makeWidget('a')); // rows: [['a']]
+
+    controller.insertWidgetAt(makeWidget('w1'), pageId, [['w1'], ['a']]);
+
+    const state = controller.getState();
+    expect(state.widgets.w1).toBeDefined();
+    expect(state.pages[pageId].widgetRows).toEqual([['w1'], ['a']]);
+    expect(state.shell.selectedWidgetId).toBe('w1');
+    // No stray column-span entries introduced by the insert.
+    expect(state.pages[pageId].widgetColSpans).toBeUndefined();
+  });
+
+  it('inserts a new widget into an existing row (vertical) with no stray spans', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().dashboard.activePageId;
+    controller.addWidget(makeWidget('a'));
+
+    controller.insertWidgetAt(makeWidget('w1'), pageId, [['a', 'w1']]);
+
+    const state = controller.getState();
+    expect(state.pages[pageId].widgetRows).toEqual([['a', 'w1']]);
+    expect(state.pages[pageId].widgetColSpans).toBeUndefined();
+    expect(state.shell.selectedWidgetId).toBe('w1');
+  });
+
+  it('is a whole-fold no-op for a nonexistent pageId (no commit, no undo entry)', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('anchor'); // one real undoable action
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+
+    controller.insertWidgetAt(makeWidget('w1'), 'no-such-page', [['w1']]);
+
+    // Both folded mutations no-op on the unknown page → same state reference, no history.
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(undoBefore);
+    expect(controller.getState().widgets.w1).toBeUndefined();
+  });
+
+  it('collapses one insert gesture to a single undo step', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().dashboard.activePageId;
+    controller.addWidget(makeWidget('a'));
+    const rowsBefore = controller.getState().pages[pageId].widgetRows;
+
+    controller.insertWidgetAt(makeWidget('w1'), pageId, [['w1'], ['a']]);
+    controller.undo();
+
+    const state = controller.getState();
+    expect(state.widgets.w1).toBeUndefined();
+    expect(state.pages[pageId].widgetRows).toEqual(rowsBefore);
+  });
+
+  it('logs under the addWidget label shape (D12)', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().dashboard.activePageId;
+
+    controller.insertWidgetAt(makeWidget('w1'), pageId, [['w1']]);
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addWidget:kpi:w1']);
+  });
+});
+
+// ─── StudioController.moveWidget (canvas drag-and-drop convergence) ────────────
+// The canvas canvas-widget drop branch now delegates to `moveWidget`, which folds
+// the source/target `setWidgetLayout` mutations into a single commit and selects the
+// moved widget. `moveWidgetToPage` (context menu) shares the same `commitWidgetMove`
+// core but does not select.
+
+describe('StudioController.moveWidget', () => {
+  function twoPageController(
+    widgetIds: string[],
+    page1Rows: string[][],
+    page1Spans?: Record<string, number>,
+  ) {
+    return new StudioController({
+      dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'Page 1',
+          widgetRows: page1Rows,
+          widgetColSpans: page1Spans,
+        },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      },
+      widgets: Object.fromEntries(widgetIds.map((id) => [id, makeWidget(id)])),
+    });
+  }
+
+  it('collapses a cross-page move to one undo step restoring BOTH pages', () => {
+    const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
+    const p1Before = controller.getState().pages['page-1'];
+    const p2Before = controller.getState().pages['page-2'];
+
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    // Sanity: the move actually changed both pages.
+    expect(controller.getState().pages['page-1'].widgetRows).toEqual([['w2']]);
+    expect(controller.getState().pages['page-2'].widgetRows).toEqual([['w1']]);
+
+    controller.undo();
+    const state = controller.getState();
+    expect(state.pages['page-1']).toEqual(p1Before);
+    expect(state.pages['page-2']).toEqual(p2Before);
+  });
+
+  it('selects the moved widget (unlike moveWidgetToPage)', () => {
+    const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().shell.selectedWidgetId).toBe('w1');
+  });
+
+  it('is a whole-fold no-op for an unknown widgetId (no commit, no undo entry)', () => {
+    const controller = twoPageController(['w1'], [['w1']]);
+    controller.setDashboardTitle('anchor');
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+
+    controller.moveWidget('ghost', 'page-1', 'page-2', [['ghost']]);
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(undoBefore);
+  });
+
+  it('logs a moveWidget label (D12)', () => {
+    const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['moveWidget:w1']);
+  });
+
+  it('drag-drop (moveWidget) and context-menu (moveWidgetToPage) reach the same state bar selection', () => {
+    const build = () =>
+      new StudioController({
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2']],
+            widgetColSpans: { w1: 16, w2: 8 },
+          },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['x']] },
+        },
+        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2'), x: makeWidget('x') },
+      });
+
+    // moveWidgetToPage appends the widget as a new trailing row on the target page.
+    const viaMenu = build();
+    viaMenu.moveWidgetToPage('w1', 'page-2');
+
+    // moveWidget is called by the canvas with that same computed target layout.
+    const viaDrag = build();
+    viaDrag.moveWidget('w1', 'page-1', 'page-2', [['x'], ['w1']]);
+
+    const menuState = viaMenu.getState();
+    const dragState = viaDrag.getState();
+    expect(dragState.pages).toEqual(menuState.pages);
+    expect(dragState.widgets).toEqual(menuState.widgets);
+    expect(dragState.filters).toEqual(menuState.filters);
+    // The only intended divergence: the drag path selects the moved widget.
+    expect(dragState.shell.selectedWidgetId).toBe('w1');
+    expect(menuState.shell.selectedWidgetId).toBeNull();
+  });
+});
+
 // ─── StudioController — filter CRUD ──────────────────────────────────────────
 
 describe('StudioController.addFilter / removeFilter', () => {

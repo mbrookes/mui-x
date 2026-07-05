@@ -43,29 +43,6 @@ export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
   return MIN_SPAN;
 }
 
-/**
- * Removes `widgetId`'s entry from `colSpans` (if present), collapsing an empty result to
- * `undefined` so a page with no manual spans left doesn't carry around an empty object.
- *
- * Used by `handleDrop` (below) in three places: clearing a destination-row span when the
- * dropped widget lands as a new singleton, clearing it when the destination row's spans
- * would overflow `GRID_COLS`, and — the cross-page-move col-span leak fix — clearing the
- * moved widget's stale entry from the SOURCE page once it has moved to a different page
- * (previously only `widgetRows` was cleaned up there, leaving `widgetColSpans` behind to
- * resurface if the widget was later moved back).
- */
-export function pruneWidgetColSpan(
-  colSpans: Record<string, number> | undefined,
-  widgetId: string,
-): Record<string, number> | undefined {
-  if (!colSpans || colSpans[widgetId] == null) {
-    return colSpans;
-  }
-  const { [widgetId]: removedSpan, ...rest } = colSpans;
-  void removedSpan;
-  return Object.keys(rest).length > 0 ? rest : undefined;
-}
-
 /** State describing an in-progress resize drag between two adjacent widgets in a row. */
 export interface LiveDragState {
   leftId: string;
@@ -192,8 +169,6 @@ function StudioPageRows({
 
   const widgetRowsRef = React.useRef(widgetRows);
   widgetRowsRef.current = widgetRows;
-  const widgetColSpansRef = React.useRef(widgetColSpans);
-  widgetColSpansRef.current = widgetColSpans;
 
   const handleDrop = React.useCallback(
     (
@@ -210,6 +185,8 @@ function StudioPageRows({
           return;
         }
         const newWidget = createDefaultWidget(data.kind);
+        // Canvas-side geometry: splice the new widget into the target page's rows at
+        // the drop position. The reducer owns the actual state transform + span cleanup.
         const rows = currentRows.map((r) => [...r]);
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [newWidget.id]);
@@ -218,24 +195,17 @@ function StudioPageRows({
           row.splice(colIndex, 0, newWidget.id);
           rows[rowIndex] = row;
         }
-        const state = controller.getState();
-        const targetPage = state.pages[pageId];
-        controller.updateState({
-          widgets: { ...state.widgets, [newWidget.id]: newWidget },
-          pages: {
-            ...state.pages,
-            [pageId]: { ...targetPage, widgetRows: rows },
-          },
-          shell: { ...state.shell, selectedWidgetId: newWidget.id },
-        });
+        controller.insertWidgetAt(newWidget, pageId, rows);
         announce(localeText.canvasWidgetAddedAnnouncement);
       } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
         const widgetId: string = data.widgetId;
         const sourcePageId: string | undefined = data.sourcePageId;
-        const isCrossPage = sourcePageId != null && sourcePageId !== pageId;
 
-        // Build the target page rows: start from currentRows (already the target page)
-        // and place the widget in the correct position.
+        // Canvas-side geometry: build the target page's final rows by placing the
+        // widget at the drop position (removing any prior occurrence first). The
+        // reducer's `enforceLayoutColSpans` governs ALL span cleanup — stale singleton
+        // spans, overflowing rows, and the source page's leftover span — so no manual
+        // span-pruning happens here.
         const rows = currentRows.map((r) => r.filter((id) => id !== widgetId));
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [widgetId]);
@@ -246,61 +216,7 @@ function StudioPageRows({
         }
         const cleaned = rows.filter((r) => r.length > 0);
 
-        // Determine the destination row after cleaning
-        const destRow = cleaned.find((r) => r.includes(widgetId)) ?? [];
-        const isNewSingleton = destRow.length === 1;
-
-        // Clear the moved widget's colSpan if it lands alone in a row, or if
-        // its span would push the row total beyond 12 columns.
-        let nextColSpans = widgetColSpansRef.current;
-        if (isNewSingleton) {
-          nextColSpans = pruneWidgetColSpan(nextColSpans, widgetId);
-        } else if (nextColSpans?.[widgetId] != null) {
-          // Check if the destination row's total spans exceed 12
-          const destSpanTotal = destRow.reduce((sum, id) => {
-            const s = nextColSpans?.[id];
-            return sum + (s ?? 0);
-          }, 0);
-          if (destSpanTotal > GRID_COLS) {
-            nextColSpans = pruneWidgetColSpan(nextColSpans, widgetId);
-          }
-        }
-
-        const state = controller.getState();
-
-        // When dropping onto a different page, also remove the widget from the source page.
-        const sourcePageUpdate: Record<string, StudioPage> = {};
-        if (isCrossPage && sourcePageId && state.pages[sourcePageId]) {
-          const srcRows = (state.pages[sourcePageId].widgetRows ?? []).flatMap((r) => {
-            const row = r.filter((id) => id !== widgetId);
-            return row.length > 0 ? [row] : [];
-          });
-          // Also drop the moved widget's entry from the SOURCE page's widgetColSpans —
-          // otherwise a stale span lingers there and can resurface if the widget is later
-          // moved back to this page.
-          const nextSrcColSpans = pruneWidgetColSpan(
-            state.pages[sourcePageId].widgetColSpans,
-            widgetId,
-          );
-          sourcePageUpdate[sourcePageId] = {
-            ...state.pages[sourcePageId],
-            widgetRows: srcRows,
-            widgetColSpans: nextSrcColSpans,
-          };
-        }
-
-        controller.updateState({
-          pages: {
-            ...state.pages,
-            ...sourcePageUpdate,
-            [pageId]: {
-              ...state.pages[pageId],
-              widgetRows: cleaned,
-              widgetColSpans: nextColSpans,
-            },
-          },
-          shell: { ...state.shell, selectedWidgetId: widgetId },
-        });
+        controller.moveWidget(widgetId, sourcePageId ?? pageId, pageId, cleaned);
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },

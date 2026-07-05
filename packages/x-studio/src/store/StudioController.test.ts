@@ -1424,3 +1424,75 @@ describe('Col-span unit system round-trip', () => {
     expect(tooLarge.pages[activePageId].widgetColSpans).toEqual({ w1: GRID_COLS });
   });
 });
+
+// ─── commitMutation delegation — signed-off behaviour changes ────────────────
+// These pin the intended behaviour changes introduced when the listed controller
+// methods were converted to delegate through the shared `applyMutation` reducer
+// via the private `commitMutation` choke-point.
+
+describe('StudioController.setWidgetLayout — col-span cleanup (D2 bug fix)', () => {
+  it('prunes stale spans when a keyboard-style reorder splits a shared row into singletons', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    // Put both widgets in one row and give them an explicit 16/8 split.
+    controller.setWidgetLayout([['w1', 'w2']]);
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+    expect(controller.getState().pages[activePageId].widgetColSpans).toEqual({ w1: 16, w2: 8 });
+
+    // The keyboard-accessible reorder path (StudioWidgetCard) commits via
+    // `setWidgetLayout`. Splitting the pair into two singleton rows must now clear
+    // both stale multi-widget-era spans (each survivor auto-fills its row) — the
+    // same cleanup the pointer drag-and-drop path already performed, which the old
+    // `setWidgetLayout` (a bare `widgetRows` replace) skipped, leaving them stale.
+    controller.setWidgetLayout([['w1'], ['w2']]);
+    expect(controller.getState().pages[activePageId].widgetColSpans).toBeUndefined();
+  });
+
+  it('preserves an intentional lone-widget span (does not over-prune)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    // w1 alone in row 0 with a deliberate narrow span; w2 alone in row 1.
+    controller.setWidgetLayout([['w1'], ['w2']]);
+    controller.setAdjacentWidgetColSpans('w1', 12, 'w2', 12); // writes {w1:12} via clamp pair
+    // Only assert the reorder below keeps w1's already-lone span intact.
+    const spansBefore = controller.getState().pages[activePageId].widgetColSpans;
+    // Swap the two singleton rows — neither row collapses from 2→1, so no span is stale.
+    controller.setWidgetLayout([['w2'], ['w1']]);
+    expect(controller.getState().pages[activePageId].widgetColSpans).toEqual(spansBefore);
+  });
+});
+
+describe('StudioController.removeFilter — no-op does not touch history/log (D4)', () => {
+  it('removing an unknown filter id creates no undo entry and no log line', () => {
+    const controller = new StudioController({ filters: [makeFilter({ id: 'f1' })] });
+    controller.setDashboardTitle('anchor'); // one real undoable action + log line
+    const undoBefore = controller.canUndo();
+    const logBefore = controller.getRecentMutations();
+
+    controller.removeFilter('does-not-exist');
+
+    expect(controller.canUndo()).toBe(undoBefore);
+    expect(controller.getRecentMutations()).toEqual(logBefore);
+    // A single undo reverts the title change — proving the no-op added no step.
+    expect(controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+  });
+});
+
+describe('StudioController.updateWidgetConfig — reducer default label (D1)', () => {
+  it('logs under the reducer default `updateWidget:<id>` label (was `updateWidgetConfig:<id>`)', () => {
+    const controller = new StudioController({
+      widgets: {
+        text1: { id: 'text1', kind: 'text', title: 'Notes', config: { textBody: 'Body' } },
+      },
+    });
+
+    controller.updateWidgetConfig('text1', { textBody: 'Updated' });
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['updateWidget:text1']);
+  });
+});

@@ -467,30 +467,21 @@ export class StudioController {
 
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    const widgetRows = activePage.widgetRows || [];
-    // Add new widget as a new row by default
-    const newWidgetRows = [...widgetRows, [widget.id]];
-    this.commitState(
+    // Delegate the state-shape transform (new row on the target page) to the shared
+    // reducer, stamping the active page explicitly (D6) so the constructed mutation
+    // is self-describing rather than relying on the reducer's active-page fallback.
+    // Layer only the client-only shell-selection side effect on top via `transform`.
+    // (The reducer's `Object.hasOwn` page guard turns the old unguarded
+    // `state.pages[activePageId]` read — which threw when the active page was
+    // missing — into a clean no-op; a crash was never desired behaviour.)
+    this.commitMutation(
+      { type: 'addWidget', args: { widget, pageId: state.dashboard.activePageId } },
       {
-        ...state,
-        widgets: {
-          ...state.widgets,
-          [widget.id]: widget,
-        },
-        pages: {
-          ...state.pages,
-          [activePage.id]: {
-            ...activePage,
-            widgetRows: newWidgetRows,
-          },
-        },
-        shell: {
-          ...state.shell,
-          selectedWidgetId: widget.id,
-        },
+        transform: (next) => ({
+          ...next,
+          shell: { ...next.shell, selectedWidgetId: widget.id },
+        }),
       },
-      { label: `addWidget:${widget.kind}:${widget.id}` },
     );
   };
 
@@ -533,16 +524,17 @@ export class StudioController {
     // Filter out any empty rows (defensive)
     const sanitisedRows = newRows.filter((row) => row.length > 0);
 
-    this.commitState(
-      {
-        ...state,
-        pages: {
-          ...state.pages,
-          [activePage.id]: { ...activePage, widgetRows: sanitisedRows },
-        },
-      },
-      { label: 'setWidgetLayout' },
-    );
+    // The throwing validation above (unknown / orphaned ids) stays a
+    // controller-only layer — the reducer's graceful no-op behaviour and this
+    // strict validation are complementary. The state transform itself delegates
+    // to the shared reducer, stamping the active page explicitly (D6). Delegating
+    // here also runs the reducer's `enforceLayoutColSpans` cleanup, so the
+    // keyboard-driven reorder path (`StudioWidgetCard`) now prunes/rebalances
+    // stale column spans exactly like the pointer drag-and-drop path already did.
+    this.commitMutation({
+      type: 'setWidgetLayout',
+      args: { rows: sanitisedRows, pageId: activePage.id },
+    });
   };
 
   /**
@@ -661,37 +653,24 @@ export class StudioController {
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
   ) => {
-    const state = this.store.state;
-    const existing = state.widgets[widgetId];
-
-    if (!existing) {
-      return;
-    }
-
-    const nextConfig = { ...existing.config } as Record<string, unknown>;
-    Object.entries(config).forEach(([key, value]) => {
-      if (value === undefined) {
-        delete nextConfig[key as keyof typeof nextConfig];
-      } else {
-        nextConfig[key] = value;
-      }
-    });
-
-    const updated: StudioWidget = {
-      ...existing,
-      config: nextConfig as StudioWidget['config'],
-    };
-    const withTitles = this.applyInferredTitles(updated, state.dataSources);
-
-    this.commitState(
+    // Delegate the config-patch merge (delete-on-`undefined` semantics) to the
+    // shared reducer's `updateWidget` handler, whose `config` branch already
+    // implements the identical delete-on-`undefined` behaviour. Live-data title
+    // inference is a client-only effect the pure reducer does not own, so it is
+    // layered on afterwards via `transform`. Per D1 this now uses the reducer's
+    // default `updateWidget:${widgetId}` log label (was `updateWidgetConfig:...`).
+    this.commitMutation(
+      { type: 'updateWidget', args: { widgetId, config: config as StudioWidget['config'] } },
       {
-        ...state,
-        widgets: {
-          ...state.widgets,
-          [widgetId]: withTitles,
+        transform: (next) => {
+          const updated = next.widgets[widgetId];
+          const withTitles = this.applyInferredTitles(updated, next.dataSources);
+          return {
+            ...next,
+            widgets: { ...next.widgets, [widgetId]: withTitles },
+          };
         },
       },
-      { label: `updateWidgetConfig:${widgetId}` },
     );
   };
 
@@ -1262,15 +1241,17 @@ export class StudioController {
 
   setActivePage = (pageId: string) => {
     const state = this.store.state;
+    // Keep the same-value early return: the reducer builds a fresh dashboard object
+    // even when `activePageId` is unchanged, so without this guard a redundant
+    // navigation would still notify subscribers.
     if (!state.pages[pageId] || state.dashboard.activePageId === pageId) {
       return;
     }
-    this.commitState(
-      {
-        ...state,
-        dashboard: { ...state.dashboard, activePageId: pageId },
-      },
-      { undoable: false },
+    // D5: user-driven navigation stays non-undoable and unlogged (`label: null`) —
+    // only the AI-driven `applyExternalMutation` path logs `setActivePage`.
+    this.commitMutation(
+      { type: 'setActivePage', args: { pageId } },
+      { undoable: false, label: null },
     );
   };
 

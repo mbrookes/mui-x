@@ -2,14 +2,10 @@
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import type { GanttItem } from '../../../internals/chartShapes/gantt';
 
-export interface GanttItem {
-  label: string;
-  startMs: number;
-  endMs: number;
-  /** Optional category value used for colour coding */
-  colorCategory?: string;
-}
+// Re-exported for backward compatibility with existing imports of this module.
+export type { GanttItem };
 
 interface StudioGanttChartProps {
   items: GanttItem[];

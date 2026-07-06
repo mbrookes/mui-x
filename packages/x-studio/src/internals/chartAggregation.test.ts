@@ -8,6 +8,8 @@ import {
   aggregateMultipleSeries,
   aggregateSankey,
   analyzeChartSupport,
+  buildFunnelStages,
+  buildGanttItems,
   clampWidthPct,
   applyRankToAggregated,
   applyRankToMultiSeries,
@@ -1784,5 +1786,211 @@ describe('aggregateHeatmap axis ordering', () => {
     );
     // xOrder wins; sortBy/sortDirection are ignored for x-axis
     expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation']);
+  });
+});
+
+// ─── buildFunnelStages ─────────────────────────────────────────────────────────
+
+describe('buildFunnelStages', () => {
+  const rows = [
+    { stage: 'Prospecting', amount: 100 },
+    { stage: 'Prospecting', amount: 50 },
+    { stage: 'Qualification', amount: 80 },
+    { stage: 'Proposal', amount: 20 },
+  ];
+
+  it('sums the value field per stage category', () => {
+    const result = buildFunnelStages(
+      rows,
+      'stage',
+      'amount',
+      undefined,
+      'value',
+      undefined,
+      undefined,
+    );
+    const prospecting = result.stages.find((s) => s.label === 'Prospecting');
+    expect(prospecting?.value).toBe(150);
+  });
+
+  it('defaults to value-descending native sort when sortBy is "value" (or omitted)', () => {
+    const result = buildFunnelStages(
+      rows,
+      'stage',
+      'amount',
+      undefined,
+      'value',
+      undefined,
+      undefined,
+    );
+    expect(result.sort).toBe('descending');
+  });
+
+  it('sortBy "natural" preserves insertion order and returns sort: "none"', () => {
+    const result = buildFunnelStages(
+      rows,
+      'stage',
+      'amount',
+      undefined,
+      'natural',
+      undefined,
+      undefined,
+    );
+    expect(result.stages.map((s) => s.label)).toEqual(['Prospecting', 'Qualification', 'Proposal']);
+    expect(result.sort).toBe('none');
+  });
+
+  it('explicit funnelCategoryOrder pre-sorts stages and returns sort: "none"', () => {
+    const result = buildFunnelStages(
+      rows,
+      'stage',
+      'amount',
+      undefined,
+      'category',
+      ['Proposal', 'Qualification', 'Prospecting'],
+      undefined,
+    );
+    expect(result.stages.map((s) => s.label)).toEqual(['Proposal', 'Qualification', 'Prospecting']);
+    expect(result.sort).toBe('none');
+  });
+
+  it('falls back to the field orderedValues when sortBy is "category" and no explicit override is given', () => {
+    const result = buildFunnelStages(rows, 'stage', 'amount', undefined, 'category', undefined, [
+      'Proposal',
+      'Qualification',
+      'Prospecting',
+    ]);
+    expect(result.stages.map((s) => s.label)).toEqual(['Proposal', 'Qualification', 'Prospecting']);
+    expect(result.sort).toBe('none');
+  });
+
+  it('stages absent from an explicit category order sort after known stages, by value descending', () => {
+    const withExtra = [...rows, { stage: 'Closed Won', amount: 500 }];
+    const result = buildFunnelStages(
+      withExtra,
+      'stage',
+      'amount',
+      undefined,
+      'category',
+      ['Prospecting', 'Qualification', 'Proposal'],
+      undefined,
+    );
+    expect(result.stages.map((s) => s.label)).toEqual([
+      'Prospecting',
+      'Qualification',
+      'Proposal',
+      'Closed Won',
+    ]);
+  });
+
+  it('counts rows instead of summing when yAggregation is "count"', () => {
+    const result = buildFunnelStages(
+      rows,
+      'stage',
+      'amount',
+      'count',
+      'natural',
+      undefined,
+      undefined,
+    );
+    const prospecting = result.stages.find((s) => s.label === 'Prospecting');
+    expect(prospecting?.value).toBe(2);
+  });
+
+  it('auto-detects a non-numeric value field and falls back to counting rows', () => {
+    const stringRows = [
+      { stage: 'Prospecting', owner: 'Amy' },
+      { stage: 'Prospecting', owner: 'Bob' },
+      { stage: 'Proposal', owner: 'Amy' },
+    ];
+    const result = buildFunnelStages(
+      stringRows,
+      'stage',
+      'owner',
+      undefined,
+      'natural',
+      undefined,
+      undefined,
+    );
+    const prospecting = result.stages.find((s) => s.label === 'Prospecting');
+    expect(prospecting?.value).toBe(2);
+  });
+
+  it('skips rows with an empty/missing stage label', () => {
+    const withBlank = [...rows, { stage: '', amount: 999 }, { amount: 999 }];
+    const result = buildFunnelStages(
+      withBlank,
+      'stage',
+      'amount',
+      undefined,
+      'natural',
+      undefined,
+      undefined,
+    );
+    expect(result.stages).toHaveLength(3);
+  });
+});
+
+// ─── buildGanttItems ────────────────────────────────────────────────────────────
+
+describe('buildGanttItems', () => {
+  it('builds one item per valid row', () => {
+    const rows = [{ task: 'Design', start: '2024-01-01', end: '2024-01-10' }];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items).toEqual([
+      {
+        label: 'Design',
+        startMs: new Date('2024-01-01').getTime(),
+        endMs: new Date('2024-01-10').getTime(),
+        colorCategory: undefined,
+      },
+    ]);
+  });
+
+  it('skips rows missing a label, start, or end value', () => {
+    const rows = [
+      { task: '', start: '2024-01-01', end: '2024-01-10' },
+      { task: 'Build', start: null, end: '2024-01-10' },
+      { task: 'Ship', start: '2024-01-01', end: undefined },
+      { task: 'Test', start: '2024-01-01', end: '2024-01-05' },
+    ];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items.map((i) => i.label)).toEqual(['Test']);
+  });
+
+  it('skips rows with unparseable dates', () => {
+    const rows = [{ task: 'Bad', start: 'not-a-date', end: '2024-01-10' }];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items).toHaveLength(0);
+  });
+
+  it('skips rows where the end precedes the start', () => {
+    const rows = [{ task: 'Backwards', start: '2024-01-10', end: '2024-01-01' }];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items).toHaveLength(0);
+  });
+
+  it('collects colorCategory per item and de-duplicated categories in first-seen order', () => {
+    const rows = [
+      { task: 'A', start: '2024-01-01', end: '2024-01-02', team: 'Design' },
+      { task: 'B', start: '2024-01-03', end: '2024-01-04', team: 'Eng' },
+      { task: 'C', start: '2024-01-05', end: '2024-01-06', team: 'Design' },
+    ];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', 'team');
+    expect(result.items.map((i) => i.colorCategory)).toEqual(['Design', 'Eng', 'Design']);
+    expect(result.categories).toEqual(['Design', 'Eng']);
+  });
+
+  it('omits colorCategory when colorField is not provided', () => {
+    const rows = [{ task: 'A', start: '2024-01-01', end: '2024-01-02', team: 'Design' }];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items[0].colorCategory).toBeUndefined();
+    expect(result.categories).toEqual([]);
+  });
+
+  it('returns empty items and categories for empty rows', () => {
+    const result = buildGanttItems([], 'task', 'start', 'end', 'team');
+    expect(result.items).toEqual([]);
+    expect(result.categories).toEqual([]);
   });
 });

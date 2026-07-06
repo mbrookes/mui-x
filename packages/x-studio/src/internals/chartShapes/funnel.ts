@@ -112,3 +112,102 @@ export function clampWidthPct(value: number): number {
   }
   return value > 1 ? 1 : value;
 }
+
+/** One aggregated funnel section (a stage label + its aggregated value). */
+export interface FunnelStage {
+  label: string;
+  value: number;
+}
+
+/** Result of the legacy per-stage snapshot funnel aggregation. */
+export interface FunnelStagesResult {
+  stages: FunnelStage[];
+  /** Native sort to apply in `FunnelChart` — `'none'` when `stages` is already ordered. */
+  sort: 'ascending' | 'descending' | 'none';
+}
+
+/**
+ * Builds the legacy (non-"reached") funnel aggregation: sums (or counts) the
+ * value field per stage-field category, then orders the stages according to
+ * `sortBy`.
+ *
+ * - `'natural'` — insertion order (first-seen category order).
+ * - `'category'` (or any value when `categoryOrderOverride`/`fieldOrderedValues`
+ *   is non-empty) — explicit category order, falling back to value-descending
+ *   for any stage absent from that order.
+ * - anything else (default: `'value'`/undefined) — delegates the
+ *   value-descending sort to `FunnelChart` itself (`sort: 'descending'`) so it
+ *   drives its own animation.
+ *
+ * @param rows - Filtered rows to aggregate.
+ * @param stageField - Categorical field providing each row's stage label.
+ * @param valueField - Field summed (or counted) per stage.
+ * @param yAggregation - When `'count'`, rows are counted instead of summed. Also
+ *   auto-detected: if `valueField` holds non-numeric values, falls back to count.
+ * @param sortBy - `chartSortBy` config: `'natural' | 'category' | 'value'`.
+ * @param categoryOrderOverride - Explicit `funnelCategoryOrder` config, if set.
+ * @param fieldOrderedValues - The stage field's `orderedValues`, used as the
+ *   category order when `sortBy === 'category'` and no explicit override is set.
+ */
+export function buildFunnelStages(
+  rows: Row[],
+  stageField: string,
+  valueField: string,
+  yAggregation: string | undefined,
+  sortBy: string | undefined,
+  categoryOrderOverride: string[] | undefined,
+  fieldOrderedValues: string[] | undefined,
+): FunnelStagesResult {
+  const useCount =
+    yAggregation === 'count' ||
+    (() => {
+      // Auto-detect: if the value field is non-numeric, fall back to count
+      for (const row of rows) {
+        const v = row[valueField];
+        if (v !== null && v !== undefined) {
+          return Number.isNaN(Number(v));
+        }
+      }
+      return false;
+    })();
+  // Aggregate: sum value (or count rows) per stage category
+  const stageMap = new Map<string, number>();
+  for (const row of rows) {
+    const label = String(row[stageField] ?? '');
+    if (!label) {
+      continue;
+    }
+    if (useCount) {
+      stageMap.set(label, (stageMap.get(label) ?? 0) + 1);
+    } else {
+      stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[valueField] ?? 0));
+    }
+  }
+  // Sort: 'natural' = insertion order; 'category' = orderedValues order (pre-sort, pass
+  // sort:'none'); 'value' / default = delegate to FunnelChart native sort:'descending'.
+  const resolvedSortBy = sortBy ?? 'category';
+  const categoryOrder =
+    categoryOrderOverride ?? (resolvedSortBy === 'category' ? fieldOrderedValues : undefined);
+  let stages: FunnelStage[];
+  let sort: 'ascending' | 'descending' | 'none';
+  if (resolvedSortBy === 'natural') {
+    stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
+    sort = 'none';
+  } else if (categoryOrder && categoryOrder.length > 0) {
+    const orderMap = new Map(categoryOrder.map((v, i) => [v, i]));
+    stages = [...stageMap.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => {
+        const ia = orderMap.get(a.label) ?? Infinity;
+        const ib = orderMap.get(b.label) ?? Infinity;
+        return ia !== ib ? ia - ib : b.value - a.value;
+      });
+    sort = 'none';
+  } else {
+    // Delegate value-descending sort to FunnelChart so it drives its own animation.
+    stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
+    sort = 'descending';
+  }
+
+  return { stages, sort };
+}

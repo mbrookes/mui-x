@@ -8,3 +8,4 @@ export * from './scatter';
 export * from './heatmap';
 export * from './sankey';
 export * from './funnel';
+export * from './gantt';

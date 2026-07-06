@@ -15,7 +15,7 @@
  * NOT performed here — they stay in `StudioController`. This reducer captures
  * only the persisted state-shape transformation.
  */
-import type { StudioState, StudioFilterState } from './stateTypes';
+import type { StudioState, StudioDoc, StudioFilterState } from './stateTypes';
 import type { StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 
@@ -166,9 +166,17 @@ function enforceLayoutColSpans(
 /**
  * The `apply` (state transition) and `label` (human-readable log line) logic for
  * a single mutation kind, co-located so the two can never drift apart.
+ *
+ * Handlers operate on the persisted `StudioDoc` partition ONLY — they can read and
+ * return `dashboard`/`pages`/`widgets`/`filters`/`expressionFields`/`ai`, but they
+ * have no access to `session` (mode/shell) or `runtime` (dataSources). That access
+ * boundary is a compile-time guarantee: if a handler tried to reach into a
+ * session/runtime field it would not exist on `StudioDoc`, and TypeScript would
+ * reject it. (Handler bodies name the parameter `state` for historical reasons;
+ * its type is `StudioDoc`, not `StudioState`.)
  */
 type MutationHandler<M extends StateMutation> = {
-  apply: (state: StudioState, args: M['args']) => StudioState;
+  apply: (doc: StudioDoc, args: M['args']) => StudioDoc;
   label: (args: M['args']) => string;
 };
 
@@ -666,7 +674,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const page = state.pages[activePageId];
 
-      const nextPages: StudioState['pages'] = {
+      const nextPages: StudioDoc['pages'] = {
         ...state.pages,
         [activePageId]: { ...page, widgetRows, widgetColSpans },
       };
@@ -795,7 +803,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
  */
 export const MUTATION_TYPES = Object.keys(MUTATION_HANDLERS) as StateMutation['type'][];
 
-export function applyMutation(state: StudioState, mutation: StateMutation): StudioState {
+/**
+ * The canonical reducer: applies a `StateMutation` to a `StudioDoc`, returning the
+ * next doc. This is the single semantic authority for every mutation's effect on
+ * the persisted document.
+ *
+ * Reference-equality no-op contract: when a mutation changes nothing (an unknown
+ * id, an already-applied idempotent event, …) the SAME `doc` reference is returned,
+ * not a fresh object — callers rely on `next === doc` to detect a no-op.
+ */
+export function applyDocMutation(doc: StudioDoc, mutation: StateMutation): StudioDoc {
   // A single cast at the dispatch boundary: TS cannot prove that
   // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`
   // (the correlation is lost once `mutation.type` is read), so we assert the
@@ -804,7 +821,20 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
   // arriving over the wire (SSE payload, legacy/forward-incompatible client)
   // is not guaranteed to match, so guard the lookup at runtime too.
   const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation> | undefined;
-  return handler ? handler.apply(state, mutation.args) : state;
+  return handler ? handler.apply(doc, mutation.args) : doc;
+}
+
+/**
+ * Full-state wrapper over {@link applyDocMutation}: applies the mutation to
+ * `state.doc` and rewraps, leaving `session` and `runtime` untouched (by
+ * construction — the reducer never sees them). Preserves the whole-state
+ * reference-equality no-op contract: returns the SAME `state` reference when the
+ * doc did not change, so `StudioController`'s no-op detection and the AI middleware's
+ * `executeToolOnState` continue to short-circuit unchanged commits.
+ */
+export function applyMutation(state: StudioState, mutation: StateMutation): StudioState {
+  const nextDoc = applyDocMutation(state.doc, mutation);
+  return nextDoc === state.doc ? state : { ...state, doc: nextDoc };
 }
 
 /**

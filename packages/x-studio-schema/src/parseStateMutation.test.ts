@@ -17,24 +17,26 @@ const chartWidget = (id: string, title = 'W'): StudioWidget => ({
 // every variant's happy-path transition to be observable.
 function baseState(activePageId = 'page-1'): StudioState {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'D', activePageId },
-    pages: {
-      'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
-      'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
-    },
-    widgets: { w1: chartWidget('w1') },
-    filters: [
-      {
-        id: 'seed-f',
-        field: 'x',
-        operator: 'equals',
-        value: 1,
-        scope: { kind: 'page', pageId: 'page-1' },
+    doc: {
+      dashboard: { id: 'd1', title: 'D', activePageId },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
       },
-    ],
-    ai: {
-      activeThreadId: 't1',
-      threads: [{ id: 't1', name: 'Old', createdAt: '2020-01-01T00:00:00.000Z', messages: [] }],
+      widgets: { w1: chartWidget('w1') },
+      filters: [
+        {
+          id: 'seed-f',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+      ai: {
+        activeThreadId: 't1',
+        threads: [{ id: 't1', name: 'Old', createdAt: '2020-01-01T00:00:00.000Z', messages: [] }],
+      },
     },
   });
 }
@@ -51,37 +53,37 @@ const VALID_CASES: Array<{
     type: 'addPage',
     mutation: { type: 'addPage', args: { id: 'page-3', title: 'New' } },
     assert: (next) => {
-      expect(next.pages['page-3']).toMatchObject({ id: 'page-3', title: 'New' });
-      expect(next.dashboard.activePageId).toBe('page-3');
+      expect(next.doc.pages['page-3']).toMatchObject({ id: 'page-3', title: 'New' });
+      expect(next.doc.dashboard.activePageId).toBe('page-3');
     },
   },
   {
     type: 'setDashboardTitle',
     mutation: { type: 'setDashboardTitle', args: { title: 'X' } },
-    assert: (next) => expect(next.dashboard.title).toBe('X'),
+    assert: (next) => expect(next.doc.dashboard.title).toBe('X'),
   },
   {
     type: 'addWidget',
     mutation: { type: 'addWidget', args: { widget: chartWidget('w2'), pageId: 'page-2' } },
     assert: (next) => {
-      expect(next.widgets.w2).toBeDefined();
-      expect(next.pages['page-2'].widgetRows.flat()).toContain('w2');
+      expect(next.doc.widgets.w2).toBeDefined();
+      expect(next.doc.pages['page-2'].widgetRows.flat()).toContain('w2');
     },
   },
   {
     type: 'updateWidget',
     mutation: { type: 'updateWidget', args: { widgetId: 'w1', changes: { title: 'Updated' } } },
-    assert: (next) => expect(next.widgets.w1.title).toBe('Updated'),
+    assert: (next) => expect(next.doc.widgets.w1.title).toBe('Updated'),
   },
   {
     type: 'removeWidget',
     mutation: { type: 'removeWidget', args: { widgetId: 'w1' } },
-    assert: (next) => expect(next.widgets.w1).toBeUndefined(),
+    assert: (next) => expect(next.doc.widgets.w1).toBeUndefined(),
   },
   {
     type: 'setWidgetLayout',
     mutation: { type: 'setWidgetLayout', args: { rows: [['w1']], pageId: 'page-1' } },
-    assert: (next) => expect(next.pages['page-1'].widgetRows).toEqual([['w1']]),
+    assert: (next) => expect(next.doc.pages['page-1'].widgetRows).toEqual([['w1']]),
   },
   {
     type: 'setWidgetColSpan',
@@ -89,22 +91,22 @@ const VALID_CASES: Array<{
       type: 'setWidgetColSpan',
       args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1'], pageId: 'page-1' },
     },
-    assert: (next) => expect(next.pages['page-1'].widgetColSpans?.w1).toBe(6),
+    assert: (next) => expect(next.doc.pages['page-1'].widgetColSpans?.w1).toBe(6),
   },
   {
     type: 'renamePage',
     mutation: { type: 'renamePage', args: { pageId: 'page-1', title: 'Overview' } },
-    assert: (next) => expect(next.pages['page-1'].title).toBe('Overview'),
+    assert: (next) => expect(next.doc.pages['page-1'].title).toBe('Overview'),
   },
   {
     type: 'removePage',
     mutation: { type: 'removePage', args: { pageId: 'page-2' } },
-    assert: (next) => expect(next.pages['page-2']).toBeUndefined(),
+    assert: (next) => expect(next.doc.pages['page-2']).toBeUndefined(),
   },
   {
     type: 'setActivePage',
     mutation: { type: 'setActivePage', args: { pageId: 'page-2' } },
-    assert: (next) => expect(next.dashboard.activePageId).toBe('page-2'),
+    assert: (next) => expect(next.doc.dashboard.activePageId).toBe('page-2'),
   },
   {
     type: 'addFilter',
@@ -120,12 +122,12 @@ const VALID_CASES: Array<{
         },
       },
     },
-    assert: (next) => expect(next.filters.map((f) => f.id)).toContain('f-new'),
+    assert: (next) => expect(next.doc.filters.map((f) => f.id)).toContain('f-new'),
   },
   {
     type: 'removeFilter',
     mutation: { type: 'removeFilter', args: { filterId: 'seed-f' } },
-    assert: (next) => expect(next.filters.map((f) => f.id)).not.toContain('seed-f'),
+    assert: (next) => expect(next.doc.filters.map((f) => f.id)).not.toContain('seed-f'),
   },
   {
     type: 'applyBulkUpdate',
@@ -141,9 +143,9 @@ const VALID_CASES: Array<{
       },
     },
     assert: (next) => {
-      expect(next.widgets['w-new']).toBeDefined();
-      expect(next.widgets.w1).toBeUndefined();
-      expect(next.pages['page-1'].widgetRows).toEqual([['w-new']]);
+      expect(next.doc.widgets['w-new']).toBeDefined();
+      expect(next.doc.widgets.w1).toBeUndefined();
+      expect(next.doc.pages['page-1'].widgetRows).toEqual([['w-new']]);
     },
   },
   {
@@ -152,7 +154,7 @@ const VALID_CASES: Array<{
       type: 'renameAIThread',
       args: { name: 'New', updatedAt: '2024-01-01T00:00:00.000Z', threadId: 't1' },
     },
-    assert: (next) => expect(next.ai?.threads[0].name).toBe('New'),
+    assert: (next) => expect(next.doc.ai?.threads[0].name).toBe('New'),
   },
 ];
 

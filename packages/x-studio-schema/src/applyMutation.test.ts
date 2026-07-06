@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '@mui/x-studio-schema';
-import { applyMutation, mutationLabel } from './applyMutation';
-import type { StudioState } from './stateTypes';
+import { applyDocMutation, applyMutation, mutationLabel } from './applyMutation';
+import type { StudioDoc, StudioState } from './stateTypes';
 import type { StudioWidget } from './widgetTypes';
+import type { StateMutation } from './aiTypes';
 
 const chartWidget = (id: string, title = 'W'): StudioWidget => ({
   id,
@@ -11,8 +12,14 @@ const chartWidget = (id: string, title = 'W'): StudioWidget => ({
   config: { chartType: 'bar' },
 });
 
-function twoPageState(activePageId = 'page-1'): StudioState {
-  return createDefaultStudioState({
+// Doc-fixture helper: the reducer operates on a `StudioDoc`, so tests build docs
+// (not full `StudioState`s) via the factory's `doc` override and pull `.doc`.
+function makeDoc(overrides?: Partial<StudioDoc>): StudioDoc {
+  return createDefaultStudioState({ doc: overrides }).doc;
+}
+
+function twoPageState(activePageId = 'page-1'): StudioDoc {
+  return makeDoc({
     dashboard: { id: 'd1', title: 'D', activePageId },
     pages: {
       'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
@@ -25,14 +32,14 @@ describe('applyMutation', () => {
   it('is pure — does not mutate the input state', () => {
     const state = twoPageState();
     const before = JSON.stringify(state);
-    applyMutation(state, { type: 'setDashboardTitle', args: { title: 'X' } });
+    applyDocMutation(state, { type: 'setDashboardTitle', args: { title: 'X' } });
     expect(JSON.stringify(state)).toBe(before);
   });
 
   it('addWidget targets the explicit pageId, not the active page', () => {
     // Active page is page-2, but the mutation targets page-1.
     const state = twoPageState('page-2');
-    const next = applyMutation(state, {
+    const next = applyDocMutation(state, {
       type: 'addWidget',
       args: { widget: chartWidget('w1'), pageId: 'page-1' },
     });
@@ -42,7 +49,10 @@ describe('applyMutation', () => {
 
   it('addWidget falls back to the active page when pageId is omitted', () => {
     const state = twoPageState('page-2');
-    const next = applyMutation(state, { type: 'addWidget', args: { widget: chartWidget('w1') } });
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget: chartWidget('w1') },
+    });
     expect(next.pages['page-2'].widgetRows.flat()).toContain('w1');
   });
 
@@ -51,8 +61,8 @@ describe('applyMutation', () => {
       type: 'addWidget' as const,
       args: { widget: chartWidget('w1'), pageId: 'page-1' },
     };
-    const state = applyMutation(twoPageState('page-1'), mutation);
-    const next = applyMutation(state, mutation);
+    const state = applyDocMutation(twoPageState('page-1'), mutation);
+    const next = applyDocMutation(state, mutation);
     // No duplicate row for the already-placed widget, and reference-stable no-op.
     expect(next).toBe(state);
     expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
@@ -60,7 +70,7 @@ describe('applyMutation', () => {
   });
 
   it('removePage cleans up widgets, page-scoped filters, and reassigns activePageId', () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
         'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
@@ -84,7 +94,7 @@ describe('applyMutation', () => {
         },
       ],
     });
-    const next = applyMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
     expect(next.pages['page-1']).toBeUndefined();
     expect(next.widgets.w1).toBeUndefined();
     expect(next.widgets.w2).toBeDefined();
@@ -93,19 +103,19 @@ describe('applyMutation', () => {
   });
 
   it("removePage: removing the last remaining page results in activePageId === ''", () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
         'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
       },
     });
-    const next = applyMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
     expect(next.pages['page-1']).toBeUndefined();
     expect(next.dashboard.activePageId).toBe('');
   });
 
   it("removePage also drops widget-scoped filters targeting the deleted page's widgets", () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
         'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
@@ -139,12 +149,12 @@ describe('applyMutation', () => {
         },
       ],
     });
-    const next = applyMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
     expect(next.filters.map((f) => f.id)).toEqual(['fw2']);
   });
 
   it('removeWidget drops the widget from every page and its widget-scoped filters', () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       widgets: { w1: chartWidget('w1') },
@@ -158,14 +168,14 @@ describe('applyMutation', () => {
         },
       ],
     });
-    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
     expect(next.widgets.w1).toBeUndefined();
     expect(next.pages['page-1'].widgetRows.flat()).not.toContain('w1');
     expect(next.filters).toHaveLength(0);
   });
 
   it('removeWidget also drops interactive-scope filters whose sourceWidgetId is the removed widget', () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       widgets: { w1: chartWidget('w1') },
@@ -179,12 +189,12 @@ describe('applyMutation', () => {
         },
       ],
     });
-    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
     expect(next.filters).toHaveLength(0);
   });
 
   it('removeWidget also drops cross-filter-scope filters emitted by the removed widget', () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'w2']] } },
       widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
@@ -198,14 +208,14 @@ describe('applyMutation', () => {
         },
       ],
     });
-    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
     // The cross-filter emitted by the removed source widget must not survive (its
     // clearing affordance is gone, so it would filter the page permanently).
     expect(next.filters).toHaveLength(0);
   });
 
   it("removeWidget cleans its own span and collapses a now-sole-occupant sibling's span", () => {
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
         'page-1': {
@@ -217,7 +227,7 @@ describe('applyMutation', () => {
       },
       widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
     });
-    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
     // w1's span is gone, and w2 (now alone in its row) has its span cleared so it
     // renders full-width — matching the user-driven removal path.
     expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
@@ -229,7 +239,7 @@ describe('applyMutation', () => {
     // to sweep the col-span of *every* singleton row on *every* page, silently
     // snapping intentionally-narrowed lone widgets back to full width. The collapse
     // must only affect the specific row the widget was removed from.
-    const state = createDefaultStudioState({
+    const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
       pages: {
         // Unrelated page: a lone widget intentionally narrowed to half-width
@@ -256,7 +266,7 @@ describe('applyMutation', () => {
         d: chartWidget('d'),
       },
     });
-    const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: 'c' } });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'c' } });
 
     // Unrelated page is completely untouched (same object reference, span intact).
     expect(next.pages['page-1']).toBe(state.pages['page-1']);
@@ -278,7 +288,7 @@ describe('applyMutation', () => {
       value: 1,
       scope: { kind: 'page' as const, pageId: 'page-9' },
     };
-    const next = applyMutation(state, { type: 'addFilter', args: { filter } });
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
     expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-9' });
   });
 
@@ -290,21 +300,21 @@ describe('applyMutation', () => {
       value: 1,
       scope: { kind: 'page' as const, pageId: 'page-1' },
     };
-    const state = applyMutation(twoPageState('page-1'), { type: 'addFilter', args: { filter } });
-    const next = applyMutation(state, { type: 'addFilter', args: { filter } });
+    const state = applyDocMutation(twoPageState('page-1'), { type: 'addFilter', args: { filter } });
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
     expect(next).toBe(state);
     expect(next.filters).toHaveLength(1);
   });
 
   it('removeFilter: unknown filterId is a no-op', () => {
     const state = twoPageState();
-    const next = applyMutation(state, { type: 'removeFilter', args: { filterId: 'nope' } });
+    const next = applyDocMutation(state, { type: 'removeFilter', args: { filterId: 'nope' } });
     expect(next).toBe(state);
   });
 
   describe('updateWidget', () => {
     it('an explicit undefined value in the config patch deletes that key', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: {
             id: 'w1',
@@ -314,7 +324,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'w1', config: { xGroupBy: undefined } },
       });
@@ -323,12 +333,12 @@ describe('applyMutation', () => {
     });
 
     it('skips an undefined-valued key in `changes` so it cannot void a required field', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: { id: 'w1', kind: 'chart', title: 'Keep me', config: { chartType: 'bar' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'w1', changes: { title: undefined } },
       });
@@ -337,7 +347,7 @@ describe('applyMutation', () => {
     });
 
     it('changes.config wholesale-replaces the config-patch result rather than merging with it', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: {
             id: 'w1',
@@ -347,7 +357,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: {
           widgetId: 'w1',
@@ -362,7 +372,7 @@ describe('applyMutation', () => {
 
     it('unknown widgetId is a no-op', () => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'nope', changes: { title: 'x' } },
       });
@@ -370,7 +380,7 @@ describe('applyMutation', () => {
     });
 
     it('unsetFields deletes the named top-level widget keys (wire-safe void)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: {
             id: 'w1',
@@ -382,7 +392,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'w1', unsetFields: ['sourceId', 'subtitle'] },
       });
@@ -394,7 +404,7 @@ describe('applyMutation', () => {
     });
 
     it('unsetConfigKeys deletes the named keys from the merged config', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: {
             id: 'w1',
@@ -404,7 +414,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'w1', unsetConfigKeys: ['xField', 'yField'] },
       });
@@ -412,12 +422,12 @@ describe('applyMutation', () => {
     });
 
     it('an unset always wins over a same-mutation set of the same key (unsets run last)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: { id: 'w1', kind: 'grid', title: 'T', sourceId: 'old', config: { xField: 'a' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: {
           widgetId: 'w1',
@@ -434,12 +444,12 @@ describe('applyMutation', () => {
     });
 
     it('unsetFields ignores id and config (never strands the widget or its config bag)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         // Cast: `id`/`config` are outside the compile-time type, but an untrusted
         // wire payload can carry them, so the runtime guard must hold.
@@ -450,12 +460,12 @@ describe('applyMutation', () => {
     });
 
     it('unsetting an absent key is a harmless no-change', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         widgets: {
           w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: 'w1', unsetFields: ['sourceId'], unsetConfigKeys: ['xField'] },
       });
@@ -468,11 +478,11 @@ describe('applyMutation', () => {
     // MIN_SPAN = 6) — the SAME system the drag-resize path commits, so AI-resize
     // and drag-resize can no longer corrupt each other's layout.
     it('clamps a too-small requested span up to MIN_SPAN (6)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 2, rowWidgetIds: ['w1'] },
       });
@@ -480,11 +490,11 @@ describe('applyMutation', () => {
     });
 
     it('clamps a too-large requested span down to GRID_COLS (24)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 30, rowWidgetIds: ['w1'] },
       });
@@ -492,11 +502,11 @@ describe('applyMutation', () => {
     });
 
     it('guards a NaN span, clamping it to MIN_SPAN rather than storing NaN', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: NaN, rowWidgetIds: ['w1'] },
       });
@@ -504,11 +514,11 @@ describe('applyMutation', () => {
     });
 
     it('rounds a non-integer span', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 7.6, rowWidgetIds: ['w1'] },
       });
@@ -516,7 +526,7 @@ describe('applyMutation', () => {
     });
 
     it("columns: null deletes that widget's span entry, collapsing the map to undefined when empty", () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -527,7 +537,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: null, rowWidgetIds: ['w1'] },
       });
@@ -535,7 +545,7 @@ describe('applyMutation', () => {
     });
 
     it('overflow with exactly one other widget: reduces its span to the remainder when >= MIN_SPAN', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -546,7 +556,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'w2'] },
       });
@@ -556,7 +566,7 @@ describe('applyMutation', () => {
     });
 
     it('overflow with exactly one other widget: deletes its span entirely when the remainder is < MIN_SPAN', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -567,7 +577,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
       });
@@ -576,7 +586,7 @@ describe('applyMutation', () => {
     });
 
     it('overflow with two or more other widgets: deletes all of their spans (not just reduces)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -587,7 +597,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 16, rowWidgetIds: ['w1', 'w2', 'w3'] },
       });
@@ -595,10 +605,10 @@ describe('applyMutation', () => {
     });
 
     it('missing active page is a no-op', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'ghost-page' },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1'] },
       });
@@ -607,14 +617,14 @@ describe('applyMutation', () => {
 
     it("targets the explicit pageId, not the applying side's active page", () => {
       // Active page is page-2, but the mutation targets page-1.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
           'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1'], pageId: 'page-1' },
       });
@@ -628,7 +638,7 @@ describe('applyMutation', () => {
       // row, so w1 is now alone. Applying the mutation must rebalance against the
       // CURRENT grouping (w1 alone) and leave w2's span untouched — not shrink w2 as
       // the stale grouping would demand.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -639,7 +649,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         // Stale: reflects the old shared-row grouping. clamped(w1) = 20, and with the
         // stale grouping w1 + w2 = 20 + 16 = 36 > 24 would reduce w2 to 24 - 20 = 4
@@ -654,7 +664,7 @@ describe('applyMutation', () => {
       // The widget hasn't been placed into widgetRows yet, so no current row can be
       // derived; the wire-supplied rowWidgetIds is the only membership signal and is
       // used as the documented fallback (mirrors the producer's `?? [widgetId]`).
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -665,7 +675,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
       });
@@ -678,20 +688,23 @@ describe('applyMutation', () => {
   describe('addPage', () => {
     it('also sets the new page as dashboard.activePageId (deliberate — not an accident)', () => {
       const state = twoPageState('page-2');
-      const next = applyMutation(state, { type: 'addPage', args: { id: 'page-3', title: 'New' } });
+      const next = applyDocMutation(state, {
+        type: 'addPage',
+        args: { id: 'page-3', title: 'New' },
+      });
       expect(next.pages['page-3']).toMatchObject({ id: 'page-3', title: 'New' });
       expect(next.dashboard.activePageId).toBe('page-3');
     });
 
     it('is idempotent for an existing id: re-activates it without resetting its widgetRows', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
           'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
         },
       });
-      const next = applyMutation(state, { type: 'addPage', args: { id: 'page-1', title: 'X' } });
+      const next = applyDocMutation(state, { type: 'addPage', args: { id: 'page-1', title: 'X' } });
       // The existing page keeps its widgets (not reset to []) and its title.
       expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
       expect(next.pages['page-1'].title).toBe('P1');
@@ -702,7 +715,7 @@ describe('applyMutation', () => {
   describe('setWidgetLayout', () => {
     it('replaces the active page rows only', () => {
       const state = twoPageState('page-1');
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['a', 'b'], ['c']] },
       });
@@ -713,7 +726,7 @@ describe('applyMutation', () => {
     it("targets the explicit pageId, not the applying side's active page", () => {
       // Active page is page-2, but the mutation targets page-1.
       const state = twoPageState('page-2');
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['a']], pageId: 'page-1' },
       });
@@ -728,7 +741,7 @@ describe('applyMutation', () => {
       // w1 and w2 shared a row with an explicit 16/8 split. The new layout drops each
       // into its own row; each becomes the sole occupant of a row it previously
       // shared, so both stale multi-widget-era spans are cleared (map empties out).
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -739,7 +752,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['w1'], ['w2']] },
       });
@@ -752,7 +765,7 @@ describe('applyMutation', () => {
       // With no explicit anchor, both spans are dropped so the row falls back to
       // equal distribution — matching setWidgetColSpan's multi-other-widget overflow
       // branch (which drops all sibling spans rather than inventing new clamping).
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -763,7 +776,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['w1', 'w2']] },
       });
@@ -772,7 +785,7 @@ describe('applyMutation', () => {
     });
 
     it('leaves a valid merged row (spans sum <= GRID_COLS) untouched', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -783,7 +796,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['w1', 'w2']] },
       });
@@ -794,7 +807,7 @@ describe('applyMutation', () => {
     it('preserves an intentional pre-existing single-widget span (no false collapse)', () => {
       // w1 was already a lone occupant with an intentional narrowed span; a layout
       // change that only reorders rows must not treat it as a 2->1 collapse.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -805,7 +818,7 @@ describe('applyMutation', () => {
           },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['w2'], ['w1']] },
       });
@@ -813,7 +826,7 @@ describe('applyMutation', () => {
     });
 
     it('drops a span for a widget no longer present in the new rows', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
@@ -825,7 +838,7 @@ describe('applyMutation', () => {
         },
       });
       // The new layout no longer references w2, so its stale span here is pruned.
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetLayout',
         args: { rows: [['w1']] },
       });
@@ -836,7 +849,7 @@ describe('applyMutation', () => {
   describe('renamePage', () => {
     it('renames the page', () => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renamePage',
         args: { pageId: 'page-1', title: 'Renamed' },
       });
@@ -845,7 +858,7 @@ describe('applyMutation', () => {
 
     it('unknown pageId is a no-op', () => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renamePage',
         args: { pageId: 'nope', title: 'X' },
       });
@@ -856,20 +869,20 @@ describe('applyMutation', () => {
   describe('setActivePage', () => {
     it('switches the active page', () => {
       const state = twoPageState('page-1');
-      const next = applyMutation(state, { type: 'setActivePage', args: { pageId: 'page-2' } });
+      const next = applyDocMutation(state, { type: 'setActivePage', args: { pageId: 'page-2' } });
       expect(next.dashboard.activePageId).toBe('page-2');
     });
 
     it('unknown pageId is a no-op', () => {
       const state = twoPageState();
-      const next = applyMutation(state, { type: 'setActivePage', args: { pageId: 'nope' } });
+      const next = applyDocMutation(state, { type: 'setActivePage', args: { pageId: 'nope' } });
       expect(next).toBe(state);
     });
   });
 
   describe('applyBulkUpdate', () => {
     it('applies add/remove/update deltas and only touches widgetRows/widgetColSpans on activePageId', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['old1']] },
@@ -882,7 +895,7 @@ describe('applyMutation', () => {
         },
         widgets: { old1: chartWidget('old1'), old2: chartWidget('old2') },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: ['old1'],
@@ -910,7 +923,7 @@ describe('applyMutation', () => {
       // applies. The bulk update names only w1/w2/w4, so the reducer must apply its
       // deltas on top of the CURRENT `state.widgets` and leave the concurrently
       // edited w3 exactly as the user left it.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] },
@@ -923,7 +936,7 @@ describe('applyMutation', () => {
           w3: { ...chartWidget('w3', 'User Renamed'), config: { chartType: 'line' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: ['w2'],
@@ -945,14 +958,14 @@ describe('applyMutation', () => {
     });
 
     it('shallow-merges an update patch onto the live widget config (preserves other keys)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
         widgets: {
           w1: { ...chartWidget('w1', 'W1'), config: { chartType: 'bar', xField: 'category' } },
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: [],
@@ -968,12 +981,12 @@ describe('applyMutation', () => {
     });
 
     it('skips an update whose target widget no longer exists', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
         widgets: { w1: chartWidget('w1', 'W1') },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: [],
@@ -990,7 +1003,7 @@ describe('applyMutation', () => {
 
     it('missing activePageId page is a no-op', () => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: [],
@@ -1009,7 +1022,7 @@ describe('applyMutation', () => {
       // from the replacement map and from the new active-page rows). Its
       // widget-scoped filter and the stale col-span it left on page-2 (where it is
       // NOT in the rows) must be cleaned up the same way `removeWidget` would.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
@@ -1046,7 +1059,7 @@ describe('applyMutation', () => {
           },
         ],
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds: ['w1'],
@@ -1067,7 +1080,7 @@ describe('applyMutation', () => {
       // old2 is dropped from the replacement widgets map but is still referenced in
       // page-2's rows — a dangling cross-page reference, not a removal. Its filter
       // and span must be preserved (not purged).
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': { id: 'page-1', title: 'P1', widgetRows: [['old1']] },
@@ -1089,7 +1102,7 @@ describe('applyMutation', () => {
           },
         ],
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
           // Both old1 (genuinely gone) and old2 (still referenced on page-2) are
@@ -1113,7 +1126,7 @@ describe('applyMutation', () => {
 
   describe('renameAIThread', () => {
     it('renames only the active thread', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         ai: {
           activeThreadId: 't1',
           threads: [
@@ -1122,7 +1135,7 @@ describe('applyMutation', () => {
           ],
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renameAIThread',
         args: { name: 'New1', updatedAt: '2024-06-01T00:00:00.000Z' },
       });
@@ -1135,7 +1148,7 @@ describe('applyMutation', () => {
     it("renames the explicit threadId, not the applying side's active thread", () => {
       // Active thread is t1, but the mutation targets t2 — the thread the request
       // belonged to, even though the user has since switched to t1.
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         ai: {
           activeThreadId: 't1',
           threads: [
@@ -1144,7 +1157,7 @@ describe('applyMutation', () => {
           ],
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renameAIThread',
         args: { name: 'New2', updatedAt: '2024-06-01T00:00:00.000Z', threadId: 't2' },
       });
@@ -1154,7 +1167,7 @@ describe('applyMutation', () => {
     });
 
     it('falls back to the active thread when threadId is omitted (legacy payloads)', () => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         ai: {
           activeThreadId: 't1',
           threads: [
@@ -1162,7 +1175,7 @@ describe('applyMutation', () => {
           ],
         },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renameAIThread',
         args: { name: 'New1', updatedAt: '2024-06-01T00:00:00.000Z' },
       });
@@ -1171,7 +1184,7 @@ describe('applyMutation', () => {
 
     it('returns the same reference for a no-op (no active thread)', () => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'renameAIThread',
         args: { name: 'x', updatedAt: '2024-01-01T00:00:00.000Z' },
       });
@@ -1189,7 +1202,7 @@ describe('applyMutation', () => {
 
     it.each(pollutingIds)('updateWidget targeting %j on a widgetless state is a no-op', (id) => {
       const state = twoPageState();
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'updateWidget',
         args: { widgetId: id, changes: { title: 'x' } },
       });
@@ -1198,17 +1211,17 @@ describe('applyMutation', () => {
 
     it.each(pollutingIds)('removeWidget targeting %j on a widgetless state is a no-op', (id) => {
       const state = twoPageState();
-      const next = applyMutation(state, { type: 'removeWidget', args: { widgetId: id } });
+      const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: id } });
       expect(next).toBe(state);
       expect(next.widgets).toEqual({});
     });
 
     it.each(pollutingIds)('setWidgetColSpan targeting %j does not throw or pollute', (id) => {
-      const state = createDefaultStudioState({
+      const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
       });
-      const next = applyMutation(state, {
+      const next = applyDocMutation(state, {
         type: 'setWidgetColSpan',
         args: { widgetId: id, columns: 12, rowWidgetIds: [id] },
       });
@@ -1230,7 +1243,7 @@ describe('applyMutation', () => {
         // the old `newSpans[id] ?? 0`, the phantom resolved to the `Object` prototype
         // member, poisoning the sum to NaN so `NaN > 24` was false and the overflow
         // was silently skipped (w2's span wrongly kept).
-        const state = createDefaultStudioState({
+        const state = makeDoc({
           dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
           pages: {
             'page-1': {
@@ -1241,7 +1254,7 @@ describe('applyMutation', () => {
             },
           },
         });
-        const next = applyMutation(state, {
+        const next = applyDocMutation(state, {
           type: 'setWidgetColSpan',
           args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'w2', id] },
         });
@@ -1252,18 +1265,85 @@ describe('applyMutation', () => {
 
     it.each(pollutingIds)('setActivePage / renamePage targeting %j are no-ops', (id) => {
       const state = twoPageState();
-      expect(applyMutation(state, { type: 'setActivePage', args: { pageId: id } })).toBe(state);
-      expect(applyMutation(state, { type: 'renamePage', args: { pageId: id, title: 'X' } })).toBe(
-        state,
-      );
+      expect(applyDocMutation(state, { type: 'setActivePage', args: { pageId: id } })).toBe(state);
+      expect(
+        applyDocMutation(state, { type: 'renamePage', args: { pageId: id, title: 'X' } }),
+      ).toBe(state);
     });
   });
 
   it('an unrecognized mutation type is a graceful no-op', () => {
     const state = twoPageState();
     const bogus = { type: 'bogusMutation', args: {} } as any;
-    const next = applyMutation(state, bogus);
+    const next = applyDocMutation(state, bogus);
     expect(next).toBe(state);
+  });
+});
+
+// The full-state `applyMutation` wrapper must only ever rewrite the `doc` partition:
+// `session` (mode/shell) and `runtime` (dataSources) are structurally invisible to
+// the reducer, so they must come out the other side as the SAME object references.
+// This makes the compile-time access boundary observable at runtime.
+describe('applyMutation wrapper — reducer cannot touch session/runtime', () => {
+  const chart = (id: string): StudioWidget => ({
+    id,
+    kind: 'chart',
+    title: 'W',
+    config: { chartType: 'bar' },
+  });
+
+  function fullState(): StudioState {
+    return createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chart('w1') },
+      },
+      session: { mode: 'view', shell: { selectedWidgetId: 'w1' } as never },
+      runtime: {
+        dataSources: { orders: { id: 'orders', label: 'Orders', fields: [], rows: [{ a: 1 }] } },
+      },
+    });
+  }
+
+  const cases: Array<{ label: string; mutation: StateMutation }> = [
+    {
+      label: 'addWidget',
+      mutation: { type: 'addWidget', args: { widget: chart('w2'), pageId: 'page-1' } },
+    },
+    {
+      label: 'updateWidget',
+      mutation: { type: 'updateWidget', args: { widgetId: 'w1', changes: { title: 'X' } } },
+    },
+    { label: 'removeWidget', mutation: { type: 'removeWidget', args: { widgetId: 'w1' } } },
+    {
+      label: 'setWidgetLayout',
+      mutation: { type: 'setWidgetLayout', args: { rows: [['w1']], pageId: 'page-1' } },
+    },
+    {
+      label: 'applyBulkUpdate',
+      mutation: {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [chart('w3')],
+          updatedWidgets: [],
+          widgetRows: [['w3']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      },
+    },
+  ];
+
+  it.each(cases)('$label leaves session and runtime referentially identical', ({ mutation }) => {
+    const prev = fullState();
+    const next = applyMutation(prev, mutation);
+    // The doc changed (sanity: these are all real mutations on this fixture)...
+    expect(next.doc).not.toBe(prev.doc);
+    // ...but session and runtime are the very same objects, untouched.
+    expect(next.session).toBe(prev.session);
+    expect(next.runtime).toBe(prev.runtime);
   });
 });
 

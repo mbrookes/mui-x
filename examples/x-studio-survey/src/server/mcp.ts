@@ -43,6 +43,7 @@ import {
 } from '@mui/x-studio-ai-middleware';
 import type { SeededTable } from './seedFromExcel.js';
 import { log, error as logError } from './logger.js';
+import { summarizeRankHeatmaps } from './rankHeatmapInsightContext.js';
 
 type Db = ReturnType<typeof knex>;
 
@@ -204,8 +205,9 @@ function createQueryDataSource(db: Db, schema: Map<string, Set<string>>) {
 }
 
 /**
- * Best-effort `contextEnricher`: attaches exact per-table row counts to the
- * `studio://dashboard/system-prompt` resource so the model knows dataset sizes.
+ * Best-effort `contextEnricher`: attaches exact per-table row counts, plus (when present) exact
+ * rank-heatmap numbers, to the `studio://dashboard/system-prompt` resource so the model knows
+ * dataset sizes and can answer rank-heatmap insight requests with real numbers.
  */
 function createContextEnricher(db: Db, schema: Map<string, Set<string>>): StudioAIContextEnricher {
   return async ({ dashboardState }) => {
@@ -224,7 +226,12 @@ function createContextEnricher(db: Db, schema: Map<string, Set<string>>): Studio
         }
       }),
     );
-    return notes.length > 0 ? { notes: `Exact table row counts:\n${notes.join('\n')}` } : {};
+    const rowCountNotes = notes.length > 0 ? `Exact table row counts:\n${notes.join('\n')}` : '';
+
+    const heatmapNotes = await summarizeRankHeatmaps(db, dashboardState, schema);
+
+    const combined = [rowCountNotes, heatmapNotes].filter(Boolean).join('\n\n');
+    return combined ? { notes: combined } : {};
   };
 }
 

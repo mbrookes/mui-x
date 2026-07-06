@@ -32,6 +32,7 @@ import { seedSurveyDatabase, type SeededTable } from './seedFromExcel.js';
 import { makeMcpRouter } from './mcp.js';
 import { createStateStore, STATE_DB_PATH } from './stateStore.js';
 import { log, error } from './logger.js';
+import { summarizeRankHeatmaps } from './rankHeatmapInsightContext.js';
 
 // Fresh per process boot. A redeploy/restart mints a new id, which is how the client detects the
 // server was reset (and, if its state DB came back empty, re-seeds it) without a page reload.
@@ -109,6 +110,9 @@ async function main(): Promise<void> {
     error('[startup] Failed to seed database:', err);
     process.exit(1);
   }
+  // Table/column allowlist for the AI chat's contextEnricher — a widget-supplied field/table
+  // is only trusted once it's found in here (mirrors the schema map built in mcp.ts).
+  const schema = new Map(tables.map((t) => [t.tableName, new Set(t.columns)]));
 
   const app = express();
 
@@ -218,6 +222,13 @@ async function main(): Promise<void> {
         model: LLM_MODEL,
         approvalPending: pendingApprovals,
         dataResolver,
+        // Injects exact rank-heatmap numbers (see rankHeatmapInsightContext.ts) into the AI's
+        // context, so a heatmap's "AI insight" request gets real data instead of the model
+        // trying to parse the underlying comma-separated ranked-list field itself via SQL.
+        contextEnricher: ({ dashboardState }) =>
+          summarizeRankHeatmaps(db, dashboardState, schema).then((notes) =>
+            notes ? { notes } : {},
+          ),
       });
 
       const reader = stream.getReader();

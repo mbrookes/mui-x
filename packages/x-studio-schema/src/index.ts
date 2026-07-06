@@ -45,3 +45,16 @@ export {
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
+export {
+  CURRENT_SCHEMA_VERSION,
+  serializeDoc,
+  serializeState,
+  deserializeState,
+  migrateState,
+} from './statePersistence';
+export type {
+  SerializedStudioState,
+  SerializedStudioSnapshot,
+  SerializedStudioSession,
+  MigrationResult,
+} from './statePersistence';

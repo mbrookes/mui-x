@@ -5,7 +5,7 @@ import {
   migrateState,
   serializeState,
 } from './statePersistence';
-import { createDefaultStudioState } from '../models';
+import { createDefaultStudioState } from './factories';
 
 // ─── migrateState ─────────────────────────────────────────────────────────────
 

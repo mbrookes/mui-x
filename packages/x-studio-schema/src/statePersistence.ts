@@ -1,13 +1,7 @@
-import {
-  createDefaultStudioState,
-  normalizeGridColumn,
-  type StudioState,
-  type StudioDoc,
-  type StudioSession,
-  type StudioRuntime,
-  type StudioExpressionField,
-  type StudioAIState,
-} from '../models';
+import { createDefaultStudioState, normalizeGridColumn } from './factories';
+import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
+import type { StudioExpressionField } from './expressionTypes';
+import type { StudioAIState } from './aiTypes';
 
 /**
  * Current schema version for the studio state

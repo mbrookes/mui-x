@@ -51,7 +51,7 @@ import {
   type StudioDataQueryParams,
   type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
-import type { SerializedStudioState } from '@mui/x-studio';
+import { deserializeState, migrateState } from '@mui/x-studio-schema';
 import { log, error as logError } from '../logger.js';
 import { getDashboardState, setDashboardState } from './dashboardState.js';
 import {
@@ -260,31 +260,22 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         claims = DEV_CLAIMS;
       }
 
-      const saved = getDashboardState() as SerializedStudioState | null;
-      // KNOWN GAP (flagged during the StudioState doc/session/runtime partition
-      // migration, not fixed here): when `saved` is present this still seeds
-      // `createDefaultStudioState` from a flat, doc-shaped `SerializedStudioState`
-      // blob rather than a proper `{ doc, session, runtime }` override, and skips
-      // `migrateState`/grid-column normalization entirely. Since every field on
-      // `CreateDefaultStudioStateOverrides` is optional, this no longer throws —
-      // it silently no-ops, so a previously saved dashboard-state.json stops being
-      // applied on session init. The correct fix is `deserializeState(saved,
-      // MCP_INITIAL_DATA_SOURCES, { ... })`, but `deserializeState` only lives in
-      // `packages/x-studio/src/store/statePersistence.ts` (client package code) and
-      // is reachable from a server context only via the `@mui/x-studio/store`
-      // subpath export, which also re-exports `StudioController` — and that
-      // transitively imports `../internals/widgetUtils.tsx`, which renders real
-      // JSX icon components. Pulling that into this framework-agnostic dev server
-      // is the wrong shape; no equivalent (deserialize + migrate) exists yet in
-      // `@mui/x-studio-schema`. Needs a package-level fix (e.g. hoisting
-      // deserializeState/migrateState into `@mui/x-studio-schema` so both the
-      // client and server can share it) — out of scope for this migration pass.
+      const saved = getDashboardState();
+      let restoredState: StudioState | null = null;
+      if (saved) {
+        const migration = migrateState(saved);
+        if (migration.success && migration.state) {
+          restoredState = deserializeState(migration.state, MCP_INITIAL_DATA_SOURCES);
+        } else {
+          logError(
+            `[mcp] saved dashboard-state.json failed to migrate (${migration.errors.join('; ')}) — falling back to defaults`,
+          );
+        }
+      }
+
       const stateBox: StudioStateBox = {
-        current: createDefaultStudioState(
-          (saved
-            ? { ...saved, dataSources: MCP_INITIAL_DATA_SOURCES, mode: 'edit' }
-            : MCP_INITIAL_STATE) as unknown as Partial<StudioState>,
-        ),
+        current:
+          restoredState ?? createDefaultStudioState(MCP_INITIAL_STATE as Partial<StudioState>),
       };
 
       const transport = new StreamableHTTPServerTransport({
@@ -292,7 +283,9 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         onsessioninitialized: (sid) => {
           transports[sid] = transport;
           stateBoxes[sid] = stateBox;
-          log(`[mcp] session ${sid.slice(0, 8)}… initialized${saved ? ' (from saved state)' : ''}`);
+          log(
+            `[mcp] session ${sid.slice(0, 8)}… initialized${restoredState ? ' (from saved state)' : ''}`,
+          );
         },
       });
 

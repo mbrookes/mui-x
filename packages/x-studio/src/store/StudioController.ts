@@ -7,6 +7,15 @@ import {
   mutationLabel,
   MIN_SPAN as MIN_SPAN_COLS,
   type StateMutation,
+  serializeState,
+  serializeDoc,
+  deserializeState,
+  migrateState,
+  CURRENT_SCHEMA_VERSION,
+  type SerializedStudioState,
+  type SerializedStudioSession,
+  type SerializedStudioSnapshot,
+  type MigrationResult,
 } from '@mui/x-studio-schema';
 
 import {
@@ -30,18 +39,6 @@ import {
   type StudioWidget,
   type StudioAIRecentMutation,
 } from '../models/index';
-
-import {
-  serializeState,
-  serializeDoc,
-  deserializeState,
-  migrateState,
-  CURRENT_SCHEMA_VERSION,
-  type SerializedStudioState,
-  type SerializedStudioSession,
-  type SerializedStudioSnapshot,
-  type MigrationResult,
-} from './statePersistence';
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';

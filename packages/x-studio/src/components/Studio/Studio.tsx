@@ -3,6 +3,11 @@
 import * as React from 'react';
 import { useThemeProps } from '@mui/material/styles';
 
+import type {
+  SerializedStudioState,
+  SerializedStudioSession,
+  MigrationResult,
+} from '@mui/x-studio-schema';
 import { StudioProvider } from '../../context';
 import type {
   StudioDataSource,
@@ -15,11 +20,6 @@ import type {
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
 import { StudioController } from '../../store';
-import type {
-  SerializedStudioState,
-  SerializedStudioSession,
-  MigrationResult,
-} from '../../store/statePersistence';
 // StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';

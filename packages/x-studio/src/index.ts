@@ -169,13 +169,13 @@ export { StudioController, createStudioController } from './store/StudioControll
 export { createDefaultStudioState, normalizeGridColumn } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
-export { serializeState, deserializeState, migrateState } from './store/statePersistence';
+export { serializeState, deserializeState, migrateState } from '@mui/x-studio-schema';
 export type {
   SerializedStudioState,
   SerializedStudioSession,
   SerializedStudioSnapshot,
   MigrationResult,
-} from './store/statePersistence';
+} from '@mui/x-studio-schema';
 
 // ─── Models / domain types ────────────────────────────────────────────────────
 export type {
@@ -234,7 +234,7 @@ export type { RelativeDateValue, RelativeDateUnit } from './internals/filterType
 export { computeDateRangePreset } from './store/StudioController';
 
 // ─── Schema version ───────────────────────────────────────────────────────────
-export { CURRENT_SCHEMA_VERSION } from './store/statePersistence';
+export { CURRENT_SCHEMA_VERSION } from '@mui/x-studio-schema';
 
 // ─── Brand ───────────────────────────────────────────────────────────────────
 export { StudioWordmark } from './icons/StudioWordmark';

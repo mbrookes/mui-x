@@ -848,7 +848,7 @@ importers:
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       ag-studio-react:
         specifier: latest
-        version: 2.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 2.0.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -1051,6 +1051,9 @@ importers:
       '@mui/x-studio-data-middleware':
         specifier: workspace:*
         version: link:../../packages/x-studio-data-middleware
+      '@mui/x-studio-schema':
+        specifier: workspace:*
+        version: link:../../packages/x-studio-schema
       cors:
         specifier: ^2.8.5
         version: 2.8.6
@@ -1073,9 +1076,6 @@ importers:
       '@mui/x-chat-headless':
         specifier: workspace:*
         version: link:../../packages/x-chat-headless/build
-      '@mui/x-studio':
-        specifier: workspace:*
-        version: link:../../packages/x-studio/build
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -6780,14 +6780,14 @@ packages:
   ag-stack@36.0.0:
     resolution: {integrity: sha512-ciXqjZygVLk3tnZWOAQyOxP48Ju2ZmaSAtIebekXJwHqA7vB+NJ8ZME/O4XTRpInTSHn2KSu/KTxgWJO8dduiw==}
 
-  ag-studio-react@2.0.0:
-    resolution: {integrity: sha512-I1nymxtNL8hFSAqeoEFE8KBlI+o05vnwdQiAJtVLuTotjzBMX6rGMd4Ih+PNUNatdDYNuR4mf6wIJ/8ZecwrZg==}
+  ag-studio-react@2.0.1:
+    resolution: {integrity: sha512-f3j7VfzmUL8VVxQiVkmztn8WFsFDuI01OvkyCMhr/18qIbv7Mkj41U06rlw3lWI6dtoC+zU6ydMYFVjArQ/DKA==}
     peerDependencies:
       react: ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  ag-studio@2.0.0:
-    resolution: {integrity: sha512-MVVwU4002VSCdTWQ93tLcjl3g3W8d7LwQ5d4yweQgOakgZNN3aYJ2stI2lCQ9M6mZNxhRDsvh3dnnga6dU2tow==}
+  ag-studio@2.0.1:
+    resolution: {integrity: sha512-rq8mdVcRehQV3rxgPG0WQkv6TWVjfznfLNUuu6SKXIs8iqxFwJ4NeRLHDALnTEQ6lzXpeDWVow7xhH2NEylinA==}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -17012,14 +17012,14 @@ snapshots:
 
   ag-stack@36.0.0: {}
 
-  ag-studio-react@2.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+  ag-studio-react@2.0.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:
       ag-stack: 36.0.0
-      ag-studio: 2.0.0
+      ag-studio: 2.0.1
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  ag-studio@2.0.0:
+  ag-studio@2.0.1:
     dependencies:
       ag-charts-enterprise: 14.0.0
       ag-grid-enterprise: 36.0.0

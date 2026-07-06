@@ -20,7 +20,7 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../test/studioContextMock';
-import type { StudioDataSource, StudioState } from '../models';
+import type { CreateDefaultStudioStateOverrides, StudioDataSource, StudioState } from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
 import { studioRequestCache } from './StudioRequestCache';
@@ -63,29 +63,31 @@ function buildDataSource(id = 'source-1'): StudioDataSource {
   };
 }
 
-function buildInitialState(): Partial<StudioState> {
+function buildInitialState(): CreateDefaultStudioStateOverrides {
   const source = buildDataSource();
   return {
-    mode: 'view',
-    dataSources: { [source.id]: source },
-    widgets: {
-      'w-kpi-1': {
-        id: 'w-kpi-1',
-        kind: 'kpi',
-        title: 'Total Amount',
-        sourceId: 'source-1',
-        config: { kpiValueField: 'amount', kpiAggregation: 'sum' },
+    session: { mode: 'view' },
+    runtime: { dataSources: { [source.id]: source } },
+    doc: {
+      widgets: {
+        'w-kpi-1': {
+          id: 'w-kpi-1',
+          kind: 'kpi',
+          title: 'Total Amount',
+          sourceId: 'source-1',
+          config: { kpiValueField: 'amount', kpiAggregation: 'sum' },
+        },
+        'w-kpi-2': {
+          id: 'w-kpi-2',
+          kind: 'kpi',
+          title: 'Count',
+          sourceId: 'source-1',
+          config: { kpiValueField: 'id', kpiAggregation: 'count' },
+        },
       },
-      'w-kpi-2': {
-        id: 'w-kpi-2',
-        kind: 'kpi',
-        title: 'Count',
-        sourceId: 'source-1',
-        config: { kpiValueField: 'id', kpiAggregation: 'count' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
       },
-    },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
     },
   };
 }
@@ -138,7 +140,7 @@ describe('UI render performance', () => {
     // Add page-2 and switch to it so the filter gets stamped with page-2's id
     controller.addPage('Page 2');
     // addPage switches to the new page automatically; get its id from state
-    const page2Id = controller.getState().dashboard.activePageId;
+    const page2Id = controller.getState().doc.dashboard.activePageId;
     expect(page2Id).not.toBe('page-1');
 
     controller.addFilter({
@@ -217,7 +219,7 @@ describe('UI render performance', () => {
   it('renders KPI widget without throwing and shows no error state', () => {
     // Smoke test: KPI widget renders with the real controller + mocked selector
     const source = buildDataSource();
-    const widget = controller.getState().widgets['w-kpi-1'];
+    const widget = controller.getState().doc.widgets['w-kpi-1'];
 
     const { container } = render(
       <ThemeProvider theme={theme}>
@@ -261,7 +263,7 @@ describe('UI render performance', () => {
 
   it('applying a page filter does not cause errors in widget rendering', async () => {
     const source = buildDataSource();
-    const widget = controller.getState().widgets['w-kpi-1'];
+    const widget = controller.getState().doc.widgets['w-kpi-1'];
 
     const { container } = render(
       <ThemeProvider theme={theme}>

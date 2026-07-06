@@ -77,35 +77,59 @@ function renderChart(widget: StudioWidget, dataSource: StudioDataSource) {
   );
 }
 
-function createState(overrides?: Partial<StudioState>): StudioState {
+/**
+ * Flat override bag for `createState` — deliberately mirrors the pre-partition
+ * `StudioState` shape as test-fixture sugar local to this file. `createState`
+ * itself routes each field into the correct `doc`/`session`/`runtime` partition
+ * of the real `StudioState` it returns.
+ */
+interface StateOverrides {
+  mode?: StudioState['session']['mode'];
+  dashboard?: Partial<StudioState['doc']['dashboard']>;
+  pages?: StudioState['doc']['pages'];
+  widgets?: StudioState['doc']['widgets'];
+  dataSources?: StudioState['runtime']['dataSources'];
+  relationships?: StudioState['doc']['relationships'];
+  filters?: StudioState['doc']['filters'];
+  expressionFields?: StudioState['doc']['expressionFields'];
+  shell?: Partial<StudioState['session']['shell']>;
+}
+
+function createState(overrides?: StateOverrides): StudioState {
   return {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: {
-      id: 'dashboard-1',
-      title: 'Dashboard',
-      activePageId: 'page-1',
-      ...overrides?.dashboard,
-    },
-    pages: {
-      'page-1': {
-        id: 'page-1',
-        title: 'Overview',
-        widgetRows: [],
+    doc: {
+      schemaVersion: 1,
+      dashboard: {
+        id: 'dashboard-1',
+        title: 'Dashboard',
+        activePageId: 'page-1',
+        ...overrides?.dashboard,
       },
-      ...overrides?.pages,
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'Overview',
+          widgetRows: [],
+        },
+        ...overrides?.pages,
+      },
+      widgets: overrides?.widgets ?? {},
+      relationships: overrides?.relationships ?? [],
+      filters: overrides?.filters ?? [],
+      expressionFields: overrides?.expressionFields ?? [],
     },
-    widgets: overrides?.widgets ?? {},
-    dataSources: overrides?.dataSources ?? {},
-    relationships: overrides?.relationships ?? [],
-    filters: overrides?.filters ?? [],
-    expressionFields: overrides?.expressionFields ?? [],
-    shell: {
-      openDrawers: { data: true, compose: true, filters: false },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-      ...overrides?.shell,
+    session: {
+      mode: overrides?.mode ?? 'edit',
+      shell: {
+        openDrawers: { data: true, compose: true, filters: false },
+        selectedWidgetId: null,
+        selectedFieldId: null,
+        selectedSourceId: null,
+        ...overrides?.shell,
+      },
+    },
+    runtime: {
+      dataSources: overrides?.dataSources ?? {},
     },
   };
 }
@@ -1413,7 +1437,7 @@ describe('<StudioChartWidget />', () => {
       firstProps.onHighlightChange({ seriesId: 'A', dataIndex: 0 });
     });
 
-    mockState.widgets[widget.id] = {
+    mockState.doc.widgets[widget.id] = {
       ...widget,
       config: {
         chartType: 'bar',
@@ -1427,7 +1451,7 @@ describe('<StudioChartWidget />', () => {
       view.rerender(
         <ThemeProvider theme={createTheme()}>
           <StudioChartWidget
-            widget={mockState.widgets[widget.id]}
+            widget={mockState.doc.widgets[widget.id]}
             dataSource={dataSource}
             pageId="page-1"
           />

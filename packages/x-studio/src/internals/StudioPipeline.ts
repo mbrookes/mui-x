@@ -96,7 +96,15 @@ export interface StudioPipeline {
  * ```
  */
 export function createStudioPipeline(state: StudioPipelineState | StudioState): StudioPipeline {
-  const { dataSources, relationships, expressionFields, filters } = state;
+  const { dataSources, relationships, expressionFields, filters } =
+    'doc' in state
+      ? {
+          dataSources: state.runtime.dataSources,
+          relationships: state.doc.relationships,
+          expressionFields: state.doc.expressionFields,
+          filters: state.doc.filters,
+        }
+      : state;
 
   return {
     resolveWidgetRows(widgetId, sourceId, rows, pageId) {

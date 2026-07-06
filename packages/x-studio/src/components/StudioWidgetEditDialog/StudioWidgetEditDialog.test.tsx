@@ -69,8 +69,10 @@ function setup(
   const onClose = vi.fn();
   const { controller, wrapper } = createStudioHarness({
     initialState: {
-      widgets: options.widgets ?? { w1: textWidget() },
-      ...(options.dataSources ? { dataSources: options.dataSources } : {}),
+      doc: {
+        widgets: options.widgets ?? { w1: textWidget() },
+      },
+      ...(options.dataSources ? { runtime: { dataSources: options.dataSources } } : {}),
     },
     providerProps:
       options.featureFlags || options.customWidgets

@@ -126,12 +126,27 @@ async function main(): Promise<void> {
   const schema = new Map(tables.map((t) => [t.tableName, new Set(t.columns)]));
 
   const app = express();
+  // Railway (like most PaaS) terminates TLS at an edge proxy and forwards via X-Forwarded-*;
+  // without this, req.protocol/req.get('host') below would report the internal http/proxy view
+  // instead of the actual public origin, breaking the self-origin check.
+  app.set('trust proxy', true);
 
-  app.use(
+  // Scoped to /api — CORS only matters for the endpoints an external origin might call.
+  // Mounting this globally broke the co-hosted static client: Vite marks its module script
+  // `crossorigin`, so the browser sends an Origin header even for that same-origin <script>
+  // load, and a rejected origin throws inside the callback — an unhandled error that Express's
+  // default handler turns into a bare 500 for the asset request (index.html itself and the
+  // favicon are plain navigation/link requests, so they never carried an Origin header and
+  // loaded fine, which is what made this so confusing to diagnose from the browser alone).
+  app.use('/api', (req, res, next) => {
+    // Always allow the request's own origin — the co-hosted client calling its own API is
+    // never actually cross-origin in any meaningful sense, and hardcoding the exact deployed
+    // domain here would silently break again on any redeploy to a different URL.
+    const selfOrigin = `${req.protocol}://${req.get('host')}`;
     cors({
       origin: (origin, cb) => {
         // Allow requests with no origin (e.g. curl, Render health checks)
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        if (!origin || origin === selfOrigin || ALLOWED_ORIGINS.includes(origin)) {
           cb(null, true);
         } else {
           cb(new Error(`CORS: origin ${origin} not allowed`));
@@ -141,8 +156,8 @@ async function main(): Promise<void> {
       // initialize response, so allow and expose the Mcp-Session-Id header.
       allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id'],
       exposedHeaders: ['Mcp-Session-Id'],
-    }),
-  );
+    })(req, res, next);
+  });
   app.use(express.json({ limit: '10mb' }));
 
   // Optional bearer-token auth for AI + state endpoints

@@ -1,10 +1,14 @@
 declare module 'x-studio-shared' {
   export const INITIAL_STATE: {
-    dataSources: Record<
-      string,
-      { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }
-    >;
-    [key: string]: unknown;
+    doc?: { [key: string]: unknown };
+    session?: { [key: string]: unknown };
+    runtime?: {
+      dataSources: Record<
+        string,
+        { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }
+      >;
+      [key: string]: unknown;
+    };
   };
 
   export interface GeneratedSalesData {

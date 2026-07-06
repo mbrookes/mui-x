@@ -38,7 +38,7 @@ import {
  */
 export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const widget = useStudioSelector((state) => state.doc.widgets[widgetId]);
   const dataSources = useStudioSelector(selectDataSources);
   const allExpressionFields = useStudioSelector(selectExpressionFields);
   const t = useAppLocaleText();
@@ -50,13 +50,25 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
       if (src.hidden) return [];
       return src.fields
         .filter((f) => !f.hidden && f.type === 'number')
-        .map((f) => ({ id: f.id, label: f.label, type: f.type, sourceId: src.id, sourceLabel: src.label }));
+        .map((f) => ({
+          id: f.id,
+          label: f.label,
+          type: f.type,
+          sourceId: src.id,
+          sourceLabel: src.label,
+        }));
     });
     const expressions = allExpressionFields
       .filter((ef) => !ef.hidden && (ef.type === 'number' || ef.type == null))
       .map((ef) => {
         const src = dataSources[ef.sourceId];
-        return { id: ef.id, label: ef.label, type: 'number' as const, sourceId: ef.sourceId, sourceLabel: src?.label ?? ef.sourceId };
+        return {
+          id: ef.id,
+          label: ef.label,
+          type: 'number' as const,
+          sourceId: ef.sourceId,
+          sourceLabel: src?.label ?? ef.sourceId,
+        };
       });
     return [...physical, ...expressions];
   }, [dataSources, allExpressionFields]);
@@ -70,9 +82,13 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
 
   // Date fields are restricted to the selected value field's source so rows align.
   const dateFields: { id: string; label: string }[] = [
-    ...(source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ?? []),
+    ...(source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ??
+      []),
     ...allExpressionFields
-      .filter((ef) => ef.sourceId === sourceId && !ef.hidden && (ef.type === 'date' || ef.type === 'datetime'))
+      .filter(
+        (ef) =>
+          ef.sourceId === sourceId && !ef.hidden && (ef.type === 'date' || ef.type === 'datetime'),
+      )
       .map((ef) => ({ id: ef.id, label: ef.label })),
   ];
 
@@ -94,7 +110,10 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   function onValueFieldChange(fieldId: string, newSourceId: string) {
     // Clear the date field when source changes since it may not exist on the new source.
     const sourceChanging = newSourceId !== sourceId;
-    updateCustomConfig({ valueField: fieldId, ...(sourceChanging ? { dateField: undefined } : {}) });
+    updateCustomConfig({
+      valueField: fieldId,
+      ...(sourceChanging ? { dateField: undefined } : {}),
+    });
     if (sourceChanging) {
       controller.updateWidget(widgetId, { sourceId: newSourceId });
     }

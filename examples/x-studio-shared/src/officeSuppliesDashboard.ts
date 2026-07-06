@@ -879,15 +879,18 @@ export function createXStudioOfficeSuppliesState(sourceIds) {
     : MAIN_DEMO_PAGES[0].id;
 
   return {
-    dashboard: {
-      id: 'dashboard-os',
-      title: 'Office Supplies Dashboard',
-      activePageId,
+    doc: {
+      schemaVersion: 1,
+      dashboard: {
+        id: 'dashboard-os',
+        title: 'Office Supplies Dashboard',
+        activePageId,
+      },
+      pages: pageMap,
+      relationships: createRelationships(sourceIds),
+      widgets,
+      expressionFields: createExpressionFields(sourceIds),
+      filters: createFilters(sourceIds),
     },
-    pages: pageMap,
-    relationships: createRelationships(sourceIds),
-    widgets,
-    expressionFields: createExpressionFields(sourceIds),
-    filters: createFilters(sourceIds),
   };
 }

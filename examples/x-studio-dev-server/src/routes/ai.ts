@@ -96,7 +96,7 @@ function createContextEnricher(salesDb: Knex, crmDb: Knex): StudioAIContextEnric
     const rowCountNotes: string[] = [];
 
     await Promise.all(
-      Object.values(dashboardState.dataSources).map(async (source) => {
+      Object.values(dashboardState.runtime.dataSources).map(async (source) => {
         // Re-surface authored field descriptions as schema comments.
         for (const field of source.fields ?? []) {
           if (field.aiDescription) {

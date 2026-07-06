@@ -3,22 +3,15 @@ import { Box, Dialog, DialogContent, IconButton, Tooltip, Typography } from '@mu
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import { StudioChatPanel, useStudioSelector } from '@mui/x-studio';
-import type { StudioAIConfig } from '@mui/x-studio';
+import type { StudioAIConfig, StudioState } from '@mui/x-studio';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 
-function selectWidgetTitle(
-  state: { widgets: Record<string, { title?: string }> },
-  widgetId: string,
-  fallbackTitle: string,
-): string {
-  return state.widgets[widgetId]?.title || fallbackTitle;
+function selectWidgetTitle(state: StudioState, widgetId: string, fallbackTitle: string): string {
+  return state.doc.widgets[widgetId]?.title || fallbackTitle;
 }
 
-function selectWidgetExists(
-  state: { widgets: Record<string, unknown> },
-  widgetId: string,
-): boolean {
-  return Boolean(state.widgets[widgetId]);
+function selectWidgetExists(state: StudioState, widgetId: string): boolean {
+  return Boolean(state.doc.widgets[widgetId]);
 }
 
 export interface WidgetAiDialogProps {

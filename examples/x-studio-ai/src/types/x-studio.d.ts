@@ -14,16 +14,32 @@ declare module '@mui/x-studio' {
     [key: string]: unknown;
   }
 
-  export interface StudioState {
+  export interface StudioDoc {
     dashboard: { activePageId?: string; [key: string]: unknown };
-    dataSources: Record<
-      string,
-      { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }
-    >;
     pages: Record<string, StudioPage>;
     widgets: Record<string, unknown>;
     filters: unknown[];
     [key: string]: unknown;
+  }
+
+  export interface StudioSession {
+    mode: 'view' | 'edit';
+    shell: { [key: string]: unknown };
+    [key: string]: unknown;
+  }
+
+  export interface StudioRuntime {
+    dataSources: Record<
+      string,
+      { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }
+    >;
+    [key: string]: unknown;
+  }
+
+  export interface StudioState {
+    doc: StudioDoc;
+    session: StudioSession;
+    runtime: StudioRuntime;
   }
 
   export interface SerializedStudioState {
@@ -114,8 +130,8 @@ declare module '@mui/x-studio' {
   export const esLocaleText: Partial<StudioLocaleText>;
   export const frLocaleText: Partial<StudioLocaleText>;
 
-  export const selectDashboard: (state: StudioState) => StudioState['dashboard'];
-  export const selectPages: (state: StudioState) => StudioState['pages'];
+  export const selectDashboard: (state: StudioState) => StudioDoc['dashboard'];
+  export const selectPages: (state: StudioState) => StudioDoc['pages'];
   export const selectActivePage: (state: StudioState) => StudioPage | null;
   export const selectMode: (state: StudioState) => 'view' | 'edit';
 

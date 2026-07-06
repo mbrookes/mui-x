@@ -238,7 +238,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
           [osData.orderItemsSource.id]: osData.orderItemsSource,
           [osData.shipmentsSource.id]: osData.shipmentsSource,
         }
-      : INITIAL_STATE.dataSources
+      : INITIAL_STATE.runtime?.dataSources
   ) as Record<string, import('@mui/x-studio').StudioDataSource>;
 
   // Restore from localStorage if available, merging with the live data sources.
@@ -249,24 +249,24 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
 
   // AG Studio Data: use OS dashboard config + runtime data sources
   if (dataset === 'ag-studio' && osData) {
-    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), OS_INITIAL_STATE.pages);
+    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), OS_INITIAL_STATE.doc?.pages);
     const base: Partial<StudioState> = {
       ...OS_INITIAL_STATE,
-      dataSources: baseDataSources,
+      runtime: { ...OS_INITIAL_STATE.runtime, dataSources: baseDataSources },
     };
     if (!urlPageId) {
       return base;
     }
     return {
       ...base,
-      dashboard: { ...base.dashboard, activePageId: urlPageId },
+      doc: { ...base.doc, dashboard: { ...base.doc?.dashboard, activePageId: urlPageId } },
     } as Partial<StudioState>;
   }
 
-  const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
+  const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.doc?.pages);
   const rowCount = getUrlRowsParam();
 
-  let base = INITIAL_STATE;
+  let base: Partial<StudioState> = INITIAL_STATE;
 
   if (rowCount !== undefined) {
     const {
@@ -283,14 +283,17 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
     );
     base = {
       ...INITIAL_STATE,
-      dataSources: {
-        ...INITIAL_STATE.dataSources,
-        [customersSource.id]: customersSource,
-        [productsSource.id]: productsSource,
-        [ordersSource.id]: ordersSource,
-        [orderItemsSource.id]: orderItemsSource,
-        [shipmentsSource.id]: shipmentsSource,
-        [shipmentItemsSource.id]: shipmentItemsSource,
+      runtime: {
+        ...INITIAL_STATE.runtime,
+        dataSources: {
+          ...INITIAL_STATE.runtime?.dataSources,
+          [customersSource.id]: customersSource,
+          [productsSource.id]: productsSource,
+          [ordersSource.id]: ordersSource,
+          [orderItemsSource.id]: orderItemsSource,
+          [shipmentsSource.id]: shipmentsSource,
+          [shipmentItemsSource.id]: shipmentItemsSource,
+        },
       },
     };
   }
@@ -299,25 +302,28 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
   const fvParam = getUrlFilterValuesParam();
   if (fvParam) {
     const filterValues = decodeFilterValues(fvParam);
-    if (filterValues && base.filters) {
+    if (filterValues && base.doc?.filters) {
       base = {
         ...base,
-        filters: base.filters.map((f) => {
-          const patch = filterValues[f.id];
-          if (!patch) {
-            return f;
-          }
-          return {
-            ...f,
-            operator: patch.operator as StudioFilterOperator,
-            value: patch.value,
-            ...(patch.operator2 != null && {
-              operator2: patch.operator2 as StudioFilterOperator,
-            }),
-            ...(patch.value2 != null && { value2: patch.value2 }),
-          };
-        }),
-      };
+        doc: {
+          ...base.doc,
+          filters: base.doc.filters.map((f) => {
+            const patch = filterValues[f.id];
+            if (!patch) {
+              return f;
+            }
+            return {
+              ...f,
+              operator: patch.operator as StudioFilterOperator,
+              value: patch.value,
+              ...(patch.operator2 != null && {
+                operator2: patch.operator2 as StudioFilterOperator,
+              }),
+              ...(patch.value2 != null && { value2: patch.value2 }),
+            };
+          }),
+        },
+      } as Partial<StudioState>;
     }
   }
 
@@ -327,7 +333,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
 
   return {
     ...base,
-    dashboard: { ...base.dashboard, activePageId: urlPageId },
+    doc: { ...base.doc, dashboard: { ...base.doc?.dashboard, activePageId: urlPageId } },
   } as Partial<StudioState>;
 }
 
@@ -622,7 +628,7 @@ function DashboardLayout({
     if (!serialized) {
       return;
     }
-    const title = (controller.getState().dashboard.title ?? 'dashboard').replace(
+    const title = (controller.getState().doc.dashboard.title ?? 'dashboard').replace(
       /[^a-z0-9]/gi,
       '_',
     );

@@ -21,32 +21,38 @@ const salesSources = [
 ] as const;
 
 const mergedDataSources = {
-  ...INITIAL_STATE.dataSources,
+  ...INITIAL_STATE.runtime?.dataSources,
   ...Object.fromEntries(salesSources.map((source) => [source.id, source])),
-} as StudioState['dataSources'];
+} as StudioState['runtime']['dataSources'];
 
 function buildInitialStudioState(): StudioState {
   const defaultState = createDefaultStudioState();
-  const initialState = INITIAL_STATE as Partial<StudioState>;
+  const initialDoc = (INITIAL_STATE.doc ?? {}) as Partial<StudioState['doc']>;
   const defaultPageId = 'page-1';
 
   return {
     ...defaultState,
-    ...initialState,
-    dashboard: {
-      ...defaultState.dashboard,
-      ...initialState.dashboard,
-      activePageId: defaultPageId,
+    doc: {
+      ...defaultState.doc,
+      ...initialDoc,
+      dashboard: {
+        ...defaultState.doc.dashboard,
+        ...initialDoc.dashboard,
+        activePageId: defaultPageId,
+      },
+      pages: {
+        [defaultPageId]: { id: defaultPageId, title: 'Dashboard', widgetRows: [] },
+      },
+      widgets: {},
+      filters: [],
     },
-    dataSources: {
-      ...defaultState.dataSources,
-      ...mergedDataSources,
+    runtime: {
+      ...defaultState.runtime,
+      dataSources: {
+        ...defaultState.runtime.dataSources,
+        ...mergedDataSources,
+      },
     },
-    pages: {
-      [defaultPageId]: { id: defaultPageId, title: 'Dashboard', widgetRows: [] },
-    },
-    widgets: {},
-    filters: [],
   };
 }
 

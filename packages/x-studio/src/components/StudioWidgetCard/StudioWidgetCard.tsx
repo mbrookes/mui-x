@@ -336,7 +336,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
-  const pivotExportRef = React.useRef<(() => void) | null>(null);
+  // Populated by pivot internally, or by a custom widget kind via its `exportRef` prop (see
+  // `StudioCustomWidgetDef.export` / `StudioCustomWidgetProps.exportRef`) — either way, whichever
+  // widget owns the current `def.component` is responsible for knowing how to export itself.
+  const imperativeExportRef = React.useRef<(() => void) | null>(null);
   const textAiRefreshRef = React.useRef<(() => void) | null>(null);
   // Detect when filter recomputation is in-flight (deferred rendering).
   // Only relevant for chart and grid widgets that go through useWidgetRows.
@@ -437,11 +440,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
         exportChartToPng(widget, chartContainerRef.current, theme.palette.background.default);
-      } else if (widget.kind === 'pivot') {
-        pivotExportRef.current?.();
+      } else if (widget.kind === 'pivot' || isCustomKind) {
+        imperativeExportRef.current?.();
       }
     },
-    [widget, source, controller, pageId, theme.palette.background.default],
+    [widget, source, controller, pageId, theme.palette.background.default, isCustomKind],
   );
 
   if (!widget) {
@@ -700,7 +703,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   onAnomalyDetected={setAnomalyAnnotations}
                   chartContainerRef={chartContainerRef}
                   aiRefreshRef={textAiRefreshRef}
-                  exportRef={pivotExportRef}
+                  exportRef={imperativeExportRef}
                   extraProps={extraProps}
                 />
                 {isRecomputing && <LoadingOverlay />}

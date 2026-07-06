@@ -249,11 +249,13 @@ export const BUILTIN_WIDGET_DEFS = {
 function toWidgetDef(def: StudioCustomWidgetDef): StudioWidgetDef {
   return {
     ...def,
-    // A custom widget's `component` only ever reads `widget`/`dataSource` (see
+    // A custom widget's `component` only ever reads `widget`/`dataSource`/`exportRef` (see
     // `StudioCustomWidgetProps`) — every other `StudioWidgetRenderProps` field is simply
     // ignored at runtime, so widening the prop type here is safe.
     component: def.component as unknown as React.ComponentType<StudioWidgetRenderProps>,
-    capabilities: {},
+    // `export` is the one capability a custom widget def declares directly (see
+    // `StudioCustomWidgetDef.export`); every other capability is a built-in-only concept.
+    capabilities: { export: def.export },
   };
 }
 

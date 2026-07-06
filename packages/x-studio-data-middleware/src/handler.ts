@@ -77,15 +77,14 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
-  const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn, securityColumns } =
-    options;
+  const { db, schemaAllowlist, columnAllowlist, thresholds, tenancy, securityColumns } = options;
   // ── Compile the row-level-security policy ONCE for the whole request ───────
   // The single compiled object is threaded down in place of the raw
-  // `(tenantColumn, securityColumns)` pair: the fallback chain now runs once here
+  // `(tenancy, securityColumns)` pair: the resolution chain now runs once here
   // instead of fresh at every enforcement site, and `policy.digest` folds the
   // resolved policy into the cache key so differently-scoped nodes never share
   // cache entries (Gap B).
-  const policy = compileSecurityPolicy({ tenantColumn, securityColumns });
+  const policy = compileSecurityPolicy({ tenancy, securityColumns });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =

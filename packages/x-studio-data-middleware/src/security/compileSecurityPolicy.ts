@@ -1,38 +1,48 @@
 /**
  * Compile the row-level-security policy ONCE per request.
  *
- * Gap A (see the retrofit plan): the `(tenantColumn, securityColumns)` fallback
- * chain — `perTable[table]?.X ?? config?.X ?? hardcodedDefault` — was executed
- * fresh at every enforcement site (`buildSecureQuery`, and four sites in
- * `mutationBuilder.ts`), with the raw option pair threaded as loose arguments and
- * no single "compiled" object anywhere. This module centralizes the resolution
- * into one boundary object:
+ * Gap A (see the retrofit plan): the `(tenancy, securityColumns)` resolution
+ * chain — `perTable[table]?.X ?? default` — was executed fresh at every
+ * enforcement site (`buildSecureQuery`, and four sites in `mutationBuilder.ts`),
+ * with the raw options threaded as loose arguments and no single "compiled"
+ * object anywhere. This module centralizes the resolution into one boundary
+ * object:
  *
  *   - `forPrimaryTable(table)` / `forJoinedTable(table)` resolve the security
- *     columns for a table using the EXACT same fallback chain as before (they
- *     delegate to `resolvePrimarySecurityColumns` / `resolveJoinSecurityColumns`
- *     in `shared/predicates.ts`), so centralizing changes WHERE the chain runs,
- *     never WHAT it resolves to for a given input.
+ *     columns for a table (they delegate to `resolvePrimarySecurityColumns` /
+ *     `resolveJoinSecurityColumns` in `shared/predicates.ts`), so centralizing
+ *     changes WHERE the chain runs, never WHAT it resolves to for a given input.
  *   - `digest` is a stable hash of the resolved policy inputs, computed ONCE at
  *     compile time and folded into the cache key so two nodes running different
- *     `securityColumns` config never serve one node's cached rows to the other
- *     node's differently-scoped requests (Gap B).
+ *     `tenancy` / `securityColumns` config never serve one node's cached rows to
+ *     the other node's differently-scoped requests (Gap B).
  *
- * SECURITY: this stage is behavior-preserving. `hasTenantScope` is informational
- * only — it does NOT gate enforcement. A future, separately-signed-off change may
- * make a missing tenant column an error; this stage must keep working for every
- * currently-valid configuration, including single-tenant deployments that never
- * configure a tenant column at all.
+ * SECURITY: tenancy is now an EXPLICIT, REQUIRED decision. A deployment declares
+ * either `{ mode: 'multi-tenant', tenantColumn }` or `{ mode: 'single-tenant' }`
+ * — there is no "forgot to configure a tenant column" state that silently
+ * resolves to an unscoped, cross-tenant-leaking query. This is the previously
+ * deferred, now separately-signed-off follow-up that makes a missing tenant
+ * decision impossible to express by omission. `policy.tenancy.mode ===
+ * 'multi-tenant'` is the single unambiguous tenancy check, and it can never drift
+ * from enforcement because it comes from the same required input the resolvers use.
  */
 import { createHash } from 'node:crypto';
-import type { HandleBatchQueryOptions, SecurityColumns } from './types';
+import type { SecurityColumns, SecurityColumnsConfig, TenancyConfig } from './types';
 import { resolveJoinSecurityColumns, resolvePrimarySecurityColumns } from '../shared/predicates';
+
+/** The security-relevant subset of the handler/mutation options. */
+export interface SecurityPolicyOptions {
+  /** Tenancy posture — REQUIRED. Declares single-tenant or multi-tenant explicitly. */
+  tenancy: TenancyConfig;
+  /** Optional region/department + per-table row-level-security column overrides. */
+  securityColumns?: SecurityColumnsConfig;
+}
 
 /**
  * The compiled row-level-security policy for one request.
  *
  * A single boundary object that resolves security columns per table (via the
- * shared fallback chain) and carries a stable `digest` of its inputs.
+ * shared resolvers) and carries a stable `digest` of its inputs.
  */
 export interface CompiledSecurityPolicy {
   /** Resolve the security columns for the PRIMARY table of a query/mutation. */
@@ -46,17 +56,14 @@ export interface CompiledSecurityPolicy {
   /** Stable hash of the resolved policy inputs, computed ONCE at compile time. */
   readonly digest: string;
   /**
-   * True iff ANY resolvable tenant column exists for this policy.
+   * The declared tenancy posture, echoed back from the input.
    *
-   * INFORMATIONAL ONLY in this stage — do NOT change enforcement behavior based
-   * on this value. `applySecurityPredicates` still skips the tenant dimension
-   * when no tenant column resolves for a given table (behavior-preserving).
+   * `tenancy.mode === 'multi-tenant'` is the single unambiguous check for whether
+   * tenant scoping is in force; it can never drift from enforcement because the
+   * resolvers derive the tenant column from this very value.
    */
-  readonly hasTenantScope: boolean;
+  readonly tenancy: TenancyConfig;
 }
-
-/** The security-relevant subset of the handler/mutation options. */
-type SecurityPolicyOptions = Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>;
 
 /**
  * Recursively serialize a value with object keys sorted alphabetically, so the
@@ -78,35 +85,34 @@ function sortedStringify(obj: unknown): string {
 /**
  * Compute the stable digest of a policy's resolved inputs.
  *
- * Always builds the `{ tenantColumn, securityColumns }` pair from the options, so
- * `computePolicyDigest({})` and `computePolicyDigest({ tenantColumn: undefined,
- * securityColumns: undefined })` produce the identical digest — that identity is
- * what lets `EMPTY_POLICY_DIGEST` double as the default for direct
- * `generateCacheKey` callers.
+ * Builds the `{ tenancy, securityColumns }` pair from the options so the digest
+ * reflects both the tenancy posture and the row-level-security column config.
  */
 function computePolicyDigest(opts: SecurityPolicyOptions): string {
   const canonical = sortedStringify({
-    tenantColumn: opts.tenantColumn,
+    tenancy: opts.tenancy,
     securityColumns: opts.securityColumns,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 
 /**
- * The digest of the empty (fully-unconfigured) policy.
+ * The digest of the single-tenant (no row-level-security column) policy.
  *
  * Used as the default `policyDigest` for `generateCacheKey` callers that do not
  * supply one (e.g. direct unit tests), so their keys stay deterministic and
- * match what the handler stores for an unconfigured deployment.
+ * match what the handler stores for a single-tenant deployment.
  */
-export const EMPTY_POLICY_DIGEST = computePolicyDigest({});
+export const SINGLE_TENANT_POLICY_DIGEST = computePolicyDigest({
+  tenancy: { mode: 'single-tenant' },
+});
 
 /**
  * Type guard: has this already been compiled into a `CompiledSecurityPolicy`?
  *
  * Lets the enforcement-path functions accept EITHER a compiled policy (threaded
- * once from the request handler) OR the legacy raw option pair (passed by direct
- * unit-test callers), without breaking either.
+ * once from the request handler) OR the raw `SecurityPolicyOptions` (passed by
+ * direct unit-test callers), without breaking either.
  */
 export function isCompiledSecurityPolicy(value: unknown): value is CompiledSecurityPolicy {
   return (
@@ -121,27 +127,43 @@ export function isCompiledSecurityPolicy(value: unknown): value is CompiledSecur
  * Compile the row-level-security policy from the handler/mutation options.
  *
  * Call this ONCE at the top of `handleBatchQuery` / `handleMutation` and thread
- * the returned object down in place of the raw `(tenantColumn, securityColumns)`
- * pair.
+ * the returned object down in place of the raw `(tenancy, securityColumns)` pair.
+ *
+ * Fail-closed contradiction check: a `single-tenant` deployment that ALSO carries
+ * a `perTable[table].tenant` override is a configuration contradiction ("no
+ * tenancy, but scope this table by tenant") and THROWS — silently ignoring it
+ * would reintroduce a silent-omission bug, while silently enforcing it would
+ * contradict the declared mode.
  */
 export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecurityPolicy {
-  const { tenantColumn, securityColumns } = opts;
+  const { tenancy, securityColumns } = opts;
 
-  const perTableTenant = Object.values(securityColumns?.perTable ?? {}).some(
-    (entry) => entry != null && Boolean(entry.tenant),
-  );
-  const hasTenantScope =
-    Boolean(tenantColumn) || Boolean(securityColumns?.tenant) || perTableTenant;
+  const resolvedTenantColumn = tenancy.mode === 'multi-tenant' ? tenancy.tenantColumn : undefined;
+
+  if (tenancy.mode === 'single-tenant') {
+    const scopedTable = Object.entries(securityColumns?.perTable ?? {}).find(
+      ([, entry]) => entry != null && Boolean(entry.tenant),
+    )?.[0];
+    if (scopedTable !== undefined) {
+      throw new Error(
+        `MUI X Studio Server: Tenancy is declared single-tenant, but securityColumns.perTable["${scopedTable}"] ` +
+          `sets a "tenant" column. This is contradictory — a single-tenant deployment applies no tenant predicate, ` +
+          `so the per-table tenant scope would either be silently ignored (reintroducing a cross-tenant leak) or ` +
+          `silently contradict the declared mode. ` +
+          `Either switch tenancy to { mode: 'multi-tenant', tenantColumn }, or remove the "tenant" field from the per-table override.`,
+      );
+    }
+  }
 
   return {
     forPrimaryTable(table: string): SecurityColumns {
-      return resolvePrimarySecurityColumns(table, securityColumns, tenantColumn);
+      return resolvePrimarySecurityColumns(table, securityColumns, resolvedTenantColumn);
     },
     forJoinedTable(table: string): SecurityColumns | undefined {
-      return resolveJoinSecurityColumns(table, securityColumns, tenantColumn);
+      return resolveJoinSecurityColumns(table, securityColumns, resolvedTenantColumn);
     },
     digest: computePolicyDigest(opts),
-    hasTenantScope,
+    tenancy,
   };
 }
 
@@ -149,13 +171,13 @@ export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecu
  * Coerce an enforcement-path argument to a `CompiledSecurityPolicy`.
  *
  * - Already-compiled policy (the request path) → returned as-is (no recompile).
- * - Legacy raw option pair (direct unit-test callers) → compiled on the spot.
+ * - Raw `SecurityPolicyOptions` (direct unit-test callers) → compiled on the spot.
  */
 export function toCompiledSecurityPolicy(
-  value: CompiledSecurityPolicy | SecurityPolicyOptions | undefined,
+  value: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): CompiledSecurityPolicy {
   if (isCompiledSecurityPolicy(value)) {
     return value;
   }
-  return compileSecurityPolicy(value ?? {});
+  return compileSecurityPolicy(value);
 }

@@ -14,7 +14,7 @@
  */
 import { createHmac, createHash } from 'node:crypto';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
-import { EMPTY_POLICY_DIGEST } from './compileSecurityPolicy';
+import { SINGLE_TENANT_POLICY_DIGEST } from './compileSecurityPolicy';
 
 /**
  * Generate a HMAC-SHA256 security hash from the user's row-level claims AND the
@@ -106,15 +106,15 @@ function sortedStringify(obj: unknown): string {
  * @param policyDigest - Digest of the compiled security policy in force
  *   (`CompiledSecurityPolicy.digest`). Folds the row-level-security POLICY — not
  *   just the caller's claims — into the key so differently-scoped nodes never
- *   share cache entries. Defaults to the empty-policy digest so direct callers
- *   (e.g. unit tests) that don't pass one stay deterministic and match an
- *   unconfigured deployment.
+ *   share cache entries. Defaults to the single-tenant policy digest so direct
+ *   callers (e.g. unit tests) that don't pass one stay deterministic and match a
+ *   single-tenant deployment.
  */
 export function generateCacheKey(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   hmacSecret: string = process.env.CACHE_HMAC_SECRET ?? process.env.JWT_SECRET ?? '',
-  policyDigest: string = EMPTY_POLICY_DIGEST,
+  policyDigest: string = SINGLE_TENANT_POLICY_DIGEST,
 ): string {
   if (!hmacSecret) {
     throw new Error(

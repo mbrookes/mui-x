@@ -27,6 +27,7 @@ export type {
   JoinDescriptor,
   SecurityColumns,
   SecurityColumnsConfig,
+  TenancyConfig,
   HandleBatchQueryOptions,
   // Mutation types
   MutationDescriptor,

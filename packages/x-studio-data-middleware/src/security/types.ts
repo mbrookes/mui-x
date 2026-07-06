@@ -48,13 +48,29 @@ export interface SecurityColumns {
 }
 
 /**
+ * Tenancy posture — REQUIRED on HandleBatchQueryOptions / HandleMutationOptions.
+ * There is no default: a deployment must explicitly declare single-tenant.
+ */
+export type TenancyConfig =
+  | {
+      mode: 'multi-tenant';
+      /**
+       * Default tenant-isolation column for every table.
+       * `securityColumns.perTable[t].tenant` overrides the name per table;
+       * `securityColumns.perTable[t] = null` opts a shared/lookup table out entirely.
+       */
+      tenantColumn: string;
+    }
+  | { mode: 'single-tenant' };
+
+/**
  * Row-level-security column configuration.
  *
- * The top-level `tenant` / `region` / `department` names act as defaults for the
- * primary table (they default to `tenantColumn`, `'region_id'` and `'department'`
- * respectively for backward compatibility). Per-table overrides — and the
- * explicit opt-out that marks a **joined** table as an unscoped shared/lookup
- * table — go in `perTable`.
+ * The top-level `region` / `department` names act as defaults for the primary
+ * table (they default to `'region_id'` and `'department'` respectively). The
+ * global tenant column is declared in exactly one place — `tenancy.tenantColumn`
+ * — never here. Per-table overrides — and the explicit opt-out that marks a
+ * **joined** table as an unscoped shared/lookup table — go in `perTable`.
  *
  * SECURITY — joined tables are scoped by DEFAULT (fail-closed). A joined table
  * with no `perTable` entry inherits the primary table's resolved
@@ -78,7 +94,11 @@ export interface SecurityColumns {
  *   },
  * }
  */
-export interface SecurityColumnsConfig extends SecurityColumns {
+export interface SecurityColumnsConfig {
+  /** Column checked against `claims.regionIds` for the primary table (default `region_id`). */
+  region?: string;
+  /** Column checked against `claims.department` for the primary table (default `department`). */
+  department?: string;
   /**
    * Per-table column overrides.
    *
@@ -358,13 +378,17 @@ export interface HandleMutationOptions {
    */
   columnAllowlist?: Record<string, string[]>;
   /**
-   * Column name used for tenant isolation.
+   * Tenancy posture for the write path (REQUIRED — no default).
    *
-   * - INSERT: the tenant value from `claims.tenantId` is set unconditionally.
-   * - UPDATE/DELETE: `WHERE <tenantColumn> = claims.tenantId` is appended unconditionally.
-   *   Clients cannot override or remove this predicate.
+   * - `{ mode: 'multi-tenant', tenantColumn }` — the tenant value from
+   *   `claims.tenantId` is set unconditionally on INSERT, and
+   *   `WHERE <tenantColumn> = claims.tenantId` is appended unconditionally on
+   *   UPDATE/DELETE. Clients cannot override or remove this predicate.
+   *   `securityColumns.perTable[t].tenant` overrides the column per table.
+   * - `{ mode: 'single-tenant' }` — no tenant predicate is applied. A deployment
+   *   must declare this explicitly; there is no silent unscoped default.
    */
-  tenantColumn?: string;
+  tenancy: TenancyConfig;
   /**
    * Row-level-security column configuration for the write path.
    *
@@ -430,18 +454,21 @@ export interface HandleBatchQueryOptions {
    */
   columnAllowlist?: Record<string, string[]>;
   /**
-   * Column name used for tenant isolation (row-level multi-tenancy).
+   * Tenancy posture (REQUIRED — no default).
    *
-   * When set, a `WHERE <table>.<tenantColumn> = <claims.tenantId>` predicate is
-   * automatically added to every query. This is the primary multi-tenancy boundary.
+   * - `{ mode: 'multi-tenant', tenantColumn }` — a
+   *   `WHERE <table>.<tenantColumn> = <claims.tenantId>` predicate is
+   *   automatically added to every query. This is the primary multi-tenancy
+   *   boundary. `securityColumns.perTable[t].tenant` overrides the column per
+   *   table; `securityColumns.perTable[t] = null` opts a shared/lookup table out.
+   * - `{ mode: 'single-tenant' }` — no tenant filter is applied — suitable for
+   *   single-tenant deployments where the database has no tenant discriminator
+   *   column. This must be declared explicitly: a deployment can no longer fall
+   *   into an unscoped, cross-tenant-leaking state by simply omitting the field.
    *
-   * When omitted, no tenant filter is applied — suitable for single-tenant
-   * deployments where the database does not have a tenant discriminator column.
-   *
-   * @default undefined (no tenant filter)
-   * @example 'tenant_id'
+   * @example { mode: 'multi-tenant', tenantColumn: 'tenant_id' }
    */
-  tenantColumn?: string;
+  tenancy: TenancyConfig;
   /**
    * Row-level-security column configuration.
    *

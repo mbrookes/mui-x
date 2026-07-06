@@ -1,3 +1,4 @@
+import { STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import type { StudioAIToolName } from './models/aiTypes';
 import { buildWidgetConfigDescription } from './widgetConfigMeta';
 
@@ -546,38 +547,42 @@ export const STUDIO_AI_TOOL_NAMES = STUDIO_AI_TOOLS.map(
 
 /**
  * The single source of truth for "which tools are destructive" (require
- * explicit user confirmation before executing).
+ * explicit user confirmation before executing) — derived from
+ * `STUDIO_AI_TOOL_REGISTRY`'s `destructive` fact (`@mui/x-studio-schema`), the
+ * shared registry of tool facts.
  *
- * Previously this was encoded independently in three places — `agenticLoop.ts`'s
- * `TOOLS_REQUIRING_APPROVAL` set (chat approval gating), `mcp/toolMetadata.ts`'s
- * `destructiveHint` values (MCP client confirmation), and prose in the tool
- * descriptions above — and they had already drifted (`apply_bulk_update` was
+ * Previously this was a hand-maintained `Set` encoded independently from
+ * `mcp/toolMetadata.ts`'s `destructiveHint` values and `agenticLoop.ts`'s chat
+ * approval gate, and they had already drifted (`apply_bulk_update` was
  * approval-gated in chat but advertised as safe/idempotent to MCP clients).
- *
- * Both consumers derive from this one export: `mcp/toolMetadata.ts`'s
- * `TOOL_ANNOTATIONS` derives its `destructiveHint` defaults from it, and
- * `agenticLoop.ts`'s `TOOLS_REQUIRING_APPROVAL` imports it directly, so the chat
- * approval gate and the MCP annotations can't drift apart.
+ * Now both consumers — and this Set — derive from the same registry entries,
+ * so they cannot drift apart: `mcp/toolMetadata.ts`'s `TOOL_ANNOTATIONS`
+ * derives its `destructiveHint` defaults straight from the registry, and
+ * `agenticLoop.ts`'s private-mode/approval logic imports `DESTRUCTIVE_TOOLS`
+ * (this export) directly.
  */
-export const DESTRUCTIVE_TOOLS: ReadonlySet<StudioAIToolName> = new Set([
-  'remove_page',
-  'remove_widget',
-  'apply_bulk_update',
-]);
+export const DESTRUCTIVE_TOOLS: ReadonlySet<StudioAIToolName> = new Set(
+  (Object.keys(STUDIO_AI_TOOL_REGISTRY) as StudioAIToolName[]).filter(
+    (name) => STUDIO_AI_TOOL_REGISTRY[name].destructive,
+  ),
+);
 
 // ── Tool-name drift guard ─────────────────────────────────────────────────────
-// `StudioAIToolName` lives in `@mui/x-studio-schema` so the client can import it
-// without depending on this (server) package, which is why it can't be *derived*
-// from `STUDIO_AI_TOOLS` here (that would invert the dependency). Instead we
-// assert — at compile time, in both directions — that the hand-maintained union
-// exactly equals the set of names actually advertised in `STUDIO_AI_TOOLS`.
-// Adding a tool without updating the union (or vice versa) is a compile error,
-// so the previously-observed drift (`list_pages`, `set_widget_forecast`) can't
-// recur. Fully deriving the union is a good follow-up if the import direction is
-// ever reworked.
+// `StudioAIToolName` is now DERIVED from `STUDIO_AI_TOOL_REGISTRY`
+// (`@mui/x-studio-schema`'s `aiToolRegistry.ts`) rather than a hand-written
+// union, but `STUDIO_AI_TOOLS` (the full JSON-schema tool definitions with
+// parameters/descriptions) still can't be *derived* from that registry — the
+// registry deliberately carries only classification facts, not parameter
+// schemas. This assert is therefore still load-bearing: it verifies, at
+// compile time and in both directions, that the set of names actually
+// advertised in `STUDIO_AI_TOOLS` exactly equals `StudioAIToolName` (i.e. the
+// registry's key set). Adding a tool to one without the other (schema without a
+// registry entry, or vice versa) is a compile error, so the previously-observed
+// drift (`list_pages`, `set_widget_forecast` missing from one side) can't recur.
 type AdvertisedToolName = (typeof STUDIO_AI_TOOLS)[number]['function']['name'];
 type AssertMutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
-// If this errors, `StudioAIToolName` and the advertised tool names have drifted.
+// If this errors, `STUDIO_AI_TOOL_REGISTRY`'s keys and the advertised tool names
+// (`STUDIO_AI_TOOLS`) have drifted.
 const TOOL_NAME_UNION_IN_SYNC: AssertMutuallyAssignable<AdvertisedToolName, StudioAIToolName> =
   true;
 void TOOL_NAME_UNION_IN_SYNC;

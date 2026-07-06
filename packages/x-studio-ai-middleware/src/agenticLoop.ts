@@ -8,6 +8,7 @@
  * them to the client.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
+import { STUDIO_AI_TOOL_REGISTRY, type StudioAIToolFacts } from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type {
   SerializableSkill,
@@ -810,12 +811,15 @@ export async function* runAgenticLoop(
   // keeping the fix self-contained to this file. Combined with the T1-1
   // dispatch-time gate, an injected call to one of these is rejected as an
   // unadvertised tool.
-  const PRIVATE_MODE_EXCLUDED_TOOLS = new Set([
-    'get_dashboard_state',
-    'list_pages',
-    'summarise_page',
-    'execute_query',
-  ]);
+  //
+  // Derived from `STUDIO_AI_TOOL_REGISTRY`'s `privateModeExcluded` fact
+  // (`@mui/x-studio-schema`) rather than hand-maintained here, so this set
+  // can't silently drift from the registry.
+  const PRIVATE_MODE_EXCLUDED_TOOLS = new Set(
+    (Object.entries(STUDIO_AI_TOOL_REGISTRY) as Array<[string, StudioAIToolFacts]>)
+      .filter(([, facts]) => facts.privateModeExcluded)
+      .map(([name]) => name),
+  );
 
   // Build effective tool list.
   //

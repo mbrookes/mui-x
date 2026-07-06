@@ -55,7 +55,11 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { mutationLabel } from '@mui/x-studio-schema';
+import {
+  mutationLabel,
+  STUDIO_AI_TOOL_REGISTRY,
+  type StudioAIToolFacts,
+} from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import type { ToolExecutionResult } from './executeToolOnState';
 import { executeToolWithPolicy, type ToolPolicy } from './toolPolicy';
@@ -105,8 +109,16 @@ export type {
  * is excluded unconditionally, so `tools/list` never advertises it and a
  * `tools/call` for it is rejected as `Unknown tool`. The chat loop's use of
  * `execute_query` via `dataResolver` is unaffected.
+ *
+ * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `mcpSupported` fact
+ * (`@mui/x-studio-schema`) rather than hand-maintained here, so this set can't
+ * silently drift from the registry.
  */
-const MCP_UNSUPPORTED_TOOLS = new Set(['execute_query']);
+const MCP_UNSUPPORTED_TOOLS = new Set(
+  Object.entries(STUDIO_AI_TOOL_REGISTRY)
+    .filter(([, facts]) => !facts.mcpSupported)
+    .map(([name]) => name),
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory

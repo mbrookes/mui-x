@@ -8,46 +8,20 @@
  */
 
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+import { STUDIO_AI_TOOL_REGISTRY, type StudioAIToolFacts } from '@mui/x-studio-schema';
 import type { StudioAIToolName } from '../models/aiTypes';
-import { DESTRUCTIVE_TOOLS } from '../studioAITools';
 import type { McpExtraToolName } from './types';
 
 /** Union of every tool name `TOOL_TITLES`/`TOOL_ANNOTATIONS` must cover. */
 type McpToolName = StudioAIToolName | McpExtraToolName;
 
 /**
- * Human-readable display titles for MCP tools (shown in Claude Desktop's
- * permission editor).
- *
- * Typed against `McpToolName` (rather than a plain `Record<string, string>`) so
- * a missing entry for a real tool, or a phantom entry for a tool that doesn't
- * exist, is a compile error — mirroring the `STUDIO_AI_TOOL_NAMES` drift guard
- * in `studioAITools.ts`. This caught two real bugs: `list_pages` was missing
- * here (MCP `tools/list` emitted `title: undefined` for it) while `get_current_date`
- * was a phantom entry for a tool that exists nowhere in the package.
+ * Hand-written titles for the MCP-only "extra" tools — `McpExtraToolName`
+ * members (data-query tools, `render_chart`, `get_recent_changes`) that are
+ * never `STUDIO_AI_TOOLS` members and therefore have no `STUDIO_AI_TOOL_REGISTRY`
+ * entry to derive from.
  */
-export const TOOL_TITLES: Record<McpToolName, string> = {
-  get_dashboard_state: 'Get dashboard state',
-  list_pages: 'List pages',
-  set_dashboard_title: 'Set dashboard title',
-  add_page: 'Add page',
-  rename_page: 'Rename page',
-  remove_page: 'Remove page',
-  set_active_page: 'Switch page',
-  add_widget: 'Add widget',
-  update_widget: 'Update widget',
-  remove_widget: 'Remove widget',
-  set_widget_layout: 'Set widget layout',
-  set_widget_width: 'Set widget width',
-  set_widget_forecast: 'Set widget forecast',
-  add_page_filter: 'Add page filter',
-  remove_page_filter: 'Remove page filter',
-  add_widget_filter: 'Add widget filter',
-  remove_widget_filter: 'Remove widget filter',
-  summarise_page: 'Summarise page',
-  apply_bulk_update: 'Apply bulk update',
-  rename_thread: 'Rename thread',
-  execute_query: 'Execute query',
+const EXTRA_TOOL_TITLES: Record<McpExtraToolName, string> = {
   query_data_source: 'Query data source',
   describe_data_source: 'Describe data source',
   get_field_values: 'Get field values',
@@ -56,36 +30,74 @@ export const TOOL_TITLES: Record<McpToolName, string> = {
   get_recent_changes: 'Get recent changes',
 };
 
-/**
- * Default `destructiveHint` for a tool.
- *
- * Derives from `DESTRUCTIVE_TOOLS` (`studioAITools.ts`) — the single source of
- * truth for tool destructiveness, also consumed by `agenticLoop.ts`'s chat
- * approval gate. `override` lets an entry below diverge from that default for a
- * documented reason (e.g. `remove_page_filter`/`remove_widget_filter` are
- * marked destructive here even though they aren't chat-approval-gated, because
- * MCP clients have no separate confirmation step and the tool permanently
- * deletes an entity).
- */
-function destructiveHintFor(name: McpToolName, override?: boolean): boolean {
-  return override ?? DESTRUCTIVE_TOOLS.has(name as StudioAIToolName);
+/** `TOOL_TITLES` entries for every `STUDIO_AI_TOOLS` member, read straight off the registry. */
+function builtInToolTitles(): Record<StudioAIToolName, string> {
+  const titles = {} as Record<StudioAIToolName, string>;
+  for (const name of Object.keys(STUDIO_AI_TOOL_REGISTRY) as StudioAIToolName[]) {
+    titles[name] = STUDIO_AI_TOOL_REGISTRY[name].title;
+  }
+  return titles;
 }
 
-/** MCP tool annotations for each tool name (both built-in and dynamically added tools). */
-export const TOOL_ANNOTATIONS: Record<McpToolName, ToolAnnotations> = {
-  // Read-only — never modifies state.
-  get_dashboard_state: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  list_pages: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  },
+/**
+ * Human-readable display titles for MCP tools (shown in Claude Desktop's
+ * permission editor).
+ *
+ * Typed against `McpToolName` (rather than a plain `Record<string, string>`) so
+ * a missing entry for a real tool, or a phantom entry for a tool that doesn't
+ * exist, is a compile error — mirroring the tool-name drift guard in
+ * `studioAITools.ts`. This caught two real bugs: `list_pages` was missing here
+ * (MCP `tools/list` emitted `title: undefined` for it) while `get_current_date`
+ * was a phantom entry for a tool that exists nowhere in the package. The
+ * `STUDIO_AI_TOOLS`-member subset (`StudioAIToolName`) is now derived from
+ * `STUDIO_AI_TOOL_REGISTRY` — the shared source of truth for tool titles — so
+ * it can no longer drift from the registry independently of that guard.
+ */
+export const TOOL_TITLES: Record<McpToolName, string> = {
+  ...builtInToolTitles(),
+  ...EXTRA_TOOL_TITLES,
+};
+
+/**
+ * Builds the MCP `ToolAnnotations` for one `STUDIO_AI_TOOL_REGISTRY` entry.
+ * Key insertion order mirrors the original hand-written entries exactly
+ * (`readOnlyHint?` → `destructiveHint` → `idempotentHint?` → `openWorldHint`)
+ * so the annotations objects — and thus the MCP `tools/list` output — stay
+ * byte-identical to the pre-registry version.
+ *
+ * `destructiveHint` prefers `mcpDestructiveOverride` when the registry entry
+ * sets one (e.g. `remove_page_filter`/`remove_widget_filter` are marked
+ * destructive here even though they aren't chat-approval-gated, because MCP
+ * clients have no separate confirmation step and the tool permanently deletes
+ * an entity), else falls back to `destructive`.
+ */
+function annotationsFromFacts(facts: StudioAIToolFacts): ToolAnnotations {
+  const annotations: ToolAnnotations = {};
+  if (facts.readOnly) {
+    annotations.readOnlyHint = true;
+  }
+  annotations.destructiveHint = facts.mcpDestructiveOverride ?? facts.destructive;
+  if (facts.idempotent) {
+    annotations.idempotentHint = true;
+  }
+  annotations.openWorldHint = facts.openWorld ?? false;
+  return annotations;
+}
+
+/** `TOOL_ANNOTATIONS` entries for every `STUDIO_AI_TOOLS` member, derived from the registry. */
+function builtInToolAnnotations(): Record<StudioAIToolName, ToolAnnotations> {
+  const annotations = {} as Record<StudioAIToolName, ToolAnnotations>;
+  for (const name of Object.keys(STUDIO_AI_TOOL_REGISTRY) as StudioAIToolName[]) {
+    annotations[name] = annotationsFromFacts(STUDIO_AI_TOOL_REGISTRY[name]);
+  }
+  return annotations;
+}
+
+/**
+ * Hand-written annotations for the MCP-only "extra" tools (no
+ * `STUDIO_AI_TOOL_REGISTRY` entry — see `EXTRA_TOOL_TITLES`).
+ */
+const EXTRA_TOOL_ANNOTATIONS: Record<McpExtraToolName, ToolAnnotations> = {
   render_chart: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -122,88 +134,20 @@ export const TOOL_ANNOTATIONS: Record<McpToolName, ToolAnnotations> = {
     idempotentHint: true,
     openWorldHint: true,
   },
-  summarise_page: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  execute_query: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: true,
-  },
-  // Destructive — permanently deletes an entity. `destructiveHint` for
-  // `remove_widget`/`remove_page`/`apply_bulk_update` comes straight from
-  // `DESTRUCTIVE_TOOLS`; the two filter-removal tools opt into `true` via an
-  // explicit override (see `destructiveHintFor`'s doc comment).
-  remove_widget: { destructiveHint: destructiveHintFor('remove_widget'), openWorldHint: false },
-  remove_page: { destructiveHint: destructiveHintFor('remove_page'), openWorldHint: false },
-  remove_page_filter: {
-    destructiveHint: destructiveHintFor('remove_page_filter', true),
-    openWorldHint: false,
-  },
-  remove_widget_filter: {
-    destructiveHint: destructiveHintFor('remove_widget_filter', true),
-    openWorldHint: false,
-  },
-  // Idempotent setters — applying the same args twice has no additional effect.
-  set_dashboard_title: {
-    destructiveHint: destructiveHintFor('set_dashboard_title'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  set_widget_layout: {
-    destructiveHint: destructiveHintFor('set_widget_layout'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  set_widget_width: {
-    destructiveHint: destructiveHintFor('set_widget_width'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  rename_page: {
-    destructiveHint: destructiveHintFor('rename_page'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  set_active_page: {
-    destructiveHint: destructiveHintFor('set_active_page'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  update_widget: {
-    destructiveHint: destructiveHintFor('update_widget'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  // `apply_bulk_update` mass-removes widgets and repeated calls with
-  // `widgetAdditions` create duplicates — it is destructive AND not idempotent,
-  // so (unlike the other entries in this section) it omits `idempotentHint`.
-  apply_bulk_update: {
-    destructiveHint: destructiveHintFor('apply_bulk_update'),
-    openWorldHint: false,
-  },
-  rename_thread: {
-    destructiveHint: destructiveHintFor('rename_thread'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  set_widget_forecast: {
-    destructiveHint: destructiveHintFor('set_widget_forecast'),
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-  // Additive — each call creates a new entity; not idempotent.
-  add_page: { destructiveHint: destructiveHintFor('add_page'), openWorldHint: false },
-  add_widget: { destructiveHint: destructiveHintFor('add_widget'), openWorldHint: false },
-  add_page_filter: { destructiveHint: destructiveHintFor('add_page_filter'), openWorldHint: false },
-  add_widget_filter: {
-    destructiveHint: destructiveHintFor('add_widget_filter'),
-    openWorldHint: false,
-  },
+};
+
+/**
+ * MCP tool annotations for each tool name (both built-in `STUDIO_AI_TOOLS`
+ * members, derived from `STUDIO_AI_TOOL_REGISTRY`, and the dynamically added
+ * extra tools). Previously every entry here was hand-written; the
+ * `STUDIO_AI_TOOLS`-member subset is now `annotationsFromFacts` applied to the
+ * shared registry, so it can't drift from `DESTRUCTIVE_TOOLS`
+ * (`studioAITools.ts`) or the chat approval gate (`agenticLoop.ts`) the way
+ * `apply_bulk_update` once did.
+ */
+export const TOOL_ANNOTATIONS: Record<McpToolName, ToolAnnotations> = {
+  ...builtInToolAnnotations(),
+  ...EXTRA_TOOL_ANNOTATIONS,
 };
 
 /** JSON Schema for the `query_data_source` tool input. */

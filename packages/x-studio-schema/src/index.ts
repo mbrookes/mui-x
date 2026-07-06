@@ -16,6 +16,12 @@ export * from './widgetTypes';
 export * from './expressionTypes';
 export * from './stateTypes';
 export * from './aiTypes';
+// `StudioAIToolName` is re-exported via `aiTypes.ts` above (which re-exports it
+// from `aiToolRegistry.ts`); export the runtime registry and its facts type
+// explicitly here rather than `export *`-ing `aiToolRegistry` (which would
+// re-export `StudioAIToolName` a second time and conflict with the line above).
+export { STUDIO_AI_TOOL_REGISTRY } from './aiToolRegistry';
+export type { StudioAIToolFacts } from './aiToolRegistry';
 
 // The `factories` runtime module's functions are exported explicitly here (they
 // live in a runtime module, not a `export *`-ed type module).

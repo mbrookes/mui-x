@@ -687,38 +687,59 @@ export class StudioController {
     );
   };
 
-  // NOTE: `updateWidget` deliberately stays hand-written (does NOT delegate to the
-  // shared reducer). Its `{ ...existing, ...changes }` spread lets a caller VOID a
-  // top-level widget field by passing an explicit `undefined` value — several call
-  // sites rely on this (`GridSetupPanel` resets `sourceId` to `undefined` to let the
-  // user re-pick a source; `FormatPanel` clears `subtitle` with `subtitle: undefined`).
-  // The reducer's `updateWidget` handler intentionally SKIPS `undefined`-valued keys
-  // in `changes` (so a wire caller cannot void a required field), which would silently
-  // break those resets. No non-config voiding mechanism exists to route them through,
-  // so this method keeps the spread semantics. See the D3 audit note in the PR.
   updateWidget = (widgetId: string, changes: Partial<Omit<StudioWidget, 'id'>>) => {
-    const state = this.store.state;
-    const existing = state.widgets[widgetId];
-
-    if (!existing) {
-      return;
+    // Delegates to the shared reducer (the last controller mutation method to do
+    // so). The historical hand-written version used a `{ ...existing, ...changes }`
+    // spread whose only irreplaceable behaviour was letting a caller VOID a
+    // top-level field by passing an explicit `undefined` value (e.g. `GridSetupPanel`
+    // resetting `sourceId`, `FormatPanel` clearing `subtitle`). An `undefined` value
+    // can never survive JSON, so the reducer deliberately skips `undefined`-valued
+    // `changes` keys; the wire-safe replacement is `unsetFields`. So we split the
+    // caller's `changes` into keys carrying a real value (→ `args.changes`) and keys
+    // explicitly set to `undefined` (→ `args.unsetFields`, which the reducer deletes),
+    // preserving every existing call site's resulting widget state.
+    const definedChanges: Record<string, unknown> = {};
+    const unsetFields: (keyof Omit<StudioWidget, 'id'>)[] = [];
+    for (const key of Object.keys(changes) as (keyof Omit<StudioWidget, 'id'>)[]) {
+      if (changes[key] === undefined) {
+        unsetFields.push(key);
+      } else {
+        definedChanges[key] = changes[key];
+      }
     }
 
-    const updated: StudioWidget = { ...existing, ...changes };
     // Re-infer titles when source changes, or when switching back to auto mode.
-    // Skip re-inference when the caller is explicitly providing a title/subtitle value.
+    // Skip re-inference when the caller explicitly provides a title/subtitle — keyed
+    // off the presence of the key in `changes` (even with an `undefined` value),
+    // exactly matching the historical `'title' in changes || 'subtitle' in changes`
+    // guard. Live-data title inference is a client-only effect the pure reducer does
+    // not own, so it is layered on afterwards via `transform` (mirrors
+    // `updateWidgetConfig`). `label: null` preserves the hand-written method's
+    // behaviour of NOT writing a recent-mutation-log line.
     const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
-    const withTitles = isExplicitTitleChange
-      ? updated
-      : this.applyInferredTitles(updated, state.dataSources);
-
-    this.commitState({
-      ...state,
-      widgets: {
-        ...state.widgets,
-        [widgetId]: withTitles,
+    this.commitMutation(
+      {
+        type: 'updateWidget',
+        args: {
+          widgetId,
+          changes: definedChanges as Partial<Omit<StudioWidget, 'id'>>,
+          ...(unsetFields.length > 0 ? { unsetFields } : {}),
+        },
       },
-    });
+      {
+        label: null,
+        transform: isExplicitTitleChange
+          ? undefined
+          : (next) => {
+              const updated = next.widgets[widgetId];
+              const withTitles = this.applyInferredTitles(updated, next.dataSources);
+              return {
+                ...next,
+                widgets: { ...next.widgets, [widgetId]: withTitles },
+              };
+            },
+      },
+    );
   };
 
   updateWidgetConfig = (

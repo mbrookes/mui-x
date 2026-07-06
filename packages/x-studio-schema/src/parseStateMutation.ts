@@ -223,6 +223,15 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     if (args.config !== undefined && !isRecord(args.config)) {
       return 'updateWidget.args.config must be an object when present';
     }
+    // The wire-safe field/config-key clear affordance. Both are arrays of KEY
+    // NAMES (a `delete` target, never a `record[key] = value` set), so an entry
+    // like `'__proto__'` is harmless — a plain `string[]` check is sufficient.
+    if (args.unsetFields !== undefined && !isStringArray(args.unsetFields)) {
+      return 'updateWidget.args.unsetFields must be a string[] when present';
+    }
+    if (args.unsetConfigKeys !== undefined && !isStringArray(args.unsetConfigKeys)) {
+      return 'updateWidget.args.unsetConfigKeys must be a string[] when present';
+    }
     return null;
   },
 

@@ -256,7 +256,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   updateWidget: {
     apply: (state, args) => {
-      const { widgetId, changes, config } = args;
+      const { widgetId, changes, config, unsetFields, unsetConfigKeys } = args;
       // `Object.hasOwn` (not truthy `state.widgets[widgetId]`) so an untrusted
       // `widgetId` like `'constructor'` is a clean "unknown id" no-op rather than
       // resolving to the `Object` prototype member and corrupting a write.
@@ -265,6 +265,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const existing = state.widgets[widgetId];
       let updated: StudioWidget = existing;
+      // Order of operations (documented, load-bearing): config patch → changes
+      // merge → config-key unsets → field unsets. Unsets are applied LAST so an
+      // explicit clear always wins over a set of the same key in the same mutation.
+      //
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
       if (config !== undefined) {
@@ -282,7 +286,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `config` object, which replaces the partial-merge result above — this
       // matches the historical client dispatch order). Keys whose value is
       // `undefined` are skipped so an in-process caller cannot void a required
-      // field (e.g. `changes: { title: undefined }`) via the shallow merge.
+      // field (e.g. `changes: { title: undefined }`) via the shallow merge — the
+      // sanctioned way to void a field is `unsetFields`/`unsetConfigKeys` below,
+      // which survive JSON (an `undefined` value never does).
       if (changes) {
         const definedChanges: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(changes)) {
@@ -292,6 +298,44 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
         if (Object.keys(definedChanges).length > 0) {
           updated = { ...updated, ...(definedChanges as Partial<StudioWidget>) };
+        }
+      }
+      // `unsetConfigKeys` — delete the named keys from the (post-merge) config.
+      // The wire-safe equivalent of a `config`-patch `undefined` value: a key
+      // NAME survives `JSON.stringify` where an `undefined` value is dropped.
+      if (unsetConfigKeys && unsetConfigKeys.length > 0) {
+        const nextConfig = { ...updated.config } as Record<string, unknown>;
+        let changedConfig = false;
+        for (const key of unsetConfigKeys) {
+          if (Object.hasOwn(nextConfig, key)) {
+            delete nextConfig[key];
+            changedConfig = true;
+          }
+        }
+        if (changedConfig) {
+          updated = { ...updated, config: nextConfig as StudioWidget['config'] };
+        }
+      }
+      // `unsetFields` — delete the named top-level keys from the widget. `id` is
+      // never deletable (it is also the `state.widgets` map key, so dropping it
+      // would strand the widget), matching the `keyof Omit<StudioWidget, 'id'>`
+      // type; `config` is deliberately clearable via `unsetConfigKeys` only, so
+      // an unset of the whole `config` object is ignored to avoid a widget with no
+      // config bag.
+      if (unsetFields && unsetFields.length > 0) {
+        const nextWidget = { ...updated } as Record<string, unknown>;
+        let changedWidget = false;
+        // Iterate as `string[]`: the compile-time type excludes `'id'`, but a value
+        // arriving over the wire is not type-checked, so the runtime `id`/`config`
+        // guards below are load-bearing for an untrusted payload.
+        for (const key of unsetFields as string[]) {
+          if (key !== 'id' && key !== 'config' && Object.hasOwn(nextWidget, key)) {
+            delete nextWidget[key];
+            changedWidget = true;
+          }
+        }
+        if (changedWidget) {
+          updated = nextWidget as unknown as StudioWidget;
         }
       }
       return {

@@ -65,6 +65,24 @@ export type StateMutation =
         widgetId: string;
         changes?: Partial<Omit<StudioWidget, 'id'>>;
         config?: StudioWidget['config'];
+        /**
+         * Top-level widget keys to DELETE from the widget — the wire-safe way to
+         * void a field. Unlike a `changes` entry with an `undefined` value (which
+         * `JSON.stringify` silently drops, so it can never survive the SSE stream
+         * or an AI tool-call argument), a KEY NAME survives JSON intact. The
+         * reducer skips `undefined`-valued `changes` keys precisely so an untrusted
+         * wire caller cannot void a required field the old (unsafe) way; these
+         * arrays are the ONLY sanctioned clear affordance, in-process or over the
+         * wire. Applied AFTER the `config` patch and `changes` merge, so an explicit
+         * unset always wins over a same-turn set of the same key.
+         */
+        unsetFields?: (keyof Omit<StudioWidget, 'id'>)[];
+        /**
+         * Config keys to DELETE from the merged config — the wire-safe equivalent
+         * of a `config`-patch entry with an `undefined` value. Applied AFTER the
+         * `config` patch and `changes` merge (which may replace `config` wholesale).
+         */
+        unsetConfigKeys?: string[];
       };
     }
   | { type: 'removeWidget'; args: { widgetId: string } }

@@ -110,7 +110,7 @@ const MCP_INITIAL_DATA_SOURCES = {
 // Full dashboard layout from the shared config, with live data sources.
 const MCP_INITIAL_STATE = {
   ...INITIAL_STATE,
-  dataSources: MCP_INITIAL_DATA_SOURCES,
+  runtime: { ...INITIAL_STATE.runtime, dataSources: MCP_INITIAL_DATA_SOURCES },
 };
 
 const SALES_SCHEMA_ALLOWLIST = [
@@ -202,7 +202,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       const rowCountNotes: string[] = [];
 
       await Promise.all(
-        Object.values(dashboardState.dataSources).map(async (source) => {
+        Object.values(dashboardState.runtime.dataSources).map(async (source) => {
           for (const field of source.fields ?? []) {
             if (field.aiDescription) {
               schemaComments[`${source.id}.${field.id}`] = field.aiDescription;
@@ -261,6 +261,24 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       }
 
       const saved = getDashboardState() as SerializedStudioState | null;
+      // KNOWN GAP (flagged during the StudioState doc/session/runtime partition
+      // migration, not fixed here): when `saved` is present this still seeds
+      // `createDefaultStudioState` from a flat, doc-shaped `SerializedStudioState`
+      // blob rather than a proper `{ doc, session, runtime }` override, and skips
+      // `migrateState`/grid-column normalization entirely. Since every field on
+      // `CreateDefaultStudioStateOverrides` is optional, this no longer throws —
+      // it silently no-ops, so a previously saved dashboard-state.json stops being
+      // applied on session init. The correct fix is `deserializeState(saved,
+      // MCP_INITIAL_DATA_SOURCES, { ... })`, but `deserializeState` only lives in
+      // `packages/x-studio/src/store/statePersistence.ts` (client package code) and
+      // is reachable from a server context only via the `@mui/x-studio/store`
+      // subpath export, which also re-exports `StudioController` — and that
+      // transitively imports `../internals/widgetUtils.tsx`, which renders real
+      // JSX icon components. Pulling that into this framework-agnostic dev server
+      // is the wrong shape; no equivalent (deserialize + migrate) exists yet in
+      // `@mui/x-studio-schema`. Needs a package-level fix (e.g. hoisting
+      // deserializeState/migrateState into `@mui/x-studio-schema` so both the
+      // client and server can share it) — out of scope for this migration pass.
       const stateBox: StudioStateBox = {
         current: createDefaultStudioState(
           (saved
@@ -285,8 +303,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
           log(`[mcp] session ${sid.slice(0, 8)}… closed`);
           const box = stateBoxes[sid];
           if (box) {
-            const { dataSources: _ds, mode: _m, shell: _sh, ...persisted } = box.current;
-            setDashboardState(persisted);
+            setDashboardState(box.current.doc);
             log(`[mcp] session ${sid.slice(0, 8)}… state persisted`);
           }
           delete transports[sid];

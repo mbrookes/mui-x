@@ -1,7 +1,8 @@
 /**
  * Fixture registry for the widget-config-panel screenshot harness (`ScreenshotHarness.tsx`).
  *
- * Each scenario is a minimal `Partial<StudioState>` that puts one widget's setup panel
+ * Each scenario is a minimal `{ doc?, session?, runtime? }` state override (see
+ * `StudioControllerInitialState` below) that puts one widget's setup panel
  * into a specific, named state. `test/e2e-studio/setupPanelScreenshots.spec.ts` iterates
  * this list, navigates to `/?panelScreenshot=<id>`, and screenshots the rendered panel.
  *
@@ -9,12 +10,20 @@
  * ScreenshotHarness) and by the Playwright spec running in Node.
  */
 import type {
-  StudioState,
   StudioWidgetConfig,
   StudioWidgetKind,
   StudioDataSource,
   StudioController,
 } from '@mui/x-studio';
+
+/**
+ * The shape `StudioController`'s constructor actually accepts — a partition-aware
+ * `{ doc?, session?, runtime? }` overrides bag (`CreateDefaultStudioStateOverrides`
+ * in `@mui/x-studio`), not a flat `Partial<StudioState>`. Derived via
+ * `ConstructorParameters` instead of importing the (unexported-from-the-public-API)
+ * overrides type directly.
+ */
+type StudioControllerInitialState = ConstructorParameters<typeof StudioController>[0];
 
 /**
  * A scripted step run by the Playwright spec after mount, before the screenshot is
@@ -46,7 +55,7 @@ export interface ScreenshotScenario {
   panel: 'chart' | 'grid' | 'kpi' | 'map' | 'pivot' | 'filter' | 'text';
   description: string;
   widgetId: string;
-  initialState: Partial<StudioState>;
+  initialState: StudioControllerInitialState;
   interactions?: ScreenshotInteractionStep[];
   /**
    * Imperative controller calls run once after construction, for state that can't be
@@ -102,9 +111,11 @@ function widgetScenario(
     description,
     widgetId: 'w1',
     initialState: {
-      dataSources: BASE_DATA_SOURCES,
-      widgets: {
-        w1: { id: 'w1', kind, title: 'Widget', sourceId: opts?.sourceId, config },
+      runtime: { dataSources: BASE_DATA_SOURCES },
+      doc: {
+        widgets: {
+          w1: { id: 'w1', kind, title: 'Widget', sourceId: opts?.sourceId, config },
+        },
       },
     },
     ...(opts?.interactions && { interactions: opts.interactions }),
@@ -506,7 +517,7 @@ export const SCREENSHOT_SCENARIOS: ScreenshotScenario[] = [
   ),
   filterScenario(
     'filter-control-type-select-open',
-    'Control-type dropdown open, showing each option\'s description',
+    "Control-type dropdown open, showing each option's description",
     { filterWidgetType: 'multi-select' },
     { sourceId: 'orders', interactions: [{ action: 'click', formControlText: 'Control type' }] },
   ),
@@ -518,6 +529,6 @@ export const SCREENSHOT_SCENARIOS: ScreenshotScenario[] = [
   }),
   textScenario('text-ai-mode', 'AI mode on — subtitle hidden, body becomes a prompt field', {
     textAiEnabled: true,
-    textBody: 'Summarise this quarter\'s revenue trend in two sentences.',
+    textBody: "Summarise this quarter's revenue trend in two sentences.",
   }),
 ];

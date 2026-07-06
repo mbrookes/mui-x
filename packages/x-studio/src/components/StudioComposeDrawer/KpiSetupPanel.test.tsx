@@ -15,31 +15,35 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'kpi',
-      sourceId: 'orders',
-      config: {
-        kpiValueField: 'total',
-        kpiAggregation: 'sum',
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'kpi',
+        sourceId: 'orders',
+        config: {
+          kpiValueField: 'total',
+          kpiAggregation: 'sum',
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+    filters: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'orderDate', label: 'Order Date', type: 'date' },
+        ],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { id: 'total', label: 'Total', type: 'number' },
-        { id: 'orderDate', label: 'Order Date', type: 'date' },
-      ],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
-  filters: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -64,11 +68,11 @@ describe('KpiSetupPanel', () => {
   });
 
   it('sets the value field and derives a default aggregation for a fresh KPI', async () => {
-    const previousWidget = mockState.widgets['widget-1'];
+    const previousWidget = mockState.doc.widgets['widget-1'];
     controller.updateWidgetConfig.mockClear();
 
     try {
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         config: {},
       };
@@ -86,7 +90,7 @@ describe('KpiSetupPanel', () => {
         kpiAggregation: 'sum',
       });
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
+      mockState.doc.widgets['widget-1'] = previousWidget;
     }
   });
 

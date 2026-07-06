@@ -14,39 +14,43 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'pivot',
-      sourceId: 'orders' as string | undefined,
-      config: {
-        pivotRowField: 'category',
-        pivotColField: 'region',
-        pivotValueField: 'total',
-        pivotAggregation: 'sum',
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'pivot',
+        sourceId: 'orders' as string | undefined,
+        config: {
+          pivotRowField: 'category',
+          pivotColField: 'region',
+          pivotValueField: 'total',
+          pivotAggregation: 'sum',
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'category', label: 'Category', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'segment', label: 'Segment', type: 'string' }],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { id: 'category', label: 'Category', type: 'string' },
-        { id: 'region', label: 'Region', type: 'string' },
-        { id: 'total', label: 'Total', type: 'number' },
-      ],
-      rows: [],
-    },
-    customers: {
-      id: 'customers',
-      label: 'Customers',
-      fields: [{ id: 'segment', label: 'Segment', type: 'string' }],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -61,7 +65,7 @@ const { render } = createRenderer();
 
 describe('PivotSetupPanel', () => {
   beforeEach(() => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'pivot',
       sourceId: 'orders' as string | undefined,
@@ -117,8 +121,8 @@ describe('PivotSetupPanel', () => {
   });
 
   it('hides the value field picker when aggregation is count', () => {
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       pivotAggregation: 'count',
     };
 
@@ -128,7 +132,7 @@ describe('PivotSetupPanel', () => {
   });
 
   it('adopts the field source when a row field is picked before a source exists', async () => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'pivot',
       sourceId: undefined,

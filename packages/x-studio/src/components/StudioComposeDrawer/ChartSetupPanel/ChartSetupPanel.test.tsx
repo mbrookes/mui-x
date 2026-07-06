@@ -14,71 +14,75 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'chart',
-      sourceId: 'orders',
-      config: {
-        chartType: 'bar',
-        xField: 'id',
-        yField: 'total',
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'chart',
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          xField: 'id',
+          yField: 'total',
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [
+      {
+        id: 'rel-orders-customers',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+      {
+        id: 'rel-orderitems-orders',
+        sourceId: 'orderItems',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+      {
+        id: 'rel-shipments-orders',
+        sourceId: 'shipments',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ],
+    expressionFields: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+        rows: [],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'country', label: 'Country', type: 'string' }],
+        rows: [],
+      },
+      orderItems: {
+        id: 'orderItems',
+        label: 'Order Items',
+        fields: [{ id: 'total', label: 'Total', type: 'number' }],
+        rows: [],
+      },
+      shipments: {
+        id: 'shipments',
+        label: 'Shipments',
+        fields: [{ id: 'status', label: 'Status', type: 'string' }],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
-      rows: [],
-    },
-    customers: {
-      id: 'customers',
-      label: 'Customers',
-      fields: [{ id: 'country', label: 'Country', type: 'string' }],
-      rows: [],
-    },
-    orderItems: {
-      id: 'orderItems',
-      label: 'Order Items',
-      fields: [{ id: 'total', label: 'Total', type: 'number' }],
-      rows: [],
-    },
-    shipments: {
-      id: 'shipments',
-      label: 'Shipments',
-      fields: [{ id: 'status', label: 'Status', type: 'string' }],
-      rows: [],
-    },
-  },
-  relationships: [
-    {
-      id: 'rel-orders-customers',
-      sourceId: 'orders',
-      sourceField: 'customerId',
-      targetId: 'customers',
-      targetField: 'id',
-      type: 'many-to-one',
-    },
-    {
-      id: 'rel-orderitems-orders',
-      sourceId: 'orderItems',
-      sourceField: 'orderId',
-      targetId: 'orders',
-      targetField: 'id',
-      type: 'many-to-one',
-    },
-    {
-      id: 'rel-shipments-orders',
-      sourceId: 'shipments',
-      sourceField: 'orderId',
-      targetId: 'orders',
-      targetField: 'id',
-      type: 'many-to-one',
-    },
-  ],
-  expressionFields: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -106,19 +110,19 @@ describe('ChartSetupPanel', () => {
   });
 
   it('keeps the split-by field visible and disabled when multiple measure fields are configured', () => {
-    const previousConfig = mockState.widgets['widget-1'].config;
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousConfig = mockState.doc.widgets['widget-1'].config;
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
 
     try {
-      mockState.widgets['widget-1'].config = {
+      mockState.doc.widgets['widget-1'].config = {
         ...previousConfig,
         ySeries: [{ fieldId: 'total' }, { fieldId: 'revenue' }],
         yField: 'total',
         seriesField: undefined,
       };
 
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [
           { id: 'id', label: 'Order ID', type: 'string' },
           { id: 'total', label: 'Total', type: 'number' },
@@ -134,22 +138,22 @@ describe('ChartSetupPanel', () => {
         screen.getByText('Not available when multiple measure fields are configured'),
       ).toBeVisible();
     } finally {
-      mockState.widgets['widget-1'].config = {
+      mockState.doc.widgets['widget-1'].config = {
         ...previousConfig,
       };
 
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('shows "line" selected for a mixed-chart series carrying only the canonical `type` field', () => {
-    const previousConfig = mockState.widgets['widget-1'].config;
+    const previousConfig = mockState.doc.widgets['widget-1'].config;
 
     try {
-      mockState.widgets['widget-1'].config = {
+      mockState.doc.widgets['widget-1'].config = {
         ...previousConfig,
         chartType: 'mixed',
         ySeries: [{ fieldId: 'total', type: 'line' }],
@@ -161,7 +165,7 @@ describe('ChartSetupPanel', () => {
       expect(screen.getByRole('button', { name: 'Line', pressed: true })).toBeVisible();
       expect(screen.getByRole('button', { name: 'Bar', pressed: false })).toBeVisible();
     } finally {
-      mockState.widgets['widget-1'].config = { ...previousConfig };
+      mockState.doc.widgets['widget-1'].config = { ...previousConfig };
     }
   });
 
@@ -182,8 +186,8 @@ describe('ChartSetupPanel', () => {
   });
 
   it('flips axis labels for horizontal bar charts', () => {
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       chartType: 'bar',
       barLayout: 'horizontal',
     };
@@ -195,15 +199,15 @@ describe('ChartSetupPanel', () => {
     expect(screen.getByText('Groups data along the vertical axis')).toBeVisible();
     expect(screen.getByText('Numeric field plotted along the horizontal axis')).toBeVisible();
 
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       barLayout: undefined,
     };
   });
 
   it('removes stale source filtering when xField is cleared', async () => {
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       xField: undefined,
       yField: 'total',
       ySeries: [{ fieldId: 'total' }],
@@ -224,16 +228,16 @@ describe('ChartSetupPanel', () => {
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
     expect(statusOption.getAttribute('aria-disabled')).toBe('true');
 
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       xField: 'id',
       ySeries: undefined,
     };
   });
 
   it('does not warn for a safe order-items chart when the x field comes from orders', () => {
-    mockState.widgets['widget-1'] = {
-      ...mockState.widgets['widget-1'],
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
       sourceId: 'orderItems',
       config: {
         chartType: 'bar-stacked',
@@ -244,8 +248,8 @@ describe('ChartSetupPanel', () => {
       },
     };
 
-    mockState.dataSources.orders = {
-      ...mockState.dataSources.orders,
+    mockState.runtime.dataSources.orders = {
+      ...mockState.runtime.dataSources.orders,
       fields: [
         { id: 'id', label: 'Order ID', type: 'string' },
         { id: 'date', label: 'Order Date', type: 'date' },
@@ -253,8 +257,8 @@ describe('ChartSetupPanel', () => {
       ],
     };
 
-    mockState.dataSources.orderItems = {
-      ...mockState.dataSources.orderItems,
+    mockState.runtime.dataSources.orderItems = {
+      ...mockState.runtime.dataSources.orderItems,
       fields: [
         { id: 'total', label: 'Total', type: 'number' },
         { id: 'category', label: 'Category', type: 'string' },
@@ -265,8 +269,8 @@ describe('ChartSetupPanel', () => {
 
     expect(screen.queryByText(/single safe aggregation grain/i)).toBeNull();
 
-    mockState.widgets['widget-1'] = {
-      ...mockState.widgets['widget-1'],
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
       sourceId: 'orders',
       config: {
         chartType: 'bar',
@@ -275,31 +279,31 @@ describe('ChartSetupPanel', () => {
       },
     };
 
-    mockState.dataSources.orders = {
-      ...mockState.dataSources.orders,
+    mockState.runtime.dataSources.orders = {
+      ...mockState.runtime.dataSources.orders,
       fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
     };
 
-    mockState.dataSources.orderItems = {
-      ...mockState.dataSources.orderItems,
+    mockState.runtime.dataSources.orderItems = {
+      ...mockState.runtime.dataSources.orderItems,
       fields: [{ id: 'total', label: 'Total', type: 'number' }],
     };
   });
 
   it('shows source, target, value and link controls for a sankey chart', () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [
           { id: 'category', label: 'Category', type: 'string' },
           { id: 'region', label: 'Region', type: 'string' },
           { id: 'total', label: 'Total', type: 'number' },
         ],
       };
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: {
@@ -320,25 +324,25 @@ describe('ChartSetupPanel', () => {
       // Irrelevant controls are hidden for sankey (split-by section title)
       expect(screen.queryByText('Category field')).toBeNull();
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('locks the aggregation to a disabled Count when no measure field is selected (BL-186)', () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [{ id: 'department', label: 'Department', type: 'string' }],
       };
       // Reproduces "contacts by department": an X field, no numeric Y field, count.
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: {
@@ -360,26 +364,26 @@ describe('ChartSetupPanel', () => {
       // The split-by control is unavailable for a fieldless count.
       expect(screen.getByLabelText('Split by (series field)').getAttribute('disabled')).toBe('');
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('seeds a fieldless count when the X field is picked with no measure field (BL-186)', async () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
     controller.updateWidgetConfig.mockClear();
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [{ id: 'department', label: 'Department', type: 'string' }],
       };
       // No X field and no Y field yet — the from-scratch state.
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: { chartType: 'bar' },
@@ -400,24 +404,24 @@ describe('ChartSetupPanel', () => {
         yAggregation: 'count',
       });
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('locks the aggregation to a disabled Count for a fieldless pie chart', () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [{ id: 'department', label: 'Department', type: 'string' }],
       };
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: {
@@ -433,25 +437,25 @@ describe('ChartSetupPanel', () => {
       expect(aggSelect).not.toBeNull();
       expect(aggSelect!.getAttribute('disabled')).toBe('');
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('seeds a fieldless count when the X field is picked on a pie chart with no measure field', async () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
     controller.updateWidgetConfig.mockClear();
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [{ id: 'department', label: 'Department', type: 'string' }],
       };
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: { chartType: 'pie' },
@@ -471,29 +475,29 @@ describe('ChartSetupPanel', () => {
         yAggregation: 'count',
       });
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }
   });
 
   it('toggles sankeyShowValues from the show-values checkbox', async () => {
-    const previousWidget = mockState.widgets['widget-1'];
-    const previousOrdersFields = mockState.dataSources.orders.fields;
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
     controller.updateWidgetConfig.mockClear();
 
     try {
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: [
           { id: 'category', label: 'Category', type: 'string' },
           { id: 'region', label: 'Region', type: 'string' },
           { id: 'total', label: 'Total', type: 'number' },
         ],
       };
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: 'orders',
         config: {
@@ -512,9 +516,9 @@ describe('ChartSetupPanel', () => {
         sankeyShowValues: true,
       });
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
-      mockState.dataSources.orders = {
-        ...mockState.dataSources.orders,
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
         fields: previousOrdersFields,
       };
     }

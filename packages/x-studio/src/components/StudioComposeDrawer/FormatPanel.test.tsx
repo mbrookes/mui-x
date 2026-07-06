@@ -14,27 +14,35 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'kpi',
-      sourceId: 'orders',
-      title: 'Revenue',
-      subtitle: undefined,
-      config: { kpiField: 'total', kpiAggregation: 'sum', kpiCompact: true } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'kpi',
+        sourceId: 'orders',
+        title: 'Revenue',
+        subtitle: undefined,
+        config: {
+          kpiField: 'total',
+          kpiAggregation: 'sum',
+          kpiCompact: true,
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+    filters: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'total', label: 'Total', type: 'number' }],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [{ id: 'total', label: 'Total', type: 'number' }],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
-  filters: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -49,7 +57,7 @@ const { render } = createRenderer();
 
 describe('FormatPanel', () => {
   beforeEach(() => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'kpi',
       sourceId: 'orders',
@@ -97,7 +105,7 @@ describe('FormatPanel', () => {
   });
 
   it('shows the grid height input for a grid widget', () => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'grid',
       sourceId: 'orders',
@@ -113,7 +121,7 @@ describe('FormatPanel', () => {
   });
 
   it('shows the legend-alignment control only when the map legend is not hidden', async () => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'map',
       sourceId: 'orders',
@@ -136,7 +144,7 @@ describe('FormatPanel', () => {
   });
 
   it('hides the legend-alignment control once the map legend is hidden', () => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'map',
       sourceId: 'orders',

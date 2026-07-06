@@ -14,38 +14,42 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'map',
-      sourceId: 'orders' as string | undefined,
-      config: {
-        mapGeography: 'world',
-        mapCountryField: 'country',
-        mapValueField: 'total',
-        mapAggregation: 'sum',
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'map',
+        sourceId: 'orders' as string | undefined,
+        config: {
+          mapGeography: 'world',
+          mapCountryField: 'country',
+          mapValueField: 'total',
+          mapAggregation: 'sum',
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'country', label: 'Country', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'country', label: 'Country', type: 'string' }],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { id: 'country', label: 'Country', type: 'string' },
-        { id: 'total', label: 'Total', type: 'number' },
-      ],
-      rows: [],
-    },
-    customers: {
-      id: 'customers',
-      label: 'Customers',
-      fields: [{ id: 'country', label: 'Country', type: 'string' }],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -60,7 +64,7 @@ const { render } = createRenderer();
 
 describe('MapSetupPanel', () => {
   beforeEach(() => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'map',
       sourceId: 'orders' as string | undefined,
@@ -132,8 +136,8 @@ describe('MapSetupPanel', () => {
   });
 
   it('locks the aggregation to a disabled Count when no value field is selected', () => {
-    mockState.widgets['widget-1'].config = {
-      ...mockState.widgets['widget-1'].config,
+    mockState.doc.widgets['widget-1'].config = {
+      ...mockState.doc.widgets['widget-1'].config,
       mapValueField: undefined,
       mapValueSourceId: undefined,
     };
@@ -146,7 +150,7 @@ describe('MapSetupPanel', () => {
   });
 
   it('adopts the field source when a country field is picked before a source exists', async () => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'map',
       sourceId: undefined,

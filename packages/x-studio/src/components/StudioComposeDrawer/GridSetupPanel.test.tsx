@@ -14,30 +14,34 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'grid',
-      sourceId: 'orders' as string | undefined,
-      config: {
-        columns: [{ fieldId: 'id' }, { fieldId: 'total' }],
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'grid',
+        sourceId: 'orders' as string | undefined,
+        config: {
+          columns: [{ fieldId: 'id' }, { fieldId: 'total' }],
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { id: 'id', label: 'Order ID', type: 'string' },
-        { id: 'total', label: 'Total', type: 'number' },
-        { id: 'category', label: 'Category', type: 'string' },
-      ],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -119,10 +123,10 @@ describe('GridSetupPanel', () => {
   });
 
   it('hides the columns section and shows a helper alert when no source is selected', () => {
-    const previousWidget = mockState.widgets['widget-1'];
+    const previousWidget = mockState.doc.widgets['widget-1'];
 
     try {
-      mockState.widgets['widget-1'] = {
+      mockState.doc.widgets['widget-1'] = {
         ...previousWidget,
         sourceId: undefined,
         config: {},
@@ -137,7 +141,7 @@ describe('GridSetupPanel', () => {
       ).toBeVisible();
       expect(screen.queryByText('Columns')).toBeNull();
     } finally {
-      mockState.widgets['widget-1'] = previousWidget;
+      mockState.doc.widgets['widget-1'] = previousWidget;
     }
   });
 });

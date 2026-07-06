@@ -15,31 +15,35 @@ const controller = {
 };
 
 const mockState = {
-  widgets: {
-    'widget-1': {
-      id: 'widget-1',
-      kind: 'filter',
-      sourceId: 'orders',
-      config: {
-        filterWidgetType: 'multi-select',
-        filterWidgetField: 'status',
-      } as StudioWidgetConfig,
+  doc: {
+    widgets: {
+      'widget-1': {
+        id: 'widget-1',
+        kind: 'filter',
+        sourceId: 'orders',
+        config: {
+          filterWidgetType: 'multi-select',
+          filterWidgetField: 'status',
+        } as StudioWidgetConfig,
+      },
+    },
+    relationships: [],
+    expressionFields: [],
+  },
+  runtime: {
+    dataSources: {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'status', label: 'Status', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+          { id: 'placedAt', label: 'Placed At', type: 'date' },
+        ],
+        rows: [],
+      },
     },
   },
-  dataSources: {
-    orders: {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { id: 'status', label: 'Status', type: 'string' },
-        { id: 'amount', label: 'Amount', type: 'number' },
-        { id: 'placedAt', label: 'Placed At', type: 'date' },
-      ],
-      rows: [],
-    },
-  },
-  relationships: [],
-  expressionFields: [],
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -54,7 +58,7 @@ const { render } = createRenderer();
 
 describe('FilterSetupPanel', () => {
   beforeEach(() => {
-    mockState.widgets['widget-1'] = {
+    mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'filter',
       sourceId: 'orders',
@@ -83,7 +87,7 @@ describe('FilterSetupPanel', () => {
   });
 
   it('switches the control type to slider and reveals the min/max/step inputs', async () => {
-    mockState.widgets['widget-1'].config = {
+    mockState.doc.widgets['widget-1'].config = {
       filterWidgetType: 'multi-select',
       filterWidgetField: 'amount',
     };
@@ -115,7 +119,7 @@ describe('FilterSetupPanel', () => {
   });
 
   it('shows the slider range inputs only when the control type is slider', () => {
-    mockState.widgets['widget-1'].config = {
+    mockState.doc.widgets['widget-1'].config = {
       filterWidgetType: 'slider',
       filterWidgetField: 'amount',
     };
@@ -128,7 +132,7 @@ describe('FilterSetupPanel', () => {
   });
 
   it('updates the slider min value via the min input', async () => {
-    mockState.widgets['widget-1'].config = {
+    mockState.doc.widgets['widget-1'].config = {
       filterWidgetType: 'slider',
       filterWidgetField: 'amount',
     };
@@ -143,7 +147,7 @@ describe('FilterSetupPanel', () => {
   });
 
   it('shows the "select a field" alert when no field is configured', () => {
-    mockState.widgets['widget-1'].config = {
+    mockState.doc.widgets['widget-1'].config = {
       filterWidgetType: 'multi-select',
     };
 

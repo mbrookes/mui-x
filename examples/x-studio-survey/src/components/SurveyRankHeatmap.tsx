@@ -8,6 +8,7 @@ import type {
 } from '@mui/x-studio';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 import { computeRankMatrix, type RankMatrix } from '../shared/rankMatrix';
+import { exportRankHeatmapToPng } from './rankHeatmapExport';
 
 // Below this many rank columns the "most important / least important" end labels would collide,
 // so they are suppressed regardless of the toggle.
@@ -45,10 +46,11 @@ const PRIMARY_VAR = 'var(--mui-palette-primary-main)';
 const CONTRAST_VAR = 'var(--mui-palette-primary-contrastText)';
 const SURFACE_VAR = 'var(--mui-palette-background-paper)';
 
-function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
+function SurveyRankHeatmap({ widget, dataSource, exportRef }: StudioCustomWidgetProps) {
   const t = useAppLocaleText();
   const config = (widget.config.customConfig ?? {}) as RankHeatmapConfig;
   const field = config.field;
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   const data = React.useMemo<RankMatrix | null>(() => {
     if (!field || !dataSource?.rows) {
@@ -56,6 +58,45 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
     }
     return computeRankMatrix(dataSource.rows, field);
   }, [field, dataSource?.rows]);
+
+  // Registers the PNG export invoked by the widget card's toolbar Download action (see
+  // `rankHeatmapWidgetDef.export` below). Runs unconditionally — before the `!data` early return
+  // — since hooks can't be called conditionally; the guard inside just no-ops when there's
+  // nothing to export yet.
+  React.useEffect(() => {
+    if (!exportRef) {
+      return undefined;
+    }
+    exportRef.current =
+      data && data.categories.length > 0 && data.rankCount > 0
+        ? () => {
+            if (!containerRef.current) {
+              return;
+            }
+            exportRankHeatmapToPng(
+              data,
+              {
+                showCellNumbers: config.showCellNumbers ?? true,
+                showMeanColumn: config.showMeanColumn ?? true,
+                showImportanceLabels:
+                  (config.showImportanceLabels ?? true) &&
+                  data.rankCount >= MIN_RANKS_FOR_IMPORTANCE_LABELS,
+                showLegend: config.showLegend ?? true,
+              },
+              {
+                mean: t.heatmapMean,
+                mostImportant: t.heatmapMostImportant,
+                leastImportant: t.heatmapLeastImportant,
+              },
+              widget.title || 'rank_heatmap',
+              containerRef.current,
+            );
+          }
+        : null;
+    return () => {
+      exportRef.current = null;
+    };
+  }, [exportRef, data, config, widget.title, t]);
 
   if (!data || data.categories.length === 0 || data.rankCount === 0) {
     return (
@@ -91,7 +132,7 @@ function SurveyRankHeatmap({ widget, dataSource }: StudioCustomWidgetProps) {
   };
 
   return (
-    <Box sx={{ width: '100%', overflowX: 'auto' }}>
+    <Box ref={containerRef} sx={{ width: '100%', overflowX: 'auto' }}>
       <Box
         sx={{
           display: 'grid',
@@ -309,4 +350,7 @@ export const rankHeatmapWidgetDef: StudioCustomWidgetDef = {
   // requests get real numbers instead of the model trying (and failing) to parse the
   // underlying comma-separated ranked-list field itself via SQL.
   aiInsight: true,
+  // Canvas-rendered PNG (see rankHeatmapExport.ts) — the heatmap is plain HTML/CSS, not SVG like
+  // x-charts, so there's no element to serialize the way the built-in chart export does.
+  export: 'png',
 };

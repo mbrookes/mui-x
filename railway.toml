@@ -5,7 +5,12 @@ builder = "railpack"
 # native-compile-free), so its prebuilt `.node` is never produced during
 # install — the survey data server needs it at runtime. Fetch the prebuilt
 # binary directly here (deploy-only; the workspace policy is unchanged).
-buildCommand = 'pnpm install --config.engine-strict=false && for d in node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3; do (cd "$d" && ./node_modules/.bin/prebuild-install || npm run build-release); done'
+# Finally, build the client so this same service can serve the static site
+# too (see server/index.ts) — GitHub Pages is disabled on this fork by the
+# parent repo's org policy, so Railway is the only working public host.
+# STUDIO_SERVER_URL is baked into the client bundle at build time; same-origin
+# here since one service now serves both, so it's this service's own URL.
+buildCommand = 'pnpm install --config.engine-strict=false && for d in node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3; do (cd "$d" && ./node_modules/.bin/prebuild-install || npm run build-release); done && STUDIO_SERVER_URL="https://survey-dev.up.railway.app" pnpm --filter "x-studio-survey-example" run build'
 
 [deploy]
 startCommand = "pnpm --filter \"x-studio-survey-example\" server"

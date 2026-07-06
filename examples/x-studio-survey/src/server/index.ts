@@ -22,6 +22,9 @@ import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import knex from 'knex';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   handleAIChat,
   handleGenerateTitle,
@@ -38,14 +41,22 @@ import { summarizeRankHeatmaps } from './rankHeatmapInsightContext.js';
 // server was reset (and, if its state DB came back empty, re-seeds it) without a page reload.
 const INSTANCE_ID = randomUUID();
 
+// The built client (`vite build`, run at deploy time — see railway.toml). Only present when this
+// server is hosting the static site itself (e.g. on Railway); absent during local `pnpm server`
+// development, where the Vite dev server (`pnpm dev`) serves the client separately instead.
+const CLIENT_DIST_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../dist');
+
 const PORT = parseInt(process.env.PORT ?? '3005', 10);
 const LLM_API_KEY = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY;
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
 const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o';
 const STUDIO_TOKEN = process.env.STUDIO_TOKEN;
+// Browsers send an Origin header even for same-origin fetch() calls, so when this server also
+// hosts the client (see CLIENT_DIST_DIR below), its own public URL must be in this list too —
+// otherwise every state/AI-chat request from the co-hosted client gets rejected by CORS.
 const ALLOWED_ORIGINS = (
   process.env.ALLOWED_ORIGINS ??
-  'http://localhost:3004,http://localhost:3005,https://mbrookes.github.io'
+  'http://localhost:3004,http://localhost:3005,https://mbrookes.github.io,https://survey-dev.up.railway.app'
 )
   .split(',')
   .map((s) => s.trim());
@@ -313,12 +324,30 @@ async function main(): Promise<void> {
   // Exposes the x-studio dashboard tools plus structured survey-data queries.
   app.use('/api/mcp', makeMcpRouter(db, tables));
 
+  // Serve the built client, when present, so a single Railway service can host both the API
+  // and the static site (no separate static host needed). Registered last so it never shadows
+  // an /api/* route above. The app has no client-side path routing (navigation is via ?page=/
+  // ?q= query params on a single route), so the only fallback needed is index.html for the
+  // handful of non-file GET requests (e.g. the root path itself).
+  const hasClientBuild = fs.existsSync(path.join(CLIENT_DIST_DIR, 'index.html'));
+  if (hasClientBuild) {
+    app.use(express.static(CLIENT_DIST_DIR));
+    app.get(/^(?!\/api\/).*/, (_req: Request, res: Response) => {
+      res.sendFile(path.join(CLIENT_DIST_DIR, 'index.html'));
+    });
+  } else {
+    log('[startup]   No client build found at ' + CLIENT_DIST_DIR + ' — API-only mode.');
+  }
+
   app.listen(PORT, () => {
     log(`[startup] x-studio-survey-api listening on http://localhost:${PORT}`);
     log(`[startup]   Health:  http://localhost:${PORT}/health`);
     log(`[startup]   AI API:  http://localhost:${PORT}/api/ai/chat`);
     log(`[startup]   State:   http://localhost:${PORT}/api/state`);
     log(`[startup]   MCP:     http://localhost:${PORT}/api/mcp`);
+    if (hasClientBuild) {
+      log(`[startup]   Client:  http://localhost:${PORT}/`);
+    }
     if (!LLM_API_KEY) {
       log('[startup]   ⚠ LLM_API_KEY not set — AI endpoints will return 503');
     }

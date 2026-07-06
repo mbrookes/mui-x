@@ -948,6 +948,68 @@ describe('<StudioChartWidget />', () => {
     expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
   });
 
+  it('clears the cross-filter (does not add a duplicate) when the already-selected pie slice is clicked again', () => {
+    // Regression for the crossFilterValueEquals toggle: clicking the currently-selected
+    // value must clear the filter, not stack a second equal filter on top of it.
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', category: 'A', total: 10 },
+        { id: '2', category: 'B', total: 20 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-pie-toggle',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'pie',
+        xField: 'category',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      // This widget already emits an equals cross-filter on category = 'B'.
+      filters: [
+        {
+          id: 'cf-pie-toggle',
+          field: 'category',
+          operator: 'equals',
+          value: 'B',
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
+      onItemClick?: (event: unknown, params: { dataIndex: number }) => void;
+      series: Array<{ data: Array<{ label: string }> }>;
+    };
+    // Locate the rendered arc index of the already-selected 'B' slice.
+    const bIndex = props.series[0].data.findIndex((d) => d.label === 'B');
+    expect(bIndex).toBeGreaterThanOrEqual(0);
+
+    act(() => {
+      props.onItemClick?.(null, { dataIndex: bIndex });
+    });
+
+    // Toggle: same value clicked again → clear, never re-apply.
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith(widget.id);
+    expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+  });
+
   it('highlights the selected point when a single-series line chart has an active cross-filter', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

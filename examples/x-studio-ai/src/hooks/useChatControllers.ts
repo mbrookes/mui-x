@@ -63,6 +63,11 @@ function buildDataAdapter(
   const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   if (serverUrl) {
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/sales-data`;
+    // Derive the write-back endpoint from the read endpoint (same suffix-swap
+    // pattern used elsewhere to derive sibling endpoints). Wiring this attaches
+    // `submitMutation` to the adapter, making sales-table Grid widgets editable
+    // once their `config.gridPkField` is set.
+    const mutationEndpoint = dataEndpoint.replace(/\/api\/sales-data$/, '/api/sales-mutations');
     const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>
@@ -71,7 +76,7 @@ function buildDataAdapter(
             headers: { ...init?.headers, Authorization: `Bearer ${serverToken}` },
           })
       : globalThis.fetch;
-    return createBatchingAdapter(dataEndpoint, { fetchFn });
+    return createBatchingAdapter(dataEndpoint, { fetchFn, mutationEndpoint });
   }
   return createDataAdapter(rows);
 }

@@ -1,0 +1,309 @@
+/**
+ * Unit tests for `validateQueryPlan` — ALIAS-RESOLUTION + VALIDATION PARITY.
+ *
+ * Centralizing column-reference resolution into one compiled `ValidatedQueryPlan`
+ * must NOT change what any reference resolves to, nor which inputs are rejected.
+ * Each descriptor shape is compared, field-by-field, against calling the shared
+ * `resolveAlias` directly (the pre-refactor resolution path), and each invalid
+ * shape is compared against the shared validators (`validateHavingAliases` /
+ * `validateAggregationAliases` / `validateDescriptorColumns`) — the exact
+ * functions `validateQueryPlan` reuses, so error text can never drift.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  validateQueryPlan,
+  isValidatedQueryPlan,
+  toValidatedQueryPlan,
+} from '../validateQueryPlan';
+import {
+  resolveAlias,
+  validateAggregationAliases,
+  validateDescriptorColumns,
+  validateHavingAliases,
+} from '../../shared/columnValidation';
+import type { BatchWidgetDescriptor } from '../types';
+
+// Representative descriptor matrix — every column-bearing clause, with and
+// without `columnAliases`, plus expression-field renames and composite joins.
+const DESCRIPTOR_MATRIX: { name: string; descriptor: BatchWidgetDescriptor }[] = [
+  {
+    name: 'bare table (no columns/filters/joins)',
+    descriptor: { id: 'w1', table: 'sales' },
+  },
+  {
+    name: 'columns + filters + orderBy, no aliases',
+    descriptor: {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region', 'amount'],
+      filters: [
+        { column: 'status', operator: 'eq', value: 'active' },
+        { column: 'amount', operator: 'gt', value: 0 },
+      ],
+      orderBy: [{ column: 'region', direction: 'asc' }],
+      limit: 50,
+    },
+  },
+  {
+    name: 'expression-field aliases across columns/filters/orderBy',
+    descriptor: {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: {
+        revenue: 'amount',
+        country: 'customers.country',
+        customerSsn: 'ssn',
+      },
+      columns: ['revenue', 'country'],
+      filters: [{ column: 'customerSsn', operator: 'eq', value: '1' }],
+      orderBy: [{ column: 'country', direction: 'desc' }],
+    },
+  },
+  {
+    name: 'aggregations with a pure measure + a dimension, ordered by an agg alias',
+    descriptor: {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region', 'amount'],
+      aggregations: [
+        { column: 'amount', func: 'sum', alias: 'amount' }, // pure measure (alias === column)
+        { column: 'amount', func: 'avg', alias: 'avg_amount' },
+      ],
+      orderBy: [{ column: 'avg_amount', direction: 'desc' }],
+    },
+  },
+  {
+    name: 'composite-key join with aliases on both sides',
+    descriptor: {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: {
+        'sales.a_alias': 'sales.a',
+        'customers.b_alias': 'customers.b',
+      },
+      columns: ['region'],
+      joins: [
+        {
+          table: 'customers',
+          type: 'left',
+          on: [
+            ['sales.a_alias', 'customers.a'],
+            ['sales.b', 'customers.b_alias'],
+          ],
+        },
+      ],
+    },
+  },
+];
+
+describe('validateQueryPlan — alias-resolution parity', () => {
+  for (const { name, descriptor } of DESCRIPTOR_MATRIX) {
+    describe(`descriptor: ${name}`, () => {
+      const plan = validateQueryPlan(descriptor);
+
+      it('resolves projection columns identically to resolveAlias', () => {
+        expect(plan.columns.map((c) => c.physical)).toEqual(
+          (descriptor.columns ?? []).map((c) => resolveAlias(descriptor, c)),
+        );
+        // outputAlias is set for EXACTLY the references resolution renamed, and
+        // holds the original (pre-resolution) logical id.
+        const renamed = (descriptor.columns ?? []).filter((c) => resolveAlias(descriptor, c) !== c);
+        expect(
+          plan.columns.filter((c) => c.outputAlias !== undefined).map((c) => c.outputAlias),
+        ).toEqual(renamed);
+      });
+
+      it('resolves filter columns identically to resolveAlias', () => {
+        expect(plan.filters.map((f) => f.column)).toEqual(
+          (descriptor.filters ?? []).map((f) => resolveAlias(descriptor, f.column)),
+        );
+        // Operator + value are carried through untouched.
+        expect(plan.filters.map(({ operator, value }) => ({ operator, value }))).toEqual(
+          (descriptor.filters ?? []).map(({ operator, value }) => ({ operator, value })),
+        );
+      });
+
+      it('resolves both sides of every join.on pair identically to resolveAlias', () => {
+        expect(plan.joins.map((j) => j.on)).toEqual(
+          (descriptor.joins ?? []).map((j) =>
+            j.on.map(([l, r]) => [resolveAlias(descriptor, l), resolveAlias(descriptor, r)]),
+          ),
+        );
+        expect(plan.joins.map((j) => ({ table: j.table, type: j.type }))).toEqual(
+          (descriptor.joins ?? []).map((j) => ({ table: j.table, type: j.type })),
+        );
+      });
+
+      it('resolves aggregation columns and pure-measure flags identically', () => {
+        expect(plan.aggregations.map((a) => a.physical)).toEqual(
+          (descriptor.aggregations ?? []).map((a) => resolveAlias(descriptor, a.column)),
+        );
+        expect(plan.aggregations.map((a) => a.pureMeasure)).toEqual(
+          (descriptor.aggregations ?? []).map((a) => a.alias === a.column),
+        );
+      });
+
+      it('splits orderBy into agg-alias vs. resolved physical column identically', () => {
+        // Independently reconstruct the split from `resolveAlias` and compare the
+        // whole array — an aggregation-alias target stays the alias (never a
+        // physical column); any other target is the resolved physical column.
+        const aggAliases = new Set((descriptor.aggregations ?? []).map((a) => a.alias));
+        const expected = (descriptor.orderBy ?? []).map((ob) =>
+          aggAliases.has(ob.column)
+            ? { direction: ob.direction, aggAlias: ob.column }
+            : { direction: ob.direction, physical: resolveAlias(descriptor, ob.column) },
+        );
+        expect(plan.orderBy).toEqual(expected);
+      });
+
+      it('carries table/having/limit through unchanged', () => {
+        expect(plan.table).toBe(descriptor.table);
+        expect(plan.having).toEqual(descriptor.having ?? []);
+        expect(plan.limit).toBe(descriptor.limit);
+      });
+
+      it('carries NO columnAliases field and no raw logical names', () => {
+        // The ambiguous client form is structurally unreachable past this boundary.
+        expect(plan).not.toHaveProperty('columnAliases');
+        for (const c of plan.columns) {
+          expect(resolveAlias(descriptor, c.physical)).toBe(c.physical);
+        }
+      });
+    });
+  }
+});
+
+describe('validateQueryPlan — validation parity (reuses the shared validators)', () => {
+  it('throws the same error as validateHavingAliases for an undeclared HAVING alias', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      having: [{ alias: 'nope', operator: 'gt', value: 1 }],
+    };
+    const direct = captureThrow(() => validateHavingAliases(descriptor));
+    const viaPlan = captureThrow(() => validateQueryPlan(descriptor));
+    expect(viaPlan).toBe(direct);
+    expect(viaPlan).toMatch(/does not match any aggregation alias/);
+  });
+
+  it('throws the same error as validateHavingAliases when HAVING has no aggregations', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      having: [{ alias: 'total', operator: 'gt', value: 1 }],
+    };
+    expect(captureThrow(() => validateQueryPlan(descriptor))).toBe(
+      captureThrow(() => validateHavingAliases(descriptor)),
+    );
+  });
+
+  it('throws the same error as validateAggregationAliases for an unsafe alias', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total; DROP TABLE sales' }],
+    };
+    const direct = captureThrow(() => validateAggregationAliases(descriptor));
+    const viaPlan = captureThrow(() => validateQueryPlan(descriptor));
+    expect(viaPlan).toBe(direct);
+    expect(viaPlan).toMatch(/contains characters outside the allowed set/);
+  });
+
+  it('throws the same error as validateDescriptorColumns for an unlisted table (fail-closed)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region'],
+    };
+    const allowlist = { orders: ['id'] };
+    const direct = captureThrow(() => validateDescriptorColumns(descriptor, allowlist));
+    const viaPlan = captureThrow(() => validateQueryPlan(descriptor, allowlist));
+    expect(viaPlan).toBe(direct);
+    expect(viaPlan).toMatch(/Table "sales" has no entry in the column allowlist/);
+  });
+
+  it('throws the same error as validateDescriptorColumns for a columnAliases target outside the allowlist', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['revenue'],
+      columnAliases: { revenue: 'ssn' },
+    };
+    const allowlist = { sales: ['revenue', 'region'] };
+    const direct = captureThrow(() => validateDescriptorColumns(descriptor, allowlist));
+    const viaPlan = captureThrow(() => validateQueryPlan(descriptor, allowlist));
+    expect(viaPlan).toBe(direct);
+    expect(viaPlan).toMatch(/is not in the column allowlist/);
+  });
+
+  it('does NOT run the column allowlist check when no allowlist is supplied', () => {
+    // A descriptor referencing an unlisted column resolves fine with no allowlist.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['anything'],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('runs the HAVING/aggregation validators even without a columnAllowlist', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      having: [{ alias: 'nope', operator: 'gt', value: 1 }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/does not match any aggregation alias/);
+  });
+});
+
+describe('toValidatedQueryPlan / isValidatedQueryPlan — dual acceptance', () => {
+  const descriptor: BatchWidgetDescriptor = {
+    id: 'w1',
+    table: 'sales',
+    columnAliases: { revenue: 'amount' },
+    columns: ['revenue'],
+  };
+
+  it('returns an already-compiled plan as-is (no re-resolution)', () => {
+    const plan = validateQueryPlan(descriptor);
+    expect(isValidatedQueryPlan(plan)).toBe(true);
+    expect(toValidatedQueryPlan(plan)).toBe(plan);
+  });
+
+  it('resolves a raw descriptor into a plan on the spot', () => {
+    const coerced = toValidatedQueryPlan(descriptor);
+    expect(isValidatedQueryPlan(coerced)).toBe(true);
+    expect(coerced.columns).toEqual([{ physical: 'amount', outputAlias: 'revenue' }]);
+  });
+
+  it('the descriptor branch does NOT run the validators (behavior-preserving for direct callers)', () => {
+    // An unsafe aggregation alias would throw through validateQueryPlan, but the
+    // coercion path used by direct buildSecureQuery/executeForTier callers only
+    // resolves — it must not add a throw those callers never had.
+    const unsafe: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total; DROP TABLE sales' }],
+    };
+    expect(() => toValidatedQueryPlan(unsafe)).not.toThrow();
+  });
+
+  it('isValidatedQueryPlan rejects a plain descriptor and non-objects', () => {
+    expect(isValidatedQueryPlan(descriptor)).toBe(false);
+    expect(isValidatedQueryPlan(null)).toBe(false);
+    expect(isValidatedQueryPlan(undefined)).toBe(false);
+    expect(isValidatedQueryPlan('sales')).toBe(false);
+  });
+});
+
+/** Run `fn`, returning the thrown Error's message (or a sentinel if it did not throw). */
+function captureThrow(fn: () => void): string {
+  try {
+    fn();
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return '<did not throw>';
+}

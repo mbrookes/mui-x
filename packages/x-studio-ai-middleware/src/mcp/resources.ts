@@ -48,7 +48,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     // `studio://data/{id}` is still served by design (a decluttered join/lookup
     // source must stay addressable). Hosts needing a hard boundary enforce it in
     // their `queryDataSource` implementation, not via `hidden`.
-    const sources = Object.values(stateBox.current.dataSources).filter((s) => !s.hidden);
+    const sources = Object.values(stateBox.current.runtime.dataSources).filter((s) => !s.hidden);
 
     const schemaResources = sources.map((s) => ({
       uri: `studio://schema/${s.id}`,
@@ -166,7 +166,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       const counts: Record<string, number> = {};
       const errors: Record<string, string> = {};
       await Promise.all(
-        Object.values(stateBox.current.dataSources)
+        Object.values(stateBox.current.runtime.dataSources)
           .filter((s) => !s.hidden && s.tableName)
           .map(async (s) => {
             try {
@@ -201,7 +201,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     // studio://schema/{sourceId} — field metadata for a specific source
     if (uri.startsWith('studio://schema/')) {
       const sourceId = uri.slice('studio://schema/'.length);
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source) {
         throw new Error(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
@@ -247,7 +247,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         throw new Error('Data access is not configured for this MCP server instance.');
       }
       const sourceId = uri.slice('studio://data/'.length);
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         throw new Error(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,

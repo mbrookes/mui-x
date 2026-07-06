@@ -26,17 +26,33 @@ import type { StudioState } from './models/studioTypes';
 /** Single page with two widgets sharing one row. */
 function makeTwoWidgetState(): StudioState {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1', 'w2']] } },
-    widgets: {
-      w1: { id: 'w1', kind: 'chart', title: 'W1', sourceId: 'src1', config: { chartType: 'bar' } },
-      w2: { id: 'w2', kind: 'chart', title: 'W2', sourceId: 'src1', config: { chartType: 'bar' } },
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1', 'w2']] } },
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'W1',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+        w2: {
+          id: 'w2',
+          kind: 'chart',
+          title: 'W2',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+      },
     },
-    dataSources: {
-      src1: {
-        id: 'src1',
-        label: 'Sales',
-        fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+    runtime: {
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+        },
       },
     },
   });
@@ -45,43 +61,45 @@ function makeTwoWidgetState(): StudioState {
 /** Two pages, each with a widget + a page-scoped filter (mirrors executeToolOnState.test). */
 function makeMultiPageState(): StudioState {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
-      'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+      },
+      widgets: {
+        'widget-1': {
+          id: 'widget-1',
+          kind: 'chart',
+          title: 'W1',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+        'widget-2': {
+          id: 'widget-2',
+          kind: 'chart',
+          title: 'W2',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+      },
+      filters: [
+        {
+          id: 'f-page1',
+          field: 'revenue',
+          operator: 'greater_than',
+          value: 1,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'f-page2',
+          field: 'revenue',
+          operator: 'greater_than',
+          value: 2,
+          scope: { kind: 'page', pageId: 'page-2' },
+        },
+      ],
     },
-    widgets: {
-      'widget-1': {
-        id: 'widget-1',
-        kind: 'chart',
-        title: 'W1',
-        sourceId: 'src1',
-        config: { chartType: 'bar' },
-      },
-      'widget-2': {
-        id: 'widget-2',
-        kind: 'chart',
-        title: 'W2',
-        sourceId: 'src1',
-        config: { chartType: 'bar' },
-      },
-    },
-    filters: [
-      {
-        id: 'f-page1',
-        field: 'revenue',
-        operator: 'greater_than',
-        value: 1,
-        scope: { kind: 'page', pageId: 'page-1' },
-      },
-      {
-        id: 'f-page2',
-        field: 'revenue',
-        operator: 'greater_than',
-        value: 2,
-        scope: { kind: 'page', pageId: 'page-2' },
-      },
-    ],
   });
 }
 

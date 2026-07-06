@@ -10,39 +10,43 @@ function makeState(): StudioState {
   const pageId = 'page-1';
   const widgetId = 'widget-1';
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: pageId },
-    pages: {
-      [pageId]: {
-        id: pageId,
-        title: 'Page 1',
-        widgetRows: [[widgetId]],
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: pageId },
+      pages: {
+        [pageId]: {
+          id: pageId,
+          title: 'Page 1',
+          widgetRows: [[widgetId]],
+        },
+      },
+      widgets: {
+        [widgetId]: {
+          id: widgetId,
+          kind: 'chart',
+          title: 'Revenue Chart',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+      },
+      filters: [
+        {
+          id: 'filter-1',
+          field: 'revenue',
+          operator: 'greater_than',
+          value: 100,
+          scope: { kind: 'page', pageId },
+        },
+      ],
+    },
+    runtime: {
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+        },
       },
     },
-    widgets: {
-      [widgetId]: {
-        id: widgetId,
-        kind: 'chart',
-        title: 'Revenue Chart',
-        sourceId: 'src1',
-        config: { chartType: 'bar' },
-      },
-    },
-    dataSources: {
-      src1: {
-        id: 'src1',
-        label: 'Sales',
-        fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
-      },
-    },
-    filters: [
-      {
-        id: 'filter-1',
-        field: 'revenue',
-        operator: 'greater_than',
-        value: 100,
-        scope: { kind: 'page', pageId },
-      },
-    ],
   });
 }
 
@@ -56,50 +60,52 @@ function parseOutput(output: string) {
  */
 function makeMultiPageState(): StudioState {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
-      'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+      },
+      widgets: {
+        'widget-1': {
+          id: 'widget-1',
+          kind: 'chart',
+          title: 'W1',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+        'widget-2': {
+          id: 'widget-2',
+          kind: 'chart',
+          title: 'W2',
+          sourceId: 'src1',
+          config: { chartType: 'bar' },
+        },
+      },
+      filters: [
+        {
+          id: 'f-page1',
+          field: 'revenue',
+          operator: 'greater_than',
+          value: 1,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'f-page2',
+          field: 'revenue',
+          operator: 'greater_than',
+          value: 2,
+          scope: { kind: 'page', pageId: 'page-2' },
+        },
+        {
+          id: 'f-widget2',
+          field: 'revenue',
+          operator: 'equals',
+          value: 3,
+          scope: { kind: 'widget', widgetId: 'widget-2' },
+        },
+      ],
     },
-    widgets: {
-      'widget-1': {
-        id: 'widget-1',
-        kind: 'chart',
-        title: 'W1',
-        sourceId: 'src1',
-        config: { chartType: 'bar' },
-      },
-      'widget-2': {
-        id: 'widget-2',
-        kind: 'chart',
-        title: 'W2',
-        sourceId: 'src1',
-        config: { chartType: 'bar' },
-      },
-    },
-    filters: [
-      {
-        id: 'f-page1',
-        field: 'revenue',
-        operator: 'greater_than',
-        value: 1,
-        scope: { kind: 'page', pageId: 'page-1' },
-      },
-      {
-        id: 'f-page2',
-        field: 'revenue',
-        operator: 'greater_than',
-        value: 2,
-        scope: { kind: 'page', pageId: 'page-2' },
-      },
-      {
-        id: 'f-widget2',
-        field: 'revenue',
-        operator: 'equals',
-        value: 3,
-        scope: { kind: 'widget', widgetId: 'widget-2' },
-      },
-    ],
   });
 }
 
@@ -130,9 +136,9 @@ describe('executeToolOnState: get_dashboard_state', () => {
     const result = executeToolOnState('get_dashboard_state', {}, state);
     const parsed = JSON.parse(result.output) as StudioState;
     // Raw state round-trips: pages/widgets/dashboard are present as structured data.
-    expect(parsed.pages['page-1'].title).toBe('Page 1');
-    expect(parsed.widgets['widget-1'].title).toBe('Revenue Chart');
-    expect(parsed.dashboard.activePageId).toBe('page-1');
+    expect(parsed.doc.pages['page-1'].title).toBe('Page 1');
+    expect(parsed.doc.widgets['widget-1'].title).toBe('Revenue Chart');
+    expect(parsed.doc.dashboard.activePageId).toBe('page-1');
   });
 });
 
@@ -159,7 +165,7 @@ describe('executeToolOnState: set_dashboard_title', () => {
   it('updates the dashboard title in nextState', () => {
     const state = makeState();
     const result = executeToolOnState('set_dashboard_title', { title: 'New Title' }, state);
-    expect(result.nextState.dashboard.title).toBe('New Title');
+    expect(result.nextState.doc.dashboard.title).toBe('New Title');
   });
 });
 
@@ -190,8 +196,8 @@ describe('executeToolOnState: add_page', () => {
     const result = executeToolOnState('add_page', { title: 'Analytics' }, state);
     const out = parseOutput(result.output);
     const pageId = out.pageId as string;
-    expect(result.nextState.pages[pageId]).toBeDefined();
-    expect(result.nextState.dashboard.activePageId).toBe(pageId);
+    expect(result.nextState.doc.pages[pageId]).toBeDefined();
+    expect(result.nextState.doc.dashboard.activePageId).toBe(pageId);
   });
 });
 
@@ -216,7 +222,7 @@ describe('executeToolOnState: rename_page', () => {
       { pageId: 'page-1', title: 'Overview' },
       state,
     );
-    expect(result.nextState.pages['page-1'].title).toBe('Overview');
+    expect(result.nextState.doc.pages['page-1'].title).toBe('Overview');
   });
 });
 
@@ -232,7 +238,7 @@ describe('executeToolOnState: remove_page', () => {
   it('removes the page from nextState', () => {
     const state = makeState();
     const result = executeToolOnState('remove_page', { pageId: 'page-1' }, state);
-    expect(result.nextState.pages['page-1']).toBeUndefined();
+    expect(result.nextState.doc.pages['page-1']).toBeUndefined();
   });
 
   it('returns a not-found error (no mutation) when the page does not exist', () => {
@@ -250,18 +256,18 @@ describe('executeToolOnState: remove_page', () => {
     const next = result.nextState;
 
     // Page gone.
-    expect(next.pages['page-1']).toBeUndefined();
+    expect(next.doc.pages['page-1']).toBeUndefined();
     // Its widget is cleaned up; the other page's widget survives (no orphans).
-    expect(next.widgets['widget-1']).toBeUndefined();
-    expect(next.widgets['widget-2']).toBeDefined();
+    expect(next.doc.widgets['widget-1']).toBeUndefined();
+    expect(next.doc.widgets['widget-2']).toBeDefined();
     // Page-scoped filter for the removed page is gone; other filters survive.
-    const filterIds = next.filters.map((f) => f.id);
+    const filterIds = next.doc.filters.map((f) => f.id);
     expect(filterIds).not.toContain('f-page1');
     expect(filterIds).toContain('f-page2');
     expect(filterIds).toContain('f-widget2');
     // activePageId is reassigned to a remaining page — never left dangling.
-    expect(next.dashboard.activePageId).toBe('page-2');
-    expect(next.pages[next.dashboard.activePageId]).toBeDefined();
+    expect(next.doc.dashboard.activePageId).toBe('page-2');
+    expect(next.doc.pages[next.doc.dashboard.activePageId]).toBeDefined();
   });
 
   it('removing a NON-active page keeps activePageId and only cleans that page', () => {
@@ -269,21 +275,21 @@ describe('executeToolOnState: remove_page', () => {
     const result = executeToolOnState('remove_page', { pageId: 'page-2' }, state);
     const next = result.nextState;
 
-    expect(next.pages['page-2']).toBeUndefined();
-    expect(next.widgets['widget-2']).toBeUndefined();
-    expect(next.widgets['widget-1']).toBeDefined();
-    const filterIds = next.filters.map((f) => f.id);
+    expect(next.doc.pages['page-2']).toBeUndefined();
+    expect(next.doc.widgets['widget-2']).toBeUndefined();
+    expect(next.doc.widgets['widget-1']).toBeDefined();
+    const filterIds = next.doc.filters.map((f) => f.id);
     expect(filterIds).not.toContain('f-page2');
     expect(filterIds).toContain('f-page1');
     // Active page unchanged.
-    expect(next.dashboard.activePageId).toBe('page-1');
+    expect(next.doc.dashboard.activePageId).toBe('page-1');
   });
 
   it('removing the last remaining page leaves activePageId empty rather than dangling', () => {
     const state = makeState(); // single page 'page-1', active
     const result = executeToolOnState('remove_page', { pageId: 'page-1' }, state);
-    expect(Object.keys(result.nextState.pages)).toHaveLength(0);
-    expect(result.nextState.dashboard.activePageId).toBe('');
+    expect(Object.keys(result.nextState.doc.pages)).toHaveLength(0);
+    expect(result.nextState.doc.dashboard.activePageId).toBe('');
   });
 });
 
@@ -300,7 +306,7 @@ describe('executeToolOnState: set_active_page', () => {
     const newPageId = parseOutput(addResult.output).pageId as string;
     // Switch back to page-1
     const result = executeToolOnState('set_active_page', { pageId: 'page-1' }, addResult.nextState);
-    expect(result.nextState.dashboard.activePageId).toBe('page-1');
+    expect(result.nextState.doc.dashboard.activePageId).toBe('page-1');
     expect(newPageId).toBeTruthy(); // silence unused-var lint
   });
 
@@ -312,7 +318,7 @@ describe('executeToolOnState: set_active_page', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
     // The active page must not be corrupted into a non-existent id.
-    expect(result.nextState.dashboard.activePageId).toBe('page-1');
+    expect(result.nextState.doc.dashboard.activePageId).toBe('page-1');
   });
 });
 
@@ -344,8 +350,8 @@ describe('executeToolOnState: add_widget', () => {
     const result = executeToolOnState('add_widget', { kind: 'chart', title: 'Sales' }, state);
     const out = parseOutput(result.output);
     const widgetId = out.widgetId as string;
-    expect(result.nextState.widgets[widgetId]).toBeDefined();
-    const activePage = result.nextState.pages[result.nextState.dashboard.activePageId];
+    expect(result.nextState.doc.widgets[widgetId]).toBeDefined();
+    const activePage = result.nextState.doc.pages[result.nextState.doc.dashboard.activePageId];
     const flatRows = activePage.widgetRows.flat();
     expect(flatRows).toContain(widgetId);
   });
@@ -369,7 +375,7 @@ describe('executeToolOnState: update_widget', () => {
       { widgetId: 'widget-1', title: 'Updated' },
       state,
     );
-    expect(result.nextState.widgets['widget-1'].title).toBe('Updated');
+    expect(result.nextState.doc.widgets['widget-1'].title).toBe('Updated');
   });
 
   it('returns an error output when widgetId is not found', () => {
@@ -391,7 +397,7 @@ describe('executeToolOnState: update_widget', () => {
       { widgetId: 'widget-1', unsetFields: ['sourceId'] },
       state,
     );
-    expect('sourceId' in result.nextState.widgets['widget-1']).toBe(false);
+    expect('sourceId' in result.nextState.doc.widgets['widget-1']).toBe(false);
   });
 
   it('clears a config key that is present via unsetConfigKeys', () => {
@@ -401,7 +407,7 @@ describe('executeToolOnState: update_widget', () => {
       { widgetId: 'widget-1', unsetConfigKeys: ['chartType'] },
       state,
     );
-    expect('chartType' in result.nextState.widgets['widget-1'].config).toBe(false);
+    expect('chartType' in result.nextState.doc.widgets['widget-1'].config).toBe(false);
   });
 
   it('ignores non-clearable / unknown top-level keys in unsetFields', () => {
@@ -413,7 +419,7 @@ describe('executeToolOnState: update_widget', () => {
       { widgetId: 'widget-1', unsetFields: ['title', 'kind', 'id', 'bogus'] },
       state,
     );
-    const w = result.nextState.widgets['widget-1'];
+    const w = result.nextState.doc.widgets['widget-1'];
     expect(w.title).toBe('Revenue Chart');
     expect(w.kind).toBe('chart');
     expect(w.id).toBe('widget-1');
@@ -428,7 +434,7 @@ describe('executeToolOnState: update_widget', () => {
       state,
     );
     // `xField` was never set, so nothing is cleared and no unsetConfigKeys is emitted.
-    expect(result.nextState.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
     expect(
       (result.mutation as { args: Record<string, unknown> }).args.unsetConfigKeys,
     ).toBeUndefined();
@@ -447,8 +453,8 @@ describe('executeToolOnState: remove_widget', () => {
   it('removes the widget from nextState widgets and page layout', () => {
     const state = makeState();
     const result = executeToolOnState('remove_widget', { widgetId: 'widget-1' }, state);
-    expect(result.nextState.widgets['widget-1']).toBeUndefined();
-    const flatRows = Object.values(result.nextState.pages)
+    expect(result.nextState.doc.widgets['widget-1']).toBeUndefined();
+    const flatRows = Object.values(result.nextState.doc.pages)
       .flatMap((p) => p.widgetRows ?? [])
       .flat();
     expect(flatRows).not.toContain('widget-1');
@@ -523,7 +529,7 @@ describe('executeToolOnState: set_widget_width', () => {
     // activePageId points at a page that does not exist.
     const orphanState: StudioState = {
       ...base,
-      dashboard: { ...base.dashboard, activePageId: 'gone' },
+      doc: { ...base.doc, dashboard: { ...base.doc.dashboard, activePageId: 'gone' } },
     };
     const result = executeToolOnState(
       'set_widget_width',
@@ -566,13 +572,13 @@ describe('executeToolOnState: add_page_filter', () => {
 
   it('appends the filter to nextState.filters', () => {
     const state = makeState();
-    const before = state.filters?.length ?? 0;
+    const before = state.doc.filters?.length ?? 0;
     const result = executeToolOnState(
       'add_page_filter',
       { field: 'revenue', sourceId: 'src1', operator: 'greater_than', value: 500 },
       state,
     );
-    expect(result.nextState.filters?.length).toBe(before + 1);
+    expect(result.nextState.doc.filters?.length).toBe(before + 1);
   });
 });
 
@@ -606,7 +612,7 @@ describe('executeToolOnState: remove_page_filter', () => {
   it('removes the filter from nextState', () => {
     const state = makeState();
     const result = executeToolOnState('remove_page_filter', { filterId: 'filter-1' }, state);
-    const ids = (result.nextState.filters ?? []).map((f) => f.id);
+    const ids = (result.nextState.doc.filters ?? []).map((f) => f.id);
     expect(ids).not.toContain('filter-1');
   });
 });
@@ -691,13 +697,13 @@ describe('executeToolOnState: apply_bulk_update', () => {
       { widgetUpdates: [{ widgetId: 'widget-1', title: 'Renamed' }] },
       state,
     );
-    expect(result.nextState.widgets['widget-1'].title).toBe('Renamed');
+    expect(result.nextState.doc.widgets['widget-1'].title).toBe('Renamed');
   });
 
   it('applies widget removals in nextState', () => {
     const state = makeState();
     const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-1'] }, state);
-    expect(result.nextState.widgets['widget-1']).toBeUndefined();
+    expect(result.nextState.doc.widgets['widget-1']).toBeUndefined();
   });
 
   it('skips a removal for a widget that lives on another page (no dangling reference)', () => {
@@ -705,21 +711,29 @@ describe('executeToolOnState: apply_bulk_update', () => {
     // widget-2 lives on page-2, but the active page is page-1.
     const state: StudioState = {
       ...base,
-      pages: {
-        ...base.pages,
-        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
-      },
-      widgets: {
-        ...base.widgets,
-        'widget-2': { id: 'widget-2', kind: 'chart', title: 'Other', config: { chartType: 'bar' } },
+      doc: {
+        ...base.doc,
+        pages: {
+          ...base.doc.pages,
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['widget-2']] },
+        },
+        widgets: {
+          ...base.doc.widgets,
+          'widget-2': {
+            id: 'widget-2',
+            kind: 'chart',
+            title: 'Other',
+            config: { chartType: 'bar' },
+          },
+        },
       },
     };
     const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-2'] }, state);
     const out = parseOutput(result.output);
     expect(out.skipped).toEqual(['remove widget-2: not on the active page']);
     // widget-2 must survive on page-2 — it was not deleted from `widgets`.
-    expect(result.nextState.widgets['widget-2']).toBeDefined();
-    expect(result.nextState.pages['page-2'].widgetRows).toEqual([['widget-2']]);
+    expect(result.nextState.doc.widgets['widget-2']).toBeDefined();
+    expect(result.nextState.doc.pages['page-2'].widgetRows).toEqual([['widget-2']]);
   });
 
   it('builds additions via the shared helper: layered config + a unique id', () => {
@@ -729,9 +743,9 @@ describe('executeToolOnState: apply_bulk_update', () => {
       { widgetAdditions: [{ kind: 'chart', title: 'A', config: { chartType: 'line' } }] },
       state,
     );
-    const addedIds = Object.keys(result.nextState.widgets).filter((id) => id !== 'widget-1');
+    const addedIds = Object.keys(result.nextState.doc.widgets).filter((id) => id !== 'widget-1');
     expect(addedIds).toHaveLength(1);
-    const added = result.nextState.widgets[addedIds[0]];
+    const added = result.nextState.doc.widgets[addedIds[0]];
     expect(added.id).toMatch(/^widget-/);
     // Factory default (chartType) is overlaid by the model-supplied config.
     expect(added.config.chartType).toBe('line');
@@ -758,11 +772,14 @@ describe('executeToolOnState: rename_thread', () => {
     const base = makeState();
     const state: StudioState = {
       ...base,
-      ai: {
-        activeThreadId: 't-req',
-        threads: [
-          { id: 't-req', name: 'Old', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
-        ],
+      doc: {
+        ...base.doc,
+        ai: {
+          activeThreadId: 't-req',
+          threads: [
+            { id: 't-req', name: 'Old', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
       },
     };
     const result = executeToolOnState('rename_thread', { name: 'New name' }, state);
@@ -857,7 +874,7 @@ describe('executeToolOnState: nextState chaining', () => {
     const r2 = executeToolOnState('rename_page', { pageId: newPageId, title: 'Metrics' }, state);
     state = r2.nextState;
 
-    expect(state.pages[newPageId].title).toBe('Metrics');
+    expect(state.doc.pages[newPageId].title).toBe('Metrics');
   });
 });
 
@@ -894,8 +911,14 @@ describe('executeToolOnState: set_widget_forecast', () => {
     const baseState = makeState();
     const lineState = {
       ...baseState,
-      widgets: {
-        'widget-1': { ...baseState.widgets['widget-1'], config: { chartType: 'line' as const } },
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            config: { chartType: 'line' as const },
+          },
+        },
       },
     };
     const result = executeToolOnState(
@@ -904,8 +927,8 @@ describe('executeToolOnState: set_widget_forecast', () => {
       lineState,
     );
     expect(parseOutput(result.output).success).toBe(true);
-    expect(result.nextState.widgets['widget-1'].config.forecast?.enabled).toBe(true);
-    expect(result.nextState.widgets['widget-1'].config.forecast?.periods).toBe(6);
+    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.enabled).toBe(true);
+    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.periods).toBe(6);
     expect(result.mutation?.type).toBe('updateWidget');
   });
 
@@ -913,12 +936,15 @@ describe('executeToolOnState: set_widget_forecast', () => {
     const baseState = makeState();
     const lineState = {
       ...baseState,
-      widgets: {
-        'widget-1': {
-          ...baseState.widgets['widget-1'],
-          config: {
-            chartType: 'line' as const,
-            forecast: { enabled: true, periods: 3 },
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            config: {
+              chartType: 'line' as const,
+              forecast: { enabled: true, periods: 3 },
+            },
           },
         },
       },
@@ -928,15 +954,21 @@ describe('executeToolOnState: set_widget_forecast', () => {
       { widgetId: 'widget-1', enabled: false },
       lineState,
     );
-    expect(result.nextState.widgets['widget-1'].config.forecast?.enabled).toBe(false);
+    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.enabled).toBe(false);
   });
 
   it('enables forecast with confidence bands', () => {
     const baseState = makeState();
     const areaState = {
       ...baseState,
-      widgets: {
-        'widget-1': { ...baseState.widgets['widget-1'], config: { chartType: 'area' as const } },
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            config: { chartType: 'area' as const },
+          },
+        },
       },
     };
     const result = executeToolOnState(
@@ -944,7 +976,9 @@ describe('executeToolOnState: set_widget_forecast', () => {
       { widgetId: 'widget-1', enabled: true, showConfidenceBands: true },
       areaState,
     );
-    expect(result.nextState.widgets['widget-1'].config.forecast?.showConfidenceBands).toBe(true);
+    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.showConfidenceBands).toBe(
+      true,
+    );
   });
 });
 

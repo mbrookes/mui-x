@@ -134,21 +134,21 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   list_pages: {
     effect: 'pure',
     plan: (_args, { state }) => {
-      const pageList = Object.values(state.pages).map((page) => {
+      const pageList = Object.values(state.doc.pages).map((page) => {
         const widgetIds = (page.widgetRows ?? []).flat();
         const widgetTitles = widgetIds
-          .map((id) => state.widgets[id]?.title)
+          .map((id) => state.doc.widgets[id]?.title)
           .filter((t): t is string => Boolean(t));
         return {
           id: page.id,
           title: page.title,
           widgetCount: widgetIds.length,
           widgetTitles,
-          isActive: page.id === state.dashboard.activePageId,
+          isActive: page.id === state.doc.dashboard.activePageId,
         };
       });
       return {
-        output: JSON.stringify({ pages: pageList, activePageId: state.dashboard.activePageId }),
+        output: JSON.stringify({ pages: pageList, activePageId: state.doc.dashboard.activePageId }),
         nextState: state,
       };
     },
@@ -188,8 +188,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // widget lands on the same page the model is told about, regardless of
       // where the client's navigation happens to be. Error rather than spread
       // an `undefined` page into state.
-      const pageId = state.dashboard.activePageId;
-      if (!state.pages[pageId]) {
+      const pageId = state.doc.dashboard.activePageId;
+      if (!state.doc.pages[pageId]) {
         return {
           output: JSON.stringify({
             error: 'Cannot add a widget: there is no active page. Call add_page first.',
@@ -212,7 +212,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
-      const widget = state.widgets[widgetId];
+      const widget = state.doc.widgets[widgetId];
       if (!widget) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
@@ -283,7 +283,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
-      if (!state.widgets[widgetId]) {
+      if (!state.doc.widgets[widgetId]) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
           nextState: state,
@@ -320,14 +320,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
       const rows = rawRows as string[][];
-      const activePageId = state.dashboard.activePageId;
-      if (!state.pages[activePageId]) {
+      const activePageId = state.doc.dashboard.activePageId;
+      if (!state.doc.pages[activePageId]) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
       // Validate MEMBERSHIP: every id must be a known widget (widgets added earlier
-      // this turn are already threaded into `state.widgets`). Unknown ids would
+      // this turn are already threaded into `state.doc.widgets`). Unknown ids would
       // otherwise be stored as phantom layout entries (blank cards).
-      const unknownIds = [...new Set(rows.flat())].filter((id) => !state.widgets[id]);
+      const unknownIds = [...new Set(rows.flat())].filter((id) => !state.doc.widgets[id]);
       if (unknownIds.length > 0) {
         return {
           output: JSON.stringify({
@@ -360,8 +360,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
+      const activePageId = state.doc.dashboard.activePageId;
+      const activePage = state.doc.pages[activePageId];
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
@@ -385,7 +385,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
       const title = String(args.title ?? '');
-      const page = state.pages[pageId];
+      const page = state.doc.pages[pageId];
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
@@ -402,7 +402,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
-      const page = state.pages[pageId];
+      const page = state.doc.pages[pageId];
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
@@ -424,7 +424,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
-      if (!state.pages[pageId]) {
+      if (!state.doc.pages[pageId]) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
       const mutation: StateMutation = { type: 'setActivePage', args: { pageId } };
@@ -454,7 +454,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         fieldType,
         // Page target chosen server-side and carried in the filter's scope, so
         // the client applies it to this page rather than its own active page.
-        scope: { kind: 'page', pageId: state.dashboard.activePageId },
+        scope: { kind: 'page', pageId: state.doc.dashboard.activePageId },
       };
       const mutation: StateMutation = { type: 'addFilter', args: { filter } };
       return {
@@ -507,7 +507,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // rather than silently mislabel the active page's data as the requested page,
       // reject the request with actionable guidance.
       const requestedPageId = args.pageId ? String(args.pageId) : undefined;
-      const activePageId = state.dashboard.activePageId;
+      const activePageId = state.doc.dashboard.activePageId;
       if (requestedPageId && requestedPageId !== activePageId) {
         return {
           output: JSON.stringify({
@@ -544,8 +544,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   apply_bulk_update: {
     effect: 'pure',
     plan: (args, { state, customWidgets }) => {
-      const activePageId = state.dashboard.activePageId;
-      const activePage = state.pages[activePageId];
+      const activePageId = state.doc.dashboard.activePageId;
+      const activePage = state.doc.pages[activePageId];
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page found.' }), nextState: state };
       }
@@ -557,7 +557,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
 
       // The mutation carries only DELTAS (remove/add/update), applied by the reducer
-      // against the receiver's CURRENT `state.widgets` — never a snapshot of the
+      // against the receiver's CURRENT `state.doc.widgets` — never a snapshot of the
       // whole `widgets` record. This is the lost-update fix: a widget the user edits
       // on any page while this agentic turn is running is no longer reverted, because
       // only the ids named below are touched.
@@ -578,7 +578,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // handling. `liveWidgetIds` tracks the ids that exist after each delta step so
       // later update/validation checks match the pre-delta-refactor behavior.
       const activePageWidgetIds = new Set(activePage.widgetRows.flat());
-      const liveWidgetIds = new Set(Object.keys(state.widgets));
+      const liveWidgetIds = new Set(Object.keys(state.doc.widgets));
       const removals = (args.widgetRemovals as string[] | undefined) ?? [];
       for (const wid of removals) {
         if (!liveWidgetIds.has(wid)) {
@@ -704,7 +704,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // state snapshot) so the reducer renames THAT thread on the client, even if
       // the user has since switched threads while the model was running. Falls back
       // to the applying side's active thread for legacy/omitted payloads.
-      const threadId = state.ai?.activeThreadId;
+      const threadId = state.doc.ai?.activeThreadId;
       const mutation: StateMutation = {
         type: 'renameAIThread',
         args: {
@@ -749,7 +749,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const widget = state.widgets[widgetId];
+      const widget = state.doc.widgets[widgetId];
       if (!widget) {
         return {
           output: JSON.stringify({ error: `Widget '${widgetId}' not found.` }),

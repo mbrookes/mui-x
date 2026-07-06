@@ -534,15 +534,18 @@ describe('runAgenticLoop — tool approval', () => {
 
     // Seed a state that actually has the widget so removal succeeds post-approval.
     const state = createDefaultStudioState();
-    const activePageId = state.dashboard.activePageId;
+    const activePageId = state.doc.dashboard.activePageId;
     const seeded = {
       ...state,
-      widgets: {
-        w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
-      },
-      pages: {
-        ...state.pages,
-        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1']] },
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+        },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+        },
       },
     };
 
@@ -588,21 +591,24 @@ describe('runAgenticLoop — tool approval', () => {
       .mockResolvedValueOnce(textResponse('removed', 10, 5));
 
     const state = createDefaultStudioState();
-    const activePageId = state.dashboard.activePageId;
+    const activePageId = state.doc.dashboard.activePageId;
     const seeded = {
       ...state,
-      widgets: {
-        w1: {
-          id: 'w1',
-          kind: 'chart' as const,
-          title: 'Confidential Revenue Chart',
-          sourceId: 's',
-          config: {},
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart' as const,
+            title: 'Confidential Revenue Chart',
+            sourceId: 's',
+            config: {},
+          },
         },
-      },
-      pages: {
-        ...state.pages,
-        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1']] },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+        },
       },
     };
 
@@ -1032,12 +1038,15 @@ describe('runAgenticLoop — host skillHandlers name collides with a built-in de
 
     // Seed two pages so removing one is a meaningful mutation.
     const base = createDefaultStudioState();
-    const activePageId = base.dashboard.activePageId;
+    const activePageId = base.doc.dashboard.activePageId;
     const seeded = {
       ...base,
-      pages: {
-        ...base.pages,
-        'page-extra': { id: 'page-extra', title: 'Extra', widgetRows: [] },
+      doc: {
+        ...base.doc,
+        pages: {
+          ...base.doc.pages,
+          'page-extra': { id: 'page-extra', title: 'Extra', widgetRows: [] },
+        },
       },
     };
 
@@ -1192,9 +1201,12 @@ describe('runAgenticLoop — tool gating enforcement (T1-1)', () => {
     const state = createDefaultStudioState();
     const seeded = {
       ...state,
-      pages: {
-        ...state.pages,
-        'page-extra': { id: 'page-extra', title: 'Extra', widgetRows: [] as string[][] },
+      doc: {
+        ...state.doc,
+        pages: {
+          ...state.doc.pages,
+          'page-extra': { id: 'page-extra', title: 'Extra', widgetRows: [] as string[][] },
+        },
       },
     };
 
@@ -1412,16 +1424,19 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
 
   it('effects-aware policy pauses an orphaning set_widget_layout (not a DESTRUCTIVE_TOOLS member)', async () => {
     const state = createDefaultStudioState();
-    const activePageId = state.dashboard.activePageId;
+    const activePageId = state.doc.dashboard.activePageId;
     const seeded = {
       ...state,
-      widgets: {
-        w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
-        w2: { id: 'w2', kind: 'chart' as const, title: 'W2', sourceId: 's', config: {} },
-      },
-      pages: {
-        ...state.pages,
-        [activePageId]: { ...state.pages[activePageId], widgetRows: [['w1', 'w2']] },
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+          w2: { id: 'w2', kind: 'chart' as const, title: 'W2', sourceId: 's', config: {} },
+        },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1', 'w2']] },
+        },
       },
     };
 

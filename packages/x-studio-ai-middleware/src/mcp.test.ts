@@ -60,9 +60,13 @@ function makeSource(overrides?: Partial<StudioDataSource>): StudioDataSource {
 
 function makeStableState() {
   const state = createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
-    pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
-    dataSources: { 'source-orders': makeSource() },
+    doc: {
+      dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+    },
+    runtime: {
+      dataSources: { 'source-orders': makeSource() },
+    },
   });
   return state;
 }
@@ -524,7 +528,7 @@ describe('buildStudioMcpServer', () => {
       expect(onStateChange).toHaveBeenCalledOnce();
       const savedState = onStateChange.mock.calls[0][0];
       expect(
-        Object.values(savedState.pages as Record<string, { title: string }>).some(
+        Object.values(savedState.doc.pages as Record<string, { title: string }>).some(
           (p) => p.title === 'New Page',
         ),
       ).toBe(true);
@@ -571,7 +575,7 @@ describe('buildStudioMcpServer', () => {
       expect(payload.output).toBeDefined();
       // The mutation applied to the live session state regardless of the hook.
       expect(
-        Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+        Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
           (p) => p.title === 'New Page',
         ),
       ).toBe(true);
@@ -596,15 +600,15 @@ describe('buildStudioMcpServer', () => {
       const state = makeStableState();
       // Add a widget with sourceId to the page
       const widgetId = 'w-test';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'grid',
         title: 'Orders Grid',
         sourceId: 'source-orders',
         config: {},
       } as any;
-      state.pages[PAGE_ID] = {
-        ...state.pages[PAGE_ID],
+      state.doc.pages[PAGE_ID] = {
+        ...state.doc.pages[PAGE_ID],
         widgetRows: [[widgetId]],
       };
       const stateBox = { current: state };
@@ -644,14 +648,14 @@ describe('buildStudioMcpServer', () => {
 
     it('runs anomaly detection via GROUP BY query for time-series charts', async () => {
       const state = makeStableState();
-      state.dataSources['source-orders'] = makeSource({
+      state.runtime.dataSources['source-orders'] = makeSource({
         fields: [
           ...(makeSource().fields ?? []),
           { id: 'order_date', label: 'Order Date', type: 'date' } as any,
         ],
       });
       const widgetId = 'w-chart';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'chart',
         title: 'Monthly Revenue',
@@ -664,7 +668,7 @@ describe('buildStudioMcpServer', () => {
           yAggregation: 'sum',
         },
       } as any;
-      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
 
       const queryDataSource = vi.fn(
         async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
@@ -715,7 +719,7 @@ describe('buildStudioMcpServer', () => {
     it('skips anomaly detection for blended charts', async () => {
       const state = makeStableState();
       const widgetId = 'w-blended';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'chart',
         title: 'Blended Chart',
@@ -727,7 +731,7 @@ describe('buildStudioMcpServer', () => {
           ySeries: [{ fieldId: 'revenue', sourceId: 'other-source' }],
         },
       } as any;
-      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
 
       const queryDataSource = vi.fn(
         async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
@@ -783,15 +787,15 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
 
   it('includes the distilled cross-filter graph in the system-prompt resource', async () => {
     const state = makeStableState();
-    state.widgets.w1 = {
+    state.doc.widgets.w1 = {
       id: 'w1',
       kind: 'chart',
       title: 'Orders',
       sourceId: 'source-orders',
       config: { chartType: 'bar' },
     } as any;
-    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w1']] };
-    state.filters = [
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w1']] };
+    state.doc.filters = [
       {
         id: 'xf',
         field: 'status',
@@ -1004,7 +1008,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     expect(approvalHandler).toHaveBeenCalledOnce();
     expect(result.isError).toBeFalsy();
     expect(
-      Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
         (p) => p.title === 'Approved Page',
       ),
     ).toBe(true);
@@ -1054,7 +1058,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
 
     // Only the first page was committed.
     expect(
-      Object.values(stateBox.current.pages as Record<string, { title: string }>).some(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
         (p) => p.title === 'P2',
       ),
     ).toBe(false);
@@ -1064,7 +1068,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     // Critical regression guard: the MCP default is allow-all, NOT createDefaultToolPolicy().
     // A destructive tool must still execute with no approval pause when no policy is set.
     const state = makeStableState();
-    (state.pages as Record<string, unknown>)['page-2'] = {
+    (state.doc.pages as Record<string, unknown>)['page-2'] = {
       id: 'page-2',
       title: 'Page 2',
       widgetRows: [],
@@ -1081,7 +1085,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     })) as any;
 
     expect(result.isError).toBeFalsy();
-    expect(stateBox.current.pages['page-2']).toBeUndefined();
+    expect(stateBox.current.doc.pages['page-2']).toBeUndefined();
   });
 });
 

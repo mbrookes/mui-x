@@ -21,15 +21,15 @@ import type {
  *   cross-filter edges.
  */
 export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout | undefined {
-  const pageId = state.dashboard.activePageId;
-  const page = pageId ? state.pages[pageId] : undefined;
+  const pageId = state.doc.dashboard.activePageId;
+  const page = pageId ? state.doc.pages[pageId] : undefined;
   if (!page) {
     return undefined;
   }
 
   const rows: StudioAILayoutWidget[][] = (page.widgetRows ?? []).map((row) =>
     row.flatMap((widgetId) => {
-      const w = state.widgets[widgetId];
+      const w = state.doc.widgets[widgetId];
       if (!w) {
         return [];
       }
@@ -46,7 +46,7 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
     }),
   );
 
-  const crossFilters: StudioAICrossFilterEdge[] = state.filters.flatMap((f) => {
+  const crossFilters: StudioAICrossFilterEdge[] = state.doc.filters.flatMap((f) => {
     if (
       (f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive') &&
       f.scope.pageId === pageId

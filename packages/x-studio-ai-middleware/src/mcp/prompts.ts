@@ -53,7 +53,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
 
     if (name === 'query_data_source_examples') {
       const requestedId = promptArgs?.sourceId;
-      const allSources = Object.values(stateBox.current.dataSources).filter(
+      const allSources = Object.values(stateBox.current.runtime.dataSources).filter(
         (s) => !s.hidden && s.tableName,
       );
 
@@ -162,7 +162,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
       argument.name === 'sourceId'
     ) {
       const partial = argument.value ?? '';
-      const matches = Object.values(stateBox.current.dataSources)
+      const matches = Object.values(stateBox.current.runtime.dataSources)
         .filter((s) => !s.hidden && s.tableName && s.id.startsWith(partial))
         .map((s) => s.id);
       return { completion: { values: matches, total: matches.length, hasMore: false } };
@@ -174,8 +174,8 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
     }
     // argument.value is the partial string the user has typed so far
     const partial = argument.value ?? '';
-    const sourceIds = Object.keys(stateBox.current.dataSources).filter(
-      (id) => !stateBox.current.dataSources[id].hidden,
+    const sourceIds = Object.keys(stateBox.current.runtime.dataSources).filter(
+      (id) => !stateBox.current.runtime.dataSources[id].hidden,
     );
 
     let matches: string[] = [];
@@ -191,7 +191,9 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         ? partial.slice('studio://data/'.length)
         : partial;
       matches = sourceIds
-        .filter((id) => id.startsWith(fragment) && stateBox.current.dataSources[id].tableName)
+        .filter(
+          (id) => id.startsWith(fragment) && stateBox.current.runtime.dataSources[id].tableName,
+        )
         .map((id) => `studio://data/${id}`);
     }
 

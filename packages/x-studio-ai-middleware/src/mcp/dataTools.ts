@@ -129,7 +129,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
       // straight through as a physical table name and hit the DB, producing a raw
       // driver error (or worse, querying an unintended table) instead of this clear,
       // actionable message.
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         return errorResult(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
@@ -165,7 +165,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
       if (!sourceId) {
         return errorResult('sourceId is required');
       }
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         return errorResult(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
@@ -254,7 +254,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
       if (!sourceId || !fieldId) {
         return errorResult('sourceId and fieldId are required');
       }
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         return errorResult(`Unknown data source: "${sourceId}".`);
       }
@@ -294,7 +294,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
         if (chartData.length >= 2) {
           try {
             const fieldLabel =
-              stateBox.current.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
+              stateBox.current.runtime.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
                 ?.label ?? fieldId;
             const svg = renderChartSvg({
               type: 'bar',
@@ -328,7 +328,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
       if (!sourceId || !statFields || statFields.length === 0) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      const source = stateBox.current.dataSources[sourceId];
+      const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         return errorResult(`Unknown data source: "${sourceId}".`);
       }
@@ -389,8 +389,8 @@ export function createSummarisePageHandler(deps: {
     const state = stateBox.current;
     // Accept optional pageId arg; fall back to active page.
     const requestedPageId = (args as { pageId?: string })?.pageId;
-    const resolvedPageId = requestedPageId ?? state.dashboard.activePageId;
-    const activePage = resolvedPageId ? state.pages[resolvedPageId] : null;
+    const resolvedPageId = requestedPageId ?? state.doc.dashboard.activePageId;
+    const activePage = resolvedPageId ? state.doc.pages[resolvedPageId] : null;
 
     if (!activePage) {
       return {
@@ -406,7 +406,7 @@ export function createSummarisePageHandler(deps: {
     }
 
     const widgetIds = (activePage.widgetRows ?? []).flat();
-    const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
+    const widgets = widgetIds.map((id) => state.doc.widgets[id]).filter(Boolean);
     type SectionItem = { text: string };
     // Pre-sized, index-addressed array: each widget's query runs concurrently
     // (via Promise.all below), but writing to `results[i]` instead of pushing
@@ -420,7 +420,7 @@ export function createSummarisePageHandler(deps: {
         if (!sourceId) {
           return;
         }
-        const source = state.dataSources[sourceId];
+        const source = state.runtime.dataSources[sourceId];
         if (!source?.tableName) {
           return;
         }

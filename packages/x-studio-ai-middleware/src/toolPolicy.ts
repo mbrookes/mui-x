@@ -76,7 +76,7 @@ export type ToolPolicy = (
 /** Collect every widget id referenced by any page's `widgetRows` in a state. */
 function collectReferencedWidgetIds(state: StudioState): Set<string> {
   const ids = new Set<string>();
-  for (const page of Object.values(state.pages)) {
+  for (const page of Object.values(state.doc.pages)) {
     for (const row of page.widgetRows ?? []) {
       for (const id of row) {
         ids.add(id);
@@ -123,18 +123,18 @@ export function computeToolEffects(
   mutation: StateMutation,
   next: StudioState,
 ): ToolEffectSummary {
-  const prevWidgetIds = Object.keys(prev.widgets);
-  const nextWidgetIds = Object.keys(next.widgets);
+  const prevWidgetIds = Object.keys(prev.doc.widgets);
+  const nextWidgetIds = Object.keys(next.doc.widgets);
   const nextWidgetIdSet = new Set(nextWidgetIds);
   const prevWidgetIdSet = new Set(prevWidgetIds);
 
-  const prevPageIds = Object.keys(prev.pages);
-  const nextPageIds = Object.keys(next.pages);
+  const prevPageIds = Object.keys(prev.doc.pages);
+  const nextPageIds = Object.keys(next.doc.pages);
   const nextPageIdSet = new Set(nextPageIds);
   const prevPageIdSet = new Set(prevPageIds);
 
-  const prevFilterIds = new Set((prev.filters ?? []).map((f) => f.id));
-  const nextFilterIds = new Set((next.filters ?? []).map((f) => f.id));
+  const prevFilterIds = new Set((prev.doc.filters ?? []).map((f) => f.id));
+  const nextFilterIds = new Set((next.doc.filters ?? []).map((f) => f.id));
 
   const removedWidgetIds = prevWidgetIds.filter((id) => !nextWidgetIdSet.has(id));
   const addedWidgetIds = nextWidgetIds.filter((id) => !prevWidgetIdSet.has(id));
@@ -153,14 +153,14 @@ export function computeToolEffects(
   // Updated: present in both, but the widget object identity changed (immutable
   // reducer → a new object means a real change).
   const updatedWidgetIds = nextWidgetIds.filter(
-    (id) => prevWidgetIdSet.has(id) && prev.widgets[id] !== next.widgets[id],
+    (id) => prevWidgetIdSet.has(id) && prev.doc.widgets[id] !== next.doc.widgets[id],
   );
 
   // Layout changed: page present in both, but its `widgetRows` differs.
   const layoutChangedPageIds = nextPageIds.filter(
     (id) =>
       prevPageIdSet.has(id) &&
-      !widgetRowsEqual(prev.pages[id]?.widgetRows, next.pages[id]?.widgetRows),
+      !widgetRowsEqual(prev.doc.pages[id]?.widgetRows, next.doc.pages[id]?.widgetRows),
   );
 
   return {

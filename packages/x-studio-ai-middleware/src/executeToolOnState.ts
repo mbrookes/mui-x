@@ -236,9 +236,40 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             } as StudioWidget['config'])
           : undefined;
 
+      // Validate the model-supplied clear arrays before handing them to the reducer
+      // (mirrors `set_widget_layout`'s shape validation): malformed model output must
+      // not poison state. For `unsetFields` only a fixed set of safe, clearable
+      // top-level keys is honored — `id`/`kind`/`title`/`config` are never clearable
+      // this way (a required field or the config bag). For `unsetConfigKeys` only keys
+      // actually present on the widget's (post-merge) config are honored, so an
+      // unknown key name is a silent ignore rather than a delete against nothing.
+      const CLEARABLE_WIDGET_FIELDS = new Set<keyof Omit<StudioWidget, 'id'>>([
+        'sourceId',
+        'subtitle',
+        'titleMode',
+        'subtitleMode',
+      ]);
+      const unsetFields = (Array.isArray(args.unsetFields) ? args.unsetFields : []).filter(
+        (key): key is keyof Omit<StudioWidget, 'id'> =>
+          typeof key === 'string' &&
+          CLEARABLE_WIDGET_FIELDS.has(key as keyof Omit<StudioWidget, 'id'>),
+      );
+      const configForUnsetCheck = newConfig ?? widget.config;
+      const unsetConfigKeys = (
+        Array.isArray(args.unsetConfigKeys) ? args.unsetConfigKeys : []
+      ).filter(
+        (key): key is string => typeof key === 'string' && Object.hasOwn(configForUnsetCheck, key),
+      );
+
       const mutation: StateMutation = {
         type: 'updateWidget',
-        args: { widgetId, changes, ...(newConfig !== undefined ? { config: newConfig } : {}) },
+        args: {
+          widgetId,
+          changes,
+          ...(newConfig !== undefined ? { config: newConfig } : {}),
+          ...(unsetFields.length > 0 ? { unsetFields } : {}),
+          ...(unsetConfigKeys.length > 0 ? { unsetConfigKeys } : {}),
+        },
       };
       return {
         output: JSON.stringify({ success: true, widgetId }),

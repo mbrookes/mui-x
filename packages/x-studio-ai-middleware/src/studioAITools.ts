@@ -97,6 +97,23 @@ export const STUDIO_AI_TOOLS = [
             description:
               'Partial widget config to merge in (optional). Same keys as add_widget. Pass only the keys you are changing.',
           },
+          unsetFields: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Top-level widget keys to CLEAR back to unset (optional). Use this to void a field ' +
+              'rather than setting it — e.g. ["sourceId"] to detach the data source so the user ' +
+              'can re-pick one. Clearable keys: sourceId, subtitle, titleMode, subtitleMode. ' +
+              'Unknown or non-clearable keys are ignored.',
+          },
+          unsetConfigKeys: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Config keys to CLEAR back to unset (optional) — e.g. ["xField"] to remove a chart ' +
+              'axis field. Only keys currently present on the widget config are cleared; unknown ' +
+              'keys are ignored.',
+          },
         },
         required: ['widgetId'],
       },

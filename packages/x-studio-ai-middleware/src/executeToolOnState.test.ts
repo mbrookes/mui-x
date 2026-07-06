@@ -383,6 +383,56 @@ describe('executeToolOnState: update_widget', () => {
     expect(out.error).toBeDefined();
     expect(result.mutation).toBeUndefined();
   });
+
+  it('clears a clearable top-level field via unsetFields', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', unsetFields: ['sourceId'] },
+      state,
+    );
+    expect('sourceId' in result.nextState.widgets['widget-1']).toBe(false);
+  });
+
+  it('clears a config key that is present via unsetConfigKeys', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', unsetConfigKeys: ['chartType'] },
+      state,
+    );
+    expect('chartType' in result.nextState.widgets['widget-1'].config).toBe(false);
+  });
+
+  it('ignores non-clearable / unknown top-level keys in unsetFields', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'update_widget',
+      // `title`/`kind`/`id` are not clearable; `bogus` is unknown — all ignored,
+      // so no unsetFields reaches the mutation and the widget is untouched.
+      { widgetId: 'widget-1', unsetFields: ['title', 'kind', 'id', 'bogus'] },
+      state,
+    );
+    const w = result.nextState.widgets['widget-1'];
+    expect(w.title).toBe('Revenue Chart');
+    expect(w.kind).toBe('chart');
+    expect(w.id).toBe('widget-1');
+    expect((result.mutation as { args: Record<string, unknown> }).args.unsetFields).toBeUndefined();
+  });
+
+  it('ignores config keys that are not present on the widget in unsetConfigKeys', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', unsetConfigKeys: ['xField'] },
+      state,
+    );
+    // `xField` was never set, so nothing is cleared and no unsetConfigKeys is emitted.
+    expect(result.nextState.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+    expect(
+      (result.mutation as { args: Record<string, unknown> }).args.unsetConfigKeys,
+    ).toBeUndefined();
+  });
 });
 
 describe('executeToolOnState: remove_widget', () => {

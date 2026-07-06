@@ -813,7 +813,9 @@ export function StudioBarChart({
     }
   }
 
-  // Default: bar chart (vertical or horizontal)
+  // Default single-series bar — vertical and horizontal share one render, differing only in
+  // axis orientation, axisTickFontSize application (horizontal only — invariant 2), the band
+  // axis width, container height, and margin.right (40 horizontal / 16 vertical — invariant 3).
   const isHorizontal = isHorizontalBarLayout;
 
   // When barMinBandSize is set, expand the container so every row gets at least that many px.
@@ -823,110 +825,63 @@ export function StudioBarChart({
       ? Math.max(height, displayXAxisData.length * minBandSize + 40)
       : height;
 
-  if (isHorizontal) {
-    // When bandLabelWrap splits labels across multiple lines, 'auto' only measures the first
-    // SVG tspan and produces a width too narrow for longer subsequent lines. Compute an
-    // explicit pixel width from the longest single line across all formatted+wrapped labels.
-    const longestHBarLabelLine = displayXAxisData.reduce((max: number, v) => {
-      const wrapped = wrapBandLabel(formatLabel(String(v)));
-      const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
-      return Math.max(max, lineMax);
-    }, 0);
-    const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
+  // When bandLabelWrap splits labels across multiple lines, 'auto' only measures the first SVG
+  // tspan and produces a width too narrow for longer subsequent lines. Compute an explicit pixel
+  // width (horizontal only) from the longest single line across all formatted+wrapped labels.
+  const longestHBarLabelLine = isHorizontal
+    ? displayXAxisData.reduce((max: number, v) => {
+        const wrapped = wrapBandLabel(formatLabel(String(v)));
+        const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+        return Math.max(max, lineMax);
+      }, 0)
+    : 0;
+  const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
 
-    return (
-      <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
-        <CrossFilterBarContext.Provider value={singleBarContext}>
-          <div style={{ height: effectiveHBarHeight }}>
-            <BarChart
-              {...slotProps}
-              skipAnimation={skipAnimation}
-              layout="horizontal"
-              xAxis={[
-                {
-                  height: 'auto',
-                  valueFormatter: seriesValueFormatter,
-                  ...(axisTickFontSize !== undefined
-                    ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
-                    : {}),
-                },
-              ]}
-              yAxis={[
-                {
-                  id: CROSS_FILTER_AXIS_ID,
-                  data: displayXAxisData,
-                  scaleType: 'band',
-                  width: hBarYAxisWidth,
-                  valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                  ...(axisTickFontSize !== undefined
-                    ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
-                    : {}),
-                  ...(barCategoryGapRatio !== undefined
-                    ? { categoryGapRatio: barCategoryGapRatio }
-                    : {}),
-                },
-              ]}
-              series={[
-                {
-                  id: CROSS_FILTER_SERIES_ID,
-                  data: displayBarValues,
-                  label: seriesLabel,
-                  highlightScope: { highlight: 'item', fade: 'global' },
-                  valueFormatter: singleSeriesVF,
-                },
-              ]}
-              colors={chartColors}
-              hideLegend
-              margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
-              highlightedItem={singleBarHighlightedItem}
-              onHighlightChange={(item) =>
-                onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-              }
-              onAxisClick={(_event, params) => {
-                if (params?.axisValue !== undefined) {
-                  onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-                }
-              }}
-              sx={{ cursor: 'default' }}
-              slots={singleBarSlots}
-              slotProps={{
-                legend: {
-                  sx: {
-                    overflowY: 'auto',
-                    flexWrap: 'nowrap',
-                    maxHeight: '100%',
-                  },
-                },
-              }}
-            >
-              {children}
-            </BarChart>
-          </div>
-        </CrossFilterBarContext.Provider>
-      </SourceSelectionContext.Provider>
-    );
-  }
+  // Band (category) axis config, shared across orientations. The orientation-specific dimension
+  // (height when it lands on x, width when it lands on y) is added at the axis slot below so the
+  // object stays assignable to both the X- and Y-axis config types. barCategoryGapRatio applies
+  // to both orientations; axisTickFontSize applies ONLY when horizontal (invariant 2).
+  const singleBandAxis = {
+    id: CROSS_FILTER_AXIS_ID,
+    data: displayXAxisData,
+    scaleType: 'band' as const,
+    valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+    ...(isHorizontal && axisTickFontSize !== undefined
+      ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+      : {}),
+    ...(barCategoryGapRatio !== undefined ? { categoryGapRatio: barCategoryGapRatio } : {}),
+  };
+
+  // Value (measure) axis config, shared across orientations (dimension added at the slot below).
+  // axisTickFontSize applies ONLY when horizontal (invariant 2); vertical never reads it.
+  const singleValueAxis = {
+    valueFormatter: seriesValueFormatter,
+    ...(isHorizontal && axisTickFontSize !== undefined
+      ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+      : {}),
+  };
 
   return (
     <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
       <CrossFilterBarContext.Provider value={singleBarContext}>
-        <div style={{ height }}>
+        <div style={{ height: effectiveHBarHeight }}>
           <BarChart
             {...slotProps}
             skipAnimation={skipAnimation}
+            layout={isHorizontal ? 'horizontal' : undefined}
+            // The x-axis is always sized with height:'auto' (value axis when horizontal, band axis
+            // when vertical). The y-axis carries the band width when horizontal (the explicit
+            // computed hBarYAxisWidth) or the value axis width:'auto' when vertical.
             xAxis={[
-              {
-                id: CROSS_FILTER_AXIS_ID,
-                data: displayXAxisData,
-                scaleType: 'band',
-                height: 'auto',
-                valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                ...(barCategoryGapRatio !== undefined
-                  ? { categoryGapRatio: barCategoryGapRatio }
-                  : {}),
-              },
+              isHorizontal
+                ? { ...singleValueAxis, height: 'auto' as const }
+                : { ...singleBandAxis, height: 'auto' as const },
             ]}
-            yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
+            yAxis={[
+              isHorizontal
+                ? { ...singleBandAxis, width: hBarYAxisWidth }
+                : { ...singleValueAxis, width: 'auto' as const },
+            ]}
             series={[
               {
                 id: CROSS_FILTER_SERIES_ID,
@@ -938,7 +893,8 @@ export function StudioBarChart({
             ]}
             colors={chartColors}
             hideLegend
-            margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
+            // margin.right: 40 horizontal, 16 vertical (invariant 3).
+            margin={{ top: 16, right: isHorizontal ? 40 : 16, bottom: 8, left: 8 }}
             highlightedItem={singleBarHighlightedItem}
             onHighlightChange={(item) =>
               onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)

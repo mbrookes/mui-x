@@ -10,11 +10,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import {
-  Studio,
-  createBatchingAdapter,
-
-} from '@mui/x-studio';
+import { Studio, createBatchingAdapter } from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -146,7 +142,8 @@ function getUrlDatasetParam(): 'sales' | 'ag-studio' {
 
 /**
  * Read ?server=<url> to route queries through a real server instead of
- * simulatedServer.ts. Example: ?server=http://localhost:3001/api/sales-data
+ * simulatedServer.ts. Example: ?server=http://localhost:3020/api/sales-data
+ * (run the x-studio-dev-server, or set STUDIO_SERVER_URL).
  * Uses createBatchingAdapter() which collapses N widget requests into one POST.
  */
 function getUrlServerParam(): string | undefined {
@@ -572,9 +569,18 @@ export default function App() {
     // Sales sources → /api/sales-data; CRM sources (prefix "source-crm-") → /api/crm-data
     const salesEndpoint = serverEndpoint;
     const crmEndpoint = serverEndpoint.replace(/\/api\/sales-data$/, '/api/crm-data');
+    // Write-back endpoint, derived with the same suffix-swap as crmEndpoint.
+    // Wiring this attaches `submitMutation` to the sales adapter, making
+    // sales-table Grid widgets editable once their `config.gridPkField` is set.
+    // CRM has no mutations endpoint on the dev server, so its adapter stays read-only.
+    const salesMutationEndpoint = serverEndpoint.replace(
+      /\/api\/sales-data$/,
+      '/api/sales-mutations',
+    );
 
     const salesAdapter = createBatchingAdapter(salesEndpoint, {
       fetchFn,
+      mutationEndpoint: salesMutationEndpoint,
       dataSources: state.dataSources,
       relationships: state.relationships,
       expressionFields: state.expressionFields,

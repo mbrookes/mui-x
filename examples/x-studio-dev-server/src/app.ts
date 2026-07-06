@@ -5,6 +5,7 @@ import type { Config } from './config.js';
 import { makeAuthMiddleware } from './middleware/auth.js';
 import { makeHealthRouter } from './routes/health.js';
 import { makeSalesDataRouter } from './routes/salesData.js';
+import { makeSalesMutationsRouter } from './routes/salesMutations.js';
 import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
@@ -25,7 +26,10 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
         }
         // Allow any localhost port — dev tools (MCP Inspector, Cursor, Claude Desktop)
         // use a variety of ports and it is not practical to enumerate them all.
-        if (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+        if (
+          /^http:\/\/localhost(:\d+)?$/.test(origin) ||
+          /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)
+        ) {
           callback(null, true);
           return;
         }
@@ -44,6 +48,7 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
   // Routes
   app.use('/health', makeHealthRouter(salesDb));
   app.use('/api/sales-data', makeSalesDataRouter(salesDb, config));
+  app.use('/api/sales-mutations', makeSalesMutationsRouter(salesDb, config));
   app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
   app.use('/api/ai', makeAIRouter(salesDb, crmDb, config));
   app.use('/api/dev-token', makeDevTokenRouter(config));

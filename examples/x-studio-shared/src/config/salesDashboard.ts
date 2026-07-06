@@ -598,7 +598,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: PRODUCTS_SOURCE_ID,
       config: {
+        // `id` is included so the primary-key value is fetched into each row,
+        // enabling write-back: `gridPkField: 'id'` + an adapter with a
+        // `mutationEndpoint` makes the non-PK cells (price, cost, stock, …)
+        // editable and routes edits to POST /api/sales-mutations.
         columns: [
+          { fieldId: 'id' },
           { fieldId: 'product' },
           { fieldId: 'category' },
           { fieldId: 'price' },
@@ -608,6 +613,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { fieldId: 'stock' },
           { fieldId: 'reorderLevel' },
         ],
+        gridPkField: 'id',
         crossFilterField: 'category',
         gridSummaryFields: { price: 'avg', cost: 'avg', stock: 'sum', reorderLevel: 'sum' },
       },
@@ -1730,10 +1736,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       currencyCode: 'USD',
       expression: {
         operator: 'multiply',
-        inputs: [
-          { id: 'total' },
-          { joinSourceId: EXCHANGE_RATES_SOURCE_ID, fieldId: 'toUsd' },
-        ],
+        inputs: [{ id: 'total' }, { joinSourceId: EXCHANGE_RATES_SOURCE_ID, fieldId: 'toUsd' }],
       },
     },
     {

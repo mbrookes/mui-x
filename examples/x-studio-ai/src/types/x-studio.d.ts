@@ -102,6 +102,7 @@ declare module '@mui/x-studio' {
   export interface BatchingAdapterOptions {
     batchDelayMs?: number;
     fetchFn?: typeof fetch;
+    mutationEndpoint?: string;
   }
   export function createBatchingAdapter(
     endpoint: string,

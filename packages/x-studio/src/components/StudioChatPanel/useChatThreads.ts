@@ -3,7 +3,7 @@
 import * as React from 'react';
 import type { ChatMessage as ChatMessageType } from '@mui/x-chat/headless';
 import { useChat } from '@mui/x-chat/headless';
-import { useStudioSelector } from '../../context';
+import { useStudioSelector, selectAi } from '../../context';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioAIChatThread } from '../../models';
 import type { StudioController } from '../../store/StudioController';
@@ -50,7 +50,7 @@ export interface UseChatThreadsResult {
 
 export function useChatThreads(controller: StudioController): UseChatThreadsResult {
   const localeText = useStudioLocaleText();
-  const aiState = useStudioSelector((state) => state.ai);
+  const aiState = useStudioSelector(selectAi);
   // Stable default thread id so the first thread is always available even
   // before any message has been sent (and hence before `state.ai` exists).
   const defaultThreadId = React.useRef(createThreadId());
@@ -75,7 +75,7 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
         : activeThreadIdRef.current;
 
       const state = controller.getState();
-      const existingThreads = state.ai?.threads ?? [];
+      const existingThreads = state.doc.ai?.threads ?? [];
       const now = new Date().toISOString();
 
       const updatedThreads = existingThreads.some((t) => t.id === targetThreadId)
@@ -95,9 +95,12 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
 
       controller.setState({
         ...state,
-        ai: {
-          threads: updatedThreads,
-          activeThreadId: state.ai?.activeThreadId ?? targetThreadId,
+        doc: {
+          ...state.doc,
+          ai: {
+            threads: updatedThreads,
+            activeThreadId: state.doc.ai?.activeThreadId ?? targetThreadId,
+          },
         },
       });
     },
@@ -110,15 +113,18 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
     const newId = createThreadId();
     const now = new Date().toISOString();
     const state = controller.getState();
-    const existingThreads = state.ai?.threads ?? [];
+    const existingThreads = state.doc.ai?.threads ?? [];
     controller.setState({
       ...state,
-      ai: {
-        threads: [
-          ...existingThreads,
-          { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
-        ],
-        activeThreadId: newId,
+      doc: {
+        ...state.doc,
+        ai: {
+          threads: [
+            ...existingThreads,
+            { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
+          ],
+          activeThreadId: newId,
+        },
       },
     });
     // Update the stable ref so the next message goes to the new thread.
@@ -130,7 +136,10 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
       const state = controller.getState();
       controller.setState({
         ...state,
-        ai: { ...(state.ai ?? { threads: [] }), activeThreadId: threadId },
+        doc: {
+          ...state.doc,
+          ai: { ...(state.doc.ai ?? { threads: [] }), activeThreadId: threadId },
+        },
       });
       defaultThreadId.current = threadId;
       setThreadMenuAnchor(null);

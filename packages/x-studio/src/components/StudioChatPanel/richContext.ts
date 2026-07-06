@@ -104,11 +104,19 @@ function computeFieldStat(
 
 /** Build per-field statistics for every visible field across all data sources. */
 function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> {
-  const pipeline = createStudioPipeline(state);
-  const activePageId = state.dashboard.activePageId;
+  // Pass the flat `StudioPipelineState` shape explicitly (rather than the nested
+  // `StudioState` itself) — the pipeline's own documented "built manually" input —
+  // so this call doesn't depend on `createStudioPipeline` unwrapping `doc`/`runtime`.
+  const pipeline = createStudioPipeline({
+    dataSources: state.runtime.dataSources,
+    relationships: state.doc.relationships,
+    expressionFields: state.doc.expressionFields,
+    filters: state.doc.filters,
+  });
+  const activePageId = state.doc.dashboard.activePageId;
   const stats: Record<string, StudioAIFieldStat> = {};
 
-  for (const source of Object.values(state.dataSources)) {
+  for (const source of Object.values(state.runtime.dataSources)) {
     if (source.hidden) {
       continue;
     }
@@ -138,15 +146,15 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
 
 /** Build the active page's widget layout and cross-filter graph. */
 function buildPageLayout(state: StudioState): StudioAIPageLayout | undefined {
-  const pageId = state.dashboard.activePageId;
-  const page = state.pages[pageId];
+  const pageId = state.doc.dashboard.activePageId;
+  const page = state.doc.pages[pageId];
   if (!page) {
     return undefined;
   }
 
   const rows: StudioAILayoutWidget[][] = (page.widgetRows ?? []).map((row) =>
     row.flatMap((widgetId) => {
-      const w = state.widgets[widgetId];
+      const w = state.doc.widgets[widgetId];
       if (!w) {
         return [];
       }
@@ -167,16 +175,18 @@ function buildPageLayout(state: StudioState): StudioAIPageLayout | undefined {
     }),
   );
 
-  const crossFilters: StudioAICrossFilterEdge[] = state.filters.flatMap((f: StudioFilterState) => {
-    if (
-      (f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive') &&
-      f.scope.pageId === pageId &&
-      !f.disabled
-    ) {
-      return [{ sourceWidgetId: f.scope.sourceWidgetId, field: f.field, scope: f.scope.kind }];
-    }
-    return [];
-  });
+  const crossFilters: StudioAICrossFilterEdge[] = state.doc.filters.flatMap(
+    (f: StudioFilterState) => {
+      if (
+        (f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive') &&
+        f.scope.pageId === pageId &&
+        !f.disabled
+      ) {
+        return [{ sourceWidgetId: f.scope.sourceWidgetId, field: f.field, scope: f.scope.kind }];
+      }
+      return [];
+    },
+  );
 
   return { pageId, rows, crossFilters };
 }

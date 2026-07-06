@@ -118,8 +118,10 @@ describe('StudioQuickFilterBar', () => {
 
   it('renders nothing when there are no page filters', () => {
     mockState = createDefaultStudioState({
-      filters: [],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      doc: {
+        filters: [],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
     });
     const { container } = render(<StudioQuickFilterBar />);
     expect(container.firstChild).toBeNull();
@@ -127,17 +129,21 @@ describe('StudioQuickFilterBar', () => {
 
   it('renders a chip for each active page filter', () => {
     mockState = createDefaultStudioState({
-      filters: [makePageFilter('f1', 'country'), makePageFilter('f2', 'region')],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Source',
-          fields: [
-            { id: 'country', label: 'Country', type: 'string' as const },
-            { id: 'region', label: 'Region', type: 'string' as const },
-          ],
-          rows: [],
+      doc: {
+        filters: [makePageFilter('f1', 'country'), makePageFilter('f2', 'region')],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [
+              { id: 'country', label: 'Country', type: 'string' as const },
+              { id: 'region', label: 'Region', type: 'string' as const },
+            ],
+            rows: [],
+          },
         },
       },
     });
@@ -149,15 +155,17 @@ describe('StudioQuickFilterBar', () => {
   it('shows dashboard date-range filter as chip when quickFilter is disabled', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
     mockState = createDefaultStudioState({
-      filters: [
-        {
-          ...makePageFilter('dr1', 'order_date'),
-          scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
-        },
-        makePageFilter('f1', 'country'),
-      ],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-      dataSources: DATA_SOURCES_WITH_DATE,
+      doc: {
+        filters: [
+          {
+            ...makePageFilter('dr1', 'order_date'),
+            scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
+          },
+          makePageFilter('f1', 'country'),
+        ],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: { dataSources: DATA_SOURCES_WITH_DATE },
     });
     render(<StudioQuickFilterBar />);
     // Both filters shown when quickFilter bar is off (user can still clear them)
@@ -168,15 +176,17 @@ describe('StudioQuickFilterBar', () => {
   it('hides dashboard date-range filter chip when quickFilter is enabled (bar handles it)', () => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: true };
     mockState = createDefaultStudioState({
-      filters: [
-        {
-          ...makePageFilter('dr1', 'order_date'),
-          scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
-        },
-        makePageFilter('f1', 'country'),
-      ],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-      dataSources: DATA_SOURCES_WITH_DATE,
+      doc: {
+        filters: [
+          {
+            ...makePageFilter('dr1', 'order_date'),
+            scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
+          },
+          makePageFilter('f1', 'country'),
+        ],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: { dataSources: DATA_SOURCES_WITH_DATE },
     });
     render(<StudioQuickFilterBar />);
     // Date range filter excluded from chips — the bar component handles it
@@ -187,10 +197,12 @@ describe('StudioQuickFilterBar', () => {
 
   it('does not show chips for filters on other pages', () => {
     mockState = createDefaultStudioState({
-      filters: [
-        { ...makePageFilter('f1'), scope: { kind: 'page' as const, pageId: 'other-page' } },
-      ],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      doc: {
+        filters: [
+          { ...makePageFilter('f1'), scope: { kind: 'page' as const, pageId: 'other-page' } },
+        ],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
     });
     const { container } = render(<StudioQuickFilterBar />);
     expect(container.firstChild).toBeNull();
@@ -199,8 +211,10 @@ describe('StudioQuickFilterBar', () => {
   it('shows chips for filters with no pageId (legacy data)', () => {
     const filterWithoutPageId = { ...makePageFilter('f1'), scope: { kind: 'page' as const } };
     mockState = createDefaultStudioState({
-      filters: [filterWithoutPageId],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      doc: {
+        filters: [filterWithoutPageId],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
     });
     render(<StudioQuickFilterBar />);
     expect(screen.getByText(/country/)).toBeDefined();
@@ -208,14 +222,18 @@ describe('StudioQuickFilterBar', () => {
 
   it('suppresses the chip toggle tooltip while hovering the close button (no double tooltip)', async () => {
     mockState = createDefaultStudioState({
-      filters: [makePageFilter('f1', 'country')],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Source',
-          fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
-          rows: [],
+      doc: {
+        filters: [makePageFilter('f1', 'country')],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
         },
       },
     });
@@ -242,14 +260,18 @@ describe('StudioQuickFilterBar', () => {
   it('renders the chip summary translated under a non-English locale', () => {
     mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
     mockState = createDefaultStudioState({
-      filters: [makePageFilter('f1', 'country')],
-      dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Source',
-          fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
-          rows: [],
+      doc: {
+        filters: [makePageFilter('f1', 'country')],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
         },
       },
     });

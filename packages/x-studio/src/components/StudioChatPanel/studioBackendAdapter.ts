@@ -194,10 +194,10 @@ export function createBackendChatAdapter(
       // Build a per-widget data snapshot from the active page so the server-side
       // summarise_page handler has live pipeline-filtered row data to work with.
       const state = controller.getState();
-      const activePage = state.pages[state.dashboard.activePageId];
+      const activePage = state.doc.pages[state.doc.dashboard.activePageId];
       const pageWidgetIds = (activePage?.widgetRows ?? []).flat() as string[];
       const pageSnapshotParts = pageWidgetIds.flatMap((id) => {
-        const w = state.widgets[id];
+        const w = state.doc.widgets[id];
         if (!w) {
           return [];
         }

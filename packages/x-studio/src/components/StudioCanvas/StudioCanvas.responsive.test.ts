@@ -69,18 +69,20 @@ function setup(mode: 'edit' | 'view', stackBreakpoint: number) {
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
   const { controller, wrapper } = createStudioHarness({
     initialState: {
-      mode,
-      pages: {
-        'page-1': {
-          id: 'page-1',
-          title: 'Page 1',
-          // Two single-widget rows so each widget's flex-basis only depends on
-          // its own span, not on siblings sharing the row.
-          widgetRows: [['w1'], ['w2']],
-          widgetColSpans: { w1: 6, w2: 12 },
+      session: { mode },
+      doc: {
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'Page 1',
+            // Two single-widget rows so each widget's flex-basis only depends on
+            // its own span, not on siblings sharing the row.
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 6, w2: 12 },
+          },
         },
+        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
       },
-      widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
     },
   });
   // `render`'s type expects a JSX-literal-shaped `ReactElement<DataAttributes>`; this file

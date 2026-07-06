@@ -2,7 +2,7 @@ import * as React from 'react';
 import { StudioController } from '../store';
 import { StudioProvider } from '../context/StudioContext';
 import type { StudioProviderProps } from '../context/StudioContext';
-import type { StudioState } from '../models';
+import type { CreateDefaultStudioStateOverrides } from '../models';
 
 /**
  * Shared test harness for x-studio component tests.
@@ -20,7 +20,7 @@ import type { StudioState } from '../models';
  *
  * it('selects the widget on click', async () => {
  *   const { controller, wrapper } = createStudioHarness({
- *     initialState: { widgets: { w1: makeWidget() } },
+ *     initialState: { doc: { widgets: { w1: makeWidget() } } },
  *   });
  *   const selectSpy = vi.spyOn(controller, 'selectWidget');
  *   const { user } = render(<StudioWidgetCard widgetId="w1" />, { wrapper });
@@ -30,8 +30,12 @@ import type { StudioState } from '../models';
  * ```
  */
 export interface StudioHarnessOptions {
-  /** Partial initial state merged into `createDefaultStudioState` defaults. */
-  initialState?: Partial<StudioState>;
+  /**
+   * Overrides merged into `createDefaultStudioState` defaults, one bag per lifetime
+   * partition (`doc`/`session`/`runtime`) — same shape `StudioController`'s
+   * constructor and `createDefaultStudioState` accept.
+   */
+  initialState?: CreateDefaultStudioStateOverrides;
   /** Extra `StudioProvider` props (featureFlags, localeText, customWidgets, …). */
   providerProps?: Partial<Omit<StudioProviderProps, 'controller' | 'children'>>;
 }

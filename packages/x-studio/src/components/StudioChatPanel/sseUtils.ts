@@ -16,13 +16,16 @@ import type { StudioState } from '../../models';
 export function serializeDashboardState(state: StudioState): StudioState {
   return {
     ...state,
-    dataSources: Object.fromEntries(
-      Object.entries(state.dataSources).map(([id, source]) => {
-        /* eslint-disable-next-line @typescript-eslint/naming-convention -- omit rows/adapter via rest */
-        const { rows: _rows, adapter: _adapter, ...sourceWithoutData } = source;
-        return [id, sourceWithoutData];
-      }),
-    ),
+    runtime: {
+      ...state.runtime,
+      dataSources: Object.fromEntries(
+        Object.entries(state.runtime.dataSources).map(([id, source]) => {
+          /* eslint-disable-next-line @typescript-eslint/naming-convention -- omit rows/adapter via rest */
+          const { rows: _rows, adapter: _adapter, ...sourceWithoutData } = source;
+          return [id, sourceWithoutData];
+        }),
+      ),
+    },
   };
 }
 

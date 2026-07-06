@@ -15,14 +15,16 @@ const AI_CONFIG: StudioAIConfig = {
 
 function makeController(): StudioController {
   const state = createDefaultStudioState({
-    dataSources: {
-      src1: {
-        id: 'src1',
-        label: 'Sales',
-        fields: [
-          { id: 'month', label: 'Month', type: 'string' },
-          { id: 'revenue', label: 'Revenue', type: 'number' },
-        ],
+    runtime: {
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [
+            { id: 'month', label: 'Month', type: 'string' },
+            { id: 'revenue', label: 'Revenue', type: 'number' },
+          ],
+        },
       },
     },
   });

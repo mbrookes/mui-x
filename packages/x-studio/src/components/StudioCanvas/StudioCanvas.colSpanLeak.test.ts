@@ -35,17 +35,19 @@ function twoPageController(
   page1Spans?: Record<string, number>,
 ) {
   return new StudioController({
-    dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
-    pages: {
-      'page-1': {
-        id: 'page-1',
-        title: 'Page 1',
-        widgetRows: page1Rows,
-        widgetColSpans: page1Spans,
+    doc: {
+      dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'Page 1',
+          widgetRows: page1Rows,
+          widgetColSpans: page1Spans,
+        },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
       },
-      'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      widgets: Object.fromEntries(widgetIds.map((id) => [id, makeWidget(id)])),
     },
-    widgets: Object.fromEntries(widgetIds.map((id) => [id, makeWidget(id)])),
   });
 }
 
@@ -60,9 +62,9 @@ describe('StudioController.moveWidget — col-span cleanup (drag-and-drop conver
 
     const state = controller.getState();
     // w2's stale span is cleared (map collapses to undefined once empty).
-    expect(state.pages['page-1'].widgetColSpans).toBeUndefined();
-    expect(state.pages['page-1'].widgetRows).toEqual([['w2']]);
-    expect(state.pages['page-2'].widgetRows).toEqual([['w1']]);
+    expect(state.doc.pages['page-1'].widgetColSpans).toBeUndefined();
+    expect(state.doc.pages['page-1'].widgetRows).toEqual([['w2']]);
+    expect(state.doc.pages['page-2'].widgetRows).toEqual([['w1']]);
   });
 
   it('cross-page move drops the moved-widget stale span from the SOURCE page (no leak-back)', () => {
@@ -76,7 +78,7 @@ describe('StudioController.moveWidget — col-span cleanup (drag-and-drop conver
 
     controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
 
-    const page1 = controller.getState().pages['page-1'];
+    const page1 = controller.getState().doc.pages['page-1'];
     expect(page1.widgetColSpans).toBeUndefined();
     expect(page1.widgetColSpans?.w1).toBeUndefined();
   });
@@ -89,7 +91,7 @@ describe('StudioController.moveWidget — col-span cleanup (drag-and-drop conver
 
     controller.moveWidget('w1', 'page-1', 'page-1', [['w2'], ['w1']]);
 
-    expect(controller.getState().pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    expect(controller.getState().doc.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
   });
 
   it('D11: moving a widget into a row that then overflows GRID_COLS clears ALL spans in that row', () => {
@@ -101,7 +103,7 @@ describe('StudioController.moveWidget — col-span cleanup (drag-and-drop conver
 
     controller.moveWidget('w1', 'page-1', 'page-1', [['w1', 'w2']]);
 
-    expect(controller.getState().pages['page-1'].widgetColSpans).toBeUndefined();
-    expect(controller.getState().pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+    expect(controller.getState().doc.pages['page-1'].widgetColSpans).toBeUndefined();
+    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
   });
 });

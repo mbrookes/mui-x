@@ -19,7 +19,7 @@ export async function createWidgetFromDescription(
   controller: StudioController,
 ): Promise<CreateWidgetResult> {
   const state = controller.getState();
-  const sources = Object.values(state.dataSources).flatMap((s) => {
+  const sources = Object.values(state.runtime.dataSources).flatMap((s) => {
     if (s.hidden) {
       return [];
     }
@@ -89,7 +89,7 @@ export async function createWidgetFromDescription(
   }
 
   const kind = String(data.kind ?? 'chart') as StudioWidgetKind;
-  const source = data.sourceId ? state.dataSources[String(data.sourceId)] : sources[0];
+  const source = data.sourceId ? state.runtime.dataSources[String(data.sourceId)] : sources[0];
 
   const base = createDefaultWidget(kind);
   const widget: StudioWidget = {

@@ -61,9 +61,9 @@ describe('useChatThreads: thread create/switch/persistence', () => {
       result.current.handleMessagesChange([makeMessage('hello')]);
     });
 
-    expect(mockState.ai?.threads).toHaveLength(1);
-    expect(mockState.ai?.threads[0].messages).toHaveLength(1);
-    expect(mockState.ai?.activeThreadId).toBe(mockState.ai?.threads[0].id);
+    expect(mockState.doc.ai?.threads).toHaveLength(1);
+    expect(mockState.doc.ai?.threads[0].messages).toHaveLength(1);
+    expect(mockState.doc.ai?.activeThreadId).toBe(mockState.doc.ai?.threads[0].id);
   });
 
   it('creates a new thread and makes it active', () => {
@@ -73,16 +73,16 @@ describe('useChatThreads: thread create/switch/persistence', () => {
     act(() => {
       result.current.handleMessagesChange([makeMessage('first thread message')]);
     });
-    const firstThreadId = mockState.ai?.activeThreadId;
+    const firstThreadId = mockState.doc.ai?.activeThreadId;
 
     act(() => {
       result.current.handleNewThread();
     });
 
-    expect(mockState.ai?.threads).toHaveLength(2);
-    expect(mockState.ai?.activeThreadId).not.toBe(firstThreadId);
+    expect(mockState.doc.ai?.threads).toHaveLength(2);
+    expect(mockState.doc.ai?.activeThreadId).not.toBe(firstThreadId);
     expect(
-      mockState.ai?.threads.find((t) => t.id === mockState.ai?.activeThreadId)?.messages,
+      mockState.doc.ai?.threads.find((t) => t.id === mockState.doc.ai?.activeThreadId)?.messages,
     ).toEqual([]);
   });
 
@@ -93,22 +93,22 @@ describe('useChatThreads: thread create/switch/persistence', () => {
     act(() => {
       result.current.handleMessagesChange([makeMessage('in thread A')]);
     });
-    const threadAId = mockState.ai!.activeThreadId!;
+    const threadAId = mockState.doc.ai!.activeThreadId!;
 
     act(() => {
       result.current.handleNewThread();
     });
     rerender();
-    const threadBId = mockState.ai!.activeThreadId!;
+    const threadBId = mockState.doc.ai!.activeThreadId!;
     expect(threadBId).not.toBe(threadAId);
 
     act(() => {
       result.current.handleSelectThread(threadAId);
     });
 
-    expect(mockState.ai?.activeThreadId).toBe(threadAId);
-    expect(mockState.ai?.threads.find((t) => t.id === threadAId)?.messages).toHaveLength(1);
-    expect(mockState.ai?.threads.find((t) => t.id === threadBId)?.messages).toEqual([]);
+    expect(mockState.doc.ai?.activeThreadId).toBe(threadAId);
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadAId)?.messages).toHaveLength(1);
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadBId)?.messages).toEqual([]);
   });
 
   it('persists messages onto the correct thread across multiple writes', () => {
@@ -122,8 +122,8 @@ describe('useChatThreads: thread create/switch/persistence', () => {
       result.current.handleMessagesChange([makeMessage('one'), makeMessage('two')]);
     });
 
-    expect(mockState.ai?.threads).toHaveLength(1);
-    expect(mockState.ai?.threads[0].messages).toHaveLength(2);
+    expect(mockState.doc.ai?.threads).toHaveLength(1);
+    expect(mockState.doc.ai?.threads[0].messages).toHaveLength(2);
   });
 });
 
@@ -138,7 +138,7 @@ describe('useChatThreads: mid-stream thread-switch race', () => {
     act(() => {
       result.current.handleMessagesChange([makeMessage('question on A')]);
     });
-    const threadAId = mockState.ai!.activeThreadId!;
+    const threadAId = mockState.doc.ai!.activeThreadId!;
 
     // Simulate `StreamThreadPin`'s rising-edge effect: a response begins
     // streaming while thread A is active, so the write target is pinned to A.
@@ -152,7 +152,7 @@ describe('useChatThreads: mid-stream thread-switch race', () => {
       result.current.handleNewThread();
     });
     rerender();
-    const threadBId = mockState.ai!.activeThreadId!;
+    const threadBId = mockState.doc.ai!.activeThreadId!;
     expect(threadBId).not.toBe(threadAId);
 
     // More chunks of A's in-flight response arrive. Because `isStreamingRef` is
@@ -165,8 +165,8 @@ describe('useChatThreads: mid-stream thread-switch race', () => {
       ]);
     });
 
-    const threadA = mockState.ai?.threads.find((t) => t.id === threadAId);
-    const threadB = mockState.ai?.threads.find((t) => t.id === threadBId);
+    const threadA = mockState.doc.ai?.threads.find((t) => t.id === threadAId);
+    const threadB = mockState.doc.ai?.threads.find((t) => t.id === threadBId);
     expect(threadA?.messages).toHaveLength(2);
     expect(threadB?.messages).toEqual([]);
 
@@ -177,7 +177,7 @@ describe('useChatThreads: mid-stream thread-switch race', () => {
     act(() => {
       result.current.handleMessagesChange([makeMessage('question on B')]);
     });
-    const threadBAfter = mockState.ai?.threads.find((t) => t.id === threadBId);
+    const threadBAfter = mockState.doc.ai?.threads.find((t) => t.id === threadBId);
     expect(threadBAfter?.messages).toHaveLength(1);
   });
 });

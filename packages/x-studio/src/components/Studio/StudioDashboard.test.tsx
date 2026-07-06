@@ -29,14 +29,21 @@ function makeSource(id: string, rows: Record<string, unknown>[]): StudioDataSour
   };
 }
 
-function makeConfig(textBody: string, dataSources: StudioState['dataSources'] = {}): StudioState {
+function makeConfig(
+  textBody: string,
+  dataSources: StudioState['runtime']['dataSources'] = {},
+): StudioState {
   return createDefaultStudioState({
-    dataSources,
-    widgets: {
-      t1: { id: 't1', kind: 'text', title: 'Text', config: { textBody } },
+    doc: {
+      widgets: {
+        t1: { id: 't1', kind: 'text', title: 'Text', config: { textBody } },
+      },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['t1']] },
+      },
     },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['t1']] },
+    runtime: {
+      dataSources,
     },
   });
 }
@@ -91,7 +98,7 @@ describe('StudioDashboard', () => {
     const ref = React.createRef<StudioHandle>();
     const { setProps } = render(<StudioDashboard ref={ref} config={configA} />);
     expect(await screen.findByText('A')).not.toBe(null);
-    expect(ref.current!.getState().dataSources.orders).toBeTruthy();
+    expect(ref.current!.getState().runtime.dataSources.orders).toBeTruthy();
 
     await act(async () => {
       setProps({ config: configB });
@@ -100,7 +107,7 @@ describe('StudioDashboard', () => {
     expect(await screen.findByText('B')).not.toBe(null);
     const stateAfter = ref.current!.getState();
     // The new config's data source must be present …
-    expect(stateAfter.dataSources.customers).toBeTruthy();
-    expect(stateAfter.dataSources.customers.rows).toEqual([{ value: 'b' }]);
+    expect(stateAfter.runtime.dataSources.customers).toBeTruthy();
+    expect(stateAfter.runtime.dataSources.customers.rows).toEqual([{ value: 'b' }]);
   });
 });

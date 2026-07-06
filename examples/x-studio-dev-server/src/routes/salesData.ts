@@ -32,6 +32,8 @@ export function makeSalesDataRouter(salesDb: Knex, config: Config): Router {
       const result = await handleBatchQuery(req.body, claims, {
         db: salesDb,
         schemaAllowlist: SALES_SCHEMA_ALLOWLIST,
+        // Dev server is single-tenant — no tenant discriminator column.
+        tenancy: { mode: 'single-tenant' },
       });
       res.json(result);
     } catch (err: unknown) {

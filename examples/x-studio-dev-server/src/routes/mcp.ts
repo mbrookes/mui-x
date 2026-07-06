@@ -173,6 +173,8 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       const response = await handleBatchQuery({ pageId: 'mcp', widgets: [descriptor] }, claims, {
         db: targetDb,
         schemaAllowlist,
+        // Dev server is single-tenant — no tenant discriminator column.
+        tenancy: { mode: 'single-tenant' },
       });
 
       const result = response.results[0];

@@ -17,7 +17,7 @@ import type {
   StudioDataField,
   StudioFilterState,
 } from './models/studioTypes';
-import type { StateMutation } from './models/aiTypes';
+import type { StateMutation, StudioAIToolName } from './models/aiTypes';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
 // share defaults) and the single mutation reducer (so the server-threaded state
 // and the client-applied state are computed by the exact same code).
@@ -26,6 +26,39 @@ export interface ToolExecutionResult {
   output: string;
   mutation?: StateMutation;
   nextState: StudioState;
+}
+
+/** Context threaded into every pure tool's `plan` function. */
+export interface ToolPlanContext {
+  state: StudioState;
+  customWidgets?: StudioCustomWidgetDef[];
+  pageSnapshot?: string;
+}
+
+/**
+ * A tool whose execution is a pure function of `(args, ctx) => ToolExecutionResult`
+ * — no I/O, no shared-state mutation, safe to call speculatively (dry-run) and
+ * discard. This is the shape `toolPolicy.ts`'s execute-then-gate chokepoint
+ * depends on: see the PURITY INVARIANT documented there.
+ */
+export interface PureToolImpl {
+  effect: 'pure';
+  plan: (args: Record<string, unknown>, ctx: ToolPlanContext) => ToolExecutionResult;
+}
+
+/**
+ * A tool whose execution has a side effect (I/O) and therefore must NEVER be
+ * routed through the execute-then-gate dry-run path — it must be authorized
+ * BEFORE it runs, args-only. `execute_query` is the only member: its real
+ * dispatch lives in `agenticLoop.ts` (resolved via the app-provided
+ * `dataResolver`, consulting the policy first) and is intentionally NOT
+ * reachable through `executeToolOnState` — see the `default` case below. This
+ * entry exists purely so `TOOL_IMPLS` is exhaustive over every
+ * `StudioAIToolName`, letting a future consumer type `executeToolWithPolicy`'s
+ * accepted shape as `PureToolImpl`-only.
+ */
+export interface ExternalToolImpl {
+  effect: 'external';
 }
 
 /**
@@ -59,23 +92,32 @@ function buildWidgetFromArgs(
   };
 }
 
-/**
- * Execute a single built-in tool against the provided `StudioState`.
- *
- * Returns the tool output string plus an optional state mutation (for write tools).
- * The `nextState` can be fed into subsequent tool calls within the same turn.
- */
-export function executeToolOnState(
-  toolName: string,
-  input: unknown,
-  state: StudioState,
-  customWidgets?: StudioCustomWidgetDef[],
-  pageSnapshot?: string,
+/** Shared plan for `remove_page_filter`/`remove_widget_filter` (identical behavior). */
+function planRemoveFilter(
+  args: Record<string, unknown>,
+  ctx: ToolPlanContext,
 ): ToolExecutionResult {
-  const args = (input ?? {}) as Record<string, unknown>;
+  const filterId = String(args.filterId ?? '');
+  const mutation: StateMutation = { type: 'removeFilter', args: { filterId } };
+  return {
+    output: JSON.stringify({ success: true, filterId }),
+    mutation,
+    nextState: applyMutation(ctx.state, mutation),
+  };
+}
 
-  switch (toolName) {
-    case 'get_dashboard_state': {
+/**
+ * The typed handler table — one entry per `StudioAIToolName`, enforced
+ * exhaustively by the mapped type below. Converting the previous switch
+ * statement into this table makes tool purity a TYPE, not a convention: a
+ * tool that performs I/O must be declared `{ effect: 'external' }` (and
+ * therefore cannot supply a `plan` function), so it structurally cannot enter
+ * the execute-then-gate dry-run path in `toolPolicy.ts`.
+ */
+const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } = {
+  get_dashboard_state: {
+    effect: 'pure',
+    plan: (_args, { state }) => {
       // Canonical output contract, shared with the MCP transport: return the raw
       // `StudioState`. Both `buildStudioMcpServer`'s `get_dashboard_state` handler
       // (mcp.ts) and this chat-path handler now return the state object so the tool
@@ -86,9 +128,12 @@ export function executeToolOnState(
         output: JSON.stringify(state),
         nextState: state,
       };
-    }
+    },
+  },
 
-    case 'list_pages': {
+  list_pages: {
+    effect: 'pure',
+    plan: (_args, { state }) => {
       const pageList = Object.values(state.pages).map((page) => {
         const widgetIds = (page.widgetRows ?? []).flat();
         const widgetTitles = widgetIds
@@ -106,9 +151,12 @@ export function executeToolOnState(
         output: JSON.stringify({ pages: pageList, activePageId: state.dashboard.activePageId }),
         nextState: state,
       };
-    }
+    },
+  },
 
-    case 'add_page': {
+  add_page: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const title = String(args.title ?? 'New Page');
       const id = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const mutation: StateMutation = { type: 'addPage', args: { id, title } };
@@ -117,9 +165,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'set_dashboard_title': {
+  set_dashboard_title: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const title = String(args.title ?? '');
       const mutation: StateMutation = { type: 'setDashboardTitle', args: { title } };
       return {
@@ -127,9 +178,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'add_widget': {
+  add_widget: {
+    effect: 'pure',
+    plan: (args, { state, customWidgets }) => {
       // Explicitly resolve (and validate) the target page server-side so the
       // widget lands on the same page the model is told about, regardless of
       // where the client's navigation happens to be. Error rather than spread
@@ -151,9 +205,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'update_widget': {
+  update_widget: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
       const widget = state.widgets[widgetId];
       if (!widget) {
@@ -188,9 +245,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'remove_widget': {
+  remove_widget: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
       if (!state.widgets[widgetId]) {
         return {
@@ -204,9 +264,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'set_widget_layout': {
+  set_widget_layout: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const rawRows = args.rows;
       // Validate the SHAPE, not just `Array.isArray`: a flat `["w1","w2"]` (the
       // exact mistake the system prompt warns about) is a valid array but corrupts
@@ -253,9 +316,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'set_widget_width': {
+  set_widget_width: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const { widgetId, columns } = args as { widgetId: string; columns: number | null };
       if (typeof widgetId !== 'string') {
         return {
@@ -280,9 +346,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'rename_page': {
+  rename_page: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
       const title = String(args.title ?? '');
       const page = state.pages[pageId];
@@ -295,9 +364,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'remove_page': {
+  remove_page: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
       const page = state.pages[pageId];
       if (!page) {
@@ -314,9 +386,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'set_active_page': {
+  set_active_page: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
       if (!state.pages[pageId]) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
@@ -327,9 +402,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'add_page_filter': {
+  add_page_filter: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
       const operator = String(args.operator ?? 'equals') as StudioFilterOperator;
@@ -353,9 +431,14 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'add_widget_filter': {
+  remove_page_filter: { effect: 'pure', plan: planRemoveFilter },
+
+  add_widget_filter: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
@@ -378,20 +461,58 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'remove_page_filter':
-    case 'remove_widget_filter': {
-      const filterId = String(args.filterId ?? '');
-      const mutation: StateMutation = { type: 'removeFilter', args: { filterId } };
+  remove_widget_filter: { effect: 'pure', plan: planRemoveFilter },
+
+  summarise_page: {
+    effect: 'pure',
+    plan: (args, { state, pageSnapshot }) => {
+      // On the chat path the only row data available is the client-provided
+      // `pageSnapshot`, which is built for the *active* page. Unlike the MCP path
+      // (which can query any page's sources live), we cannot honor a `pageId` that
+      // points at a non-active page here. The tool schema advertises `pageId`, so
+      // rather than silently mislabel the active page's data as the requested page,
+      // reject the request with actionable guidance.
+      const requestedPageId = args.pageId ? String(args.pageId) : undefined;
+      const activePageId = state.dashboard.activePageId;
+      if (requestedPageId && requestedPageId !== activePageId) {
+        return {
+          output: JSON.stringify({
+            error:
+              `summarise_page cannot summarise page "${requestedPageId}" here. ` +
+              'In chat, live row data is only available for the active page, so a non-active ' +
+              `pageId cannot be honored. Call set_active_page with "${requestedPageId}" first, ` +
+              'then summarise_page, or omit pageId to summarise the active page.',
+          }),
+          nextState: state,
+        };
+      }
+      if (pageSnapshot) {
+        // Return the data snapshot as plain text so the model can read it directly
+        // without unwrapping a JSON structure. The tool description instructs the model
+        // to follow up with an executive summary of the key insights.
+        return {
+          output: pageSnapshot,
+          nextState: state,
+        };
+      }
+      // No snapshot available — explain the limitation so the model can degrade gracefully.
       return {
-        output: JSON.stringify({ success: true, filterId }),
-        mutation,
-        nextState: applyMutation(state, mutation),
+        output: JSON.stringify({
+          error:
+            'summarise_page requires live row data that is only available client-side. ' +
+            'Use get_dashboard_state for structural information instead.',
+        }),
+        nextState: state,
       };
-    }
+    },
+  },
 
-    case 'apply_bulk_update': {
+  apply_bulk_update: {
+    effect: 'pure',
+    plan: (args, { state, customWidgets }) => {
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
       if (!activePage) {
@@ -534,50 +655,12 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'summarise_page': {
-      // On the chat path the only row data available is the client-provided
-      // `pageSnapshot`, which is built for the *active* page. Unlike the MCP path
-      // (which can query any page's sources live), we cannot honor a `pageId` that
-      // points at a non-active page here. The tool schema advertises `pageId`, so
-      // rather than silently mislabel the active page's data as the requested page,
-      // reject the request with actionable guidance.
-      const requestedPageId = args.pageId ? String(args.pageId) : undefined;
-      const activePageId = state.dashboard.activePageId;
-      if (requestedPageId && requestedPageId !== activePageId) {
-        return {
-          output: JSON.stringify({
-            error:
-              `summarise_page cannot summarise page "${requestedPageId}" here. ` +
-              'In chat, live row data is only available for the active page, so a non-active ' +
-              `pageId cannot be honored. Call set_active_page with "${requestedPageId}" first, ` +
-              'then summarise_page, or omit pageId to summarise the active page.',
-          }),
-          nextState: state,
-        };
-      }
-      if (pageSnapshot) {
-        // Return the data snapshot as plain text so the model can read it directly
-        // without unwrapping a JSON structure. The tool description instructs the model
-        // to follow up with an executive summary of the key insights.
-        return {
-          output: pageSnapshot,
-          nextState: state,
-        };
-      }
-      // No snapshot available — explain the limitation so the model can degrade gracefully.
-      return {
-        output: JSON.stringify({
-          error:
-            'summarise_page requires live row data that is only available client-side. ' +
-            'Use get_dashboard_state for structural information instead.',
-        }),
-        nextState: state,
-      };
-    }
-
-    case 'rename_thread': {
+  rename_thread: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const { name } = args as { name?: string };
       if (!name || typeof name !== 'string') {
         return {
@@ -606,9 +689,23 @@ export function executeToolOnState(
         // client applies the thread rename via the same reducer.
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
 
-    case 'set_widget_forecast': {
+  // Side-effectful (runs a live query via the app-provided `dataResolver`) and
+  // therefore must be authorized BEFORE it executes, not dry-run-then-gated —
+  // see the PURITY INVARIANT documented in `toolPolicy.ts`. Its real dispatch
+  // lives in `agenticLoop.ts`, resolved via `dataResolver` before ever reaching
+  // this function; MCP never registers it (`MCP_UNSUPPORTED_TOOLS`). This entry
+  // exists only so `TOOL_IMPLS` is exhaustive over `StudioAIToolName` — calling
+  // `executeToolOnState('execute_query', ...)` directly still falls through to
+  // the `default` "Unknown tool" case below, exactly as before this table
+  // existed (there was never a `case 'execute_query'` in the old switch).
+  execute_query: { effect: 'external' },
+
+  set_widget_forecast: {
+    effect: 'pure',
+    plan: (args, { state }) => {
       const { widgetId, enabled, periods, showConfidenceBands } = args as {
         widgetId?: string;
         enabled?: boolean;
@@ -656,9 +753,36 @@ export function executeToolOnState(
         mutation,
         nextState: applyMutation(state, mutation),
       };
-    }
+    },
+  },
+};
 
-    default:
-      return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };
+/**
+ * Execute a single built-in tool against the provided `StudioState`.
+ *
+ * Returns the tool output string plus an optional state mutation (for write tools).
+ * The `nextState` can be fed into subsequent tool calls within the same turn.
+ *
+ * Dispatches through `TOOL_IMPLS`. `toolName` is an arbitrary string (unknown or
+ * unregistered tool names — including `execute_query`, which is intentionally
+ * `{ effect: 'external' }` with no `plan` — fall through to the same
+ * `Unknown tool` error the old switch statement's `default` case produced).
+ */
+export function executeToolOnState(
+  toolName: string,
+  input: unknown,
+  state: StudioState,
+  customWidgets?: StudioCustomWidgetDef[],
+  pageSnapshot?: string,
+): ToolExecutionResult {
+  const args = (input ?? {}) as Record<string, unknown>;
+  const impl = (TOOL_IMPLS as Record<string, PureToolImpl | ExternalToolImpl | undefined>)[
+    toolName
+  ];
+
+  if (impl?.effect === 'pure') {
+    return impl.plan(args, { state, customWidgets, pageSnapshot });
   }
+
+  return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };
 }

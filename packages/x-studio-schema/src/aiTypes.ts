@@ -243,33 +243,13 @@ export interface StudioAIRichContext {
  * Names of the built-in AI tools.
  * Use `allowedTools` in `StudioAIConfig` to restrict which tools are available.
  *
- * Kept in sync with `STUDIO_AI_TOOLS` in `@mui/x-studio-ai-middleware`
- * (`studioAITools.ts`) — a type-level guard in that package fails CI if the two
- * ever drift. Deriving this union directly from `STUDIO_AI_TOOLS` is a good
- * follow-up (would require `as const` on the tool array).
+ * Derived from `STUDIO_AI_TOOL_REGISTRY` (`aiToolRegistry.ts`) — the single
+ * source of truth for tool facts (title, destructive/idempotent/etc.
+ * classification). `STUDIO_AI_TOOLS` in `@mui/x-studio-ai-middleware`
+ * (`studioAITools.ts`) is type-checked against this same union, so the two
+ * can no longer drift.
  */
-export type StudioAIToolName =
-  | 'get_dashboard_state'
-  | 'list_pages'
-  | 'add_page'
-  | 'set_dashboard_title'
-  | 'add_widget'
-  | 'update_widget'
-  | 'remove_widget'
-  | 'set_widget_layout'
-  | 'set_widget_width'
-  | 'rename_page'
-  | 'remove_page'
-  | 'set_active_page'
-  | 'add_page_filter'
-  | 'remove_page_filter'
-  | 'add_widget_filter'
-  | 'remove_widget_filter'
-  | 'summarise_page'
-  | 'apply_bulk_update'
-  | 'rename_thread'
-  | 'execute_query'
-  | 'set_widget_forecast';
+export type { StudioAIToolName } from './aiToolRegistry';
 
 // ── Conversation state ────────────────────────────────────────────────────────
 

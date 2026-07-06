@@ -7,13 +7,15 @@
  * transports run), never hand-built — so the diff is checked against actual
  * `applyMutation` behavior, not assumptions.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   computeToolEffects,
   createDefaultToolPolicy,
   createEffectsAwareToolPolicy,
   executeToolWithPolicy,
+  Policy,
 } from './toolPolicy';
+import type { ToolPolicy, ToolPolicyContext } from './toolPolicy';
 import { executeToolOnState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES, DESTRUCTIVE_TOOLS } from './studioAITools';
 import { createDefaultStudioState } from './models/studioTypes';
@@ -314,5 +316,149 @@ describe('executeToolWithPolicy', () => {
       usage: EMPTY_USAGE(),
     });
     expect(seen).toMatchObject({ mutationType: 'removeWidget', removedWidgetIds: ['w2'] });
+  });
+});
+
+// ── Policy.all / Policy.mutationBudget ───────────────────────────────────────
+
+/** A ctx carrying a real `proposed` mutation (removes widget w1 from a two-widget state). */
+function makeProposedCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
+  const state = makeTwoWidgetState();
+  const result = executeToolOnState('remove_widget', { widgetId: 'w1' }, state);
+  return {
+    transport: 'chat',
+    toolName: 'remove_widget',
+    input: { widgetId: 'w1' },
+    state,
+    proposed: {
+      mutation: result.mutation!,
+      nextState: result.nextState,
+      effects: computeToolEffects(state, result.mutation!, result.nextState),
+    },
+    usage,
+  };
+}
+
+/** A ctx with no proposed mutation (args-only call). */
+function makeArgsOnlyCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
+  return {
+    transport: 'chat',
+    toolName: 'execute_query',
+    input: {},
+    state: createDefaultStudioState(),
+    proposed: undefined,
+    usage,
+  };
+}
+
+const ALLOW: ToolPolicy = () => ({ action: 'allow' });
+const REQUIRE_APPROVAL: ToolPolicy = () => ({ action: 'require-approval' });
+const DENY: ToolPolicy = () => ({ action: 'deny', reason: 'denied' });
+
+describe('Policy.all', () => {
+  it('deny beats require-approval beats allow, regardless of argument order', async () => {
+    const ctx = makeArgsOnlyCtx();
+
+    await expect(Policy.all(DENY, REQUIRE_APPROVAL, ALLOW)(ctx)).resolves.toMatchObject({
+      action: 'deny',
+    });
+    await expect(Policy.all(ALLOW, REQUIRE_APPROVAL, DENY)(ctx)).resolves.toMatchObject({
+      action: 'deny',
+    });
+    await expect(Policy.all(REQUIRE_APPROVAL, ALLOW)(ctx)).resolves.toMatchObject({
+      action: 'require-approval',
+    });
+    await expect(Policy.all(ALLOW, REQUIRE_APPROVAL)(ctx)).resolves.toMatchObject({
+      action: 'require-approval',
+    });
+    await expect(Policy.all(ALLOW, ALLOW)(ctx)).resolves.toEqual({ action: 'allow' });
+  });
+
+  it('returns allow when called with no policies', async () => {
+    await expect(Policy.all()(makeArgsOnlyCtx())).resolves.toEqual({ action: 'allow' });
+  });
+
+  it('short-circuits without evaluating later policies once a deny is reached', async () => {
+    const later = vi.fn(ALLOW);
+    const decision = await Policy.all(DENY, later)(makeArgsOnlyCtx());
+    expect(decision).toMatchObject({ action: 'deny' });
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it('still evaluates later policies after a require-approval (no deny yet seen)', async () => {
+    const later = vi.fn(DENY);
+    const decision = await Policy.all(REQUIRE_APPROVAL, later)(makeArgsOnlyCtx());
+    expect(decision).toMatchObject({ action: 'deny' });
+    expect(later).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Policy.mutationBudget', () => {
+  it('denies a proposed mutation once committed reaches max, allows under max', async () => {
+    const budget = Policy.mutationBudget({
+      max: 2,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      reason: (committed, max) => `budget exceeded: ${committed}/${max}`,
+    });
+
+    const under = await budget(makeProposedCtx({ committedMutations: 1, toolCalls: 1 }));
+    expect(under).toEqual({ action: 'allow' });
+
+    const atMax = await budget(makeProposedCtx({ committedMutations: 2, toolCalls: 2 }));
+    expect(atMax).toEqual({ action: 'deny', reason: 'budget exceeded: 2/2' });
+
+    const overMax = await budget(makeProposedCtx({ committedMutations: 3, toolCalls: 3 }));
+    expect(overMax).toEqual({ action: 'deny', reason: 'budget exceeded: 3/2' });
+  });
+
+  it('allows args-only (no proposed) calls even at/over the budget', async () => {
+    const budget = Policy.mutationBudget({
+      max: 0,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      reason: () => 'should not fire',
+    });
+    const decision = await budget(makeArgsOnlyCtx({ committedMutations: 5, toolCalls: 5 }));
+    expect(decision).toEqual({ action: 'allow' });
+  });
+
+  it('always allows when max is undefined (no cap)', async () => {
+    const budget = Policy.mutationBudget({
+      max: undefined,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      reason: () => 'should not fire',
+    });
+    const decision = await budget(makeProposedCtx({ committedMutations: 1000, toolCalls: 1000 }));
+    expect(decision).toEqual({ action: 'allow' });
+  });
+
+  it('fires onExceeded exactly once across multiple over-budget calls', async () => {
+    const onExceeded = vi.fn();
+    const budget = Policy.mutationBudget({
+      max: 1,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      onExceeded,
+      reason: () => 'exceeded',
+    });
+
+    await budget(makeProposedCtx({ committedMutations: 1, toolCalls: 1 }));
+    await budget(makeProposedCtx({ committedMutations: 2, toolCalls: 2 }));
+    await budget(makeProposedCtx({ committedMutations: 3, toolCalls: 3 }));
+
+    expect(onExceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads getCommitted fresh on every call, reflecting a live caller-owned counter', async () => {
+    const usage = { committedMutations: 0, toolCalls: 0 };
+    const budget = Policy.mutationBudget({
+      max: 2,
+      getCommitted: () => usage.committedMutations,
+      reason: (committed, max) => `${committed}/${max}`,
+    });
+
+    const ctx = makeProposedCtx(usage);
+
+    expect(await budget(ctx)).toEqual({ action: 'allow' });
+    usage.committedMutations = 2;
+    expect(await budget(ctx)).toEqual({ action: 'deny', reason: '2/2' });
   });
 });

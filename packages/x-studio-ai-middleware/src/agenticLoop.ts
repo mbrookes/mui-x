@@ -21,7 +21,12 @@ import type {
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { parseSSE } from './parseSSE';
-import { createDefaultToolPolicy, executeToolWithPolicy, type ToolPolicy } from './toolPolicy';
+import {
+  createDefaultToolPolicy,
+  executeToolWithPolicy,
+  Policy,
+  type ToolPolicy,
+} from './toolPolicy';
 import type { StudioAISSEEvent } from './models/protocol';
 
 // ── OpenAI message types ──────────────────────────────────────────────────────
@@ -730,34 +735,26 @@ export async function* runAgenticLoop(
   // report the token usage at the point of the breach.
   const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
 
-  // Mutation budget. Layered as a wrapper that runs BEFORE the host policy: once the
-  // committed-mutation count reaches the cap, any further MUTATING call (i.e. one the
-  // dry-run produced a `proposed` mutation for) is denied outright, without even
-  // consulting the host policy. This must NOT kill the stream — the denial surfaces
-  // to the model as a `{ error }` tool result and the loop continues (still bounded
-  // by `maxTurnsPerRequest`). `onLimitReached('mutations', …)` fires once per breach.
+  // Mutation budget. Layered as a policy that runs BEFORE the host policy via
+  // `Policy.all`: once the committed-mutation count reaches the cap, any further
+  // MUTATING call (i.e. one the dry-run produced a `proposed` mutation for) is
+  // denied outright, without even consulting the host policy. This must NOT kill
+  // the stream — the denial surfaces to the model as a `{ error }` tool result and
+  // the loop continues (still bounded by `maxTurnsPerRequest`). `onLimitReached('mutations', …)`
+  // fires once per breach.
   const maxMutations = rateLimit?.maxMutationsPerRequest;
-  let mutationLimitFired = false;
-  const toolPolicy: ToolPolicy = (ctx) => {
-    if (
-      ctx.proposed &&
-      maxMutations !== undefined &&
-      ctx.usage.committedMutations >= maxMutations
-    ) {
-      if (!mutationLimitFired) {
-        mutationLimitFired = true;
-        rateLimit?.onLimitReached?.('mutations', { ...usage });
-      }
-      return {
-        action: 'deny',
-        reason:
-          'MUI X Studio: Mutation budget exceeded — this request may commit at most ' +
-          `${maxMutations} state mutation${maxMutations === 1 ? '' : 's'} ` +
-          `(already committed ${ctx.usage.committedMutations}). This change was not applied.`,
-      };
-    }
-    return hostToolPolicy(ctx);
-  };
+  const toolPolicy: ToolPolicy = Policy.all(
+    Policy.mutationBudget({
+      max: maxMutations,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      onExceeded: () => rateLimit?.onLimitReached?.('mutations', { ...usage }),
+      reason: (committed, max) =>
+        'MUI X Studio: Mutation budget exceeded — this request may commit at most ' +
+        `${max} state mutation${max === 1 ? '' : 's'} ` +
+        `(already committed ${committed}). This change was not applied.`,
+    }),
+    hostToolPolicy,
+  );
 
   // A `server-tool` whose tool name collides with a built-in `STUDIO_AI_TOOLS`
   // name is ignored — the built-in handler always wins for a built-in name. This

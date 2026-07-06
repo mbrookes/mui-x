@@ -447,144 +447,18 @@ export function StudioLineAreaChart({
   const ghostLineValues =
     shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData.values : null;
 
-  if (chartType === 'line') {
-    const forecastData =
-      forecast?.enabled && !ghostLineValues && singleChartData
-        ? computeWidgetForecast(singleChartData.labels, singleChartData.values, forecast)
-        : null;
-
-    const effectiveLabels = forecastData ? forecastData.labels : singleChartData!.labels;
-    const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
-    const lineColor = resolvedChartColors[0];
-    return (
-      <div style={{ height }}>
-        <LineChart
-          {...slotProps}
-          skipAnimation={skipAnimation}
-          xAxis={xAxis}
-          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
-          series={[
-            // Ghost series: baseline (all-data) shown at low opacity — only when cross-filtering
-            ...(ghostLineValues
-              ? [
-                  {
-                    id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
-                    data: ghostLineValues,
-                    label: seriesLabel,
-                    area: false,
-                    connectNulls: true,
-                    showMark: false,
-                    disableHighlight: true,
-                    // Faded baseline color set directly on the series (25% alpha), matching the
-                    // multi-Y / seriesField ghost paths. x-charts resolves `series.color ?? colors[i]`,
-                    // so the explicit color must already carry the alpha — a full-opacity color here
-                    // would make the ghost indistinguishable from the active series.
-                    color: `${lineColor}40`,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                ]
-              : []),
-            {
-              id: CROSS_FILTER_SERIES_ID,
-              data: forecastData ? forecastData.historicalSeries : singleChartData!.values,
-              label: seriesLabel,
-              area: false,
-              connectNulls: true,
-              color: lineColor,
-              highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: ghostLineValues
-                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
-                : seriesValueFormatter,
-            },
-            // Forecast trend line (dashed, no marks, excluded from legend)
-            ...(forecastData
-              ? [
-                  {
-                    id: '__forecast__',
-                    data: forecastData.forecastSeries,
-                    label: forecastSeriesLabel,
-                    area: false,
-                    connectNulls: false,
-                    showMark: false,
-                    disableHighlight: true as const,
-                    color: lineColor,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                  ...(forecastData.upperBand
-                    ? [
-                        {
-                          id: '__forecast_upper__',
-                          data: forecastData.upperBand,
-                          label: '',
-                          area: true,
-                          connectNulls: false,
-                          showMark: false,
-                          disableHighlight: true as const,
-                          color: `${lineColor}30`,
-                          stack: 'confidence',
-                          stackOrder: 'ascending' as const,
-                          valueFormatter: () => '',
-                        } as const,
-                        {
-                          id: '__forecast_lower__',
-                          data: forecastData.lowerBand as (number | null)[],
-                          label: '',
-                          area: true,
-                          connectNulls: false,
-                          showMark: false,
-                          disableHighlight: true as const,
-                          color: 'transparent',
-                          stack: 'confidence',
-                          stackOrder: 'ascending' as const,
-                          valueFormatter: () => '',
-                        } as const,
-                      ]
-                    : []),
-                ]
-              : []),
-          ]}
-          colors={chartColors}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-          highlightedItem={
-            selectedDataIndices.length > 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-              : controlledHighlightedItem
-          }
-          onHighlightChange={(item) =>
-            onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {children}
-        </LineChart>
-      </div>
-    );
-  }
-
-  // chartType === 'area' | 'area-stacked' | 'area-100'
+  const isArea = chartType !== 'line';
+  const ghostAlpha = isArea ? '30' : '40';
+  // Forecast is single-series and line/area only (never area-stacked/area-100).
+  const forecastEligible = chartType === 'line' || chartType === 'area';
   const forecastData =
-    chartType === 'area' && forecast?.enabled && !ghostLineValues && singleChartData
+    forecastEligible && forecast?.enabled && !ghostLineValues && singleChartData
       ? computeWidgetForecast(singleChartData.labels, singleChartData.values, forecast)
       : null;
 
-  const effectiveAreaLabels = forecastData ? forecastData.labels : singleChartData!.labels;
   // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
-  const xAxis = createLineXAxis(effectiveAreaLabels, CROSS_FILTER_AXIS_ID);
+  const effectiveLabels = forecastData ? forecastData.labels : singleChartData!.labels;
+  const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
   const lineColor = resolvedChartColors[0];
   return (
     <div style={{ height }}>
@@ -594,21 +468,23 @@ export function StudioLineAreaChart({
         xAxis={xAxis}
         yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
         series={[
+          // Ghost series: baseline (all-data) shown at low opacity — only when cross-filtering.
           ...(ghostLineValues
             ? [
                 {
                   id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
                   data: ghostLineValues,
                   label: seriesLabel,
-                  area: true,
+                  area: isArea,
                   connectNulls: true,
                   showMark: false,
                   disableHighlight: true,
-                  // Faded baseline fill set directly on the series (~19% alpha for the area
-                  // variant), matching the multi-Y / seriesField ghost paths. x-charts resolves
-                  // `series.color ?? colors[i]`, so a full-opacity color here would make the
-                  // ghost area indistinguishable from the active series.
-                  color: `${lineColor}30`,
+                  // Faded baseline colour set directly on the series (line ghost = 25% alpha,
+                  // area ghost = ~19% alpha), matching the multi-Y / seriesField ghost paths.
+                  // x-charts resolves `series.color ?? colors[i]`, so the explicit color must
+                  // already carry the alpha — a full-opacity color here would make the ghost
+                  // indistinguishable from the active series.
+                  color: `${lineColor}${ghostAlpha}`,
                   valueFormatter: seriesValueFormatter,
                 } as const,
               ]
@@ -617,25 +493,64 @@ export function StudioLineAreaChart({
             id: CROSS_FILTER_SERIES_ID,
             data: forecastData ? forecastData.historicalSeries : singleChartData!.values,
             label: seriesLabel,
-            area: true,
+            area: isArea,
             connectNulls: true,
             color: lineColor,
             highlightScope: { highlight: 'item', fade: 'global' },
-            valueFormatter: seriesValueFormatter,
+            // Cross-highlight ("filtered / total") formatter is applied only for the line
+            // variant under an active ghost; the area variant keeps the plain formatter
+            // (pre-existing asymmetry, preserved as-is).
+            valueFormatter:
+              !isArea && ghostLineValues
+                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
+                : seriesValueFormatter,
           },
+          // Forecast trend line (dashed, no marks, excluded from legend)
           ...(forecastData
             ? [
                 {
                   id: '__forecast__',
                   data: forecastData.forecastSeries,
                   label: forecastSeriesLabel,
-                  area: true,
+                  area: isArea,
                   connectNulls: false,
                   showMark: false,
                   disableHighlight: true as const,
                   color: lineColor,
                   valueFormatter: seriesValueFormatter,
                 } as const,
+                // Confidence bands are line-only — the area variant never renders them
+                // (pre-existing asymmetry, preserved as-is).
+                ...(!isArea && forecastData.upperBand
+                  ? [
+                      {
+                        id: '__forecast_upper__',
+                        data: forecastData.upperBand,
+                        label: '',
+                        area: true,
+                        connectNulls: false,
+                        showMark: false,
+                        disableHighlight: true as const,
+                        color: `${lineColor}30`,
+                        stack: 'confidence',
+                        stackOrder: 'ascending' as const,
+                        valueFormatter: () => '',
+                      } as const,
+                      {
+                        id: '__forecast_lower__',
+                        data: forecastData.lowerBand as (number | null)[],
+                        label: '',
+                        area: true,
+                        connectNulls: false,
+                        showMark: false,
+                        disableHighlight: true as const,
+                        color: 'transparent',
+                        stack: 'confidence',
+                        stackOrder: 'ascending' as const,
+                        valueFormatter: () => '',
+                      } as const,
+                    ]
+                  : []),
               ]
             : []),
         ]}

@@ -1,0 +1,969 @@
+'use client';
+import * as React from 'react';
+import { BarChart } from '@mui/x-charts/BarChart';
+import type { BarChartProps } from '@mui/x-charts/BarChart';
+import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
+import type { StudioDataSource, StudioExpressionField, StudioWidget } from '../../../models';
+import type {
+  AggregatedData,
+  MultiSeriesData,
+  MultiYSeriesData,
+} from '../../../internals/chartAggregation';
+import {
+  alignFilteredToAllLabels,
+  densifyBarLabels,
+  makeCrossFilterValueFormatter,
+  makeValueFormatter,
+  resolveFieldDef,
+} from './chartWidgetHelpers';
+import { CrossFilterBarContext } from './CrossFilterBarContext';
+import { CrossFilterGhostBar } from './CrossFilterGhostBar';
+import { SourceSelectionContext } from './SourceSelectionContext';
+import { SourceSelectionBar } from './SourceSelectionBar';
+import { AxisFieldTooltip } from './StudioChartFieldTooltip';
+
+const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
+const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+type BarHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;
+
+export interface StudioBarChartProps {
+  /** One of the three bar variants this component renders. */
+  chartType: 'bar' | 'bar-stacked' | 'bar-100';
+  height: number;
+  /** Resolved bar orientation/stacking (from `config.barLayout ?? 'grouped'`). */
+  barLayout: NonNullable<StudioWidget['config']['barLayout']>;
+  /** Filtered single-series aggregation (labels + values). Non-null when the chart is configured. */
+  chartData: AggregatedData | null;
+  /** Unfiltered single-series aggregation for ghost/cross-highlight; null when not applicable. */
+  allChartData: AggregatedData | null;
+  /** Filtered split-by (series field) aggregation; drives the per-category bar rendering. */
+  seriesFieldData: MultiSeriesData | null;
+  /** Unfiltered split-by aggregation — the stable baseline for the split-by ghost bars. */
+  allSeriesFieldData: MultiSeriesData | null;
+  /** Filtered multi-Y aggregation (one entry per y-field). */
+  multiYData: MultiYSeriesData | null;
+  /** Unfiltered multi-Y aggregation — the stable baseline for the multi-Y ghost bars. */
+  allMultiYData: MultiYSeriesData | null;
+  /** Resolved active y-fields — the single-series measure lookup. */
+  activeYFields: string[];
+  /** Widget data source — used with `expressionFields` to resolve per-series field defs. */
+  dataSource?: StudioDataSource;
+  /** Computed (expression) fields — the second half of `resolveFieldDef`. */
+  expressionFields: StudioExpressionField[];
+  /** Format a raw category label for display (applies period labels when x is grouped). */
+  formatLabel: (label: string | number) => string;
+  /** Localised fallback label for the single measure series. */
+  defaultSeriesLabel: string;
+  /** Minimum px per band row for horizontal bars (expands the container when set). */
+  barMinBandSize: StudioWidget['config']['barMinBandSize'];
+  /** Ratio of band width reserved for the gap between categories (band axes only). */
+  barCategoryGapRatio: StudioWidget['config']['barCategoryGapRatio'];
+  /** Axis tick label font size (px) — applied only in the horizontal single-series layout. */
+  axisTickFontSize: StudioWidget['config']['axisTickFontSize'];
+  /** Group all but the top-N categories into an "Other" bar (single-series only). */
+  barMaxCategories: StudioWidget['config']['barMaxCategories'];
+  /** Max characters per band-label line before word-wrapping (0/undefined disables). */
+  barBandLabelWrap: StudioWidget['config']['barBandLabelWrap'];
+  /** Max wrapped band-label lines before ellipsis. @default 2 */
+  wrapBandLabelMaxLines: StudioWidget['config']['wrapBandLabelMaxLines'];
+  /** Explicit chart colours (page palette override). */
+  chartColors?: string[];
+  /** Stable colour for a split-by series name, based on its position in the unfiltered set. */
+  getSeriesColor: (name: string | number) => string | undefined;
+  /** True when cross-filter ghost rendering is active on this widget. */
+  shouldShowGhost: boolean;
+  /** False when the x-field is foreign-derived and constrained by an incoming cross-filter. */
+  preserveXFieldBaseline: boolean;
+  /** False when the split-by field is foreign-derived and constrained by an incoming cross-filter. */
+  preserveSplitByBaseline: boolean;
+  skipAnimation: boolean;
+  /** Compute the cross-filter-selected indices against a rendered label order. */
+  getSelectedDataIndices: (labels: Array<string | number | Date>) => number[];
+  /** Current hover highlight (set by this or a sibling widget). */
+  hoveredItem: BarHighlightItem | null;
+  /** Current hover axis highlight (set by this or a sibling widget). */
+  hoveredAxis: AxisItemIdentifier[] | null;
+  /** True when this widget has an active cross-filter on its x-field. */
+  hasActiveXFilter: boolean;
+  /** True when another widget on the page is emitting a cross-filter to this one. */
+  hasIncomingCrossFilters: boolean;
+  /** Report a hover change back to the orchestrator's hover state. */
+  onHoverChange: (item: BarHighlightItem | null) => void;
+  /** Report an axis hover change back to the orchestrator's hover state. */
+  onAxisHoverChange: (axis: AxisItemIdentifier[] | null) => void;
+  /** Emit a cross-filter for the clicked x-value (regular = single-select, shift = multi-select). */
+  onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
+  /** Spread onto the underlying BarChart. */
+  slotProps?: Partial<BarChartProps>;
+  /** Annotation reference lines rendered as chart children. */
+  children?: React.ReactNode;
+}
+
+/**
+ * Renders a bar chart, wrapping the `@mui/x-charts` `BarChart`. Supports a multi-Y mode
+ * (one series per y-field with optional independent left/right axes), a split-by (series
+ * field) mode (one series per category, stacked), and single-series bars in both vertical
+ * and horizontal layouts — all with cross-filter ghost overlays and "Other"-grouping.
+ */
+export function StudioBarChart({
+  chartType,
+  height,
+  barLayout,
+  chartData,
+  allChartData,
+  seriesFieldData,
+  allSeriesFieldData,
+  multiYData,
+  allMultiYData,
+  activeYFields,
+  dataSource,
+  expressionFields,
+  formatLabel,
+  defaultSeriesLabel,
+  barMinBandSize,
+  barCategoryGapRatio,
+  axisTickFontSize,
+  barMaxCategories,
+  barBandLabelWrap,
+  wrapBandLabelMaxLines,
+  chartColors,
+  getSeriesColor,
+  shouldShowGhost,
+  preserveXFieldBaseline,
+  preserveSplitByBaseline,
+  skipAnimation,
+  getSelectedDataIndices,
+  hoveredItem,
+  hoveredAxis,
+  hasActiveXFilter,
+  hasIncomingCrossFilters,
+  onHoverChange,
+  onAxisHoverChange,
+  onItemClick,
+  slotProps,
+  children,
+}: StudioBarChartProps) {
+  const isHorizontalBarLayout = barLayout === 'horizontal';
+
+  // Densified (temporal-gap-filled) bar data. Computed as memos so they only run when a bar
+  // chart actually mounts (the orchestrator used to compute these unconditionally for every
+  // chart type).
+  const barChartData = React.useMemo(() => {
+    if (!chartData) {
+      return chartData;
+    }
+    const labels = densifyBarLabels(chartData.labels);
+    if (labels === chartData.labels) {
+      return chartData;
+    }
+    const valueByLabel = new Map(
+      chartData.labels.map((label, index) => [label, chartData.values[index]]),
+    );
+    return {
+      labels,
+      values: labels.map((label) => valueByLabel.get(label) ?? null),
+    };
+  }, [chartData]);
+
+  const barSeriesFieldData = React.useMemo(() => {
+    if (!seriesFieldData) {
+      return seriesFieldData;
+    }
+    const labels = densifyBarLabels(seriesFieldData.labels);
+    if (labels === seriesFieldData.labels) {
+      return seriesFieldData;
+    }
+    return {
+      labels,
+      seriesNames: seriesFieldData.seriesNames,
+      seriesData: Object.fromEntries(
+        seriesFieldData.seriesNames.map((seriesName) => {
+          const valueByLabel = new Map(
+            seriesFieldData.labels.map((label, index) => [
+              label,
+              seriesFieldData.seriesData[seriesName][index],
+            ]),
+          );
+          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+        }),
+      ),
+    };
+  }, [seriesFieldData]);
+
+  const barMultiYData = React.useMemo(() => {
+    if (!multiYData) {
+      return multiYData;
+    }
+    const labels = densifyBarLabels(multiYData.labels);
+    if (labels === multiYData.labels) {
+      return multiYData;
+    }
+    return {
+      labels,
+      series: multiYData.series.map((series) => {
+        const valueByLabel = new Map(
+          multiYData.labels.map((label, index) => [label, series.values[index]]),
+        );
+        return {
+          fieldId: series.fieldId,
+          values: labels.map((label) => valueByLabel.get(label) ?? null),
+        };
+      }),
+    };
+  }, [multiYData]);
+
+  // Densified all-data arrays for ghost rendering (only computed when shouldShowGhost)
+  const allBarChartData = React.useMemo(() => {
+    if (!shouldShowGhost || !allChartData) {
+      return null;
+    }
+    const labels = densifyBarLabels(allChartData.labels);
+    if (labels === allChartData.labels) {
+      return allChartData;
+    }
+    const valueByLabel = new Map(
+      allChartData.labels.map((label, index) => [label, allChartData.values[index]]),
+    );
+    return {
+      labels,
+      values: labels.map((label) => valueByLabel.get(label) ?? null),
+    };
+  }, [shouldShowGhost, allChartData]);
+
+  const allBarSeriesFieldData = React.useMemo(() => {
+    if (!shouldShowGhost || !allSeriesFieldData) {
+      return null;
+    }
+    const labels = densifyBarLabels(allSeriesFieldData.labels);
+    if (labels === allSeriesFieldData.labels) {
+      return allSeriesFieldData;
+    }
+    return {
+      labels,
+      seriesNames: allSeriesFieldData.seriesNames,
+      seriesData: Object.fromEntries(
+        allSeriesFieldData.seriesNames.map((seriesName) => {
+          const valueByLabel = new Map(
+            allSeriesFieldData.labels.map((label, index) => [
+              label,
+              allSeriesFieldData.seriesData[seriesName][index],
+            ]),
+          );
+          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+        }),
+      ),
+    };
+  }, [shouldShowGhost, allSeriesFieldData]);
+
+  const allBarMultiYData = React.useMemo(() => {
+    if (!shouldShowGhost || !allMultiYData) {
+      return null;
+    }
+    const labels = densifyBarLabels(allMultiYData.labels);
+    if (labels === allMultiYData.labels) {
+      return allMultiYData;
+    }
+    return {
+      labels,
+      series: allMultiYData.series.map((series) => {
+        const valueByLabel = new Map(
+          allMultiYData.labels.map((label, index) => [label, series.values[index]]),
+        );
+        return {
+          fieldId: series.fieldId,
+          values: labels.map((label) => valueByLabel.get(label) ?? null),
+        };
+      }),
+    };
+  }, [shouldShowGhost, allMultiYData]);
+
+  const bandLabelWrap = barBandLabelWrap ?? 0;
+  const bandLabelWrapMaxLines = Math.max(1, wrapBandLabelMaxLines ?? 2);
+  const wrapBandLabel = React.useCallback(
+    (label: string): string => {
+      const MAX_LINES = bandLabelWrapMaxLines;
+      if (!bandLabelWrap || label.length <= bandLabelWrap) {
+        return label;
+      }
+      const words = label.split(' ');
+      const lines: string[] = [];
+      let current = '';
+      for (const word of words) {
+        const joined = current ? `${current} ${word}` : word;
+        if (current && joined.length > bandLabelWrap) {
+          if (lines.length >= MAX_LINES - 1) {
+            // Hit line limit — append ellipsis to current line and stop
+            lines.push(`${current}…`);
+            return lines.join('\n');
+          }
+          lines.push(current);
+          current = word;
+        } else {
+          current = joined;
+        }
+      }
+      if (current) {
+        lines.push(current);
+      }
+      return lines.join('\n');
+    },
+    [bandLabelWrap, bandLabelWrapMaxLines],
+  );
+
+  // Highlightable series ids: the split-by names, an empty set for multi-Y (multi-Y never feeds
+  // hover state back), or the single cross-filter series. Computed locally since this component
+  // owns the series shape and gates hover highlighting itself.
+  let highlightableSeriesIds: Set<string>;
+  if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
+    highlightableSeriesIds = new Set(seriesFieldData.seriesNames.map((name) => String(name)));
+  } else if (multiYData && multiYData.labels.length > 0) {
+    highlightableSeriesIds = new Set<string>();
+  } else {
+    highlightableSeriesIds = new Set([CROSS_FILTER_SERIES_ID]);
+  }
+
+  const controlledHighlightedItem =
+    !hasActiveXFilter &&
+    !hasIncomingCrossFilters &&
+    hoveredItem &&
+    highlightableSeriesIds.has(hoveredItem.seriesId as string)
+      ? hoveredItem
+      : null;
+  const controlledHighlightedAxis =
+    !hasActiveXFilter && !hasIncomingCrossFilters ? (hoveredAxis ?? []) : [];
+
+  // ── Multi-Y-field bar chart: each y-field is its own series ──
+  if (barMultiYData && barMultiYData.labels.length > 0) {
+    // When cross-filtering with ghost, use all-data as the basis so ghost bars show full extent
+    const effectiveMultiYData =
+      shouldShowGhost && allBarMultiYData ? allBarMultiYData : barMultiYData;
+    const xAxisData = effectiveMultiYData.labels;
+    const selectedDataIndices = getSelectedDataIndices(effectiveMultiYData.labels);
+    const isStacked =
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100' ||
+      (chartType === 'bar' && barLayout === 'stacked');
+    const is100 = chartType === 'bar-100';
+    const useIndependentAxes =
+      !isHorizontalBarLayout && !isStacked && effectiveMultiYData.series.length > 1;
+    const totals100 = is100
+      ? effectiveMultiYData.labels.map((_, li) =>
+          effectiveMultiYData.series.reduce<number>(
+            (sum, ms) => sum + ((ms.values[li] ?? 0) as number),
+            0,
+          ),
+        )
+      : null;
+    const multiYBarFieldDefs = effectiveMultiYData.series.map((s) =>
+      resolveFieldDef(s.fieldId, dataSource, expressionFields),
+    );
+    const yAxes = useIndependentAxes
+      ? effectiveMultiYData.series.map((_s, i) => ({
+          id: `y-${i}`,
+          position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+          width: 'auto' as const,
+          valueFormatter: makeValueFormatter(
+            multiYBarFieldDefs[i]?.format,
+            multiYBarFieldDefs[i]?.currencyCode,
+            multiYBarFieldDefs[i]?.precision,
+          ),
+        }))
+      : [
+          {
+            width: 'auto' as const,
+            valueFormatter: is100
+              ? (v: number) => `${Math.round(v)}%`
+              : makeValueFormatter(
+                  multiYBarFieldDefs[0]?.format,
+                  multiYBarFieldDefs[0]?.currencyCode,
+                  multiYBarFieldDefs[0]?.precision,
+                ),
+            ...(is100 && { min: 0, max: 100 }),
+          },
+        ];
+
+    // Build per-series filtered values (aligned to all-data labels) for ghost context
+    const multiYFilteredBySeriesId: Record<string, (number | null)[]> = {};
+    const multiYAllBySeriesId: Record<string, number[]> = {};
+    if (shouldShowGhost && allBarMultiYData) {
+      allBarMultiYData.series.forEach((allSeries, i) => {
+        const seriesId = `${allSeries.fieldId}-${i}`;
+        const filteredSeries = barMultiYData.series[i];
+        const filteredAligned = filteredSeries
+          ? alignFilteredToAllLabels(
+              allBarMultiYData.labels,
+              barMultiYData.labels,
+              filteredSeries.values,
+            )
+          : allBarMultiYData.labels.map(() => null);
+        multiYFilteredBySeriesId[seriesId] = filteredAligned;
+        multiYAllBySeriesId[seriesId] = allSeries.values.map((v) => v ?? 0);
+      });
+    }
+    const multiYBarContext =
+      shouldShowGhost && allBarMultiYData
+        ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+          {
+            filteredValuesBySeriesId: multiYFilteredBySeriesId,
+            allValuesBySeriesId: multiYAllBySeriesId,
+          }
+        : null;
+
+    const series = effectiveMultiYData.series.map((s, i) => {
+      const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
+      const data = totals100
+        ? s.values.map((v, li) => {
+            const total = totals100[li];
+            return total ? ((v ?? 0) / total) * 100 : 0;
+          })
+        : s.values;
+      const baseFormatter = is100
+        ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+        : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision);
+      const seriesId = `${s.fieldId}-${i}`;
+      const valueFormatter =
+        multiYBarContext && multiYFilteredBySeriesId[seriesId]
+          ? makeCrossFilterValueFormatter(multiYFilteredBySeriesId[seriesId], baseFormatter)
+          : baseFormatter;
+      return {
+        id: seriesId,
+        data,
+        label: fieldDef?.label ?? s.fieldId,
+        stack: isStacked ? 'total' : undefined,
+        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+        valueFormatter,
+      };
+    });
+    const multiYEffectiveHeight =
+      isHorizontalBarLayout && barMinBandSize
+        ? Math.max(height, xAxisData.length * barMinBandSize + 40)
+        : height;
+    return (
+      <CrossFilterBarContext.Provider value={multiYBarContext}>
+        <div style={{ height: multiYEffectiveHeight }}>
+          <BarChart
+            {...slotProps}
+            skipAnimation={skipAnimation}
+            layout={isHorizontalBarLayout ? 'horizontal' : undefined}
+            xAxis={
+              isHorizontalBarLayout
+                ? [
+                    {
+                      height: 'auto',
+                      valueFormatter: is100
+                        ? (v: number) => `${Math.round(v)}%`
+                        : makeValueFormatter(
+                            multiYBarFieldDefs[0]?.format,
+                            multiYBarFieldDefs[0]?.currencyCode,
+                            multiYBarFieldDefs[0]?.precision,
+                          ),
+                      ...(is100 && { min: 0, max: 100 }),
+                      ...(axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                        : {}),
+                    },
+                  ]
+                : [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      height: 'auto',
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                    },
+                  ]
+            }
+            yAxis={
+              isHorizontalBarLayout
+                ? [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      width: 'auto',
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      ...(axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                        : {}),
+                      ...(barCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: barCategoryGapRatio }
+                        : {}),
+                    },
+                  ]
+                : yAxes
+            }
+            series={series}
+            colors={chartColors}
+            margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
+            highlightedItem={null}
+            highlightedAxis={
+              selectedDataIndices.length > 0
+                ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
+                : controlledHighlightedAxis
+            }
+            onHighlightedAxisChange={onAxisHoverChange}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
+              }
+            }}
+            sx={{ cursor: 'default' }}
+            slots={multiYBarContext ? { bar: CrossFilterGhostBar } : undefined}
+            slotProps={{
+              legend: {
+                sx: {
+                  overflowY: 'auto',
+                  flexWrap: 'nowrap',
+                  maxHeight: '100%',
+                },
+              },
+            }}
+          >
+            {children}
+          </BarChart>
+        </div>
+      </CrossFilterBarContext.Provider>
+    );
+  }
+
+  // ── seriesField stacked/grouped bar chart: one series per unique category value ──
+  if (barSeriesFieldData && barSeriesFieldData.seriesNames.length > 0) {
+    // When ghost-rendering, use all-data as basis so ghost bars show full extent.
+    // Exception: if the incoming cross-filter constrains the same foreign source that
+    // owns the split-by field, the baseline series set is misleading and should collapse
+    // to the filtered series only.
+    const effectiveSFData =
+      shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
+        ? allBarSeriesFieldData
+        : barSeriesFieldData;
+    const xAxisData = effectiveSFData.labels;
+    const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
+    const isStacked =
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100' ||
+      (chartType === 'bar' && barLayout === 'stacked');
+    const stackId = isStacked ? 'stack' : undefined;
+    const is100 = chartType === 'bar-100';
+    const totals100 = is100
+      ? effectiveSFData.labels.map((_, i) =>
+          effectiveSFData.seriesNames.reduce<number>(
+            (sum, name) => sum + ((effectiveSFData.seriesData[name][i] ?? 0) as number),
+            0,
+          ),
+        )
+      : null;
+
+    // Build per-series filtered values for ghost context
+    const sfFilteredBySeriesId: Record<string, (number | null)[]> = {};
+    const sfAllBySeriesId: Record<string, number[]> = {};
+    if (shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline) {
+      allBarSeriesFieldData.seriesNames.forEach((name) => {
+        const seriesId = String(name);
+        const allVals = allBarSeriesFieldData.seriesData[name] ?? [];
+        const filteredVals = barSeriesFieldData.seriesData[name];
+        const filteredAligned = filteredVals
+          ? alignFilteredToAllLabels(
+              allBarSeriesFieldData.labels,
+              barSeriesFieldData.labels,
+              filteredVals,
+            )
+          : allBarSeriesFieldData.labels.map(() => null);
+        sfFilteredBySeriesId[seriesId] = filteredAligned;
+        sfAllBySeriesId[seriesId] = allVals.map((v) => v ?? 0);
+      });
+    }
+    const sfBarContext =
+      shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
+        ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+          { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
+        : null;
+
+    const baseSeriesValueFormatter = is100
+      ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+      : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision);
+
+    const series = effectiveSFData.seriesNames.map((name) => {
+      const rawData = effectiveSFData.seriesData[name];
+      const stackedOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
+      const data: (number | null)[] = totals100
+        ? rawData.map((v, i) => {
+            const total = totals100[i];
+            return total ? ((v ?? 0) / total) * 100 : 0;
+          })
+        : stackedOrRaw;
+      const seriesId = String(name);
+      const valueFormatter =
+        sfBarContext && sfFilteredBySeriesId[seriesId]
+          ? makeCrossFilterValueFormatter(sfFilteredBySeriesId[seriesId], baseSeriesValueFormatter)
+          : baseSeriesValueFormatter;
+      return {
+        id: seriesId,
+        data,
+        label: seriesId,
+        stack: stackId,
+        color: getSeriesColor(name),
+        valueFormatter,
+      };
+    });
+    const selectedDataIndices = getSelectedDataIndices(effectiveSFData.labels);
+    const effectiveSFBarHeight =
+      isHorizontalBarLayout && barMinBandSize
+        ? Math.max(height, xAxisData.length * barMinBandSize + 40)
+        : height;
+    return (
+      <CrossFilterBarContext.Provider value={sfBarContext}>
+        <div style={{ height: effectiveSFBarHeight }}>
+          <BarChart
+            {...slotProps}
+            skipAnimation={skipAnimation}
+            layout={isHorizontalBarLayout ? 'horizontal' : undefined}
+            xAxis={
+              isHorizontalBarLayout
+                ? [
+                    {
+                      height: 'auto',
+                      valueFormatter: is100
+                        ? (v: number) => `${Math.round(v)}%`
+                        : makeValueFormatter(
+                            yFieldDef?.format,
+                            yFieldDef?.currencyCode,
+                            yFieldDef?.precision,
+                          ),
+                      ...(is100 && { min: 0, max: 100 }),
+                      ...(axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                        : {}),
+                    },
+                  ]
+                : [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      height: 'auto',
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      ...(barCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: barCategoryGapRatio }
+                        : {}),
+                    },
+                  ]
+            }
+            yAxis={
+              isHorizontalBarLayout
+                ? [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      width: 'auto',
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      ...(axisTickFontSize !== undefined
+                        ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                        : {}),
+                      ...(barCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: barCategoryGapRatio }
+                        : {}),
+                    },
+                  ]
+                : [
+                    {
+                      width: 'auto' as const,
+                      valueFormatter: is100
+                        ? (v: number) => `${Math.round(v)}%`
+                        : makeValueFormatter(
+                            yFieldDef?.format,
+                            yFieldDef?.currencyCode,
+                            yFieldDef?.precision,
+                          ),
+                      ...(is100 && { min: 0, max: 100 }),
+                    },
+                  ]
+            }
+            series={series}
+            colors={chartColors}
+            margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
+            highlightedItem={controlledHighlightedItem}
+            highlightedAxis={
+              selectedDataIndices.length > 0
+                ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
+                : controlledHighlightedAxis
+            }
+            onHighlightChange={(item) =>
+              onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+            onHighlightedAxisChange={onAxisHoverChange}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
+              }
+            }}
+            sx={{ cursor: 'default' }}
+            slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
+            slotProps={{
+              legend: {
+                sx: {
+                  overflowY: 'auto',
+                  flexWrap: 'nowrap',
+                  maxHeight: '100%',
+                },
+              },
+            }}
+          >
+            {children}
+          </BarChart>
+        </div>
+      </CrossFilterBarContext.Provider>
+    );
+  }
+
+  // ── Single-series bar prelude ──
+  // For single-series charts, when ghost-rendering use all-data as basis
+  const singleSeriesChartData = barChartData;
+  const effectiveSingleSeriesData =
+    shouldShowGhost && allBarChartData && preserveXFieldBaseline
+      ? allBarChartData
+      : singleSeriesChartData;
+  const xAxisData = effectiveSingleSeriesData!.labels;
+  const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
+  const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? defaultSeriesLabel;
+  const seriesValueFormatter = makeValueFormatter(
+    yFieldDef?.format,
+    yFieldDef?.currencyCode,
+    yFieldDef?.precision,
+  );
+  const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
+  const sourceSelectionCtxValue =
+    // eslint-disable-next-line react/jsx-no-constructed-context-values
+    selectedDataIndices.length > 1 ? new Set(selectedDataIndices) : null;
+
+  // Filtered values aligned to all-data labels for ghost bar context
+  const singleSeriesFilteredValues =
+    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline
+      ? alignFilteredToAllLabels(allBarChartData.labels, chartData.labels, chartData.values)
+      : null;
+  const singleBarContext =
+    singleSeriesFilteredValues && effectiveSingleSeriesData
+      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+        {
+          filteredValuesBySeriesId: {
+            [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
+          },
+          allValuesBySeriesId: {
+            [CROSS_FILTER_SERIES_ID]: effectiveSingleSeriesData.values.map((v) => v ?? 0),
+          },
+        }
+      : null;
+  const singleSeriesVF =
+    singleBarContext && singleSeriesFilteredValues
+      ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
+      : seriesValueFormatter;
+  // Bar slots: a field-titled tooltip (question as title, category as the labelled row) plus a
+  // bar slot — ghost-target rendering wins; otherwise multi-select source dimming; else default.
+  const singleBarSlots: {
+    tooltip: typeof AxisFieldTooltip;
+    bar?: typeof CrossFilterGhostBar | typeof SourceSelectionBar;
+  } = { tooltip: AxisFieldTooltip };
+  if (singleBarContext) {
+    singleBarSlots.bar = CrossFilterGhostBar;
+  } else if (selectedDataIndices.length > 1) {
+    singleBarSlots.bar = SourceSelectionBar;
+  }
+  // MUI item highlight for single-series bars: a lone selection highlights that bar; multi-select
+  // (>1) is handled by SourceSelectionBar so no item highlight; no selection falls back to hover.
+  let singleBarHighlightedItem = controlledHighlightedItem;
+  if (selectedDataIndices.length === 1) {
+    singleBarHighlightedItem = {
+      seriesId: CROSS_FILTER_SERIES_ID,
+      dataIndex: selectedDataIndices[0],
+    };
+  } else if (selectedDataIndices.length > 1) {
+    singleBarHighlightedItem = null;
+  }
+
+  // Apply top-N + "Other" grouping for bar charts
+  const barMaxCats = barMaxCategories ?? undefined;
+  // Filter out empty x-axis values before applying max-categories grouping
+  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
+    (acc, label, i) => {
+      if (label !== null && label !== undefined && label !== '') {
+        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
+      }
+      return acc;
+    },
+    [],
+  );
+  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
+  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
+  if (barMaxCats && displayXAxisData.length > barMaxCats) {
+    const topN = barMaxCats - 1;
+    const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
+    const topLabels = displayXAxisData.slice(0, topN);
+    const topValues = displayBarValues.slice(0, topN);
+    const existingOtherIdx = topLabels.findIndex((l) => l === 'Other');
+    if (existingOtherIdx >= 0) {
+      // Real "Other" answer already in top-N — merge remainder into it
+      topValues[existingOtherIdx] = (topValues[existingOtherIdx] ?? 0) + otherValue;
+      displayXAxisData = topLabels;
+      displayBarValues = topValues;
+    } else {
+      displayXAxisData = [...topLabels, 'Other'];
+      displayBarValues = [...topValues, otherValue];
+    }
+  }
+
+  // Default: bar chart (vertical or horizontal)
+  const isHorizontal = isHorizontalBarLayout;
+
+  // When barMinBandSize is set, expand the container so every row gets at least that many px.
+  const minBandSize = barMinBandSize;
+  const effectiveHBarHeight =
+    isHorizontal && minBandSize
+      ? Math.max(height, displayXAxisData.length * minBandSize + 40)
+      : height;
+
+  if (isHorizontal) {
+    // When bandLabelWrap splits labels across multiple lines, 'auto' only measures the first
+    // SVG tspan and produces a width too narrow for longer subsequent lines. Compute an
+    // explicit pixel width from the longest single line across all formatted+wrapped labels.
+    const longestHBarLabelLine = displayXAxisData.reduce((max: number, v) => {
+      const wrapped = wrapBandLabel(formatLabel(String(v)));
+      const lineMax = wrapped.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+      return Math.max(max, lineMax);
+    }, 0);
+    const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
+
+    return (
+      <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
+        <CrossFilterBarContext.Provider value={singleBarContext}>
+          <div style={{ height: effectiveHBarHeight }}>
+            <BarChart
+              {...slotProps}
+              skipAnimation={skipAnimation}
+              layout="horizontal"
+              xAxis={[
+                {
+                  height: 'auto',
+                  valueFormatter: seriesValueFormatter,
+                  ...(axisTickFontSize !== undefined
+                    ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                    : {}),
+                },
+              ]}
+              yAxis={[
+                {
+                  id: CROSS_FILTER_AXIS_ID,
+                  data: displayXAxisData,
+                  scaleType: 'band',
+                  width: hBarYAxisWidth,
+                  valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                  ...(axisTickFontSize !== undefined
+                    ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
+                    : {}),
+                  ...(barCategoryGapRatio !== undefined
+                    ? { categoryGapRatio: barCategoryGapRatio }
+                    : {}),
+                },
+              ]}
+              series={[
+                {
+                  id: CROSS_FILTER_SERIES_ID,
+                  data: displayBarValues,
+                  label: seriesLabel,
+                  highlightScope: { highlight: 'item', fade: 'global' },
+                  valueFormatter: singleSeriesVF,
+                },
+              ]}
+              colors={chartColors}
+              hideLegend
+              margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
+              highlightedItem={singleBarHighlightedItem}
+              onHighlightChange={(item) =>
+                onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+              }
+              onAxisClick={(_event, params) => {
+                if (params?.axisValue !== undefined) {
+                  onItemClick(params.axisValue, Boolean(_event?.shiftKey));
+                }
+              }}
+              sx={{ cursor: 'default' }}
+              slots={singleBarSlots}
+              slotProps={{
+                legend: {
+                  sx: {
+                    overflowY: 'auto',
+                    flexWrap: 'nowrap',
+                    maxHeight: '100%',
+                  },
+                },
+              }}
+            >
+              {children}
+            </BarChart>
+          </div>
+        </CrossFilterBarContext.Provider>
+      </SourceSelectionContext.Provider>
+    );
+  }
+
+  return (
+    <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
+      <CrossFilterBarContext.Provider value={singleBarContext}>
+        <div style={{ height }}>
+          <BarChart
+            {...slotProps}
+            skipAnimation={skipAnimation}
+            xAxis={[
+              {
+                id: CROSS_FILTER_AXIS_ID,
+                data: displayXAxisData,
+                scaleType: 'band',
+                height: 'auto',
+                valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                ...(barCategoryGapRatio !== undefined
+                  ? { categoryGapRatio: barCategoryGapRatio }
+                  : {}),
+              },
+            ]}
+            yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
+            series={[
+              {
+                id: CROSS_FILTER_SERIES_ID,
+                data: displayBarValues,
+                label: seriesLabel,
+                highlightScope: { highlight: 'item', fade: 'global' },
+                valueFormatter: singleSeriesVF,
+              },
+            ]}
+            colors={chartColors}
+            hideLegend
+            margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
+            highlightedItem={singleBarHighlightedItem}
+            onHighlightChange={(item) =>
+              onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
+              }
+            }}
+            sx={{ cursor: 'default' }}
+            slots={singleBarSlots}
+            slotProps={{
+              legend: {
+                sx: {
+                  overflowY: 'auto',
+                  flexWrap: 'nowrap',
+                  maxHeight: '100%',
+                },
+              },
+            }}
+          >
+            {children}
+          </BarChart>
+        </div>
+      </CrossFilterBarContext.Provider>
+    </SourceSelectionContext.Provider>
+  );
+}

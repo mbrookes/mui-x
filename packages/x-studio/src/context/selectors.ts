@@ -35,6 +35,7 @@ export const selectGlobalCrossFilterMode = (state: StudioState) =>
   state.doc.dashboard.globalCrossFilterMode ?? null;
 export const selectCrossFilterAllPages = (state: StudioState) =>
   state.doc.dashboard.crossFilterAllPages ?? false;
+export const selectAi = (state: StudioState) => state.doc.ai;
 
 /**
  * Returns a stable memoized selector for the active interactive filter

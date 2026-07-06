@@ -180,7 +180,7 @@ function StudioPageRows({
       const currentRows = widgetRowsRef.current;
 
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
-        const sources = Object.values(controller.getState().dataSources);
+        const sources = Object.values(controller.getState().runtime.dataSources);
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
           return;
         }

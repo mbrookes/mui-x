@@ -5,8 +5,21 @@ import type { StudioState, StudioDataSource, StudioWidget, StudioFilterState } f
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeState(overrides: Partial<StudioState> = {}): StudioState {
-  return createDefaultStudioState(overrides);
+// Test helper that routes flat fixture overrides into the lifetime partitions
+// (`doc`/`runtime`), so the many call sites below stay concise. This flat
+// convenience shape is a test-only affordance — production `createDefaultStudioState`
+// deliberately requires the explicit nested partitions.
+function makeState(
+  overrides: { dataSources?: Record<string, StudioDataSource>; filters?: StudioFilterState[] } = {},
+): StudioState {
+  return createDefaultStudioState({
+    doc: {
+      ...(overrides.filters ? { filters: overrides.filters } : {}),
+    },
+    runtime: {
+      ...(overrides.dataSources ? { dataSources: overrides.dataSources } : {}),
+    },
+  });
 }
 
 function makeSource(overrides: Partial<StudioDataSource> = {}): StudioDataSource {

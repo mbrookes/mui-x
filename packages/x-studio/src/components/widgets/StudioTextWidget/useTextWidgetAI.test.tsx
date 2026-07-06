@@ -94,13 +94,15 @@ describe('useTextWidgetAI', () => {
 
     const adapterStub = { getRows: vi.fn() };
     const wrapper = setup({
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Sales',
-          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
-          rows: [{ amount: 100 }],
-          adapter: adapterStub as never,
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [{ amount: 100 }],
+            adapter: adapterStub as never,
+          },
         },
       },
     });
@@ -114,9 +116,9 @@ describe('useTextWidgetAI', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://fake.test/api/ai/chat');
     const body = JSON.parse(String(init.body)) as {
-      dashboardState: { dataSources: Record<string, Record<string, unknown>> };
+      dashboardState: { runtime: { dataSources: Record<string, Record<string, unknown>> } };
     };
-    const src1 = body.dashboardState.dataSources.src1;
+    const src1 = body.dashboardState.runtime.dataSources.src1;
     expect(src1).not.toHaveProperty('rows');
     expect(src1).not.toHaveProperty('adapter');
     expect(src1.id).toBe('src1');

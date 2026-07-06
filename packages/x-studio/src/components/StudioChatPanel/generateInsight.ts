@@ -2,7 +2,7 @@ import type { StudioKpiAggregation } from '../../models/baseTypes';
 import type { StudioState, StudioFilterState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
 import type { StudioDataSource } from '../../models/dataTypes';
-import { createStudioPipeline } from '../../internals/StudioPipeline';
+import { createStudioPipeline, type StudioPipelineState } from '../../internals/StudioPipeline';
 import {
   computeAggregate,
   findDateFilter,
@@ -206,6 +206,22 @@ function formatDate(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/**
+ * Builds the flat `StudioPipelineState` shape `createStudioPipeline` needs from the
+ * lifetime-partitioned `StudioState`. Passed explicitly (rather than the nested
+ * `StudioState` itself) so this call site doesn't depend on `createStudioPipeline`
+ * unwrapping `doc`/`runtime` internally — the flat shape is the pipeline's own
+ * documented "built manually" input.
+ */
+function toPipelineState(state: StudioState): StudioPipelineState {
+  return {
+    dataSources: state.runtime.dataSources,
+    relationships: state.doc.relationships,
+    expressionFields: state.doc.expressionFields,
+    filters: state.doc.filters,
+  };
+}
+
 function buildKpiWidgetSummary(
   widget: StudioWidget,
   source: StudioDataSource,
@@ -255,14 +271,14 @@ function buildKpiWidgetSummary(
         conjunction: 'and',
       };
       const prevPipeline = createStudioPipeline({
-        ...state,
-        filters: state.filters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f)),
+        ...toPipelineState(state),
+        filters: state.doc.filters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f)),
       });
       const prevRows = prevPipeline.resolveWidgetRows(
         widget.id,
         widget.sourceId as string,
         source.rows as Record<string, unknown>[],
-        state.dashboard.activePageId,
+        state.doc.dashboard.activePageId,
       );
       const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
       const label = comparisonMode === 'year-over-year' ? 'YoY' : 'vs previous period';
@@ -329,9 +345,9 @@ function buildChartWidgetSummary(
     xField,
     activeYFields,
     seriesField,
-    state.dataSources,
-    state.relationships,
-    state.expressionFields,
+    state.runtime.dataSources,
+    state.doc.relationships,
+    state.doc.expressionFields,
   );
 
   const yFieldLabel = (id: string) => source.fields.find((f) => f.id === id)?.label ?? id;
@@ -542,7 +558,7 @@ export function buildWidgetDataSummary(
   if (!widget.sourceId) {
     return '';
   }
-  const source = state.dataSources[widget.sourceId];
+  const source = state.runtime.dataSources[widget.sourceId];
   if (!source) {
     return '';
   }
@@ -555,18 +571,18 @@ export function buildWidgetDataSummary(
   }
 
   // Apply the widget's active filters so data matches what the user sees
-  const pipeline = createStudioPipeline(state);
+  const pipeline = createStudioPipeline(toPipelineState(state));
   const filteredRows = pipeline.resolveWidgetRows(
     widget.id,
     widget.sourceId,
     rawRows,
-    state.dashboard.activePageId,
+    state.doc.dashboard.activePageId,
   );
 
   const maxRows = options.maxRows ?? MAX_DATA_ROWS;
 
   // Compute the active date range once — used in every widget kind's output
-  const dateFilter = findDateFilter(state.filters, widget.id, source);
+  const dateFilter = findDateFilter(state.doc.filters, widget.id, source);
   const currentRange = dateFilter ? extractDateRange(dateFilter) : null;
   const dateRangeLine = currentRange
     ? `Date range: ${formatDate(currentRange.start)} – ${formatDate(currentRange.end)}`

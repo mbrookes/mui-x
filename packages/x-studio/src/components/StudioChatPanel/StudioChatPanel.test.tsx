@@ -97,24 +97,26 @@ describe('StudioChatPanel: basic rendering', () => {
 
   it('starts a brand-new thread with no prior threads in state', () => {
     render(<StudioChatPanel aiConfig={aiConfig} />);
-    // No threads exist yet in state.ai, so nothing has been persisted —
+    // No threads exist yet in state.doc.ai, so nothing has been persisted —
     // the default in-memory thread name is shown without writing to state.
-    expect(mockState.ai).toBeUndefined();
+    expect(mockState.doc.ai).toBeUndefined();
     expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.chatNewConversationName)).toBeDefined();
   });
 
   it("shows the active thread's name when one is already selected in state", () => {
     mockState = createDefaultStudioState({
-      ai: {
-        threads: [
-          {
-            id: 'thread-1',
-            name: 'Q3 planning',
-            createdAt: new Date().toISOString(),
-            messages: [],
-          },
-        ],
-        activeThreadId: 'thread-1',
+      doc: {
+        ai: {
+          threads: [
+            {
+              id: 'thread-1',
+              name: 'Q3 planning',
+              createdAt: new Date().toISOString(),
+              messages: [],
+            },
+          ],
+          activeThreadId: 'thread-1',
+        },
       },
     });
     configureStudioContextMock({ getState: () => mockState, controller });

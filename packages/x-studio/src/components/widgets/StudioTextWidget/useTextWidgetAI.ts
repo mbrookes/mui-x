@@ -57,18 +57,18 @@ function writeCache(key: string, hash: string, markdown: string): void {
 }
 
 function buildPageSnapshot(widgetId: string, state: StudioState): string {
-  const activePage = state.pages[state.dashboard.activePageId];
+  const activePage = state.doc.pages[state.doc.dashboard.activePageId];
   if (!activePage) {
     return '';
   }
   const widgetIds = activePage.widgetRows.flat().sort();
   return widgetIds
     .filter((id) => {
-      const w = state.widgets[id];
+      const w = state.doc.widgets[id];
       return w && w.kind !== 'text' && id !== widgetId;
     })
     .flatMap((id) => {
-      const w = state.widgets[id] as StudioWidget;
+      const w = state.doc.widgets[id] as StudioWidget;
       const summary = buildWidgetDataSummary(w, state, { sampling: 'stride', maxRows: 20 });
       if (!summary) {
         return [];

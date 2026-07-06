@@ -224,6 +224,81 @@ export function createEffectsAwareToolPolicy(options?: {
   };
 }
 
+// ── Composable policy combinators ────────────────────────────────────────────
+
+/**
+ * A small combinator library for building up a `ToolPolicy` from independent
+ * concerns (a mutation-rate budget, a host's own approval rules, …) without each
+ * concern needing to know about the others.
+ */
+export const Policy = {
+  /**
+   * Evaluates `policies` in order; the strictest decision wins (deny >
+   * require-approval > allow), short-circuiting on the first `deny` — once a
+   * `deny` is seen, no later policy can soften it, so evaluation stops there.
+   * With no `deny`, all policies still run so a later `require-approval` is not
+   * missed; the first `require-approval` decision wins over `allow`, and
+   * `allow` is returned only if every policy allows.
+   *
+   * This lets a budget check run BEFORE a host's own policy: `Policy.all(budget,
+   * hostPolicy)` denies once the budget is exhausted without the host policy ever
+   * being consulted, while still deferring to the host policy's own
+   * deny/require-approval/allow when the budget isn't exhausted.
+   */
+  all(...policies: ToolPolicy[]): ToolPolicy {
+    return async (ctx) => {
+      let strictest: ToolPolicyDecision = { action: 'allow' };
+      for (const policy of policies) {
+        // eslint-disable-next-line no-await-in-loop -- sequential evaluation so a deny short-circuits before later policies run
+        const decision = await policy(ctx);
+        if (decision.action === 'deny') {
+          return decision;
+        }
+        if (decision.action === 'require-approval' && strictest.action === 'allow') {
+          strictest = decision;
+        }
+      }
+      return strictest;
+    };
+  },
+
+  /**
+   * A mutation-rate budget as a composable policy. Denies any call carrying a
+   * `proposed` mutation once `getCommitted(ctx) >= max`, reading the committed
+   * count via a caller-supplied accessor so both transports can plug in their own
+   * usage-tracking shape (chat's `ctx.usage.committedMutations`, MCP's
+   * session-scoped counter) without this function needing to know which shape it
+   * is. `onExceeded` fires exactly once per breach (an internal latch), not once
+   * per subsequent denied call. `max: undefined` means no cap — every call is
+   * allowed through to whatever policy runs next.
+   */
+  mutationBudget(opts: {
+    max: number | undefined;
+    getCommitted: (ctx: ToolPolicyContext) => number;
+    onExceeded?: () => void;
+    reason: (committed: number, max: number) => string;
+  }): ToolPolicy {
+    const { max, getCommitted, onExceeded, reason } = opts;
+    let exceededFired = false;
+    return (ctx) => {
+      const committed = getCommitted(ctx);
+      if (ctx.proposed && max !== undefined && committed >= max) {
+        if (!exceededFired) {
+          exceededFired = true;
+          onExceeded?.();
+        }
+        return { action: 'deny', reason: reason(committed, max) };
+      }
+      return { action: 'allow' };
+    };
+  },
+
+  /** Re-expression of `createDefaultToolPolicy` as a named combinator-library member. */
+  approveDestructive(tools?: ReadonlySet<string>): ToolPolicy {
+    return createDefaultToolPolicy(tools);
+  },
+};
+
 // ── The chokepoint ────────────────────────────────────────────────────────────
 
 /** Discriminated outcome of running a built-in tool through the policy. */

@@ -150,7 +150,10 @@ async function processWidget(
   thresholds: HandleBatchQueryOptions['thresholds'],
   policy: CompiledSecurityPolicy,
 ): Promise<WidgetQueryResult> {
-  const cacheKey = generateCacheKey(claims, descriptor);
+  // Fold the compiled policy's digest into the cache key so a policy change (e.g.
+  // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
+  // instead of a differently-scoped node serving them (Gap B).
+  const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest);
   const queryOptions = policy;
 
   try {

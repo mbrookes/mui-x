@@ -70,16 +70,18 @@ describe('migrateState', () => {
 describe('serializeState', () => {
   it('strips cross-filter scoped filters from the output', () => {
     const state = createDefaultStudioState({
-      filters: [
-        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
-        {
-          id: 'cross-f',
-          field: 'category',
-          operator: 'equals',
-          value: 'A',
-          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
-        },
-      ],
+      doc: {
+        filters: [
+          { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+          {
+            id: 'cross-f',
+            field: 'category',
+            operator: 'equals',
+            value: 'A',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+        ],
+      },
     });
     const serialized = serializeState(state);
     expect(serialized.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
@@ -88,10 +90,18 @@ describe('serializeState', () => {
 
   it('retains page-scoped and widget-scoped filters', () => {
     const state = createDefaultStudioState({
-      filters: [
-        { id: 'p', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
-        { id: 'w', field: 'status', operator: 'equals', value: 'active', scope: { kind: 'widget', widgetId: 'w1' } },
-      ],
+      doc: {
+        filters: [
+          { id: 'p', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+          {
+            id: 'w',
+            field: 'status',
+            operator: 'equals',
+            value: 'active',
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      },
     });
     const { filters } = serializeState(state);
     expect(filters.map((f) => f.id)).toContain('p');
@@ -99,32 +109,36 @@ describe('serializeState', () => {
   });
 
   it('omits expressionFields when the array is empty', () => {
-    const state = createDefaultStudioState({ expressionFields: [] });
+    const state = createDefaultStudioState({ doc: { expressionFields: [] } });
     expect(serializeState(state).expressionFields).toBeUndefined();
   });
 
   it('includes expressionFields when non-empty', () => {
     const state = createDefaultStudioState({
-      expressionFields: [
-        {
-          id: 'ef1',
-          label: 'Margin',
-          expression: {
-            operator: 'subtract' as const,
-            inputs: [{ id: 'revenue' }, { id: 'cost' }],
+      doc: {
+        expressionFields: [
+          {
+            id: 'ef1',
+            label: 'Margin',
+            expression: {
+              operator: 'subtract' as const,
+              inputs: [{ id: 'revenue' }, { id: 'cost' }],
+            },
+            sourceId: 'orders',
+            type: 'number' as const,
+            isMeasure: false,
           },
-          sourceId: 'orders',
-          type: 'number' as const,
-          isMeasure: false,
-        },
-      ],
+        ],
+      },
     });
     expect(serializeState(state).expressionFields).toHaveLength(1);
   });
 
   it('does not include dataSources', () => {
     const state = createDefaultStudioState({
-      dataSources: { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } },
+      runtime: {
+        dataSources: { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } },
+      },
     });
     const serialized = serializeState(state) as unknown as Record<string, unknown>;
     expect(serialized.dataSources).toBeUndefined();
@@ -142,7 +156,7 @@ describe('serializeState', () => {
   });
 
   it('omits ai when threads array is empty', () => {
-    const state = createDefaultStudioState({ ai: { threads: [] } });
+    const state = createDefaultStudioState({ doc: { ai: { threads: [] } } });
     expect(serializeState(state).ai).toBeUndefined();
   });
 
@@ -154,7 +168,9 @@ describe('serializeState', () => {
       messages: [],
     };
     const state = createDefaultStudioState({
-      ai: { threads: [thread], activeThreadId: 'thread-1' },
+      doc: {
+        ai: { threads: [thread], activeThreadId: 'thread-1' },
+      },
     });
     const serialized = serializeState(state);
     expect(serialized.ai).toBeDefined();
@@ -172,19 +188,19 @@ describe('deserializeState', () => {
   it('re-attaches the provided dataSources to the restored state', () => {
     const ds = { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } };
     const state = deserializeState(minimalSerialized, ds);
-    expect(state.dataSources).toBe(ds);
+    expect(state.runtime.dataSources).toBe(ds);
   });
 
   it('defaults relationships to [] when absent from serialized data', () => {
     const { relationships: ignoredRel, ...withoutRel } = minimalSerialized;
     const state = deserializeState(withoutRel as typeof minimalSerialized, {});
-    expect(state.relationships).toEqual([]);
+    expect(state.doc.relationships).toEqual([]);
   });
 
   it('defaults expressionFields to [] when absent from serialized data', () => {
     const { expressionFields: ignoredEf, ...withoutEf } = minimalSerialized;
     const state = deserializeState(withoutEf as typeof minimalSerialized, {});
-    expect(state.expressionFields).toEqual([]);
+    expect(state.doc.expressionFields).toEqual([]);
   });
 
   it('applies shellOverrides on top of default shell state', () => {
@@ -193,13 +209,13 @@ describe('deserializeState', () => {
       {},
       { openDrawers: { data: false, compose: false, filters: true } },
     );
-    expect(state.shell.openDrawers.filters).toBe(true);
-    expect(state.shell.openDrawers.data).toBe(false);
+    expect(state.session.shell.openDrawers.filters).toBe(true);
+    expect(state.session.shell.openDrawers.data).toBe(false);
   });
 
   it('restores mode as "edit"', () => {
     const state = deserializeState(minimalSerialized, {});
-    expect(state.mode).toBe('edit');
+    expect(state.session.mode).toBe('edit');
   });
 
   it('restores ai state when present in serialized data', () => {
@@ -210,19 +226,21 @@ describe('deserializeState', () => {
       messages: [],
     };
     const stateWithAI = createDefaultStudioState({
-      ai: { threads: [thread], activeThreadId: 'thread-1' },
+      doc: {
+        ai: { threads: [thread], activeThreadId: 'thread-1' },
+      },
     });
     const serialized = serializeState(stateWithAI);
     const restored = deserializeState(serialized, {});
-    expect(restored.ai).toBeDefined();
-    expect(restored.ai!.threads).toHaveLength(1);
-    expect(restored.ai!.threads[0].name).toBe('Q3 Analysis');
-    expect(restored.ai!.activeThreadId).toBe('thread-1');
+    expect(restored.doc.ai).toBeDefined();
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    expect(restored.doc.ai!.threads[0].name).toBe('Q3 Analysis');
+    expect(restored.doc.ai!.activeThreadId).toBe('thread-1');
   });
 
   it('leaves ai undefined when not in serialized data', () => {
     const state = deserializeState(minimalSerialized, {});
-    expect(state.ai).toBeUndefined();
+    expect(state.doc.ai).toBeUndefined();
   });
 });
 
@@ -236,31 +254,37 @@ describe('serializeState / deserializeState roundtrip', () => {
 
   it('roundtrip restores dashboard title', () => {
     const state = createDefaultStudioState({
-      dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' },
+      doc: {
+        dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' },
+      },
     });
     const json = JSON.stringify(serializeState(state));
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
-    expect(restored?.dashboard.title).toBe('My Dashboard');
+    expect(restored?.doc.dashboard.title).toBe('My Dashboard');
   });
 
   it('roundtrip strips cross-filter entries', () => {
     const state = createDefaultStudioState({
-      filters: [
-        {
-          id: 'cf1',
-          field: 'cat',
-          operator: 'equals',
-          value: 'A',
-          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
-        },
-      ],
+      doc: {
+        filters: [
+          {
+            id: 'cf1',
+            field: 'cat',
+            operator: 'equals',
+            value: 'A',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+        ],
+      },
     });
     const json = JSON.stringify(serializeState(state));
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
     expect(
-      restored?.filters.filter((f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter'),
+      restored?.doc.filters.filter(
+        (f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter',
+      ),
     ).toHaveLength(0);
   });
 
@@ -290,5 +314,118 @@ describe('serializeState / deserializeState roundtrip', () => {
     });
     expect(migrationResult.success).toBe(true);
     expect(migrationResult.state).not.toBeNull();
+  });
+});
+
+// ─── doc-completeness gate ────────────────────────────────────────────────────
+// These pin the persistence boundary against the two bugs the lifetime-partition
+// split targets: (1) a hand-picked serialize field list silently dropping a new
+// StudioDoc field, and (2) cross-filter entries leaking into persisted state.
+
+describe('serializeState / deserializeState — doc completeness', () => {
+  // A doc that populates EVERY StudioDoc field (including the omitted-when-empty
+  // ones) so nothing is normalized away on the round-trip and identity holds.
+  function fullDocState() {
+    return createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'Full', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } } },
+        relationships: [
+          {
+            id: 'rel1',
+            sourceId: 'orders',
+            sourceField: 'customerId',
+            targetId: 'customers',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+        ],
+        filters: [
+          {
+            id: 'pf',
+            field: 'date',
+            operator: 'equals',
+            value: '',
+            scope: { kind: 'page', pageId: 'p1' },
+          },
+        ],
+        expressionFields: [
+          {
+            id: 'ef1',
+            label: 'Margin',
+            expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+            sourceId: 'orders',
+            type: 'number',
+            isMeasure: false,
+          },
+        ],
+        filterPresets: [
+          {
+            id: 'preset-1',
+            name: 'My preset',
+            filters: [
+              {
+                id: 'pf-x',
+                field: 'date',
+                operator: 'equals',
+                value: '',
+                scope: { kind: 'page', pageId: 'p1' },
+              },
+            ],
+          },
+        ],
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Thread', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      },
+    });
+  }
+
+  it('a doc field cannot be forgotten: full doc round-trips to an identical doc', () => {
+    const state = fullDocState();
+    const roundTripped = deserializeState(serializeState(state), {});
+
+    // Deep identity (minus stripped cross-filter entries — there are none here).
+    expect(roundTripped.doc).toEqual(state.doc);
+    // Key-set equality: a StudioDoc field added without a matching persistence path
+    // would show up as a missing key here and fail loudly.
+    expect(new Set(Object.keys(roundTripped.doc))).toEqual(new Set(Object.keys(state.doc)));
+  });
+
+  it('cross-filter entries are never persisted; other filter scopes are', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        filters: [
+          {
+            id: 'cf',
+            field: 'cat',
+            operator: 'equals',
+            value: 'A',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'p1' },
+          },
+          {
+            id: 'pf',
+            field: 'date',
+            operator: 'equals',
+            value: '',
+            scope: { kind: 'page', pageId: 'p1' },
+          },
+          {
+            id: 'wf',
+            field: 'status',
+            operator: 'equals',
+            value: 'x',
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      },
+    });
+    const serialized = serializeState(state);
+    expect(serialized.filters.map((f) => f.id)).toEqual(['pf', 'wf']);
+    expect(serialized.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(false);
   });
 });

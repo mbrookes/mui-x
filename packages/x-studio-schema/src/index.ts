@@ -32,6 +32,7 @@ export {
   normalizeChartSeries,
   createDefaultStudioState,
 } from './factories';
+export type { CreateDefaultStudioStateOverrides } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
 export {
   applyDocMutation,

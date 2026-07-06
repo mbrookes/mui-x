@@ -170,7 +170,7 @@ Seven built-in widget kinds live under `src/components/widgets/`: `StudioChartWi
 
 ### `StudioChartWidget` (`src/components/widgets/StudioChartWidget/`)
 
-`StudioChartWidget.tsx` (~3000 lines) is still the largest single widget file: it directly renders bar (grouped/stacked/100%/horizontal variants), line, area (plain/stacked/100%), and pie/donut chart types inline, using `@mui/x-charts`' `BarChart`/`LineChart`/`PieChart`, wired up with cross-filter highlighting (`CrossFilterGhostBar`, `PieCrossHighlight*`), per-field tooltips (`StudioChartFieldTooltip.tsx`), forecast overlays, and anomaly-detection reference lines. Other chart types are extracted into their own components and delegated to:
+`StudioChartWidget.tsx` (~2500 lines) is still the largest single widget file: it directly renders bar (grouped/stacked/100%/horizontal variants), line, and area (plain/stacked/100%) chart types inline, using `@mui/x-charts`' `BarChart`/`LineChart`, wired up with cross-filter highlighting (`CrossFilterGhostBar`), per-field tooltips (`StudioChartFieldTooltip.tsx`), forecast overlays, and anomaly-detection reference lines. Other chart types are extracted into their own components and delegated to:
 
 - `StudioGaugeChart.tsx` — gauge charts (thin wrapper over `@mui/x-charts`' `Gauge`).
 - `StudioScatterChart.tsx` — scatter plots.
@@ -179,6 +179,7 @@ Seven built-in widget kinds live under `src/components/widgets/`: `StudioChartWi
 - `StudioGanttChart.tsx` — Gantt/timeline charts.
 - `StudioSankeyChart.tsx` — Sankey diagrams (uses `chartShapes/sankey.ts`).
 - `StudioHeatmapChart.tsx` — heatmap charts (wraps `@mui/x-charts-premium`'s `HeatmapPremium`).
+- `StudioPieChart.tsx` (~630 lines) — pie/donut charts: single-series with `pieMaxSlices` "Other"-grouping, grouped concentric rings (one ring per x-category, sliced by a series field), arc labels, an optional custom below-chart legend, and cross-filter ghost/overlay highlighting via `PieCrossHighlight*`.
 
 Supporting modules: `useChartWidgetData.ts` (data-fetch/aggregation orchestration hook), `lineSeries.ts` (`buildMultiYLineSeries`), `chartWidgetHelpers.ts` (value formatters, `crossFilterValueEquals`/`normalizeCrossFilterValue` — the equality check used to decide whether a clicked data point matches an incoming cross-filter value, `densifyBarLabels`, `alignFilteredToAllLabels`, `resolveFieldDef()` — the single shared field-lookup helper for resolving a chart field's `StudioDataField` across the widget's own source and any blended/foreign sources, used by every chart-type call site instead of each one re-implementing the lookup), and the cross-filter/source-selection React contexts (`CrossFilterBarContext.ts`, `SourceSelectionContext.ts`, `PieCrossHighlightContext.ts`). Anomaly-annotation reference lines are identified via `internals/anomalyDetection.ts`'s `isAnomalyAnnotation()`/`ANOMALY_ANNOTATION_ID_PREFIX`/`ANOMALY_ANNOTATION_LABEL` — the single source of truth for the sentinel id/label format an anomaly annotation uses, so a chart type checking "is this series point an anomaly marker rather than real data" never re-implements the format inline.
 

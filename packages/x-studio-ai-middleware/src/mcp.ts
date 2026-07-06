@@ -58,7 +58,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { mutationLabel } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import type { ToolExecutionResult } from './executeToolOnState';
-import { executeToolWithPolicy, type ToolPolicy } from './toolPolicy';
+import { executeToolWithPolicy, Policy, type ToolPolicy } from './toolPolicy';
 import type { StudioAIRecentMutation } from './models/aiTypes';
 import { errorResult, jsonResult, type ToolHandler } from './mcp/helpers';
 import {
@@ -171,32 +171,23 @@ export function buildStudioMcpServer(
   // existing MCP integration. This keeps the historical "execute everything" behavior.
   const hostToolPolicy: ToolPolicy = options.toolPolicy ?? (() => ({ action: 'allow' }));
 
-  // Per-session mutation budget, layered BEFORE the host policy: once the cap is
-  // reached, any further mutating call (one whose dry-run produced a `proposed`
-  // mutation) is denied without consulting the host policy. `onLimitReached` fires
-  // once per breach.
+  // Per-session mutation budget, layered BEFORE the host policy via `Policy.all`:
+  // once the cap is reached, any further mutating call (one whose dry-run produced
+  // a `proposed` mutation) is denied without consulting the host policy.
+  // `onLimitReached` fires once per breach.
   const maxSessionMutations = rateLimit?.maxMutationsPerSession;
-  let mutationLimitFired = false;
-  const sessionToolPolicy: ToolPolicy = (ctx) => {
-    if (
-      ctx.proposed &&
-      maxSessionMutations !== undefined &&
-      sessionUsage.committedMutations >= maxSessionMutations
-    ) {
-      if (!mutationLimitFired) {
-        mutationLimitFired = true;
-        rateLimit?.onLimitReached?.('mutations', sessionUsage.committedMutations);
-      }
-      return {
-        action: 'deny',
-        reason:
-          'MUI X Studio: Mutation budget exceeded — this MCP session may commit at most ' +
-          `${maxSessionMutations} state mutation${maxSessionMutations === 1 ? '' : 's'} ` +
-          `(already committed ${sessionUsage.committedMutations}). This change was not applied.`,
-      };
-    }
-    return hostToolPolicy(ctx);
-  };
+  const sessionToolPolicy: ToolPolicy = Policy.all(
+    Policy.mutationBudget({
+      max: maxSessionMutations,
+      getCommitted: () => sessionUsage.committedMutations,
+      onExceeded: () => rateLimit?.onLimitReached?.('mutations', sessionUsage.committedMutations),
+      reason: (committed, max) =>
+        'MUI X Studio: Mutation budget exceeded — this MCP session may commit at most ' +
+        `${max} state mutation${max === 1 ? '' : 's'} ` +
+        `(already committed ${committed}). This change was not applied.`,
+    }),
+    hostToolPolicy,
+  );
 
   // Session-scoped log of recent state mutations (oldest first), surfaced via the
   // `get_recent_changes` tool. Only captures changes made through this MCP

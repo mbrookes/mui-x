@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
-import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
 import type { PieChartProps } from '@mui/x-charts/PieChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
@@ -36,7 +35,6 @@ import {
 } from '../../../context';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
-import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { SourceSelectionContext } from './SourceSelectionContext';
@@ -50,15 +48,14 @@ import { StudioScatterChart } from './StudioScatterChart';
 import { StudioMixedChart } from './StudioMixedChart';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioPieChart } from './StudioPieChart';
+import { StudioLineAreaChart } from './StudioLineAreaChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
 import {
   alignFilteredToAllLabels,
   makeCrossFilterValueFormatter,
-  makeCrossHighlightLineFormatter,
   densifyBarLabels,
-  createLineXAxisConfig,
   makeValueFormatter,
   normalizeCrossFilterValue,
   crossFilterValueEquals,
@@ -69,7 +66,6 @@ import {
   detectChartDataAnomalies,
   isAnomalyAnnotation,
 } from '../../../internals/anomalyDetection';
-import { computeWidgetForecast } from '../../../internals/forecastUtils';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -125,7 +121,6 @@ export interface StudioChartWidgetProps {
 export const CHART_MIN_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
-const GHOST_SERIES_SUFFIX = '-ghost';
 
 export const StudioChartWidget = React.memo(function StudioChartWidget(
   props: StudioChartWidgetProps,
@@ -247,12 +242,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       return String(label);
     },
     [xGroupBy],
-  );
-
-  const createLineXAxis = React.useCallback(
-    (labels: (string | number)[], axisId?: string) =>
-      createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId),
-    [formatLabel, xGroupBy],
   );
 
   const bandLabelWrap = config.barBandLabelWrap ?? 0;
@@ -673,15 +662,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       chartType === 'area-stacked' ||
       chartType === 'area-100'
     ) {
-      if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
-        return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
-      }
-
-      if (multiYData && multiYData.labels.length > 0) {
-        return new Set(multiYData.series.map((series, index) => `${series.fieldId}-${index}`));
-      }
-
-      return new Set([CROSS_FILTER_SERIES_ID]);
+      // Line/area highlightable ids are resolved inside StudioLineAreaChart, which owns the
+      // series shape (split-by / multi-Y / single). Return an empty set here so the
+      // orchestrator's shared `controlledHighlightedItem` never gates the line/area chart
+      // (the component computes its own).
+      return new Set<string>();
     }
 
     if (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') {
@@ -1538,12 +1523,51 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  // For multi-Y line/area charts
-  const isLineOrArea =
+  if (
     chartType === 'line' ||
     chartType === 'area' ||
     chartType === 'area-stacked' ||
-    chartType === 'area-100';
+    chartType === 'area-100'
+  ) {
+    return (
+      <StudioLineAreaChart
+        chartType={chartType}
+        height={chartHeight}
+        chartData={chartData}
+        allChartData={allChartData}
+        seriesFieldData={seriesFieldData}
+        allSeriesFieldData={allSeriesFieldData}
+        multiYData={multiYData}
+        allMultiYData={allMultiYData}
+        activeYFields={activeYFields}
+        dataSource={dataSource}
+        expressionFields={expressionFields}
+        xGroupBy={xGroupBy}
+        formatLabel={formatLabel}
+        forecast={config.forecast}
+        forecastSeriesLabel={localeText.chartForecastSeriesLabel}
+        defaultSeriesLabel={localeText.chartDefaultSeriesLabel}
+        chartColors={chartColors}
+        resolvedChartColors={resolvedChartColors}
+        getSeriesColor={getSeriesColor}
+        shouldShowGhost={shouldShowGhost}
+        preserveXFieldBaseline={preserveXFieldBaseline}
+        preserveSplitByBaseline={preserveSplitByBaseline}
+        skipAnimation={skipAnimation}
+        getSelectedDataIndices={getSelectedDataIndices}
+        hoveredItem={hoveredItem}
+        hoveredAxis={hoveredAxis}
+        hasActiveXFilter={hasActiveXFilter}
+        hasIncomingCrossFilters={hasIncomingCrossFilters}
+        onHoverChange={setHoveredItem}
+        onAxisHoverChange={setHoveredAxis}
+        onItemClick={handleItemClick}
+        slotProps={slotProps?.lineChart}
+      >
+        {annotationChildren}
+      </StudioLineAreaChart>
+    );
+  }
 
   // seriesField stacked/grouped bar chart: one series per unique category value
   if (
@@ -1739,270 +1763,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  // seriesField line/area chart: one line (or area) per unique series-field value
-  if (
-    seriesFieldData &&
-    seriesFieldData.seriesNames.length > 0 &&
-    (chartType === 'line' ||
-      chartType === 'area' ||
-      chartType === 'area-stacked' ||
-      chartType === 'area-100')
-  ) {
-    const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
-    const isArea = chartType !== 'line';
-    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
-    const is100 = chartType === 'area-100';
-
-    // When ghost-rendering (non-stacked only), use allSeriesFieldData as the x-axis basis so
-    // ghost lines appear for all series/x-positions, including ones filtered away.
-    const sfLineAllData =
-      !isStacked && shouldShowGhost && allSeriesFieldData && preserveSplitByBaseline
-        ? allSeriesFieldData
-        : null;
-    const effectiveSFLineData = sfLineAllData ?? seriesFieldData;
-    const xAxis = createLineXAxis(effectiveSFLineData.labels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndices = getSelectedDataIndices(effectiveSFLineData.labels);
-
-    // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
-    const totals100 = is100
-      ? seriesFieldData.labels.map((_, i) =>
-          seriesFieldData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
-            0,
-          ),
-        )
-      : null;
-
-    // Ghost series: each series at 25% opacity with full baseline values, no marks, no legend entry.
-    // Placed before active series so they render behind.
-    const ghostSeries = sfLineAllData
-      ? sfLineAllData.seriesNames.map((name) => ({
-          id: `${String(name)}-ghost`,
-          data: sfLineAllData.seriesData[name],
-          color: `${getSeriesColor(name) ?? resolvedChartColors[0]}40`,
-          area: isArea,
-          connectNulls: true as const,
-          showMark: false,
-          disableHighlight: true as const,
-        }))
-      : [];
-
-    const series = effectiveSFLineData.seriesNames.map((name) => {
-      // Align filtered data to the all-data x-positions when ghost series are present.
-      const rawData = sfLineAllData
-        ? alignFilteredToAllLabels(
-            sfLineAllData.labels,
-            seriesFieldData.labels,
-            seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
-          )
-        : seriesFieldData.seriesData[name];
-      // Stacked area: null breaks the stacking algorithm → use 0
-      const stackedLineOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
-      const data: (number | null)[] = totals100
-        ? rawData.map((v, i) => {
-            const total = totals100[i];
-            return total ? ((v ?? 0) / total) * 100 : 0;
-          })
-        : stackedLineOrRaw;
-      return {
-        id: String(name),
-        data,
-        label: String(name),
-        area: isArea,
-        connectNulls: true,
-        stack: isStacked ? 'total' : undefined,
-        color: getSeriesColor(name),
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-        valueFormatter: is100
-          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-          : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision),
-      };
-    });
-    return (
-      <div style={{ height: chartHeight }}>
-        <LineChart
-          {...slotProps?.lineChart}
-          skipAnimation={skipAnimation}
-          xAxis={xAxis}
-          yAxis={[
-            {
-              width: 'auto',
-              valueFormatter: is100
-                ? (v: number) => `${Math.round(v)}%`
-                : makeValueFormatter(
-                    yFieldDef?.format,
-                    yFieldDef?.currencyCode,
-                    yFieldDef?.precision,
-                  ),
-              ...(is100 && { min: 0, max: 100 }),
-            },
-          ]}
-          series={[...ghostSeries, ...series]}
-          colors={chartColors}
-          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-          highlightedItem={controlledHighlightedItem}
-          highlightedAxis={
-            selectedDataIndices.length > 0
-              ? selectedDataIndices.map((i) => ({ axisId: CROSS_FILTER_AXIS_ID, dataIndex: i }))
-              : controlledHighlightedAxis
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onHighlightedAxisChange={setHoveredAxis}
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {annotationChildren}
-        </LineChart>
-      </div>
-    );
-  }
-
-  if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const isArea = chartType !== 'line';
-    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
-    const is100 = chartType === 'area-100';
-
-    // When ghost-rendering (non-stacked only), use allMultiYData as the x-axis basis so ghost
-    // series cover all x-positions including those filtered away.
-    const multiYAllData =
-      !isStacked && shouldShowGhost && allMultiYData && preserveXFieldBaseline
-        ? allMultiYData
-        : null;
-    const effectiveLabels = (multiYAllData ?? multiYData).labels;
-    const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndices = getSelectedDataIndices(effectiveLabels);
-
-    const useIndependentAxes = !isStacked && multiYData.series.length > 1;
-    const multiYLineFieldDefs = multiYData.series.map((s) =>
-      resolveFieldDef(s.fieldId, dataSource, expressionFields),
-    );
-    const yAxes = useIndependentAxes
-      ? multiYData.series.map((_s, i) => ({
-          id: `y-${i}`,
-          position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
-          width: 'auto' as const,
-          valueFormatter: makeValueFormatter(
-            multiYLineFieldDefs[i]?.format,
-            multiYLineFieldDefs[i]?.currencyCode,
-            multiYLineFieldDefs[i]?.precision,
-          ),
-        }))
-      : [
-          {
-            width: 'auto' as const,
-            valueFormatter: is100
-              ? (v: number) => `${Math.round(v)}%`
-              : makeValueFormatter(
-                  multiYLineFieldDefs[0]?.format,
-                  multiYLineFieldDefs[0]?.currencyCode,
-                  multiYLineFieldDefs[0]?.precision,
-                ),
-            ...(is100 && { min: 0, max: 100 }),
-          },
-        ];
-
-    // Ghost series: each y-field at 25% opacity with full baseline values, no marks, no legend entry.
-    const ghostSeries = multiYAllData
-      ? multiYAllData.series.map((s, i) => ({
-          id: `${s.fieldId}-${i}-ghost`,
-          data: s.values,
-          color: `${resolvedChartColors[i % resolvedChartColors.length]}40`,
-          area: isArea,
-          connectNulls: true as const,
-          showMark: false,
-          disableHighlight: true as const,
-          yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-        }))
-      : [];
-
-    // Active series: aligned to allMultiYData labels when ghost series are present.
-    const activeSeries = multiYAllData
-      ? multiYAllData.series.map((s, i) => {
-          const filteredSeries = multiYData.series[i];
-          const alignedValues: (number | null)[] = filteredSeries
-            ? alignFilteredToAllLabels(
-                multiYAllData.labels,
-                multiYData.labels,
-                filteredSeries.values,
-              )
-            : multiYAllData.labels.map(() => null);
-          const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
-          return {
-            id: `${s.fieldId}-${i}`,
-            data: alignedValues,
-            label: fieldDef?.label ?? s.fieldId,
-            area: isArea,
-            connectNulls: true as const,
-            color: resolvedChartColors[i % resolvedChartColors.length],
-            yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-            highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-            valueFormatter: makeValueFormatter(
-              fieldDef?.format,
-              fieldDef?.currencyCode,
-              fieldDef?.precision,
-            ),
-          };
-        })
-      : buildMultiYLineSeries(multiYData, chartType, dataSource?.fields);
-
-    return (
-      <div style={{ height: chartHeight }}>
-        <LineChart
-          {...slotProps?.lineChart}
-          skipAnimation={skipAnimation}
-          xAxis={xAxis}
-          yAxis={yAxes}
-          series={[...ghostSeries, ...activeSeries]}
-          colors={chartColors}
-          margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
-          highlightedItem={
-            selectedDataIndices.length > 0
-              ? {
-                  seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
-                  dataIndex: selectedDataIndices[0],
-                }
-              : controlledHighlightedItem
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {annotationChildren}
-        </LineChart>
-      </div>
-    );
-  }
-
   // For single-series charts, when ghost-rendering use all-data as basis
   const singleSeriesChartData = isBar ? barChartData : chartData;
   const effectiveSingleSeriesData =
@@ -2066,12 +1826,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     singleBarHighlightedItem = null;
   }
 
-  // Ghost line series data (allChartData values) for line/area charts when ghost-rendering
-  const ghostLineValues =
-    !isBar && shouldShowGhost && allChartData && preserveXFieldBaseline
-      ? allChartData.values
-      : null;
-
   // Apply top-N + "Other" grouping for bar charts
   const barMaxCats = isBar ? (config.barMaxCategories ?? undefined) : undefined;
   // Filter out empty x-axis values before applying max-categories grouping
@@ -2101,241 +1855,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       displayXAxisData = [...topLabels, 'Other'];
       displayBarValues = [...topValues, otherValue];
     }
-  }
-
-  if (chartType === 'line') {
-    const forecastData =
-      config.forecast?.enabled && !ghostLineValues && singleSeriesChartData
-        ? computeWidgetForecast(
-            singleSeriesChartData.labels,
-            singleSeriesChartData.values,
-            config.forecast,
-          )
-        : null;
-
-    const effectiveLabels = forecastData ? forecastData.labels : effectiveSingleSeriesData!.labels;
-    const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
-    const lineColor = resolvedChartColors[0];
-    return (
-      <div style={{ height: chartHeight }}>
-        <LineChart
-          {...slotProps?.lineChart}
-          skipAnimation={skipAnimation}
-          xAxis={xAxis}
-          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
-          series={[
-            // Ghost series: baseline (all-data) shown at low opacity — only when cross-filtering
-            ...(ghostLineValues
-              ? [
-                  {
-                    id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
-                    data: ghostLineValues,
-                    label: seriesLabel,
-                    area: false,
-                    connectNulls: true,
-                    showMark: false,
-                    disableHighlight: true,
-                    // Faded baseline color set directly on the series (25% alpha), matching the
-                    // multi-Y / seriesField ghost paths. x-charts resolves `series.color ?? colors[i]`,
-                    // so the explicit color must already carry the alpha — a full-opacity color here
-                    // would make the ghost indistinguishable from the active series.
-                    color: `${lineColor}40`,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                ]
-              : []),
-            {
-              id: CROSS_FILTER_SERIES_ID,
-              data: forecastData ? forecastData.historicalSeries : singleSeriesChartData!.values,
-              label: seriesLabel,
-              area: false,
-              connectNulls: true,
-              color: lineColor,
-              highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: ghostLineValues
-                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
-                : seriesValueFormatter,
-            },
-            // Forecast trend line (dashed, no marks, excluded from legend)
-            ...(forecastData
-              ? [
-                  {
-                    id: '__forecast__',
-                    data: forecastData.forecastSeries,
-                    label: localeText.chartForecastSeriesLabel,
-                    area: false,
-                    connectNulls: false,
-                    showMark: false,
-                    disableHighlight: true as const,
-                    color: lineColor,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                  ...(forecastData.upperBand
-                    ? [
-                        {
-                          id: '__forecast_upper__',
-                          data: forecastData.upperBand,
-                          label: '',
-                          area: true,
-                          connectNulls: false,
-                          showMark: false,
-                          disableHighlight: true as const,
-                          color: `${lineColor}30`,
-                          stack: 'confidence',
-                          stackOrder: 'ascending' as const,
-                          valueFormatter: () => '',
-                        } as const,
-                        {
-                          id: '__forecast_lower__',
-                          data: forecastData.lowerBand as (number | null)[],
-                          label: '',
-                          area: true,
-                          connectNulls: false,
-                          showMark: false,
-                          disableHighlight: true as const,
-                          color: 'transparent',
-                          stack: 'confidence',
-                          stackOrder: 'ascending' as const,
-                          valueFormatter: () => '',
-                        } as const,
-                      ]
-                    : []),
-                ]
-              : []),
-          ]}
-          colors={chartColors}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-          highlightedItem={
-            selectedDataIndices.length > 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-              : controlledHighlightedItem
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {annotationChildren}
-        </LineChart>
-      </div>
-    );
-  }
-
-  if (chartType === 'area' || chartType === 'area-stacked' || chartType === 'area-100') {
-    const forecastData =
-      chartType === 'area' && config.forecast?.enabled && !ghostLineValues && singleSeriesChartData
-        ? computeWidgetForecast(
-            singleSeriesChartData.labels,
-            singleSeriesChartData.values,
-            config.forecast,
-          )
-        : null;
-
-    const effectiveAreaLabels = forecastData
-      ? forecastData.labels
-      : effectiveSingleSeriesData!.labels;
-    // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
-    const xAxis = createLineXAxis(effectiveAreaLabels, CROSS_FILTER_AXIS_ID);
-    const lineColor = resolvedChartColors[0];
-    return (
-      <div style={{ height: chartHeight }}>
-        <LineChart
-          {...slotProps?.lineChart}
-          skipAnimation={skipAnimation}
-          xAxis={xAxis}
-          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
-          series={[
-            ...(ghostLineValues
-              ? [
-                  {
-                    id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
-                    data: ghostLineValues,
-                    label: seriesLabel,
-                    area: true,
-                    connectNulls: true,
-                    showMark: false,
-                    disableHighlight: true,
-                    // Faded baseline fill set directly on the series (~19% alpha for the area
-                    // variant), matching the multi-Y / seriesField ghost paths. x-charts resolves
-                    // `series.color ?? colors[i]`, so a full-opacity color here would make the
-                    // ghost area indistinguishable from the active series.
-                    color: `${lineColor}30`,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                ]
-              : []),
-            {
-              id: CROSS_FILTER_SERIES_ID,
-              data: forecastData ? forecastData.historicalSeries : singleSeriesChartData!.values,
-              label: seriesLabel,
-              area: true,
-              connectNulls: true,
-              color: lineColor,
-              highlightScope: { highlight: 'item', fade: 'global' },
-              valueFormatter: seriesValueFormatter,
-            },
-            ...(forecastData
-              ? [
-                  {
-                    id: '__forecast__',
-                    data: forecastData.forecastSeries,
-                    label: localeText.chartForecastSeriesLabel,
-                    area: true,
-                    connectNulls: false,
-                    showMark: false,
-                    disableHighlight: true as const,
-                    color: lineColor,
-                    valueFormatter: seriesValueFormatter,
-                  } as const,
-                ]
-              : []),
-          ]}
-          colors={chartColors}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
-          highlightedItem={
-            selectedDataIndices.length > 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-              : controlledHighlightedItem
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
-          sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
-        >
-          {annotationChildren}
-        </LineChart>
-      </div>
-    );
   }
 
   // Default: bar chart (vertical or horizontal)

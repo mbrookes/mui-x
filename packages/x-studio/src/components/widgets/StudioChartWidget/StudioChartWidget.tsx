@@ -10,7 +10,8 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
-import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioChartType } from '../../../models/baseTypes';
 import {
   formatPeriodLabel,
   periodKeyToDateRange,
@@ -18,11 +19,6 @@ import {
   getTemporalAxisData,
   truncateToGranularity,
 } from '../../../internals/temporalUtils';
-import {
-  aggregateFunnelReached,
-  aggregateHeatmap,
-  aggregateSankey,
-} from '../../../internals/chartAggregation';
 import {
   useStudioController,
   useStudioSelector,
@@ -32,27 +28,13 @@ import {
   makeSelectActiveCrossFilter,
   makeSelectIncomingCrossFilters,
 } from '../../../context';
-import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
-import { StudioFunnelChart } from './StudioFunnelChart';
-import { StudioGanttChart } from './StudioGanttChart';
-import { StudioSankeyChart } from './StudioSankeyChart';
-import { StudioGaugeChart } from './StudioGaugeChart';
-import { StudioScatterChart } from './StudioScatterChart';
-import { StudioMixedChart } from './StudioMixedChart';
-import { StudioHeatmapChart } from './StudioHeatmapChart';
-import { StudioPieChart } from './StudioPieChart';
-import { StudioLineAreaChart } from './StudioLineAreaChart';
-import { StudioBarChart } from './StudioBarChart';
+import { CHART_TYPE_DEFS } from './chartTypeDefs';
+import type { ChartRenderContext } from './chartTypeDefs';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
-import {
-  makeValueFormatter,
-  normalizeCrossFilterValue,
-  crossFilterValueEquals,
-  resolveFieldDef,
-} from './chartWidgetHelpers';
+import { normalizeCrossFilterValue, crossFilterValueEquals } from './chartWidgetHelpers';
 import {
   canDetectAnomalies,
   detectChartDataAnomalies,
@@ -480,12 +462,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     ],
   );
 
-  const chartType = config.chartType ?? 'bar';
-  const isMixed = chartType === 'mixed';
-  const isHeatmap = chartType === 'heatmap';
-  const isFunnel = chartType === 'funnel';
-  const isGantt = chartType === 'gantt';
-  const isSankey = chartType === 'sankey';
+  const chartType = (config.chartType ?? 'bar') as StudioChartType;
   const barLayout = config.barLayout ?? 'grouped';
 
   // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
@@ -608,8 +585,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // without waiting for the React.useDeferredValue lag in hasCrossFilters.
   const hasIncomingCrossFilters = incomingCrossFilters.length > 0;
 
-  // Grouped or stacked bar charts (by category field OR multiple y-fields)
-  const isBar = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';
+  // Chart-type registry entry — drives which of the shared guards below apply
+  // (see `CHART_TYPE_DEFS` in `./chartTypeDefs` for the exact per-type rationale).
+  // Falls back to the `bar` entry for an unrecognized/legacy `chartType` string,
+  // mirroring the old if-chain's implicit fall-through-to-bar behavior.
+  const chartTypeDef = CHART_TYPE_DEFS[chartType] ?? CHART_TYPE_DEFS.bar;
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.
@@ -617,7 +597,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return <StudioWidgetErrorOverlay message={errorMessage} height={chartHeight} />;
   }
 
-  if (!dataSource || (!config.xField && chartType !== 'gauge' && chartType !== 'gantt')) {
+  if (!dataSource || (chartTypeDef.needsXField && !config.xField)) {
     return (
       <Box
         sx={{
@@ -633,40 +613,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  // ── Gauge chart ──────────────────────────────────────────────────────────────
-  if (chartType === 'gauge') {
-    const gaugeValueField = config.yField;
-    if (!gaugeValueField) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">{localeText.widgetConfigureGaugeHint}</Typography>
-        </Box>
-      );
-    }
-    const gaugeAggregation = config.yAggregation ?? 'sum';
-    const gaugeValue = computeAggregate(filteredRows, gaugeValueField, gaugeAggregation);
-    return (
-      <StudioGaugeChart
-        value={gaugeValue}
-        valueMin={config.gaugeMin ?? 0}
-        valueMax={config.gaugeMax ?? 100}
-        height={chartHeight}
-        slotProps={slotProps?.gaugeChart}
-      />
-    );
-  }
-
   // Blended mixed charts intentionally combine fields from independent sources on a
-  // shared categorical axis — the single-grain support analysis does not apply.
-  if (!isBlended && !chartSupport.supported && chartSupport.reason) {
+  // shared categorical axis — the single-grain support analysis does not apply. `isBlended`
+  // can only be true when `chartType === 'mixed'`, so this exemption is data-dependent
+  // (not encoded as a static per-type registry flag) and applies here for every type.
+  if (
+    chartTypeDef.runsSupportGuard &&
+    !isBlended &&
+    !chartSupport.supported &&
+    chartSupport.reason
+  ) {
     const NoDataOverlay = slots?.noDataOverlay;
     if (NoDataOverlay) {
       return <NoDataOverlay {...slotProps?.noDataOverlay} />;
@@ -703,543 +659,54 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   // No data after filtering — show overlay instead of an empty chart canvas
-  if (!isLoading && filteredRows.length === 0) {
+  if (chartTypeDef.runsNoDataGuard && !isLoading && filteredRows.length === 0) {
     return <StudioNoDataOverlay height={chartHeight} />;
   }
 
-  // Heatmap chart
-  if (isHeatmap) {
-    const heatXField = config.xField ?? '';
-    const heatYField = config.heatYField ?? '';
-    const heatValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
-    if (!heatXField || !heatYField || !heatValueField) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">
-            Heatmap requires column axis, row axis, and value fields.
-          </Typography>
-        </Box>
-      );
-    }
-    const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
-    const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
-    const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
-    const heatAggregation =
-      (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
-    const heatData = aggregateHeatmap(
-      filteredRows,
-      heatXField,
-      heatYField,
-      heatValueField,
-      xGroupBy,
-      heatAggregation,
-      xFieldDef?.orderedValues,
-      yFieldDef?.orderedValues,
-      config.heatSortBy,
-      config.heatSortDirection,
-    );
-    const heatFormatDef = valueFieldDef?.type
-      ? (valueFieldDef as Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>)
-      : undefined;
+  const renderContext: ChartRenderContext = {
+    config,
+    dataSource,
+    dataSources,
+    widgetSourceId: widget.sourceId,
+    expressionFields,
+    localeText,
+    slotProps,
+    chartHeight,
+    filteredRows,
+    xGroupBy,
+    barLayout,
+    isBlended,
+    activeYFields,
+    chartData,
+    allChartData,
+    seriesFieldData,
+    allSeriesFieldData,
+    multiYData,
+    allMultiYData,
+    enrichedRows,
+    allEnrichedRows,
+    scatterData,
+    scatterSeries,
+    allScatterData,
+    allScatterSeries,
+    shouldShowGhost,
+    formatLabel,
+    chartColors,
+    resolvedChartColors,
+    getSeriesColor,
+    preserveXFieldBaseline,
+    preserveSplitByBaseline,
+    skipAnimation,
+    getSelectedDataIndices,
+    hoveredItem,
+    hoveredAxis,
+    hasActiveXFilter,
+    hasIncomingCrossFilters,
+    onHoverChange: setHoveredItem,
+    onAxisHoverChange: setHoveredAxis,
+    onItemClick: handleItemClick,
+    annotationChildren,
+  };
 
-    return (
-      <StudioHeatmapChart
-        height={chartHeight}
-        heatData={heatData}
-        xFieldLabel={xFieldDef?.label}
-        yFieldLabel={yFieldDef?.label}
-        valueFieldDef={heatFormatDef}
-        colorScheme={config.heatColorScheme ?? 'primary'}
-        legendPosition={config.heatLegendPosition ?? 'bottom'}
-        legendAlign={config.heatLegendAlign ?? 'center'}
-      />
-    );
-  }
-
-  // Funnel chart
-  if (isFunnel) {
-    const funnelXField = config.xField ?? '';
-    const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
-    if (!funnelXField || !funnelValueField) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">
-            Funnel chart requires a stage field and a value field.
-          </Typography>
-        </Box>
-      );
-    }
-    const valueFieldDef = dataSource?.fields.find((f) => f.id === funnelValueField);
-
-    // Cumulative "reached stage" mode: count deals whose reached-depth is at or
-    // beyond each stage → monotonically non-increasing by construction (never
-    // > 100%). The terminal exit stage (e.g. Closed Lost) is excluded from the
-    // sequential math and reported separately. Opt-in via `funnelReachedField`.
-    if (config.funnelReachedField && config.funnelStageSequence) {
-      const reached = aggregateFunnelReached(
-        filteredRows,
-        funnelXField,
-        config.funnelReachedField,
-        config.funnelStageSequence,
-      );
-
-      return (
-        <StudioFunnelChart
-          stages={reached.stages.map((s) => ({ label: s.label, value: s.value }))}
-          height={chartHeight}
-          valueFormat="integer"
-          labelFormat={config.funnelLabelFormat}
-          labelPlacement={config.funnelLabelPlacement}
-          gap={config.funnelGap}
-          curve={config.funnelCurve}
-          variant={config.funnelVariant}
-        />
-      );
-    }
-
-    const useCount =
-      config.yAggregation === 'count' ||
-      (() => {
-        // Auto-detect: if the value field is non-numeric, fall back to count
-        for (const row of filteredRows) {
-          const v = row[funnelValueField];
-          if (v !== null && v !== undefined) {
-            return Number.isNaN(Number(v));
-          }
-        }
-        return false;
-      })();
-    // Aggregate: sum value (or count rows) per stage category
-    const stageMap = new Map<string, number>();
-    for (const row of filteredRows) {
-      const label = String(row[funnelXField] ?? '');
-      if (!label) {
-        continue;
-      }
-      if (useCount) {
-        stageMap.set(label, (stageMap.get(label) ?? 0) + 1);
-      } else {
-        stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
-      }
-    }
-    // Sort: 'natural' = insertion order; 'category' = orderedValues order (pre-sort, pass
-    // sort:'none'); 'value' / default = delegate to FunnelChart native sort:'descending'.
-    const sortBy = config.chartSortBy ?? 'category';
-    const categoryOrder =
-      config.funnelCategoryOrder ??
-      (sortBy === 'category'
-        ? (dataSource?.fields.find((f) => f.id === funnelXField)?.orderedValues ?? undefined)
-        : undefined);
-    let stages: { label: string; value: number }[];
-    let funnelSort: 'ascending' | 'descending' | 'none';
-    if (sortBy === 'natural') {
-      stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
-      funnelSort = 'none';
-    } else if (categoryOrder && categoryOrder.length > 0) {
-      const orderMap = new Map(categoryOrder.map((v, i) => [v, i]));
-      stages = [...stageMap.entries()]
-        .map(([label, value]) => ({ label, value }))
-        .sort((a, b) => {
-          const ia = orderMap.get(a.label) ?? Infinity;
-          const ib = orderMap.get(b.label) ?? Infinity;
-          return ia !== ib ? ia - ib : b.value - a.value;
-        });
-      funnelSort = 'none';
-    } else {
-      // Delegate value-descending sort to FunnelChart so it drives its own animation.
-      stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
-      funnelSort = 'descending';
-    }
-
-    // Auto-default label placement to outside-end when conversion format is chosen.
-    const funnelLabelFormat = config.funnelLabelFormat ?? 'value';
-    const funnelLabelPlacement =
-      config.funnelLabelPlacement ??
-      (funnelLabelFormat === 'conversion' ? 'outside-end' : 'inside');
-
-    return (
-      <StudioFunnelChart
-        stages={stages}
-        height={chartHeight}
-        valueFormat={valueFieldDef?.format}
-        currencyCode={valueFieldDef?.currencyCode}
-        labelFormat={funnelLabelFormat}
-        labelPlacement={funnelLabelPlacement}
-        gap={config.funnelGap}
-        curve={config.funnelCurve}
-        variant={config.funnelVariant}
-        sort={funnelSort}
-      />
-    );
-  }
-
-  // Sankey / flow diagram
-  if (isSankey) {
-    const sankeySourceField = config.xField ?? '';
-    const sankeyTargetField = config.sankeyTargetField ?? '';
-    const sankeyValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
-    if (!sankeySourceField || !sankeyTargetField || !sankeyValueField) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">
-            Sankey chart requires source, target, and value fields.
-          </Typography>
-        </Box>
-      );
-    }
-    const valueFieldDef = dataSource?.fields.find((f) => f.id === sankeyValueField);
-    const sankeyData = aggregateSankey(
-      filteredRows,
-      sankeySourceField,
-      sankeyTargetField,
-      sankeyValueField,
-    );
-    if (sankeyData.links.length === 0) {
-      return <StudioNoDataOverlay height={chartHeight} />;
-    }
-    return (
-      <StudioSankeyChart
-        data={sankeyData}
-        height={chartHeight}
-        linkColor={config.sankeyLinkColor}
-        showValues={config.sankeyShowValues}
-        valueFormat={valueFieldDef?.format}
-        currencyCode={valueFieldDef?.currencyCode}
-      />
-    );
-  }
-
-  // Gantt / timeline chart
-  if (isGantt) {
-    const labelField = config.ganttLabelField ?? '';
-    const startField = config.ganttStartField ?? '';
-    const endField = config.ganttEndField ?? '';
-    const colorField = config.ganttColorField;
-
-    if (!labelField || !startField || !endField) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">
-            Gantt chart requires a label field, start date field, and end date field.
-          </Typography>
-        </Box>
-      );
-    }
-
-    // Build items from filtered rows
-    const ganttItems: import('./StudioGanttChart').GanttItem[] = [];
-    const categorySet = new Set<string>();
-
-    for (const row of filteredRows) {
-      const label = String(row[labelField] ?? '');
-      const startRaw = row[startField];
-      const endRaw = row[endField];
-      if (!label || startRaw == null || endRaw == null) {
-        continue;
-      }
-      const startMs = new Date(startRaw as string).getTime();
-      const endMs = new Date(endRaw as string).getTime();
-      if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) {
-        continue;
-      }
-      const colorCategory = colorField ? String(row[colorField] ?? '') : undefined;
-      if (colorCategory) {
-        categorySet.add(colorCategory);
-      }
-      ganttItems.push({ label, startMs, endMs, colorCategory });
-    }
-
-    const categories = [...categorySet];
-
-    return <StudioGanttChart items={ganttItems} height={chartHeight} categories={categories} />;
-  }
-
-  // Scatter chart
-  if (chartType === 'scatter') {
-    const xAxisLabel =
-      resolveFieldDef(config.xField, dataSource, expressionFields)?.label ?? config.xField;
-    const yAxisLabel =
-      resolveFieldDef(config.yField, dataSource, expressionFields)?.label ?? config.yField;
-    return (
-      <StudioScatterChart
-        height={chartHeight}
-        colorField={config.scatterColorField}
-        sizeField={config.scatterSizeField}
-        minRadius={config.scatterMinRadius}
-        maxRadius={config.scatterMaxRadius}
-        scatterData={scatterData}
-        scatterSeries={scatterSeries}
-        allScatterData={allScatterData}
-        allScatterSeries={allScatterSeries}
-        shouldShowGhost={shouldShowGhost}
-        skipAnimation={skipAnimation}
-        colors={chartColors}
-        xAxisLabel={xAxisLabel}
-        yAxisLabel={yAxisLabel}
-        slotProps={slotProps?.scatterChart}
-      >
-        {annotationChildren}
-      </StudioScatterChart>
-    );
-  }
-
-  if (isMixed) {
-    if (!multiYData || multiYData.labels.length === 0) {
-      return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: chartHeight,
-            color: 'text.disabled',
-          }}
-        >
-          <Typography variant="body2">{localeText.chartMixedRequiresFieldsHint}</Typography>
-        </Box>
-      );
-    }
-
-    return (
-      <StudioMixedChart
-        multiYData={multiYData}
-        ySeries={config.ySeries ?? []}
-        dualYAxis={config.dualYAxis}
-        isBlended={isBlended}
-        resolvedChartColors={resolvedChartColors}
-        widgetSourceId={widget.sourceId}
-        dataSources={dataSources}
-        dataSource={dataSource}
-        height={chartHeight}
-        skipAnimation={skipAnimation}
-      >
-        {annotationChildren}
-      </StudioMixedChart>
-    );
-  }
-
-  // Site 1 — multi-Y bar dispatch. `chartData` is null when activeYFields.length > 1, so a
-  // multi-Y bar is reachable with a null/empty chartData; this dispatch therefore sits ABOVE
-  // the shared empty-guard below (the seriesField/single-series bars dispatch after it).
-  if (isBar && multiYData && multiYData.labels.length > 0) {
-    return (
-      <StudioBarChart
-        chartType={chartType as 'bar' | 'bar-stacked' | 'bar-100'}
-        height={chartHeight}
-        barLayout={barLayout}
-        chartData={chartData}
-        allChartData={allChartData}
-        seriesFieldData={seriesFieldData}
-        allSeriesFieldData={allSeriesFieldData}
-        multiYData={multiYData}
-        allMultiYData={allMultiYData}
-        activeYFields={activeYFields}
-        dataSource={dataSource}
-        expressionFields={expressionFields}
-        formatLabel={formatLabel}
-        defaultSeriesLabel={localeText.chartDefaultSeriesLabel}
-        barMinBandSize={config.barMinBandSize}
-        barCategoryGapRatio={config.barCategoryGapRatio}
-        axisTickFontSize={config.axisTickFontSize}
-        barMaxCategories={config.barMaxCategories}
-        barBandLabelWrap={config.barBandLabelWrap}
-        wrapBandLabelMaxLines={config.wrapBandLabelMaxLines}
-        chartColors={chartColors}
-        getSeriesColor={getSeriesColor}
-        shouldShowGhost={shouldShowGhost}
-        preserveXFieldBaseline={preserveXFieldBaseline}
-        preserveSplitByBaseline={preserveSplitByBaseline}
-        skipAnimation={skipAnimation}
-        getSelectedDataIndices={getSelectedDataIndices}
-        hoveredItem={hoveredItem}
-        hoveredAxis={hoveredAxis}
-        hasActiveXFilter={hasActiveXFilter}
-        hasIncomingCrossFilters={hasIncomingCrossFilters}
-        onHoverChange={setHoveredItem}
-        onAxisHoverChange={setHoveredAxis}
-        onItemClick={handleItemClick}
-        slotProps={slotProps?.barChart}
-      >
-        {annotationChildren}
-      </StudioBarChart>
-    );
-  }
-
-  if (!chartData || chartData.labels.length === 0) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: chartHeight,
-        }}
-      />
-    );
-  }
-
-  if (chartType === 'pie' || chartType === 'donut') {
-    const pieYFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
-    const pieValueFormatter = makeValueFormatter(
-      pieYFieldDef?.format,
-      pieYFieldDef?.currencyCode,
-      pieYFieldDef?.precision,
-    );
-    return (
-      <StudioPieChart
-        chartType={chartType}
-        height={chartHeight}
-        chartData={chartData}
-        allChartData={allChartData}
-        enrichedRows={enrichedRows}
-        allEnrichedRows={allEnrichedRows}
-        seriesField={config.seriesField}
-        xField={config.xField}
-        yField={config.yField}
-        activeYFields={activeYFields}
-        pieLegendBelow={!!config.pieLegendBelow}
-        pieArcLabel={config.pieArcLabel}
-        pieArcLabelMinAngle={config.pieArcLabelMinAngle}
-        pieMaxSlices={config.pieMaxSlices}
-        chartColors={chartColors}
-        resolvedChartColors={resolvedChartColors}
-        shouldShowGhost={shouldShowGhost}
-        preserveXFieldBaseline={preserveXFieldBaseline}
-        skipAnimation={skipAnimation}
-        valueFormatter={pieValueFormatter}
-        fieldLabel={pieYFieldDef?.label}
-        formatLabel={formatLabel}
-        getSelectedDataIndices={getSelectedDataIndices}
-        hoveredItem={hoveredItem}
-        hasActiveXFilter={hasActiveXFilter}
-        hasIncomingCrossFilters={hasIncomingCrossFilters}
-        onHoverChange={setHoveredItem}
-        onItemClick={handleItemClick}
-        slotProps={slotProps?.pieChart}
-      />
-    );
-  }
-
-  if (
-    chartType === 'line' ||
-    chartType === 'area' ||
-    chartType === 'area-stacked' ||
-    chartType === 'area-100'
-  ) {
-    return (
-      <StudioLineAreaChart
-        chartType={chartType}
-        height={chartHeight}
-        chartData={chartData}
-        allChartData={allChartData}
-        seriesFieldData={seriesFieldData}
-        allSeriesFieldData={allSeriesFieldData}
-        multiYData={multiYData}
-        allMultiYData={allMultiYData}
-        activeYFields={activeYFields}
-        dataSource={dataSource}
-        expressionFields={expressionFields}
-        xGroupBy={xGroupBy}
-        formatLabel={formatLabel}
-        forecast={config.forecast}
-        forecastSeriesLabel={localeText.chartForecastSeriesLabel}
-        defaultSeriesLabel={localeText.chartDefaultSeriesLabel}
-        chartColors={chartColors}
-        resolvedChartColors={resolvedChartColors}
-        getSeriesColor={getSeriesColor}
-        shouldShowGhost={shouldShowGhost}
-        preserveXFieldBaseline={preserveXFieldBaseline}
-        preserveSplitByBaseline={preserveSplitByBaseline}
-        skipAnimation={skipAnimation}
-        getSelectedDataIndices={getSelectedDataIndices}
-        hoveredItem={hoveredItem}
-        hoveredAxis={hoveredAxis}
-        hasActiveXFilter={hasActiveXFilter}
-        hasIncomingCrossFilters={hasIncomingCrossFilters}
-        onHoverChange={setHoveredItem}
-        onAxisHoverChange={setHoveredAxis}
-        onItemClick={handleItemClick}
-        slotProps={slotProps?.lineChart}
-      >
-        {annotationChildren}
-      </StudioLineAreaChart>
-    );
-  }
-
-  // Site 2 — seriesField + single-series bar dispatch. Every other chart type has already
-  // returned above, so at this point the chart is unconditionally a bar; the empty-guard
-  // above guarantees a non-null chartData for the single-series path.
-  return (
-    <StudioBarChart
-      chartType={chartType as 'bar' | 'bar-stacked' | 'bar-100'}
-      height={chartHeight}
-      barLayout={barLayout}
-      chartData={chartData}
-      allChartData={allChartData}
-      seriesFieldData={seriesFieldData}
-      allSeriesFieldData={allSeriesFieldData}
-      multiYData={multiYData}
-      allMultiYData={allMultiYData}
-      activeYFields={activeYFields}
-      dataSource={dataSource}
-      expressionFields={expressionFields}
-      formatLabel={formatLabel}
-      defaultSeriesLabel={localeText.chartDefaultSeriesLabel}
-      barMinBandSize={config.barMinBandSize}
-      barCategoryGapRatio={config.barCategoryGapRatio}
-      axisTickFontSize={config.axisTickFontSize}
-      barMaxCategories={config.barMaxCategories}
-      barBandLabelWrap={config.barBandLabelWrap}
-      wrapBandLabelMaxLines={config.wrapBandLabelMaxLines}
-      chartColors={chartColors}
-      getSeriesColor={getSeriesColor}
-      shouldShowGhost={shouldShowGhost}
-      preserveXFieldBaseline={preserveXFieldBaseline}
-      preserveSplitByBaseline={preserveSplitByBaseline}
-      skipAnimation={skipAnimation}
-      getSelectedDataIndices={getSelectedDataIndices}
-      hoveredItem={hoveredItem}
-      hoveredAxis={hoveredAxis}
-      hasActiveXFilter={hasActiveXFilter}
-      hasIncomingCrossFilters={hasIncomingCrossFilters}
-      onHoverChange={setHoveredItem}
-      onAxisHoverChange={setHoveredAxis}
-      onItemClick={handleItemClick}
-      slotProps={slotProps?.barChart}
-    >
-      {annotationChildren}
-    </StudioBarChart>
-  );
+  return chartTypeDef.render(renderContext);
 });

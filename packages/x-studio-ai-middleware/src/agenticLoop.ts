@@ -8,7 +8,11 @@
  * them to the client.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
-import { STUDIO_AI_TOOL_REGISTRY, type StudioAIToolFacts } from '@mui/x-studio-schema';
+import {
+  STUDIO_AI_TOOL_REGISTRY,
+  createMutationEnvelope,
+  type StudioAIToolFacts,
+} from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type {
   SerializableSkill,
@@ -461,7 +465,7 @@ async function* dispatchToolCall(
       );
       if (result.mutation) {
         ctx.usage.committedMutations += 1;
-        yield { type: 'state-mutation', mutation: result.mutation };
+        yield { type: 'state-mutation', ...createMutationEnvelope(result.mutation) };
       }
       return { kind: 'result', output: result.output, nextState: result.nextState };
     } catch (skillErr) {
@@ -572,7 +576,7 @@ async function* dispatchToolCall(
     // Approved: commit exactly like the allow path below.
     if (outcome.result.mutation) {
       ctx.usage.committedMutations += 1;
-      yield { type: 'state-mutation', mutation: outcome.result.mutation };
+      yield { type: 'state-mutation', ...createMutationEnvelope(outcome.result.mutation) };
     }
     return {
       kind: 'result',
@@ -585,7 +589,7 @@ async function* dispatchToolCall(
   // historical behavior for every tool not gated by the policy.
   if (outcome.result.mutation) {
     ctx.usage.committedMutations += 1;
-    yield { type: 'state-mutation', mutation: outcome.result.mutation };
+    yield { type: 'state-mutation', ...createMutationEnvelope(outcome.result.mutation) };
   }
   return {
     kind: 'result',

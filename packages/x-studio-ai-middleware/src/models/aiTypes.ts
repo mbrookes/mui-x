@@ -14,6 +14,7 @@ import type { StudioState } from './studioTypes';
 export type {
   SerializableSkill,
   StateMutation,
+  MutationEnvelope,
   StudioAIToolName,
   StudioAIFieldStat,
   StudioAILayoutWidget,

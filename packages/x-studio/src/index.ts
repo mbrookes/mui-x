@@ -255,6 +255,7 @@ export type { UseSpeechRecognitionReturn } from './components/StudioChatPanel/us
 // StudioAISkill (with server-side execute) and skill implementations live in @mui/x-studio-ai-middleware.
 export type {
   StateMutation,
+  MutationEnvelope,
   SerializableSkill,
   StudioAIToolName,
   StudioAIState,

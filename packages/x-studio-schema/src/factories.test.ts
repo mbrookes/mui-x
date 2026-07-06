@@ -3,6 +3,8 @@ import {
   createDefaultWidget,
   createDefaultStudioState,
   createWidgetId,
+  createMutationId,
+  createMutationEnvelope,
   normalizeChartSeries,
 } from './factories';
 
@@ -107,6 +109,39 @@ describe('createWidgetId', () => {
 
   it('produces ids with the `widget-` prefix', () => {
     expect(createWidgetId()).toMatch(/^widget-/);
+  });
+});
+
+describe('createMutationId', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const ids = Array.from({ length: 1000 }, () => createMutationId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids with the `mut-` prefix', () => {
+    expect(createMutationId()).toMatch(/^mut-/);
+  });
+});
+
+describe('createMutationEnvelope', () => {
+  const mutation = { type: 'setDashboardTitle', args: { title: 'Q3 Revenue' } } as const;
+
+  it('wraps the mutation unchanged under `mutation`', () => {
+    const envelope = createMutationEnvelope(mutation);
+    expect(envelope.mutation).toBe(mutation);
+  });
+
+  it('stamps a `mut-`-prefixed id and an ISO 8601 `at` timestamp', () => {
+    const envelope = createMutationEnvelope(mutation);
+    expect(envelope.id).toMatch(/^mut-/);
+    expect(() => new Date(envelope.at).toISOString()).not.toThrow();
+    expect(new Date(envelope.at).toISOString()).toBe(envelope.at);
+  });
+
+  it('mints a distinct id for every call', () => {
+    const first = createMutationEnvelope(mutation);
+    const second = createMutationEnvelope(mutation);
+    expect(first.id).not.toBe(second.id);
   });
 });
 

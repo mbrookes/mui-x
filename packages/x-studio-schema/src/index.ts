@@ -28,6 +28,8 @@ export type { StudioAIToolFacts } from './aiToolRegistry';
 export {
   createDefaultWidget,
   createWidgetId,
+  createMutationId,
+  createMutationEnvelope,
   normalizeGridColumn,
   normalizeChartSeries,
   createDefaultStudioState,

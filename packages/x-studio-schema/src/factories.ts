@@ -13,6 +13,7 @@ import type {
   StudioWidgetConfig,
 } from './widgetTypes';
 import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
+import type { StateMutation, MutationEnvelope } from './aiTypes';
 
 /**
  * Mints a collision-resistant widget ID.
@@ -32,6 +33,27 @@ let widgetIdSequence = 0;
 export function createWidgetId(): string {
   widgetIdSequence += 1;
   return `widget-${Date.now()}-${widgetIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Mints a collision-resistant mutation-envelope ID. Same scheme as
+ * {@link createWidgetId} (timestamp + per-process counter + random suffix) —
+ * see that function's doc comment for the collision-avoidance rationale.
+ */
+let mutationIdSequence = 0;
+export function createMutationId(): string {
+  mutationIdSequence += 1;
+  return `mut-${Date.now()}-${mutationIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Wraps a `StateMutation` in its wire-transport {@link MutationEnvelope}: a
+ * fresh `id` (via {@link createMutationId}) and the current time as `at`. The
+ * ONE place a `state-mutation` SSE event's envelope is constructed, so every
+ * producer (`agenticLoop.ts`'s three yield sites) stamps ids the same way.
+ */
+export function createMutationEnvelope<T extends StateMutation>(mutation: T): MutationEnvelope<T> {
+  return { id: createMutationId(), at: new Date().toISOString(), mutation };
 }
 
 /**

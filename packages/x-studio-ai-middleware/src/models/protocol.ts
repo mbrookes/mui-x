@@ -6,10 +6,10 @@
  * each encoded as `data: <JSON>\n\n`.
  */
 import type { StudioState, StudioCustomWidgetDef } from './studioTypes';
-import type { StateMutation, SerializableSkill, StudioAIRichContext } from './aiTypes';
+import type { MutationEnvelope, SerializableSkill, StudioAIRichContext } from './aiTypes';
 
 // Re-exported so consumers only need to import from @mui/x-studio-ai-middleware
-export type { StateMutation, SerializableSkill } from './aiTypes';
+export type { StateMutation, MutationEnvelope, SerializableSkill } from './aiTypes';
 
 // ── Request ───────────────────────────────────────────────────────────────────
 
@@ -72,8 +72,12 @@ export type StudioAISSEEvent =
       input?: unknown;
       output?: string;
     }
-  /** A state change the client must apply to its StudioController. */
-  | { type: 'state-mutation'; mutation: StateMutation }
+  /**
+   * A state change the client must apply to its StudioController, addressed as
+   * a {@link MutationEnvelope} (`id` + `at` alongside the `mutation` itself) so
+   * each mutation crossing the wire has an identity independent of its content.
+   */
+  | ({ type: 'state-mutation' } & MutationEnvelope)
   /** The model finished generating. */
   | { type: 'finish'; finishReason: string }
   /** Token and iteration usage for the completed request. Emitted just before `finish`. */

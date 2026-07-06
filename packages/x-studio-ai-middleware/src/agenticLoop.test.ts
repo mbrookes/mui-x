@@ -694,12 +694,18 @@ describe('runAgenticLoop — server-tool skill execution', () => {
 
     const mutationEvent = events.find(
       (ev) => (ev as { type: string }).type === 'state-mutation',
-    ) as { mutation: { type: string; args: { title: string } } } | undefined;
+    ) as
+      | { id: string; at: string; mutation: { type: string; args: { title: string } } }
+      | undefined;
     expect(mutationEvent).toBeDefined();
     expect(mutationEvent?.mutation).toEqual({
       type: 'setDashboardTitle',
       args: { title: 'Hi, Ada' },
     });
+    // Every `state-mutation` event is addressed as a MutationEnvelope: a fresh
+    // `mut-`-prefixed id plus an ISO 8601 production timestamp, alongside `mutation`.
+    expect(mutationEvent?.id).toMatch(/^mut-/);
+    expect(new Date(mutationEvent!.at).toISOString()).toBe(mutationEvent!.at);
 
     const complete = events.find(
       (ev) =>

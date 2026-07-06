@@ -181,6 +181,27 @@ export type StateMutation =
       };
     };
 
+/**
+ * A `StateMutation` addressed for wire transport: every mutation that crosses
+ * the AI-middleware ↔ client SSE boundary is wrapped in this envelope rather
+ * than sent bare, so it carries an identity (`id`) and a production timestamp
+ * (`at`) independent of the mutation's own domain fields (contrast with e.g.
+ * `renameAIThread.args.updatedAt` above, which is domain data the mutation
+ * itself persists — this `at` is transport metadata about the envelope).
+ *
+ * `id` is generated once, at the producer (`createMutationEnvelope`), and
+ * travels with the mutation end-to-end — the same shape a future replay/ack
+ * mechanism over SSE reconnects would need (mirroring `ChatStreamEnvelope`'s
+ * `sequence`-based dedup in `@mui/x-chat-headless`, used for chat-token chunks).
+ */
+export interface MutationEnvelope<T = StateMutation> {
+  /** Collision-resistant id, unique per envelope. See `createMutationId`. */
+  id: string;
+  /** ISO 8601 timestamp of when the envelope was produced (server-side). */
+  at: string;
+  mutation: T;
+}
+
 // ── Rich AI context ─────────────────────────────────────────────────────────
 // Extra, purely-additive context attached to each chat request to give the model
 // more signal without any user effort. Shared by both packages.

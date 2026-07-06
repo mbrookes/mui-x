@@ -7,6 +7,7 @@
 export type {
   SerializableSkill,
   StateMutation,
+  MutationEnvelope,
   StudioAIFieldStat,
   StudioAILayoutWidget,
   StudioAICrossFilterEdge,

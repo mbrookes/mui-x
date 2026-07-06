@@ -28,12 +28,39 @@ import type {
   SecurityColumns,
   SecurityColumnsConfig,
 } from '../security/types';
-import {
-  applyPredicates,
-  applySecurityPredicates,
-  resolvePrimarySecurityColumns,
-} from '../shared/predicates';
+import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
 import { checkColumnAgainstAllowlist } from '../shared/columnValidation';
+import {
+  compileSecurityPolicy,
+  isCompiledSecurityPolicy,
+  type CompiledSecurityPolicy,
+} from '../security/compileSecurityPolicy';
+
+/**
+ * The legacy `tenantColumn` positional argument of the mutation builders may now
+ * carry the already-compiled `CompiledSecurityPolicy` threaded from
+ * `handleMutation`. Direct callers (unit tests) still pass the legacy string.
+ */
+type TenantColumnOrPolicy = string | CompiledSecurityPolicy | undefined;
+
+/**
+ * Resolve the PRIMARY-table security columns through a `CompiledSecurityPolicy`.
+ *
+ * - Compiled policy (the request path) → used as-is (no recompile).
+ * - Legacy `(tenantColumn, securityColumns)` pair (direct callers) → compiled on
+ *   the spot, so the fallback chain runs inside `compileSecurityPolicy` and never
+ *   inline here.
+ */
+function resolvePrimaryCols(
+  table: string,
+  tenantColumnOrPolicy: TenantColumnOrPolicy,
+  securityColumns: SecurityColumnsConfig | undefined,
+): SecurityColumns {
+  const policy = isCompiledSecurityPolicy(tenantColumnOrPolicy)
+    ? tenantColumnOrPolicy
+    : compileSecurityPolicy({ tenantColumn: tenantColumnOrPolicy, securityColumns });
+  return policy.forPrimaryTable(table);
+}
 
 /**
  * Validate the row-level-security scope carried in a mutation's `values`.
@@ -98,7 +125,14 @@ export function validateMutation(
   options: Pick<
     HandleMutationOptions,
     'writableColumns' | 'tenantColumn' | 'columnAllowlist' | 'securityColumns'
-  >,
+  > & {
+    /**
+     * Pre-compiled security policy (threaded once from `handleMutation`). When
+     * present it is used verbatim; otherwise the legacy `tenantColumn` /
+     * `securityColumns` fields are compiled on the spot.
+     */
+    policy?: CompiledSecurityPolicy;
+  },
 ): void {
   // Require WHERE for update/delete — prevents full-table mutations.
   if (descriptor.operation !== 'insert' && (!descriptor.where || descriptor.where.length === 0)) {
@@ -108,12 +142,13 @@ export function validateMutation(
     );
   }
 
-  // Resolve the security columns for this table once — the same resolution the
-  // read/update/delete paths use (newer `securityColumns` OR legacy `tenantColumn`).
-  const cols = resolvePrimarySecurityColumns(
+  // Resolve the security columns for this table once, through the compiled
+  // policy — the same resolution the read/update/delete paths use (newer
+  // `securityColumns` OR legacy `tenantColumn`).
+  const cols = resolvePrimaryCols(
     descriptor.table,
+    options.policy ?? options.tenantColumn,
     options.securityColumns,
-    options.tenantColumn,
   );
 
   // Validate where-predicate columns against the column allowlist — mirrors the
@@ -153,11 +188,11 @@ export function buildInsertMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
+  tenantColumn?: TenantColumnOrPolicy,
   securityColumns?: SecurityColumnsConfig,
 ): any {
   const values: Record<string, unknown> = { ...descriptor.values };
-  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
+  const cols = resolvePrimaryCols(descriptor.table, tenantColumn, securityColumns);
 
   // Unconditionally set the tenant column — clients cannot set it to another tenant.
   if (cols.tenant) {
@@ -182,11 +217,11 @@ export function buildUpdateMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
+  tenantColumn?: TenantColumnOrPolicy,
   securityColumns?: SecurityColumnsConfig,
 ): any {
   const query = db(descriptor.table);
-  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
+  const cols = resolvePrimaryCols(descriptor.table, tenantColumn, securityColumns);
 
   // Unconditional security scope — applied first so it cannot be AND-ed away.
   // 'write' mode: an empty region scope (`regionIds: []`) throws rather than
@@ -219,11 +254,11 @@ export function buildDeleteMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
+  tenantColumn?: TenantColumnOrPolicy,
   securityColumns?: SecurityColumnsConfig,
 ): any {
   const query = db(descriptor.table);
-  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
+  const cols = resolvePrimaryCols(descriptor.table, tenantColumn, securityColumns);
 
   applySecurityPredicates(query, descriptor.table, claims, cols, 'write');
 

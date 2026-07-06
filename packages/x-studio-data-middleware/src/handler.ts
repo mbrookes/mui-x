@@ -33,6 +33,10 @@ import type {
   HandleBatchQueryOptions,
 } from './security/types';
 import { generateCacheKey } from './security/cacheKey';
+import {
+  compileSecurityPolicy,
+  type CompiledSecurityPolicy,
+} from './security/compileSecurityPolicy';
 import { LRUCacheProvider } from './cache/LRUCacheProvider';
 import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 import { runPreflight } from './router/preflight';
@@ -79,6 +83,13 @@ export async function handleBatchQuery(
 ): Promise<BatchQueryResponse> {
   const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn, securityColumns } =
     options;
+  // ── Compile the row-level-security policy ONCE for the whole request ───────
+  // The single compiled object is threaded down in place of the raw
+  // `(tenantColumn, securityColumns)` pair: the fallback chain now runs once here
+  // instead of fresh at every enforcement site, and `policy.digest` folds the
+  // resolved policy into the cache key so differently-scoped nodes never share
+  // cache entries (Gap B).
+  const policy = compileSecurityPolicy({ tenantColumn, securityColumns });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =
@@ -118,8 +129,7 @@ export async function handleBatchQuery(
         tierCacheProvider,
         tierCacheTtlMs,
         thresholds,
-        tenantColumn,
-        securityColumns,
+        policy,
       ),
     ),
   );
@@ -138,11 +148,10 @@ async function processWidget(
   tierCacheProvider: TierCacheProvider | null,
   tierCacheTtlMs: number,
   thresholds: HandleBatchQueryOptions['thresholds'],
-  tenantColumn: HandleBatchQueryOptions['tenantColumn'],
-  securityColumns: HandleBatchQueryOptions['securityColumns'],
+  policy: CompiledSecurityPolicy,
 ): Promise<WidgetQueryResult> {
   const cacheKey = generateCacheKey(claims, descriptor);
-  const queryOptions = { tenantColumn, securityColumns };
+  const queryOptions = policy;
 
   try {
     // ── 1. Data cache check ────────────────────────────────────────────────

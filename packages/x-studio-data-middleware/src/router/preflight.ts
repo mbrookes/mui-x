@@ -21,6 +21,7 @@ import type {
   HandleBatchQueryOptions,
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
+import type { CompiledSecurityPolicy } from '../security/compileSecurityPolicy';
 
 interface PreflightResult {
   rowCount: number;
@@ -43,7 +44,9 @@ export async function runPreflight(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options?:
+    | CompiledSecurityPolicy
+    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): Promise<PreflightResult> {
   // Build the query without column selection — only security + user filters
   const query = buildSecureQuery(db, claims, descriptor, options).count('* as row_count');

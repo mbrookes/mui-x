@@ -23,13 +23,12 @@ import type {
   HavingPredicate,
   HandleBatchQueryOptions,
 } from '../security/types';
-import {
-  applyPredicates,
-  applySecurityPredicates,
-  resolveJoinSecurityColumns,
-  resolvePrimarySecurityColumns,
-} from '../shared/predicates';
+import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
 import { resolveAlias } from '../shared/columnValidation';
+import {
+  toCompiledSecurityPolicy,
+  type CompiledSecurityPolicy,
+} from '../security/compileSecurityPolicy';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -47,9 +46,18 @@ export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options?:
+    | CompiledSecurityPolicy
+    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): any {
   const query = db(descriptor.table);
+
+  // Resolve the security policy ONCE. In the request path this is the compiled
+  // policy already threaded from the handler (returned as-is, no recompile);
+  // direct callers (unit tests) may still pass the legacy raw option pair, which
+  // is compiled on the spot. Enforcement then goes through the policy's
+  // `forPrimaryTable` / `forJoinedTable` — never the fallback chain inline.
+  const policy = toCompiledSecurityPolicy(options);
 
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
@@ -89,22 +97,12 @@ export function buildSecureQuery(
     query,
     descriptor.table,
     claims,
-    resolvePrimarySecurityColumns(
-      descriptor.table,
-      options?.securityColumns,
-      options?.tenantColumn,
-    ),
+    policy.forPrimaryTable(descriptor.table),
     'read',
   );
 
   for (const join of descriptor.joins ?? []) {
-    applySecurityPredicates(
-      query,
-      join.table,
-      claims,
-      resolveJoinSecurityColumns(join.table, options?.securityColumns, options?.tenantColumn),
-      'read',
-    );
+    applySecurityPredicates(query, join.table, claims, policy.forJoinedTable(join.table), 'read');
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────

@@ -34,6 +34,10 @@ import {
   buildDeleteMutation,
 } from './mutationBuilder';
 import { assertTablesAllowed } from '../shared/assertTablesAllowed';
+import {
+  compileSecurityPolicy,
+  type CompiledSecurityPolicy,
+} from '../security/compileSecurityPolicy';
 
 /**
  * Handle a batch of mutation operations from a Studio client.
@@ -47,7 +51,13 @@ export async function handleMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<BatchMutationResponse> {
-  const { schemaAllowlist } = options;
+  const { schemaAllowlist, tenantColumn, securityColumns } = options;
+
+  // ── Compile the row-level-security policy ONCE for the whole batch ─────────
+  // The single compiled object is threaded into every mutation builder in place
+  // of the raw `(tenantColumn, securityColumns)` pair, so the fallback chain runs
+  // once here instead of fresh at each of the four builder call sites.
+  const policy = compileSecurityPolicy({ tenantColumn, securityColumns });
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
   assertTablesAllowed(
@@ -63,7 +73,7 @@ export async function handleMutation(
   const results: MutationResult[] = [];
   for (const descriptor of body.mutations) {
     // eslint-disable-next-line no-await-in-loop
-    results.push(await processMutation(descriptor, claims, options));
+    results.push(await processMutation(descriptor, claims, options, policy));
   }
 
   return { results };
@@ -73,9 +83,9 @@ async function processMutation(
   descriptor: MutationDescriptor,
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
+  policy: CompiledSecurityPolicy,
 ): Promise<MutationResult> {
-  const { db, writableColumns, tenantColumn, cacheProvider, columnAllowlist, securityColumns } =
-    options;
+  const { db, writableColumns, cacheProvider, columnAllowlist } = options;
 
   try {
     // Validate operation type
@@ -86,25 +96,19 @@ async function processMutation(
     }
 
     // Validate invariants (writable columns, required WHERE, tenant/region/
-    // department scope on values) before building query
+    // department scope on values) before building query — using the compiled
+    // policy so resolution matches the builders exactly.
     validateMutation(descriptor, claims, {
       writableColumns,
-      tenantColumn,
       columnAllowlist,
-      securityColumns,
+      policy,
     });
 
     let rowsAffected: number;
 
     switch (descriptor.operation) {
       case 'insert': {
-        const result = await buildInsertMutation(
-          db,
-          claims,
-          descriptor,
-          tenantColumn,
-          securityColumns,
-        );
+        const result = await buildInsertMutation(db, claims, descriptor, policy);
         // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others.
         if (Array.isArray(result)) {
           rowsAffected = result.length;
@@ -116,24 +120,12 @@ async function processMutation(
         break;
       }
       case 'update': {
-        const result = await buildUpdateMutation(
-          db,
-          claims,
-          descriptor,
-          tenantColumn,
-          securityColumns,
-        );
+        const result = await buildUpdateMutation(db, claims, descriptor, policy);
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
       case 'delete': {
-        const result = await buildDeleteMutation(
-          db,
-          claims,
-          descriptor,
-          tenantColumn,
-          securityColumns,
-        );
+        const result = await buildDeleteMutation(db, claims, descriptor, policy);
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }

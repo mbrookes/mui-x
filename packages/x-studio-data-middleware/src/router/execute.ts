@@ -14,6 +14,7 @@ import type {
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
 import { resolveAlias } from '../shared/columnValidation';
+import type { CompiledSecurityPolicy } from '../security/compileSecurityPolicy';
 
 type RoutingTier = 'client' | 'server' | 'db';
 
@@ -29,7 +30,9 @@ export async function executeForTier(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   tier: RoutingTier,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options?:
+    | CompiledSecurityPolicy
+    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
 ): Promise<Record<string, unknown>[]> {
   /** Resolve a logical column ID to its physical SQL column via the shared resolver. */
   const physicalCol = (c: string): string => resolveAlias(descriptor, c);

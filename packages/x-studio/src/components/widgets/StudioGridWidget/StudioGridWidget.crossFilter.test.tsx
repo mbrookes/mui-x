@@ -1,7 +1,11 @@
 import * as React from 'react';
 import { createRenderer, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import type {
+  CreateDefaultStudioStateOverrides,
+  StudioDataSource,
+  StudioWidget,
+} from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioGridWidget } from './StudioGridWidget';
 
@@ -45,10 +49,12 @@ function makeWidget(): StudioWidget {
 function setup() {
   const source = makeSource();
   const widget = makeWidget();
-  const initialState: Partial<StudioState> = {
-    dataSources: { src: source },
-    widgets: { [widget.id]: widget },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+  const initialState: CreateDefaultStudioStateOverrides = {
+    doc: {
+      widgets: { [widget.id]: widget },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+    },
+    runtime: { dataSources: { src: source } },
   };
   const { controller, wrapper } = createStudioHarness({ initialState });
   const utils = render(
@@ -82,7 +88,7 @@ describe('StudioGridWidget — cross-filter click toggle', () => {
     expect(cell).not.toBe(null);
     fireEvent.click(cell!);
 
-    const filters = controller.getState().filters;
+    const filters = controller.getState().doc.filters;
     const applied = filters.find((f) => f.scope.kind === 'cross-filter');
     expect(applied?.field).toBe('label');
     expect(applied?.value).toBe(null);
@@ -92,10 +98,14 @@ describe('StudioGridWidget — cross-filter click toggle', () => {
     const { controller, container } = setup();
     const cell = container.querySelector('[data-id="r1"] [data-field="label"]');
     fireEvent.click(cell!);
-    expect(controller.getState().filters.some((f) => f.scope.kind === 'cross-filter')).toBe(true);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      true,
+    );
 
     fireEvent.click(cell!);
-    expect(controller.getState().filters.some((f) => f.scope.kind === 'cross-filter')).toBe(false);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      false,
+    );
   });
 
   it('clicking a null-valued cell then an undefined-valued cell toggles the filter off', () => {
@@ -110,9 +120,13 @@ describe('StudioGridWidget — cross-filter click toggle', () => {
     expect(undefinedCell).not.toBe(null);
 
     fireEvent.click(nullCell!);
-    expect(controller.getState().filters.some((f) => f.scope.kind === 'cross-filter')).toBe(true);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      true,
+    );
 
     fireEvent.click(undefinedCell!);
-    expect(controller.getState().filters.some((f) => f.scope.kind === 'cross-filter')).toBe(false);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      false,
+    );
   });
 });

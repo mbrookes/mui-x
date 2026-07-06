@@ -20,17 +20,21 @@ function widget(overrides: Partial<StudioWidget> = {}): StudioWidget {
 function setup(
   options: {
     widget?: StudioWidget;
-    shell?: Partial<StudioState['shell']>;
+    shell?: Partial<StudioState['session']['shell']>;
     onUnconfiguredClick?: (id: string) => void;
-    mode?: StudioState['mode'];
+    mode?: StudioState['session']['mode'];
   } = {},
 ) {
   const w = options.widget ?? widget();
   const { controller, wrapper } = createStudioHarness({
     initialState: {
-      widgets: { [w.id]: w },
-      ...(options.mode ? { mode: options.mode } : {}),
-      ...(options.shell ? { shell: options.shell as StudioState['shell'] } : {}),
+      doc: {
+        widgets: { [w.id]: w },
+      },
+      session: {
+        ...(options.mode ? { mode: options.mode } : {}),
+        ...(options.shell ? { shell: options.shell as StudioState['session']['shell'] } : {}),
+      },
     },
   });
   const setSelectedSpy = vi.spyOn(controller, 'setSelectedWidget');

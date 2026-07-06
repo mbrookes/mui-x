@@ -1,7 +1,11 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioFilterState, StudioState, StudioWidget } from '../../models';
+import type {
+  CreateDefaultStudioStateOverrides,
+  StudioFilterState,
+  StudioWidget,
+} from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
@@ -20,15 +24,19 @@ function renderWithSelectedWidget(
   options: { filters?: StudioFilterState[]; localeText?: Partial<StudioLocaleText> } = {},
 ) {
   const { filters, localeText } = options;
-  const initialState: Partial<StudioState> = {
-    dataSources: { src: SOURCE },
-    widgets: { [widget.id]: widget },
-    ...(filters ? { filters } : {}),
-    shell: {
-      openDrawers: { data: false, compose: false, filters: true },
-      selectedWidgetId: widget.id,
-      selectedFieldId: null,
-      selectedSourceId: null,
+  const initialState: CreateDefaultStudioStateOverrides = {
+    doc: {
+      widgets: { [widget.id]: widget },
+      ...(filters ? { filters } : {}),
+    },
+    runtime: { dataSources: { src: SOURCE } },
+    session: {
+      shell: {
+        openDrawers: { data: false, compose: false, filters: true },
+        selectedWidgetId: widget.id,
+        selectedFieldId: null,
+        selectedSourceId: null,
+      },
     },
   };
   const { wrapper } = createStudioHarness({

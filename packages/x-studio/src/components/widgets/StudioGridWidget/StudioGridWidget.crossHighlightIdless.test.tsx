@@ -1,7 +1,11 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import type {
+  CreateDefaultStudioStateOverrides,
+  StudioDataSource,
+  StudioWidget,
+} from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioGridWidget } from './StudioGridWidget';
 
@@ -52,22 +56,24 @@ function makeWidget(): StudioWidget {
 function setup() {
   const source = makeIdLessSource();
   const widget = makeWidget();
-  const initialState: Partial<StudioState> = {
-    dataSources: { src: source },
-    widgets: { [widget.id]: widget },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
-    // A chart-click cross-filter from a DIFFERENT widget, targeting `category === 'a'`.
-    // The grid is in the default `cross-highlight` mode, so it should show all 3 rows but
-    // dim the ones that don't match (the single `category === 'b'` row).
-    filters: [
-      {
-        id: 'cf-1',
-        field: 'category',
-        operator: 'equals',
-        value: 'a',
-        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
-      },
-    ],
+  const initialState: CreateDefaultStudioStateOverrides = {
+    doc: {
+      widgets: { [widget.id]: widget },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+      // A chart-click cross-filter from a DIFFERENT widget, targeting `category === 'a'`.
+      // The grid is in the default `cross-highlight` mode, so it should show all 3 rows but
+      // dim the ones that don't match (the single `category === 'b'` row).
+      filters: [
+        {
+          id: 'cf-1',
+          field: 'category',
+          operator: 'equals',
+          value: 'a',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+        },
+      ],
+    },
+    runtime: { dataSources: { src: source } },
   };
   const { controller, wrapper } = createStudioHarness({ initialState });
   const utils = render(

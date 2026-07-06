@@ -2,9 +2,9 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type {
+  CreateDefaultStudioStateOverrides,
   StudioDataSource,
   StudioRelationship,
-  StudioState,
   StudioWidget,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
@@ -95,22 +95,24 @@ function setup() {
   const orders = makeOrdersSource();
   const customers = makeCustomersSource();
   const widget = makeWidget();
-  const initialState: Partial<StudioState> = {
-    dataSources: { orders, customers },
-    relationships,
-    widgets: { [widget.id]: widget },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
-    // Incoming chart-click cross-filter from a DIFFERENT widget: region === 'EU'.
-    // Default `cross-highlight` mode → show all 3 rows, dim the non-EU one only.
-    filters: [
-      {
-        id: 'cf-1',
-        field: 'region',
-        operator: 'equals',
-        value: 'EU',
-        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
-      },
-    ],
+  const initialState: CreateDefaultStudioStateOverrides = {
+    doc: {
+      relationships,
+      widgets: { [widget.id]: widget },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+      // Incoming chart-click cross-filter from a DIFFERENT widget: region === 'EU'.
+      // Default `cross-highlight` mode → show all 3 rows, dim the non-EU one only.
+      filters: [
+        {
+          id: 'cf-1',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+        },
+      ],
+    },
+    runtime: { dataSources: { orders, customers } },
   };
   const { controller, wrapper } = createStudioHarness({ initialState });
   const utils = render(

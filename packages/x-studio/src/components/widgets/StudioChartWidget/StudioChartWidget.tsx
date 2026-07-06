@@ -5,12 +5,12 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
-import { PieChart, PieChartProps } from '@mui/x-charts/PieChart';
+import type { PieChartProps } from '@mui/x-charts/PieChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box, Typography, useTheme } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 
 import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../models';
 import {
@@ -21,7 +21,6 @@ import {
   truncateToGranularity,
 } from '../../../internals/temporalUtils';
 import {
-  aggregateByField,
   aggregateFunnelReached,
   aggregateHeatmap,
   aggregateSankey,
@@ -42,11 +41,7 @@ import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { SourceSelectionContext } from './SourceSelectionContext';
 import { SourceSelectionBar } from './SourceSelectionBar';
-import {
-  ChartFieldTitleContext,
-  AxisFieldTooltip,
-  ItemFieldTooltip,
-} from './StudioChartFieldTooltip';
+import { AxisFieldTooltip } from './StudioChartFieldTooltip';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -54,11 +49,10 @@ import { StudioGaugeChart } from './StudioGaugeChart';
 import { StudioScatterChart } from './StudioScatterChart';
 import { StudioMixedChart } from './StudioMixedChart';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
+import { StudioPieChart } from './StudioPieChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
-import { PieHighlightContext } from './PieCrossHighlightContext';
-import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
 import {
   alignFilteredToAllLabels,
   makeCrossFilterValueFormatter,
@@ -76,18 +70,6 @@ import {
   isAnomalyAnnotation,
 } from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
-
-function EmptyLegend() {
-  return null;
-}
-// Pie/donut slots: cross-highlight arc + a field-titled tooltip (question as title, slice
-// as the labelled row). The "no legend" variant also suppresses the built-in legend.
-const PIE_FIELD_SLOTS = { ...PIE_HIGHLIGHT_SLOTS, tooltip: ItemFieldTooltip } as const;
-const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = {
-  ...PIE_HIGHLIGHT_SLOTS,
-  legend: EmptyLegend,
-  tooltip: ItemFieldTooltip,
-} as const;
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -160,7 +142,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     slotProps,
   } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
-  const theme = useTheme();
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
@@ -678,66 +659,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     [selectedFilterValues, selectedPeriodKey, xGroupBy],
   );
 
-  // Pre-compute grouped-ring pie data: one ring per xField category, each ring
-  // divided into slices by seriesField — like grouped bars but as concentric rings.
-  const twoRingData = React.useMemo(() => {
-    if (
-      (chartType !== 'pie' && chartType !== 'donut') ||
-      !config.seriesField ||
-      !config.xField ||
-      enrichedRows.length === 0
-    ) {
-      return null;
-    }
-    const xField = config.xField;
-    const sliceField = config.seriesField;
-    const yField = config.yField ?? activeYFields[0] ?? '';
-
-    // Always use baseline rows so cross-filters dim rather than remove slices.
-    const baseRows = allEnrichedRows.length > 0 ? allEnrichedRows : enrichedRows;
-
-    // Get unique category values (xField) in stable order.
-    const categories = [...new Set(baseRows.map((r) => String(r[xField] ?? '')))].filter(Boolean);
-
-    // For each category, aggregate by sliceField within that category's rows.
-    const rings = categories.map((category) => {
-      const catRows = baseRows.filter((r) => String(r[xField] ?? '') === category);
-      const agg = aggregateByField(catRows, sliceField, yField);
-      return { id: `ring-${category}`, label: category, slices: agg };
-    });
-
-    // Filtered label sets for dimming when cross-filters are active.
-    const filteredCategories = shouldShowGhost
-      ? new Set(enrichedRows.map((r) => String(r[xField] ?? '')))
-      : null;
-    const filteredSlicesByCategory = shouldShowGhost
-      ? new Map(
-          categories.map((cat) => {
-            const catRows = enrichedRows.filter((r) => String(r[xField] ?? '') === cat);
-            const agg = aggregateByField(catRows, sliceField, yField);
-            return [cat, new Set(agg.labels.map(String))];
-          }),
-        )
-      : null;
-
-    return { rings, filteredCategories, filteredSlicesByCategory };
-  }, [
-    chartType,
-    config.seriesField,
-    config.xField,
-    config.yField,
-    activeYFields,
-    enrichedRows,
-    allEnrichedRows,
-    shouldShowGhost,
-  ]);
-
   const currentHighlightableSeriesIds = React.useMemo(() => {
     if (chartType === 'pie' || chartType === 'donut') {
-      if (config.seriesField && twoRingData) {
-        return new Set(twoRingData.rings.map((r) => r.id));
-      }
-      return new Set([CROSS_FILTER_SERIES_ID]);
+      // Pie/donut highlightable ids are resolved inside StudioPieChart, which owns the
+      // grouped-ring data. Return an empty set here so the orchestrator's shared
+      // `controlledHighlightedItem` never gates the pie (the pie computes its own).
+      return new Set<string>();
     }
 
     if (
@@ -770,8 +697,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     return new Set<string>();
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct; config.seriesField is a stable selector
-  }, [multiYData, chartType, seriesFieldData, config.seriesField, twoRingData]);
+  }, [multiYData, chartType, seriesFieldData]);
 
   // Non-deferred: suppresses stale hover immediately when any other widget emits a cross-filter,
   // without waiting for the React.useDeferredValue lag in hasCrossFilters.
@@ -918,41 +844,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }),
     };
   }, [shouldShowGhost, isBar, allMultiYData]);
-
-  // ── Pie cross-highlight context (must be before any early returns) ───────────
-  // Computed at top level to satisfy the Rules of Hooks (no conditional useMemo).
-  const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
-  const isPieHighlightActive = Boolean(
-    isPieOrDonut && shouldShowGhost && allChartData && preserveXFieldBaseline,
-  );
-  const pieRatioByIndex = React.useMemo((): Map<number, number> => {
-    if (!isPieHighlightActive || !allChartData || !chartData) {
-      return new Map();
-    }
-    const filteredValueMap = new Map(
-      chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
-    );
-    const map = new Map<number, number>();
-    allChartData.labels.forEach((label, i) => {
-      const allValue = allChartData.values[i];
-      const filteredValue = filteredValueMap.get(String(label)) ?? 0;
-      map.set(i, allValue > 0 ? filteredValue / allValue : 1);
-    });
-    return map;
-  }, [isPieHighlightActive, allChartData, chartData]);
-
-  const pieHighlightCtxValue = React.useMemo(
-    () => ({ ratioByIndex: pieRatioByIndex, isActive: isPieHighlightActive, skipAnimation }),
-    [pieRatioByIndex, isPieHighlightActive, skipAnimation],
-  );
-
-  // Filtered values by label string for pie tooltip/legend/arc labels when highlight is active
-  const pieFilteredValueByLabel = React.useMemo((): Map<string, number> => {
-    if (!isPieHighlightActive || !chartData) {
-      return new Map();
-    }
-    return new Map(chartData.labels.map((l, i) => [String(l), chartData.values[i] ?? 0]));
-  }, [isPieHighlightActive, chartData]);
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.
@@ -1606,439 +1497,44 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (chartType === 'pie' || chartType === 'donut') {
-    const donutHole = chartType === 'donut' ? 50 : 0;
-    const pieLegendBelow = !!config.pieLegendBelow;
-    const twoRingBottomM = pieLegendBelow ? 150 : 16;
-    const twoRingPieH = Math.max(chartHeight, pieLegendBelow ? 420 : 280);
-    const twoRingTopM = 16;
-    // Cap maxRadius so the outermost ring doesn't overflow into the legend area
-    const maxRadius = Math.min(
-      Math.round(chartHeight * 0.38),
-      Math.floor((twoRingPieH - twoRingTopM - twoRingBottomM) / 2),
-    );
-    // Arc label configuration for single-series pie/donut
-    const pieArcLabelCfg = config.pieArcLabel;
-    const pieArcLabelMinAngle = config.pieArcLabelMinAngle ?? 20;
-
-    // ── Grouped rings: one ring per xField category, slices by seriesField ──
-    if (config.seriesField && twoRingData) {
-      const { rings, filteredCategories, filteredSlicesByCategory } = twoRingData;
-      const n = rings.length;
-      if (n === 0) {
-        return <div style={{ height: chartHeight }} />;
-      }
-
-      const totalSpace = maxRadius - donutHole;
-      const ringGapActual = 1;
-      const ringWidth = Math.max(6, Math.floor((totalSpace - ringGapActual * (n - 1)) / n));
-
-      const pieSeries = rings.map((ring, ringIndex) => {
-        const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
-        const innerRadius = Math.max(donutHole, outerRadius - ringWidth);
-        const isCatDimmed = filteredCategories != null && !filteredCategories.has(ring.label);
-        const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
-        const ringTotal = ring.slices.values.reduce((sum, v) => sum + (v ?? 0), 0);
-
-        // For multi-ring, compute per-ring arc label props
-        let ringArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
-        if (pieArcLabelCfg === 'value') {
-          ringArcLabel = 'value';
-        } else if (pieArcLabelCfg === 'percent' && ringTotal > 0) {
-          ringArcLabel = (item) => `${((item.value / ringTotal) * 100).toFixed(1)}%`;
-        }
-
-        return {
-          id: ring.id,
-          label: ring.label,
-          innerRadius,
-          outerRadius,
-          ...(ringArcLabel
-            ? { arcLabel: ringArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
-            : {}),
-          data: ring.slices.labels.map((label, i) => {
-            const isDimmed =
-              isCatDimmed || (filteredSlices != null && !filteredSlices.has(String(label)));
-            const color = resolvedChartColors[i % resolvedChartColors.length];
-            return {
-              id: i,
-              // Use a function label: tooltip gets the slice name, legend only
-              // shows entries for the outermost ring to avoid duplicates.
-              label:
-                ringIndex === 0
-                  ? formatLabel(label)
-                  : (location: 'legend' | 'tooltip' | 'arc') =>
-                      location === 'tooltip' ? formatLabel(label) : '',
-              value: ring.slices.values[i] ?? 0,
-              ...(isDimmed && { color: `${color}40` }),
-            };
-          }),
-          highlightScope: { highlight: 'item' as const, fade: 'series' as const },
-        };
-      });
-
-      return (
-        <PieChart
-          {...slotProps?.pieChart}
-          height={twoRingPieH}
-          skipAnimation={skipAnimation}
-          series={pieSeries}
-          colors={chartColors}
-          {...(pieLegendBelow && {
-            slotProps: {
-              legend: {
-                direction: 'vertical' as const,
-                position: { vertical: 'bottom' as const, horizontal: 'center' as const },
-              },
-            },
-          })}
-          margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
-          highlightedItem={controlledHighlightedItem}
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-        />
-      );
-    }
-
-    // ── Single series paths ───────────────────────────────────────────────
-    const pieH = Math.max(chartHeight, 280);
-    const pieSideM = 50;
-    const pieTopM = 20;
-    const pieBottomM = 12;
-    // For donut: shrink outerRadius so outside arc labels stay within the drawing area
-    const donutLabelOverhang = 18;
-    const pieSingleOuterRadius =
-      chartType === 'donut'
-        ? Math.floor((pieH - pieTopM - pieBottomM) / 2) - donutLabelOverhang
-        : undefined;
-    const singleInnerRadius =
-      chartType === 'donut' && pieSingleOuterRadius !== undefined
-        ? Math.round(pieSingleOuterRadius * 0.7)
-        : 0;
-    const singleArcLabelRadius =
-      chartType === 'donut' && pieSingleOuterRadius !== undefined
-        ? pieSingleOuterRadius + donutLabelOverhang
-        : undefined;
-
-    // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
-    const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
-
-    // Apply "Other" grouping if pieMaxSlices is configured.
-    // Trigger when we have >= pieMaxSlices items (>= so N items collapses the last one).
-    // Also absorb any top-N item whose share is < 1% of total into the "Other" group.
-    const pieMaxSlices = config.pieMaxSlices;
-    let displayLabels = pieBaseData.labels;
-    let displayValues: (number | undefined)[] = pieBaseData.values;
-    if (pieMaxSlices && displayLabels.length >= pieMaxSlices) {
-      const rawTotal = displayValues.reduce<number>((s, v) => s + (v ?? 0), 0);
-      const minPct = rawTotal > 0 ? rawTotal * 0.01 : 0; // 1% threshold
-      const pairs = displayLabels.map((label, i) => ({
-        label,
-        value: displayValues[i] ?? 0,
-      }));
-      pairs.sort((a, b) => b.value - a.value);
-      // Keep up to topN items that individually exceed the 1% threshold
-      const topN = pieMaxSlices - 1;
-      const kept: typeof pairs = [];
-      const grouped: typeof pairs = [];
-      for (const p of pairs) {
-        if (kept.length < topN && p.value >= minPct) {
-          kept.push(p);
-        } else {
-          grouped.push(p);
-        }
-      }
-      const otherValue = grouped.reduce((sum, p) => sum + p.value, 0);
-      if (otherValue > 0 || grouped.length > 0) {
-        const existingOtherIdx = kept.findIndex((p) => p.label === 'Other');
-        if (existingOtherIdx >= 0) {
-          kept[existingOtherIdx] = {
-            label: 'Other',
-            value: kept[existingOtherIdx].value + otherValue,
-          };
-          displayLabels = kept.map((p) => p.label);
-          displayValues = kept.map((p) => p.value);
-        } else {
-          displayLabels = [...kept.map((p) => p.label), 'Other'];
-          displayValues = [...kept.map((p) => p.value), otherValue];
-        }
-      }
-    }
-
-    // When no "Other" grouping is applied, displayLabels === pieBaseData.labels (which is
-    // allChartData.labels while a cross-highlight is active, chartData.labels otherwise) —
-    // the same ordering the arcs below are rendered from. Compute the highlighted indices
-    // against that ordering so an own-selection plus an incoming cross-filter highlights the
-    // correct arc. (With pieMaxSlices the labels are re-sorted/grouped, so we skip highlighting.)
-    const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(displayLabels);
-
-    // Value formatter for pie y-field — seriesValueFormatter isn't in scope here (declared after early return)
     const pieYFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const pieValueFormatter = makeValueFormatter(
       pieYFieldDef?.format,
       pieYFieldDef?.currencyCode,
       pieYFieldDef?.precision,
     );
-
-    // When cross-highlight is active: build filtered values parallel to displayLabels
-    // (handles "Other" grouping by summing filtered values of ungrouped labels)
-    let filteredDisplayValues: number[] | null = null;
-    if (isPieHighlightActive && pieFilteredValueByLabel.size > 0) {
-      const keepSet = new Set(displayLabels.filter((l) => String(l) !== 'Other').map(String));
-      filteredDisplayValues = displayLabels.map((label) => {
-        if (String(label) === 'Other') {
-          let sum = 0;
-          for (const [lbl, fv] of pieFilteredValueByLabel) {
-            if (!keepSet.has(lbl)) {
-              sum += fv;
-            }
-          }
-          return sum;
-        }
-        return pieFilteredValueByLabel.get(String(label)) ?? 0;
-      });
-    }
-
-    // Compute arc label props for single-series pie/donut
-    const singlePieTotal = displayValues.reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    const filteredPieTotal = filteredDisplayValues
-      ? filteredDisplayValues.reduce((s, v) => s + v, 0)
-      : 0;
-    // Capture local copy to avoid TDZ in valueFormatter closures
-    const localPieValueFormatter = pieValueFormatter;
-    let singleArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
-    if (pieArcLabelCfg === 'value') {
-      if (filteredDisplayValues) {
-        const localFilteredDisplayValues = filteredDisplayValues;
-        singleArcLabel = (item) => {
-          const idx = (item as { id?: number; value: number }).id ?? 0;
-          const fv = localFilteredDisplayValues[idx] ?? 0;
-          const bv = item.value;
-          if (fv === bv) {
-            return localPieValueFormatter(bv);
-          }
-          return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
-        };
-      } else {
-        singleArcLabel = 'value';
-      }
-    } else if (pieArcLabelCfg === 'percent' && singlePieTotal > 0) {
-      const total = singlePieTotal;
-      if (filteredDisplayValues && filteredPieTotal > 0) {
-        const fTotal = filteredPieTotal;
-        const localFilteredDisplayValues = filteredDisplayValues;
-        singleArcLabel = (item) => {
-          const idx = (item as { id?: number; value: number }).id ?? 0;
-          const fv = localFilteredDisplayValues[idx] ?? 0;
-          const filtPct = `${((fv / fTotal) * 100).toFixed(1)}%`;
-          const basePct = `${((item.value / total) * 100).toFixed(1)}%`;
-          if (fv === item.value) {
-            return basePct;
-          }
-          return `${filtPct} / ${basePct}`;
-        };
-      } else {
-        singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
-      }
-    }
-
-    // Resolve the colour palette for both the arc slices and the custom legend so
-    // they always agree.  Priority: explicit chartColors > theme MuiPieChart default
-    // props > resolvedChartColors (blueberryTwilightPalette fallback).
-    const themeDefaultPieColors = (
-      theme.components as
-        | Record<string, { defaultProps?: { colors?: string[] } } | undefined>
-        | undefined
-    )?.MuiPieChart?.defaultProps?.colors;
-    const pieColors: string[] = chartColors ?? themeDefaultPieColors ?? resolvedChartColors;
-
-    // Shared series definition for both legend modes
-    const pieSingleSeries = [
-      {
-        id: CROSS_FILTER_SERIES_ID,
-        ...(pieLegendBelow && pieSingleOuterRadius !== undefined
-          ? { outerRadius: pieSingleOuterRadius }
-          : {}),
-        innerRadius: singleInnerRadius,
-        ...(singleArcLabel
-          ? {
-              arcLabel: singleArcLabel,
-              arcLabelMinAngle: pieArcLabelMinAngle,
-              ...(pieLegendBelow && singleArcLabelRadius !== undefined
-                ? { arcLabelRadius: singleArcLabelRadius }
-                : {}),
-            }
-          : {}),
-        data: displayLabels.map((label, i) => ({
-          id: i,
-          label: formatLabel(label),
-          value: displayValues[i] ?? 0,
-        })),
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-        ...(filteredDisplayValues
-          ? {
-              valueFormatter: (item: { id?: unknown; value: number }) => {
-                const idx = item.id as number;
-                const fv = filteredDisplayValues[idx] ?? 0;
-                const bv = item.value;
-                if (fv === bv) {
-                  return localPieValueFormatter(bv);
-                }
-                return `${localPieValueFormatter(fv)} / ${localPieValueFormatter(bv)}`;
-              },
-            }
-          : {}),
-      },
-    ];
-
-    // Self-selection takes priority over ghost-highlight mode so clicking a pie arc
-    // always brightens it even when the pie is also receiving a cross-highlight from
-    // another chart. isPieHighlightActive suppresses stale hover; otherwise fall back to hover.
-    const pieHoverFallback = isPieHighlightActive ? null : controlledHighlightedItem;
-    const pieHighlightedItem =
-      selectedDataIndices.length > 0
-        ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
-        : pieHoverFallback;
-
-    // Ratio map for CrossHighlightPieArc, keyed by the RENDERED arc index.
-    // The top-level pieRatioByIndex is keyed by allChartData's original order, but
-    // displayLabels are re-sorted and "Other"-grouped when pieMaxSlices is set, so the
-    // arc dataIndex no longer matches. Rebuild from displayValues / filteredDisplayValues,
-    // which are both already aligned to displayLabels (incl. the "Other" bucket).
-    const pieDisplayCtxValue = isPieHighlightActive
-      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-        {
-          ratioByIndex: new Map<number, number>(
-            displayValues.map((bv, i) => {
-              const allValue = bv ?? 0;
-              const filteredValue = filteredDisplayValues
-                ? (filteredDisplayValues[i] ?? 0)
-                : allValue;
-              return [i, allValue > 0 ? filteredValue / allValue : 1] as const;
-            }),
-          ),
-          isActive: isPieHighlightActive,
-          skipAnimation,
-        }
-      : pieHighlightCtxValue;
-
     return (
-      /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
-         stays at the same tree position and arcs never remount on filter changes. */
-      <ChartFieldTitleContext.Provider value={pieYFieldDef?.label}>
-        <PieHighlightContext.Provider value={pieDisplayCtxValue}>
-          {pieLegendBelow ? (
-            <React.Fragment>
-              <PieChart
-                {...slotProps?.pieChart}
-                height={pieH}
-                skipAnimation={skipAnimation}
-                slots={PIE_HIGHLIGHT_SLOTS_NO_LEGEND}
-                series={pieSingleSeries}
-                colors={pieColors}
-                margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
-                highlightedItem={pieHighlightedItem}
-                onHighlightChange={(item) =>
-                  setHoveredItem(
-                    item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-                  )
-                }
-                onItemClick={(_event, params) => {
-                  const label = displayLabels[params.dataIndex];
-                  if (label !== undefined) {
-                    handleItemClick(label, Boolean(_event?.shiftKey));
-                  }
-                }}
-                sx={{ cursor: 'default' }}
-              />
-              {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
-              <Box sx={{ px: 1.5, pb: 1 }}>
-                {displayLabels.map((label, i) => {
-                  const value = displayValues[i] ?? 0;
-                  const basePct =
-                    singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
-                  const filteredPct =
-                    filteredDisplayValues && filteredPieTotal > 0
-                      ? `${(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100).toFixed(1)}%`
-                      : null;
-                  const pct =
-                    filteredPct && filteredPct !== basePct
-                      ? `${filteredPct} / ${basePct}`
-                      : basePct;
-                  const color = pieColors[i % pieColors.length];
-                  return (
-                    <Box
-                      key={i}
-                      sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}
-                    >
-                      <Box
-                        component="span"
-                        sx={{
-                          display: 'inline-block',
-                          width: 8,
-                          height: 8,
-                          borderRadius: '2px',
-                          bgcolor: color,
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Box
-                        component="span"
-                        sx={{
-                          flex: 1,
-                          fontSize: '0.65rem',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {formatLabel(label)}
-                      </Box>
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: '0.65rem',
-                          fontVariantNumeric: 'tabular-nums',
-                          flexShrink: 0,
-                          color: 'text.secondary',
-                          pl: '8px',
-                          textAlign: 'right',
-                        }}
-                      >
-                        {pct}
-                      </Box>
-                    </Box>
-                  );
-                })}
-              </Box>
-            </React.Fragment>
-          ) : (
-            <div style={{ height: chartHeight }}>
-              <PieChart
-                {...slotProps?.pieChart}
-                skipAnimation={skipAnimation}
-                slots={PIE_FIELD_SLOTS}
-                series={pieSingleSeries}
-                colors={pieColors}
-                margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-                highlightedItem={pieHighlightedItem}
-                onHighlightChange={(item) =>
-                  setHoveredItem(
-                    item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-                  )
-                }
-                onItemClick={(_event, params) => {
-                  const label = displayLabels[params.dataIndex];
-                  if (label !== undefined) {
-                    handleItemClick(label, Boolean(_event?.shiftKey));
-                  }
-                }}
-                sx={{ cursor: 'default' }}
-              />
-            </div>
-          )}
-        </PieHighlightContext.Provider>
-      </ChartFieldTitleContext.Provider>
+      <StudioPieChart
+        chartType={chartType}
+        height={chartHeight}
+        chartData={chartData}
+        allChartData={allChartData}
+        enrichedRows={enrichedRows}
+        allEnrichedRows={allEnrichedRows}
+        seriesField={config.seriesField}
+        xField={config.xField}
+        yField={config.yField}
+        activeYFields={activeYFields}
+        pieLegendBelow={!!config.pieLegendBelow}
+        pieArcLabel={config.pieArcLabel}
+        pieArcLabelMinAngle={config.pieArcLabelMinAngle}
+        pieMaxSlices={config.pieMaxSlices}
+        chartColors={chartColors}
+        resolvedChartColors={resolvedChartColors}
+        shouldShowGhost={shouldShowGhost}
+        preserveXFieldBaseline={preserveXFieldBaseline}
+        skipAnimation={skipAnimation}
+        valueFormatter={pieValueFormatter}
+        fieldLabel={pieYFieldDef?.label}
+        formatLabel={formatLabel}
+        getSelectedDataIndices={getSelectedDataIndices}
+        hoveredItem={hoveredItem}
+        hasActiveXFilter={hasActiveXFilter}
+        hasIncomingCrossFilters={hasIncomingCrossFilters}
+        onHoverChange={setHoveredItem}
+        onItemClick={handleItemClick}
+        slotProps={slotProps?.pieChart}
+      />
     );
   }
 

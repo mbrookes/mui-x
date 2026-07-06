@@ -552,6 +552,123 @@ describe('StudioController.updateWidgetConfig', () => {
   });
 });
 
+describe('StudioController.updateWidget', () => {
+  const ordersSource = {
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'month', label: 'Month', type: 'date' as const },
+        { id: 'revenue', label: 'Revenue', type: 'number' as const },
+      ],
+    },
+  };
+
+  it('voids a top-level field passed as an explicit undefined value (GridSetupPanel reset)', () => {
+    const controller = new StudioController({
+      widgets: {
+        grid1: {
+          id: 'grid1',
+          kind: 'grid',
+          title: 'Table',
+          sourceId: 'orders',
+          config: { columns: [{ fieldId: 'revenue' }] },
+        },
+      },
+    });
+
+    // Byte-for-byte the GridSetupPanel "reset source, clear columns" call.
+    controller.updateWidget('grid1', { sourceId: undefined, config: { columns: [] } });
+
+    const w = controller.getState().widgets.grid1;
+    expect(w.sourceId).toBeUndefined();
+    expect(w.config).toEqual({ columns: [] });
+  });
+
+  it('clears the subtitle (undefined value) without re-inferring titles (FormatPanel subtitle blur)', () => {
+    const controller = new StudioController({
+      dataSources: ordersSource,
+      widgets: {
+        chart1: {
+          id: 'chart1',
+          kind: 'chart',
+          sourceId: 'orders',
+          // A stale title in auto mode: if re-inference wrongly fired it would
+          // become "Revenue by Month", so this pins that it does NOT fire.
+          title: 'Stale title',
+          titleMode: 'auto',
+          subtitle: 'Old subtitle',
+          subtitleMode: 'auto',
+          config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+        },
+      },
+    });
+
+    // Mirrors FormatPanel: an empty trimmed subtitle collapses to `undefined`.
+    const trimmed = '';
+    controller.updateWidget('chart1', { subtitle: trimmed || undefined, subtitleMode: 'manual' });
+
+    const w = controller.getState().widgets.chart1;
+    expect(w.subtitle).toBeUndefined();
+    expect(w.subtitleMode).toBe('manual');
+    // Re-inference is skipped because `subtitle` is present in `changes`.
+    expect(w.title).toBe('Stale title');
+  });
+
+  it('re-infers titles in auto mode when no title/subtitle is provided', () => {
+    const controller = new StudioController({
+      dataSources: ordersSource,
+      widgets: {
+        chart1: {
+          id: 'chart1',
+          kind: 'chart',
+          sourceId: 'orders',
+          title: 'Stale title',
+          titleMode: 'auto',
+          config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+        },
+      },
+    });
+
+    controller.updateWidget('chart1', { sourceId: 'orders' });
+
+    expect(controller.getState().widgets.chart1.title).toBe('Revenue by Month');
+    expect(controller.getState().widgets.chart1.titleMode).toBe('auto');
+  });
+
+  it('does not overwrite an explicitly provided title with re-inference (FormatPanel manual title)', () => {
+    const controller = new StudioController({
+      dataSources: ordersSource,
+      widgets: {
+        chart1: {
+          id: 'chart1',
+          kind: 'chart',
+          sourceId: 'orders',
+          title: 'Revenue by Month',
+          titleMode: 'auto',
+          config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+        },
+      },
+    });
+
+    controller.updateWidget('chart1', { title: 'My Custom Title', titleMode: 'manual' });
+
+    expect(controller.getState().widgets.chart1.title).toBe('My Custom Title');
+    expect(controller.getState().widgets.chart1.titleMode).toBe('manual');
+  });
+
+  it('is a no-op for an unknown widgetId', () => {
+    const controller = new StudioController({
+      widgets: {
+        chart1: { id: 'chart1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+      },
+    });
+    const before = controller.getState();
+    controller.updateWidget('nope', { title: 'x' });
+    expect(controller.getState()).toBe(before);
+  });
+});
+
 describe('StudioController.duplicateWidget', () => {
   it('creates a new widget with a different id', () => {
     const controller = new StudioController();

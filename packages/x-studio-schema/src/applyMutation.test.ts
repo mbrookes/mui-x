@@ -368,6 +368,99 @@ describe('applyMutation', () => {
       });
       expect(next).toBe(state);
     });
+
+    it('unsetFields deletes the named top-level widget keys (wire-safe void)', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'grid',
+            title: 'Table',
+            sourceId: 'orders',
+            subtitle: 'A subtitle',
+            config: { columns: [] },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', unsetFields: ['sourceId', 'subtitle'] },
+      });
+      expect('sourceId' in next.widgets.w1).toBe(false);
+      expect('subtitle' in next.widgets.w1).toBe(false);
+      // Untouched fields survive.
+      expect(next.widgets.w1.title).toBe('Table');
+      expect(next.widgets.w1.config).toEqual({ columns: [] });
+    });
+
+    it('unsetConfigKeys deletes the named keys from the merged config', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+          },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', unsetConfigKeys: ['xField', 'yField'] },
+      });
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
+    });
+
+    it('an unset always wins over a same-mutation set of the same key (unsets run last)', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: { id: 'w1', kind: 'grid', title: 'T', sourceId: 'old', config: { xField: 'a' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: {
+          widgetId: 'w1',
+          // Set sourceId + xField in the same turn...
+          changes: { sourceId: 'new' },
+          config: { xField: 'b' },
+          // ...but explicitly unset them: the unset must win.
+          unsetFields: ['sourceId'],
+          unsetConfigKeys: ['xField'],
+        },
+      });
+      expect('sourceId' in next.widgets.w1).toBe(false);
+      expect('xField' in next.widgets.w1.config).toBe(false);
+    });
+
+    it('unsetFields ignores id and config (never strands the widget or its config bag)', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        // Cast: `id`/`config` are outside the compile-time type, but an untrusted
+        // wire payload can carry them, so the runtime guard must hold.
+        args: { widgetId: 'w1', unsetFields: ['id', 'config'] as never },
+      });
+      expect(next.widgets.w1.id).toBe('w1');
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
+    });
+
+    it('unsetting an absent key is a harmless no-change', () => {
+      const state = createDefaultStudioState({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      const next = applyMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', unsetFields: ['sourceId'], unsetConfigKeys: ['xField'] },
+      });
+      expect(next.widgets.w1).toEqual(state.widgets.w1);
+    });
   });
 
   describe('setWidgetColSpan', () => {

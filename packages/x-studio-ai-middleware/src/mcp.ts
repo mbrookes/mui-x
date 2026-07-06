@@ -55,11 +55,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import {
-  mutationLabel,
-  STUDIO_AI_TOOL_REGISTRY,
-  type StudioAIToolFacts,
-} from '@mui/x-studio-schema';
+import { mutationLabel, STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import type { ToolExecutionResult } from './executeToolOnState';
 import { executeToolWithPolicy, type ToolPolicy } from './toolPolicy';

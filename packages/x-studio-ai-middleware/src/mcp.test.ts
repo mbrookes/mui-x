@@ -1084,3 +1084,166 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     expect(stateBox.current.pages['page-2']).toBeUndefined();
   });
 });
+
+// ── tools/list golden output (Stage 1 registry retrofit regression guard) ────
+//
+// `TOOL_TITLES`/`TOOL_ANNOTATIONS` (mcp/toolMetadata.ts) are now derived from
+// `STUDIO_AI_TOOL_REGISTRY` (`@mui/x-studio-schema`) instead of being
+// hand-written per tool. This pins the exact title + annotations the default
+// (no `data`, no `allowedTools`) `tools/list` response produced BEFORE that
+// change, so a future edit to the registry's facts (or the derivation logic in
+// `annotationsFromFacts`) that silently changes what an MCP client sees is
+// caught here rather than shipping unnoticed — the exact failure mode this
+// whole retrofit exists to close (see `apply_bulk_update`'s prior
+// destructive-classification drift).
+describe('buildStudioMcpServer — tools/list golden output', () => {
+  const LIST_TOOLS = 'tools/list';
+
+  const EXPECTED_TOOLS: Record<string, { title: string; annotations: Record<string, boolean> }> = {
+    get_dashboard_state: {
+      title: 'Get dashboard state',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    list_pages: {
+      title: 'List pages',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    add_page: {
+      title: 'Add page',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    set_dashboard_title: {
+      title: 'Set dashboard title',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    add_widget: {
+      title: 'Add widget',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    update_widget: {
+      title: 'Update widget',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    remove_widget: {
+      title: 'Remove widget',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    set_widget_layout: {
+      title: 'Set widget layout',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    set_widget_width: {
+      title: 'Set widget width',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    rename_page: {
+      title: 'Rename page',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    remove_page: {
+      title: 'Remove page',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    set_active_page: {
+      title: 'Switch page',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    add_page_filter: {
+      title: 'Add page filter',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    remove_page_filter: {
+      title: 'Remove page filter',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    add_widget_filter: {
+      title: 'Add widget filter',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    remove_widget_filter: {
+      title: 'Remove widget filter',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    summarise_page: {
+      title: 'Summarise page',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    apply_bulk_update: {
+      title: 'Apply bulk update',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    rename_thread: {
+      title: 'Rename thread',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    set_widget_forecast: {
+      title: 'Set widget forecast',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    // Extra (non-STUDIO_AI_TOOLS) tools registered unconditionally.
+    render_chart: {
+      title: 'Render chart',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    get_recent_changes: {
+      title: 'Get recent changes',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+  };
+
+  it('produces exactly the expected set of tool names (no data source configured)', async () => {
+    const server = buildStudioMcpServer({ current: makeStableState() });
+    const result = (await getHandler(server, LIST_TOOLS)({ params: {}, method: LIST_TOOLS })) as {
+      tools: Array<{ name: string }>;
+    };
+    const names = result.tools.map((t) => t.name).sort();
+    // execute_query is excluded (MCP_UNSUPPORTED_TOOLS); data-query tools are
+    // excluded (no `data` option configured).
+    expect(names).toEqual(Object.keys(EXPECTED_TOOLS).sort());
+  });
+
+  it.each(Object.entries(EXPECTED_TOOLS))(
+    'pins the exact title and annotations for %s',
+    async (name, expected) => {
+      const server = buildStudioMcpServer({ current: makeStableState() });
+      const result = (await getHandler(
+        server,
+        LIST_TOOLS,
+      )({
+        params: {},
+        method: LIST_TOOLS,
+      })) as {
+        tools: Array<{ name: string; title?: string; annotations?: Record<string, boolean> }>;
+      };
+      const tool = result.tools.find((t) => t.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.title).toBe(expected.title);
+      expect(tool!.annotations).toEqual(expected.annotations);
+    },
+  );
+});

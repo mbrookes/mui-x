@@ -139,20 +139,34 @@ export interface StudioFilterPreset {
   filters: StudioFilterState[];
 }
 
-export interface StudioState {
+/**
+ * User-authored dashboard document. The ONLY partition that is persisted,
+ * undoable, and mutable by the shared reducer.
+ *
+ * Every field here survives serialization (via `serializeState`) and every field
+ * here is what the undo/redo stacks snapshot — so this interface is the single
+ * source of truth for "what is a dashboard". Adding a field here without a matching
+ * persistence path is caught by the `statePersistence.test.ts` round-trip gate.
+ */
+export interface StudioDoc {
+  /** Persistence artifact of the doc — the schema version the doc serializes as. */
   schemaVersion: 1;
-  mode: StudioMode;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;
-  dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
+  /**
+   * All filter entries, INCLUDING session-flavoured cross-filter entries.
+   * Cross-filter entries live here (not in `session`) because the shared reducer
+   * itself manipulates them (cleanup on `removeWidget`/`removePage`/`applyBulkUpdate`,
+   * and `applyCrossFilter` is deliberately undoable). They are stripped at the
+   * persistence boundary only (see `serializeState`'s `scope.kind !== 'cross-filter'`).
+   */
   filters: StudioFilterState[];
   /** User-authored expression fields (calculated columns and measures). Persisted. */
   expressionFields: StudioExpressionField[];
   /** Saved filter presets (named snapshots of page-level filters). */
   filterPresets?: StudioFilterPreset[];
-  shell: StudioShellState;
   /**
    * AI assistant conversation state. Persisted alongside the dashboard so
    * conversation history travels with the saved state.
@@ -161,4 +175,33 @@ export interface StudioState {
    * the first thread on the user's first message.
    */
   ai?: StudioAIState;
+}
+
+/**
+ * Ephemeral UI state. Never persisted, never undoable, never touched by the shared
+ * reducer. `mode` is deliberately here (not in `doc`): a view↔edit switch is not a
+ * dashboard edit, so Ctrl+Z must never flip it.
+ */
+export interface StudioSession {
+  mode: StudioMode;
+  shell: StudioShellState;
+}
+
+/**
+ * Host-app-injected state. Never persisted, never undoable, never touched by the
+ * shared reducer — an undo must never revert live `dataSources` to stale rows.
+ */
+export interface StudioRuntime {
+  dataSources: Record<string, StudioDataSource>;
+}
+
+/**
+ * The full in-memory Studio state, partitioned by lifetime. Only `doc` is
+ * persisted / undoable / reducer-mutable; `session` and `runtime` are managed
+ * exclusively by `StudioController`.
+ */
+export interface StudioState {
+  doc: StudioDoc;
+  session: StudioSession;
+  runtime: StudioRuntime;
 }

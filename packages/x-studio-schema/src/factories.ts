@@ -12,7 +12,7 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from './widgetTypes';
-import type { StudioState } from './stateTypes';
+import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
 
 /**
  * Mints a collision-resistant widget ID.
@@ -127,10 +127,30 @@ export function normalizeChartSeries(series: StudioChartSeries): StudioChartSeri
 
 const defaultPageId = 'page-1';
 
-export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
-  const baseState: StudioState = {
+/**
+ * Overrides for {@link createDefaultStudioState}, one bag per lifetime partition.
+ *
+ * Deliberately nested (`{ doc?, session?, runtime? }`) rather than a flat
+ * convenience shape: a flat bag would need a hand-maintained field-routing table
+ * (which field goes to which partition), which is exactly the fragility this
+ * lifetime-partition rewrite exists to eliminate. Callers name the partition
+ * explicitly, so a new `StudioDoc` field is never silently mis-routed.
+ *
+ * `dashboard` (in `doc`) and `shell`/`shell.openDrawers` (in `session`) are
+ * deep-merged onto their defaults; every other field replaces its default
+ * wholesale (e.g. a `doc.pages` override replaces the default page map entirely).
+ */
+export interface CreateDefaultStudioStateOverrides {
+  doc?: Partial<StudioDoc>;
+  session?: Partial<StudioSession>;
+  runtime?: Partial<StudioRuntime>;
+}
+
+export function createDefaultStudioState(
+  overrides?: CreateDefaultStudioStateOverrides,
+): StudioState {
+  const baseDoc: StudioDoc = {
     schemaVersion: 1,
-    mode: 'edit',
     dashboard: {
       id: 'dashboard-1',
       title: 'Untitled Dashboard',
@@ -144,10 +164,12 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
       },
     },
     widgets: {},
-    dataSources: {},
     relationships: [],
     filters: [],
     expressionFields: [],
+  };
+  const baseSession: StudioSession = {
+    mode: 'edit',
     shell: {
       openDrawers: {
         data: true,
@@ -159,29 +181,40 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
       selectedSourceId: null,
     },
   };
+  const baseRuntime: StudioRuntime = {
+    dataSources: {},
+  };
+
+  const docOverrides = overrides?.doc;
+  const sessionOverrides = overrides?.session;
+  const runtimeOverrides = overrides?.runtime;
 
   return {
-    ...baseState,
-    ...overrides,
-    dashboard: {
-      ...baseState.dashboard,
-      ...overrides?.dashboard,
-    },
-    shell: {
-      ...baseState.shell,
-      ...overrides?.shell,
-      openDrawers: {
-        ...baseState.shell.openDrawers,
-        ...overrides?.shell?.openDrawers,
+    doc: {
+      ...baseDoc,
+      ...docOverrides,
+      dashboard: {
+        ...baseDoc.dashboard,
+        ...docOverrides?.dashboard,
       },
-      selectedFieldId: overrides?.shell?.selectedFieldId ?? null,
-      selectedSourceId: overrides?.shell?.selectedSourceId ?? null,
     },
-    pages: overrides?.pages ?? baseState.pages,
-    widgets: overrides?.widgets ?? baseState.widgets,
-    dataSources: overrides?.dataSources ?? baseState.dataSources,
-    relationships: overrides?.relationships ?? baseState.relationships,
-    filters: overrides?.filters ?? baseState.filters,
-    expressionFields: overrides?.expressionFields ?? baseState.expressionFields,
+    session: {
+      ...baseSession,
+      ...sessionOverrides,
+      shell: {
+        ...baseSession.shell,
+        ...sessionOverrides?.shell,
+        openDrawers: {
+          ...baseSession.shell.openDrawers,
+          ...sessionOverrides?.shell?.openDrawers,
+        },
+        selectedFieldId: sessionOverrides?.shell?.selectedFieldId ?? null,
+        selectedSourceId: sessionOverrides?.shell?.selectedSourceId ?? null,
+      },
+    },
+    runtime: {
+      ...baseRuntime,
+      ...runtimeOverrides,
+    },
   };
 }

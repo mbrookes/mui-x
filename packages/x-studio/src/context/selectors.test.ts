@@ -9,7 +9,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createDefaultStudioState, type StudioFilterState } from '../models/stateTypes';
-import type { StudioState, StudioWidget, StudioExpressionField, StudioDataSource } from '../models';
+import type {
+  StudioState,
+  StudioSession,
+  StudioWidget,
+  StudioExpressionField,
+  StudioDataSource,
+} from '../models';
 import {
   selectFilters,
   selectFilterPresets,
@@ -65,8 +71,32 @@ function exprField(id: string, sourceId: string): StudioExpressionField {
   };
 }
 
-function state(overrides?: Partial<StudioState>): StudioState {
-  return createDefaultStudioState(overrides);
+// Test helper that routes flat fixture overrides into the lifetime partitions
+// (`doc`/`session`/`runtime`), so the many call sites below stay concise. This flat
+// convenience shape is a test-only affordance — production `createDefaultStudioState`
+// deliberately requires the explicit nested partitions.
+function state(overrides?: {
+  filters?: StudioFilterState[];
+  widgets?: Record<string, StudioWidget>;
+  expressionFields?: StudioExpressionField[];
+  dataSources?: Record<string, StudioDataSource>;
+  mode?: StudioSession['mode'];
+  shell?: StudioSession['shell'];
+}): StudioState {
+  return createDefaultStudioState({
+    doc: {
+      ...(overrides?.filters ? { filters: overrides.filters } : {}),
+      ...(overrides?.widgets ? { widgets: overrides.widgets } : {}),
+      ...(overrides?.expressionFields ? { expressionFields: overrides.expressionFields } : {}),
+    },
+    session: {
+      ...(overrides?.mode ? { mode: overrides.mode } : {}),
+      ...(overrides?.shell ? { shell: overrides.shell } : {}),
+    },
+    runtime: {
+      ...(overrides?.dataSources ? { dataSources: overrides.dataSources } : {}),
+    },
+  });
 }
 
 // ── Plain accessors ─────────────────────────────────────────────────────────
@@ -76,14 +106,14 @@ describe('plain accessors', () => {
     const filters = [filter({ id: 'a', scope: { kind: 'page' } })];
     const s = state({ filters, mode: 'view' });
     expect(selectFilters(s)).toBe(filters);
-    expect(selectWidgets(s)).toBe(s.widgets);
+    expect(selectWidgets(s)).toBe(s.doc.widgets);
     expect(selectMode(s)).toBe('view');
   });
 
   it('selectActivePage / selectActivePageId resolve the active page', () => {
     const s = state();
     expect(selectActivePageId(s)).toBe('page-1');
-    expect(selectActivePage(s)).toBe(s.pages['page-1']);
+    expect(selectActivePage(s)).toBe(s.doc.pages['page-1']);
   });
 
   it('selectFilterPresets returns a stable empty array when none are set', () => {
@@ -98,13 +128,19 @@ describe('plain accessors', () => {
 
 describe('makeSelectActiveInteractiveFilter', () => {
   it('returns the interactive filter emitted by the widget', () => {
-    const f = filter({ id: 'i1', scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' } });
+    const f = filter({
+      id: 'i1',
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
     const sel = makeSelectActiveInteractiveFilter('w1');
     expect(sel(state({ filters: [f] }))).toBe(f);
   });
 
   it('returns null when the widget has no interactive filter', () => {
-    const f = filter({ id: 'i1', scope: { kind: 'interactive', sourceWidgetId: 'other', pageId: 'page-1' } });
+    const f = filter({
+      id: 'i1',
+      scope: { kind: 'interactive', sourceWidgetId: 'other', pageId: 'page-1' },
+    });
     expect(makeSelectActiveInteractiveFilter('w1')(state({ filters: [f] }))).toBeNull();
   });
 });
@@ -161,8 +197,14 @@ describe('selectPartitionedFilters', () => {
   it('partitions filters into page / widget / cross / interactive buckets', () => {
     const pageF = filter({ id: 'p', scope: { kind: 'page' } });
     const widgetF = filter({ id: 'w', scope: { kind: 'widget', widgetId: 'w1' } });
-    const crossF = filter({ id: 'c', scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' } });
-    const interactiveF = filter({ id: 'i', scope: { kind: 'interactive', sourceWidgetId: 'w-interactive', pageId: 'page-1' } });
+    const crossF = filter({
+      id: 'c',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+    });
+    const interactiveF = filter({
+      id: 'i',
+      scope: { kind: 'interactive', sourceWidgetId: 'w-interactive', pageId: 'page-1' },
+    });
     const result = selectPartitionedFilters(
       state({ filters: [pageF, widgetF, crossF, interactiveF] }),
     );
@@ -195,8 +237,14 @@ describe('selectPartitionedBaseFilters', () => {
         filters: [
           filter({ id: 'p', scope: { kind: 'page' } }),
           filter({ id: 'w', scope: { kind: 'widget', widgetId: 'w1' } }),
-          filter({ id: 'c', scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' } }),
-          filter({ id: 'i', scope: { kind: 'interactive', sourceWidgetId: 'w-interactive', pageId: 'page-1' } }),
+          filter({
+            id: 'c',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+          }),
+          filter({
+            id: 'i',
+            scope: { kind: 'interactive', sourceWidgetId: 'w-interactive', pageId: 'page-1' },
+          }),
         ],
       }),
     );
@@ -210,7 +258,16 @@ describe('selectPartitionedBaseFilters', () => {
     const first = selectPartitionedBaseFilters(state({ filters: [pageF, widgetF] }));
     // New filters array, same page/widget content, plus an added cross-filter.
     const second = selectPartitionedBaseFilters(
-      state({ filters: [pageF, widgetF, filter({ id: 'c', scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' } })] }),
+      state({
+        filters: [
+          pageF,
+          widgetF,
+          filter({
+            id: 'c',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+          }),
+        ],
+      }),
     );
     expect(second).toBe(first);
   });
@@ -220,12 +277,18 @@ describe('selectPartitionedBaseFilters', () => {
 
 describe('makeSelectActiveCrossFilter', () => {
   it('matches by source widget and page', () => {
-    const f = filter({ id: 'c', scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' } });
+    const f = filter({
+      id: 'c',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
     expect(makeSelectActiveCrossFilter('w1', 'page-1')(state({ filters: [f] }))).toBe(f);
   });
 
   it('returns null when the page does not match', () => {
-    const f = filter({ id: 'c', scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-2' } });
+    const f = filter({
+      id: 'c',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-2' },
+    });
     expect(makeSelectActiveCrossFilter('w1', 'page-1')(state({ filters: [f] }))).toBeNull();
   });
 });
@@ -266,14 +329,14 @@ describe('per-widget selectors', () => {
   });
 
   it('makeSelectIsWidgetSelected reflects the shell selection', () => {
-    const s = state({ shell: { selectedWidgetId: 'w1' } as StudioState['shell'] });
+    const s = state({ shell: { selectedWidgetId: 'w1' } as StudioSession['shell'] });
     expect(makeSelectIsWidgetSelected('w1')(s)).toBe(true);
     expect(makeSelectIsWidgetSelected('w2')(s)).toBe(false);
   });
 
   it('makeSelectIsWidgetDimmed is true only when a DIFFERENT widget is selected', () => {
-    const selected = state({ shell: { selectedWidgetId: 'w1' } as StudioState['shell'] });
-    const none = state({ shell: { selectedWidgetId: null } as StudioState['shell'] });
+    const selected = state({ shell: { selectedWidgetId: 'w1' } as StudioSession['shell'] });
+    const none = state({ shell: { selectedWidgetId: null } as StudioSession['shell'] });
     expect(makeSelectIsWidgetDimmed('w2')(selected)).toBe(true);
     expect(makeSelectIsWidgetDimmed('w1')(selected)).toBe(false);
     expect(makeSelectIsWidgetDimmed('w1')(none)).toBe(false);
@@ -311,7 +374,14 @@ describe('makeSelectWidgetRankFilter', () => {
   it('returns null when the rank value is not positive', () => {
     const s = state({
       widgets: { w1: widget('w1', 'chart') },
-      filters: [filter({ id: 'r', scope: { kind: 'widget', widgetId: 'w1' }, filterMode: 'rank', value: 0 })],
+      filters: [
+        filter({
+          id: 'r',
+          scope: { kind: 'widget', widgetId: 'w1' },
+          filterMode: 'rank',
+          value: 0,
+        }),
+      ],
     });
     expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
   });
@@ -319,7 +389,10 @@ describe('makeSelectWidgetRankFilter', () => {
 
 describe('makeSelectWidgetSliderFilter', () => {
   it('returns the interactive filter for a slider filter widget on the active page', () => {
-    const f = filter({ id: 'i', scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' } });
+    const f = filter({
+      id: 'i',
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
     const s = state({
       widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'slider' } }) },
       filters: [f],
@@ -328,7 +401,10 @@ describe('makeSelectWidgetSliderFilter', () => {
   });
 
   it('returns null when the filter widget is not a slider', () => {
-    const f = filter({ id: 'i', scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' } });
+    const f = filter({
+      id: 'i',
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
     const s = state({
       widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'dropdown' } }) },
       filters: [f],

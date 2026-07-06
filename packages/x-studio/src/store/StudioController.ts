@@ -11,6 +11,7 @@ import {
 
 import {
   createDefaultStudioState,
+  type CreateDefaultStudioStateOverrides,
   type StudioDataField,
   type StudioDataSource,
   type StudioDataSourceAdapter,
@@ -22,6 +23,9 @@ import {
   type StudioMode,
   type StudioPage,
   type StudioRelationship,
+  type StudioDoc,
+  type StudioSession,
+  type StudioRuntime,
   type StudioState,
   type StudioWidget,
   type StudioAIRecentMutation,
@@ -29,6 +33,7 @@ import {
 
 import {
   serializeState,
+  serializeDoc,
   deserializeState,
   migrateState,
   CURRENT_SCHEMA_VERSION,
@@ -53,12 +58,15 @@ const MAX_MUTATION_LOG = 20;
 
 export class StudioController {
   readonly store: Store<StudioState>;
-  private undoStack: StudioState[] = [];
-  private redoStack: StudioState[] = [];
+  // Undo/redo snapshot ONLY the `doc` partition. Session (mode/shell) and runtime
+  // (dataSources) are deliberately not time-travelled: a Ctrl+Z must never revert a
+  // view↔edit switch or wipe freshly-injected live data back to stale rows.
+  private undoStack: StudioDoc[] = [];
+  private redoStack: StudioDoc[] = [];
   /** Compact, labeled log of recent user-driven mutations (oldest first). */
   private mutationLog: StudioAIRecentMutation[] = [];
 
-  constructor(initialState?: Partial<StudioState>) {
+  constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
     this.store = Store.create(state);
   }
@@ -99,7 +107,8 @@ export class StudioController {
   ) => {
     const { undoable = true, resetHistory = false, label } = options ?? {};
 
-    if (nextState === this.store.state) {
+    const current = this.store.state;
+    if (nextState === current) {
       return;
     }
 
@@ -107,8 +116,13 @@ export class StudioController {
       this.undoStack = [];
       this.redoStack = [];
       this.mutationLog = [];
-    } else if (undoable) {
-      this.undoStack.push(this.store.state);
+    } else if (undoable && nextState.doc !== current.doc) {
+      // The undo entry is the OLD doc, pushed only when the doc actually changed by
+      // reference. A commit that only touches `session`/`runtime` (drawer toggle,
+      // data refresh, selection…) still takes effect immediately below, but creates
+      // NO undo entry — regardless of the `undoable` flag — because there is no
+      // authored-document change to revert. This is the core staleness fix.
+      this.undoStack.push(current.doc);
       // Any new action clears the redo stack
       this.redoStack = [];
 
@@ -125,6 +139,45 @@ export class StudioController {
     }
 
     this.store.setState(nextState);
+  };
+
+  /**
+   * After an undo/redo swaps in a different `doc`, reconcile the session's dangling
+   * widget selection: if `selectedWidgetId` references a widget the swapped-in doc no
+   * longer contains (e.g. undo reverted the `addWidget` that created it), it is nulled
+   * out. This is the ONE deliberate cross-partition normalization, and it lives only
+   * here in the controller — never in the pure reducer or the persistence layer —
+   * because it is a UI-selection concern, not a document or serialization one.
+   *
+   * `selectedSourceId`/`selectedFieldId` reference host `runtime.dataSources`, which
+   * an undo never touches, so they cannot dangle from a doc swap and are left alone.
+   */
+  private normalizeSessionAfterDocSwap = (
+    session: StudioSession,
+    doc: StudioDoc,
+  ): StudioSession => {
+    const { shell } = session;
+    if (shell.selectedWidgetId === null || Object.hasOwn(doc.widgets, shell.selectedWidgetId)) {
+      return session;
+    }
+    return {
+      ...session,
+      shell: { ...shell, selectedWidgetId: null },
+    };
+  };
+
+  /**
+   * Commits a doc-only patch: shallow-merges `patch` onto the current `doc`, leaving
+   * `session` and `runtime` untouched. The single place the doc-writer methods below
+   * (relationships, filters, presets, page fields…) build their nested commit, so
+   * each stays a one-liner instead of hand-spreading `{ ...state, doc: { ...state.doc } }`.
+   */
+  private commitDocPatch = (
+    patch: Partial<StudioDoc>,
+    options?: { undoable?: boolean; label?: string },
+  ) => {
+    const state = this.store.state;
+    this.commitState({ ...state, doc: { ...state.doc, ...patch } }, options);
   };
 
   /**
@@ -242,18 +295,30 @@ export class StudioController {
     this.commitState(state);
   };
 
-  updateState = (changes: Partial<StudioState>) => {
+  /**
+   * Partition-aware partial update. Each supplied partition (`doc`/`session`/`runtime`)
+   * is shallow-merged onto its current value. This is a breaking signature change from
+   * the pre-partition flat `Partial<StudioState>` — callers must now name the partition.
+   */
+  updateState = (changes: {
+    doc?: Partial<StudioDoc>;
+    session?: Partial<StudioSession>;
+    runtime?: Partial<StudioRuntime>;
+  }) => {
+    const state = this.store.state;
     this.commitState({
-      ...this.store.state,
-      ...changes,
+      doc: changes.doc ? { ...state.doc, ...changes.doc } : state.doc,
+      session: changes.session ? { ...state.session, ...changes.session } : state.session,
+      runtime: changes.runtime ? { ...state.runtime, ...changes.runtime } : state.runtime,
     });
   };
 
   setMode = (mode: StudioMode) => {
-    this.commitState({
-      ...this.store.state,
-      mode,
-    });
+    const state = this.store.state;
+    // Mode is session-only and structurally non-undoable: a commit that changes only
+    // `session` never pushes an undo entry (see commitState), so Ctrl+Z can no longer
+    // flip view↔edit. `undoable: false` is belt-and-braces on top of that guarantee.
+    this.commitState({ ...state, session: { ...state.session, mode } }, { undoable: false });
   };
 
   setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
@@ -261,7 +326,7 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dashboard: { ...state.dashboard, globalCrossFilterMode: mode },
+        doc: { ...state.doc, dashboard: { ...state.doc.dashboard, globalCrossFilterMode: mode } },
       },
       { undoable: false },
     );
@@ -272,23 +337,27 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dashboard: { ...state.dashboard, crossFilterAllPages: allPages },
+        doc: { ...state.doc, dashboard: { ...state.doc.dashboard, crossFilterAllPages: allPages } },
       },
       { undoable: false },
     );
   };
 
   toggleDrawer = (drawer: StudioDrawer) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          openDrawers: {
-            ...shell.openDrawers,
-            [drawer]: !shell.openDrawers[drawer],
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            openDrawers: {
+              ...shell.openDrawers,
+              [drawer]: !shell.openDrawers[drawer],
+            },
           },
         },
       },
@@ -297,16 +366,20 @@ export class StudioController {
   };
 
   setDrawerOpen = (drawer: StudioDrawer, open: boolean) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          openDrawers: {
-            ...shell.openDrawers,
-            [drawer]: open,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            openDrawers: {
+              ...shell.openDrawers,
+              [drawer]: open,
+            },
           },
         },
       },
@@ -315,16 +388,20 @@ export class StudioController {
   };
 
   setSelectedWidget = (widgetId: string | null) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedWidgetId: widgetId,
-          selectedFieldId: null,
-          selectedSourceId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedWidgetId: widgetId,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
         },
       },
       { undoable: false },
@@ -332,16 +409,20 @@ export class StudioController {
   };
 
   selectField = (sourceId: string, fieldId: string) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedFieldId: fieldId,
-          selectedSourceId: sourceId,
-          selectedWidgetId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedFieldId: fieldId,
+            selectedSourceId: sourceId,
+            selectedWidgetId: null,
+          },
         },
       },
       { undoable: false },
@@ -349,16 +430,20 @@ export class StudioController {
   };
 
   clearSelection = () => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedWidgetId: null,
-          selectedFieldId: null,
-          selectedSourceId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedWidgetId: null,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
         },
       },
       { undoable: false },
@@ -377,9 +462,12 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dataSources: {
-          ...state.dataSources,
-          [dataSource.id]: dataSource,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            ...state.runtime.dataSources,
+            [dataSource.id]: dataSource,
+          },
         },
       },
       { undoable: false },
@@ -396,16 +484,19 @@ export class StudioController {
    */
   setDataSourceAdapter = (sourceId: string, adapter: StudioDataSourceAdapter | undefined) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
     if (!source) {
       return;
     }
     studioRequestCache.invalidateSource(sourceId);
     this.commitState({
       ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: { ...source, adapter },
+      runtime: {
+        ...state.runtime,
+        dataSources: {
+          ...state.runtime.dataSources,
+          [sourceId]: { ...source, adapter },
+        },
       },
     });
   };
@@ -421,7 +512,7 @@ export class StudioController {
    */
   setDataSourceRows = (sourceId: string, rows: Record<string, unknown>[]) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
     if (!source) {
       return;
     }
@@ -430,9 +521,12 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dataSources: {
-          ...state.dataSources,
-          [sourceId]: { ...source, rows },
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            ...state.runtime.dataSources,
+            [sourceId]: { ...source, rows },
+          },
         },
       },
       { undoable: false },
@@ -445,7 +539,7 @@ export class StudioController {
     updates: Partial<import('../models').StudioDataField>,
   ) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
 
     if (!source) {
       return;
@@ -453,13 +547,16 @@ export class StudioController {
 
     this.commitState({
       ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: {
-          ...source,
-          fields: source.fields.map((f: StudioDataField) =>
-            f.id === fieldId ? { ...f, ...updates } : f,
-          ),
+      runtime: {
+        ...state.runtime,
+        dataSources: {
+          ...state.runtime.dataSources,
+          [sourceId]: {
+            ...source,
+            fields: source.fields.map((f: StudioDataField) =>
+              f.id === fieldId ? { ...f, ...updates } : f,
+            ),
+          },
         },
       },
     });
@@ -467,13 +564,15 @@ export class StudioController {
 
   addExpressionField = (field: StudioExpressionField) => {
     const state = this.store.state;
-    const exists = state.expressionFields.some((ef: StudioExpressionField) => ef.id === field.id);
+    const exists = state.doc.expressionFields.some(
+      (ef: StudioExpressionField) => ef.id === field.id,
+    );
     if (exists) {
       return;
     }
     this.commitState({
       ...state,
-      expressionFields: [...state.expressionFields, field],
+      doc: { ...state.doc, expressionFields: [...state.doc.expressionFields, field] },
     });
   };
 
@@ -482,15 +581,20 @@ export class StudioController {
     updates: Partial<Omit<StudioExpressionField, 'id'>>,
   ) => {
     const state = this.store.state;
-    const existing = state.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId);
+    const existing = state.doc.expressionFields.find(
+      (ef: StudioExpressionField) => ef.id === fieldId,
+    );
     if (!existing) {
       return;
     }
     this.commitState({
       ...state,
-      expressionFields: state.expressionFields.map((ef: StudioExpressionField) =>
-        ef.id === fieldId ? { ...ef, ...updates } : ef,
-      ),
+      doc: {
+        ...state.doc,
+        expressionFields: state.doc.expressionFields.map((ef: StudioExpressionField) =>
+          ef.id === fieldId ? { ...ef, ...updates } : ef,
+        ),
+      },
     });
   };
 
@@ -498,9 +602,12 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      expressionFields: state.expressionFields.filter(
-        (ef: StudioExpressionField) => ef.id !== fieldId,
-      ),
+      doc: {
+        ...state.doc,
+        expressionFields: state.doc.expressionFields.filter(
+          (ef: StudioExpressionField) => ef.id !== fieldId,
+        ),
+      },
     });
   };
 
@@ -514,11 +621,14 @@ export class StudioController {
     // `state.pages[activePageId]` read — which threw when the active page was
     // missing — into a clean no-op; a crash was never desired behaviour.)
     this.commitMutation(
-      { type: 'addWidget', args: { widget, pageId: state.dashboard.activePageId } },
+      { type: 'addWidget', args: { widget, pageId: state.doc.dashboard.activePageId } },
       {
         transform: (next) => ({
           ...next,
-          shell: { ...next.shell, selectedWidgetId: widget.id },
+          session: {
+            ...next.session,
+            shell: { ...next.session.shell, selectedWidgetId: widget.id },
+          },
         }),
       },
     );
@@ -551,7 +661,10 @@ export class StudioController {
         label: `addWidget:${widget.kind}:${widget.id}`,
         transform: (next) => ({
           ...next,
-          shell: { ...next.shell, selectedWidgetId: widget.id },
+          session: {
+            ...next.session,
+            shell: { ...next.session.shell, selectedWidgetId: widget.id },
+          },
         }),
       },
     );
@@ -567,7 +680,7 @@ export class StudioController {
    */
   setWidgetLayout = (newRows: string[][]): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
@@ -617,15 +730,18 @@ export class StudioController {
    */
   setPageStackBreakpoint = (breakpoint: number | undefined): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
     this.commitState({
       ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
+      doc: {
+        ...state.doc,
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
+        },
       },
     });
   };
@@ -643,7 +759,7 @@ export class StudioController {
     rightMinSpan: number = MIN_SPAN_COLS,
   ): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
@@ -659,11 +775,14 @@ export class StudioController {
     newSpans[rightId] = clampedRight;
     this.commitState({
       ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetColSpans: newSpans,
+      doc: {
+        ...state.doc,
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetColSpans: newSpans,
+          },
         },
       },
     });
@@ -680,8 +799,14 @@ export class StudioController {
       { type: 'removeWidget', args: { widgetId } },
       {
         transform: (next) =>
-          next.shell.selectedWidgetId === widgetId
-            ? { ...next, shell: { ...next.shell, selectedWidgetId: null } }
+          next.session.shell.selectedWidgetId === widgetId
+            ? {
+                ...next,
+                session: {
+                  ...next.session,
+                  shell: { ...next.session.shell, selectedWidgetId: null },
+                },
+              }
             : next,
       },
     );
@@ -731,11 +856,11 @@ export class StudioController {
         transform: isExplicitTitleChange
           ? undefined
           : (next) => {
-              const updated = next.widgets[widgetId];
-              const withTitles = this.applyInferredTitles(updated, next.dataSources);
+              const updated = next.doc.widgets[widgetId];
+              const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
               return {
                 ...next,
-                widgets: { ...next.widgets, [widgetId]: withTitles },
+                doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
               };
             },
       },
@@ -756,11 +881,11 @@ export class StudioController {
       { type: 'updateWidget', args: { widgetId, config: config as StudioWidget['config'] } },
       {
         transform: (next) => {
-          const updated = next.widgets[widgetId];
-          const withTitles = this.applyInferredTitles(updated, next.dataSources);
+          const updated = next.doc.widgets[widgetId];
+          const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
           return {
             ...next,
-            widgets: { ...next.widgets, [widgetId]: withTitles },
+            doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
           };
         },
       },
@@ -769,7 +894,7 @@ export class StudioController {
 
   duplicateWidget = (widgetId: string) => {
     const state = this.store.state;
-    const existing = state.widgets[widgetId];
+    const existing = state.doc.widgets[widgetId];
 
     if (!existing) {
       return;
@@ -779,7 +904,7 @@ export class StudioController {
     const MAX_PER_ROW = 4;
 
     const newId = `${widgetId}-copy-${Date.now()}`;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     const widgetRows = activePage.widgetRows || [];
 
     // Find the row containing the source widget
@@ -808,7 +933,7 @@ export class StudioController {
     }
 
     // Clone widget-scoped filters (including managed date range filters) for the duplicate.
-    const widgetScopeFilters = state.filters.filter(
+    const widgetScopeFilters = state.doc.filters.filter(
       (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId,
     );
     const clonedFilters = widgetScopeFilters.map((f: StudioFilterState) => ({
@@ -819,21 +944,27 @@ export class StudioController {
 
     this.commitState({
       ...state,
-      widgets: {
-        ...state.widgets,
-        [newId]: { ...existing, id: newId, title: `${existing.title} (copy)` },
-      },
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetRows: newWidgetRows,
+      doc: {
+        ...state.doc,
+        widgets: {
+          ...state.doc.widgets,
+          [newId]: { ...existing, id: newId, title: `${existing.title} (copy)` },
         },
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetRows: newWidgetRows,
+          },
+        },
+        filters: [...state.doc.filters, ...clonedFilters],
       },
-      filters: [...state.filters, ...clonedFilters],
-      shell: {
-        ...state.shell,
-        selectedWidgetId: newId,
+      session: {
+        ...state.session,
+        shell: {
+          ...state.session.shell,
+          selectedWidgetId: newId,
+        },
       },
     });
   };
@@ -844,7 +975,7 @@ export class StudioController {
     // across pages when the user switches pages.
     const stampedFilter =
       filter.scope.kind === 'page'
-        ? { ...filter, scope: { kind: 'page' as const, pageId: state.dashboard.activePageId } }
+        ? { ...filter, scope: { kind: 'page' as const, pageId: state.doc.dashboard.activePageId } }
         : filter;
     // The page-scope stamping above is argument-shaping the controller does today
     // (not reducer duplication) and must survive; the append itself delegates to
@@ -855,17 +986,13 @@ export class StudioController {
 
   addRelationship = (relationship: import('../models').StudioRelationship) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: [...state.relationships, relationship],
-    });
+    this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
   };
 
   updateRelationship = (id: string, patch: Partial<import('../models').StudioRelationship>) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: state.relationships.map((rel: StudioRelationship) =>
+    this.commitDocPatch({
+      relationships: state.doc.relationships.map((rel: StudioRelationship) =>
         rel.id === id ? { ...rel, ...patch } : rel,
       ),
     });
@@ -873,25 +1000,23 @@ export class StudioController {
 
   removeRelationship = (id: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: state.relationships.filter((rel: StudioRelationship) => rel.id !== id),
+    this.commitDocPatch({
+      relationships: state.doc.relationships.filter((rel: StudioRelationship) => rel.id !== id),
     });
   };
 
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
-    const hasExistingRankFilter = state.filters.some(
+    const hasExistingRankFilter = state.doc.filters.some(
       (filter: StudioFilterState) =>
         filter.id !== filterId &&
         filter.scope.kind !== 'cross-filter' &&
         filter.filterMode === 'rank',
     );
 
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.map((filter: StudioFilterState) => {
+        filters: state.doc.filters.map((filter: StudioFilterState) => {
           if (filter.id !== filterId) {
             return filter;
           }
@@ -927,9 +1052,8 @@ export class StudioController {
 
   toggleFilter = (filterId: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filters: state.filters.map((f: StudioFilterState) =>
+    this.commitDocPatch({
+      filters: state.doc.filters.map((f: StudioFilterState) =>
         f.id === filterId ? { ...f, disabled: !f.disabled } : f,
       ),
     });
@@ -995,7 +1119,7 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
@@ -1014,8 +1138,7 @@ export class StudioController {
           })
         : null;
 
-    this.commitState({
-      ...state,
+    this.commitDocPatch({
       filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
     });
   };
@@ -1034,7 +1157,7 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
@@ -1054,7 +1177,7 @@ export class StudioController {
       )
       .filter((f): f is StudioFilterState => f !== null);
 
-    this.commitState({ ...state, filters: [...withoutExisting, ...newFilters] });
+    this.commitDocPatch({ filters: [...withoutExisting, ...newFilters] });
   };
 
   /**
@@ -1077,7 +1200,7 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
     );
 
@@ -1095,8 +1218,7 @@ export class StudioController {
           })
         : null;
 
-    this.commitState({
-      ...state,
+    this.commitDocPatch({
       filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
     });
   };
@@ -1113,7 +1235,7 @@ export class StudioController {
     },
   ) => {
     const state = this.store.state;
-    const existingFilters = state.filters.filter(
+    const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
     );
@@ -1123,16 +1245,13 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'interactive', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'interactive', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
       ...(options?.filterMode && { filterMode: options.filterMode }),
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
     };
 
-    this.commitState(
-      { ...state, filters: [...existingFilters, interactiveFilter] },
-      { undoable: false },
-    );
+    this.commitDocPatch({ filters: [...existingFilters, interactiveFilter] }, { undoable: false });
   };
 
   /**
@@ -1140,10 +1259,9 @@ export class StudioController {
    */
   clearInteractiveFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.filter(
+        filters: state.doc.filters.filter(
           (f: StudioFilterState) =>
             !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
         ),
@@ -1166,7 +1284,7 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
-    const existingFilters = state.filters.filter(
+    const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
     );
@@ -1176,16 +1294,13 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };
 
-    this.commitState(
-      {
-        ...state,
-        filters: [...existingFilters, crossFilter],
-      },
+    this.commitDocPatch(
+      { filters: [...existingFilters, crossFilter] },
       { label: `applyCrossFilter:${sourceWidgetId}:${field}` },
     );
   };
@@ -1196,10 +1311,9 @@ export class StudioController {
   clearCrossFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
 
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.filter(
+        filters: state.doc.filters.filter(
           (f: StudioFilterState) =>
             !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
         ),
@@ -1213,9 +1327,9 @@ export class StudioController {
    */
   saveFilterPreset = (name: string): string => {
     const state = this.store.state;
-    const activePageId = state.dashboard.activePageId;
+    const activePageId = state.doc.dashboard.activePageId;
     // Only save filters for the current active page.
-    const pageFilters = state.filters.filter(
+    const pageFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
     );
@@ -1225,10 +1339,7 @@ export class StudioController {
       name,
       filters: pageFilters.map((f: StudioFilterState) => ({ ...f, id: `${id}-${f.id}` })),
     };
-    this.commitState({
-      ...state,
-      filterPresets: [...(state.filterPresets ?? []), preset],
-    });
+    this.commitDocPatch({ filterPresets: [...(state.doc.filterPresets ?? []), preset] });
     return id;
   };
 
@@ -1237,10 +1348,9 @@ export class StudioController {
    */
   clearPageFilters = () => {
     const state = this.store.state;
-    const activePageId = state.dashboard.activePageId;
-    this.commitState({
-      ...state,
-      filters: state.filters.filter(
+    const activePageId = state.doc.dashboard.activePageId;
+    this.commitDocPatch({
+      filters: state.doc.filters.filter(
         (f: StudioFilterState) =>
           f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
@@ -1252,16 +1362,17 @@ export class StudioController {
    */
   applyFilterPreset = (presetId: string) => {
     const state = this.store.state;
-    const preset = (state.filterPresets ?? []).find((p: StudioFilterPreset) => p.id === presetId);
+    const preset = (state.doc.filterPresets ?? []).find(
+      (p: StudioFilterPreset) => p.id === presetId,
+    );
     if (!preset) {
       return;
     }
-    const activePageId = state.dashboard.activePageId;
-    this.commitState({
-      ...state,
+    const activePageId = state.doc.dashboard.activePageId;
+    this.commitDocPatch({
       filters: [
         // Keep all non-page filters, and keep page filters for OTHER pages.
-        ...state.filters.filter(
+        ...state.doc.filters.filter(
           (f: StudioFilterState) =>
             f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
         ),
@@ -1279,9 +1390,8 @@ export class StudioController {
    */
   deleteFilterPreset = (presetId: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filterPresets: (state.filterPresets ?? []).filter(
+    this.commitDocPatch({
+      filterPresets: (state.doc.filterPresets ?? []).filter(
         (p: StudioFilterPreset) => p.id !== presetId,
       ),
     });
@@ -1292,9 +1402,8 @@ export class StudioController {
    */
   renameFilterPreset = (presetId: string, name: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filterPresets: (state.filterPresets ?? []).map((p: StudioFilterPreset) =>
+    this.commitDocPatch({
+      filterPresets: (state.doc.filterPresets ?? []).map((p: StudioFilterPreset) =>
         p.id === presetId ? { ...p, name } : p,
       ),
     });
@@ -1306,9 +1415,8 @@ export class StudioController {
   clearAllCrossFilters = () => {
     const state = this.store.state;
 
-    this.commitState({
-      ...state,
-      filters: state.filters.filter((f: StudioFilterState) => f.scope.kind !== 'cross-filter'),
+    this.commitDocPatch({
+      filters: state.doc.filters.filter((f: StudioFilterState) => f.scope.kind !== 'cross-filter'),
     });
   };
 
@@ -1318,15 +1426,14 @@ export class StudioController {
   /** Updates fields on the active page (e.g. theme). */
   updateActivePage = (changes: Partial<Omit<StudioPage, 'id'>>) => {
     const state = this.store.state;
-    const pageId = state.dashboard.activePageId;
-    const page = state.pages[pageId];
+    const pageId = state.doc.dashboard.activePageId;
+    const page = state.doc.pages[pageId];
     if (!page) {
       return;
     }
-    this.commitState({
-      ...state,
+    this.commitDocPatch({
       pages: {
-        ...state.pages,
+        ...state.doc.pages,
         [pageId]: { ...page, ...changes },
       },
     });
@@ -1337,7 +1444,7 @@ export class StudioController {
     // Keep the same-value early return: the reducer builds a fresh dashboard object
     // even when `activePageId` is unchanged, so without this guard a redundant
     // navigation would still notify subscribers.
-    if (!state.pages[pageId] || state.dashboard.activePageId === pageId) {
+    if (!state.doc.pages[pageId] || state.doc.dashboard.activePageId === pageId) {
       return;
     }
     // D5: user-driven navigation stays non-undoable and unlogged (`label: null`) —
@@ -1393,17 +1500,17 @@ export class StudioController {
     const state = this.store.state;
     const reordered: Record<string, StudioPage> = {};
     pageIds.forEach((id) => {
-      if (state.pages[id]) {
-        reordered[id] = state.pages[id];
+      if (state.doc.pages[id]) {
+        reordered[id] = state.doc.pages[id];
       }
     });
     // Append any pages omitted from the list (safety fallback)
-    Object.keys(state.pages).forEach((id) => {
+    Object.keys(state.doc.pages).forEach((id) => {
       if (!reordered[id]) {
-        reordered[id] = state.pages[id];
+        reordered[id] = state.doc.pages[id];
       }
     });
-    this.commitState({ ...state, pages: reordered });
+    this.commitDocPatch({ pages: reordered });
   };
 
   /**
@@ -1431,13 +1538,13 @@ export class StudioController {
     options?: { label?: string | null; transform?: (next: StudioState) => StudioState },
   ) => {
     const state = this.store.state;
-    if (!Object.hasOwn(state.widgets, widgetId)) {
+    if (!Object.hasOwn(state.doc.widgets, widgetId)) {
       return;
     }
     const mutations: StateMutation[] = [];
     // Cross-page move: first rewrite the source page's rows without the widget.
-    if (sourcePageId !== targetPageId && Object.hasOwn(state.pages, sourcePageId)) {
-      const sourceRows = (state.pages[sourcePageId].widgetRows ?? [])
+    if (sourcePageId !== targetPageId && Object.hasOwn(state.doc.pages, sourcePageId)) {
+      const sourceRows = (state.doc.pages[sourcePageId].widgetRows ?? [])
         .map((row) => row.filter((id) => id !== widgetId))
         .filter((row) => row.length > 0);
       mutations.push({
@@ -1467,7 +1574,13 @@ export class StudioController {
     targetRows: string[][],
   ) => {
     this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows, {
-      transform: (next) => ({ ...next, shell: { ...next.shell, selectedWidgetId: widgetId } }),
+      transform: (next) => ({
+        ...next,
+        session: {
+          ...next.session,
+          shell: { ...next.session.shell, selectedWidgetId: widgetId },
+        },
+      }),
     });
   };
 
@@ -1483,13 +1596,13 @@ export class StudioController {
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
     const state = this.store.state;
-    const sourcePageId = state.dashboard.activePageId;
+    const sourcePageId = state.doc.dashboard.activePageId;
     if (sourcePageId === targetPageId) {
       return;
     }
-    const sourcePage = state.pages[sourcePageId];
-    const targetPage = state.pages[targetPageId];
-    if (!sourcePage || !targetPage || !state.widgets[widgetId]) {
+    const sourcePage = state.doc.pages[sourcePageId];
+    const targetPage = state.doc.pages[targetPageId];
+    if (!sourcePage || !targetPage || !state.doc.widgets[widgetId]) {
       return;
     }
     // Append the widget as a new trailing row on the target page (unchanged landing spot).
@@ -1509,28 +1622,40 @@ export class StudioController {
   canUndo = () => this.undoStack.length > 0;
 
   undo = () => {
-    const previousState = this.undoStack.pop();
+    const previousDoc = this.undoStack.pop();
 
-    if (previousState == null) {
+    if (previousDoc == null) {
       return false;
     }
 
-    this.redoStack.push(this.store.state);
-    this.store.setState(previousState);
+    const current = this.store.state;
+    this.redoStack.push(current.doc);
+    // Swap only the doc; session and runtime carry forward unchanged by construction,
+    // except for nulling a widget selection the reverted doc no longer contains.
+    this.store.setState({
+      ...current,
+      doc: previousDoc,
+      session: this.normalizeSessionAfterDocSwap(current.session, previousDoc),
+    });
     return true;
   };
 
   canRedo = () => this.redoStack.length > 0;
 
   redo = () => {
-    const nextState = this.redoStack.pop();
+    const nextDoc = this.redoStack.pop();
 
-    if (nextState == null) {
+    if (nextDoc == null) {
       return false;
     }
 
-    this.undoStack.push(this.store.state);
-    this.store.setState(nextState);
+    const current = this.store.state;
+    this.undoStack.push(current.doc);
+    this.store.setState({
+      ...current,
+      doc: nextDoc,
+      session: this.normalizeSessionAfterDocSwap(current.session, nextDoc),
+    });
     return true;
   };
 
@@ -1548,7 +1673,7 @@ export class StudioController {
    */
   loadSerializedState = (
     serialized: unknown,
-    shellOverrides?: Partial<StudioState['shell']>,
+    shellOverrides?: Partial<StudioSession['shell']>,
   ): MigrationResult => {
     const migrationResult = migrateState(serialized);
 
@@ -1556,7 +1681,7 @@ export class StudioController {
       // Preserve the host app's data sources — they are never persisted
       const fullState = deserializeState(
         migrationResult.state,
-        this.store.state.dataSources,
+        this.store.state.runtime.dataSources,
         shellOverrides,
       );
       this.commitState(fullState, { undoable: false, resetHistory: true });
@@ -1571,10 +1696,18 @@ export class StudioController {
    * resumes with the undo/redo history intact.
    */
   serializeSession = (): SerializedStudioSession => {
-    const toSnapshot = (state: StudioState) => ({ mode: state.mode, state: serializeState(state) });
+    // `mode` is captured once (the session mode at save time) and stamped onto every
+    // snapshot: mode lives in the non-undoable session partition, so it does not vary
+    // across undo/redo history — the per-snapshot `mode` field is retained only for
+    // on-disk backward compatibility.
+    const { mode } = this.store.state.session;
+    const toSnapshot = (doc: StudioDoc): SerializedStudioSnapshot => ({
+      mode,
+      state: serializeDoc(doc),
+    });
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
-      present: toSnapshot(this.store.state),
+      present: toSnapshot(this.store.state.doc),
       past: this.undoStack.map(toSnapshot),
       future: this.redoStack.map(toSnapshot),
     };
@@ -1605,40 +1738,45 @@ export class StudioController {
       return invalid(['Invalid session: missing "present" snapshot']);
     }
 
-    const dataSources = this.store.state.dataSources;
-    // Restore a snapshot to a full state, re-applying its captured mode (mode is not part
-    // of the serialized state). Returns null if the snapshot fails to migrate.
-    const toState = (snapshot: SerializedStudioSnapshot | undefined): StudioState | null => {
+    const dataSources = this.store.state.runtime.dataSources;
+    // Restore a single history snapshot to its `doc` (migrate → deserialize → .doc).
+    // Undo/redo stacks are docs now, so history entries no longer carry a full state
+    // or a per-entry mode. Returns null if the snapshot fails to migrate.
+    const toDoc = (snapshot: SerializedStudioSnapshot | undefined): StudioDoc | null => {
       const result = snapshot?.state ? migrateState(snapshot.state) : null;
       if (!result?.success || !result.state) {
         return null;
       }
-      const state = deserializeState(result.state, dataSources);
-      return { ...state, mode: snapshot!.mode ?? state.mode };
+      return deserializeState(result.state, dataSources).doc;
     };
 
     const presentResult = migrateState(present.state);
     if (!presentResult.success || !presentResult.state) {
       return presentResult;
     }
-    const presentState = toState(present)!;
+    const presentState = deserializeState(presentResult.state, dataSources);
+    // Mode is taken from the present snapshot only (mode is not per-history-entry).
+    const presentWithMode: StudioState = {
+      ...presentState,
+      session: { ...presentState.session, mode: present.mode ?? presentState.session.mode },
+    };
 
     // Drop any history entries that fail to migrate rather than aborting the whole restore.
-    this.undoStack = (Array.isArray(past) ? past : [])
-      .map(toState)
-      .filter(Boolean) as StudioState[];
+    this.undoStack = (Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[];
     this.redoStack = (Array.isArray(future) ? future : [])
-      .map(toState)
-      .filter(Boolean) as StudioState[];
+      .map(toDoc)
+      .filter(Boolean) as StudioDoc[];
     this.mutationLog = [];
-    this.store.setState(presentState);
+    this.store.setState(presentWithMode);
 
     return presentResult;
   };
 }
 
 /** Creates a new {@link StudioController} with the given initial state. */
-export function createStudioController(initialState?: Partial<StudioState>): StudioController {
+export function createStudioController(
+  initialState?: CreateDefaultStudioStateOverrides,
+): StudioController {
   return new StudioController(initialState);
 }
 

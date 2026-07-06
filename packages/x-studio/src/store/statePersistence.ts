@@ -2,6 +2,9 @@ import {
   createDefaultStudioState,
   normalizeGridColumn,
   type StudioState,
+  type StudioDoc,
+  type StudioSession,
+  type StudioRuntime,
   type StudioExpressionField,
   type StudioAIState,
 } from '../models';
@@ -18,13 +21,13 @@ export const CURRENT_SCHEMA_VERSION = 1;
  */
 export interface SerializedStudioState {
   schemaVersion: number;
-  dashboard: StudioState['dashboard'];
-  pages: StudioState['pages'];
-  widgets: StudioState['widgets'];
-  filters: StudioState['filters'];
-  relationships?: StudioState['relationships'];
+  dashboard: StudioDoc['dashboard'];
+  pages: StudioDoc['pages'];
+  widgets: StudioDoc['widgets'];
+  filters: StudioDoc['filters'];
+  relationships?: StudioDoc['relationships'];
   expressionFields?: StudioExpressionField[];
-  filterPresets?: StudioState['filterPresets'];
+  filterPresets?: StudioDoc['filterPresets'];
   /**
    * AI conversation threads. Optional — omitted when no threads exist.
    * Populated by `StudioChatPanel` and passed back via `StudioProvider.onAIStateChange`.
@@ -33,12 +36,18 @@ export interface SerializedStudioState {
 }
 
 /**
- * One snapshot in a {@link SerializedStudioSession} — a serialized state plus the `mode`
- * it was captured in (`mode` is not part of {@link SerializedStudioState}, so it is tracked
- * here to keep undo/redo of mode changes faithful across a reload).
+ * One snapshot in a {@link SerializedStudioSession} — a serialized `StudioDoc` plus the
+ * `mode` the editing session was in when the snapshot was taken.
+ *
+ * Since the lifetime-partition split, `mode` lives in {@link StudioSession} and is
+ * NOT undoable, so it is no longer meaningfully time-travelled per history entry:
+ * every snapshot in a saved session carries the SAME `mode` (the session mode at save
+ * time). The field is retained on the snapshot shape for on-disk backward
+ * compatibility, but `restoreSession` reads mode from the present entry only and
+ * applies it to `session.mode` — it never varies mode across undo/redo history.
  */
 export interface SerializedStudioSnapshot {
-  mode: StudioState['mode'];
+  mode: StudioSession['mode'];
   state: SerializedStudioState;
 }
 
@@ -223,22 +232,32 @@ export function migrateState(state: unknown): MigrationResult {
 }
 
 /**
- * Serializes the studio state for persistence.
- * Excludes transient shell state, data sources (host-app-provided), and
- * cross-filter runtime state.
+ * Serializes a {@link StudioDoc} for persistence — the doc-only inner logic shared by
+ * {@link serializeState} and by `StudioController`'s undo/redo session snapshotting.
+ *
+ * The persisted JSON shape is exactly `StudioDoc` MINUS its ephemeral cross-filter
+ * entries: it spreads every doc field (so a newly-added `StudioDoc` field is carried
+ * automatically — no hand-picked field list to forget it from), stripping only the
+ * cross-filter-scoped filters and normalizing the empties-are-omitted fields.
+ */
+export function serializeDoc(doc: StudioDoc): SerializedStudioState {
+  const { filters, ...rest } = doc;
+  return {
+    ...rest,
+    filters: filters.filter((f) => f.scope.kind !== 'cross-filter'),
+    expressionFields: doc.expressionFields.length > 0 ? doc.expressionFields : undefined,
+    filterPresets: (doc.filterPresets?.length ?? 0) > 0 ? doc.filterPresets : undefined,
+    ai: doc.ai?.threads && doc.ai.threads.length > 0 ? doc.ai : undefined,
+  };
+}
+
+/**
+ * Serializes the studio state for persistence. Reads exclusively from `state.doc`
+ * (the only persisted partition), so transient session state (mode/shell), host-app
+ * data sources (runtime), and cross-filter entries are all excluded.
  */
 export function serializeState(state: StudioState): SerializedStudioState {
-  return {
-    schemaVersion: state.schemaVersion,
-    dashboard: state.dashboard,
-    pages: state.pages,
-    widgets: state.widgets,
-    filters: state.filters.filter((f) => f.scope.kind !== 'cross-filter'),
-    relationships: state.relationships,
-    expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
-    filterPresets: (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,
-    ai: state.ai?.threads && state.ai.threads.length > 0 ? state.ai : undefined,
-  };
+  return serializeDoc(state.doc);
 }
 
 /**
@@ -248,39 +267,43 @@ export function serializeState(state: StudioState): SerializedStudioState {
  */
 export function deserializeState(
   serialized: SerializedStudioState,
-  dataSources: StudioState['dataSources'],
-  shellOverrides?: Partial<StudioState['shell']>,
+  dataSources: StudioRuntime['dataSources'],
+  shellOverrides?: Partial<StudioSession['shell']>,
 ): StudioState {
   const defaultState = createDefaultStudioState();
 
   return {
-    schemaVersion: serialized.schemaVersion as 1,
-    mode: 'edit',
-    dashboard: serialized.dashboard,
-    pages: serialized.pages,
-    widgets: Object.fromEntries(
-      Object.entries(serialized.widgets).map(([id, widget]) => [
-        id,
-        widget.config?.columns
-          ? {
-              ...widget,
-              config: {
-                ...widget.config,
-                columns: widget.config.columns.map(normalizeGridColumn),
-              },
-            }
-          : widget,
-      ]),
-    ),
-    dataSources,
-    filters: serialized.filters,
-    relationships: serialized.relationships ?? [],
-    expressionFields: serialized.expressionFields ?? [],
-    filterPresets: serialized.filterPresets ?? [],
-    shell: {
-      ...defaultState.shell,
-      ...shellOverrides,
+    doc: {
+      schemaVersion: serialized.schemaVersion as 1,
+      dashboard: serialized.dashboard,
+      pages: serialized.pages,
+      widgets: Object.fromEntries(
+        Object.entries(serialized.widgets).map(([id, widget]) => [
+          id,
+          widget.config?.columns
+            ? {
+                ...widget,
+                config: {
+                  ...widget.config,
+                  columns: widget.config.columns.map(normalizeGridColumn),
+                },
+              }
+            : widget,
+        ]),
+      ),
+      filters: serialized.filters,
+      relationships: serialized.relationships ?? [],
+      expressionFields: serialized.expressionFields ?? [],
+      filterPresets: serialized.filterPresets ?? [],
+      ai: serialized.ai,
     },
-    ai: serialized.ai,
+    session: {
+      mode: 'edit',
+      shell: {
+        ...defaultState.session.shell,
+        ...shellOverrides,
+      },
+    },
+    runtime: { dataSources },
   };
 }

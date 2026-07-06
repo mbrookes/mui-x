@@ -32,8 +32,16 @@ export {
   normalizeChartSeries,
   createDefaultStudioState,
 } from './factories';
+export type { CreateDefaultStudioStateOverrides } from './factories';
 export { detectAnomaliesIQR } from './anomalyDetection';
-export { applyMutation, mutationLabel, GRID_COLS, MIN_SPAN, MUTATION_TYPES } from './applyMutation';
+export {
+  applyDocMutation,
+  applyMutation,
+  mutationLabel,
+  GRID_COLS,
+  MIN_SPAN,
+  MUTATION_TYPES,
+} from './applyMutation';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
 export { isoWeek, truncateToPeriod } from './temporalUtils';

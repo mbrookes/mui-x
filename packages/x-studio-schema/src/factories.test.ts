@@ -135,38 +135,38 @@ describe('normalizeChartSeries', () => {
 });
 
 describe('createDefaultStudioState', () => {
-  it('deep-merges a partial shell.openDrawers override, leaving other shell flags at their defaults', () => {
+  it('deep-merges a partial session.shell.openDrawers override, leaving other shell flags at their defaults', () => {
     const state = createDefaultStudioState({
-      shell: { openDrawers: { filters: true } } as any,
+      session: { shell: { openDrawers: { filters: true } } } as any,
     });
     // The overridden flag takes effect...
-    expect(state.shell.openDrawers.filters).toBe(true);
+    expect(state.session.shell.openDrawers.filters).toBe(true);
     // ...while sibling flags in the same openDrawers record keep their defaults.
-    expect(state.shell.openDrawers.data).toBe(true);
-    expect(state.shell.openDrawers.compose).toBe(true);
+    expect(state.session.shell.openDrawers.data).toBe(true);
+    expect(state.session.shell.openDrawers.compose).toBe(true);
     // ...and other shell fields (not part of the override) also keep their defaults.
-    expect(state.shell.selectedWidgetId).toBeNull();
-    expect(state.shell.selectedFieldId).toBeNull();
-    expect(state.shell.selectedSourceId).toBeNull();
+    expect(state.session.shell.selectedWidgetId).toBeNull();
+    expect(state.session.shell.selectedFieldId).toBeNull();
+    expect(state.session.shell.selectedSourceId).toBeNull();
   });
 
-  it('deep-merges a partial dashboard override rather than replacing it wholesale', () => {
+  it('deep-merges a partial doc.dashboard override rather than replacing it wholesale', () => {
     const state = createDefaultStudioState({
-      dashboard: { title: 'Custom Title' } as any,
+      doc: { dashboard: { title: 'Custom Title' } } as any,
     });
-    expect(state.dashboard.title).toBe('Custom Title');
+    expect(state.doc.dashboard.title).toBe('Custom Title');
     // id and activePageId are not part of the override, so they keep their defaults.
-    expect(state.dashboard.id).toBe('dashboard-1');
-    expect(state.dashboard.activePageId).toBe('page-1');
+    expect(state.doc.dashboard.id).toBe('dashboard-1');
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
   });
 
-  it('a `pages` override replaces the default page map wholesale rather than merging with it', () => {
+  it('a `doc.pages` override replaces the default page map wholesale rather than merging with it', () => {
     const customPages = {
       'custom-page': { id: 'custom-page', title: 'Custom', widgetRows: [] },
     };
-    const state = createDefaultStudioState({ pages: customPages });
-    expect(state.pages).toEqual(customPages);
+    const state = createDefaultStudioState({ doc: { pages: customPages } });
+    expect(state.doc.pages).toEqual(customPages);
     // The default page is gone entirely — not merged alongside the custom one.
-    expect(state.pages['page-1']).toBeUndefined();
+    expect(state.doc.pages['page-1']).toBeUndefined();
   });
 });

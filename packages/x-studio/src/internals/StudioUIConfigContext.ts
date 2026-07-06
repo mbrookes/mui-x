@@ -2196,7 +2196,11 @@ export interface StudioWidgetRenderProps {
   chartContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** Text only: ref exposing an imperative AI-content-refresh function. */
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
-  /** Pivot only: ref exposing an imperative export function once data is available. */
+  /**
+   * Ref exposing an imperative export function once data is available. Populated by pivot
+   * internally, or by a custom widget kind that declares `export` (see
+   * `StudioCustomWidgetDef.export` / `StudioCustomWidgetProps.exportRef`).
+   */
   exportRef?: React.MutableRefObject<(() => void) | null>;
   /** Extra props forwarded from a call site's per-kind `slotProps` (e.g. `StudioWidgetCardProps.slotProps`). */
   extraProps?: Record<string, unknown>;

@@ -12,6 +12,13 @@ import type { StudioDataSource, StudioWidget } from '.';
 export interface StudioCustomWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /**
+   * Present only when the widget def sets `export`. Set `.current` (typically in a `useEffect`,
+   * cleared back to `null` on cleanup) to a function that performs this widget's export when the
+   * toolbar's Download action is clicked — e.g. render the widget's own content to a canvas and
+   * trigger a download. Called with no arguments; return value is ignored.
+   */
+  exportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 /**
@@ -81,6 +88,14 @@ export interface StudioCustomWidgetDef {
    * @default false
    */
   aiInsight?: boolean;
+  /**
+   * Export format this widget kind supports, if any. Shows a "Download" action in the widget
+   * card's toolbar (labeled for PNG or CSV). The actual export logic is the component's own
+   * responsibility: populate the `exportRef` prop it receives with a function that performs the
+   * export when called.
+   * @default undefined (no export action shown)
+   */
+  export?: 'csv' | 'png';
   /**
    * Default `config.customConfig` values written when a new widget of this kind is created.
    * Must contain only JSON-serializable values.

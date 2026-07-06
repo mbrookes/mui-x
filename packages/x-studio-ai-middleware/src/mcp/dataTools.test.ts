@@ -31,12 +31,24 @@ function makeSource(overrides?: Partial<StudioDataSource>): StudioDataSource {
   } as StudioDataSource;
 }
 
-function makeState(overrides?: Partial<StudioState>): StudioState {
+/**
+ * Test-local convenience shape: a flat bag mirroring the pre-partition test
+ * fixtures (`dataSources` is a runtime-partition field) so call sites below did
+ * not need to change. Private to this test file — not a production shape.
+ */
+interface MakeStateOverrides {
+  dataSources?: Record<string, StudioDataSource>;
+}
+
+function makeState(overrides?: MakeStateOverrides): StudioState {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
-    pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
-    dataSources: { 'source-orders': makeSource() },
-    ...overrides,
+    doc: {
+      dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+    },
+    runtime: {
+      dataSources: overrides?.dataSources ?? { 'source-orders': makeSource() },
+    },
   });
 }
 
@@ -306,28 +318,28 @@ describe('createSummarisePageHandler', () => {
     // *last* so a regression back to "push on completion" would reorder the
     // sections by latency instead of by `widgetRows` order.
     const state = makeState();
-    state.widgets['w-1'] = {
+    state.doc.widgets['w-1'] = {
       id: 'w-1',
       kind: 'grid',
       title: 'First',
       sourceId: 'source-orders',
       config: {},
     } as any;
-    state.widgets['w-2'] = {
+    state.doc.widgets['w-2'] = {
       id: 'w-2',
       kind: 'grid',
       title: 'Second',
       sourceId: 'source-orders',
       config: {},
     } as any;
-    state.widgets['w-3'] = {
+    state.doc.widgets['w-3'] = {
       id: 'w-3',
       kind: 'grid',
       title: 'Third',
       sourceId: 'source-orders',
       config: {},
     } as any;
-    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w-1', 'w-2', 'w-3']] };
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-1', 'w-2', 'w-3']] };
 
     const queryDataSource = vi.fn(async (): Promise<StudioDataQueryResult> => {
       // Widget 'w-1' is queried first (per widgetRows order) but delayed the most.
@@ -364,7 +376,7 @@ describe('createSummarisePageHandler', () => {
         }),
       },
     });
-    state.widgets['w-chart'] = {
+    state.doc.widgets['w-chart'] = {
       id: 'w-chart',
       kind: 'chart',
       title: 'Avg Order Value',
@@ -377,7 +389,7 @@ describe('createSummarisePageHandler', () => {
         yAggregation: 'avg',
       },
     } as any;
-    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w-chart']] };
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-chart']] };
 
     const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
       if (params.aggregations?.length) {
@@ -406,7 +418,7 @@ describe('createSummarisePageHandler', () => {
         }),
       },
     });
-    state.widgets['w-chart'] = {
+    state.doc.widgets['w-chart'] = {
       id: 'w-chart',
       kind: 'chart',
       title: 'Monthly Revenue',
@@ -419,7 +431,7 @@ describe('createSummarisePageHandler', () => {
         yAggregation: 'sum',
       },
     } as any;
-    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w-chart']] };
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-chart']] };
 
     const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
       if (params.aggregations?.length) {

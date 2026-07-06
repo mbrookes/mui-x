@@ -315,11 +315,11 @@ function buildApprovalDisplayInput(
 ): unknown {
   const input = (toolInput ?? {}) as Record<string, unknown>;
   if (toolName === 'remove_widget') {
-    const realTitle = state.widgets[String(input.widgetId ?? '')]?.title;
+    const realTitle = state.doc.widgets[String(input.widgetId ?? '')]?.title;
     return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
   }
   if (toolName === 'remove_page') {
-    const realTitle = state.pages[String(input.pageId ?? '')]?.title;
+    const realTitle = state.doc.pages[String(input.pageId ?? '')]?.title;
     return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
   }
   return toolInput;

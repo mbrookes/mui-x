@@ -1,17 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { createDefaultStudioState } from './models/studioTypes';
-import type { StudioDataSource, StudioFilterState, StudioWidget } from './models/studioTypes';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioPage,
+  StudioWidget,
+} from './models/studioTypes';
 
 const PAGE_ID = 'page-1';
 
-function makeState(overrides?: Parameters<typeof createDefaultStudioState>[0]) {
+/**
+ * Test-local convenience shape: a flat bag of doc-partition overrides plus
+ * `dataSources` (a runtime-partition field), mirroring the pre-partition test
+ * fixtures so individual test bodies below did not need to change. This helper
+ * is private to this test file — it is not a production compatibility shape.
+ * (No test below overrides `dashboard`, so it is intentionally not part of
+ * this bag — always spreading a `Partial<StudioDashboardState>` onto the
+ * concrete default below would widen `id`/`title`/`activePageId` to
+ * `string | undefined`.)
+ */
+interface MakeStateOverrides {
+  pages?: Record<string, StudioPage>;
+  widgets?: Record<string, StudioWidget>;
+  filters?: StudioFilterState[];
+  dataSources?: Record<string, StudioDataSource>;
+}
+
+function makeState(overrides?: MakeStateOverrides) {
+  const { dataSources, ...docOverrides } = overrides ?? {};
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Test Dashboard', activePageId: PAGE_ID },
-    pages: {
-      [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] },
+    doc: {
+      dashboard: { id: 'd1', title: 'Test Dashboard', activePageId: PAGE_ID },
+      pages: {
+        [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] },
+      },
+      ...docOverrides,
     },
-    ...overrides,
+    ...(dataSources ? { runtime: { dataSources } } : {}),
   });
 }
 

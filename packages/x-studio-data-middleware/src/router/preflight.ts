@@ -15,13 +15,12 @@
  * The tier execution engine (projection / GROUP BY / aggregation / ORDER BY /
  * LIMIT) lives in the sibling `execute.ts` — this file is only the COUNT(*).
  */
-import type {
-  JwtSecurityClaims,
-  BatchWidgetDescriptor,
-  HandleBatchQueryOptions,
-} from '../security/types';
+import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
-import type { CompiledSecurityPolicy } from '../security/compileSecurityPolicy';
+import type {
+  CompiledSecurityPolicy,
+  SecurityPolicyOptions,
+} from '../security/compileSecurityPolicy';
 import type { ValidatedQueryPlan } from '../security/validateQueryPlan';
 
 interface PreflightResult {
@@ -39,7 +38,8 @@ interface PreflightResult {
  * @param db - Knex instance (provided by host app)
  * @param claims - Verified security claims
  * @param descriptor - Widget query descriptor
- * @param options - Security/tenant options forwarded to `buildSecureQuery`
+ * @param options - Compiled security policy or raw `SecurityPolicyOptions`, forwarded to
+ *   `buildSecureQuery`. REQUIRED — an explicit tenancy decision is always threaded through.
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Omitted by direct callers, in which case
  *   `buildSecureQuery` resolves one from `descriptor`.
  */
@@ -47,9 +47,7 @@ export async function runPreflight(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?:
-    | CompiledSecurityPolicy
-    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
 ): Promise<PreflightResult> {
   // Build the query without column selection — only security + user filters

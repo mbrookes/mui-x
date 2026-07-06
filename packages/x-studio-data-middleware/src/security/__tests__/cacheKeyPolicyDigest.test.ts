@@ -27,11 +27,14 @@ const CLAIMS: JwtSecurityClaims = {
 
 const DESCRIPTOR: BatchWidgetDescriptor = { id: 'w1', table: 'orders' };
 
+const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+const SINGLE_TENANT = { mode: 'single-tenant' } as const;
+
 describe('generateCacheKey — policy digest scoping', () => {
   it('produces different keys for policies differing only in securityColumns', () => {
-    const policyA = compileSecurityPolicy({ tenantColumn: 'tenant_id' });
+    const policyA = compileSecurityPolicy({ tenancy: MULTI_TENANT });
     const policyB = compileSecurityPolicy({
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       securityColumns: { perTable: { orders: { region: 'sales_region' } } },
     });
 
@@ -48,7 +51,7 @@ describe('generateCacheKey — policy digest scoping', () => {
 
   it('produces identical digests (and keys) for identical config regardless of object key order', () => {
     const a = compileSecurityPolicy({
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       securityColumns: {
         region: 'sales_region',
         department: 'dept',
@@ -61,7 +64,7 @@ describe('generateCacheKey — policy digest scoping', () => {
         department: 'dept',
         region: 'sales_region',
       },
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(a.digest).toBe(b.digest);
     expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, a.digest)).toBe(
@@ -69,16 +72,16 @@ describe('generateCacheKey — policy digest scoping', () => {
     );
   });
 
-  it('defaults to the empty-policy digest when no digest is passed (backward compatible)', () => {
-    const emptyPolicy = compileSecurityPolicy({});
-    expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, emptyPolicy.digest)).toBe(
+  it('defaults to the single-tenant policy digest when no digest is passed', () => {
+    const singleTenantPolicy = compileSecurityPolicy({ tenancy: SINGLE_TENANT });
+    expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, singleTenantPolicy.digest)).toBe(
       generateCacheKey(CLAIMS, DESCRIPTOR, SECRET),
     );
   });
 
   it('keeps the documented key format studio:v1:<tenant>:<securityHash>:<queryHash>', () => {
     const policy = compileSecurityPolicy({
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       securityColumns: { perTable: { orders: { region: 'sales_region' } } },
     });
     const key = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, policy.digest);

@@ -7,13 +7,12 @@
  * (queryBuilder.ts) applies security predicates, joins and user filters; this
  * module layers the SELECT shape on top per tier.
  */
-import type {
-  JwtSecurityClaims,
-  BatchWidgetDescriptor,
-  HandleBatchQueryOptions,
-} from '../security/types';
+import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
-import type { CompiledSecurityPolicy } from '../security/compileSecurityPolicy';
+import type {
+  CompiledSecurityPolicy,
+  SecurityPolicyOptions,
+} from '../security/compileSecurityPolicy';
 import {
   toValidatedQueryPlan,
   type ColumnRef,
@@ -41,9 +40,7 @@ export async function executeForTier(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   tier: RoutingTier,
-  options?:
-    | CompiledSecurityPolicy
-    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
 ): Promise<Record<string, unknown>[]> {
   const queryPlan = plan ?? toValidatedQueryPlan(descriptor);

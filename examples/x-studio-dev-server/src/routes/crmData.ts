@@ -23,6 +23,8 @@ export function makeCrmDataRouter(crmDb: Knex, config: Config): Router {
       const result = await handleBatchQuery(req.body, claims, {
         db: crmDb,
         schemaAllowlist: CRM_SCHEMA_ALLOWLIST,
+        // Dev server is single-tenant — no tenant discriminator column.
+        tenancy: { mode: 'single-tenant' },
       });
       res.json(result);
     } catch (err: unknown) {

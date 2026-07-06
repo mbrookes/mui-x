@@ -245,7 +245,7 @@ for (const scale of SCALES) {
     `${scale.toLocaleString()} rows`,
     async () => {
       await runPreflight(db, { ...ACME_CLAIMS, tenantId }, descriptor, {
-        tenantColumn: 'tenant_id',
+        tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
       });
     },
   ).then((r) => results.push(r));
@@ -274,7 +274,7 @@ for (const scale of SCALES) {
         {
           db,
           schemaAllowlist: [tableKey],
-          tenantColumn: 'tenant_id',
+          tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
           cacheProvider: new LRUCacheProvider({ ttlMs: 0 }), // TTL=0 → never caches
           tierCacheTtlMs: 0, // disable tier cache for a true cold measurement
         },
@@ -304,7 +304,7 @@ for (const scale of SCALES) {
     {
       db,
       schemaAllowlist: [tableKey],
-      tenantColumn: 'tenant_id',
+      tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
       cacheProvider: warmCache,
     },
   );
@@ -320,7 +320,7 @@ for (const scale of SCALES) {
         {
           db,
           schemaAllowlist: [tableKey],
-          tenantColumn: 'tenant_id',
+          tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
           cacheProvider: warmCache,
         },
       );
@@ -351,7 +351,7 @@ for (const scale of SCALES) {
     {
       db,
       schemaAllowlist: [tableKey],
-      tenantColumn: 'tenant_id',
+      tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
       cacheProvider: new LRUCacheProvider({ ttlMs: 60_000 }),
       tierCacheProvider: tierCache,
       tierCacheTtlMs: 300_000,
@@ -369,7 +369,7 @@ for (const scale of SCALES) {
         {
           db,
           schemaAllowlist: [tableKey],
-          tenantColumn: 'tenant_id',
+          tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
           // New data cache each iteration → always a cold data miss
           cacheProvider: new LRUCacheProvider({ ttlMs: 1 }),
           tierCacheProvider: tierCache,

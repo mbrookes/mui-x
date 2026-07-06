@@ -36,14 +36,20 @@ import type { PageSummaryRequest, StudioAIRequest } from '@mui/x-studio-ai-middl
 import { seedDatabase } from './seedDatabase.js';
 import { log, error } from './logger.js';
 
-const LLM_ENDPOINT =
-  process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
+const LLM_ENDPOINT = process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
 const LLM_API_KEY = process.env.OPENAI_API_KEY ?? '';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const DEMO_JWT_SECRET = process.env.JWT_SECRET ?? 'demo-secret-change-in-production';
 
-const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products', 'shipments', 'shipment_items'];
+const SCHEMA_ALLOWLIST = [
+  'orders',
+  'order_items',
+  'customers',
+  'products',
+  'shipments',
+  'shipment_items',
+];
 
 // ── Database setup ─────────────────────────────────────────────────────────────
 
@@ -222,8 +228,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const result = await handleMutation(body, claims, {
         db,
         schemaAllowlist: SCHEMA_ALLOWLIST,
-        // Allow writes to all non-system columns; expand per-table in production.
-        tenantColumn: undefined,
+        // This demo is single-tenant — no tenant discriminator column. A real
+        // multi-tenant deployment declares { mode: 'multi-tenant', tenantColumn }.
+        tenancy: { mode: 'single-tenant' },
         cacheProvider: dataCache,
       });
       log(`← 200 /api/mutations (${result.results.length} mutations)`);
@@ -291,6 +298,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const result = await handleBatchQuery(body, claims, {
       db,
       schemaAllowlist: SCHEMA_ALLOWLIST,
+      // This demo is single-tenant — no tenant discriminator column. A real
+      // multi-tenant deployment declares { mode: 'multi-tenant', tenantColumn }.
+      tenancy: { mode: 'single-tenant' },
       cacheProvider: dataCache,
       tierCacheProvider: tierCache,
     });

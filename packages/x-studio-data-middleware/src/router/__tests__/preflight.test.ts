@@ -15,6 +15,10 @@ import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/ty
 const CLAIMS: JwtSecurityClaims = { tenantId: 'acme', userId: 'u1', roleIds: [] };
 const DESCRIPTOR: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
 
+// These tests configure no tenant column → the deployment is single-tenant. The
+// tenancy decision is now a required argument at every enforcement site.
+const SINGLE_TENANT_OPTS = { tenancy: { mode: 'single-tenant' } } as const;
+
 /**
  * Minimal Knex stand-in whose `.first()` resolves to a fixed COUNT(*) result.
  * Every other chained method is a no-op that returns the builder.
@@ -44,17 +48,27 @@ function countDb(firstResult: { row_count: number | string } | undefined) {
 
 describe('runPreflight', () => {
   it('returns the COUNT(*) row count', async () => {
-    const result = await runPreflight(countDb({ row_count: 4200 }), CLAIMS, DESCRIPTOR);
+    const result = await runPreflight(
+      countDb({ row_count: 4200 }),
+      CLAIMS,
+      DESCRIPTOR,
+      SINGLE_TENANT_OPTS,
+    );
     expect(result).toEqual({ rowCount: 4200 });
   });
 
   it('coerces a string row_count to a number', async () => {
-    const result = await runPreflight(countDb({ row_count: '42' }), CLAIMS, DESCRIPTOR);
+    const result = await runPreflight(
+      countDb({ row_count: '42' }),
+      CLAIMS,
+      DESCRIPTOR,
+      SINGLE_TENANT_OPTS,
+    );
     expect(result).toEqual({ rowCount: 42 });
   });
 
   it('treats a missing COUNT result as zero rows', async () => {
-    const result = await runPreflight(countDb(undefined), CLAIMS, DESCRIPTOR);
+    const result = await runPreflight(countDb(undefined), CLAIMS, DESCRIPTOR, SINGLE_TENANT_OPTS);
     expect(result).toEqual({ rowCount: 0 });
   });
 });
@@ -117,7 +131,7 @@ describe('executeForTier — db tier ORDER BY column aliases', () => {
       aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
       orderBy: [{ column: 'country', direction: 'asc' }],
     };
-    await executeForTier(db, CLAIMS, descriptor, 'db');
+    await executeForTier(db, CLAIMS, descriptor, 'db', SINGLE_TENANT_OPTS);
     const orderByCall = calls.find((c) => c.method === 'orderBy');
     // Must use the physical column, not the logical id "country".
     expect(orderByCall).toEqual({ method: 'orderBy', args: ['customers.country', 'asc'] });
@@ -132,7 +146,7 @@ describe('executeForTier — db tier ORDER BY column aliases', () => {
       aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
       orderBy: [{ column: 'total', direction: 'desc' }],
     };
-    await executeForTier(db, CLAIMS, descriptor, 'db');
+    await executeForTier(db, CLAIMS, descriptor, 'db', SINGLE_TENANT_OPTS);
     const orderByCall = calls.find((c) => c.method === 'orderBy');
     expect(orderByCall).toEqual({ method: 'orderBy', args: ['total', 'desc'] });
   });
@@ -149,7 +163,7 @@ describe('executeForTier — client/server tier ORDER BY qualification', () => {
       columns: ['region'],
       orderBy: [{ column: 'region', direction: 'asc' }],
     };
-    await executeForTier(db, CLAIMS, descriptor, 'client');
+    await executeForTier(db, CLAIMS, descriptor, 'client', SINGLE_TENANT_OPTS);
     const orderByCall = calls.find((c) => c.method === 'orderBy');
     // Must be qualified so it is unambiguous when a JOIN is present.
     expect(orderByCall).toEqual({ method: 'orderBy', args: ['sales.region', 'asc'] });
@@ -163,7 +177,7 @@ describe('executeForTier — client/server tier ORDER BY qualification', () => {
       columns: ['customers.name'],
       orderBy: [{ column: 'customers.name', direction: 'desc' }],
     };
-    await executeForTier(db, CLAIMS, descriptor, 'server');
+    await executeForTier(db, CLAIMS, descriptor, 'server', SINGLE_TENANT_OPTS);
     const orderByCall = calls.find((c) => c.method === 'orderBy');
     expect(orderByCall).toEqual({ method: 'orderBy', args: ['customers.name', 'desc'] });
   });

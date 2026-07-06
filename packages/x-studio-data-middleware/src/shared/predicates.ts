@@ -41,18 +41,21 @@ export const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
 /**
  * Resolve the security column names for the PRIMARY table of a query/mutation.
  *
- * Falls back to the historical hardcoded names (`region_id`, `department`) and
- * to `tenantColumnFallback` (the legacy `tenantColumn` option) for the tenant
- * column so existing deployments keep working without configuring anything.
+ * The tenant column is `perTable[table]?.tenant ?? resolvedTenantColumn`, where
+ * `resolvedTenantColumn` is derived from the caller's `TenancyConfig`
+ * (`tenancy.tenantColumn` for multi-tenant, `undefined` for single-tenant) — a
+ * per-table override still wins for a table using a different tenant-column name.
+ * The region/department names fall back to the historical hardcoded defaults
+ * (`region_id`, `department`).
  */
 export function resolvePrimarySecurityColumns(
   table: string,
   config: SecurityColumnsConfig | undefined,
-  tenantColumnFallback: string | undefined,
+  resolvedTenantColumn: string | undefined,
 ): SecurityColumns {
   const override = config?.perTable?.[table];
   return {
-    tenant: override?.tenant ?? config?.tenant ?? tenantColumnFallback,
+    tenant: override?.tenant ?? resolvedTenantColumn,
     region: override?.region ?? config?.region ?? 'region_id',
     department: override?.department ?? config?.department ?? 'department',
   };
@@ -71,6 +74,9 @@ export function resolvePrimarySecurityColumns(
  *
  * A per-table entry may override individual column names for a joined table that
  * uses a different convention (e.g. `perTable: { customers: { tenant: 'org_id' } }`).
+ * The inherited tenant column is `perTable[table]?.tenant ?? resolvedTenantColumn`
+ * (the tenant column derived from the caller's `TenancyConfig`, matching the
+ * primary table).
  *
  * OPT-OUT — a genuinely shared/lookup table that has no tenant column (e.g. a
  * country-codes table) opts out of scoping with an explicit `perTable[table] =
@@ -83,7 +89,7 @@ export function resolvePrimarySecurityColumns(
 export function resolveJoinSecurityColumns(
   table: string,
   config: SecurityColumnsConfig | undefined,
-  tenantColumnFallback: string | undefined,
+  resolvedTenantColumn: string | undefined,
 ): SecurityColumns | undefined {
   const override = config?.perTable?.[table];
   // Explicit opt-out: this joined table is a shared/lookup table with no tenant
@@ -94,7 +100,7 @@ export function resolveJoinSecurityColumns(
   // Default: inherit the primary table's resolved security columns (fail-closed),
   // letting an explicit per-table entry override individual column names.
   return {
-    tenant: override?.tenant ?? config?.tenant ?? tenantColumnFallback,
+    tenant: override?.tenant ?? resolvedTenantColumn,
     region: override?.region ?? config?.region ?? 'region_id',
     department: override?.department ?? config?.department ?? 'department',
   };

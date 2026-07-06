@@ -21,12 +21,12 @@ import type {
   BatchWidgetDescriptor,
   FilterPredicate,
   HavingPredicate,
-  HandleBatchQueryOptions,
 } from '../security/types';
 import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
 import {
   toCompiledSecurityPolicy,
   type CompiledSecurityPolicy,
+  type SecurityPolicyOptions,
 } from '../security/compileSecurityPolicy';
 import { toValidatedQueryPlan, type ValidatedQueryPlan } from '../security/validateQueryPlan';
 
@@ -41,7 +41,9 @@ import { toValidatedQueryPlan, type ValidatedQueryPlan } from '../security/valid
  * @param db - Knex instance
  * @param claims - Pre-verified security claims
  * @param descriptor - Widget query descriptor (validated before calling)
- * @param options - Compiled security policy (request path) or the legacy raw option pair (direct callers)
+ * @param options - Compiled security policy (request path) or the raw `SecurityPolicyOptions`
+ *   (direct callers). REQUIRED — an enforcement site is never reachable without an explicit
+ *   tenancy decision, not even from a direct/test caller.
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Direct callers omit it; a plan is then
  *   resolved on the spot from `descriptor`, reproducing the pre-refactor inline `resolveAlias` behavior.
  */
@@ -49,9 +51,7 @@ export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?:
-    | CompiledSecurityPolicy
-    | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
 ): any {
   // Resolve the validated query plan ONCE. In the request path this is the plan

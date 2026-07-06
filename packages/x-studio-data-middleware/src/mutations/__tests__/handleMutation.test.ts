@@ -124,6 +124,13 @@ function makeCacheProvider(): CacheProvider & { deletedTags: string[] } {
 const CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'] };
 const ALLOWLIST = ['orders', 'customers'];
 
+// Tenancy is now a required, explicit decision on every options object. Tests that
+// configure a tenant column use MULTI_TENANT; tests that configure none declare
+// SINGLE_TENANT explicitly (the same unscoped behavior, now stated rather than
+// silently implied by omission).
+const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+const SINGLE_TENANT = { mode: 'single-tenant' } as const;
+
 // ── Table allowlist ───────────────────────────────────────────────────────────
 
 describe('handleMutation — table allowlist', () => {
@@ -140,9 +147,9 @@ describe('handleMutation — table allowlist', () => {
         },
       ],
     };
-    await expect(handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST })).rejects.toThrow(
-      /not in schema allowlist/,
-    );
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/not in schema allowlist/);
   });
 });
 
@@ -161,7 +168,11 @@ describe('handleMutation — successful operations', () => {
         },
       ],
     };
-    const { results } = await handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST });
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
     expect(db.snapshot().orders).toHaveLength(1);
   });
@@ -187,7 +198,7 @@ describe('handleMutation — successful operations', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 2 });
   });
@@ -212,7 +223,7 @@ describe('handleMutation — successful operations', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
     expect(db.snapshot().orders).toHaveLength(1);
@@ -232,7 +243,11 @@ describe('handleMutation — per-mutation error isolation', () => {
         { id: 'good', operation: 'insert', table: 'customers', values: { name: 'Alice' } },
       ],
     };
-    const { results } = await handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST });
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
     const bad = results.find((r) => r.id === 'bad')!;
     const good = results.find((r) => r.id === 'good')!;
     expect(bad.ok).toBe(false);
@@ -249,7 +264,11 @@ describe('handleMutation — per-mutation error isolation', () => {
         { id: 'good', operation: 'insert', table: 'orders', values: { status: 'pending' } },
       ],
     };
-    const { results } = await handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST });
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
     expect(results.find((r) => r.id === 'bad')?.ok).toBe(false);
     expect(results.find((r) => r.id === 'good')?.ok).toBe(true);
   });
@@ -267,7 +286,12 @@ describe('handleMutation — cache invalidation', () => {
         { id: 'm2', operation: 'insert', table: 'orders', values: { status: 'shipped' } },
       ],
     };
-    await handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, cacheProvider: cache });
+    await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+      cacheProvider: cache,
+    });
     expect(cache.deletedTags).toEqual(['orders', 'orders']);
   });
 
@@ -282,7 +306,12 @@ describe('handleMutation — cache invalidation', () => {
         { id: 'm2', operation: 'insert', table: 'orders', values: { status: 'pending' } },
       ],
     };
-    await handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, cacheProvider: cache });
+    await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+      cacheProvider: cache,
+    });
     // Only the successful insert should trigger invalidation
     expect(cache.deletedTags).toEqual(['orders']);
   });
@@ -295,7 +324,7 @@ describe('handleMutation — cache invalidation', () => {
       ],
     };
     await expect(
-      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST }),
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
     ).resolves.toMatchObject({ results: [{ id: 'm1', ok: true }] });
   });
 });
@@ -320,6 +349,7 @@ describe('handleMutation — where-column allowlist', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
       columnAllowlist: { orders: ['id', 'status'] },
     });
     expect(results[0].ok).toBe(false);
@@ -347,7 +377,7 @@ describe('handleMutation — where-column allowlist', () => {
       db,
       schemaAllowlist: ALLOWLIST,
       columnAllowlist: { orders: ['id', 'status'] },
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
   });
@@ -376,7 +406,7 @@ describe('handleMutation — empty-IN write guard', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(results[0].ok).toBe(false);
     expect(results[0].error).toMatch(/"in" predicate with an empty value list/);
@@ -396,7 +426,7 @@ describe('handleMutation — tenant isolation', () => {
     await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     expect(db.snapshot().orders[0].tenant_id).toBe('acme');
   });
@@ -422,7 +452,7 @@ describe('handleMutation — tenant isolation', () => {
     await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     const { orders } = db.snapshot();
     expect(orders.find((r) => r.id === 1)?.status).toBe('hijacked'); // acme affected
@@ -430,14 +460,16 @@ describe('handleMutation — tenant isolation', () => {
   });
 });
 
-// ── Tenant isolation via securityColumns (no legacy tenantColumn) ──────────────
+// ── Tenant isolation via multi-tenant tenancy ─────────────────────────────────
 //
 // Regression for finding 1.1 (CRITICAL): the highest-value missing test in the
-// package. A deployment configuring tenancy ONLY through `securityColumns` must
-// stamp inserts with the caller's tenant AND reject a client-supplied tenant.
+// package. A multi-tenant deployment must stamp inserts with the caller's tenant
+// AND reject a client-supplied tenant. (Previously this path was exercised via a
+// `securityColumns.tenant`-only config; the global tenant column now lives in the
+// required `tenancy` posture, so multi-tenant mode is the equivalent premise.)
 
-describe('handleMutation — tenant isolation via securityColumns', () => {
-  it('stamps the caller tenant on insert when tenancy is configured via securityColumns only', async () => {
+describe('handleMutation — tenant isolation via multi-tenant tenancy', () => {
+  it('stamps the caller tenant on insert in multi-tenant mode', async () => {
     const db = createMutableMockDb({ orders: [] });
     const body: BatchMutationRequest = {
       mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok' } }],
@@ -445,15 +477,14 @@ describe('handleMutation — tenant isolation via securityColumns', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      // NO tenantColumn — only securityColumns.
-      securityColumns: { tenant: 'tenant_id' },
+      tenancy: MULTI_TENANT,
     });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true });
     // (a) the stored row carries the caller's tenant.
     expect(db.snapshot().orders[0].tenant_id).toBe('acme');
   });
 
-  it('rejects a client-supplied tenant value in insert values (securityColumns only)', async () => {
+  it('rejects a client-supplied tenant value in insert values (multi-tenant mode)', async () => {
     const db = createMutableMockDb({ orders: [] });
     const body: BatchMutationRequest = {
       mutations: [
@@ -468,7 +499,7 @@ describe('handleMutation — tenant isolation via securityColumns', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      securityColumns: { tenant: 'tenant_id' },
+      tenancy: MULTI_TENANT,
       writableColumns: { orders: ['status', 'tenant_id'] },
     });
     // (b) a client-supplied tenant value is rejected — no row injected.
@@ -498,7 +529,7 @@ describe('handleMutation — batch ordering', () => {
     const { results } = await handleMutation(body, CLAIMS, {
       db,
       schemaAllowlist: ALLOWLIST,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
     // The update ran AFTER the insert and observed the inserted row.
     expect(results.find((r) => r.id === 'ins')?.ok).toBe(true);

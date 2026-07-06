@@ -17,9 +17,7 @@ async function main(): Promise<void> {
   log(
     `[startup] Sales DB: ${config.salesDb.client} (${config.salesDb.filename ?? config.salesDb.host})`,
   );
-  log(
-    `[startup] CRM DB:   ${config.crmDb.client} (${config.crmDb.filename ?? config.crmDb.host})`,
-  );
+  log(`[startup] CRM DB:   ${config.crmDb.client} (${config.crmDb.filename ?? config.crmDb.host})`);
 
   await createTables(salesDb);
   await createCrmTables(crmDb);
@@ -39,6 +37,7 @@ async function main(): Promise<void> {
     log(`[startup] x-studio-dev-server listening on http://localhost:${config.port}`);
     log(`[startup]   Health:    http://localhost:${config.port}/health`);
     log(`[startup]   Sales API: http://localhost:${config.port}/api/sales-data`);
+    log(`[startup]   Sales Mut: http://localhost:${config.port}/api/sales-mutations`);
     log(`[startup]   CRM API:   http://localhost:${config.port}/api/crm-data`);
     log(`[startup]   AI API:    http://localhost:${config.port}/api/ai/chat`);
     log(`[startup]   MCP API:   http://localhost:${config.port}/api/mcp`);

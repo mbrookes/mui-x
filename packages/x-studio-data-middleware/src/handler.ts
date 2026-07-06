@@ -37,17 +37,13 @@ import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
 } from './security/compileSecurityPolicy';
+import { validateQueryPlan, type ValidatedQueryPlan } from './security/validateQueryPlan';
 import { LRUCacheProvider } from './cache/LRUCacheProvider';
 import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 import { runPreflight } from './router/preflight';
 import { executeForTier } from './router/execute';
 import { decideTierWithCache, DEFAULT_THRESHOLDS } from './router/tierDecision';
 import { assertTablesAllowed } from './shared/assertTablesAllowed';
-import {
-  validateAggregationAliases,
-  validateDescriptorColumns,
-  validateHavingAliases,
-} from './shared/columnValidation';
 import type { CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
@@ -104,23 +100,22 @@ export async function handleBatchQuery(
     schemaAllowlist,
   );
 
-  // ── Validate HAVING aliases for every widget (SECURITY INVARIANT) ──────────
-  // Runs UNCONDITIONALLY — a HAVING predicate may only reference an aggregation
-  // alias, regardless of whether a column allowlist is configured.
-  for (const descriptor of body.widgets) {
-    validateHavingAliases(descriptor);
-    validateAggregationAliases(descriptor);
-  }
-
-  // ── Validate all column references (SECURITY INVARIANT #2) ─────────────────
-  if (columnAllowlist) {
-    for (const descriptor of body.widgets) {
-      validateDescriptorColumns(descriptor, columnAllowlist);
-    }
-  }
+  // ── Compile + validate the column-reference plan ONCE per widget ───────────
+  // `validateQueryPlan` runs the unconditional HAVING/aggregation-alias validators
+  // and, when a `columnAllowlist` is configured, the fail-closed column-allowlist
+  // check — reusing the same single-source-of-truth validators as before — then
+  // resolves every column reference into a `ValidatedQueryPlan` whose fields are
+  // already-resolved `ColumnRef`s. The plan is threaded down in place of the raw
+  // descriptor's logical column names + `columnAliases` map, so `buildSecureQuery`
+  // / `executeForTier` no longer re-derive alias resolution at their own call
+  // sites. Compiled synchronously (before Promise.all) so a validation error still
+  // rejects the whole batch, exactly as the previous validation loops did.
+  const plans: ValidatedQueryPlan[] = body.widgets.map((descriptor: BatchWidgetDescriptor) =>
+    validateQueryPlan(descriptor, columnAllowlist),
+  );
 
   const results: WidgetQueryResult[] = await Promise.all(
-    body.widgets.map((descriptor: BatchWidgetDescriptor) =>
+    body.widgets.map((descriptor: BatchWidgetDescriptor, index: number) =>
       processWidget(
         db,
         claims,
@@ -130,6 +125,7 @@ export async function handleBatchQuery(
         tierCacheTtlMs,
         thresholds,
         policy,
+        plans[index],
       ),
     ),
   );
@@ -149,6 +145,7 @@ async function processWidget(
   tierCacheTtlMs: number,
   thresholds: HandleBatchQueryOptions['thresholds'],
   policy: CompiledSecurityPolicy,
+  plan: ValidatedQueryPlan,
 ): Promise<WidgetQueryResult> {
   // Fold the compiled policy's digest into the cache key so a policy change (e.g.
   // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
@@ -186,7 +183,7 @@ async function processWidget(
     const tierDecision = await decideTierWithCache(
       hasAggregations,
       cacheKey,
-      () => runPreflight(db, claims, descriptor, queryOptions).then((p) => p.rowCount),
+      () => runPreflight(db, claims, descriptor, queryOptions, plan).then((p) => p.rowCount),
       tierCacheProvider,
       resolvedThresholds,
       tierCacheTtlMs,
@@ -195,7 +192,7 @@ async function processWidget(
     let rowCount: number = tierDecision.rowCount;
 
     // ── 4. Execute query for the selected tier ─────────────────────────────
-    const rows = await executeForTier(db, claims, descriptor, tier, queryOptions);
+    const rows = await executeForTier(db, claims, descriptor, tier, queryOptions, plan);
 
     // For aggregation queries decideTier returns rowCount=0 (bypassed);
     // use the actual number of result groups instead.

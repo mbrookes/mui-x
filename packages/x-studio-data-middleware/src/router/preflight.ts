@@ -22,6 +22,7 @@ import type {
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
 import type { CompiledSecurityPolicy } from '../security/compileSecurityPolicy';
+import type { ValidatedQueryPlan } from '../security/validateQueryPlan';
 
 interface PreflightResult {
   rowCount: number;
@@ -39,6 +40,8 @@ interface PreflightResult {
  * @param claims - Verified security claims
  * @param descriptor - Widget query descriptor
  * @param options - Security/tenant options forwarded to `buildSecureQuery`
+ * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Omitted by direct callers, in which case
+ *   `buildSecureQuery` resolves one from `descriptor`.
  */
 export async function runPreflight(
   db: any, // Knex.Knex
@@ -47,9 +50,10 @@ export async function runPreflight(
   options?:
     | CompiledSecurityPolicy
     | Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  plan?: ValidatedQueryPlan,
 ): Promise<PreflightResult> {
   // Build the query without column selection — only security + user filters
-  const query = buildSecureQuery(db, claims, descriptor, options).count('* as row_count');
+  const query = buildSecureQuery(db, claims, descriptor, options, plan).count('* as row_count');
 
   const result = (await query.first()) as { row_count: number | string } | undefined;
   const rowCount = Number(result?.row_count ?? 0);

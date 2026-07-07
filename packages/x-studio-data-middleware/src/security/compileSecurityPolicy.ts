@@ -29,6 +29,7 @@
 import { createHash } from 'node:crypto';
 import type { SecurityColumns, SecurityColumnsConfig, TenancyConfig } from './types';
 import { resolveJoinSecurityColumns, resolvePrimarySecurityColumns } from '../shared/predicates';
+import { sortedStringify } from './canonicalize';
 
 /** The security-relevant subset of the handler/mutation options. */
 export interface SecurityPolicyOptions {
@@ -63,23 +64,6 @@ export interface CompiledSecurityPolicy {
    * resolvers derive the tenant column from this very value.
    */
   readonly tenancy: TenancyConfig;
-}
-
-/**
- * Recursively serialize a value with object keys sorted alphabetically, so the
- * digest is deterministic regardless of property insertion order.
- */
-function sortedStringify(obj: unknown): string {
-  if (Array.isArray(obj)) {
-    return `[${obj.map(sortedStringify).join(',')}]`;
-  }
-  if (obj !== null && typeof obj === 'object') {
-    const sorted = Object.keys(obj as Record<string, unknown>)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${sortedStringify((obj as Record<string, unknown>)[k])}`);
-    return `{${sorted.join(',')}}`;
-  }
-  return JSON.stringify(obj);
 }
 
 /**

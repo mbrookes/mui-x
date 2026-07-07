@@ -473,9 +473,15 @@ export interface HandleBatchQueryOptions {
    * Row-level-security column configuration.
    *
    * Overrides the hardcoded region/department column names (defaults:
-   * `region_id` / `department`) and, via `perTable`, opts joined tables into
-   * tenant/region/department scoping. Joined tables without a `perTable` entry
-   * carrying a `tenant` column are treated as shared and receive no predicate.
+   * `region_id` / `department`) and, via `perTable`, overrides individual
+   * security-column names for tables using a different convention.
+   *
+   * SECURITY — joined tables are scoped by DEFAULT (fail-closed): a joined table
+   * with no `perTable` entry inherits the primary table's resolved
+   * tenant/region/department column names, so an unregistered join cannot
+   * silently fan out to other tenants' rows. A genuinely shared/lookup table
+   * with no tenant column joins unscoped ONLY via the explicit
+   * `perTable[table] = null` opt-out. See `SecurityColumnsConfig` for details.
    *
    * @default region column `region_id`, department column `department`
    */

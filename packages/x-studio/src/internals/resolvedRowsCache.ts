@@ -1,4 +1,5 @@
 import { resolveRows } from './dataSourceGraph';
+import { stableStringify } from './stableStringify';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -50,30 +51,13 @@ interface ResolvedCacheEntry {
 const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
 /**
- * Stable, content-based fingerprint of a single filter. Sorts nested object keys
- * so `value`/`value2` objects fingerprint identically regardless of key order.
- */
-function sortedStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value) ?? 'null';
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(sortedStringify).join(',')}]`;
-  }
-  const sorted = Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${sortedStringify((value as Record<string, unknown>)[k])}`);
-  return `{${sorted.join(',')}}`;
-}
-
-/**
  * Fingerprints every field that affects how a filter selects rows. `compileRowTest`
  * (filterUtils) reads operator/field/fieldType/conjunction/operator2/value2/
  * filterMode/rank*, so all of them must be part of the cache key — omitting them
  * lets an operator edit (same id, same value) silently serve stale rows.
  */
 function filterFingerprint(f: StudioFilterState): string {
-  return sortedStringify([
+  return stableStringify([
     f.id,
     f.field,
     f.fieldType ?? null,

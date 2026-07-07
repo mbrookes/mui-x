@@ -1,5 +1,4 @@
 import type {
-  StudioExpression,
   StudioExpressionField,
   StudioFilterNode,
   StudioFilterState,
@@ -7,26 +6,11 @@ import type {
   StudioWidget,
 } from '../models';
 import { selectFiltersForWidget } from './filterScoping';
-import {
-  isFieldExpression,
-  isFunctionExpression,
-  isJoinFieldExpression,
-} from '../utils/expressionEvaluator';
+import { isJoinFieldExpression } from '../utils/expressionEvaluator';
+import { collectExpressionRefs } from './expressionRefs';
+import { stableStringify } from './stableStringify';
 import { getDescriptor } from './chartTypeRegistry';
 import type { AggFn } from './chartTypeRegistry';
-
-function sortedStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(sortedStringify).join(',')}]`;
-  }
-  const sorted = Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${sortedStringify((value as Record<string, unknown>)[k])}`);
-  return `{${sorted.join(',')}}`;
-}
 
 // ── Filter tree builder ─────────────────────────────────────────────────────
 
@@ -81,20 +65,6 @@ export function collectSelectFields(widget: StudioWidget): string[] {
 // same as a column average). These helpers replace expression fields with the
 // native columns they depend on so the rows come back with the raw inputs, and
 // the expression is re-derived client-side after the fetch (see useWidgetRows).
-
-function collectExpressionRefs(expr: StudioExpression): string[] {
-  const refs: string[] = [];
-  const walk = (node: StudioExpression): void => {
-    if (isFieldExpression(node)) {
-      refs.push(node.id);
-    } else if (isFunctionExpression(node)) {
-      node.inputs.forEach(walk);
-    }
-    // JoinFieldExpression / ValueExpression reference no native column on this source.
-  };
-  walk(expr);
-  return refs;
-}
 
 /**
  * Replaces any expression-field IDs in `fields` with the native field IDs they
@@ -227,7 +197,7 @@ export function buildQueryDescriptor(
     xGroupBy,
     aggregations,
   };
-  const cacheKey = `${widget.sourceId}:${sortedStringify(cacheKeySource)}`;
+  const cacheKey = `${widget.sourceId}:${stableStringify(cacheKeySource)}`;
 
   return {
     sourceId: widget.sourceId ?? '',

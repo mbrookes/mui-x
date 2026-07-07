@@ -733,28 +733,98 @@ export function StudioBarChart({
     yFieldDef?.currencyCode,
     yFieldDef?.precision,
   );
-  const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
+
+  // Apply the display transform (empty-label filter + top-N "Other" grouping) FIRST, so the
+  // selection, ghost-context and highlight computations below all align to the RENDERED
+  // (display) order rather than the pre-transform label order.
+  const barMaxCats = barMaxCategories ?? undefined;
+  // Filter out empty x-axis values before applying max-categories grouping
+  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
+    (acc, label, i) => {
+      if (label !== null && label !== undefined && label !== '') {
+        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
+      }
+      return acc;
+    },
+    [],
+  );
+  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
+  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
+  // True once the "Other" entry is a grouping bucket (an appended synthetic bucket, or a real
+  // "Other" category that also absorbed the folded remainder). Used both to align the ghost
+  // "Other" value and to guard clicks on the synthetic bucket.
+  let otherGroupingApplied = false;
+  if (barMaxCats && displayXAxisData.length > barMaxCats) {
+    const topN = barMaxCats - 1;
+    // Group by VALUE (largest categories kept, smallest folded into "Other"), matching the
+    // pie's top-N behavior — not by axis position. Sort a copy so the original order of the
+    // (possibly densified) input is left untouched.
+    const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    const topPairs = sortedPairs.slice(0, topN);
+    const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
+    const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
+    if (existingOtherIdx >= 0) {
+      // Real "Other" category already in top-N — merge remainder into it
+      const merged = topPairs.map((p, i) =>
+        i === existingOtherIdx ? { label: p.label, value: (p.value ?? 0) + otherValue } : p,
+      );
+      displayXAxisData = merged.map((p) => p.label);
+      displayBarValues = merged.map((p) => p.value);
+    } else {
+      displayXAxisData = [...topPairs.map((p) => p.label), 'Other'];
+      displayBarValues = [...topPairs.map((p) => p.value), otherValue];
+    }
+    otherGroupingApplied = true;
+  }
+
+  // Selection is computed against the RENDERED (display) label order: a folded-away selected
+  // label simply yields no index (getSelectedDataIndices matches by label), and a kept label
+  // highlights the correct rendered bar.
+  const selectedDataIndices = getSelectedDataIndices(displayXAxisData);
   const sourceSelectionCtxValue =
     // eslint-disable-next-line react/jsx-no-constructed-context-values
     selectedDataIndices.length > 1 ? new Set(selectedDataIndices) : null;
 
-  // Filtered values aligned to all-data labels for ghost bar context
-  const singleSeriesFilteredValues =
-    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline
-      ? alignFilteredToAllLabels(allBarChartData.labels, chartData.labels, chartData.values)
-      : null;
-  const singleBarContext =
-    singleSeriesFilteredValues && effectiveSingleSeriesData
-      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-        {
-          filteredValuesBySeriesId: {
-            [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
-          },
-          allValuesBySeriesId: {
-            [CROSS_FILTER_SERIES_ID]: effectiveSingleSeriesData.values.map((v) => v ?? 0),
-          },
+  // Filtered values for the ghost bar context, aligned to the display order. The synthetic
+  // "Other" bucket sums the filtered values of every folded-away label (mirroring the display
+  // baseline), while kept labels absent from the filtered set stay null → "(filtered out)".
+  const ghostActive = Boolean(
+    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline,
+  );
+  let singleSeriesFilteredValues: (number | null)[] | null = null;
+  if (ghostActive && chartData) {
+    const filteredValueByLabel = new Map<string, number | null>(
+      chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
+    );
+    const keepSet = new Set(
+      displayXAxisData
+        .filter((l) => !(otherGroupingApplied && String(l) === 'Other'))
+        .map((l) => String(l)),
+    );
+    singleSeriesFilteredValues = displayXAxisData.map((label) => {
+      if (otherGroupingApplied && String(label) === 'Other') {
+        let sum = 0;
+        for (const [lbl, fv] of filteredValueByLabel) {
+          if (!keepSet.has(lbl)) {
+            sum += fv ?? 0;
+          }
         }
-      : null;
+        return sum;
+      }
+      return filteredValueByLabel.get(String(label)) ?? null;
+    });
+  }
+  const singleBarContext = singleSeriesFilteredValues
+    ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+      {
+        filteredValuesBySeriesId: {
+          [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
+        },
+        allValuesBySeriesId: {
+          [CROSS_FILTER_SERIES_ID]: displayBarValues.map((v) => v ?? 0),
+        },
+      }
+    : null;
   const singleSeriesVF =
     singleBarContext && singleSeriesFilteredValues
       ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
@@ -780,42 +850,6 @@ export function StudioBarChart({
     };
   } else if (selectedDataIndices.length > 1) {
     singleBarHighlightedItem = null;
-  }
-
-  // Apply top-N + "Other" grouping for bar charts
-  const barMaxCats = barMaxCategories ?? undefined;
-  // Filter out empty x-axis values before applying max-categories grouping
-  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
-    (acc, label, i) => {
-      if (label !== null && label !== undefined && label !== '') {
-        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
-      }
-      return acc;
-    },
-    [],
-  );
-  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
-  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
-  if (barMaxCats && displayXAxisData.length > barMaxCats) {
-    const topN = barMaxCats - 1;
-    // Group by VALUE (largest categories kept, smallest folded into "Other"), matching the
-    // pie's top-N behavior — not by axis position. Sort a copy so the original order of the
-    // (possibly densified) input is left untouched.
-    const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-    const topPairs = sortedPairs.slice(0, topN);
-    const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
-    const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
-    if (existingOtherIdx >= 0) {
-      // Real "Other" category already in top-N — merge remainder into it
-      const merged = topPairs.map((p, i) =>
-        i === existingOtherIdx ? { label: p.label, value: (p.value ?? 0) + otherValue } : p,
-      );
-      displayXAxisData = merged.map((p) => p.label);
-      displayBarValues = merged.map((p) => p.value);
-    } else {
-      displayXAxisData = [...topPairs.map((p) => p.label), 'Other'];
-      displayBarValues = [...topPairs.map((p) => p.value), otherValue];
-    }
   }
 
   // Default single-series bar — vertical and horizontal share one render, differing only in

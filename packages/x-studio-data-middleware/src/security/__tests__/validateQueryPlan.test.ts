@@ -298,6 +298,97 @@ describe('toValidatedQueryPlan / isValidatedQueryPlan — dual acceptance', () =
   });
 });
 
+describe('validateQueryPlan — SELECT * allowlist-bypass synthesis (finding 1.1)', () => {
+  it('synthesizes an explicit projection from the allowlist when a no-columns widget has an entry', () => {
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
+    const plan = validateQueryPlan(descriptor, { sales: ['region', 'amount'] });
+    // Exactly the allowlisted columns, in allowlist order, as direct physical
+    // columns (no outputAlias) — so Knex projects them instead of SELECT *.
+    expect(plan.columns).toEqual([{ physical: 'region' }, { physical: 'amount' }]);
+  });
+
+  it('also synthesizes when columns is an explicit empty array', () => {
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales', columns: [] };
+    const plan = validateQueryPlan(descriptor, { sales: ['region'] });
+    expect(plan.columns).toEqual([{ physical: 'region' }]);
+  });
+
+  it('leaves the projection empty for a ["*"] wildcard entry (explicit SELECT * opt-out)', () => {
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
+    const plan = validateQueryPlan(descriptor, { sales: ['*'] });
+    expect(plan.columns).toEqual([]);
+  });
+
+  it('rejects fail-closed when a no-columns widget has no allowlist entry for its table', () => {
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
+    expect(() => validateQueryPlan(descriptor, { orders: ['id'] })).toThrow(
+      /Table "sales" has no entry in the column allowlist/,
+    );
+  });
+
+  it('does NOT synthesize when aggregations are present (db tier emits no SELECT *)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+    };
+    const plan = validateQueryPlan(descriptor, { sales: ['region', 'amount'] });
+    // Global aggregation keeps its single-summary-row shape — no dimension columns.
+    expect(plan.columns).toEqual([]);
+  });
+
+  it('does NOT synthesize when no allowlist is supplied (SELECT * preserved)', () => {
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
+    const plan = validateQueryPlan(descriptor);
+    expect(plan.columns).toEqual([]);
+  });
+});
+
+describe('validateQueryPlan — ORDER BY direction allowlist (finding 1.3)', () => {
+  it('accepts asc/desc case-insensitively and normalizes to lowercase', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region', 'amount'],
+      orderBy: [
+        { column: 'region', direction: 'ASC' as any },
+        { column: 'amount', direction: 'DESC' as any },
+      ],
+    };
+    const plan = validateQueryPlan(descriptor);
+    expect(plan.orderBy.map((ob) => ob.direction)).toEqual(['asc', 'desc']);
+  });
+
+  it('throws for a non-asc/desc direction string', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      orderBy: [{ column: 'region', direction: 'asc; drop table sales' as any }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/ORDER BY direction/);
+  });
+
+  it('throws for a non-string direction (type is not a runtime guarantee)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      orderBy: [{ column: 'region', direction: 1 as any }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/ORDER BY direction/);
+  });
+
+  it('toValidatedQueryPlan on a raw descriptor with a bad direction does NOT throw', () => {
+    // The direct-caller coercion path deliberately skips the validators, matching
+    // the pinned unsafe-alias behavior — it only resolves + normalizes.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      orderBy: [{ column: 'region', direction: 'sideways' as any }],
+    };
+    expect(() => toValidatedQueryPlan(descriptor)).not.toThrow();
+  });
+});
+
 /** Run `fn`, returning the thrown Error's message (or a sentinel if it did not throw). */
 function captureThrow(fn: () => void): string {
   try {

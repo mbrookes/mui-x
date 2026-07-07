@@ -233,6 +233,112 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     expect(result.results[0].error).toBeUndefined();
   });
 
+  // finding 1.1 — a widget that declares NO columns must not slip past the
+  // allowlist as SELECT *. The projection is synthesized from the allowlist, so
+  // only the allowlisted columns come back — never the whole row.
+  it.each<['omitted' | 'empty', BatchQueryRequest['widgets'][number]]>([
+    ['omitted', { id: 'w1', table: 'sales' }],
+    ['empty', { id: 'w1', table: 'sales', columns: [] }],
+  ])(
+    'a NO-columns widget (%s) does not bypass the allowlist (finding 1.1)',
+    async (_shape, widget) => {
+      const result = await handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        columnAllowlist: { sales: ['region', 'amount'] },
+        // Isolate from the shared default-cache singleton: the cache key does not
+        // fold in `columnAllowlist` (pre-existing gap), so identical descriptors
+        // across these sibling tests would otherwise share one entry.
+        cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+      });
+      const rows = result.results[0].rows;
+      expect(result.results[0].error).toBeUndefined();
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(Object.keys(row).sort()).toEqual(['amount', 'region']);
+        // Non-allowlisted columns must NOT leak through the SELECT * hole.
+        expect(row).not.toHaveProperty('tenant_id');
+        expect(row).not.toHaveProperty('id');
+        expect(row).not.toHaveProperty('product');
+        expect(row).not.toHaveProperty('sale_date');
+      }
+    },
+  );
+
+  it('rejects a NO-columns widget whose table has no allowlist entry (finding 1.1)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        columnAllowlist: { orders: ['id'] }, // no 'sales' entry
+      }),
+    ).rejects.toThrow(/Table "sales" has no entry in the column allowlist/);
+  });
+
+  it('a ["*"] wildcard still opts a NO-columns widget into SELECT *', async () => {
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        columnAllowlist: { sales: ['*'] },
+        cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+      },
+    );
+    const rows = result.results[0].rows;
+    expect(rows.length).toBeGreaterThan(0);
+    // Explicit opt-out: the full row (incl. non-listed columns) comes back.
+    expect(rows[0]).toHaveProperty('tenant_id');
+  });
+
+  it('no allowlist + no columns is unchanged (SELECT *)', async () => {
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        // No columnAllowlist — synthesis is gated on it, so SELECT * is preserved.
+        cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+      },
+    );
+    const rows = result.results[0].rows;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toHaveProperty('tenant_id');
+  });
+
+  it('rejects a non-asc/desc ORDER BY direction (finding 1.3)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          orderBy: [{ column: 'region', direction: 'asc; drop table sales' as any }],
+        },
+      ],
+    };
+    // No columnAllowlist needed — the direction check is unconditional and
+    // rejects the whole batch.
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/ORDER BY direction/);
+  });
+
   it('validates both sides of every join.on pair against the allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',

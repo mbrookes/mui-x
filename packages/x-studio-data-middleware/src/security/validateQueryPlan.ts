@@ -155,6 +155,76 @@ function asColumnRef(physical: string): ColumnRef {
   return physical as ColumnRef;
 }
 
+/** Accepts only the two canonical SQL sort directions (case-insensitive). */
+const SAFE_ORDER_BY_DIRECTION = /^(asc|desc)$/i;
+
+/**
+ * Validate every ORDER BY direction against a fail-closed allowlist.
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured). `ob.direction` is client JSON that
+ * `execute.ts` passes as the second argument of Knex `.orderBy(col, direction)`,
+ * where Knex interpolates the direction token straight into the ORDER BY clause
+ * rather than through a `?`/`??` binding. The TS type (`'asc' | 'desc'`) is not a
+ * runtime guarantee — the wire value can be an arbitrary string (or even a
+ * number/object), so constrain it to `asc`/`desc` (fail-closed), mirroring the
+ * `SAFE_OPERATORS`/`SAFE_ALIAS_PATTERN` guards elsewhere in this package. Kept
+ * module-private: no other consumer needs it (mutations have no ORDER BY).
+ */
+function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
+  for (const ob of descriptor.orderBy ?? []) {
+    if (typeof ob.direction !== 'string' || !SAFE_ORDER_BY_DIRECTION.test(ob.direction)) {
+      throw new Error(
+        `MUI X Studio Server: ORDER BY direction "${ob.direction}" is not allowed. ` +
+          `The direction is emitted into the SQL ORDER BY clause, so an unexpected value could alter the query. ` +
+          `Use "asc" or "desc".`,
+      );
+    }
+  }
+}
+
+/**
+ * Close the SELECT * allowlist-bypass: when a `columnAllowlist` is configured but
+ * a widget declares NO projection columns and NO aggregations, Knex would emit
+ * `SELECT *` and return every column — including ones the host never allowlisted.
+ * Synthesize an explicit projection from the allowlist instead (fail-closed by
+ * construction). Mutates `plan.columns` in place.
+ *
+ *   - No allowlist entry for the table → throw fail-closed, mirroring
+ *     `checkColumnAgainstAllowlist`'s "has no entry" error (context `'columns'`).
+ *     Today this shape silently returns `SELECT *` — the worst variant of the bug.
+ *   - Entry is `['*']` → leave `plan.columns` empty; `SELECT *` is the host's
+ *     explicit, documented opt-out (matches the wildcard semantics of
+ *     `checkColumnAgainstAllowlist`).
+ *   - Otherwise → project exactly the allowlisted physical columns, in allowlist
+ *     order, with NO `outputAlias` (direct physical columns, not expression-field
+ *     renames). `executeForTier`'s `qualify()` prefixes them with the primary
+ *     table at execution time, so the row shape matches an explicit projection.
+ */
+function synthesizeProjectionFromAllowlist(
+  plan: ValidatedQueryPlan,
+  table: string,
+  columnAllowlist: Record<string, string[]>,
+): void {
+  const allowed = columnAllowlist[table];
+  if (!allowed) {
+    // Same message (and therefore same extracted error code) as
+    // `checkColumnAgainstAllowlist`'s "has no entry" throw — the context token is
+    // interpolated so the template matches verbatim rather than forking a code.
+    const context = 'columns';
+    throw new Error(
+      `MUI X Studio Server: Table "${table}" has no entry in the column allowlist (${context}). ` +
+        `When a column allowlist is supplied, every referenced table must declare its allowed columns so unlisted tables cannot be probed. ` +
+        `Add "${table}" to the allowlist (use ["*"] to allow all of its columns).`,
+    );
+  }
+  if (allowed.includes('*')) {
+    // Explicit opt-out — leave the projection empty so Knex keeps SELECT *.
+    return;
+  }
+  plan.columns = allowed.map((col) => ({ physical: asColumnRef(col) }));
+}
+
 /**
  * Build the resolved plan from a descriptor — PURE alias resolution, no
  * validation. Every `ColumnRef` funnels through the shared `resolveAlias`, so the
@@ -189,13 +259,20 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
     pureMeasure: agg.alias === agg.column,
   }));
 
-  const orderBy: PlanOrderBy[] = (descriptor.orderBy ?? []).map((ob) =>
+  const orderBy: PlanOrderBy[] = (descriptor.orderBy ?? []).map((ob) => {
+    // Normalize the direction (on the request path already validated by
+    // `validateOrderByDirections`) to canonical lowercase so downstream Knex
+    // `.orderBy` calls and the `PlanOrderBy` type stay canonical. `String(...)`
+    // keeps this non-throwing on the direct-caller path (`toValidatedQueryPlan`),
+    // which deliberately skips the validators — a non-string direction there
+    // normalizes rather than crashing, preserving those callers' no-throw behavior.
+    const direction = String(ob.direction).toLowerCase() as 'asc' | 'desc';
     // An ORDER BY that targets an aggregation alias must stay the alias (it is not
     // a physical column); otherwise it is a physical column, resolved + qualified.
-    aggAliasSet.has(ob.column)
-      ? { direction: ob.direction, aggAlias: ob.column }
-      : { direction: ob.direction, physical: resolve(ob.column) },
-  );
+    return aggAliasSet.has(ob.column)
+      ? { direction, aggAlias: ob.column }
+      : { direction, physical: resolve(ob.column) };
+  });
 
   return {
     table: descriptor.table,
@@ -218,14 +295,19 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  * thread the returned plan down in place of re-deriving validation/resolution
  * downstream. Runs, in order (matching the pre-refactor handler's intra-widget
  * order):
- *   1. `validateHavingAliases`      — UNCONDITIONAL (throws on an invalid HAVING).
- *   2. `validateAggregationAliases` — UNCONDITIONAL (throws on an unsafe alias).
- *   3. `validateDescriptorColumns`  — ONLY when a `columnAllowlist` is supplied
+ *   1. `validateHavingAliases`       — UNCONDITIONAL (throws on an invalid HAVING).
+ *   2. `validateAggregationAliases`  — UNCONDITIONAL (throws on an unsafe alias).
+ *   3. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
+ *      direction — the token is interpolated into the SQL ORDER BY clause).
+ *   4. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
- * then resolves every column reference into the plan.
+ * then resolves every column reference into the plan and, when a `columnAllowlist`
+ * is configured for a no-columns/no-aggregations widget, synthesizes an explicit
+ * projection from the allowlist so Knex never falls back to `SELECT *` (fail-closed).
  *
- * These three validators are the EXISTING single-source-of-truth functions,
- * reused verbatim — this module never re-implements their logic or error text.
+ * The reused HAVING/aggregation/allowlist validators are the EXISTING
+ * single-source-of-truth functions — this module never re-implements their logic
+ * or error text.
  */
 export function validateQueryPlan(
   descriptor: BatchWidgetDescriptor,
@@ -233,10 +315,19 @@ export function validateQueryPlan(
 ): ValidatedQueryPlan {
   validateHavingAliases(descriptor);
   validateAggregationAliases(descriptor);
+  validateOrderByDirections(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);
   }
-  return buildPlan(descriptor);
+  const plan = buildPlan(descriptor);
+  // Close the SELECT * bypass: a no-columns/no-aggregations widget under an
+  // allowlist gets an explicit projection synthesized from the allowlist (or is
+  // rejected fail-closed when its table has no entry). Aggregation widgets are
+  // exempt — the db tier emits only aggregation/GROUP BY clauses, never SELECT *.
+  if (columnAllowlist && plan.columns.length === 0 && plan.aggregations.length === 0) {
+    synthesizeProjectionFromAllowlist(plan, descriptor.table, columnAllowlist);
+  }
+  return plan;
 }
 
 /** Type guard: has this already been compiled into a `ValidatedQueryPlan`? */

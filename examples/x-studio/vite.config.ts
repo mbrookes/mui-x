@@ -136,6 +136,16 @@ export default defineConfig({
   envPrefix: ['VITE_', 'STUDIO_'],
   server: {
     port: 3004,
+    proxy: {
+      // In production a single Railway service serves both the built client and the API
+      // (see railway.toml + src/server/index.ts), so client fetches use relative /api URLs.
+      // In dev the API runs separately (`pnpm server`, port 3006 by default) — proxy so the
+      // same relative URLs work without a client-side base-URL env var or CORS setup.
+      '/api': {
+        target: process.env.STUDIO_LOCAL_API_URL ?? 'http://localhost:3006',
+        changeOrigin: true,
+      },
+    },
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),

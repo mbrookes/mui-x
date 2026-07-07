@@ -791,9 +791,18 @@ importers:
       '@mui/x-studio':
         specifier: workspace:*
         version: link:../../packages/x-studio/build
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.6
       dayjs:
         specifier: 'catalog:'
         version: 1.11.21
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.21.2
+        version: 4.22.2
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -807,6 +816,15 @@ importers:
         specifier: workspace:*
         version: link:../x-studio-shared
     devDependencies:
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.15
@@ -815,7 +833,7 @@ importers:
         version: 19.2.3(@types/react@19.2.15)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+        version: 6.0.2(babel-plugin-react-compiler@1.0.0)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       '@welldone-software/why-did-you-render':
         specifier: ^10.0.1
         version: 10.0.1(react@19.2.6)
@@ -825,12 +843,15 @@ importers:
       rollup-plugin-visualizer:
         specifier: ^7.0.1
         version: 7.0.1(rolldown@1.0.3)(rollup@4.62.2)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.3
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+        version: 8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
 
   examples/x-studio-ag:
     dependencies:
@@ -5712,8 +5733,8 @@ packages:
     peerDependencies:
       preact: 10.x
 
-  '@react-grab/cli@0.1.47':
-    resolution: {integrity: sha512-Cc7d8mSwvoV8gpeTQbE8dMPdeXIyO6w+yIhzgi3jY06i03WLNhb/6jIxNBNF1cVRI7ujnFQXZA66BbnBNTpBSw==}
+  '@react-grab/cli@0.1.48':
+    resolution: {integrity: sha512-KXRZFN0b78BeVa4Tq1FC9kiXPpC5lS4pQp/mvQ1azy9dZUJ3zfc7Ei84+yvGh+WoYdceMCFxXfBp6qhU/G056g==}
     hasBin: true
 
   '@react-spring/animated@10.1.0':
@@ -7104,6 +7125,11 @@ packages:
 
   bippy@0.5.42:
     resolution: {integrity: sha512-K3tpfO9uGQB2k/Vi5P6jgfrnXvO/FAQNUE2tqKjQmT0a93fJCysMGLgJmRKzYYfybAoOtwWwmKm0vw/uXE0hMw==}
+    peerDependencies:
+      react: '>=17.0.1'
+
+  bippy@0.5.43:
+    resolution: {integrity: sha512-Tvu7b1M7+d8b9/YHaCeODEsi2CgbuoBql+dWSBrNnCuqJ1gMUeY3i0r+319hvjjl5GVBP6FFWxrKnq3fhZER0w==}
     peerDependencies:
       react: '>=17.0.1'
 
@@ -11053,8 +11079,8 @@ packages:
     peerDependencies:
       react: ^19.2.6
 
-  react-grab@0.1.47:
-    resolution: {integrity: sha512-1GNy24KMJ4CY1IxorYO9mydItGi0L1HkQB19uYU3t0BMsJB0K+D/QYiaBz+rugRynyY8LzmXIuOcon1TykLlCg==}
+  react-grab@0.1.48:
+    resolution: {integrity: sha512-p3WnmK9LLvXE/c4ITPLlXcP1fkXo2VFEQqK94tIfcHIWKNdqdhYYFyNVioO50HR+uyHIwT63Z4txZDqJlVcD/Q==}
     hasBin: true
     peerDependencies:
       react: '>=17.0.0'
@@ -15888,7 +15914,7 @@ snapshots:
       '@preact/signals-core': 1.14.3
       preact: 10.29.2
 
-  '@react-grab/cli@0.1.47':
+  '@react-grab/cli@0.1.48':
     dependencies:
       agent-install: 0.0.6
       commander: 14.0.3
@@ -16776,9 +16802,9 @@ snapshots:
       obug: 2.1.2
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.8(@types/node@22.19.19)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/browser-playwright@4.1.8)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
     optionalDependencies:
-      '@vitest/browser': 4.1.8(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
+      '@vitest/browser': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.8)
 
   '@vitest/eslint-plugin@1.6.20(@typescript-eslint/eslint-plugin@8.61.0(@typescript-eslint/parser@8.61.0(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3)(vitest@4.1.8)':
     dependencies:
@@ -17389,6 +17415,10 @@ snapshots:
     optional: true
 
   bippy@0.5.42(react@19.2.6):
+    dependencies:
+      react: 19.2.6
+
+  bippy@0.5.43(react@19.2.6):
     dependencies:
       react: 19.2.6
 
@@ -18165,7 +18195,7 @@ snapshots:
 
   dotenv-expand@12.0.3:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
 
   dotenv@16.4.7: {}
 
@@ -22097,10 +22127,10 @@ snapshots:
       react: 19.2.6
       scheduler: 0.27.0
 
-  react-grab@0.1.47(react@19.2.6):
+  react-grab@0.1.48(react@19.2.6):
     dependencies:
-      '@react-grab/cli': 0.1.47
-      bippy: 0.5.42(react@19.2.6)
+      '@react-grab/cli': 0.1.48
+      bippy: 0.5.43(react@19.2.6)
     optionalDependencies:
       react: 19.2.6
 
@@ -22143,7 +22173,7 @@ snapshots:
       prompts: 2.4.2
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
-      react-grab: 0.1.47(react@19.2.6)
+      react-grab: 0.1.48(react@19.2.6)
     optionalDependencies:
       esbuild: 0.28.0
       unplugin: 2.1.0

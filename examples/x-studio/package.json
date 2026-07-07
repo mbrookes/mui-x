@@ -11,7 +11,9 @@
     "analyze": "ANALYZE=true pnpm build",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "typescript": "tsc --noEmit -p tsconfig.json"
+    "typescript": "tsc --noEmit -p tsconfig.json",
+    "typescript:server": "tsc --noEmit -p tsconfig.server.json",
+    "server": "tsx src/server/index.ts"
   },
   "dependencies": {
     "@emotion/react": "catalog:",
@@ -24,19 +26,26 @@
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/x-studio": "workspace:*",
+    "cors": "^2.8.5",
     "dayjs": "catalog:",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
     "react": "catalog:",
     "react-dom": "catalog:",
     "web-vitals": "^5.2.0",
     "x-studio-shared": "workspace:*"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@welldone-software/why-did-you-render": "^10.0.1",
     "react-scan": "0.5.6",
     "rollup-plugin-visualizer": "^7.0.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "catalog:"
   },

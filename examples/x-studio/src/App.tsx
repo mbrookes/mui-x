@@ -36,8 +36,6 @@ import {
   prefetchGithubLibraryUsage,
 } from './connectors/githubLibraryUsageSource';
 
-const GITHUB_TOKEN = import.meta.env.VITE_GITHUB_TOKEN as string | undefined;
-
 const PAGE_ID = 'page-library-usage';
 const INTRO_WIDGET_ID = 'widget-text-intro';
 const HEATMAP_WIDGET_ID = 'widget-heatmap-library-usage';
@@ -294,15 +292,16 @@ export default function App() {
   }, []);
 
   // Wire the GitHub library-usage connector unconditionally — it always talks
-  // directly to the GitHub search API regardless of any data-source mode.
-  // Pre-fetch rows so the data drawer shows the correct count and preview, and
-  // so the heatmap has a synchronous fallback on cold cache (no empty flash).
+  // to this app's own /api/github-library-usage endpoint regardless of any
+  // data-source mode. Pre-fetch rows so the data drawer shows the correct
+  // count and preview, and so the heatmap has a synchronous fallback on cold
+  // cache (no empty flash).
   React.useEffect(() => {
     studioRef.current?.setDataSourceAdapter(
       GITHUB_LIBRARY_USAGE_SOURCE_ID,
-      createGithubLibraryUsageAdapter(GITHUB_TOKEN),
+      createGithubLibraryUsageAdapter(),
     );
-    prefetchGithubLibraryUsage(GITHUB_TOKEN).then((rows) => {
+    prefetchGithubLibraryUsage().then((rows) => {
       if (rows.length > 0) {
         studioRef.current?.setDataSourceRows(GITHUB_LIBRARY_USAGE_SOURCE_ID, rows);
       }

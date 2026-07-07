@@ -1,0 +1,16 @@
+[build]
+# Railpack resolves the exact Node version via mise from .node-version / engines
+# (22.22.3). The deprecated Nixpacks builder provisions Node from nix instead
+# (22.19.0 for the 22 series), whose old corepack cannot launch pnpm v11 (pure
+# ESM) and crashes with ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING — pin Railpack
+# explicitly so it isn't silently overridden back to Nixpacks from the dashboard.
+builder = "railpack"
+# Build the client so the API server (src/server/index.ts) can serve the static
+# site too — GitHub Pages is disabled by this org's policy, so Railway is the
+# only working public host for the built app.
+buildCommand = 'pnpm install --config.engine-strict=false && pnpm --filter "x-studio-example" run build'
+
+[deploy]
+startCommand = "pnpm --filter \"x-studio-example\" server"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

@@ -39,7 +39,14 @@ type Row = Record<string, unknown>;
 //                          enrichedRowsCache would have recomputed on a MISS.
 
 interface ResolvedCacheEntry {
-  crossFilterSourceRows: Map<string, Row[]>;
+  /**
+   * Rows ref of every foreign source this entry depends on. A `null` value records a
+   * source that had NO rows at compute time (absent / not yet loaded) — so when it
+   * later gains rows, `(rows ?? null) !== null` fails the equality check and the entry
+   * is invalidated. Recording absence explicitly is what fixes the stale-result bug
+   * where a cross-filter whose foreign source loaded late kept serving unfiltered rows.
+   */
+  crossFilterSourceRows: Map<string, Row[] | null>;
   relationships: StudioRelationship[];
   /** Source IDs whose non-measure expression fields this result depends on. */
   relevantExprSourceIds: Set<string>;
@@ -92,9 +99,11 @@ function isEntryValid(
   if (entry.relationships !== relationships) {
     return false;
   }
-  // Every foreign source this result joined against must still have the same rows ref.
+  // Every foreign source this result depends on must still have the same rows ref.
+  // `?? null` so a source that was ABSENT at compute time (recorded as null) triggers
+  // invalidation the moment it gains rows.
   for (const [sourceId, rowsRef] of entry.crossFilterSourceRows) {
-    if (dataSources[sourceId]?.rows !== rowsRef) {
+    if ((dataSources[sourceId]?.rows ?? null) !== rowsRef) {
       return false;
     }
   }
@@ -189,21 +198,16 @@ export function resolveRowsCached(
     { usedFieldIds, collectJoinedSourceIds: joinedSourceIds },
   );
 
-  const crossFilterSourceRows = new Map<string, Row[]>();
+  const crossFilterSourceRows = new Map<string, Row[] | null>();
   for (const sourceId of joinedSourceIds) {
-    const foreignRows = dataSources[sourceId]?.rows;
-    if (foreignRows) {
-      crossFilterSourceRows.set(sourceId, foreignRows);
-    }
+    // Record absence as null (not skip) so a later data load invalidates the entry.
+    crossFilterSourceRows.set(sourceId, dataSources[sourceId]?.rows ?? null);
   }
   // Also record any declared filterSourceId even if the join was skipped (e.g. the
   // foreign source had no rows yet) so a later data load invalidates the entry.
   for (const f of resolvedFilters) {
     if (f.filterSourceId && !crossFilterSourceRows.has(f.filterSourceId)) {
-      const foreignRows = dataSources[f.filterSourceId]?.rows;
-      if (foreignRows) {
-        crossFilterSourceRows.set(f.filterSourceId, foreignRows);
-      }
+      crossFilterSourceRows.set(f.filterSourceId, dataSources[f.filterSourceId]?.rows ?? null);
     }
   }
 

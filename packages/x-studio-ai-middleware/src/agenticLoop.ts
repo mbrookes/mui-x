@@ -27,6 +27,7 @@ import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { parseSSE } from './parseSSE';
 import {
+  consultToolPolicyArgsOnly,
   createDefaultToolPolicy,
   executeToolWithPolicy,
   Policy,
@@ -232,6 +233,20 @@ function waitForApproval(
   signal: AbortSignal | undefined,
   timeoutMs: number,
 ): Promise<ApprovalOutcome> {
+  // Cross-request collision guard: `approvalPending` is a host-shared, module-level
+  // map keyed by bare `toolCallId`. If another in-flight request already registered
+  // a resolver under this id, registering ours would overwrite theirs — their request
+  // would then hang until timeout and the human's decision could misroute to the wrong
+  // call. Refuse the duplicate instead: resolve immediately as not-approved WITHOUT
+  // touching (or, via the early return, deleting) the existing entry.
+  if (approvalPending.has(toolCallId)) {
+    return Promise.resolve({
+      kind: 'resolved',
+      approved: false,
+      reason:
+        'duplicate toolCallId across concurrent requests — approval refused to prevent misrouting',
+    });
+  }
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   return new Promise<ApprovalOutcome>((resolve) => {
@@ -269,6 +284,10 @@ interface ToolDispatchContext {
   pageSnapshot?: string;
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
   approvalTimeoutMs: number;
+  /** What to do when a `require-approval` decision has no `approvalPending` channel
+   *  to pause on. `'deny'` (default) refuses the call; `'allow'` auto-approves it and
+   *  fires `onToolError` as a loud warning. */
+  approvalFallback: 'allow' | 'deny';
   signal?: AbortSignal;
   onToolError?: (toolName: string, error: Error) => void;
   /** Names of tools actually advertised to the model this request (T1-1 gate). */
@@ -330,6 +349,23 @@ function buildApprovalDisplayInput(
     const realTitle = state.doc.pages[String(input.pageId ?? '')]?.title;
     return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
   }
+  if (toolName === 'apply_bulk_update') {
+    // `apply_bulk_update` is destructive: `widgetRemovals` is a raw array of
+    // model-supplied widget ids. Enrich it for display with each widget's REAL
+    // current title so the human approves against what will actually be removed,
+    // not an opaque id list. Display-only — execution still keys off the raw ids.
+    const removals = input.widgetRemovals;
+    if (Array.isArray(removals)) {
+      return {
+        ...input,
+        widgetRemovals: removals.map((id) => {
+          const widgetId = String(id);
+          return { id: widgetId, title: state.doc.widgets[widgetId]?.title ?? '(unknown widget)' };
+        }),
+      };
+    }
+    return toolInput;
+  }
   return toolInput;
 }
 
@@ -346,10 +382,12 @@ type ApprovalFlowResult =
  * place. Yields the `tool-approval-request` event, then reuses `waitForApproval`
  * verbatim.
  *
- * When `approvalPending` is not configured there is no channel to pause on, so —
- * matching the historical behavior where destructive tools executed without
- * approval when no `approvalPending` map was supplied — the call is treated as
- * approved and proceeds.
+ * When `approvalPending` is not configured there is no channel to pause on. The
+ * `approvalFallback` option decides what happens then: `'deny'` (the default)
+ * refuses the call with an actionable message, closing the historical fail-open hole
+ * where destructive tools executed unapproved whenever no `approvalPending` map was
+ * supplied; `'allow'` preserves that historical behavior but fires `onToolError` as a
+ * loud warning that a require-approval decision was auto-approved.
  */
 async function* runApprovalFlow(
   toolCallId: string,
@@ -358,7 +396,26 @@ async function* runApprovalFlow(
   ctx: ToolDispatchContext,
 ): AsyncGenerator<StudioAISSEEvent, ApprovalFlowResult> {
   if (!ctx.approvalPending) {
-    return { kind: 'approved' };
+    if (ctx.approvalFallback === 'allow') {
+      ctx.onToolError?.(
+        toolName,
+        /* minify-error-disabled */ new Error(
+          `MUI X Studio: "${toolName}" required approval but no approvalPending map is configured; ` +
+            `approvalFallback: 'allow' auto-approved it. Wire an approval channel to gate ` +
+            `destructive tools, or keep approvalFallback: 'allow' to opt into this behavior.`,
+        ),
+      );
+      return { kind: 'approved' };
+    }
+    return {
+      kind: 'denied',
+      output: JSON.stringify({
+        denied: true,
+        reason:
+          `"${toolName}" requires approval but no approvalPending map is configured. ` +
+          `Wire an approval channel (pass approvalPending) or set approvalFallback: 'allow'.`,
+      }),
+    };
   }
   yield {
     type: 'tool-approval-request',
@@ -442,19 +499,18 @@ async function* dispatchToolCall(
     // Server-tool skills are SIDE-EFFECTFUL: their `execute` runs real work, so the
     // policy must be consulted args-only (`proposed: undefined`) BEFORE it runs —
     // never as a post-hoc dry-run. See the purity invariant in `toolPolicy.ts`.
-    ctx.usage.toolCalls += 1;
-    const decision = await ctx.toolPolicy({
+    // `mayMutate: true` — a skill's `execute` may return a mutation, so it counts
+    // against the mutation budget exactly like a built-in mutating tool.
+    const gate = await consultToolPolicyArgsOnly(name, toolInput, currentState, {
+      policy: ctx.toolPolicy,
       transport: 'chat',
-      toolName: name,
-      input: toolInput,
-      state: currentState,
-      proposed: undefined,
       usage: ctx.usage,
+      mayMutate: true,
     });
-    if (decision.action === 'deny') {
-      return { kind: 'result', output: JSON.stringify({ error: decision.reason }) };
+    if (gate.kind === 'denied') {
+      return { kind: 'result', output: JSON.stringify({ error: gate.reason }) };
     }
-    if (decision.action === 'require-approval') {
+    if (gate.kind === 'needs-approval') {
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
       const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
       if (approval.kind === 'aborted') {
@@ -484,21 +540,18 @@ async function* dispatchToolCall(
   // through the SAME `createDataToolHandlers` factory the MCP transport uses,
   // so both transports run the identical structured-query pipeline.
   if (name === 'query_data_source') {
-    // `query_data_source` is SIDE-EFFECTFUL (runs a live query), so the policy is
-    // consulted args-only BEFORE it runs, never as a post-hoc dry-run.
-    ctx.usage.toolCalls += 1;
-    const decision = await ctx.toolPolicy({
+    // `query_data_source` is SIDE-EFFECTFUL (runs a live query) but never mutates
+    // dashboard state, so the policy is consulted args-only BEFORE it runs
+    // (`mayMutate` omitted), never as a post-hoc dry-run.
+    const gate = await consultToolPolicyArgsOnly(name, toolInput, currentState, {
+      policy: ctx.toolPolicy,
       transport: 'chat',
-      toolName: name,
-      input: toolInput,
-      state: currentState,
-      proposed: undefined,
       usage: ctx.usage,
     });
-    if (decision.action === 'deny') {
-      return { kind: 'result', output: JSON.stringify({ error: decision.reason }) };
+    if (gate.kind === 'denied') {
+      return { kind: 'result', output: JSON.stringify({ error: gate.reason }) };
     }
-    if (decision.action === 'require-approval') {
+    if (gate.kind === 'needs-approval') {
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
       const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
       if (approval.kind === 'aborted') {
@@ -679,9 +732,27 @@ export interface AgenticLoopOptions {
    * should look up the toolCallId in this map, call the resolver with the user's
    * decision, and delete the entry.
    *
-   * When not provided, destructive tools execute without approval.
+   * When not provided, the `approvalFallback` option decides whether a
+   * require-approval tool is denied (default) or auto-approved.
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  /**
+   * What to do when a tool's policy decision is `require-approval` but no
+   * `approvalPending` channel is configured to pause on.
+   *
+   * - `'deny'` (**default**) — refuse the call with an actionable error so the model
+   *   can recover. This closes the previous fail-open behavior where destructive tools
+   *   ran unapproved whenever a host forgot to wire `approvalPending`.
+   * - `'allow'` — auto-approve and proceed (the historical behavior), additionally
+   *   firing `onToolError` with a warning that a require-approval decision was
+   *   auto-approved.
+   *
+   * BREAKING: an integration that relied on destructive tools running without any
+   * `approvalPending` map must now either wire one or set this to `'allow'`.
+   *
+   * @default 'deny'
+   */
+  approvalFallback?: 'allow' | 'deny';
   /**
    * How long (ms) to wait for a pending tool approval before giving up.
    *
@@ -743,6 +814,7 @@ export async function* runAgenticLoop(
     rateLimit,
     approvalPending,
     approvalTimeoutMs = 120_000,
+    approvalFallback = 'deny',
     pageSnapshot,
     richContext,
     enrichedContext,
@@ -902,6 +974,7 @@ export async function* runAgenticLoop(
     pageSnapshot,
     approvalPending,
     approvalTimeoutMs,
+    approvalFallback,
     signal,
     onToolError,
     advertisedToolNames,

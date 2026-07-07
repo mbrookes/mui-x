@@ -187,15 +187,20 @@ describe('MCP server — resources', () => {
 });
 
 describe('MCP server — tool calls', () => {
-  it('get_dashboard_state returns the full state JSON', async () => {
+  it('get_dashboard_state returns the doc + data-source metadata as a JSON string', async () => {
     const result = await client.callTool({ name: 'get_dashboard_state', arguments: {} });
     const content = (result.content as Array<{ type: string; text: string }>)[0];
     expect(content.type).toBe('text');
-    // Response is { output: { doc: { dashboard, pages, widgets, ... }, session, runtime } }
+    // Envelope is now unified with the chat path: `output` is a JSON STRING (not a raw
+    // object), holding `{ doc, dataSources }` — data-source metadata only, never rows.
     const response = JSON.parse(content.text);
-    expect(response.output.doc).toHaveProperty('dashboard');
-    expect(response.output.doc).toHaveProperty('pages');
-    expect(response.output.doc).toHaveProperty('widgets');
+    expect(typeof response.output).toBe('string');
+    const payload = JSON.parse(response.output);
+    expect(payload.doc).toHaveProperty('dashboard');
+    expect(payload.doc).toHaveProperty('pages');
+    expect(payload.doc).toHaveProperty('widgets');
+    expect(payload).toHaveProperty('dataSources');
+    expect(JSON.stringify(payload.dataSources)).not.toContain('"rows"');
   });
 
   it('add_page reports success and mutation, page appears in state resource', async () => {

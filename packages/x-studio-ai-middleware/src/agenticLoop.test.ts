@@ -648,6 +648,176 @@ describe('runAgenticLoop — tool approval', () => {
     expect(approvalReq?.input?.widgetTitle).toBe('Confidential Revenue Chart');
     expect(approvalReq?.input?.widgetId).toBe('w1');
   });
+
+  function seedWidgetState(title = 'W1') {
+    const state = createDefaultStudioState();
+    const activePageId = state.doc.dashboard.activePageId;
+    return {
+      ...state,
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: { id: 'w1', kind: 'chart' as const, title, sourceId: 's', config: {} },
+        },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+        },
+      },
+    };
+  }
+
+  it('1.3 — require-approval with no approvalPending is DENIED by default (fail-closed)', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    // Default policy (remove_widget is destructive → require-approval), NO approvalPending.
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Remove the widget')],
+        seedWidgetState(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS },
+      ),
+    );
+
+    // No mutation applied.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    expect(String(complete?.output)).toMatch(/approval/i);
+    expect(String(complete?.output)).toMatch(/approvalPending|approvalFallback/);
+
+    // The loop recovers and finishes.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it("1.3 — approvalFallback: 'allow' preserves auto-approval but fires an onToolError warning", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const onToolError = vi.fn();
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Remove the widget')],
+        seedWidgetState(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, approvalFallback: 'allow', onToolError },
+      ),
+    );
+
+    // Auto-approved → the mutation applies.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    // And a loud warning was surfaced.
+    expect(onToolError).toHaveBeenCalledWith('remove_widget', expect.any(Error));
+    expect((onToolError.mock.calls[0][1] as Error).message).toMatch(/auto-approved/i);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('1.7 — a duplicate toolCallId across concurrent requests is refused, not misrouted', async () => {
+    // Both loops call remove_widget; the SSE helper hard-codes toolCallId "tc_1", so
+    // they collide on the shared approvalPending map.
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const body = JSON.parse((init as RequestInit).body as string) as {
+        messages: Array<{ role: string }>;
+      };
+      const hasToolResult = body.messages.some((m) => m.role === 'tool');
+      return hasToolResult
+        ? textResponse('done', 10, 5)
+        : toolCallResponse('remove_widget', { widgetId: 'w1' });
+    });
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const seeded = seedWidgetState('Confidential');
+
+    // Start request A in the background; it pauses on approval, registering tc_1.
+    const eventsA: unknown[] = [];
+    const runA = (async () => {
+      for await (const ev of runAgenticLoop(
+        [userMsg('Remove')],
+        seeded,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+      )) {
+        eventsA.push(ev);
+      }
+    })();
+
+    // Wait until A has registered its resolver under tc_1.
+    await vi.waitFor(() => expect(approvalPending.has('tc_1')).toBe(true));
+
+    // Now run B to completion — it collides on tc_1 and is refused.
+    const eventsB = await collectEvents(
+      runAgenticLoop([userMsg('Remove')], seeded, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        approvalPending,
+        approvalTimeoutMs: 60_000,
+      }),
+    );
+
+    const completeB = eventsB.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(String(completeB?.output)).toMatch(/duplicate toolCallId/i);
+    expect(eventsB.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    // A's entry survived the collision — approve it and A commits its mutation.
+    expect(approvalPending.has('tc_1')).toBe(true);
+    approvalPending.get('tc_1')!(true);
+    await runA;
+    expect(eventsA.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+  });
+
+  it('1.8 — apply_bulk_update approval prompt shows the real widget title for each removal', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('apply_bulk_update', { widgetRemovals: ['w1'] }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Clean up')],
+      seedWidgetState('Confidential Revenue Chart'),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        const id = (ev as { toolCallId: string }).toolCallId;
+        setTimeout(() => approvalPending.get(id)?.(true), 0);
+      }
+    }
+
+    const approvalReq = events.find(
+      (ev) => (ev as { type: string }).type === 'tool-approval-request',
+    ) as { input?: { widgetRemovals?: Array<{ id: string; title: string }> } } | undefined;
+    expect(approvalReq).toBeDefined();
+    expect(approvalReq?.input?.widgetRemovals).toEqual([
+      { id: 'w1', title: 'Confidential Revenue Chart' },
+    ]);
+  });
 });
 
 // ── Server-tool skills ──────────────────────────────────────────────────────────
@@ -1558,6 +1728,94 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
 
     const mutations = events.filter((ev) => (ev as { type: string }).type === 'state-mutation');
     expect(mutations).toHaveLength(2);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('2.1 — query_data_source is consulted args-only (proposed undefined, transport chat, toolCalls bumped)', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('query_data_source', { sourceId: 'src1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    let captured: { proposed: unknown; transport: string; toolCalls: number } | undefined;
+    const policy: ToolPolicy = (ctx) => {
+      captured = {
+        proposed: ctx.proposed,
+        transport: ctx.transport,
+        toolCalls: ctx.usage.toolCalls,
+      };
+      return { action: 'allow' };
+    };
+
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('Query')],
+        STATE_WITH_SOURCE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, data: { queryDataSource }, toolPolicy: policy },
+      ),
+    );
+
+    expect(captured).toBeDefined();
+    expect(captured!.proposed).toBeUndefined();
+    expect(captured!.transport).toBe('chat');
+    expect(captured!.toolCalls).toBe(1);
+  });
+
+  it('1.5 — a mutating server-tool skill is charged against maxMutationsPerRequest', async () => {
+    const execute = vi.fn((_args: Record<string, unknown>, state: unknown) => ({
+      output: JSON.stringify({ ok: true }),
+      mutation: { type: 'setDashboardTitle' as const, args: { title: 'Hi' } },
+      nextState: state,
+    }));
+    const skill = {
+      name: 'greeting_skill',
+      mode: 'server-tool' as const,
+      promptFragment: 'Use greet_user.',
+      tool: {
+        name: 'greet_user',
+        description: 'Greets the user.',
+        parameters: { type: 'object', properties: {} },
+        execute,
+      },
+    } as unknown as StudioAISkill;
+
+    // Turn 1 commits a built-in mutation (budget of 1 now spent); turn 2 the skill is
+    // denied by the budget BEFORE its side-effectful `execute` runs.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_dashboard_title', { title: 'First' }))
+      .mockResolvedValueOnce(toolCallResponse('greet_user', { name: 'Ada' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Do two things')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill], rateLimit: { maxMutationsPerRequest: 1 } },
+      ),
+    );
+
+    // The skill's side-effectful execute never ran (pre-execution budget denial).
+    expect(execute).not.toHaveBeenCalled();
+
+    // Exactly one mutation committed (the built-in turn-1 title change).
+    const mutations = events.filter((ev) => (ev as { type: string }).type === 'state-mutation');
+    expect(mutations).toHaveLength(1);
+
+    const completes = events.filter(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as Array<{ output?: string }>;
+    expect(completes.some((ev) => /budget exceeded/i.test(String(ev.output)))).toBe(true);
+
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });

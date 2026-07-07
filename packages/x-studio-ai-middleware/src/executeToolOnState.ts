@@ -16,6 +16,7 @@ import type {
   StudioFilterOperator,
   StudioDataField,
   StudioFilterState,
+  StudioDataSource,
 } from './models/studioTypes';
 import type { StateMutation, StudioAIToolName } from './models/aiTypes';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
@@ -26,6 +27,42 @@ export interface ToolExecutionResult {
   output: string;
   mutation?: StateMutation;
   nextState: StudioState;
+}
+
+/**
+ * Max distinct values per field emitted in a `get_dashboard_state` payload. The
+ * full `fieldDistinctValues` list can be arbitrarily large (every unique value of
+ * a high-cardinality column), so it is capped here — both to avoid a token bomb
+ * and to avoid dumping a full column's contents into the model context.
+ */
+const MAX_DISTINCT_VALUES_IN_STATE_OUTPUT = 20;
+
+/**
+ * Project a `StudioDataSource` down to AI-safe metadata for `get_dashboard_state`.
+ *
+ * Strips `rows` (raw live table data — an exfiltration / token-bomb path that also
+ * contradicts the system prompt's no-raw-data rule and defeats `privateMode`) and
+ * `adapter` (a non-serializable host callback) entirely, and caps
+ * `fieldDistinctValues` per field with a `truncated` marker. `describe_data_source`
+ * is the intentional, opt-in channel for sample rows — this dump is not.
+ */
+function projectDataSourceMetadata(source: StudioDataSource): Record<string, unknown> {
+  const cappedDistinct: Record<string, { values: string[]; truncated: boolean }> = {};
+  for (const [fieldId, values] of Object.entries(source.fieldDistinctValues ?? {})) {
+    cappedDistinct[fieldId] = {
+      values: values.slice(0, MAX_DISTINCT_VALUES_IN_STATE_OUTPUT),
+      truncated: values.length > MAX_DISTINCT_VALUES_IN_STATE_OUTPUT,
+    };
+  }
+  return {
+    id: source.id,
+    label: source.label,
+    tableName: source.tableName,
+    aiDescription: source.aiDescription,
+    hidden: source.hidden,
+    fields: source.fields,
+    fieldDistinctValues: cappedDistinct,
+  };
 }
 
 /** Context threaded into every pure tool's `plan` function. */
@@ -118,14 +155,21 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   get_dashboard_state: {
     effect: 'pure',
     plan: (_args, { state }) => {
-      // Canonical output contract, shared with the MCP transport: return the raw
-      // `StudioState`. Both `buildStudioMcpServer`'s `get_dashboard_state` handler
-      // (mcp.ts) and this chat-path handler now return the state object so the tool
-      // means the same thing on both surfaces. The full rendered system prompt is
-      // already the chat request's system message, so re-emitting it as tool output
-      // was redundant and diverged from MCP.
+      // Return the dashboard document plus DATA-SOURCE METADATA ONLY — never raw
+      // row data. The `doc` partition (pages/widgets/dashboard/filters/…) is the
+      // authored structure the model needs; `runtime.dataSources` is projected down
+      // to `{ id, label, tableName, aiDescription, fields, fieldDistinctValues }`
+      // with `rows`/`adapter` stripped and distinct values capped. This is the
+      // canonical output contract, shared with the MCP transport (both fall through
+      // this same pure plan). Emitting raw `StudioState` here would leak live rows
+      // straight into the model context — a token bomb and an exfiltration path that
+      // defeats `privateMode` — so it is deliberately redacted.
+      const dataSources: Record<string, unknown> = {};
+      for (const [id, source] of Object.entries(state.runtime.dataSources)) {
+        dataSources[id] = projectDataSourceMetadata(source);
+      }
       return {
-        output: JSON.stringify(state),
+        output: JSON.stringify({ doc: state.doc, dataSources }),
         nextState: state,
       };
     },

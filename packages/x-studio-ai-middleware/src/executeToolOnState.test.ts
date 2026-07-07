@@ -131,14 +131,59 @@ describe('executeToolOnState: get_dashboard_state', () => {
     expect(result.nextState).toBe(state);
   });
 
-  it('outputs the raw StudioState (canonical contract shared with MCP), not the system prompt', () => {
+  it('outputs the doc plus data-source metadata (canonical contract shared with MCP)', () => {
     const state = makeState();
     const result = executeToolOnState('get_dashboard_state', {}, state);
-    const parsed = JSON.parse(result.output) as StudioState;
-    // Raw state round-trips: pages/widgets/dashboard are present as structured data.
+    const parsed = JSON.parse(result.output) as {
+      doc: StudioState['doc'];
+      dataSources: Record<string, { id: string; label: string; fields: unknown[] }>;
+    };
+    // The `doc` partition round-trips: pages/widgets/dashboard are structured data.
     expect(parsed.doc.pages['page-1'].title).toBe('Page 1');
     expect(parsed.doc.widgets['widget-1'].title).toBe('Revenue Chart');
     expect(parsed.doc.dashboard.activePageId).toBe('page-1');
+    // Data sources are projected to metadata (id/label/fields), not the runtime object.
+    expect(parsed.dataSources.src1.id).toBe('src1');
+    expect(parsed.dataSources.src1.label).toBe('Sales');
+    expect(parsed.dataSources.src1.fields).toHaveLength(1);
+  });
+
+  it('never leaks raw rows and caps fieldDistinctValues with a truncation marker', () => {
+    const distinct = Array.from({ length: 33 }, (_, i) => `v${i}`);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            tableName: 'sales',
+            fields: [{ id: 'status', label: 'Status', type: 'string' }],
+            rows: [{ status: 'x', secret: 'S3CR3T' }],
+            fieldDistinctValues: { status: distinct },
+          },
+        },
+      },
+    });
+
+    const result = executeToolOnState('get_dashboard_state', {}, state);
+
+    // No raw rows and no secret value anywhere in the serialized output.
+    expect(result.output).not.toContain('S3CR3T');
+    expect(result.output).not.toContain('"rows"');
+
+    const parsed = JSON.parse(result.output) as {
+      dataSources: Record<
+        string,
+        { fieldDistinctValues: Record<string, { values: string[]; truncated: boolean }> }
+      >;
+    };
+    const capped = parsed.dataSources.src1.fieldDistinctValues.status;
+    expect(capped.values).toHaveLength(20);
+    expect(capped.truncated).toBe(true);
   });
 });
 

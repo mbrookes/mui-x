@@ -891,6 +891,61 @@ describe('buildStudioMcpServer — tools/call allowedTools gating (T1-3)', () =>
     expect(result.isError).toBeFalsy();
     expect(JSON.stringify(result)).toContain('Test');
   });
+
+  it('allowedTools: [] disables the MCP-only extra/data tools too (list + call)', async () => {
+    const stateBox = { current: makeStableState() };
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [],
+        rowCount: 0,
+      }),
+    );
+    const server = buildStudioMcpServer(stateBox, { allowedTools: [], data: { queryDataSource } });
+
+    // tools/list contains no extra/data tools.
+    const list = (await getHandler(server, 'tools/list')({ params: {}, method: 'tools/list' })) as {
+      tools: Array<{ name: string }>;
+    };
+    const names = list.tools.map((t) => t.name);
+    expect(names).not.toContain('describe_data_source');
+    expect(names).not.toContain('render_chart');
+    expect(names).not.toContain('get_recent_changes');
+    expect(names).not.toContain('query_data_source');
+
+    // Calling an extra tool is rejected as unknown, and the DB is never touched.
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'describe_data_source', arguments: { sourceId: 'source-orders' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/unknown tool/i);
+    expect(queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('allowedTools acts as an exhaustive allow-list across the whole surface', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['render_chart'] });
+
+    // render_chart (an extra tool) is served in tools/list.
+    const list = (await getHandler(server, 'tools/list')({ params: {}, method: 'tools/list' })) as {
+      tools: Array<{ name: string }>;
+    };
+    expect(list.tools.map((t) => t.name)).toContain('render_chart');
+
+    // get_recent_changes (another extra tool) is NOT in the allow-list → rejected.
+    const rejected = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content[0].text).toMatch(/unknown tool/i);
+  });
 });
 
 describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
@@ -898,9 +953,15 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     const stateBox = { current: makeStableState() };
     const before = stateBox.current;
     const onStateChange = vi.fn();
+    // Deny the mutation, but allow the read-only get_recent_changes we use below to
+    // verify nothing was recorded — read-only data tools now also pass the policy
+    // chokepoint (a blanket deny would refuse them too, which is the intended fix).
     const server = buildStudioMcpServer(stateBox, {
       onStateChange,
-      toolPolicy: () => ({ action: 'deny', reason: 'blocked by policy' }),
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page'
+          ? { action: 'deny', reason: 'blocked by policy' }
+          : { action: 'allow' },
     });
 
     const result = (await getHandler(
@@ -1046,6 +1107,205 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
 
     expect(result.isError).toBeFalsy();
     expect(stateBox.current.doc.pages['page-2']).toBeUndefined();
+  });
+
+  it('routes the read-only data/dispatch tools through the policy — deny-all blocks them', async () => {
+    const stateBox = { current: makeStableState() };
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ x: 1 }],
+        rowCount: 1,
+      }),
+    );
+    const server = buildStudioMcpServer(stateBox, {
+      data: { queryDataSource },
+      toolPolicy: () => ({ action: 'deny', reason: 'blocked by policy' }),
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const dataTools: Array<[string, Record<string, unknown>]> = [
+      ['query_data_source', { sourceId: 'source-orders' }],
+      ['describe_data_source', { sourceId: 'source-orders' }],
+      ['get_field_values', { sourceId: 'source-orders', fieldId: 'status' }],
+      ['compute_field_stats', { sourceId: 'source-orders', fields: ['total'] }],
+      ['render_chart', { type: 'bar', data: [{ label: 'a', value: 1 }] }],
+      ['get_recent_changes', {}],
+      ['summarise_page', {}],
+    ];
+    for (const [name, args] of dataTools) {
+      // eslint-disable-next-line no-await-in-loop -- sequential per-tool assertions
+      const result = (await call({
+        params: { name, arguments: args },
+        method: CALL_TOOL,
+      })) as any;
+      expect(result.isError, `${name} should be denied`).toBe(true);
+      expect(result.content[0].text).toMatch(/blocked by policy/);
+    }
+    // No tool ever reached the DB — the policy gate short-circuits before the handler.
+    expect(queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('consults the policy args-only (proposed: undefined, transport: mcp, toolCalls bumped) for a dispatch-table tool', async () => {
+    const stateBox = { current: makeStableState() };
+    let captured: { proposed: unknown; transport: string; toolCalls: number } | undefined;
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) => {
+        captured = {
+          proposed: ctx.proposed,
+          transport: ctx.transport,
+          toolCalls: ctx.usage.toolCalls,
+        };
+        return { action: 'allow' };
+      },
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(captured).toBeDefined();
+    expect(captured!.proposed).toBeUndefined();
+    expect(captured!.transport).toBe('mcp');
+    expect(captured!.toolCalls).toBe(1);
+  });
+
+  it('require-approval on a dispatch-table tool without approvalHandler denies cleanly', async () => {
+    const stateBox = { current: makeStableState() };
+    const queryDataSource = vi.fn(
+      async (): Promise<StudioDataQueryResult> => ({ rows: [], rowCount: 0 }),
+    );
+    const server = buildStudioMcpServer(stateBox, {
+      data: { queryDataSource },
+      toolPolicy: () => ({ action: 'require-approval' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'describe_data_source', arguments: { sourceId: 'source-orders' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/no approval channel/i);
+    expect(queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('require-approval on a dispatch-table tool runs the handler once approvalHandler returns true', async () => {
+    const stateBox = { current: makeStableState() };
+    const approvalHandler = vi.fn(async () => true);
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    expect(result.isError).toBeFalsy();
+  });
+
+  it('omitted toolPolicy still executes the dispatch-table tools (allow-all default)', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox);
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text).output).toEqual([]);
+  });
+
+  it('2.2 — get_dashboard_state now walks the policy chokepoint (deny-all blocks it)', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'deny', reason: 'blocked by policy' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/blocked by policy/);
+    // The real dashboard state was not leaked.
+    expect(JSON.stringify(result)).not.toContain('"Test"');
+  });
+
+  it('1.6 — get_dashboard_state returns a JSON string and never leaks raw rows', async () => {
+    const state = makeStableState();
+    (state.runtime.dataSources['source-orders'] as any).rows = [{ secret: 'S3CR3T' }];
+    const stateBox = { current: state };
+    const server = buildStudioMcpServer(stateBox);
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    // The envelope now carries `output` as a JSON STRING (unified with the chat path),
+    // not a raw StudioState object.
+    const { output } = JSON.parse(result.content[0].text);
+    expect(typeof output).toBe('string');
+    const parsed = JSON.parse(output);
+    expect(parsed.doc.dashboard.title).toBe('Test');
+    // No raw rows and no secret anywhere in the payload.
+    expect(output).not.toContain('S3CR3T');
+    expect(JSON.stringify(parsed.dataSources)).not.toContain('rows');
+  });
+
+  it('1.2 — serializes concurrent mutating calls so neither commit is clobbered', async () => {
+    const stateBox = { current: makeStableState() };
+    const onStateChange = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      onStateChange,
+      // add_page needs approval; the approvalHandler yields to the event loop, opening
+      // the exact interleaving window a per-session mutex must close.
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page' ? { action: 'require-approval' } : { action: 'allow' },
+      approvalHandler: async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
+        return true;
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const [a, b] = (await Promise.all([
+      call({ params: { name: 'add_page', arguments: { title: 'A' } }, method: CALL_TOOL }),
+      call({ params: { name: 'add_page', arguments: { title: 'B' } }, method: CALL_TOOL }),
+    ])) as any[];
+
+    expect(a.isError).toBeFalsy();
+    expect(b.isError).toBeFalsy();
+    const titles = Object.values(stateBox.current.doc.pages).map((p: any) => p.title);
+    expect(titles).toContain('A');
+    expect(titles).toContain('B');
+    expect(onStateChange).toHaveBeenCalledTimes(2);
   });
 });
 

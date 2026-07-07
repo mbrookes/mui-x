@@ -25,9 +25,8 @@ export interface StudioPipelineState {
 
 export interface StudioPipeline {
   /**
-   * Layers L1 + L3: resolve metric-ref filter values, enrich rows with expression columns,
-   * and apply all scoped filters (page, widget, cross-filter, interactive) for a given
-   * widget on a page.
+   * Layers L2 + L3: enrich rows with expression-column values and apply all scoped
+   * filters (page, widget, cross-filter, interactive) for a given widget on a page.
    *
    * Rank filters (`filterMode === 'rank'`) are excluded — apply them after aggregation
    * using your own logic.

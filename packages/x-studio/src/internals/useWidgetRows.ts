@@ -87,7 +87,7 @@ interface UseWidgetRowsResult {
 }
 
 /**
- * Encapsulates pipeline layers L1 (metric-ref resolution) and L3 (enrich + filter) for a
+ * Encapsulates pipeline layers L2 (enrichment) and L3 (filtering) for a
  * widget. Handles all filter scope partitioning and store subscriptions internally.
  *
  * When `dataSource.adapter` is set, the async path is used instead of the in-memory pipeline.

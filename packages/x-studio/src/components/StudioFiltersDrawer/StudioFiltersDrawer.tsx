@@ -37,7 +37,8 @@ import {
   selectCrossFilterAllPages,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import type { StudioDataSource, StudioFilterState } from '../../models';
+import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
+import type { StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
 import { FilterSection, WidgetFilterSection } from './FilterSection';
@@ -97,16 +98,23 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     setRenameValue('');
   };
 
-  const allFields = React.useMemo(() => {
-    const fieldMap = new Map<string, SimpleField>();
-    for (const source of Object.values(dataSources) as StudioDataSource[]) {
-      for (const field of source.fields) {
-        if (!fieldMap.has(field.id)) {
-          fieldMap.set(field.id, { id: field.id, label: field.label, fieldType: field.type });
-        }
+  // Unlike Chart/KPI's field catalogs, the filters drawer must list every field — including
+  // hidden ones — so a filter already configured on a since-hidden field still resolves a
+  // label/type here (see `internals/fieldCatalog.ts`'s `buildFieldCatalog` doc, finding 2.4).
+  const allFields = React.useMemo<SimpleField[]>(() => {
+    const seen = new Set<string>();
+    const fields: SimpleField[] = [];
+    for (const entry of buildFieldCatalog(dataSources, [], {
+      expression: 'none',
+      includeHidden: true,
+      sort: false,
+    })) {
+      if (!seen.has(entry.id)) {
+        seen.add(entry.id);
+        fields.push({ id: entry.id, label: entry.label, fieldType: entry.type });
       }
     }
-    return Array.from(fieldMap.values());
+    return fields;
   }, [dataSources]);
 
   const fieldOptions = React.useMemo(() => buildFieldOptions(dataSources), [dataSources]);
@@ -181,13 +189,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   );
 
   // Build a map of field id → label for search matching
-  const fieldLabelMap = React.useMemo(() => {
-    const map = new Map<string, string>();
-    for (const f of allFields) {
-      map.set(f.id, f.label);
-    }
-    return map;
-  }, [allFields]);
+  const fieldLabelMap = React.useMemo(() => buildFieldLabelMap(dataSources), [dataSources]);
 
   const searchLower = filterSearch.toLowerCase();
 

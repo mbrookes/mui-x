@@ -137,4 +137,61 @@ describe('KpiSetupPanel', () => {
       'last_12_months',
     );
   });
+
+  // Pinning tests (finding 2.3): KPIs are summary metrics with no "highlight" visual, so
+  // the Interactions section only offers Filter/None (unlike Chart/Grid's three-way
+  // toggle), and legacy-persisted `crossFilterMode: 'cross-highlight'` configs must still
+  // display as "Filter" selected. Written before the CrossFilterModeSection extraction so
+  // the extraction is provably behavior-preserving.
+  it('only renders the Filter/None interaction buttons (no Highlight)', () => {
+    render(<KpiSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'None' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Highlight' })).toBeNull();
+  });
+
+  it('shows Filter selected for a widget with a legacy stored crossFilterMode: cross-highlight', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+
+    try {
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { ...previousWidget.config, crossFilterMode: 'cross-highlight' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'None', pressed: false })).toBeVisible();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+    }
+  });
+
+  it('commits crossFilterMode: none when the already-selected Filter button is deselected', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      // Start from a widget already in 'cross-filter' mode so Filter renders selected —
+      // clicking an already-selected button in an exclusive ToggleButtonGroup deselects it.
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { ...previousWidget.config, crossFilterMode: 'cross-filter' },
+      };
+
+      const { user } = render(<KpiSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+
+      await user.click(screen.getByRole('button', { name: 'Filter' }));
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        crossFilterMode: 'none',
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+    }
+  });
 });

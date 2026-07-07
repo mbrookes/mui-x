@@ -5,6 +5,7 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type StudioLocaleText,
 } from '../../internals/StudioUIConfigContext';
+import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMetadata';
 
@@ -37,23 +38,21 @@ export function generateId() {
 
 // ─── Field options ────────────────────────────────────────────────────────────
 
-/** Build a flat list of field options across all sources, annotated with source and type info. */
+/**
+ * Build a flat list of field options across all sources, annotated with source and type info.
+ *
+ * Thin adapter over the shared `buildFieldCatalog` (see `internals/fieldCatalog.ts`, finding
+ * 2.4) — no expression fields, default (skip-hidden) visibility, same `FieldOption` shape as
+ * before.
+ */
 export function buildFieldOptions(dataSources: Record<string, StudioDataSource>): FieldOption[] {
-  return Object.values(dataSources as Record<string, StudioDataSource>).flatMap((ds) =>
-    ds.fields.flatMap((f) =>
-      f.hidden
-        ? []
-        : [
-            {
-              id: f.id,
-              label: f.label,
-              fieldType: f.type,
-              sourceId: ds.id,
-              sourceLabel: ds.label,
-            },
-          ],
-    ),
-  );
+  return buildFieldCatalog(dataSources, [], { expression: 'none', sort: false }).map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    fieldType: entry.type,
+    sourceId: entry.sourceId,
+    sourceLabel: entry.sourceLabel,
+  }));
 }
 
 // ─── Relative date helpers ────────────────────────────────────────────────────

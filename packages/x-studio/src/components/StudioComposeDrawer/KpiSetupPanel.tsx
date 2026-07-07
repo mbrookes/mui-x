@@ -11,8 +11,6 @@ import {
   Stack,
   Switch,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
 } from '@mui/material';
 import {
   useStudioController,
@@ -27,13 +25,10 @@ import {
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import type {
-  StudioKpiAggregation,
-  StudioCrossFilterMode,
-  StudioDateRangePreset,
-} from '../../models';
+import { buildFieldCatalog } from '../../internals/fieldCatalog';
+import type { StudioKpiAggregation, StudioDateRangePreset } from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
-import { SetupSection } from './SetupSection';
+import { CrossFilterModeSection } from './CrossFilterModeSection';
 import { CollapsibleFeatureSection } from './CollapsibleFeatureSection';
 import { KpiSparklineOptions } from './KpiSparklineOptions';
 
@@ -81,39 +76,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   );
 
   // Gather fields from all data sources (used for the value field anchor picker)
-  const allFields = React.useMemo(() => {
-    const physicalFields = Object.values(dataSources).flatMap((ds) => {
-      if (ds.hidden) {
-        return [];
-      }
-      return ds.fields.flatMap((f) =>
-        f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-      );
-    });
-    const exprFields = expressionFields.flatMap((ef) => {
-      if (ef.hidden) {
-        return [];
-      }
-      const ds = dataSources[ef.sourceId];
-      return [
-        {
-          id: ef.id,
-          label: ef.label,
-          description: ef.description,
-          type: ef.type ?? ('number' as const),
-          format: ef.format,
-          precision: ef.precision,
-          currencyCode: ef.currencyCode,
-          generated: true,
-          sourceId: ef.sourceId,
-          sourceLabel: ds?.label ?? ef.sourceId,
-        },
-      ];
-    });
-    return [...physicalFields, ...exprFields].sort((a, b) =>
-      a.sourceLabel.localeCompare(b.sourceLabel),
-    );
-  }, [dataSources, expressionFields]);
+  const allFields = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
 
   // Once the value field anchors a source, restrict subsequent pickers to reachable sources.
   const reachableFields = React.useMemo(() => {
@@ -471,34 +437,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
       {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
         representation, so "cross-highlight" (dim non-matching rows) does not apply.
-        Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
-      <SetupSection
+        Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense.
+        A legacy-persisted 'cross-highlight' value is displayed as 'Filter' selected —
+        see CrossFilterModeSection's normalization doc. */}
+      <CrossFilterModeSection
+        widgetId={widgetId}
         title={localeText.kpiSetupInteractionsTitle}
         description={localeText.kpiSetupInteractionsDescription}
-      >
-        <ToggleButtonGroup
-          value={
-            ((config.crossFilterMode === 'cross-highlight'
-              ? 'cross-filter'
-              : config.crossFilterMode) ?? 'none') as StudioCrossFilterMode
-          }
-          exclusive
-          onChange={(_e, value: StudioCrossFilterMode | null) => {
-            controller.updateWidgetConfig(widgetId, {
-              crossFilterMode: value ?? 'none',
-            });
-          }}
-          size="small"
-          fullWidth
-        >
-          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeFilter}
-          </ToggleButton>
-          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeNone}
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </SetupSection>
+        modes={['cross-filter', 'none']}
+        defaultMode="none"
+        value={config.crossFilterMode}
+      />
     </Stack>
   );
 }

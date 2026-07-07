@@ -19,6 +19,7 @@ import {
 } from '../../../internals/chartAggregation';
 import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
+import { buildFieldLabelMap } from '../../../internals/fieldCatalog';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
@@ -827,19 +828,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     if (relevant.length === 0) {
       return '';
     }
-    const fieldLabelMap = new Map<string, string>();
-    for (const ds of Object.values(dataSources)) {
-      for (const f of ds.fields) {
-        if (!fieldLabelMap.has(f.id)) {
-          fieldLabelMap.set(f.id, f.label);
-        }
-      }
-    }
-    for (const ef of expressionFields) {
-      if (!fieldLabelMap.has(ef.id)) {
-        fieldLabelMap.set(ef.id, ef.label);
-      }
-    }
+    const fieldLabelMap = buildFieldLabelMap(dataSources, expressionFields);
     return relevant
       .map((f) => {
         const label = fieldLabelMap.get(f.field) ?? f.field;

@@ -523,4 +523,24 @@ describe('ChartSetupPanel', () => {
       };
     }
   });
+
+  // Pinning test (finding 2.3): the Interactions section defaults to "Highlight" and
+  // commits `crossFilterMode: 'none'` when the currently-selected button is deselected.
+  // Mirrors GridSetupPanel's existing "switches the cross-filter interaction mode" test —
+  // written before the CrossFilterModeSection extraction so the extraction is provably
+  // behavior-preserving.
+  it('renders Highlight/Filter/None with cross-highlight selected by default; clicking None commits crossFilterMode: none', async () => {
+    controller.updateWidgetConfig.mockClear();
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Highlight', pressed: true })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Filter', pressed: false })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'None', pressed: false })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'None' }));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      crossFilterMode: 'none',
+    });
+  });
 });

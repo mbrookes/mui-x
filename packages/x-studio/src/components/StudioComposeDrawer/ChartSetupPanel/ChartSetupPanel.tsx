@@ -33,10 +33,11 @@ import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../../../utils/fieldCapabilities';
 import { analyzeChartSupport, getChartSupportMessage } from '../../../internals/chartAggregation';
 import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
-import type { StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../../../models';
+import { buildFieldCatalog } from '../../../internals/fieldCatalog';
+import type { StudioChartType, StudioBarLayout } from '../../../models';
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
-import { SetupSection } from '../SetupSection';
+import { CrossFilterModeSection } from '../CrossFilterModeSection';
 import { GaugeConfigSection } from './GaugeConfigSection';
 import { ScatterConfigSection } from './ScatterConfigSection';
 import { FunnelConfigSection } from './FunnelConfigSection';
@@ -71,39 +72,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   const relationships = useStudioSelector(selectRelationships);
 
-  const allFields = React.useMemo(() => {
-    const physicalFields = Object.values(dataSources).flatMap((ds) => {
-      if (ds.hidden) {
-        return [];
-      }
-      return ds.fields.flatMap((f) =>
-        f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-      );
-    });
-    const exprFields = expressionFields.flatMap((ef) => {
-      if (ef.hidden) {
-        return [];
-      }
-      const ds = dataSources[ef.sourceId];
-      return [
-        {
-          id: ef.id,
-          label: ef.label,
-          description: ef.description,
-          type: ef.type ?? ('number' as const),
-          format: ef.format,
-          precision: ef.precision,
-          currencyCode: ef.currencyCode,
-          generated: true,
-          sourceId: ef.sourceId,
-          sourceLabel: ds?.label ?? ef.sourceId,
-        },
-      ];
-    });
-    return [...physicalFields, ...exprFields].sort((a, b) =>
-      a.sourceLabel.localeCompare(b.sourceLabel),
-    );
-  }, [dataSources, expressionFields]);
+  const allFields = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
 
   const config = widget?.config ?? {};
   const widgetSourceId = widget?.sourceId;
@@ -810,32 +782,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         chartType !== 'sankey' &&
         chartType !== 'heatmap' && <AnnotationsEditorSection widgetId={widgetId} config={config} />}
       {/* Interactions — cross-filter mode */}
-      <SetupSection
+      <CrossFilterModeSection
+        widgetId={widgetId}
         title={localeText.chartSetupInteractionsTitle}
         description={localeText.chartSetupInteractionsDescription}
-      >
-        <ToggleButtonGroup
-          value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
-          exclusive
-          onChange={(_e, value: StudioCrossFilterMode | null) => {
-            controller.updateWidgetConfig(widgetId, {
-              crossFilterMode: value ?? 'cross-highlight',
-            });
-          }}
-          size="small"
-          fullWidth
-        >
-          <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeHighlight}
-          </ToggleButton>
-          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeFilter}
-          </ToggleButton>
-          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeNone}
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </SetupSection>
+        modes={['cross-highlight', 'cross-filter', 'none']}
+        defaultMode="cross-highlight"
+        value={config.crossFilterMode}
+      />
     </Stack>
   );
 }

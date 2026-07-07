@@ -17,6 +17,7 @@ import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
 import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
+import { buildFieldLabelMap } from '../../internals/fieldCatalog';
 
 interface QuickFilterChipProps {
   /** Tooltip shown when hovering the chip body (toggles the filter enabled/disabled). */
@@ -146,14 +147,7 @@ export function StudioQuickFilterBar() {
   }
 
   // Build a flat field-id → label map across all sources
-  const fieldLabelMap = new Map<string, string>();
-  for (const source of Object.values(dataSources)) {
-    for (const field of source.fields) {
-      if (!fieldLabelMap.has(field.id)) {
-        fieldLabelMap.set(field.id, field.label);
-      }
-    }
-  }
+  const fieldLabelMap = buildFieldLabelMap(dataSources);
 
   const handleClearAll = (event: React.MouseEvent) => {
     event.stopPropagation();

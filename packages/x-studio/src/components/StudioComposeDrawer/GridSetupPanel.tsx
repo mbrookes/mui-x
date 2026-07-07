@@ -28,11 +28,7 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import type {
-  StudioCrossFilterMode,
-  StudioGridColumn,
-  StudioGridSummaryAggregation,
-} from '../../models';
+import type { StudioGridColumn, StudioGridSummaryAggregation } from '../../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -43,10 +39,11 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
+import { buildSourceFieldEntries, type FieldCatalogEntry } from '../../internals/fieldCatalog';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
-import { SetupSection } from './SetupSection';
+import { CrossFilterModeSection } from './CrossFilterModeSection';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
@@ -108,6 +105,16 @@ export function GridSetupPanel(props: { widgetId: string }) {
   // calculated columns (non-measure expression fields).
   // In implicit mode with no source yet: all fields from all non-hidden sources.
   const allSelectableFields = React.useMemo<SelectableField[]>(() => {
+    const toSelectable = (entry: FieldCatalogEntry, isPrimary: boolean): SelectableField => ({
+      fieldId: entry.id,
+      label: entry.label,
+      type: entry.type,
+      generated: entry.generated,
+      sourceId: entry.sourceId,
+      sourceLabel: entry.sourceLabel,
+      isPrimary,
+    });
+
     // Implicit mode, no source chosen yet — show every source's fields
     if (tableSourceMode === 'implicit' && !widget?.sourceId) {
       const fields: SelectableField[] = [];
@@ -115,35 +122,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
         if (ds.hidden) {
           continue;
         }
-        for (const f of ds.fields) {
-          if (f.hidden) {
-            continue;
-          }
-          fields.push({
-            fieldId: f.id,
-            label: f.label,
-            type: f.type,
-            generated: f.generated,
-            sourceId: ds.id,
-            sourceLabel: ds.label,
-            isPrimary: true,
-          });
-        }
-        // Calculated columns for this source
-        for (const ef of expressionFields) {
-          if (ef.sourceId !== ds.id || ef.isMeasure || ef.hidden) {
-            continue;
-          }
-          fields.push({
-            fieldId: ef.id,
-            label: ef.label,
-            type: ef.type ?? 'number',
-            generated: true,
-            sourceId: ds.id,
-            sourceLabel: ds.label,
-            isPrimary: true,
-          });
-        }
+        fields.push(
+          ...buildSourceFieldEntries(ds, expressionFields, { expression: 'non-measure' }).map(
+            (entry) => toSelectable(entry, true),
+          ),
+        );
       }
       return fields;
     }
@@ -154,33 +137,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
     const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
     const fields: SelectableField[] = [];
 
-    // Primary source first
-    for (const f of primaryFields) {
-      fields.push({
-        fieldId: f.id,
-        label: f.label,
-        type: f.type,
-        generated: f.generated,
-        sourceId: widget.sourceId,
-        sourceLabel: source.label,
-        isPrimary: true,
-      });
-    }
-    // Calculated columns for the primary source
-    for (const ef of expressionFields) {
-      if (ef.sourceId !== widget.sourceId || ef.isMeasure || ef.hidden) {
-        continue;
-      }
-      fields.push({
-        fieldId: ef.id,
-        label: ef.label,
-        type: ef.type ?? 'number',
-        generated: true,
-        sourceId: widget.sourceId,
-        sourceLabel: source.label,
-        isPrimary: true,
-      });
-    }
+    // Primary source first (physical fields + calculated columns)
+    fields.push(
+      ...buildSourceFieldEntries(source, expressionFields, { expression: 'non-measure' }).map(
+        (entry) => toSelectable(entry, true),
+      ),
+    );
 
     // Many-to-one related sources only
     for (const rel of relationships) {
@@ -194,35 +156,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
       if (!relatedSource || relatedSource.hidden) {
         continue;
       }
-      for (const f of relatedSource.fields) {
-        if (f.hidden) {
-          continue;
-        }
-        fields.push({
-          fieldId: f.id,
-          label: f.label,
-          type: f.type,
-          generated: f.generated,
-          sourceId: rel.targetId,
-          sourceLabel: relatedSource.label,
-          isPrimary: false,
-        });
-      }
-      // Calculated columns for related sources
-      for (const ef of expressionFields) {
-        if (ef.sourceId !== rel.targetId || ef.isMeasure || ef.hidden) {
-          continue;
-        }
-        fields.push({
-          fieldId: ef.id,
-          label: ef.label,
-          type: ef.type ?? 'number',
-          generated: true,
-          sourceId: rel.targetId,
-          sourceLabel: relatedSource.label,
-          isPrimary: false,
-        });
-      }
+      fields.push(
+        ...buildSourceFieldEntries(relatedSource, expressionFields, {
+          expression: 'non-measure',
+        }).map((entry) => toSelectable(entry, false)),
+      );
     }
     return fields;
   }, [
@@ -750,33 +688,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {source && (
         <React.Fragment>
           {/* Interactions — cross-filter mode */}
-          <SetupSection
+          <CrossFilterModeSection
+            widgetId={widgetId}
             title={localeText.gridSetupInteractionsTitle}
             description={localeText.gridSetupInteractionsDescription}
             dividerMb={0}
-          >
-            <ToggleButtonGroup
-              value={(widget.config?.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
-              exclusive
-              onChange={(_e, value: StudioCrossFilterMode | null) => {
-                controller.updateWidgetConfig(widgetId, {
-                  crossFilterMode: value ?? 'cross-highlight',
-                });
-              }}
-              size="small"
-              fullWidth
-            >
-              <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-                {localeText.crossFilterModeHighlight}
-              </ToggleButton>
-              <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-                {localeText.crossFilterModeFilter}
-              </ToggleButton>
-              <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-                {localeText.crossFilterModeNone}
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </SetupSection>
+            modes={['cross-highlight', 'cross-filter', 'none']}
+            defaultMode="cross-highlight"
+            value={widget.config?.crossFilterMode}
+          />
         </React.Fragment>
       )}
 

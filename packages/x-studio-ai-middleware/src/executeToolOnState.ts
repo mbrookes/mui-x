@@ -9,6 +9,7 @@
  *                across multiple tool calls in a single agentic loop turn)
  */
 import { applyMutation, createDefaultWidget } from '@mui/x-studio-schema';
+import type { OptionalWidgetField } from '@mui/x-studio-schema';
 import type {
   StudioState,
   StudioCustomWidgetDef,
@@ -287,16 +288,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // this way (a required field or the config bag). For `unsetConfigKeys` only keys
       // actually present on the widget's (post-merge) config are honored, so an
       // unknown key name is a silent ignore rather than a delete against nothing.
-      const CLEARABLE_WIDGET_FIELDS = new Set<keyof Omit<StudioWidget, 'id'>>([
+      const CLEARABLE_WIDGET_FIELDS = new Set<OptionalWidgetField>([
         'sourceId',
         'subtitle',
         'titleMode',
         'subtitleMode',
       ]);
       const unsetFields = (Array.isArray(args.unsetFields) ? args.unsetFields : []).filter(
-        (key): key is keyof Omit<StudioWidget, 'id'> =>
-          typeof key === 'string' &&
-          CLEARABLE_WIDGET_FIELDS.has(key as keyof Omit<StudioWidget, 'id'>),
+        (key): key is OptionalWidgetField =>
+          typeof key === 'string' && CLEARABLE_WIDGET_FIELDS.has(key as OptionalWidgetField),
       );
       const configForUnsetCheck = newConfig ?? widget.config;
       const unsetConfigKeys = (

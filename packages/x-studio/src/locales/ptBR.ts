@@ -814,6 +814,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSummaryLabelCountDistinct: 'Únicos:',
   gridSummaryLabelMin: 'Mín.:',
   gridSummaryLabelMax: 'Máx.:',
+  gridMutationError: 'Falha ao salvar as alterações',
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Gráfico',

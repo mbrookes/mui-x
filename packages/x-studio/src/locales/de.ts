@@ -821,6 +821,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   gridSummaryLabelCountDistinct: 'Einzigartig:',
   gridSummaryLabelMin: 'Min.:',
   gridSummaryLabelMax: 'Maximal:',
+  gridMutationError: 'Änderungen konnten nicht gespeichert werden',
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Grafik',

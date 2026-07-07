@@ -820,6 +820,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   gridSummaryLabelCountDistinct: 'Único:',
   gridSummaryLabelMin: 'Mín.:',
   gridSummaryLabelMax: 'Máximo:',
+  gridMutationError: 'Error al guardar los cambios',
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Gráfico',

@@ -3,7 +3,14 @@ import * as React from 'react';
 import { Box, Tooltip } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
-import type { StudioDataSource, StudioWidget, StudioFilterState } from '../../../models';
+import type {
+  StudioDataSource,
+  StudioWidget,
+  StudioFilterState,
+  StudioKpiAggregation,
+  StudioExpressionField,
+  StudioRelationship,
+} from '../../../models';
 import { summarizeFilter } from '../../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
@@ -63,6 +70,66 @@ export interface StudioKpiWidgetProps {
   pageId: string;
   slots?: StudioKpiWidgetSlots;
   slotProps?: StudioKpiWidgetSlotProps;
+}
+
+interface ComputePeriodValueParams {
+  /** Value field to aggregate. Unused for a measure or a fieldless count. */
+  valueField: string;
+  aggregation: StudioKpiAggregation;
+  /** When set, the value is a measure that does its own aggregation. */
+  measureExprField: StudioExpressionField | undefined;
+  /** True when the value field lives on a related (parent) source and rows must be re-anchored. */
+  isGrainAnchored: boolean;
+  sourceId: string | undefined;
+  dataSources: Record<string, StudioDataSource>;
+  relationships: StudioRelationship[];
+  expressionFields: StudioExpressionField[];
+}
+
+/**
+ * Reduces a (date-windowed) row set to a single aggregate value using the same
+ * three-way dispatch as the headline value:
+ * - measure expression field → `evaluateMeasure` (measures aggregate themselves);
+ * - grain-anchored field → re-anchor to the value field's parent-source grain first,
+ *   then aggregate (so a cross-source value is counted once per parent, not per child row);
+ * - plain native field (or fieldless count) → aggregate directly.
+ *
+ * Callers window the rows at the widget's own (child) grain FIRST, then pass them here so
+ * anchoring runs second — matching the "window first, anchor second" ordering the
+ * filter-based trend branch always relied on.
+ */
+function computePeriodValue(
+  periodRows: Record<string, unknown>[],
+  params: ComputePeriodValueParams,
+): number {
+  const {
+    valueField,
+    aggregation,
+    measureExprField,
+    isGrainAnchored,
+    sourceId,
+    dataSources,
+    relationships,
+    expressionFields,
+  } = params;
+
+  if (measureExprField) {
+    return evaluateMeasure(measureExprField, periodRows, expressionFields);
+  }
+  if (isGrainAnchored) {
+    const anchoredRows = resolveChartRowsForAggregation(
+      periodRows,
+      sourceId,
+      undefined,
+      [valueField],
+      undefined,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    return computeAggregate(anchoredRows, valueField, aggregation);
+  }
+  return computeAggregate(periodRows, valueField, aggregation);
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
@@ -213,6 +280,21 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         : computeAggregate(valueRows, valueField, aggregation),
     );
 
+    // Shared parameters for reducing a date-windowed row set to a single trend value.
+    // Both the fixed-period and filter-based trend branches route through
+    // computePeriodValue(...) so a cross-source or measure value field is aggregated
+    // the same (correct) way as the headline value — not read as a missing row column.
+    const periodValueParams: ComputePeriodValueParams = {
+      valueField,
+      aggregation,
+      measureExprField,
+      isGrainAnchored,
+      sourceId: widget.sourceId,
+      dataSources,
+      relationships,
+      expressionFields,
+    };
+
     const fieldDef =
       dataSource.fields.find((f) => f.id === config.kpiValueField) ??
       expressionFields.find((ef) => ef.id === config.kpiValueField);
@@ -349,9 +431,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             prevRange.end,
           );
 
-          const aggField = config.kpiValueField ?? '';
-          const currentPeriodValue = computeAggregate(currentPeriodRows, aggField, aggregation);
-          const previousValue = computeAggregate(prevPeriodRows, aggField, aggregation);
+          // Window first (child grain), anchor second: reduce each period's child rows
+          // through the shared value seam so cross-source / measure value fields produce
+          // a correct delta instead of a silently-null or child-grain-inflated one.
+          const currentPeriodValue = computePeriodValue(currentPeriodRows, periodValueParams);
+          const previousValue = computePeriodValue(prevPeriodRows, periodValueParams);
 
           if (previousValue !== 0) {
             kpiTrend = {
@@ -441,32 +525,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
               expressionFields,
               { skipEnrichment: true },
             );
+            // prevRows are already windowed to the previous date range at the widget's
+            // own (child) grain; computePeriodValue anchors second, matching the headline.
             const previousValue = cachedCompute(
               prevRows,
               `kpi-value:${previousKpiValueField}:${measureKey}`,
-              () => {
-                if (measureExprField) {
-                  return evaluateMeasure(measureExprField, prevRows, expressionFields);
-                }
-                if (isGrainAnchored) {
-                  // Apply the same grain anchoring to prevRows as we do for the current period.
-                  // prevRows are already filtered to the previous date range via prevFilters, so
-                  // resolveChartRowsForAggregation will re-anchor to the correct parent-source
-                  // grain while respecting that pre-filtered row set.
-                  const prevGrainRows = resolveChartRowsForAggregation(
-                    prevRows,
-                    widget.sourceId,
-                    undefined,
-                    [previousKpiValueField],
-                    undefined,
-                    dataSources,
-                    relationships,
-                    expressionFields,
-                  );
-                  return computeAggregate(prevGrainRows, previousKpiValueField, aggregation);
-                }
-                return computeAggregate(prevRows, previousKpiValueField, aggregation);
-              },
+              () => computePeriodValue(prevRows, periodValueParams),
             );
 
             if (previousValue !== 0) {

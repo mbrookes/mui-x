@@ -4,22 +4,13 @@ import {
   Box,
   Chip,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
   Paper,
   Skeleton,
   Stack,
-  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import CloseIcon from '@mui/icons-material/Close';
-import DownloadIcon from '@mui/icons-material/Download';
-import dayjs from 'dayjs';
 
 import {
   useStudioController,
@@ -41,6 +32,7 @@ import {
   makeSelectWidgetActiveCrossFilter,
 } from '../../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
+import { StudioWidgetExpandDialog } from './StudioWidgetExpandDialog';
 import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 import { resolveTextFontFamily } from '../../internals/textFontFamily';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
@@ -48,6 +40,7 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../../models';
+import type { StudioChartAnnotation } from '../../models/widgetTypes';
 import type { StudioGridWidgetProps } from '../widgets/StudioGridWidget/StudioGridWidget';
 import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
 import type { StudioKpiWidgetProps } from '../widgets/StudioKpiWidget/StudioKpiWidget';
@@ -60,6 +53,12 @@ import {
 } from '../../internals/widgetUtils';
 import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
+import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
+import {
+  buildInsightPrompt,
+  buildAnomalyExplainPrompt,
+  type StudioWidgetInsightType,
+} from './widgetInsightPrompts';
 import { SliderFilterPill } from './SliderFilterPill';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
@@ -252,33 +251,18 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // ── AI Insight routing ────────────────────────────────────────────────────
   const handleInsightRequest = React.useCallback(
-    (type: 'summary' | 'analysis' | 'forecast' | 'correlation') => {
+    (type: StudioWidgetInsightType) => {
       if (!onInsightRequest || !widget) {
         return;
       }
-      const title = widget.title || widget.kind;
-      let prompt: string;
-      if (type === 'summary') {
-        prompt = `Give me a 2–3 sentence high-level summary of the "${title}" widget — what it shows and the single most important takeaway. Be brief, no bullet points.`;
-      } else if (type === 'analysis') {
-        prompt = `Analyse the "${title}" widget — identify key trends, patterns, and notable values`;
-      } else if (type === 'forecast') {
-        prompt = `Forecast the "${title}" widget — what trend do you expect over the next few periods?`;
-      } else if (type === 'correlation') {
-        prompt = `Show a correlation analysis for the "${title}" widget`;
-      } else {
-        prompt = `Analyse the "${title}" widget`;
-      }
-      onInsightRequest(widgetId, prompt);
+      onInsightRequest(widgetId, buildInsightPrompt(type, widget.title || widget.kind));
     },
     [onInsightRequest, widget, widgetId],
   );
 
   // ── Anomaly detection state ────────────────────────────────────────────────
   const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
-  const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<
-    import('../../models/widgetTypes').StudioChartAnnotation[]
-  >([]);
+  const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<StudioChartAnnotation[]>([]);
   // Toggle anomaly detection; clear annotations immediately when disabling
   const handleAnomalyToggle = React.useCallback(() => {
     setAnomalyEnabled((prev) => {
@@ -293,16 +277,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     if (!onInsightRequest || !anomalyAnnotations.length || !widget) {
       return;
     }
-    const title = widget.title || widget.kind;
-    const annotationDetails = anomalyAnnotations
-      .map((a) => {
-        const axisLabel = a.axis === 'x' ? 'X-axis' : 'Y-axis';
-        const labelPart = a.label ? ` (${a.label})` : '';
-        return `- ${axisLabel} anomaly at ${JSON.stringify(a.value)}${labelPart}`;
-      })
-      .join('\n');
-    const prompt = `Explain the anomalies detected in the "${title}" widget:\n${annotationDetails}`;
-    onInsightRequest(widgetId, prompt);
+    onInsightRequest(
+      widgetId,
+      buildAnomalyExplainPrompt(widget.title || widget.kind, anomalyAnnotations),
+    );
   }, [onInsightRequest, anomalyAnnotations, widget, widgetId]);
 
   // Pages the user can move this widget to (all pages except the one this widget is on)
@@ -337,7 +315,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
-  const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
   // Populated by pivot internally, or by a custom widget kind via its `exportRef` prop (see
   // `StudioCustomWidgetDef.export` / `StudioCustomWidgetProps.exportRef`) — either way, whichever
   // widget owns the current `def.component` is responsible for knowing how to export itself.
@@ -523,6 +500,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             return;
           }
           if (event.key === 'Enter' || event.key === ' ') {
+            // Prevent Space from scrolling the page (and Enter from triggering any
+            // default form submission) since both keys already activate the card.
+            event.preventDefault();
             controller.setSelectedWidget(widgetId);
             if (onUnconfiguredClick && def?.requiresDataSource !== false && !widget.sourceId) {
               onUnconfiguredClick(widgetId);
@@ -651,25 +631,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 {activeCrossFilter && (
                   <Chip
                     size="small"
-                    label={(() => {
-                      const fieldLabel =
-                        source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
-                        activeCrossFilter.field;
-                      const val = activeCrossFilter.value;
-                      let valueLabel: string;
-                      if (val !== null && typeof val === 'object' && 'from' in val && 'to' in val) {
-                        // between filter (e.g. date range emitted by a period-grouped bar click)
-                        const r = val as { from?: string; to?: string };
-                        const fmtDate = (s?: string) => (s ? dayjs(s).format('D MMM YYYY') : '');
-                        valueLabel =
-                          r.from && r.to && r.from !== r.to
-                            ? `${fmtDate(r.from)} – ${fmtDate(r.to)}`
-                            : fmtDate(r.from ?? r.to) || '';
-                      } else {
-                        valueLabel = String(val ?? '');
-                      }
-                      return `${fieldLabel}: ${valueLabel}`;
-                    })()}
+                    label={`${
+                      source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
+                      activeCrossFilter.field
+                    }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}
                     onDelete={() => controller.clearCrossFilter(widgetId)}
                     color="primary"
                     variant="outlined"
@@ -727,66 +692,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         </Stack>
         {/* Chart full-screen overlay dialog */}
         {canExpand && expanded && def && (
-          <Dialog
+          <StudioWidgetExpandDialog
             open={expanded}
             onClose={() => setExpanded(false)}
-            maxWidth={false}
-            slotProps={{
-              paper: {
-                sx: {
-                  width: 'min(1400px, 90vw)',
-                  maxWidth: 'none',
-                },
-              },
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="h6" noWrap>
-                  {widget.config?.cardExpandTitle || widget.title || 'Chart'}
-                </Typography>
-                {effectiveSubtitle && (
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    noWrap
-                    sx={{ display: 'block' }}
-                  >
-                    {effectiveSubtitle}
-                  </Typography>
-                )}
-              </Box>
-              <IconButton
-                size="small"
-                onClick={() => setExpanded(false)}
-                aria-label={localeText.widgetCardCloseExpandedAriaLabel}
-                sx={{ flexShrink: 0 }}
-              >
-                <CloseIcon />
-              </IconButton>
-            </DialogTitle>
-            <DialogContent sx={{ p: 2, pt: 0 }}>
-              <def.component
-                widget={widget}
-                dataSource={source}
-                pageId={pageId}
-                height={500}
-                chartContainerRef={chartExpandContainerRef}
-              />
-            </DialogContent>
-            <DialogActions sx={{ px: 2, pb: 1.5 }}>
-              <Tooltip title={localeText.widgetExportPngTooltip}>
-                <IconButton
-                  size="small"
-                  onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}
-                  aria-label={localeText.widgetCardExportPngAriaLabel}
-                >
-                  <DownloadIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </DialogActions>
-          </Dialog>
+            widget={widget}
+            def={def}
+            dataSource={source}
+            pageId={pageId}
+            effectiveSubtitle={effectiveSubtitle}
+          />
         )}
         {/* Widget edit dialog — only when no external onEditRequest handler. Uses the dialog's
             default `BuiltinWidgetPreview`, which resolves through the same unified widget-kind

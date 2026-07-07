@@ -16,6 +16,7 @@ import {
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
+import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
 
 interface QuickFilterChipProps {
   /** Tooltip shown when hovering the chip body (toggles the filter enabled/disabled). */
@@ -61,6 +62,22 @@ function QuickFilterChip(props: QuickFilterChipProps) {
           event.stopPropagation();
           onToggle();
         }}
+        onDelete={(event) => {
+          event.stopPropagation?.();
+          onRemove();
+        }}
+        deleteIcon={
+          <Tooltip title={removeTitle}>
+            <CloseIcon
+              role="button"
+              aria-label={removeTitle}
+              aria-hidden={false}
+              onMouseEnter={() => setCloseHovered(true)}
+              onMouseLeave={() => setCloseHovered(false)}
+              sx={{ fontSize: '0.75rem' }}
+            />
+          </Tooltip>
+        }
         sx={{
           maxWidth,
           opacity: disabled ? 0.55 : 1,
@@ -68,40 +85,18 @@ function QuickFilterChip(props: QuickFilterChipProps) {
           '& .MuiChip-label': { overflow: 'visible', pr: 0.5 },
         }}
         label={
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Box
-              component="span"
-              sx={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                minWidth: 0,
-                maxWidth: labelMaxWidth,
-              }}
-            >
-              {label}
-            </Box>
-            <Tooltip title={removeTitle}>
-              <Box
-                component="span"
-                role="button"
-                aria-label={removeTitle}
-                onMouseEnter={() => setCloseHovered(true)}
-                onMouseLeave={() => setCloseHovered(false)}
-                onClick={(event: React.MouseEvent) => {
-                  event.stopPropagation();
-                  onRemove();
-                }}
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  flexShrink: 0,
-                  cursor: 'pointer',
-                }}
-              >
-                <CloseIcon sx={{ fontSize: '0.75rem' }} />
-              </Box>
-            </Tooltip>
+          <Box
+            component="span"
+            sx={{
+              display: 'inline-block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+              maxWidth: labelMaxWidth,
+            }}
+          >
+            {label}
           </Box>
         }
       />
@@ -228,7 +223,7 @@ export function StudioQuickFilterBar() {
 
       {crossFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
-        const summary = String(filter.value ?? '');
+        const summary = formatCrossFilterValueLabel(filter.value);
         const isFromOtherPage = filter.scope.pageId && filter.scope.pageId !== activePageId;
         const pageTitle = isFromOtherPage ? (pages[filter.scope.pageId]?.title ?? '') : '';
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;

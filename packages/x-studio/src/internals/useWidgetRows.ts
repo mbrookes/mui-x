@@ -223,7 +223,13 @@ export function useWidgetRows(
     // Check for an existing in-flight request to deduplicate.
     let promise = studioRequestCache.getInflight(cacheKey);
     if (!promise) {
-      promise = studioRequestCache.addInflight(cacheKey, dataSource.adapter.getRows(descriptor));
+      // Pass descriptor.sourceId explicitly so the generation guard / reverse index use
+      // the true source even if it contains a ':' (rather than the cacheKey parse).
+      promise = studioRequestCache.addInflight(
+        cacheKey,
+        dataSource.adapter.getRows(descriptor),
+        descriptor.sourceId,
+      );
     }
 
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- setting loading state when descriptor changes triggers a new fetch

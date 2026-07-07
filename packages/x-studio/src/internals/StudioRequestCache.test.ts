@@ -178,6 +178,62 @@ describe('StudioRequestCache', () => {
     expect(cache.get('source-orders:key-1')).toBe(RESULT_B);
   });
 
+  // ── explicit sourceId (finding 1.4) ────────────────────────────────────────
+  // A sourceId may itself contain a ':' (e.g. `db:public.orders`). The cacheKey format
+  // is `${sourceId}:${queryShape}`, so the legacy `split(':')[0]` parse truncates such a
+  // sourceId to its first segment. Passing descriptor.sourceId explicitly fixes it while
+  // keeping the parse as the fallback for legacy call sites.
+
+  it('invalidateSource works for a sourceId containing a colon', () => {
+    const sourceId = 'db:public.orders';
+    const cacheKey = `${sourceId}:{"select":[]}`;
+    cache.set(cacheKey, RESULT_A, sourceId);
+    expect(cache.get(cacheKey)).toBe(RESULT_A);
+
+    cache.invalidateSource(sourceId);
+    expect(cache.get(cacheKey)).toBeUndefined();
+  });
+
+  it('generation guard works for a sourceId containing a colon', async () => {
+    const sourceId = 'db:public.orders';
+    const cacheKey = `${sourceId}:{"select":[]}`;
+    let resolve!: (r: StudioQueryResult) => void;
+    const promise = new Promise<StudioQueryResult>((res) => {
+      resolve = res;
+    });
+    cache.addInflight(cacheKey, promise, sourceId);
+
+    // Invalidate the (colon-containing) source mid-flight.
+    cache.invalidateSource(sourceId);
+    resolve(RESULT_A);
+    await promise;
+
+    // Generation captured under the true sourceId advanced → stale result NOT cached.
+    expect(cache.get(cacheKey)).toBeUndefined();
+  });
+
+  it('legacy call sites without explicit sourceId keep first-colon behavior', () => {
+    // Protects the unowned useChartWidgetData path, which still calls set/addInflight
+    // without a sourceId — the first-colon parse remains the fallback.
+    cache.set('source-orders:key-1', RESULT_A);
+    cache.invalidateSource('source-orders');
+    expect(cache.get('source-orders:key-1')).toBeUndefined();
+  });
+
+  it('TTL-expired entry is removed from the correct source index when sourceId contains a colon', async () => {
+    const short = new StudioRequestCache(50);
+    const sourceId = 'db:public.orders';
+    const cacheKey = `${sourceId}:{"q":1}`;
+    short.set(cacheKey, RESULT_A, sourceId);
+    await sleep(60);
+    // TTL cleanup (on get) must target the entry's stored sourceId bucket, not the parse.
+    expect(short.get(cacheKey)).toBeUndefined();
+    // Re-populate + invalidate to confirm the true bucket stayed consistent.
+    short.set(cacheKey, RESULT_B, sourceId);
+    short.invalidateSource(sourceId);
+    expect(short.get(cacheKey)).toBeUndefined();
+  });
+
   // ── clear ─────────────────────────────────────────────────────────────────
 
   it('clear removes all entries', () => {

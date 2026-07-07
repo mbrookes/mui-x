@@ -5,6 +5,8 @@ const TTL_MS = 30_000;
 interface CacheEntry {
   result: StudioQueryResult;
   fetchedAt: number;
+  /** The sourceId this entry belongs to (its `sourceIndex` bucket). */
+  sourceId: string;
 }
 
 /**
@@ -46,6 +48,16 @@ export class StudioRequestCache {
     return this.sourceGeneration.get(sourceId) ?? 0;
   }
 
+  /**
+   * The sourceId a cacheKey belongs to. Callers that know it (they build the descriptor)
+   * should pass `descriptor.sourceId` explicitly; otherwise we fall back to the legacy
+   * first-colon parse of the cacheKey. The explicit form is correct even when a sourceId
+   * itself contains a `':'` (which the parse would truncate).
+   */
+  private resolveSourceId(cacheKey: string, sourceId?: string): string {
+    return sourceId ?? cacheKey.split(':')[0];
+  }
+
   /** Returns a cached result if present and not expired, otherwise undefined. */
   get(cacheKey: string): StudioQueryResult | undefined {
     const entry = this.cache.get(cacheKey);
@@ -54,21 +66,26 @@ export class StudioRequestCache {
     }
     if (Date.now() - entry.fetchedAt > this.ttlMs) {
       this.cache.delete(cacheKey);
-      const sourceId = cacheKey.split(':')[0];
-      this.sourceIndex.get(sourceId)?.delete(cacheKey);
+      // Use the sourceId stored at set-time so the correct bucket is cleaned even when
+      // the sourceId contains a ':' (the parse-based fallback would target a wrong bucket).
+      this.sourceIndex.get(entry.sourceId)?.delete(cacheKey);
       return undefined;
     }
     return entry.result;
   }
 
-  /** Stores a result in the cache. */
-  set(cacheKey: string, result: StudioQueryResult): void {
-    this.cache.set(cacheKey, { result, fetchedAt: Date.now() });
-    const sourceId = cacheKey.split(':')[0];
-    let keys = this.sourceIndex.get(sourceId);
+  /**
+   * Stores a result in the cache. Pass `sourceId` (from `descriptor.sourceId`) so the
+   * reverse index and TTL cleanup use the true source; when omitted it falls back to the
+   * legacy first-colon parse of the cacheKey.
+   */
+  set(cacheKey: string, result: StudioQueryResult, sourceId?: string): void {
+    const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
+    this.cache.set(cacheKey, { result, fetchedAt: Date.now(), sourceId: resolvedSourceId });
+    let keys = this.sourceIndex.get(resolvedSourceId);
     if (!keys) {
       keys = new Set();
-      this.sourceIndex.set(sourceId, keys);
+      this.sourceIndex.set(resolvedSourceId, keys);
     }
     keys.add(cacheKey);
   }
@@ -87,18 +104,22 @@ export class StudioRequestCache {
    * Registers an in-flight request. Automatically removes itself (and populates
    * the cache) when the promise settles.
    */
-  addInflight(cacheKey: string, promise: Promise<StudioQueryResult>): Promise<StudioQueryResult> {
+  addInflight(
+    cacheKey: string,
+    promise: Promise<StudioQueryResult>,
+    sourceId?: string,
+  ): Promise<StudioQueryResult> {
     this.inflight.set(cacheKey, promise);
     // Capture the source's generation at request-start time. If `invalidateSource`
     // runs before this resolves, the generation will have advanced and we must NOT
     // cache the (now stale) result — otherwise an unchanged descriptor would get a
     // cache HIT on it. The awaiting caller still receives this one result.
-    const sourceId = cacheKey.split(':')[0];
-    const generationAtStart = this.getGeneration(sourceId);
+    const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
+    const generationAtStart = this.getGeneration(resolvedSourceId);
     promise.then(
       (result) => {
-        if (this.getGeneration(sourceId) === generationAtStart) {
-          this.set(cacheKey, result);
+        if (this.getGeneration(resolvedSourceId) === generationAtStart) {
+          this.set(cacheKey, result, resolvedSourceId);
         }
         this.inflight.delete(cacheKey);
       },

@@ -132,6 +132,594 @@ function computePeriodValue(
   return computeAggregate(periodRows, valueField, aggregation);
 }
 
+type KpiConfig = StudioWidget['config'];
+
+/**
+ * Fixed-period trend: derive rolling current/previous windows from today, window the
+ * widget's own (child-grain) rows into each, then reduce both through the shared
+ * `computePeriodValue` seam so cross-source / measure value fields yield a correct delta.
+ */
+function computeFixedPeriodTrend(
+  rows: Record<string, unknown>[],
+  fixedDateField: string,
+  fixedPeriod: NonNullable<KpiConfig['kpiTrendFixedPeriod']>,
+  comparisonMode: Parameters<typeof computePreviousPeriodRange>[2],
+  periodValueParams: ComputePeriodValueParams,
+): KpiTrendResult | null {
+  const today = new Date();
+  const currentRange = computeFixedPeriodRange(fixedPeriod, today);
+  const prevRange = computePreviousPeriodRange(
+    currentRange.start,
+    currentRange.end,
+    comparisonMode,
+  );
+
+  const currentPeriodRows = filterRowsByDateRange(
+    rows,
+    fixedDateField,
+    currentRange.start,
+    currentRange.end,
+  );
+  const prevPeriodRows = filterRowsByDateRange(
+    rows,
+    fixedDateField,
+    prevRange.start,
+    prevRange.end,
+  );
+
+  const currentPeriodValue = computePeriodValue(currentPeriodRows, periodValueParams);
+  const previousValue = computePeriodValue(prevPeriodRows, periodValueParams);
+
+  if (previousValue !== 0) {
+    return {
+      delta: (currentPeriodValue - previousValue) / Math.abs(previousValue),
+      previousValue,
+      previousStart: prevRange.start,
+      previousEnd: prevRange.end,
+    };
+  }
+  if (currentPeriodValue !== 0) {
+    return {
+      delta: Infinity,
+      previousValue,
+      previousStart: prevRange.start,
+      previousEnd: prevRange.end,
+    };
+  }
+  return null;
+}
+
+/**
+ * Filter-based trend: window the widget's rows to the previous period defined by the
+ * active date filter, then reduce them through the shared `computePeriodValue` seam.
+ * The current side of the delta reuses the already-computed headline value.
+ */
+function computeFilterBasedTrend(params: {
+  config: KpiConfig;
+  widget: StudioWidget;
+  dataSource: StudioDataSource;
+  filters: StudioFilterState[];
+  currentValue: number;
+  measureKey: string;
+  crossFilterMode: 'none' | 'cross-filter';
+  dataSources: Record<string, StudioDataSource>;
+  relationships: StudioRelationship[];
+  expressionFields: StudioExpressionField[];
+  periodValueParams: ComputePeriodValueParams;
+}): KpiTrendResult | null {
+  const {
+    config,
+    widget,
+    dataSource,
+    filters,
+    currentValue,
+    measureKey,
+    crossFilterMode,
+    dataSources,
+    relationships,
+    expressionFields,
+    periodValueParams,
+  } = params;
+
+  // In this branch kpiValueField is set (guaranteed by the caller's gate).
+  const previousKpiValueField = config.kpiValueField!;
+  const dateFilter = findDateFilter(filters, widget.id, dataSource);
+  if (!dateFilter) {
+    return null;
+  }
+  const currentRange = extractDateRange(dateFilter);
+  if (!currentRange) {
+    return null;
+  }
+  const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
+  const prevRange = computePreviousPeriodRange(
+    currentRange.start,
+    currentRange.end,
+    comparisonMode,
+  );
+
+  // Pre-enrich once here so the previous-period resolveRows call can skip
+  // enrichment. Pass usedFieldIds matching what useWidgetRows computed so this
+  // hits the already-populated cache slot rather than the all-fields slot.
+  const kpiUsedFieldIds = new Set(collectSelectFields(widget));
+  kpiUsedFieldIds.add(dateFilter.field);
+  for (const f of filters) {
+    if (f.field) {
+      kpiUsedFieldIds.add(f.field);
+    }
+  }
+  const preEnrichedRows = getCachedEnrichedRows(
+    dataSource.rows ?? [],
+    widget.sourceId,
+    expressionFields,
+    dataSources,
+    relationships,
+    kpiUsedFieldIds,
+  );
+
+  // Build allFilters for the previous period using the same scope as currentRows.
+  // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
+  // interactive and cross-filter scopes. Including interactive filters here would cause
+  // the trend delta to reflect different filter states for current vs previous period.
+  const pageFilters = filters.filter(
+    (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range',
+  );
+  const widgetFilters = filters.filter(
+    (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id,
+  );
+  const interactiveFilters =
+    crossFilterMode !== 'none'
+      ? filters.filter(
+          (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id,
+        )
+      : [];
+  const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
+
+  const prevDateFilter: StudioFilterState = {
+    ...dateFilter,
+    operator: 'greater_than_or_equal',
+    value: prevRange.start.toISOString().slice(0, 10),
+    operator2: 'less_than_or_equal',
+    value2: prevRange.end.toISOString().slice(0, 10),
+    conjunction: 'and',
+  };
+  const prevFilters = allFilters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f));
+  const prevRows = resolveRows(
+    preEnrichedRows,
+    widget.sourceId,
+    prevFilters,
+    dataSources,
+    relationships,
+    expressionFields,
+    { skipEnrichment: true },
+  );
+  // prevRows are already windowed to the previous date range at the widget's
+  // own (child) grain; computePeriodValue anchors second, matching the headline.
+  const previousValue = cachedCompute(
+    prevRows,
+    `kpi-value:${previousKpiValueField}:${measureKey}`,
+    () => computePeriodValue(prevRows, periodValueParams),
+  );
+
+  if (previousValue !== 0) {
+    return {
+      delta: (currentValue - previousValue) / Math.abs(previousValue),
+      previousValue,
+      previousStart: prevRange.start,
+      previousEnd: prevRange.end,
+    };
+  }
+  if (currentValue !== 0) {
+    return {
+      delta: Infinity,
+      previousValue,
+      previousStart: prevRange.start,
+      previousEnd: prevRange.end,
+    };
+  }
+  return null;
+}
+
+/**
+ * Grain-aware rows for KPI value and sparkline computation.
+ *
+ * When kpiValueField belongs to a related (parent) source — e.g. a KPI on order_items
+ * using orders.revenue — calling computeAggregate over the widget's own rows inflates
+ * the result because each parent-level value is repeated once per child row.
+ * resolveChartRowsForAggregation re-anchors to the correct aggregation grain (the parent
+ * source rows, filtered to those that have at least one matching child row).
+ *
+ * Measure expression fields handle their own aggregation via evaluateMeasure and are
+ * excluded from re-anchoring.
+ *
+ * isGrainAnchored is true when the value field is on a different (parent) source and the
+ * re-anchoring actually changed the row grain. Used to skip the redundant time-field join
+ * in the sparkline path when the time field is also on the anchor source rows natively.
+ */
+function useKpiGrainAnchoredRows(
+  currentRows: Record<string, unknown>[],
+  kpiValueField: string | undefined,
+  sourceId: string | undefined,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+): { grainAnchoredRows: Record<string, unknown>[]; isGrainAnchored: boolean } {
+  return React.useMemo(() => {
+    const isMeasure = kpiValueField
+      ? expressionFields.some((ef) => ef.id === kpiValueField && ef.isMeasure)
+      : false;
+    if (!kpiValueField || !sourceId || isMeasure) {
+      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
+    }
+    const support = analyzeChartSupport(
+      sourceId,
+      undefined,
+      [kpiValueField],
+      undefined,
+      undefined,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    if (!support.supported || !support.anchorSourceId || support.anchorSourceId === sourceId) {
+      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
+    }
+    return {
+      grainAnchoredRows: resolveChartRowsForAggregation(
+        currentRows,
+        sourceId,
+        undefined,
+        [kpiValueField],
+        undefined,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+      isGrainAnchored: true,
+    };
+  }, [currentRows, kpiValueField, sourceId, expressionFields, dataSources, relationships]);
+}
+
+/**
+ * Headline value: aggregation defaulting, the no-data guard, the value computation (over
+ * grain-anchored or measure rows), and boolean-avg/percent display formatting. Returns the
+ * raw numeric value and measure/aggregation metadata that the sparkline and trend hooks reuse.
+ */
+function useKpiValue(params: {
+  config: KpiConfig;
+  dataSource: StudioDataSource | undefined;
+  currentRows: Record<string, unknown>[];
+  grainAnchoredRows: Record<string, unknown>[];
+  expressionFields: StudioExpressionField[];
+}): {
+  displayValue: string;
+  hasData: boolean;
+  kpiNumericValue: number;
+  rawValue: number;
+  aggregation: StudioKpiAggregation;
+  measureExprField: StudioExpressionField | undefined;
+  measureKey: string;
+} {
+  const { config, dataSource, currentRows, grainAnchoredRows, expressionFields } = params;
+  return React.useMemo(() => {
+    // With no value field the only meaningful aggregation is a row "count" (the setup
+    // panel locks the selector to Count in that state). Default accordingly so a KPI
+    // reproduced from scratch — source picked, value field left empty, aggregation not
+    // explicitly persisted — still renders a count rather than the no-data placeholder.
+    const aggregation = config.kpiAggregation ?? (config.kpiValueField ? 'sum' : 'count');
+    // A "count" aggregation tallies rows and is field-independent, so it is a
+    // complete, reproducible configuration on its own — no value field required.
+    // Any other aggregation needs a value field to operate on.
+    const isFieldlessCount = aggregation === 'count' && !config.kpiValueField;
+    const measureExprField = expressionFields.find(
+      (ef) => ef.id === config.kpiValueField && ef.isMeasure,
+    );
+    const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
+    if (!dataSource?.rows || (!config.kpiValueField && !isFieldlessCount)) {
+      return {
+        displayValue: '—',
+        hasData: false,
+        kpiNumericValue: 0,
+        rawValue: 0,
+        aggregation,
+        measureExprField,
+        measureKey,
+      };
+    }
+
+    const rows = currentRows;
+    // Use grain-anchored rows for the value so cross-source fields (e.g. orders.revenue on an
+    // order_items widget) are aggregated once per parent row, not once per child row.
+    const valueRows = measureExprField ? rows : grainAnchoredRows;
+    // For a fieldless count the field argument is unused (computeAggregate tallies rows),
+    // so pass an empty string.
+    const valueField = config.kpiValueField ?? '';
+    const value = cachedCompute(valueRows, `kpi-value:${valueField}:${measureKey}`, () =>
+      measureExprField
+        ? evaluateMeasure(measureExprField, valueRows, expressionFields)
+        : computeAggregate(valueRows, valueField, aggregation),
+    );
+
+    const fieldDef =
+      dataSource.fields.find((f) => f.id === config.kpiValueField) ??
+      expressionFields.find((ef) => ef.id === config.kpiValueField);
+    // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
+    const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
+    const semanticValue = isBooleanAvg ? value * 100 : value;
+    const formatted = formatNumber(
+      semanticValue,
+      isBooleanAvg ? 'percent' : fieldDef?.format,
+      fieldDef?.currencyCode,
+      config.kpiCompact ?? true,
+      fieldDef?.precision,
+    );
+    const kpiDisplay = `${config.kpiPrefix ?? ''}${formatted}${config.kpiSuffix ?? ''}`;
+
+    return {
+      displayValue: kpiDisplay,
+      hasData: true,
+      kpiNumericValue: semanticValue,
+      rawValue: value,
+      aggregation,
+      measureExprField,
+      measureKey,
+    };
+  }, [config, dataSource, currentRows, grainAnchoredRows, expressionFields]);
+}
+
+/**
+ * Sparkline series + resolved time field. Disabled (returns nulls) unless the KPI has data
+ * and the sparkline is enabled in config.
+ */
+function useKpiSparkline(params: {
+  config: KpiConfig;
+  widget: StudioWidget;
+  dataSource: StudioDataSource | undefined;
+  filters: StudioFilterState[];
+  currentRows: Record<string, unknown>[];
+  grainAnchoredRows: Record<string, unknown>[];
+  isGrainAnchored: boolean;
+  aggregation: StudioKpiAggregation;
+  dataSources: Record<string, StudioDataSource>;
+  relationships: StudioRelationship[];
+  expressionFields: StudioExpressionField[];
+  enabled: boolean;
+}): { sparklineData: number[] | null; sparklineTimeField: string | null } {
+  const {
+    config,
+    widget,
+    dataSource,
+    filters,
+    currentRows,
+    grainAnchoredRows,
+    isGrainAnchored,
+    aggregation,
+    dataSources,
+    relationships,
+    expressionFields,
+    enabled,
+  } = params;
+  return React.useMemo(() => {
+    if (!enabled || !dataSource) {
+      return { sparklineData: null, sparklineTimeField: null };
+    }
+
+    const rows = currentRows;
+    let kpiSparklineData: number[] | null = null;
+    let kpiSparklineTimeField: string | null = null;
+
+    const dateFilter = findDateFilter(filters, widget.id, dataSource);
+    // Only use the date filter's field as the time axis when the filter applies to the
+    // widget's own source. Cross-source filters (e.g. an orders.date filter on a customers
+    // widget) narrow the result set correctly but their field name doesn't exist on the
+    // widget's rows, so using it as timeField would produce an empty sparkline.
+    const dateFilterIsNative =
+      !dateFilter?.filterSourceId || dateFilter.filterSourceId === widget.sourceId;
+    const timeField =
+      (dateFilterIsNative ? dateFilter?.field : null) ?? config.kpiSparklineField ?? null;
+
+    if (timeField) {
+      kpiSparklineTimeField = timeField;
+
+      let granularity: Granularity = config.kpiSparklineGranularity ?? 'month';
+      if (!config.kpiSparklineGranularity && dateFilter) {
+        const range = extractDateRange(dateFilter);
+        if (range) {
+          granularity = autoGranularity(range.start, range.end);
+        }
+      }
+
+      let sparklineRows = rows;
+      const timeFieldSourceId = config.kpiSparklineSourceId;
+      if (isGrainAnchored) {
+        // The value field is on a related (parent) source. The grain-anchored rows are
+        // at the parent grain and natively contain the value field.
+        // If the time field is also from that parent source (timeFieldSourceId set to a
+        // related source, or auto-detected date filter), it is already present on the
+        // anchor rows — use grainAnchoredRows directly, no join needed.
+        // If the time field is from the widget's own (child) source, this is a
+        // contradictory configuration: the value is at the parent grain, but the time
+        // axis is from the child grain. Using grainAnchoredRows would produce an empty
+        // sparkline (the child time field is absent on parent rows), so we fall back to
+        // unanchored rows. Values will be inflated (double-counted at the child grain),
+        // but at least the sparkline renders. The recommended fix for users is to
+        // choose a time field from the same source as the value field.
+        const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
+        sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
+      } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
+        // Time field is from a related source. Use resolveChartRowsForAggregation to
+        // join the time field onto widget rows via the relationship graph. This avoids
+        // double-counting that a naive many-to-one lookup join can cause when widget
+        // rows expand after enrichment (DC-05).
+        sparklineRows = resolveChartRowsForAggregation(
+          rows,
+          widget.sourceId,
+          timeField,
+          config.kpiValueField ? [config.kpiValueField] : [],
+          undefined,
+          dataSources,
+          relationships,
+          expressionFields,
+        );
+      }
+
+      kpiSparklineData = cachedCompute(
+        sparklineRows,
+        `kpi-sparkline:${config.kpiValueField}:${aggregation}:${granularity}:${config.kpiSparklineCumulative ?? false}:${timeField}`,
+        () =>
+          computeSparklineData(
+            sparklineRows,
+            timeField,
+            config.kpiValueField!,
+            aggregation,
+            granularity,
+            config.kpiSparklineCumulative ?? false,
+          ),
+      );
+    }
+
+    return { sparklineData: kpiSparklineData, sparklineTimeField: kpiSparklineTimeField };
+  }, [
+    enabled,
+    config,
+    widget,
+    dataSource,
+    filters,
+    currentRows,
+    grainAnchoredRows,
+    isGrainAnchored,
+    aggregation,
+    dataSources,
+    relationships,
+    expressionFields,
+  ]);
+}
+
+/**
+ * Trend badge result + the "needs a date filter" hint. Routes both the fixed-period and
+ * filter-based modes through `computePeriodValue` (via the two module-level helpers) so a
+ * cross-source / measure value field produces a correct delta. Disabled (returns null / false)
+ * when the KPI has no data.
+ */
+function useKpiTrend(params: {
+  config: KpiConfig;
+  widget: StudioWidget;
+  dataSource: StudioDataSource | undefined;
+  filters: StudioFilterState[];
+  currentRows: Record<string, unknown>[];
+  isGrainAnchored: boolean;
+  aggregation: StudioKpiAggregation;
+  measureExprField: StudioExpressionField | undefined;
+  measureKey: string;
+  rawValue: number;
+  crossFilterMode: 'none' | 'cross-filter';
+  dataSources: Record<string, StudioDataSource>;
+  relationships: StudioRelationship[];
+  expressionFields: StudioExpressionField[];
+  enabled: boolean;
+}): { trendResult: KpiTrendResult | null; trendNeedsDateFilter: boolean } {
+  const {
+    config,
+    widget,
+    dataSource,
+    filters,
+    currentRows,
+    isGrainAnchored,
+    aggregation,
+    measureExprField,
+    measureKey,
+    rawValue,
+    crossFilterMode,
+    dataSources,
+    relationships,
+    expressionFields,
+    enabled,
+  } = params;
+  return React.useMemo(() => {
+    if (!enabled || !dataSource) {
+      return { trendResult: null, trendNeedsDateFilter: false };
+    }
+
+    const hasFixedPeriodTrend = !!(config.kpiTrend && config.kpiTrendFixedPeriod);
+
+    // Fixed-period mode derives its own windows from today — no date filter required.
+    // The existing filter-based mode still requires an active date filter to define the
+    // current period (shown as a warning badge when missing).
+    const needsDateFilter =
+      !hasFixedPeriodTrend &&
+      !!(config.kpiTrend && config.kpiValueField) &&
+      !findDateFilter(filters, widget.id, dataSource);
+
+    // Shared parameters for reducing a date-windowed row set to a single trend value.
+    // Both the fixed-period and filter-based trend branches route through
+    // computePeriodValue(...) so a cross-source or measure value field is aggregated
+    // the same (correct) way as the headline value — not read as a missing row column.
+    const periodValueParams: ComputePeriodValueParams = {
+      valueField: config.kpiValueField ?? '',
+      aggregation,
+      measureExprField,
+      isGrainAnchored,
+      sourceId: widget.sourceId,
+      dataSources,
+      relationships,
+      expressionFields,
+    };
+
+    let kpiTrend: KpiTrendResult | null = null;
+    if (config.kpiTrend && (config.kpiValueField || hasFixedPeriodTrend)) {
+      if (hasFixedPeriodTrend) {
+        // The headline (value / currentRows) is the all-time total — unfiltered. Only
+        // the trend delta rows are windowed by the date field.
+        const fixedDateField =
+          config.kpiSparklineField ??
+          dataSource.fields.find((f) => f.type === 'date' || f.type === 'datetime')?.id ??
+          null;
+        if (fixedDateField) {
+          kpiTrend = computeFixedPeriodTrend(
+            currentRows,
+            fixedDateField,
+            config.kpiTrendFixedPeriod!,
+            config.kpiTrendComparison ?? 'previous-period',
+            periodValueParams,
+          );
+        }
+      } else {
+        kpiTrend = computeFilterBasedTrend({
+          config,
+          widget,
+          dataSource,
+          filters,
+          currentValue: rawValue,
+          measureKey,
+          crossFilterMode,
+          dataSources,
+          relationships,
+          expressionFields,
+          periodValueParams,
+        });
+      }
+    }
+
+    return { trendResult: kpiTrend, trendNeedsDateFilter: needsDateFilter };
+  }, [
+    enabled,
+    config,
+    widget,
+    dataSource,
+    filters,
+    currentRows,
+    isGrainAnchored,
+    aggregation,
+    measureExprField,
+    measureKey,
+    rawValue,
+    crossFilterMode,
+    dataSources,
+    relationships,
+    expressionFields,
+  ]);
+}
+
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { dataSource, widget, pageId, slots, slotProps } = props;
 
@@ -171,410 +759,58 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   );
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
-  // Grain-aware rows for KPI value and sparkline computation.
-  //
-  // When kpiValueField belongs to a related (parent) source — e.g. a KPI on order_items
-  // using orders.revenue — calling computeAggregate over the widget's own rows inflates
-  // the result because each parent-level value is repeated once per child row.
-  // resolveChartRowsForAggregation re-anchors to the correct aggregation grain (the parent
-  // source rows, filtered to those that have at least one matching child row).
-  //
-  // Measure expression fields handle their own aggregation via evaluateMeasure and are
-  // excluded from re-anchoring.
-  //
-  // isGrainAnchored is true when the value field is on a different (parent) source and the
-  // re-anchoring actually changed the row grain. Used to skip the redundant time-field join
-  // in the sparkline path when the time field is also on the anchor source rows natively.
-  const currentKpiValueField = config.kpiValueField;
-  const { grainAnchoredRows, isGrainAnchored } = React.useMemo(() => {
-    const isMeasure = currentKpiValueField
-      ? expressionFields.some((ef) => ef.id === currentKpiValueField && ef.isMeasure)
-      : false;
-    if (!currentKpiValueField || !widget.sourceId || isMeasure) {
-      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
-    }
-    const support = analyzeChartSupport(
-      widget.sourceId,
-      undefined,
-      [currentKpiValueField],
-      undefined,
-      undefined,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-    if (
-      !support.supported ||
-      !support.anchorSourceId ||
-      support.anchorSourceId === widget.sourceId
-    ) {
-      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
-    }
-    return {
-      grainAnchoredRows: resolveChartRowsForAggregation(
-        currentRows,
-        widget.sourceId,
-        undefined,
-        [currentKpiValueField],
-        undefined,
-        dataSources,
-        relationships,
-        expressionFields,
-      ),
-      isGrainAnchored: true,
-    };
-  }, [
+  // Grain-aware rows for KPI value and sparkline computation (see useKpiGrainAnchoredRows).
+  const { grainAnchoredRows, isGrainAnchored } = useKpiGrainAnchoredRows(
     currentRows,
-    currentKpiValueField,
+    config.kpiValueField,
     widget.sourceId,
-    expressionFields,
     dataSources,
     relationships,
-  ]);
+    expressionFields,
+  );
 
   const {
     displayValue,
     hasData,
-    sparklineData,
-    sparklineTimeField,
-    trendResult,
-    trendNeedsDateFilter,
     kpiNumericValue,
-  } = React.useMemo(() => {
-    // With no value field the only meaningful aggregation is a row "count" (the setup
-    // panel locks the selector to Count in that state). Default accordingly so a KPI
-    // reproduced from scratch — source picked, value field left empty, aggregation not
-    // explicitly persisted — still renders a count rather than the no-data placeholder.
-    const aggregation = config.kpiAggregation ?? (config.kpiValueField ? 'sum' : 'count');
-    // A "count" aggregation tallies rows and is field-independent, so it is a
-    // complete, reproducible configuration on its own — no value field required.
-    // Any other aggregation needs a value field to operate on.
-    const isFieldlessCount = aggregation === 'count' && !config.kpiValueField;
-    if (!dataSource?.rows || (!config.kpiValueField && !isFieldlessCount)) {
-      return {
-        displayValue: '—',
-        hasData: false,
-        sparklineData: null,
-        sparklineTimeField: null,
-        trendResult: null,
-        trendNeedsDateFilter: false,
-        kpiNumericValue: 0,
-      };
-    }
+    rawValue,
+    aggregation,
+    measureExprField,
+    measureKey,
+  } = useKpiValue({ config, dataSource, currentRows, grainAnchoredRows, expressionFields });
 
-    const rows = currentRows;
-
-    const measureExprField = expressionFields.find(
-      (ef) => ef.id === config.kpiValueField && ef.isMeasure,
-    );
-    const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
-    // Use grain-anchored rows for the value so cross-source fields (e.g. orders.revenue on an
-    // order_items widget) are aggregated once per parent row, not once per child row.
-    const valueRows = measureExprField ? rows : grainAnchoredRows;
-    // For a fieldless count the field argument is unused (computeAggregate tallies rows),
-    // so pass an empty string.
-    const valueField = config.kpiValueField ?? '';
-    const value = cachedCompute(valueRows, `kpi-value:${valueField}:${measureKey}`, () =>
-      measureExprField
-        ? evaluateMeasure(measureExprField, valueRows, expressionFields)
-        : computeAggregate(valueRows, valueField, aggregation),
-    );
-
-    // Shared parameters for reducing a date-windowed row set to a single trend value.
-    // Both the fixed-period and filter-based trend branches route through
-    // computePeriodValue(...) so a cross-source or measure value field is aggregated
-    // the same (correct) way as the headline value — not read as a missing row column.
-    const periodValueParams: ComputePeriodValueParams = {
-      valueField,
-      aggregation,
-      measureExprField,
-      isGrainAnchored,
-      sourceId: widget.sourceId,
-      dataSources,
-      relationships,
-      expressionFields,
-    };
-
-    const fieldDef =
-      dataSource.fields.find((f) => f.id === config.kpiValueField) ??
-      expressionFields.find((ef) => ef.id === config.kpiValueField);
-    // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
-    const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
-    const semanticValue = isBooleanAvg ? value * 100 : value;
-    const formatted = formatNumber(
-      semanticValue,
-      isBooleanAvg ? 'percent' : fieldDef?.format,
-      fieldDef?.currencyCode,
-      config.kpiCompact ?? true,
-      fieldDef?.precision,
-    );
-    const kpiDisplay = `${config.kpiPrefix ?? ''}${formatted}${config.kpiSuffix ?? ''}`;
-
-    // Sparkline
-    let kpiSparklineData: number[] | null = null;
-    let kpiSparklineTimeField: string | null = null;
-
-    if (config.kpiSparkline) {
-      const dateFilter = findDateFilter(filters, widget.id, dataSource);
-      // Only use the date filter's field as the time axis when the filter applies to the
-      // widget's own source. Cross-source filters (e.g. an orders.date filter on a customers
-      // widget) narrow the result set correctly but their field name doesn't exist on the
-      // widget's rows, so using it as timeField would produce an empty sparkline.
-      const dateFilterIsNative =
-        !dateFilter?.filterSourceId || dateFilter.filterSourceId === widget.sourceId;
-      const timeField =
-        (dateFilterIsNative ? dateFilter?.field : null) ?? config.kpiSparklineField ?? null;
-
-      if (timeField) {
-        kpiSparklineTimeField = timeField;
-
-        let granularity: Granularity = config.kpiSparklineGranularity ?? 'month';
-        if (!config.kpiSparklineGranularity && dateFilter) {
-          const range = extractDateRange(dateFilter);
-          if (range) {
-            granularity = autoGranularity(range.start, range.end);
-          }
-        }
-
-        let sparklineRows = rows;
-        const timeFieldSourceId = config.kpiSparklineSourceId;
-        if (isGrainAnchored) {
-          // The value field is on a related (parent) source. The grain-anchored rows are
-          // at the parent grain and natively contain the value field.
-          // If the time field is also from that parent source (timeFieldSourceId set to a
-          // related source, or auto-detected date filter), it is already present on the
-          // anchor rows — use grainAnchoredRows directly, no join needed.
-          // If the time field is from the widget's own (child) source, this is a
-          // contradictory configuration: the value is at the parent grain, but the time
-          // axis is from the child grain. Using grainAnchoredRows would produce an empty
-          // sparkline (the child time field is absent on parent rows), so we fall back to
-          // unanchored rows. Values will be inflated (double-counted at the child grain),
-          // but at least the sparkline renders. The recommended fix for users is to
-          // choose a time field from the same source as the value field.
-          const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
-          sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
-        } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
-          // Time field is from a related source. Use resolveChartRowsForAggregation to
-          // join the time field onto widget rows via the relationship graph. This avoids
-          // double-counting that a naive many-to-one lookup join can cause when widget
-          // rows expand after enrichment (DC-05).
-          sparklineRows = resolveChartRowsForAggregation(
-            rows,
-            widget.sourceId,
-            timeField,
-            config.kpiValueField ? [config.kpiValueField] : [],
-            undefined,
-            dataSources,
-            relationships,
-            expressionFields,
-          );
-        }
-
-        kpiSparklineData = cachedCompute(
-          sparklineRows,
-          `kpi-sparkline:${config.kpiValueField}:${aggregation}:${granularity}:${config.kpiSparklineCumulative ?? false}:${timeField}`,
-          () =>
-            computeSparklineData(
-              sparklineRows,
-              timeField,
-              config.kpiValueField!,
-              aggregation,
-              granularity,
-              config.kpiSparklineCumulative ?? false,
-            ),
-        );
-      }
-    }
-
-    // Trend
-    let kpiTrend: KpiTrendResult | null = null;
-
-    const hasFixedPeriodTrend = !!(config.kpiTrend && config.kpiTrendFixedPeriod);
-
-    // Fixed-period mode derives its own windows from today — no date filter required.
-    // The existing filter-based mode still requires an active date filter to define the
-    // current period (shown as a warning badge when missing).
-    const needsDateFilter =
-      !hasFixedPeriodTrend &&
-      !!(config.kpiTrend && config.kpiValueField) &&
-      !findDateFilter(filters, widget.id, dataSource);
-
-    if (config.kpiTrend && (config.kpiValueField || hasFixedPeriodTrend)) {
-      if (hasFixedPeriodTrend) {
-        // Fixed-period mode: compute rolling windows from today without a date filter.
-        // The headline (value / currentRows) is the all-time total — unfiltered. Only
-        // the trend delta rows are windowed by the date field.
-        const fixedDateField =
-          config.kpiSparklineField ??
-          dataSource.fields.find((f) => f.type === 'date' || f.type === 'datetime')?.id ??
-          null;
-        if (fixedDateField) {
-          const today = new Date();
-          const currentRange = computeFixedPeriodRange(config.kpiTrendFixedPeriod!, today);
-          const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
-          const prevRange = computePreviousPeriodRange(
-            currentRange.start,
-            currentRange.end,
-            comparisonMode,
-          );
-
-          const currentPeriodRows = filterRowsByDateRange(
-            rows,
-            fixedDateField,
-            currentRange.start,
-            currentRange.end,
-          );
-          const prevPeriodRows = filterRowsByDateRange(
-            rows,
-            fixedDateField,
-            prevRange.start,
-            prevRange.end,
-          );
-
-          // Window first (child grain), anchor second: reduce each period's child rows
-          // through the shared value seam so cross-source / measure value fields produce
-          // a correct delta instead of a silently-null or child-grain-inflated one.
-          const currentPeriodValue = computePeriodValue(currentPeriodRows, periodValueParams);
-          const previousValue = computePeriodValue(prevPeriodRows, periodValueParams);
-
-          if (previousValue !== 0) {
-            kpiTrend = {
-              delta: (currentPeriodValue - previousValue) / Math.abs(previousValue),
-              previousValue,
-              previousStart: prevRange.start,
-              previousEnd: prevRange.end,
-            };
-          } else if (currentPeriodValue !== 0) {
-            kpiTrend = {
-              delta: Infinity,
-              previousValue,
-              previousStart: prevRange.start,
-              previousEnd: prevRange.end,
-            };
-          }
-        }
-      } else {
-        // In this branch hasFixedPeriodTrend is false, so the outer gate's
-        // (config.kpiValueField || hasFixedPeriodTrend) means kpiValueField is set.
-        const previousKpiValueField = config.kpiValueField!;
-        const dateFilter = findDateFilter(filters, widget.id, dataSource);
-        if (dateFilter) {
-          const currentRange = extractDateRange(dateFilter);
-          if (currentRange) {
-            const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
-            const prevRange = computePreviousPeriodRange(
-              currentRange.start,
-              currentRange.end,
-              comparisonMode,
-            );
-
-            // Pre-enrich once here so the previous-period resolveRows call can skip
-            // enrichment. Pass usedFieldIds matching what useWidgetRows computed so this
-            // hits the already-populated cache slot rather than the all-fields slot.
-            const kpiUsedFieldIds = new Set(collectSelectFields(widget));
-            kpiUsedFieldIds.add(dateFilter.field);
-            for (const f of filters) {
-              if (f.field) {
-                kpiUsedFieldIds.add(f.field);
-              }
-            }
-            const preEnrichedRows = getCachedEnrichedRows(
-              dataSource.rows,
-              widget.sourceId,
-              expressionFields,
-              dataSources,
-              relationships,
-              kpiUsedFieldIds,
-            );
-
-            // Build allFilters for the previous period using the same scope as currentRows.
-            // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
-            // interactive and cross-filter scopes. Including interactive filters here would cause
-            // the trend delta to reflect different filter states for current vs previous period.
-            const pageFilters = filters.filter(
-              (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range',
-            );
-            const widgetFilters = filters.filter(
-              (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id,
-            );
-            const interactiveFilters =
-              crossFilterMode !== 'none'
-                ? filters.filter(
-                    (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id,
-                  )
-                : [];
-            const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
-
-            const prevDateFilter: StudioFilterState = {
-              ...dateFilter,
-              operator: 'greater_than_or_equal',
-              value: prevRange.start.toISOString().slice(0, 10),
-              operator2: 'less_than_or_equal',
-              value2: prevRange.end.toISOString().slice(0, 10),
-              conjunction: 'and',
-            };
-            const prevFilters = allFilters.map((f) =>
-              f.id === dateFilter.id ? prevDateFilter : f,
-            );
-            const prevRows = resolveRows(
-              preEnrichedRows,
-              widget.sourceId,
-              prevFilters,
-              dataSources,
-              relationships,
-              expressionFields,
-              { skipEnrichment: true },
-            );
-            // prevRows are already windowed to the previous date range at the widget's
-            // own (child) grain; computePeriodValue anchors second, matching the headline.
-            const previousValue = cachedCompute(
-              prevRows,
-              `kpi-value:${previousKpiValueField}:${measureKey}`,
-              () => computePeriodValue(prevRows, periodValueParams),
-            );
-
-            if (previousValue !== 0) {
-              kpiTrend = {
-                delta: (value - previousValue) / Math.abs(previousValue),
-                previousValue,
-                previousStart: prevRange.start,
-                previousEnd: prevRange.end,
-              };
-            } else if (value !== 0) {
-              kpiTrend = {
-                delta: Infinity,
-                previousValue,
-                previousStart: prevRange.start,
-                previousEnd: prevRange.end,
-              };
-            }
-          }
-        }
-      }
-    }
-
-    return {
-      displayValue: kpiDisplay,
-      hasData: true,
-      sparklineData: kpiSparklineData,
-      sparklineTimeField: kpiSparklineTimeField,
-      trendResult: kpiTrend,
-      trendNeedsDateFilter: needsDateFilter,
-      kpiNumericValue: semanticValue,
-    };
-  }, [
+  const { sparklineData, sparklineTimeField } = useKpiSparkline({
+    config,
+    widget,
+    dataSource,
+    filters,
     currentRows,
     grainAnchoredRows,
     isGrainAnchored,
-    dataSource,
-    filters,
+    aggregation,
     dataSources,
     relationships,
     expressionFields,
+    enabled: hasData && (config.kpiSparkline ?? false),
+  });
+
+  const { trendResult, trendNeedsDateFilter } = useKpiTrend({
     config,
     widget,
+    dataSource,
+    filters,
+    currentRows,
+    isGrainAnchored,
+    aggregation,
+    measureExprField,
+    measureKey,
+    rawValue,
     crossFilterMode,
-  ]);
+    dataSources,
+    relationships,
+    expressionFields,
+    enabled: hasData,
+  });
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
 

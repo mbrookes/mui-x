@@ -347,6 +347,131 @@ describe('useChartWidgetData — cross-source blending', () => {
     const ent = data.labels.indexOf('Electronics');
     expect(totalSeries.values[ent]).toBe(150); // primary chart still renders after the error
   });
+
+  it('propagates a page filter on a foreign-source field into the foreign series aggregation', () => {
+    // A page-scoped filter applies across the whole dashboard, so it must also constrain
+    // the independently-aggregated foreign (products) series. `category` exists in products,
+    // so filtering to 'Electronics' drops the Supplies row (p3) from the foreign aggregation.
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-category',
+      field: 'category',
+      operator: 'equals',
+      value: 'Electronics',
+      scope: { kind: 'page', pageId: 'page-1' },
+    } as StudioFilterState;
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: productsSource },
+      filters: [pageFilter],
+    });
+
+    const widget = blendedWidget();
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+
+    const data = result.current.multiYData!;
+    const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
+    // Supplies (products-only category) is filtered out of the foreign source entirely.
+    expect(data.labels).not.toContain('Supplies');
+    expect(stockSeries.values[data.labels.indexOf('Electronics')]).toBe(12); // p1(5) + p2(7)
+  });
+
+  it('does not apply a page filter on an orders-only field to the foreign source', () => {
+    // `total` exists only in orders — it is not an applicable filter for the products
+    // aggregation, so the foreign stock series must stay fully unconstrained.
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-total',
+      field: 'total',
+      operator: 'greater_than',
+      value: 40,
+      scope: { kind: 'page', pageId: 'page-1' },
+    } as StudioFilterState;
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: productsSource },
+      filters: [pageFilter],
+    });
+
+    const widget = blendedWidget();
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+
+    const data = result.current.multiYData!;
+    const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
+    // Both foreign categories survive because the orders-only filter never reaches products.
+    expect(stockSeries.values[data.labels.indexOf('Electronics')]).toBe(12); // p1(5) + p2(7)
+    expect(stockSeries.values[data.labels.indexOf('Supplies')]).toBe(9); // p3
+  });
+
+  it('includes an applicable page filter in the descriptor sent to the foreign adapter', async () => {
+    const getRows = vi.fn().mockResolvedValue({
+      rows: [{ category: 'Electronics', stock: 12 }],
+    });
+    const adapterProducts: StudioDataSource = {
+      ...productsSource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-category',
+      field: 'category',
+      operator: 'equals',
+      value: 'Electronics',
+      scope: { kind: 'page', pageId: 'page-1' },
+    } as StudioFilterState;
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: adapterProducts },
+      filters: [pageFilter],
+    });
+
+    const widget = blendedWidget();
+    renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+
+    await waitFor(() => {
+      expect(getRows).toHaveBeenCalled();
+    });
+    const descriptor = getRows.mock.calls[0][0];
+    expect(descriptor.sourceId).toBe('products');
+    // The applicable page filter must be pushed into the foreign source's own query.
+    expect(descriptor.filter).toMatchObject({ field: 'category', value: 'Electronics' });
+  });
+
+  it('resolves a foreign adapter series from a warm request cache without re-fetching', async () => {
+    const getRows = vi.fn().mockResolvedValue({
+      rows: [
+        { category: 'Electronics', stock: 12 },
+        { category: 'Supplies', stock: 9 },
+      ],
+    });
+    const adapterProducts: StudioDataSource = {
+      ...productsSource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, products: adapterProducts },
+    });
+
+    // First render performs the cold fetch, populating studioRequestCache on resolve.
+    const widget = blendedWidget();
+    const first = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+    await waitFor(() => {
+      const stock = first.result.current.multiYData?.series.find((s) => s.fieldId === 'stock');
+      const ent = first.result.current.multiYData?.labels.indexOf('Electronics') ?? -1;
+      expect(stock?.values[ent]).toBe(12);
+    });
+    expect(getRows).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // Second render must hit the warm cache (same descriptor cacheKey) — no second getRows.
+    const second = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+    await waitFor(() => {
+      const stock = second.result.current.multiYData?.series.find((s) => s.fieldId === 'stock');
+      const ent = second.result.current.multiYData?.labels.indexOf('Electronics') ?? -1;
+      expect(stock?.values[ent]).toBe(12);
+    });
+    expect(getRows).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

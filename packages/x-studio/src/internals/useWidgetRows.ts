@@ -14,11 +14,11 @@ import {
   selectCrossFilterAllPages,
 } from '../context';
 import { resolveRowsCached } from './resolvedRowsCache';
-import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
+import { collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { selectFiltersForWidget } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
-import { studioRequestCache } from './StudioRequestCache';
+import { useAdapterRows } from './useAdapterRows';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
@@ -87,7 +87,7 @@ interface UseWidgetRowsResult {
 }
 
 /**
- * Encapsulates pipeline layers L1 (metric-ref resolution) and L3 (enrich + filter) for a
+ * Encapsulates pipeline layers L2 (enrichment) and L3 (filtering) for a
  * widget. Handles all filter scope partitioning and store subscriptions internally.
  *
  * When `dataSource.adapter` is set, the async path is used instead of the in-memory pipeline.
@@ -165,94 +165,15 @@ export function useWidgetRows(
   // ── Async adapter path ──────────────────────────────────────────────────
   const hasAdapter = Boolean(dataSource?.adapter);
 
-  // Descriptor is rebuilt whenever any state that affects it changes.
-  const descriptor = React.useMemo(() => {
-    if (!hasAdapter || !widget.sourceId) {
-      return null;
-    }
-    return buildQueryDescriptor(widget, filters, pageId, dataSource?.tableName, expressionFields);
-  }, [hasAdapter, widget, filters, pageId, dataSource, expressionFields]);
-
-  // Async state: rows fetched from adapter.
-  const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
-    if (!hasAdapter) {
-      return [];
-    }
-    // Seed from cache synchronously on mount.
-    const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
-    if (cached) {
-      return cached.rows;
-    }
-    // Fall back to source.rows as a display placeholder so the widget doesn't
-    // flash empty while the adapter re-fetches on a cold cache (e.g. after page
-    // navigation when source.rows was pre-populated by setDataSourceRows).
-    return (dataSource?.rows as Row[] | undefined) ?? [];
-  });
-  // react-doctor-disable-next-line react-doctor/rendering-usetransition-loading -- isLoading guards an async data fetch (adapter.getRows), not a state transition
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isError, setIsError] = React.useState(false);
-  const [errorMessage, setErrorMessage] = React.useState('');
-
-  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- multiple setState calls are intentional: they atomically update related async fetch state
-  React.useEffect(() => {
-    if (!descriptor || !dataSource?.adapter) {
-      return;
-    }
-
-    const { cacheKey } = descriptor;
-    const cached = studioRequestCache.get(cacheKey);
-
-    if (cached) {
-      // Cache hit — serve synchronously, no loading state.
-      setAdapterRows(cached.rows);
-      // Must clear isLoading here too: if a previous descriptor (A) missed the cache
-      // and set isLoading=true, then the descriptor switched to B (this cache hit)
-      // before A resolved, A's cleanup marks it cancelled and its `.then` never runs —
-      // so nothing else would ever reset isLoading and the overlay would stay stuck
-      // forever even though valid data is already rendered. When isLoading is already
-      // false (the common repeated cache-hit case) React bails on the no-op setState,
-      // so this does not reintroduce a flash of loading state.
-      setIsLoading(false);
-      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional
-      setIsError(false);
-      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional
-      setErrorMessage('');
-      return;
-    }
-
-    // Check for an existing in-flight request to deduplicate.
-    let promise = studioRequestCache.getInflight(cacheKey);
-    if (!promise) {
-      promise = studioRequestCache.addInflight(cacheKey, dataSource.adapter.getRows(descriptor));
-    }
-
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- setting loading state when descriptor changes triggers a new fetch
-    setIsLoading(true);
-    let cancelled = false;
-
-    promise.then(
-      (result) => {
-        if (!cancelled) {
-          setAdapterRows(result.rows);
-          setIsLoading(false);
-          setIsError(false);
-          setErrorMessage('');
-        }
-      },
-      (err: unknown) => {
-        if (!cancelled) {
-          setIsLoading(false);
-          setIsError(true);
-          setErrorMessage(err instanceof Error ? err.message : 'Failed to load data');
-        }
-      },
-    );
-
-    // eslint-disable-next-line consistent-return
-    return () => {
-      cancelled = true;
-    };
-  }, [descriptor, dataSource]);
+  // Descriptor building, request-cache seeding/dedup, and async loading/error state are
+  // encapsulated in useAdapterRows (behavior-preserving extraction).
+  const { adapterRows, isLoading, isError, errorMessage } = useAdapterRows(
+    widget,
+    dataSource,
+    pageId,
+    filters,
+    expressionFields,
+  );
 
   // ── Sync (in-memory) path ───────────────────────────────────────────────
 
@@ -393,11 +314,11 @@ export function useWidgetRows(
   const computeFilteredRows = React.useCallback(
     (include: 'all' | 'no-cross' | 'no-chart-cross'): Row[] => {
       if (hasAdapter) {
-        // Page/widget filters were already applied by the adapter (baked into
-        // descriptor.filter), so only cross-filters + interactive filters are
-        // (re-)applied client-side. For server-side adapters the rows were already
-        // excluded, making this idempotent; for in-memory adapters (e.g. Excel) this
-        // is where cross-filtering is actually enforced. Routing through
+        // Page/widget filters were baked into descriptor.filter by the adapter; the
+        // descriptor deliberately EXCLUDES cross-filters + interactive filters (built
+        // with include:'no-cross' in buildQueryDescriptor), so this client-side pass is
+        // the SOLE enforcement point for them — a chart cross-filter never triggers a
+        // server round-trip or churns the request cacheKey. Routing through
         // selectFiltersForWidget keeps crossFilterAllPages / disabled / source-widget
         // handling identical to the sync path.
         if (!widget.sourceId) {

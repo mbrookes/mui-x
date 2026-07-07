@@ -475,6 +475,14 @@ describe('async adapter path', () => {
     // filteredRowsNoCross is the full adapter row set without cross-filter
     expect(result.current.filteredRowsNoCross).toHaveLength(3);
     expect(result.current.filteredRowsNoCross).not.toBe(result.current.filteredRows);
+
+    // The cross-filter must NOT be baked into the server query (finding 1.3): the adapter
+    // is called exactly once and the descriptor carries no filter (only a cross-filter
+    // exists, and cross-filters are enforced client-side).
+    expect(adapter.getRows).toHaveBeenCalledTimes(1);
+    const descriptor = (adapter.getRows as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as StudioQueryDescriptor;
+    expect(descriptor.filter).toBeUndefined();
   });
 
   it('honors crossFilterAllPages for a cross-filter from another page', async () => {

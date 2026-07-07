@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildQueryDescriptor, filtersToFilterNode } from './queryDescriptor';
+import { stableStringify } from './stableStringify';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
 import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../models';
@@ -16,7 +17,9 @@ function makeWidget(config: Partial<StudioWidgetConfig> = {}): StudioWidget {
   };
 }
 
-function makeFilter(overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] }): StudioFilterState {
+function makeFilter(
+  overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] },
+): StudioFilterState {
   return {
     id: 'f1',
     field: 'status',
@@ -28,6 +31,20 @@ function makeFilter(overrides: Partial<StudioFilterState> & { scope?: StudioFilt
 }
 
 const PAGE_ID = 'page-1';
+
+// ─── stableStringify (shared cache-key helper) ────────────────────────────────
+
+describe('stableStringify', () => {
+  it('maps undefined to the literal "null" (deterministic cache keys)', () => {
+    expect(stableStringify(undefined)).toBe('null');
+    // Nested undefined components (e.g. a filter with no value2) also serialize.
+    expect(stableStringify([1, undefined, 3])).toBe('[1,null,3]');
+  });
+
+  it('is insensitive to object key order', () => {
+    expect(stableStringify({ a: 1, b: 2 })).toBe(stableStringify({ b: 2, a: 1 }));
+  });
+});
 
 // ─── filtersToFilterNode ──────────────────────────────────────────────────────
 
@@ -254,7 +271,9 @@ describe('buildQueryDescriptor', () => {
     expect(node).toMatchObject({ type: 'leaf', field: 'status', value: 'shipped' });
   });
 
-  it('includes cross-filters from other widgets on same page', () => {
+  it('excludes cross-filters from other widgets on same page (applied client-side)', () => {
+    // Cross-filters are NOT baked into the server descriptor (finding 1.3) — they are a
+    // transient per-interaction refinement enforced client-side in useWidgetRows.
     const crossFilter = makeFilter({
       scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
       field: 'category',
@@ -262,12 +281,63 @@ describe('buildQueryDescriptor', () => {
     });
     const widget = makeWidget({ yField: 'amount' });
     const desc = buildQueryDescriptor(widget, [crossFilter], PAGE_ID);
-    expect(desc.filter).toMatchObject({ type: 'leaf', field: 'category', value: 'Electronics' });
+    expect(desc.filter).toBeUndefined();
+  });
+
+  it('excludes interactive filters from the descriptor', () => {
+    const interactiveFilter = makeFilter({
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: PAGE_ID },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [interactiveFilter], PAGE_ID);
+    expect(desc.filter).toBeUndefined();
+  });
+
+  it('cross-filter application does not change the cacheKey', () => {
+    // Because cross-filters never enter the descriptor, adding one must not perturb the
+    // request cacheKey (which would otherwise force a spurious server round-trip).
+    const widget = makeWidget({ yField: 'amount' });
+    const descNoCross = buildQueryDescriptor(widget, [], PAGE_ID);
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const descWithCross = buildQueryDescriptor(widget, [crossFilter], PAGE_ID);
+    expect(descWithCross.cacheKey).toBe(descNoCross.cacheKey);
+  });
+
+  it('page and widget filters still reach the descriptor (guard against over-removal)', () => {
+    const pageFilter = makeFilter({
+      id: 'f-page',
+      scope: { kind: 'page' },
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+    const widgetFilter = makeFilter({
+      id: 'f-widget',
+      scope: { kind: 'widget', widgetId: 'w1' },
+      field: 'status',
+      value: 'shipped',
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [pageFilter, widgetFilter], PAGE_ID);
+    expect(desc.filter).toBeDefined();
+    // Both page and widget predicates survive.
+    expect(JSON.stringify(desc.filter)).toContain('region');
+    expect(JSON.stringify(desc.filter)).toContain('status');
   });
 
   it('excludes cross-filters emitted by this widget', () => {
     const selfCrossFilter = makeFilter({
-      scope: { kind: 'cross-filter', sourceWidgetId: 'w1' /* same as widget.id */, pageId: PAGE_ID },
+      scope: {
+        kind: 'cross-filter',
+        sourceWidgetId: 'w1' /* same as widget.id */,
+        pageId: PAGE_ID,
+      },
       field: 'category',
       value: 'Electronics',
     });

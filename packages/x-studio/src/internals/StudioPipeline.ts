@@ -1,4 +1,5 @@
 import type {
+  StudioCrossFilterMode,
   StudioDataSource,
   StudioExpressionField,
   StudioFilterState,
@@ -21,13 +22,20 @@ export interface StudioPipelineState {
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
   filters: StudioFilterState[];
+  /**
+   * Dashboard-level cross-filter settings. Optional so bare pipeline-state snapshots
+   * (tests, benchmarks) keep working. When a full `StudioState` is passed they are read
+   * from `doc.dashboard`; they only affect `resolveWidgetRows` when the caller opts in by
+   * passing its `options` argument.
+   */
+  crossFilterAllPages?: boolean;
+  globalCrossFilterMode?: StudioCrossFilterMode | null;
 }
 
 export interface StudioPipeline {
   /**
-   * Layers L1 + L3: resolve metric-ref filter values, enrich rows with expression columns,
-   * and apply all scoped filters (page, widget, cross-filter, interactive) for a given
-   * widget on a page.
+   * Layers L2 + L3: enrich rows with expression-column values and apply all scoped
+   * filters (page, widget, cross-filter, interactive) for a given widget on a page.
    *
    * Rank filters (`filterMode === 'rank'`) are excluded — apply them after aggregation
    * using your own logic.
@@ -36,8 +44,23 @@ export interface StudioPipeline {
    * @param sourceId   The widget's primary source ID.
    * @param rows       Raw (pre-normalized) rows from `dataSources[sourceId].rows`.
    * @param pageId     Active page ID, used to scope cross-filters and interactive filters.
+   * @param options    Opt-in cross-filter behaviour. When omitted, behaves exactly as before
+   *   (include: 'all', crossFilterAllPages: false). When provided (even `{}`), the dashboard's
+   *   `crossFilterAllPages` is honoured and the effective cross-filter mode is resolved as
+   *   `state.globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'`; an
+   *   effective mode of `'none'` coerces `include` to `'no-cross'`. An explicit `options.include`
+   *   always wins.
    */
-  resolveWidgetRows(widgetId: string, sourceId: string, rows: Row[], pageId?: string): Row[];
+  resolveWidgetRows(
+    widgetId: string,
+    sourceId: string,
+    rows: Row[],
+    pageId?: string,
+    options?: {
+      widgetCrossFilterMode?: StudioCrossFilterMode;
+      include?: 'all' | 'no-cross' | 'no-chart-cross';
+    },
+  ): Row[];
 
   /**
    * Layer L4: re-anchor rows to the correct aggregation grain for a chart widget.
@@ -96,23 +119,48 @@ export interface StudioPipeline {
  * ```
  */
 export function createStudioPipeline(state: StudioPipelineState | StudioState): StudioPipeline {
-  const { dataSources, relationships, expressionFields, filters } =
+  const {
+    dataSources,
+    relationships,
+    expressionFields,
+    filters,
+    crossFilterAllPages,
+    globalCrossFilterMode,
+  } =
     'doc' in state
       ? {
           dataSources: state.runtime.dataSources,
           relationships: state.doc.relationships,
           expressionFields: state.doc.expressionFields,
           filters: state.doc.filters,
+          crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
+          globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
         }
       : state;
 
   return {
-    resolveWidgetRows(widgetId, sourceId, rows, pageId) {
-      const allFilters = selectFiltersForWidget(filters, {
+    resolveWidgetRows(widgetId, sourceId, rows, pageId, options) {
+      const scopeOpts: Parameters<typeof selectFiltersForWidget>[1] = {
         widgetId,
         widgetSourceId: sourceId,
         activePageId: pageId,
-      });
+      };
+      // Strict backward compatibility: only engage the corrected cross-filter behaviour
+      // when the caller explicitly opts in with `options`. Omitting it preserves today's
+      // defaults (include: 'all', crossFilterAllPages: false).
+      if (options) {
+        scopeOpts.crossFilterAllPages = crossFilterAllPages;
+        const effectiveMode =
+          globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight';
+        // Explicit include wins; otherwise 'none' excludes cross-filters, everything else keeps them.
+        // eslint-disable-next-line no-nested-ternary
+        scopeOpts.include = options.include
+          ? options.include
+          : effectiveMode === 'none'
+            ? 'no-cross'
+            : 'all';
+      }
+      const allFilters = selectFiltersForWidget(filters, scopeOpts);
       return resolveRowsCached(
         rows,
         sourceId,

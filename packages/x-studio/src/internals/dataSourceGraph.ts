@@ -262,6 +262,13 @@ export function resolveRows(
 
   for (const f of crossFilters) {
     const foreignSource = dataSources[f.filterSourceId];
+    // Record the foreign source this cross-filter depends on BEFORE any early-out
+    // (covers derived filterSourceId from expression-owned page filters — f may not
+    // be the same object the caller passed in). Recording here — even when the source
+    // has no rows yet or no join path exists — lets `resolvedRowsCache` invalidate its
+    // entry once that source later gains rows, instead of serving a stale unfiltered
+    // result forever.
+    options?.collectJoinedSourceIds?.add(f.filterSourceId);
     if (!foreignSource?.rows) {
       continue;
     }
@@ -290,10 +297,6 @@ export function resolveRows(
         ),
       );
     }
-    // Record the foreign source we joined against (covers derived filterSourceId
-    // from expression-owned page filters — f may not be the same object the caller
-    // passed in).
-    options?.collectJoinedSourceIds?.add(f.filterSourceId);
 
     const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
     const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);

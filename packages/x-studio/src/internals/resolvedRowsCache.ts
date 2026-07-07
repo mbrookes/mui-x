@@ -1,4 +1,5 @@
 import { resolveRows } from './dataSourceGraph';
+import { stableStringify } from './stableStringify';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -38,7 +39,14 @@ type Row = Record<string, unknown>;
 //                          enrichedRowsCache would have recomputed on a MISS.
 
 interface ResolvedCacheEntry {
-  crossFilterSourceRows: Map<string, Row[]>;
+  /**
+   * Rows ref of every foreign source this entry depends on. A `null` value records a
+   * source that had NO rows at compute time (absent / not yet loaded) — so when it
+   * later gains rows, `(rows ?? null) !== null` fails the equality check and the entry
+   * is invalidated. Recording absence explicitly is what fixes the stale-result bug
+   * where a cross-filter whose foreign source loaded late kept serving unfiltered rows.
+   */
+  crossFilterSourceRows: Map<string, Row[] | null>;
   relationships: StudioRelationship[];
   /** Source IDs whose non-measure expression fields this result depends on. */
   relevantExprSourceIds: Set<string>;
@@ -50,31 +58,26 @@ interface ResolvedCacheEntry {
 const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
 /**
- * Stable, content-based fingerprint of a single filter. Sorts nested object keys
- * so `value`/`value2` objects fingerprint identically regardless of key order.
+ * Upper bound on distinct filter fingerprints kept per widgetRows array. Interactive /
+ * cross-filter churn produces a stream of value-distinct fingerprints; without a cap the
+ * inner Map would grow unbounded for the lifetime of that rows array. Map insertion order
+ * gives a free LRU — the oldest key is `keys().next().value`.
  */
-function sortedStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value) ?? 'null';
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(sortedStringify).join(',')}]`;
-  }
-  const sorted = Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${sortedStringify((value as Record<string, unknown>)[k])}`);
-  return `{${sorted.join(',')}}`;
-}
+const MAX_ENTRIES_PER_ROWS = 20;
 
 /**
  * Fingerprints every field that affects how a filter selects rows. `compileRowTest`
  * (filterUtils) reads operator/field/fieldType/conjunction/operator2/value2/
  * filterMode/rank*, so all of them must be part of the cache key — omitting them
  * lets an operator edit (same id, same value) silently serve stale rows.
+ *
+ * `f.id` is deliberately NOT included: it does not affect which rows a filter selects,
+ * so two filters identical in every behavioral field should share one cache entry.
+ * Including it would guarantee a miss every time an interactive/cross-filter is
+ * re-applied, since those ids carry a `Date.now()` suffix.
  */
 function filterFingerprint(f: StudioFilterState): string {
-  return sortedStringify([
-    f.id,
+  return stableStringify([
     f.field,
     f.fieldType ?? null,
     f.filterMode ?? null,
@@ -108,9 +111,11 @@ function isEntryValid(
   if (entry.relationships !== relationships) {
     return false;
   }
-  // Every foreign source this result joined against must still have the same rows ref.
+  // Every foreign source this result depends on must still have the same rows ref.
+  // `?? null` so a source that was ABSENT at compute time (recorded as null) triggers
+  // invalidation the moment it gains rows.
   for (const [sourceId, rowsRef] of entry.crossFilterSourceRows) {
-    if (dataSources[sourceId]?.rows !== rowsRef) {
+    if ((dataSources[sourceId]?.rows ?? null) !== rowsRef) {
       return false;
     }
   }
@@ -189,6 +194,9 @@ export function resolveRowsCached(
 
   const existing = byKey.get(cacheKey);
   if (existing && isEntryValid(existing, dataSources, relationships, expressionFields)) {
+    // Refresh LRU recency: delete + re-insert moves this key to the newest position.
+    byKey.delete(cacheKey);
+    byKey.set(cacheKey, existing);
     return existing.result;
   }
 
@@ -205,21 +213,16 @@ export function resolveRowsCached(
     { usedFieldIds, collectJoinedSourceIds: joinedSourceIds },
   );
 
-  const crossFilterSourceRows = new Map<string, Row[]>();
+  const crossFilterSourceRows = new Map<string, Row[] | null>();
   for (const sourceId of joinedSourceIds) {
-    const foreignRows = dataSources[sourceId]?.rows;
-    if (foreignRows) {
-      crossFilterSourceRows.set(sourceId, foreignRows);
-    }
+    // Record absence as null (not skip) so a later data load invalidates the entry.
+    crossFilterSourceRows.set(sourceId, dataSources[sourceId]?.rows ?? null);
   }
   // Also record any declared filterSourceId even if the join was skipped (e.g. the
   // foreign source had no rows yet) so a later data load invalidates the entry.
   for (const f of resolvedFilters) {
     if (f.filterSourceId && !crossFilterSourceRows.has(f.filterSourceId)) {
-      const foreignRows = dataSources[f.filterSourceId]?.rows;
-      if (foreignRows) {
-        crossFilterSourceRows.set(f.filterSourceId, foreignRows);
-      }
+      crossFilterSourceRows.set(f.filterSourceId, dataSources[f.filterSourceId]?.rows ?? null);
     }
   }
 
@@ -235,6 +238,15 @@ export function resolveRowsCached(
     }
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
+
+  // Evict the least-recently-used entry before inserting when at capacity. A stale key
+  // (already re-mapped above, so absent) won't count toward the cap.
+  if (!byKey.has(cacheKey) && byKey.size >= MAX_ENTRIES_PER_ROWS) {
+    const oldest = byKey.keys().next().value;
+    if (oldest !== undefined) {
+      byKey.delete(oldest);
+    }
+  }
 
   byKey.set(cacheKey, {
     crossFilterSourceRows,

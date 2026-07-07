@@ -343,6 +343,124 @@ describe('resolveRowsCached', () => {
     expect(result2).toBe(result1);
   });
 
+  // ─── Fingerprint id-independence + bounded inner map (finding 1.9) ───────────
+
+  it('two filters with identical content but different ids share one cache entry', () => {
+    // Interactive / cross-filter ids carry a `Date.now()` suffix. Filters identical in
+    // every behavioral field must hit the same entry regardless of id — otherwise every
+    // re-application is a guaranteed miss.
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const f1 = [
+      makeFilter({ id: 'interactive-w-111', field: 'region', operator: 'equals', value: 'EU' }),
+    ];
+    const f2 = [
+      makeFilter({ id: 'interactive-w-222', field: 'region', operator: 'equals', value: 'EU' }),
+    ];
+    const r1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      f1,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const r2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      f2,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    expect(r2).toBe(r1);
+  });
+
+  it('bounds the inner cache under filter-value churn (LRU eviction)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const filterFor = (v: string) => [
+      makeFilter({ id: 'f', field: 'region', operator: 'equals', value: v }),
+    ];
+    const seedResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('seed'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // Immediate re-request is a hit (same reference) — the entry is cached.
+    expect(
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor('seed'),
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    ).toBe(seedResult);
+    // Churn 20 new distinct filter values → evicts the least-recently-used ('seed').
+    for (let i = 0; i < 20; i += 1) {
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor(`v${i}`),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+    }
+    // 'seed' was evicted → recompute yields a fresh reference (cache miss).
+    const seedAgain = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('seed'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    expect(seedAgain).not.toBe(seedResult);
+  });
+
+  it('keeps a recently-touched entry alive under churn (LRU recency)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const filterFor = (v: string) => [
+      makeFilter({ id: 'f', field: 'region', operator: 'equals', value: v }),
+    ];
+    const keepResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('keep'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // Insert far more than the cap, touching 'keep' after each insert so it stays newest
+    // and never becomes the eviction candidate.
+    for (let i = 0; i < 30; i += 1) {
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor(`v${i}`),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+      const touched = resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor('keep'),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+      expect(touched).toBe(keepResult);
+    }
+  });
+
   // ─── Fingerprint: operator/field/mode changes (Part A item 1) ────────────────
 
   it('invalidates the cache when a filter operator changes (same id and value)', () => {
@@ -485,6 +603,178 @@ describe('resolveRowsCached', () => {
     // Without derived-source tracking this would still show o1,o2 (stale).
     expect(result2.map((r) => r.id)).toEqual(['o1']);
     expect(result2).not.toBe(result1);
+  });
+
+  // ─── Absent-foreign-source invalidation (finding 1.2) ────────────────────────
+
+  it("invalidates when a cross-filter's foreign source gains rows AFTER the entry was computed", () => {
+    // The foreign source is ABSENT at first compute (no rows) → the cross-filter can't
+    // join → all rows pass. When customers later loads, the entry MUST invalidate so the
+    // cross-filter is finally enforced (the 1.2 bug served the stale unfiltered result).
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const crossFilter = makeFilter({
+      id: 'cf1',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w', pageId: 'p1' },
+      filterSourceId: 'customers',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+
+    // customers entirely absent from dataSources at compute time.
+    const dsAbsent: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+    };
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dsAbsent,
+      rels,
+      expressionFields,
+    );
+    // No foreign rows → cross-filter cannot apply → all orders returned.
+    expect(result1.map((r) => r.id)).toEqual(['o1', 'o2']);
+
+    // customers loads: only c1 is in EU.
+    const dsLoaded: Record<string, StudioDataSource> = {
+      orders: dsAbsent.orders,
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [],
+        rows: [{ id: 'c1', region: 'EU' }],
+      },
+    };
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dsLoaded,
+      rels,
+      expressionFields,
+    );
+    // Entry invalidated → cross-filter now enforced → only o1 survives.
+    expect(result2).not.toBe(result1);
+    expect(result2.map((r) => r.id)).toEqual(['o1']);
+  });
+
+  it('invalidates when a DERIVED cross-filter foreign source gains rows after compute', () => {
+    // A page filter on an expression field owned by another source is rerouted internally
+    // as a cross-filter with a derived filterSourceId. Absence of that source at compute
+    // time must still be recorded so a later data load invalidates.
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const scoreExpr = {
+      id: 'scoreDup',
+      label: 'Score',
+      sourceId: 'customers',
+      isMeasure: false,
+      expression: { operator: 'multiply', inputs: [{ id: 'score' }, { type: 'number', value: 1 }] },
+    } as unknown as StudioExpressionField;
+    const pageFilter = makeFilter({
+      id: 'pf1',
+      scope: { kind: 'page' },
+      field: 'scoreDup',
+      operator: 'equals',
+      value: 10,
+    });
+
+    const dsAbsent: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+    };
+    const result1 = resolveRowsCached(ordersRows, 'orders', [pageFilter], dsAbsent, rels, [
+      scoreExpr,
+    ]);
+    // No customers rows → derived cross-filter can't apply → all orders returned.
+    expect(result1.map((r) => r.id)).toEqual(['o1', 'o2']);
+
+    const dsLoaded: Record<string, StudioDataSource> = {
+      orders: dsAbsent.orders,
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'score', label: 'Score', type: 'number' }],
+        rows: [{ id: 'c1', score: 10 }],
+      } as unknown as StudioDataSource,
+    };
+    const result2 = resolveRowsCached(ordersRows, 'orders', [pageFilter], dsLoaded, rels, [
+      scoreExpr,
+    ]);
+    expect(result2).not.toBe(result1);
+    expect(result2.map((r) => r.id)).toEqual(['o1']);
+  });
+
+  it('does NOT thrash when a foreign source is absent at compute AND still absent on recompute', () => {
+    // Negative guard: absent → recorded as null; still absent on the second call → the
+    // null-vs-null check matches → same cached reference (no needless recompute).
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const crossFilter = makeFilter({
+      id: 'cf1',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w', pageId: 'p1' },
+      filterSourceId: 'customers',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+    const dsAbsent: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+    };
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dsAbsent,
+      rels,
+      expressionFields,
+    );
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dsAbsent,
+      rels,
+      expressionFields,
+    );
+    expect(result2).toBe(result1);
   });
 
   // ─── Junction rows dependency (Part A item 2b) ───────────────────────────────

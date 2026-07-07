@@ -908,6 +908,8 @@ export interface StudioLocaleText {
   gridSummaryLabelCountDistinct: string;
   gridSummaryLabelMin: string;
   gridSummaryLabelMax: string;
+  /** Shown when a grid cell edit fails to save (falls back to the adapter's error message when available) */
+  gridMutationError: string;
 
   // ── Auto-generated widget titles (inferWidgetTitles) ─────────────────────
   /** Fallback when no source: e.g. "Chart" */
@@ -1937,6 +1939,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSummaryLabelCountDistinct: 'Unique:',
   gridSummaryLabelMin: 'Min:',
   gridSummaryLabelMax: 'Max:',
+  gridMutationError: 'Failed to save changes',
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Chart',

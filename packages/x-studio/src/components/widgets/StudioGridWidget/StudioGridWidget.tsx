@@ -1,7 +1,9 @@
 'use client';
 import * as React from 'react';
+import { Alert } from '@mui/material';
 import {
   DataGridPremium,
+  useGridApiRef,
   type GridColDef,
   type GridCellParams,
   type GridAggregationModel,
@@ -29,6 +31,25 @@ import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers'
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
   return fn === 'count' ? 'size' : fn;
+}
+
+type EnrichedMutationError = Error & { gridRowId: string; gridField: string };
+
+/**
+ * Tags a write-back failure with the row/field being edited so
+ * `onProcessRowUpdateError` can revert the stuck cell. Used both for adapter
+ * rejections (thrown/rejected `submitMutation` calls) and graceful `{ ok: false }`
+ * results, so both failure shapes revert identically.
+ */
+function toEnrichedMutationError(
+  err: unknown,
+  rowId: string,
+  field: string,
+): EnrichedMutationError {
+  const error = (err instanceof Error ? err : new Error(String(err))) as EnrichedMutationError;
+  error.gridRowId = rowId;
+  error.gridField = field;
+  return error;
 }
 
 function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown): boolean {
@@ -110,6 +131,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // Write-back: enabled when the adapter implements submitMutation and gridPkField is set.
   const pkField = widget.config.gridPkField;
   const isEditable = Boolean(dataSource?.adapter?.submitMutation && pkField);
+
+  // Surfaces failures from `processRowUpdate` (write-back mutation errors) since
+  // there is no snackbar/toast in x-studio — see `onProcessRowUpdateError` below.
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+  const apiRef = useGridApiRef();
 
   // Build column defs for ALL data source fields so any field can be used for
   // grouping without dynamically adding/removing column definitions (which causes
@@ -253,18 +279,51 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       if (Object.keys(changedValues).length === 0) {
         return newRow;
       }
-      const result = await dataSource.adapter.submitMutation({
-        operation: 'update',
-        table: dataSource.tableName ?? dataSource.id,
-        values: changedValues,
-        where: [{ column: pkField, operator: 'eq', value: newRow[pkField] }],
-      });
-      if (!result.ok) {
-        throw new Error(result.error ?? 'Mutation failed');
+      const rowId = String(newRow.id);
+      const [changedField] = Object.keys(changedValues);
+      let result;
+      try {
+        result = await dataSource.adapter.submitMutation({
+          operation: 'update',
+          table: dataSource.tableName ?? dataSource.id,
+          values: changedValues,
+          where: [{ column: pkField, operator: 'eq', value: newRow[pkField] }],
+        });
+      } catch (err) {
+        // Adapter rejected/threw — enrich with the row/field being edited so
+        // `onProcessRowUpdateError` can revert the stuck cell (same as the
+        // graceful `{ ok: false }` branch below).
+        throw toEnrichedMutationError(err, rowId, changedField);
       }
+      if (!result.ok) {
+        throw toEnrichedMutationError(
+          new Error(result.error ?? 'Mutation failed'),
+          rowId,
+          changedField,
+        );
+      }
+      setMutationError(null);
       return newRow;
     },
     [dataSource, pkField],
+  );
+
+  const handleProcessRowUpdateError = React.useCallback(
+    (error: unknown) => {
+      const enrichedError = error as Partial<EnrichedMutationError> | null | undefined;
+      setMutationError(enrichedError?.message || localeText.gridMutationError);
+
+      const rowId = enrichedError?.gridRowId;
+      const field = enrichedError?.gridField;
+      if (
+        rowId !== undefined &&
+        field !== undefined &&
+        apiRef.current?.getCellMode(rowId, field) === 'edit'
+      ) {
+        apiRef.current.stopCellEditMode({ id: rowId, field, ignoreModifications: true });
+      }
+    },
+    [apiRef, localeText],
   );
 
   const handleCellClick = React.useCallback(
@@ -274,8 +333,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         return;
       }
 
-      const fieldId = widget.config.crossFilterField ?? params.field;
-      const value = params.value;
+      const cfField = widget.config.crossFilterField;
+      const fieldId = cfField ?? params.field;
+      // When a cross-filter field is configured, the emitted value must be that
+      // field's value on the clicked ROW — not the clicked cell's own value —
+      // otherwise clicking any non-configured column emits nonsense filter values.
+      const value = cfField ? (params.row as Record<string, unknown>)[cfField] : params.value;
 
       // Toggle: clicking the same field+value clears the filter
       if (
@@ -366,6 +429,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   return (
     <div>
       {isError && <StudioWidgetErrorOverlay message={errorMessage} sx={{ py: 1 }} />}
+      {mutationError && (
+        <Alert severity="error" onClose={() => setMutationError(null)} sx={{ mb: 1 }}>
+          {mutationError}
+        </Alert>
+      )}
       <DataGridPremium
         density="compact"
         columns={columns}
@@ -441,7 +509,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         experimentalFeatures={{ virtualizerLayoutMode: 'controlled' }}
         onCellClick={handleCellClick}
         processRowUpdate={isEditable ? processRowUpdate : undefined}
+        onProcessRowUpdateError={isEditable ? handleProcessRowUpdateError : undefined}
         {...slotProps?.dataGrid}
+        // Forced after the spread so a host-supplied `slotProps.dataGrid.apiRef`
+        // cannot silently disconnect `onProcessRowUpdateError`'s revert handler.
+        apiRef={apiRef}
       />
     </div>
   );

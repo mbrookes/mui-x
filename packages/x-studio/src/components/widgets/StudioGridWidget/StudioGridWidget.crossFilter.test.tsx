@@ -28,10 +28,13 @@ function makeSource(): StudioDataSource {
     fields: [
       { id: 'id', label: 'ID', type: 'string' },
       { id: 'label', label: 'Label', type: 'string' },
+      { id: 'amount', label: 'Amount', type: 'number' },
     ],
     rows: [
-      { id: 'r1', label: null },
-      { id: 'r2', label: undefined },
+      { id: 'r1', label: null, amount: 10 },
+      { id: 'r2', label: undefined, amount: 20 },
+      { id: 'r3', label: 'a', amount: 30 },
+      { id: 'r4', label: 'b', amount: 40 },
     ],
   };
 }
@@ -72,6 +75,7 @@ function setup() {
           columns: [
             { field: 'id', width: 100 },
             { field: 'label', width: 100 },
+            { field: 'amount', width: 100 },
           ],
         },
       }}
@@ -128,5 +132,61 @@ describe('StudioGridWidget — cross-filter click toggle', () => {
     expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
       false,
     );
+  });
+});
+
+// ─── Cross-filter value remap — non-configured column regression (Fix 1.1) ───
+//
+// `handleCellClick` used to emit `params.value` (the clicked cell's own value)
+// even when `crossFilterField` remapped the emitted field to a different column.
+// Clicking a cell in any column OTHER than the configured one therefore applied
+// a cross-filter keyed on the configured field's name but carrying the WRONG
+// value (the clicked cell's value, not the configured field's value on that row).
+// The fix reads the configured field's value off `params.row` instead.
+describe('StudioGridWidget — cross-filter value remap for non-configured columns', () => {
+  it("clicking a cell in a non-configured column emits the configured field's value from the clicked row", () => {
+    const { controller, container } = setup();
+    const amountCell = container.querySelector('[data-id="r3"] [data-field="amount"]');
+    expect(amountCell).not.toBe(null);
+    fireEvent.click(amountCell!);
+
+    const filters = controller.getState().doc.filters;
+    const applied = filters.find((f) => f.scope.kind === 'cross-filter');
+    expect(applied?.field).toBe('label');
+    expect(applied?.value).toBe('a');
+    // Explicitly assert the regression: the value must NOT be the clicked
+    // cell's own (numeric amount) value.
+    expect(applied?.value).not.toBe(30);
+  });
+
+  it('second click on the same non-configured cell toggles the filter off', () => {
+    const { controller, container } = setup();
+    const amountCell = container.querySelector('[data-id="r3"] [data-field="amount"]');
+    fireEvent.click(amountCell!);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      true,
+    );
+
+    fireEvent.click(amountCell!);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      false,
+    );
+  });
+
+  it("clicking a non-configured cell on a different row replaces the filter with that row's configured-field value", () => {
+    const { controller, container } = setup();
+    const r3AmountCell = container.querySelector('[data-id="r3"] [data-field="amount"]');
+    const r4AmountCell = container.querySelector('[data-id="r4"] [data-field="amount"]');
+    expect(r3AmountCell).not.toBe(null);
+    expect(r4AmountCell).not.toBe(null);
+
+    fireEvent.click(r3AmountCell!);
+    let applied = controller.getState().doc.filters.find((f) => f.scope.kind === 'cross-filter');
+    expect(applied?.value).toBe('a');
+
+    fireEvent.click(r4AmountCell!);
+    applied = controller.getState().doc.filters.find((f) => f.scope.kind === 'cross-filter');
+    expect(applied?.field).toBe('label');
+    expect(applied?.value).toBe('b');
   });
 });

@@ -823,6 +823,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   gridSummaryLabelCountDistinct: 'Uniques :',
   gridSummaryLabelMin: 'Min. :',
   gridSummaryLabelMax: 'Max. :',
+  gridMutationError: "Échec de l'enregistrement des modifications",
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Graphique',

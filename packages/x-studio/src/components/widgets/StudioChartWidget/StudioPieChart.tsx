@@ -6,6 +6,7 @@ import type { HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
 import type { AggregatedData } from '../../../internals/chartAggregation';
+import { computeControlledHighlight } from './chartWidgetHelpers';
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
 import { ChartFieldTitleContext, ItemFieldTooltip } from './StudioChartFieldTooltip';
@@ -201,13 +202,13 @@ export function StudioPieChart({
       ? new Set<string>(twoRingData.rings.map((r) => r.id))
       : new Set<string>([CROSS_FILTER_SERIES_ID]);
 
-  const controlledHighlightedItem =
-    !hasActiveXFilter &&
-    !hasIncomingCrossFilters &&
-    hoveredItem &&
-    highlightableSeriesIds.has(hoveredItem.seriesId as string)
-      ? hoveredItem
-      : null;
+  const { item: controlledHighlightedItem } = computeControlledHighlight(
+    hoveredItem,
+    null,
+    hasActiveXFilter,
+    hasIncomingCrossFilters,
+    highlightableSeriesIds,
+  );
 
   const donutHole = chartType === 'donut' ? 50 : 0;
   const twoRingBottomM = pieLegendBelow ? 150 : 16;

@@ -16,6 +16,7 @@ import {
   type SerializedStudioSession,
   type SerializedStudioSnapshot,
   type MigrationResult,
+  type OptionalWidgetField,
 } from '@mui/x-studio-schema';
 
 import {
@@ -821,10 +822,16 @@ export class StudioController {
     // explicitly set to `undefined` (→ `args.unsetFields`, which the reducer deletes),
     // preserving every existing call site's resulting widget state.
     const definedChanges: Record<string, unknown> = {};
-    const unsetFields: (keyof Omit<StudioWidget, 'id'>)[] = [];
+    const unsetFields: OptionalWidgetField[] = [];
     for (const key of Object.keys(changes) as (keyof Omit<StudioWidget, 'id'>)[]) {
       if (changes[key] === undefined) {
-        unsetFields.push(key);
+        // Required fields (`kind`, `title`, `config`) can never be legitimately voided —
+        // an explicit `undefined` for one of those is dropped rather than sent as an
+        // unset, matching the reducer's own denylist for untrusted input.
+        if (key === 'kind' || key === 'title' || key === 'config') {
+          continue;
+        }
+        unsetFields.push(key as OptionalWidgetField);
       } else {
         definedChanges[key] = changes[key];
       }

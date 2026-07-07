@@ -327,8 +327,9 @@ describe('deserializeState', () => {
       },
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
-    const ySeries = (state.doc.widgets.c1.config as { ySeries: Array<Record<string, unknown>> })
-      .ySeries;
+    const ySeries = (
+      state.doc.widgets.c1.config as unknown as { ySeries: Array<Record<string, unknown>> }
+    ).ySeries;
     expect(ySeries[0].type).toBe('line');
     expect('seriesType' in ySeries[0]).toBe(false);
   });

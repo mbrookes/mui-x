@@ -15,6 +15,7 @@
 import { createHmac, createHash } from 'node:crypto';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
 import { SINGLE_TENANT_POLICY_DIGEST } from './compileSecurityPolicy';
+import { sortedStringify } from './canonicalize';
 
 /**
  * Generate a HMAC-SHA256 security hash from the user's row-level claims AND the
@@ -78,23 +79,6 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
   const queryShape: Record<string, unknown> = { ...descriptor };
   delete queryShape.id;
   return createHash('sha256').update(sortedStringify(queryShape)).digest('hex').slice(0, 16);
-}
-
-/**
- * Recursively serialize an object with keys sorted alphabetically.
- * This ensures deterministic JSON regardless of property insertion order.
- */
-function sortedStringify(obj: unknown): string {
-  if (Array.isArray(obj)) {
-    return `[${obj.map(sortedStringify).join(',')}]`;
-  }
-  if (obj !== null && typeof obj === 'object') {
-    const sorted = Object.keys(obj as Record<string, unknown>)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${sortedStringify((obj as Record<string, unknown>)[k])}`);
-    return `{${sorted.join(',')}}`;
-  }
-  return JSON.stringify(obj);
 }
 
 /**

@@ -9,9 +9,11 @@ import type { StudioAIConfig } from './studioBackendAdapter';
 
 function makeController(): StudioController {
   const state = createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
-    widgets: {},
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+      widgets: {},
+    },
   });
 
   return {
@@ -207,6 +209,40 @@ describe('createBackendChatAdapter: state-mutation', () => {
       args: { widgetId: 'widget-1' },
     });
 
+    vi.unstubAllGlobals();
+  });
+
+  it('drops a malformed state-mutation event but still delivers text and reaches finish', async () => {
+    // The one bad event must be dropped without killing the stream: the controller
+    // is never touched by it, yet the following text-delta and finish arrive normally.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const sse = makeSseBody([
+      {
+        type: 'state-mutation',
+        mutation: { type: 'setWidgetLayout', args: { rows: 'not-a-matrix' } },
+      },
+      { type: 'text-delta', delta: 'Hello' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const controller = makeController();
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, controller);
+    const stream = await adapter.sendMessage(makeSendInput([]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+    const deltas = chatChunks
+      .filter((c) => c.type === 'text-delta')
+      .map((c) => (c as { type: 'text-delta'; delta: string }).delta);
+
+    expect(controller.applyExternalMutation).not.toHaveBeenCalled();
+    expect(deltas).toContain('Hello');
+    expect(types).toContain('finish');
+
+    errorSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 });
@@ -591,6 +627,62 @@ describe('createBackendChatAdapter: unknown event types', () => {
   });
 });
 
+// ── stream lifecycle: ends without a `finish` event ──────────────────────────
+
+describe('createBackendChatAdapter: stream ends without finish', () => {
+  it('closes the stream cleanly when the connection ends without a finish event', async () => {
+    // No `finish` event — simulates the server closing the connection mid-response
+    // (proxy timeout, server restart). Without the fix, the returned ReadableStream's
+    // controller is never closed and `collectChunks` below would hang forever.
+    const sse = makeSseBody([{ type: 'text-delta', delta: 'partial' }]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('hi')]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+
+    expect(types).toContain('text-delta');
+    expect(types).not.toContain('finish');
+    // Reaching this point at all (collectChunks resolved instead of hanging) proves
+    // the stream was closed by the post-parseSSEStream cleanup.
+
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores any event that arrives after a finish event in the same payload', async () => {
+    // A stray event batched after `finish` in the same SSE payload must not be
+    // processed — `processEvent` returns `false` on `finish`, which stops
+    // `parseSSEStream` before it reaches this trailing event. Without that, the
+    // adapter would try to `enqueue`/`text-start` on an already-closed controller,
+    // which throws and would reject this stream instead of resolving cleanly.
+    const sse = makeSseBody([
+      { type: 'finish', finishReason: 'stop' },
+      { type: 'text-delta', delta: 'ignored' },
+    ]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('hi')]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+    const deltas = chatChunks
+      .filter((c) => c.type === 'text-delta')
+      .map((c) => (c as { type: 'text-delta'; delta: string }).delta);
+
+    expect(types).toContain('finish');
+    expect(deltas).not.toContain('ignored');
+
+    vi.unstubAllGlobals();
+  });
+});
+
 // ── POST body content ─────────────────────────────────────────────────────────
 
 describe('createBackendChatAdapter: POST body', () => {
@@ -648,22 +740,26 @@ describe('createBackendChatAdapter: POST body', () => {
 
     const adapterStub = { getRows: vi.fn() };
     const stateWithData = createDefaultStudioState({
-      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
-      widgets: {},
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Sales',
-          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
-          rows: [{ amount: 100 }, { amount: 200 }],
-          adapter: adapterStub as never,
-        },
-        src2: {
-          id: 'src2',
-          label: 'Orders',
-          fields: [{ id: 'count', label: 'Count', type: 'number' }],
-          // no rows or adapter
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+        widgets: {},
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [{ amount: 100 }, { amount: 200 }],
+            adapter: adapterStub as never,
+          },
+          src2: {
+            id: 'src2',
+            label: 'Orders',
+            fields: [{ id: 'count', label: 'Count', type: 'number' }],
+            // no rows or adapter
+          },
         },
       },
     });
@@ -699,10 +795,10 @@ describe('createBackendChatAdapter: POST body', () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as {
-      dashboardState: { dataSources: Record<string, Record<string, unknown>> };
+      dashboardState: { runtime: { dataSources: Record<string, Record<string, unknown>> } };
     };
 
-    const src1 = body.dashboardState.dataSources.src1;
+    const src1 = body.dashboardState.runtime.dataSources.src1;
     expect(src1).not.toHaveProperty('rows');
     expect(src1).not.toHaveProperty('adapter');
     expect(src1.id).toBe('src1');
@@ -710,7 +806,7 @@ describe('createBackendChatAdapter: POST body', () => {
     expect(src1.fields).toHaveLength(1);
 
     // Source without rows/adapter should also be present and intact
-    const src2 = body.dashboardState.dataSources.src2;
+    const src2 = body.dashboardState.runtime.dataSources.src2;
     expect(src2.id).toBe('src2');
     expect(src2).not.toHaveProperty('rows');
 

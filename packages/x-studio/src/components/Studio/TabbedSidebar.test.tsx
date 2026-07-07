@@ -46,11 +46,13 @@ function renderSidebar(panels = PANELS) {
 describe('TabbedSidebar', () => {
   beforeEach(() => {
     controller = new StudioController({
-      shell: {
-        openDrawers: { data: false, compose: false, filters: false },
-        selectedWidgetId: null,
-        selectedFieldId: null,
-        selectedSourceId: null,
+      session: {
+        shell: {
+          openDrawers: { data: false, compose: false, filters: false },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
       },
     });
     syncState();
@@ -87,16 +89,18 @@ describe('TabbedSidebar', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Open Data panel/i }));
     syncState();
 
-    expect(controller.getState().shell.openDrawers.data).toBe(true);
+    expect(controller.getState().session.shell.openDrawers.data).toBe(true);
   });
 
   it('closes a panel when the active tab is clicked again', () => {
     controller = new StudioController({
-      shell: {
-        openDrawers: { data: true, compose: false, filters: false },
-        selectedWidgetId: null,
-        selectedFieldId: null,
-        selectedSourceId: null,
+      session: {
+        shell: {
+          openDrawers: { data: true, compose: false, filters: false },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
       },
     });
     syncState();
@@ -105,16 +109,18 @@ describe('TabbedSidebar', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Close Data panel/i }));
     syncState();
 
-    expect(controller.getState().shell.openDrawers.data).toBe(false);
+    expect(controller.getState().session.shell.openDrawers.data).toBe(false);
   });
 
   it('closes the current panel and opens the new one when a different tab is clicked', () => {
     controller = new StudioController({
-      shell: {
-        openDrawers: { data: true, compose: false, filters: false },
-        selectedWidgetId: null,
-        selectedFieldId: null,
-        selectedSourceId: null,
+      session: {
+        shell: {
+          openDrawers: { data: true, compose: false, filters: false },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
       },
     });
     syncState();
@@ -123,7 +129,7 @@ describe('TabbedSidebar', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Open Filters panel/i }));
     syncState();
 
-    const drawers = controller.getState().shell.openDrawers;
+    const drawers = controller.getState().session.shell.openDrawers;
     expect(drawers.data).toBe(false);
     expect(drawers.filters).toBe(true);
     expect(drawers.compose).toBe(false);
@@ -140,11 +146,13 @@ describe('TabbedSidebar', () => {
 
   it('shows panel content for the open drawer', () => {
     controller = new StudioController({
-      shell: {
-        openDrawers: { data: false, compose: false, filters: true },
-        selectedWidgetId: null,
-        selectedFieldId: null,
-        selectedSourceId: null,
+      session: {
+        shell: {
+          openDrawers: { data: false, compose: false, filters: true },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
       },
     });
     syncState();

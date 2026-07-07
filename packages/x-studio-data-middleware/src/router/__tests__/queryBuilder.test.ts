@@ -72,6 +72,13 @@ const BASE_CLAIMS: JwtSecurityClaims = {
   roleIds: ['viewer'],
 };
 
+// Tenancy is now a required, explicit decision at every enforcement site. Tests
+// that configure a tenant column use MULTI_TENANT; tests that configure none
+// declare SINGLE_TENANT explicitly (the same unscoped behavior, now stated rather
+// than silently implied by omission).
+const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+const SINGLE_TENANT = { mode: 'single-tenant' } as const;
+
 function descriptor(overrides: Partial<BatchWidgetDescriptor> = {}): BatchWidgetDescriptor {
   return { id: 'w1', table: 'sales', ...overrides };
 }
@@ -85,31 +92,49 @@ describe('buildSecureQuery', () => {
   describe('security predicates', () => {
     it('applies a qualified tenant predicate when tenantColumn is set', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, BASE_CLAIMS, descriptor(), { tenantColumn: 'tenant_id' });
+      buildSecureQuery(db, BASE_CLAIMS, descriptor(), { tenancy: MULTI_TENANT });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
     });
 
-    it('does not apply a tenant predicate when tenantColumn is omitted', () => {
+    it('does not apply a tenant predicate in single-tenant mode', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, BASE_CLAIMS, descriptor());
+      buildSecureQuery(db, BASE_CLAIMS, descriptor(), { tenancy: SINGLE_TENANT });
       expect(calls.some((c) => c.method === 'where')).toBe(false);
     });
 
     it('applies a region whereIn predicate when regionIds are present', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1, 2] }, descriptor());
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1, 2] }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1, 2]] });
     });
 
-    it('does not apply a region predicate when regionIds is an empty array', () => {
+    it('does not apply a region predicate when regionIds is undefined (no region scoping)', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [] }, descriptor());
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: undefined }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
       expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
+    });
+
+    it('applies a match-nothing region predicate when regionIds is an empty array (fail-closed)', () => {
+      // Regression: `regionIds: []` means "authorized for zero regions" — it must
+      // NOT be conflated with `undefined` (no region scoping). On reads we emit
+      // `whereIn(col, [])`, which Knex renders as `1 = 0` (matches zero rows),
+      // instead of dropping the predicate and returning the full tenant table.
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [] }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', []] });
     });
 
     it('applies a department predicate when department is present', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, { ...BASE_CLAIMS, department: 'sales' }, descriptor());
+      buildSecureQuery(db, { ...BASE_CLAIMS, department: 'sales' }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'sales'] });
     });
 
@@ -121,7 +146,7 @@ describe('buildSecureQuery', () => {
         descriptor({
           filters: [{ column: 'status', operator: 'eq', value: 'active' }],
         }),
-        { tenantColumn: 'tenant_id' },
+        { tenancy: MULTI_TENANT },
       );
 
       const securityIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.tenant_id');
@@ -146,6 +171,7 @@ describe('buildSecureQuery', () => {
         db,
         BASE_CLAIMS,
         descriptor({ filters: [{ column: 'amount', operator, value }] }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'where', args: ['amount', sqlOp, value] });
     });
@@ -158,6 +184,7 @@ describe('buildSecureQuery', () => {
         descriptor({
           filters: [{ column: 'product', operator: 'in', value: ['a', 'b'] }],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'whereIn', args: ['product', ['a', 'b']] });
     });
@@ -170,6 +197,7 @@ describe('buildSecureQuery', () => {
         descriptor({
           filters: [{ column: 'product', operator: 'in', value: [] }],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
     });
@@ -182,6 +210,7 @@ describe('buildSecureQuery', () => {
         descriptor({
           filters: [{ column: 'name', operator: 'like', value: 'Ac%' }],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'whereLike', args: ['name', 'Ac%'] });
     });
@@ -194,6 +223,7 @@ describe('buildSecureQuery', () => {
         descriptor({
           filters: [{ column: 'amount', operator: 'between', value: [10, 20] }],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'whereBetween', args: ['amount', [10, 20]] });
     });
@@ -208,6 +238,7 @@ describe('buildSecureQuery', () => {
             // Cast: deliberately exercise the runtime guard with a forbidden operator.
             filters: [{ column: 'amount', operator: 'sql' as any, value: '1; DROP TABLE sales' }],
           }),
+          { tenancy: SINGLE_TENANT },
         ),
       ).toThrow(/Unsupported filter operator/);
     });
@@ -223,12 +254,71 @@ describe('buildSecureQuery', () => {
             { column: 'amount', operator: 'gt', value: 0 },
           ],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       const whereCalls = calls.filter((c) => c.method === 'where');
       expect(whereCalls).toEqual([
         { method: 'where', args: ['status', '=', 'active'] },
         { method: 'where', args: ['amount', '>', 0] },
       ]);
+    });
+  });
+
+  describe('columnAliases resolution (allowlist-bypass regression)', () => {
+    // Regression for the column-allowlist bypass: `validateDescriptorColumns`
+    // resolves `columnAliases` when checking a filter column against the
+    // allowlist, so execution MUST filter on the SAME resolved physical column.
+    // Before the fix, `buildSecureQuery` bound the raw logical column, letting a
+    // client alias a non-allowlisted column (`ssn`) onto an allowlisted one
+    // (`amount`), pass validation, yet run `WHERE ssn LIKE …` — a comparison
+    // oracle against any column in the table.
+    it('filters on the physical (allowlisted) column, not the raw logical alias', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { ssn: 'amount' },
+          filters: [{ column: 'ssn', operator: 'like', value: '123%' }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      // The WHERE clause targets the validated physical column `amount`…
+      expect(calls).toContainEqual({ method: 'whereLike', args: ['amount', '123%'] });
+      // …and never the raw, non-allowlisted logical name `ssn`.
+      expect(calls.some((c) => c.method === 'whereLike' && c.args[0] === 'ssn')).toBe(false);
+    });
+
+    it('resolves aliases for every operator, including qualified physical columns', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { region: 'customers.region_id' },
+          filters: [{ column: 'region', operator: 'eq', value: 'us' }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'where',
+        args: ['customers.region_id', '=', 'us'],
+      });
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'region')).toBe(false);
+    });
+
+    it('leaves a filter column unchanged when it has no alias entry', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { ssn: 'amount' },
+          filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['status', '=', 'active'] });
     });
   });
 
@@ -243,6 +333,7 @@ describe('buildSecureQuery', () => {
             { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
           ],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'leftJoin', args: ['customers'] });
       expect(calls).toContainEqual({
@@ -261,6 +352,7 @@ describe('buildSecureQuery', () => {
             { table: 'customers', type: 'right', on: [['sales.customer_id', 'customers.id']] },
           ],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       expect(calls).toContainEqual({ method: 'rightJoin', args: ['customers'] });
       expect(calls).toContainEqual({
@@ -280,6 +372,7 @@ describe('buildSecureQuery', () => {
             { table: 'regions', on: [['sales.region_id', 'regions.id']] },
           ],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       const joinCalls = calls.filter((c) => c.method === 'join');
       expect(joinCalls).toEqual([
@@ -306,6 +399,7 @@ describe('buildSecureQuery', () => {
             },
           ],
         }),
+        { tenancy: SINGLE_TENANT },
       );
       // Exactly one join call for the table…
       expect(calls.filter((c) => c.method === 'join')).toEqual([
@@ -328,7 +422,7 @@ describe('buildSecureQuery', () => {
             { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
           ],
         }),
-        { tenantColumn: 'tenant_id' },
+        { tenancy: MULTI_TENANT },
       );
       const joinIdx = indexOf(calls, 'leftJoin');
       const securityIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.tenant_id');
@@ -336,10 +430,110 @@ describe('buildSecureQuery', () => {
     });
   });
 
+  describe('join columnAliases resolution (allowlist-bypass regression)', () => {
+    // Regression for the join-predicate variant of the column-allowlist bypass:
+    // `validateDescriptorColumns` resolves `columnAliases` when checking BOTH
+    // sides of every `join.on` pair against the allowlist, so execution MUST join
+    // on the SAME resolved physical columns. Before the fix, `buildSecureQuery`
+    // built `.on()` from the raw alias names, letting a client alias a
+    // non-allowlisted column (`sales.ssn`) onto an allowlisted one
+    // (`sales.amount`), pass validation, yet run `ON sales.ssn = customers.id` —
+    // a correlation oracle against a forbidden column.
+    it('joins on the physical (allowlisted) column, not the raw logical alias', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.ssn': 'sales.amount' },
+          joins: [{ table: 'customers', on: [['sales.ssn', 'customers.id']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      // The join condition targets the validated physical column `sales.amount`…
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.amount', '=', 'customers.id'],
+      });
+      // …and never the raw, non-allowlisted logical name `sales.ssn`.
+      expect(calls.some((c) => c.method === 'on' && c.args[0] === 'sales.ssn')).toBe(false);
+    });
+
+    it('resolves an alias on the RIGHT side of a join pair as well', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'customers.secret': 'customers.id' },
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.secret']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+      expect(calls.some((c) => c.method === 'on' && c.args[1] === 'customers.secret')).toBe(false);
+    });
+
+    it('leaves a join pass through unchanged when neither side is aliased', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.ssn': 'sales.amount' },
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+    });
+
+    it('resolves EVERY pair of a composite-key join, not just the first', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          columnAliases: { 'sales.a_alias': 'sales.a', 'customers.b_alias': 'customers.b' },
+          joins: [
+            {
+              table: 'customers',
+              on: [
+                ['sales.a_alias', 'customers.a'],
+                ['sales.b', 'customers.b_alias'],
+              ],
+            },
+          ],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      // Both pairs are resolved to their physical columns…
+      expect(calls.filter((c) => c.method === 'on')).toEqual([
+        { method: 'on', args: ['sales.a', '=', 'customers.a'] },
+        { method: 'on', args: ['sales.b', '=', 'customers.b'] },
+      ]);
+      // …and neither raw alias reaches the executed join.
+      expect(
+        calls.some(
+          (c) =>
+            c.method === 'on' &&
+            (c.args[0] === 'sales.a_alias' || c.args[1] === 'customers.b_alias'),
+        ),
+      ).toBe(false);
+    });
+  });
+
   describe('configurable security columns', () => {
     it('uses a custom region column name from securityColumns', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [7] }, descriptor(), {
+        tenancy: SINGLE_TENANT,
         securityColumns: { region: 'sales_region' },
       });
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', [7]] });
@@ -348,6 +542,7 @@ describe('buildSecureQuery', () => {
     it('uses a custom department column name from securityColumns', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(db, { ...BASE_CLAIMS, department: 'ops' }, descriptor(), {
+        tenancy: SINGLE_TENANT,
         securityColumns: { department: 'dept_code' },
       });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.dept_code', '=', 'ops'] });
@@ -355,7 +550,9 @@ describe('buildSecureQuery', () => {
 
     it('defaults to region_id / department when securityColumns is omitted', () => {
       const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1], department: 'ops' }, descriptor());
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1], department: 'ops' }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1]] });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
     });
@@ -369,7 +566,7 @@ describe('buildSecureQuery', () => {
           joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
         }),
         {
-          tenantColumn: 'tenant_id',
+          tenancy: MULTI_TENANT,
           securityColumns: { perTable: { customers: { tenant: 'tenant_id' } } },
         },
       );
@@ -378,24 +575,60 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
     });
 
-    it('does NOT scope a joined table without a configured tenant column (shared table)', () => {
+    it('scopes a joined table by DEFAULT (inherits primary security columns) with no perTable entry', () => {
+      // Regression (cross-tenant fan-out): an unregistered joined table used to be
+      // fully unscoped, so a tenant-filtered primary joined to it on a non-unique
+      // key pulled in every other tenant's rows. Now the joined table inherits the
+      // primary table's resolved tenant column by default.
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
         BASE_CLAIMS,
         descriptor({
-          joins: [{ table: 'regions', on: [['sales.region_id', 'regions.id']] }],
+          joins: [{ table: 'customers', on: [['sales.region_id', 'customers.region_id']] }],
         }),
-        { tenantColumn: 'tenant_id' },
+        { tenancy: MULTI_TENANT },
       );
       expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
-      expect(calls.some((c) => c.args[0] === 'regions.tenant_id')).toBe(false);
+      // The joined table is now scoped by the inherited tenant column — no leak.
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+    });
+
+    it('inherits region/department scoping onto a joined table by default', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [1, 2], department: 'ops' },
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['customers.region_id', [1, 2]] });
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.department', '=', 'ops'] });
+    });
+
+    it('does NOT scope a joined table explicitly opted out via perTable[table] = null (shared lookup)', () => {
+      // A genuinely shared/lookup table (no tenant column) opts out with an
+      // explicit `null` sentinel and still joins successfully, unscoped.
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [1] },
+        descriptor({
+          joins: [{ table: 'country_codes', on: [['sales.country', 'country_codes.code']] }],
+        }),
+        { tenancy: MULTI_TENANT, securityColumns: { perTable: { country_codes: null } } },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+      // No predicate of any kind is emitted against the opted-out shared table.
+      expect(calls.some((c) => String(c.args[0]).startsWith('country_codes.'))).toBe(false);
     });
   });
 
   it('queries the descriptor table and returns the builder', () => {
     const { db, calls } = createRecordingDb();
-    const result = buildSecureQuery(db, BASE_CLAIMS, descriptor());
+    const result = buildSecureQuery(db, BASE_CLAIMS, descriptor(), { tenancy: SINGLE_TENANT });
     expect(calls[0]).toEqual({ method: 'from', args: ['sales'] });
     expect(typeof result.where).toBe('function');
   });

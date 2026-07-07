@@ -58,7 +58,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   const selectedOption =
     fieldOptions.find((o) => o.id === filter.field && o.sourceId === effectiveSourceId) ?? null;
   const fieldType = filter.fieldType ?? selectedOption?.fieldType;
-  const operators = getOperators(fieldType);
+  const operators = getOperators(fieldType, localeText);
   const activeOperator = operators.find((o) => o.value === filter.operator)
     ? filter.operator
     : operators[0].value;
@@ -155,13 +155,13 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
   // Phase 2: field selected (or chart rank auto-field) — collapsible filter card with mode in header
   const cardTitle = isChartRank
-    ? `Rank${chartYFieldLabel ? ` by ${chartYFieldLabel}` : ''}`
+    ? `${localeText.filterModeRank}${chartYFieldLabel ? ` ${localeText.widgetAutoTitleBy} ${chartYFieldLabel}` : ''}`
     : fieldLabel;
 
   return (
     <FilterCard
       title={cardTitle}
-      summary={summarizeFilter(filter)}
+      summary={summarizeFilter(filter, localeText)}
       onRemove={() => onRemove(filter.id)}
       initialExpanded={isFilterFresh(filter) || !isFilterEffective(filter)}
     >

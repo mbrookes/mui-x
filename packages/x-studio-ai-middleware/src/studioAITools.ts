@@ -1,3 +1,4 @@
+import { STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import type { StudioAIToolName } from './models/aiTypes';
 import { buildWidgetConfigDescription } from './widgetConfigMeta';
 
@@ -96,6 +97,23 @@ export const STUDIO_AI_TOOLS = [
             description:
               'Partial widget config to merge in (optional). Same keys as add_widget. Pass only the keys you are changing.',
           },
+          unsetFields: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Top-level widget keys to CLEAR back to unset (optional). Use this to void a field ' +
+              'rather than setting it — e.g. ["sourceId"] to detach the data source so the user ' +
+              'can re-pick one. Clearable keys: sourceId, subtitle, titleMode, subtitleMode. ' +
+              'Unknown or non-clearable keys are ignored.',
+          },
+          unsetConfigKeys: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Config keys to CLEAR back to unset (optional) — e.g. ["xField"] to remove a chart ' +
+              'axis field. Only keys currently present on the widget config are cleared; unknown ' +
+              'keys are ignored.',
+          },
         },
         required: ['widgetId'],
       },
@@ -152,7 +170,7 @@ export const STUDIO_AI_TOOLS = [
       name: 'set_widget_width',
       description:
         'Sets the column-span (width) of a specific widget on the active page. ' +
-        'The canvas uses a 12-column grid; valid values are 3–12. ' +
+        'The canvas uses a 24-column grid; valid values are 6–24. ' +
         'Set `columns` to null to reset the widget to auto-fill (equal share of row width). ' +
         'Has no effect on a widget that is the only widget in its row (it always fills 100%). ' +
         'Use set_widget_layout first to put multiple widgets on the same row if needed.',
@@ -165,9 +183,9 @@ export const STUDIO_AI_TOOLS = [
           },
           columns: {
             type: ['integer', 'null'],
-            description: 'Column span (3–12) or null to reset to auto-fill.',
-            minimum: 3,
-            maximum: 12,
+            description: 'Column span (6–24) or null to reset to auto-fill.',
+            minimum: 6,
+            maximum: 24,
           },
         },
         required: ['widgetId', 'columns'],
@@ -439,7 +457,7 @@ export const STUDIO_AI_TOOLS = [
           colSpans: {
             type: 'object',
             description:
-              'Map of widgetId → column span (3–12). Only include widgets whose width should change.',
+              'Map of widgetId → column span (6–24). Only include widgets whose width should change.',
             additionalProperties: { type: 'number' },
           },
         },
@@ -473,31 +491,135 @@ export const STUDIO_AI_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'execute_query',
+      name: 'query_data_source',
       description:
-        'Runs an ad-hoc query against the dashboard data sources and returns the results as JSON. ' +
+        'Query a data source (database table) with structured filters, aggregations, and sorting. ' +
         'Use this to answer user questions that require fetching actual data — for example ' +
         '"What were the top 5 products by revenue last quarter?" or ' +
         '"How many active customers are there?". ' +
-        'Write the query in the same SQL dialect used by the connected data source. ' +
-        'IMPORTANT: use the source id (the value in brackets in the dashboard state, e.g. "order_items") as the SQL table name — never the display label (e.g. "Order Items"). ' +
-        'Only use this tool when a data resolver has been configured on the server; ' +
-        'if unavailable it will return an error.',
+        'Do NOT write SQL — use the structured filters/aggregations/having fields only. ' +
+        'Supports HAVING predicates to filter on aggregation results (e.g. "categories where revenue > $10K"). ' +
+        'Results are read-only — this tool never modifies data. ' +
+        'Only use this tool when data access has been configured on the server; if unavailable it ' +
+        'will return an error. ' +
+        'Tip: use the dashboard state (from get_dashboard_state) to discover available sourceIds and field names.',
       parameters: {
         type: 'object',
         properties: {
-          query: {
-            type: 'string',
-            description: 'The SQL (or equivalent query language) query to execute.',
-          },
           sourceId: {
             type: 'string',
             description:
-              'Optional ID of the specific data source to query. ' +
-              'If omitted, the resolver uses its default source.',
+              'The data source ID from the dashboard state (e.g. "source-orders", "source-crm-deals"). ' +
+              'Call get_dashboard_state to discover available sources and their field IDs.',
+          },
+          columns: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Field IDs to return. Omit to return all non-hidden fields. ' +
+              'Field IDs exactly match the column names in the database (camelCase).',
+          },
+          filters: {
+            type: 'array',
+            description:
+              'Structured WHERE predicates. Each filter narrows the result set. ' +
+              'Do NOT use raw SQL — use these structured operators only.',
+            items: {
+              type: 'object',
+              properties: {
+                field: { type: 'string', description: 'Field ID (column name) to filter on.' },
+                operator: {
+                  type: 'string',
+                  enum: ['eq', 'neq', 'in', 'lt', 'lte', 'gt', 'gte', 'like', 'between'],
+                  description:
+                    'eq=equal, neq=not equal, in=one of array, lt/lte/gt/gte=numeric comparison, ' +
+                    'like=substring (%value%), between=inclusive range (supply value + value2).',
+                },
+                value: { description: 'Filter value. For between, this is the lower bound.' },
+                value2: { description: 'Upper bound for the between operator.' },
+              },
+              required: ['field', 'operator', 'value'],
+            },
+          },
+          aggregations: {
+            type: 'array',
+            description:
+              'Aggregation functions applied via GROUP BY. ' +
+              'Non-aggregated columns in `columns` become the GROUP BY list. ' +
+              'Examples: count orders per status, sum revenue per category.',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string', description: 'Field ID to aggregate.' },
+                func: {
+                  type: 'string',
+                  enum: ['sum', 'avg', 'count', 'min', 'max'],
+                  description:
+                    'Use count for counting rows, sum for totals, avg for averages, min/max for extremes.',
+                },
+                alias: {
+                  type: 'string',
+                  description: 'Output key for this aggregated value in returned rows.',
+                },
+              },
+              required: ['column', 'func', 'alias'],
+            },
+          },
+          having: {
+            type: 'array',
+            description:
+              'Post-aggregation filters (HAVING clause). Each entry filters on an aggregation alias. ' +
+              'Example: to show only categories with total revenue > 10 000, combine ' +
+              '`aggregations: [{ column: "revenue", func: "sum", alias: "total_revenue" }]` with ' +
+              '`having: [{ alias: "total_revenue", operator: "gt", value: 10000 }]`.',
+            items: {
+              type: 'object',
+              properties: {
+                alias: {
+                  type: 'string',
+                  description:
+                    'Aggregation alias to filter on (must match an entry in aggregations[].alias).',
+                },
+                operator: {
+                  type: 'string',
+                  enum: ['eq', 'gt', 'lt', 'gte', 'lte'],
+                  description: 'eq=equal, gt=greater than, lt=less than, gte/lte=inclusive.',
+                },
+                value: { type: 'number', description: 'Numeric threshold.' },
+              },
+              required: ['alias', 'operator', 'value'],
+            },
+          },
+          orderBy: {
+            type: 'array',
+            description: 'Sort the result rows. Apply after aggregations when using GROUP BY.',
+            items: {
+              type: 'object',
+              properties: {
+                column: {
+                  type: 'string',
+                  description: 'Column name or aggregation alias to sort by.',
+                },
+                direction: { type: 'string', enum: ['asc', 'desc'] },
+              },
+              required: ['column', 'direction'],
+            },
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum rows to return. Default 1000. Use a smaller value for exploration; ' +
+              'use aggregations instead of high limits for analytical summaries.',
+            default: 1000,
+          },
+          offset: {
+            type: 'number',
+            description:
+              'Number of rows to skip before returning results. Use with limit for pagination. Default 0.',
+            default: 0,
           },
         },
-        required: ['query'],
+        required: ['sourceId'],
       },
     },
   },
@@ -544,19 +666,44 @@ export const STUDIO_AI_TOOL_NAMES = STUDIO_AI_TOOLS.map(
   (tool) => tool.function.name,
 ) as readonly StudioAIToolName[];
 
+/**
+ * The single source of truth for "which tools are destructive" (require
+ * explicit user confirmation before executing) — derived from
+ * `STUDIO_AI_TOOL_REGISTRY`'s `destructive` fact (`@mui/x-studio-schema`), the
+ * shared registry of tool facts.
+ *
+ * Previously this was a hand-maintained `Set` encoded independently from
+ * `mcp/toolMetadata.ts`'s `destructiveHint` values and `agenticLoop.ts`'s chat
+ * approval gate, and they had already drifted (`apply_bulk_update` was
+ * approval-gated in chat but advertised as safe/idempotent to MCP clients).
+ * Now both consumers — and this Set — derive from the same registry entries,
+ * so they cannot drift apart: `mcp/toolMetadata.ts`'s `TOOL_ANNOTATIONS`
+ * derives its `destructiveHint` defaults straight from the registry, and
+ * `agenticLoop.ts`'s private-mode/approval logic imports `DESTRUCTIVE_TOOLS`
+ * (this export) directly.
+ */
+export const DESTRUCTIVE_TOOLS: ReadonlySet<StudioAIToolName> = new Set(
+  (Object.keys(STUDIO_AI_TOOL_REGISTRY) as StudioAIToolName[]).filter(
+    (name) => STUDIO_AI_TOOL_REGISTRY[name].destructive,
+  ),
+);
+
 // ── Tool-name drift guard ─────────────────────────────────────────────────────
-// `StudioAIToolName` lives in `@mui/x-studio-schema` so the client can import it
-// without depending on this (server) package, which is why it can't be *derived*
-// from `STUDIO_AI_TOOLS` here (that would invert the dependency). Instead we
-// assert — at compile time, in both directions — that the hand-maintained union
-// exactly equals the set of names actually advertised in `STUDIO_AI_TOOLS`.
-// Adding a tool without updating the union (or vice versa) is a compile error,
-// so the previously-observed drift (`list_pages`, `set_widget_forecast`) can't
-// recur. Fully deriving the union is a good follow-up if the import direction is
-// ever reworked.
+// `StudioAIToolName` is now DERIVED from `STUDIO_AI_TOOL_REGISTRY`
+// (`@mui/x-studio-schema`'s `aiToolRegistry.ts`) rather than a hand-written
+// union, but `STUDIO_AI_TOOLS` (the full JSON-schema tool definitions with
+// parameters/descriptions) still can't be *derived* from that registry — the
+// registry deliberately carries only classification facts, not parameter
+// schemas. This assert is therefore still load-bearing: it verifies, at
+// compile time and in both directions, that the set of names actually
+// advertised in `STUDIO_AI_TOOLS` exactly equals `StudioAIToolName` (i.e. the
+// registry's key set). Adding a tool to one without the other (schema without a
+// registry entry, or vice versa) is a compile error, so the previously-observed
+// drift (`list_pages`, `set_widget_forecast` missing from one side) can't recur.
 type AdvertisedToolName = (typeof STUDIO_AI_TOOLS)[number]['function']['name'];
 type AssertMutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
-// If this errors, `StudioAIToolName` and the advertised tool names have drifted.
+// If this errors, `STUDIO_AI_TOOL_REGISTRY`'s keys and the advertised tool names
+// (`STUDIO_AI_TOOLS`) have drifted.
 const TOOL_NAME_UNION_IN_SYNC: AssertMutuallyAssignable<AdvertisedToolName, StudioAIToolName> =
   true;
 void TOOL_NAME_UNION_IN_SYNC;

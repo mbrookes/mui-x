@@ -10,6 +10,7 @@ import {
   summarizeFilter,
 } from './filterDrawerUtils';
 import type { StudioDataSource, StudioFilterState } from '../../models';
+import { frLocaleText } from '../../locales/fr';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,115 @@ describe('summarizeFilter — rank mode', () => {
       makeFilter({ filterMode: 'rank', rankDirection: 'top', value: 7, field: '' }),
     );
     expect(result).toBe('Top 7');
+  });
+});
+
+// ─── summarizeFilter — localization ──────────────────────────────────────────
+// Regression coverage for Tier-2 finding #7 in the architecture review:
+// `summarizeFilter` used to hardcode English strings and call `getOperatorLabel`
+// without locale text, so it was untranslatable across every surface that renders
+// filter summaries (quick-filter-bar chips, drawer row summaries, KPI tooltip).
+
+describe('summarizeFilter — localization', () => {
+  it('defaults to English when localeText is omitted (backward compatible)', () => {
+    expect(summarizeFilter(makeFilter({ operator: 'equals', value: 'foo' }))).toBe('Equals: foo');
+  });
+
+  it('localizes the operator label in condition mode', () => {
+    const result = summarizeFilter(
+      makeFilter({ operator: 'equals', value: 'foo', fieldType: 'string' }),
+      frLocaleText,
+    );
+    expect(result).toBe('Est égal à: foo');
+  });
+
+  it('localizes "any value" for an empty selection filter', () => {
+    const result = summarizeFilter(
+      makeFilter({ filterMode: 'selection', value: [] }),
+      frLocaleText,
+    );
+    expect(result).toBe(frLocaleText.filterSummaryAnyValue);
+  });
+
+  it('localizes "is one of:" and "and N more" for a selection filter', () => {
+    const result = summarizeFilter(
+      makeFilter({ filterMode: 'selection', value: ['A', 'B', 'C', 'D', 'E'] }),
+      frLocaleText,
+    );
+    expect(result).toContain(frLocaleText.filterSummaryIsOneOf);
+    expect(result).toContain(frLocaleText.filterSummaryAndMore!(2));
+    expect(result).not.toContain('and 2 more');
+  });
+
+  it('localizes "is not:" for an exclusive selection filter', () => {
+    const result = summarizeFilter(
+      makeFilter({ filterMode: 'selection', value: ['A'], operator: 'not_in' }),
+      frLocaleText,
+    );
+    expect(result).toContain(frLocaleText.filterSummaryIsNot);
+  });
+
+  it('localizes the rank direction label', () => {
+    const result = summarizeFilter(
+      makeFilter({ filterMode: 'rank', rankDirection: 'bottom', value: 5 }),
+      frLocaleText,
+    );
+    expect(result).toBe(`${frLocaleText.filterRankBottom} 5 · value`);
+  });
+
+  it('localizes the AND/OR conjunction', () => {
+    const result = summarizeFilter(
+      makeFilter({
+        operator: 'greater_than',
+        value: 10,
+        fieldType: 'number',
+        operator2: 'less_than',
+        value2: 50,
+        conjunction: 'or',
+      }),
+      frLocaleText,
+    );
+    expect(result).toContain(frLocaleText.filterConditionOr);
+    expect(result).not.toContain(' OR ');
+  });
+
+  it('localizes "from"/"until" for a one-sided between condition', () => {
+    const from = summarizeFilter(
+      makeFilter({ operator: 'between', value: { from: '10' }, fieldType: 'string' }),
+      frLocaleText,
+    );
+    expect(from).toBe(frLocaleText.filterSummaryFrom!('10'));
+    const until = summarizeFilter(
+      makeFilter({ operator: 'between', value: { to: '20' }, fieldType: 'string' }),
+      frLocaleText,
+    );
+    expect(until).toBe(frLocaleText.filterSummaryUntil!('20'));
+  });
+
+  it('localizes the relative-date "ago" suffix and unit', () => {
+    const result = summarizeFilter(
+      makeFilter({
+        operator: 'greater_than',
+        fieldType: 'date',
+        value: { relative: true, amount: 3, unit: 'month', direction: 'past' },
+      }),
+      frLocaleText,
+    );
+    expect(result).toContain(frLocaleText.filterRelativeDateAgo);
+    expect(result).toContain(frLocaleText.filterRelativeUnitMonths);
+    expect(result).not.toContain('ago');
+  });
+});
+
+describe('getOperators — localization', () => {
+  it('defaults to English labels when localeText is omitted', () => {
+    const ops = getOperators('string');
+    expect(ops.find((o) => o.value === 'equals')?.label).toBe('Equals');
+  });
+
+  it('resolves operator labels through the active locale, matching FilterRow.tsx', () => {
+    const ops = getOperators('string', frLocaleText);
+    expect(ops.find((o) => o.value === 'equals')?.label).toBe('Est égal à');
   });
 });
 

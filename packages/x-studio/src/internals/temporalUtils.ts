@@ -1,3 +1,4 @@
+import { truncateToPeriod } from '@mui/x-studio-schema';
 import type { StudioDataSource } from '../models';
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
@@ -209,19 +210,13 @@ export function normalizeDataSourceRows(
   return { ...dataSource, rows, ...(fieldDistinctValues ? { fieldDistinctValues } : {}) };
 }
 
-/** ISO week number (1–53) for a given date. */
-function isoWeek(d: Date): { year: number; week: number } {
-  // Shift to Thursday of the same week (ISO weeks start on Monday)
-  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return { year: tmp.getUTCFullYear(), week };
-}
-
 /**
  * Truncate a date-like value to a granularity and return a sort-stable ISO key.
  * Returns null if the value cannot be parsed as a date.
+ *
+ * The implementation lives in `@mui/x-studio-schema`'s `truncateToPeriod` (shared
+ * with `@mui/x-studio-ai-middleware`'s MCP data tools) — this wrapper only keeps
+ * the `XGroupBy`-typed signature existing callers in this package rely on.
  *
  * Examples (UTC):
  *   'day'     → '2024-01-15'
@@ -231,51 +226,7 @@ function isoWeek(d: Date): { year: number; week: number } {
  *   'year'    → '2024'
  */
 export function truncateToGranularity(value: unknown, granularity: XGroupBy): string | null {
-  let y: number;
-  let m: number; // 0-indexed
-  let day: number;
-
-  // Fast path: parse canonical ISO strings (YYYY-MM-DD or YYYY-MM-DDTHH:…) directly
-  // without allocating a Date. This is the common case after normalizeDataSourceRows.
-  if (typeof value === 'string' && value.length >= 10 && value[4] === '-' && value[7] === '-') {
-    y = Number(value.slice(0, 4));
-    m = Number(value.slice(5, 7)) - 1; // convert to 0-indexed
-    day = Number(value.slice(8, 10));
-  } else {
-    const d = normalizeToDate(value);
-    if (!d) {
-      return null;
-    }
-    y = d.getUTCFullYear();
-    m = d.getUTCMonth(); // 0-indexed
-    day = d.getUTCDate();
-  }
-
-  switch (granularity) {
-    case 'day': {
-      const mm = String(m + 1).padStart(2, '0');
-      const dd = String(day).padStart(2, '0');
-      return `${y}-${mm}-${dd}`;
-    }
-    case 'week': {
-      // isoWeek requires a Date — construct one only for this case.
-      const d = new Date(Date.UTC(y, m, day));
-      const { year, week } = isoWeek(d);
-      return `${year}-W${String(week).padStart(2, '0')}`;
-    }
-    case 'month': {
-      return `${y}-${String(m + 1).padStart(2, '0')}`;
-    }
-    case 'quarter': {
-      const q = Math.floor(m / 3) + 1;
-      return `${y}-Q${q}`;
-    }
-    case 'year': {
-      return `${y}`;
-    }
-    default:
-      return null;
-  }
+  return truncateToPeriod(value, granularity);
 }
 
 const MONTH_NAMES = [

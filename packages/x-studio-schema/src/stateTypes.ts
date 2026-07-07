@@ -5,8 +5,8 @@ import type {
   StudioCrossFilterMode,
 } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
-import type { StudioDataSource, StudioDataField } from './dataTypes';
-import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
+import type { StudioDataSource, StudioDataField, StudioRelationship } from './dataTypes';
+import type { StudioExpressionField } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
 
 /**
@@ -24,6 +24,21 @@ export type StudioFilterScope =
    *  widgets whose sourceId matches and runs on the given page. */
   | { kind: 'dashboard-date-range'; sourceId: string; pageId: string };
 
+/**
+ * Preset options for the dashboard-level date range bar. Each preset resolves to a
+ * concrete start/end window at evaluation time; `'custom'` uses user-supplied dates.
+ * - `'this_month'` — first day of the current month through today
+ * - `'last_3_months'` — three months ago through today
+ * - `'last_12_months'` — twelve months ago through today
+ * - `'ytd'` — January 1 of the current year through today
+ * - `'this_calendar_year'` — January 1 through December 31 of the current year
+ * - `'last_calendar_year'` — the full previous calendar year
+ * - `'last_2_calendar_years'` — the two full previous calendar years
+ * - `'this_quarter'` — the current calendar quarter
+ * - `'last_quarter'` — the previous calendar quarter
+ * - `'this_and_last_quarter'` — the current and previous calendar quarters
+ * - `'custom'` — user-supplied start/end dates
+ */
 export type StudioDateRangePreset =
   | 'this_month'
   | 'last_3_months'
@@ -124,20 +139,34 @@ export interface StudioFilterPreset {
   filters: StudioFilterState[];
 }
 
-export interface StudioState {
+/**
+ * User-authored dashboard document. The ONLY partition that is persisted,
+ * undoable, and mutable by the shared reducer.
+ *
+ * Every field here survives serialization (via `serializeState`) and every field
+ * here is what the undo/redo stacks snapshot — so this interface is the single
+ * source of truth for "what is a dashboard". Adding a field here without a matching
+ * persistence path is caught by the `statePersistence.test.ts` round-trip gate.
+ */
+export interface StudioDoc {
+  /** Persistence artifact of the doc — the schema version the doc serializes as. */
   schemaVersion: 1;
-  mode: StudioMode;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;
-  dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
+  /**
+   * All filter entries, INCLUDING session-flavoured cross-filter entries.
+   * Cross-filter entries live here (not in `session`) because the shared reducer
+   * itself manipulates them (cleanup on `removeWidget`/`removePage`/`applyBulkUpdate`,
+   * and `applyCrossFilter` is deliberately undoable). They are stripped at the
+   * persistence boundary only (see `serializeState`'s `scope.kind !== 'cross-filter'`).
+   */
   filters: StudioFilterState[];
   /** User-authored expression fields (calculated columns and measures). Persisted. */
   expressionFields: StudioExpressionField[];
   /** Saved filter presets (named snapshots of page-level filters). */
   filterPresets?: StudioFilterPreset[];
-  shell: StudioShellState;
   /**
    * AI assistant conversation state. Persisted alongside the dashboard so
    * conversation history travels with the saved state.
@@ -148,63 +177,31 @@ export interface StudioState {
   ai?: StudioAIState;
 }
 
-const defaultPageId = 'page-1';
+/**
+ * Ephemeral UI state. Never persisted, never undoable, never touched by the shared
+ * reducer. `mode` is deliberately here (not in `doc`): a view↔edit switch is not a
+ * dashboard edit, so Ctrl+Z must never flip it.
+ */
+export interface StudioSession {
+  mode: StudioMode;
+  shell: StudioShellState;
+}
 
-export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
-  const baseState: StudioState = {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: {
-      id: 'dashboard-1',
-      title: 'Untitled Dashboard',
-      activePageId: defaultPageId,
-    },
-    pages: {
-      [defaultPageId]: {
-        id: defaultPageId,
-        title: 'Page 1',
-        widgetRows: [], // No widgets by default
-      },
-    },
-    widgets: {},
-    dataSources: {},
-    relationships: [],
-    filters: [],
-    expressionFields: [],
-    shell: {
-      openDrawers: {
-        data: true,
-        compose: true,
-        filters: false,
-      },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-    },
-  };
+/**
+ * Host-app-injected state. Never persisted, never undoable, never touched by the
+ * shared reducer — an undo must never revert live `dataSources` to stale rows.
+ */
+export interface StudioRuntime {
+  dataSources: Record<string, StudioDataSource>;
+}
 
-  return {
-    ...baseState,
-    ...overrides,
-    dashboard: {
-      ...baseState.dashboard,
-      ...overrides?.dashboard,
-    },
-    shell: {
-      ...baseState.shell,
-      ...overrides?.shell,
-      openDrawers: {
-        ...baseState.shell.openDrawers,
-        ...overrides?.shell?.openDrawers,
-      },
-      selectedFieldId: overrides?.shell?.selectedFieldId ?? null,
-      selectedSourceId: overrides?.shell?.selectedSourceId ?? null,
-    },
-    pages: overrides?.pages ?? baseState.pages,
-    widgets: overrides?.widgets ?? baseState.widgets,
-    dataSources: overrides?.dataSources ?? baseState.dataSources,
-    relationships: overrides?.relationships ?? baseState.relationships,
-    filters: overrides?.filters ?? baseState.filters,
-    expressionFields: overrides?.expressionFields ?? baseState.expressionFields,
-  };
+/**
+ * The full in-memory Studio state, partitioned by lifetime. Only `doc` is
+ * persisted / undoable / reducer-mutable; `session` and `runtime` are managed
+ * exclusively by `StudioController`.
+ */
+export interface StudioState {
+  doc: StudioDoc;
+  session: StudioSession;
+  runtime: StudioRuntime;
 }

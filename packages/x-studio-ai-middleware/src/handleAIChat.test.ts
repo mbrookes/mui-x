@@ -292,3 +292,58 @@ describe('handleAIChat', () => {
     expect(rejections).toHaveLength(0);
   });
 });
+
+// ── Server-side allowedTools / privateMode enforcement ──────────────────────────
+
+describe('handleAIChat — server-side allowedTools/privateMode enforcement', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Run one text-only turn and return the tool names advertised to the model. */
+  async function advertisedTools(
+    body: StudioAIRequest,
+    options: Partial<StudioAIHandlerOptions>,
+  ): Promise<string[]> {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    await readAll(handleAIChat(body, { ...OPTIONS, ...options }));
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools: { function: { name: string } }[];
+    };
+    return sentBody.tools.map((t) => t.function.name);
+  }
+
+  it('intersects options.allowedTools with the body allowedTools (server wins on exclusion)', async () => {
+    const names = await advertisedTools(makeBody({ allowedTools: ['remove_page', 'add_widget'] }), {
+      allowedTools: ['add_widget'],
+    });
+    expect(names).toContain('add_widget');
+    // remove_page is in the body list but not the server allowlist → excluded.
+    expect(names).not.toContain('remove_page');
+  });
+
+  it('uses options.allowedTools as-is when the body omits allowedTools', async () => {
+    const names = await advertisedTools(makeBody(), { allowedTools: ['add_widget'] });
+    expect(names).toEqual(['add_widget']);
+  });
+
+  it('forces private mode when options.privateMode is set even if the body opts out', async () => {
+    const names = await advertisedTools(makeBody({ privateMode: false }), { privateMode: true });
+    // State-reading tools are withheld from advertisement under effective private mode.
+    expect(names).not.toContain('get_dashboard_state');
+    expect(names).not.toContain('list_pages');
+    // Non-state-reading tools are still offered.
+    expect(names).toContain('set_dashboard_title');
+  });
+
+  it('leaves behavior unchanged when neither server option is provided', async () => {
+    const names = await advertisedTools(makeBody(), {});
+    // Body allows all → default full set including state-reading tools.
+    expect(names).toContain('get_dashboard_state');
+    expect(names).toContain('list_pages');
+  });
+});

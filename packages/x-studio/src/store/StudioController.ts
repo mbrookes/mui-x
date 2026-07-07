@@ -2,10 +2,25 @@ import { Store } from '@mui/x-internals/store';
 // The shared mutation reducer + label helper — the same code the AI middleware
 // server uses to compute its threaded `nextState`, so AI state changes applied
 // on the client match the server exactly.
-import { applyMutation, mutationLabel, type StateMutation } from '@mui/x-studio-schema';
+import {
+  applyMutation,
+  mutationLabel,
+  MIN_SPAN as MIN_SPAN_COLS,
+  type StateMutation,
+  serializeState,
+  serializeDoc,
+  deserializeState,
+  migrateState,
+  CURRENT_SCHEMA_VERSION,
+  type SerializedStudioState,
+  type SerializedStudioSession,
+  type SerializedStudioSnapshot,
+  type MigrationResult,
+} from '@mui/x-studio-schema';
 
 import {
   createDefaultStudioState,
+  type CreateDefaultStudioStateOverrides,
   type StudioDataField,
   type StudioDataSource,
   type StudioDataSourceAdapter,
@@ -17,29 +32,21 @@ import {
   type StudioMode,
   type StudioPage,
   type StudioRelationship,
+  type StudioDoc,
+  type StudioSession,
+  type StudioRuntime,
   type StudioState,
   type StudioWidget,
   type StudioAIRecentMutation,
 } from '../models/index';
 
-import {
-  serializeState,
-  deserializeState,
-  migrateState,
-  CURRENT_SCHEMA_VERSION,
-  type SerializedStudioState,
-  type SerializedStudioSession,
-  type SerializedStudioSnapshot,
-  type MigrationResult,
-} from './statePersistence';
-
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 
-/** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
-const GRID_COLS = 24;
-/** Minimum column span any widget can be clamped to. */
-const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
+// `MIN_SPAN_COLS` (the minimum widget column span) is imported from
+// `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
+// the reducer that clamps AI-driven resizes and with `canvasGridConstants.ts`.
+// (Kept under the local `MIN_SPAN_COLS` name it is used by below.)
 
 const MAX_UNDO_HISTORY = 100;
 
@@ -48,12 +55,15 @@ const MAX_MUTATION_LOG = 20;
 
 export class StudioController {
   readonly store: Store<StudioState>;
-  private undoStack: StudioState[] = [];
-  private redoStack: StudioState[] = [];
+  // Undo/redo snapshot ONLY the `doc` partition. Session (mode/shell) and runtime
+  // (dataSources) are deliberately not time-travelled: a Ctrl+Z must never revert a
+  // view↔edit switch or wipe freshly-injected live data back to stale rows.
+  private undoStack: StudioDoc[] = [];
+  private redoStack: StudioDoc[] = [];
   /** Compact, labeled log of recent user-driven mutations (oldest first). */
   private mutationLog: StudioAIRecentMutation[] = [];
 
-  constructor(initialState?: Partial<StudioState>) {
+  constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
     this.store = Store.create(state);
   }
@@ -94,7 +104,8 @@ export class StudioController {
   ) => {
     const { undoable = true, resetHistory = false, label } = options ?? {};
 
-    if (nextState === this.store.state) {
+    const current = this.store.state;
+    if (nextState === current) {
       return;
     }
 
@@ -102,8 +113,13 @@ export class StudioController {
       this.undoStack = [];
       this.redoStack = [];
       this.mutationLog = [];
-    } else if (undoable) {
-      this.undoStack.push(this.store.state);
+    } else if (undoable && nextState.doc !== current.doc) {
+      // The undo entry is the OLD doc, pushed only when the doc actually changed by
+      // reference. A commit that only touches `session`/`runtime` (drawer toggle,
+      // data refresh, selection…) still takes effect immediately below, but creates
+      // NO undo entry — regardless of the `undoable` flag — because there is no
+      // authored-document change to revert. This is the core staleness fix.
+      this.undoStack.push(current.doc);
       // Any new action clears the redo stack
       this.redoStack = [];
 
@@ -120,6 +136,45 @@ export class StudioController {
     }
 
     this.store.setState(nextState);
+  };
+
+  /**
+   * After an undo/redo swaps in a different `doc`, reconcile the session's dangling
+   * widget selection: if `selectedWidgetId` references a widget the swapped-in doc no
+   * longer contains (e.g. undo reverted the `addWidget` that created it), it is nulled
+   * out. This is the ONE deliberate cross-partition normalization, and it lives only
+   * here in the controller — never in the pure reducer or the persistence layer —
+   * because it is a UI-selection concern, not a document or serialization one.
+   *
+   * `selectedSourceId`/`selectedFieldId` reference host `runtime.dataSources`, which
+   * an undo never touches, so they cannot dangle from a doc swap and are left alone.
+   */
+  private normalizeSessionAfterDocSwap = (
+    session: StudioSession,
+    doc: StudioDoc,
+  ): StudioSession => {
+    const { shell } = session;
+    if (shell.selectedWidgetId === null || Object.hasOwn(doc.widgets, shell.selectedWidgetId)) {
+      return session;
+    }
+    return {
+      ...session,
+      shell: { ...shell, selectedWidgetId: null },
+    };
+  };
+
+  /**
+   * Commits a doc-only patch: shallow-merges `patch` onto the current `doc`, leaving
+   * `session` and `runtime` untouched. The single place the doc-writer methods below
+   * (relationships, filters, presets, page fields…) build their nested commit, so
+   * each stays a one-liner instead of hand-spreading `{ ...state, doc: { ...state.doc } }`.
+   */
+  private commitDocPatch = (
+    patch: Partial<StudioDoc>,
+    options?: { undoable?: boolean; label?: string },
+  ) => {
+    const state = this.store.state;
+    this.commitState({ ...state, doc: { ...state.doc, ...patch } }, options);
   };
 
   /**
@@ -142,28 +197,125 @@ export class StudioController {
    *
    * The result is committed through the normal undo-stack + recent-mutation-log
    * machinery, so AI edits remain undoable and are surfaced back to the model.
+   *
+   * This is a typed, non-validating in-process API: it trusts `mutation` to be a
+   * well-formed `StateMutation` (it is also called with locally-constructed values,
+   * e.g. `removePage` below). A caller passing wire-sourced data (deserialized
+   * network input) MUST validate it through `parseStateMutation` first —
+   * `StudioBackendAdapter`'s SSE `state-mutation` handler is the one such caller and
+   * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
-    const nextState = applyMutation(this.store.state, mutation);
-    this.commitState(nextState, { label });
+    this.commitMutation(mutation, { label });
+  };
+
+  /**
+   * The single choke-point through which every user-driven method that has a
+   * shared `StateMutation` equivalent applies its state transition: it runs the
+   * mutation through the shared `applyMutation` reducer (the same pure function
+   * the AI/server path uses) and commits the result through the normal
+   * undo-stack + recent-mutation-log machinery.
+   *
+   * Behaviour it centralizes:
+   *  - **No-op detection**: when the reducer returns the same state reference
+   *    (an unknown-id / already-applied mutation), nothing is committed — no
+   *    undo entry and no log line — so a user action that changes nothing is a
+   *    clean no-op.
+   *  - **Labeling**: `label` defaults to the reducer's own `mutationLabel`;
+   *    pass `null` to suppress logging entirely (e.g. non-undoable navigation).
+   *  - **Client-only layering**: `transform` runs AFTER the reducer to apply
+   *    effects a pure reducer intentionally does not own — React shell selection
+   *    (`addWidget`/`removeWidget`) and live-data title inference
+   *    (`updateWidgetConfig`).
+   */
+  private commitMutation = (
+    mutation: StateMutation,
+    options?: {
+      /** Recent-mutation-log label. `null` = do not log; omit = reducer default. */
+      label?: string | null;
+      undoable?: boolean;
+      /** Client-only state layering, applied AFTER the reducer. */
+      transform?: (next: StudioState) => StudioState;
+    },
+  ) => this.commitMutations([mutation], options);
+
+  /**
+   * The multi-mutation sibling of {@link commitMutation}: folds an ORDERED
+   * SEQUENCE of `StateMutation`s through the shared `applyMutation` reducer with
+   * `Array.prototype.reduce`, then commits the final state as ONE undoable step,
+   * one subscriber notification, and one recent-mutation-log line.
+   *
+   * Because `applyMutation` is pure, the whole fold happens before the store is
+   * touched — so a single user gesture that internally needs several mutations
+   * (e.g. a cross-page move = "remove from page A's rows" + "add to page B's
+   * rows") still collapses to a single undo entry, rather than two.
+   *
+   * Behaviour it centralizes (mirrors `commitMutation`):
+   *  - **Whole-fold no-op detection**: if every mutation in the sequence returns
+   *    the same state reference (the fold's result is identical to the starting
+   *    state), nothing is committed — no undo entry, no log line.
+   *  - **Labeling**: `label` defaults to the mutations' own `mutationLabel`s
+   *    joined with `' + '`; pass `null` to suppress logging entirely.
+   *  - **Client-only layering**: `transform` runs AFTER the reducer fold to apply
+   *    effects a pure reducer intentionally does not own (React shell selection).
+   *
+   * `commitMutation` delegates here with a single-element array — a one-element
+   * `.map(mutationLabel).join(' + ')` produces exactly `mutationLabel(mutation)`
+   * (a one-element join has no separator), so every existing single-mutation
+   * caller is byte-identical in observable behaviour.
+   */
+  private commitMutations = (
+    mutations: StateMutation[],
+    options?: {
+      /** Recent-mutation-log label. `null` = do not log; omit = reducer default. */
+      label?: string | null;
+      undoable?: boolean;
+      /** Client-only state layering, applied AFTER the reducer fold. */
+      transform?: (next: StudioState) => StudioState;
+    },
+  ) => {
+    const next = mutations.reduce(applyMutation, this.store.state);
+    if (next === this.store.state) {
+      return;
+    }
+    const label =
+      options?.label === null
+        ? undefined
+        : (options?.label ?? mutations.map(mutationLabel).join(' + '));
+    this.commitState(options?.transform ? options.transform(next) : next, {
+      undoable: options?.undoable,
+      label,
+    });
   };
 
   setState = (state: StudioState) => {
     this.commitState(state);
   };
 
-  updateState = (changes: Partial<StudioState>) => {
+  /**
+   * Partition-aware partial update. Each supplied partition (`doc`/`session`/`runtime`)
+   * is shallow-merged onto its current value. This is a breaking signature change from
+   * the pre-partition flat `Partial<StudioState>` — callers must now name the partition.
+   */
+  updateState = (changes: {
+    doc?: Partial<StudioDoc>;
+    session?: Partial<StudioSession>;
+    runtime?: Partial<StudioRuntime>;
+  }) => {
+    const state = this.store.state;
     this.commitState({
-      ...this.store.state,
-      ...changes,
+      doc: changes.doc ? { ...state.doc, ...changes.doc } : state.doc,
+      session: changes.session ? { ...state.session, ...changes.session } : state.session,
+      runtime: changes.runtime ? { ...state.runtime, ...changes.runtime } : state.runtime,
     });
   };
 
   setMode = (mode: StudioMode) => {
-    this.commitState({
-      ...this.store.state,
-      mode,
-    });
+    const state = this.store.state;
+    // Mode is session-only and structurally non-undoable: a commit that changes only
+    // `session` never pushes an undo entry (see commitState), so Ctrl+Z can no longer
+    // flip view↔edit. `undoable: false` is belt-and-braces on top of that guarantee.
+    this.commitState({ ...state, session: { ...state.session, mode } }, { undoable: false });
   };
 
   setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
@@ -171,7 +323,7 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dashboard: { ...state.dashboard, globalCrossFilterMode: mode },
+        doc: { ...state.doc, dashboard: { ...state.doc.dashboard, globalCrossFilterMode: mode } },
       },
       { undoable: false },
     );
@@ -182,23 +334,27 @@ export class StudioController {
     this.commitState(
       {
         ...state,
-        dashboard: { ...state.dashboard, crossFilterAllPages: allPages },
+        doc: { ...state.doc, dashboard: { ...state.doc.dashboard, crossFilterAllPages: allPages } },
       },
       { undoable: false },
     );
   };
 
   toggleDrawer = (drawer: StudioDrawer) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          openDrawers: {
-            ...shell.openDrawers,
-            [drawer]: !shell.openDrawers[drawer],
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            openDrawers: {
+              ...shell.openDrawers,
+              [drawer]: !shell.openDrawers[drawer],
+            },
           },
         },
       },
@@ -207,16 +363,20 @@ export class StudioController {
   };
 
   setDrawerOpen = (drawer: StudioDrawer, open: boolean) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          openDrawers: {
-            ...shell.openDrawers,
-            [drawer]: open,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            openDrawers: {
+              ...shell.openDrawers,
+              [drawer]: open,
+            },
           },
         },
       },
@@ -225,16 +385,20 @@ export class StudioController {
   };
 
   setSelectedWidget = (widgetId: string | null) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedWidgetId: widgetId,
-          selectedFieldId: null,
-          selectedSourceId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedWidgetId: widgetId,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
         },
       },
       { undoable: false },
@@ -242,16 +406,20 @@ export class StudioController {
   };
 
   selectField = (sourceId: string, fieldId: string) => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedFieldId: fieldId,
-          selectedSourceId: sourceId,
-          selectedWidgetId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedFieldId: fieldId,
+            selectedSourceId: sourceId,
+            selectedWidgetId: null,
+          },
         },
       },
       { undoable: false },
@@ -259,16 +427,20 @@ export class StudioController {
   };
 
   clearSelection = () => {
-    const { shell } = this.store.state;
+    const state = this.store.state;
+    const { shell } = state.session;
 
     this.commitState(
       {
-        ...this.store.state,
-        shell: {
-          ...shell,
-          selectedWidgetId: null,
-          selectedFieldId: null,
-          selectedSourceId: null,
+        ...state,
+        session: {
+          ...state.session,
+          shell: {
+            ...shell,
+            selectedWidgetId: null,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
         },
       },
       { undoable: false },
@@ -280,13 +452,23 @@ export class StudioController {
     if (dataSource.adapter) {
       studioRequestCache.invalidateSource(dataSource.id);
     }
-    this.commitState({
-      ...state,
-      dataSources: {
-        ...state.dataSources,
-        [dataSource.id]: dataSource,
+    // Host-driven data injection (e.g. a periodic refresh or a config-swap reload)
+    // is infrastructure, not an authored edit — it must not create an undo-stack
+    // entry (a user pressing Ctrl+Z should never revert live data to stale rows or
+    // remove a source's rows). Same convention as interactive filter selection.
+    this.commitState(
+      {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            ...state.runtime.dataSources,
+            [dataSource.id]: dataSource,
+          },
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   /**
@@ -299,16 +481,19 @@ export class StudioController {
    */
   setDataSourceAdapter = (sourceId: string, adapter: StudioDataSourceAdapter | undefined) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
     if (!source) {
       return;
     }
     studioRequestCache.invalidateSource(sourceId);
     this.commitState({
       ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: { ...source, adapter },
+      runtime: {
+        ...state.runtime,
+        dataSources: {
+          ...state.runtime.dataSources,
+          [sourceId]: { ...source, adapter },
+        },
       },
     });
   };
@@ -324,17 +509,25 @@ export class StudioController {
    */
   setDataSourceRows = (sourceId: string, rows: Record<string, unknown>[]) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
     if (!source) {
       return;
     }
-    this.commitState({
-      ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: { ...source, rows },
+    // Host-driven data injection — not an authored edit, so it must not be undoable
+    // (see upsertDataSource). Same convention as interactive filter selection.
+    this.commitState(
+      {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            ...state.runtime.dataSources,
+            [sourceId]: { ...source, rows },
+          },
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   updateDataSourceField = (
@@ -343,7 +536,7 @@ export class StudioController {
     updates: Partial<import('../models').StudioDataField>,
   ) => {
     const state = this.store.state;
-    const source = state.dataSources[sourceId];
+    const source = state.runtime.dataSources[sourceId];
 
     if (!source) {
       return;
@@ -351,13 +544,16 @@ export class StudioController {
 
     this.commitState({
       ...state,
-      dataSources: {
-        ...state.dataSources,
-        [sourceId]: {
-          ...source,
-          fields: source.fields.map((f: StudioDataField) =>
-            f.id === fieldId ? { ...f, ...updates } : f,
-          ),
+      runtime: {
+        ...state.runtime,
+        dataSources: {
+          ...state.runtime.dataSources,
+          [sourceId]: {
+            ...source,
+            fields: source.fields.map((f: StudioDataField) =>
+              f.id === fieldId ? { ...f, ...updates } : f,
+            ),
+          },
         },
       },
     });
@@ -365,13 +561,15 @@ export class StudioController {
 
   addExpressionField = (field: StudioExpressionField) => {
     const state = this.store.state;
-    const exists = state.expressionFields.some((ef: StudioExpressionField) => ef.id === field.id);
+    const exists = state.doc.expressionFields.some(
+      (ef: StudioExpressionField) => ef.id === field.id,
+    );
     if (exists) {
       return;
     }
     this.commitState({
       ...state,
-      expressionFields: [...state.expressionFields, field],
+      doc: { ...state.doc, expressionFields: [...state.doc.expressionFields, field] },
     });
   };
 
@@ -380,15 +578,20 @@ export class StudioController {
     updates: Partial<Omit<StudioExpressionField, 'id'>>,
   ) => {
     const state = this.store.state;
-    const existing = state.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId);
+    const existing = state.doc.expressionFields.find(
+      (ef: StudioExpressionField) => ef.id === fieldId,
+    );
     if (!existing) {
       return;
     }
     this.commitState({
       ...state,
-      expressionFields: state.expressionFields.map((ef: StudioExpressionField) =>
-        ef.id === fieldId ? { ...ef, ...updates } : ef,
-      ),
+      doc: {
+        ...state.doc,
+        expressionFields: state.doc.expressionFields.map((ef: StudioExpressionField) =>
+          ef.id === fieldId ? { ...ef, ...updates } : ef,
+        ),
+      },
     });
   };
 
@@ -396,38 +599,71 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      expressionFields: state.expressionFields.filter(
-        (ef: StudioExpressionField) => ef.id !== fieldId,
-      ),
+      doc: {
+        ...state.doc,
+        expressionFields: state.doc.expressionFields.filter(
+          (ef: StudioExpressionField) => ef.id !== fieldId,
+        ),
+      },
     });
   };
 
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    const widgetRows = activePage.widgetRows || [];
-    // Add new widget as a new row by default
-    const newWidgetRows = [...widgetRows, [widget.id]];
-    this.commitState(
+    // Delegate the state-shape transform (new row on the target page) to the shared
+    // reducer, stamping the active page explicitly (D6) so the constructed mutation
+    // is self-describing rather than relying on the reducer's active-page fallback.
+    // Layer only the client-only shell-selection side effect on top via `transform`.
+    // (The reducer's `Object.hasOwn` page guard turns the old unguarded
+    // `state.pages[activePageId]` read — which threw when the active page was
+    // missing — into a clean no-op; a crash was never desired behaviour.)
+    this.commitMutation(
+      { type: 'addWidget', args: { widget, pageId: state.doc.dashboard.activePageId } },
       {
-        ...state,
-        widgets: {
-          ...state.widgets,
-          [widget.id]: widget,
-        },
-        pages: {
-          ...state.pages,
-          [activePage.id]: {
-            ...activePage,
-            widgetRows: newWidgetRows,
+        transform: (next) => ({
+          ...next,
+          session: {
+            ...next.session,
+            shell: { ...next.session.shell, selectedWidgetId: widget.id },
           },
-        },
-        shell: {
-          ...state.shell,
-          selectedWidgetId: widget.id,
-        },
+        }),
       },
-      { label: `addWidget:${widget.kind}:${widget.id}` },
+    );
+  };
+
+  /**
+   * Inserts a brand-new widget at an arbitrary row/column position on `pageId`.
+   * `rows` is the page's COMPLETE desired final layout including `widget.id` — the
+   * caller (the canvas drop handler) owns the geometry/splice math, since the drop
+   * position is a pixel/pointer detail the pure reducer has no business deriving.
+   *
+   * Composes the shared `addWidget` + `setWidgetLayout` reducer mutations as ONE
+   * commit (one undo step, one log line) via `commitMutations`, rather than adding
+   * a new `StateMutation` variant for "insert at position" (deliberately avoided —
+   * every mutation variant is nominally AI-tool-facing wire surface, and this is a
+   * client-only geometry detail). `addWidget` first appends `widget.id` as a new
+   * trailing row; `setWidgetLayout` then rewrites the page's rows into the caller's
+   * exact desired arrangement (and runs `enforceLayoutColSpans` for span cleanup).
+   * The client-only shell selection is layered on afterwards via `transform`.
+   */
+  insertWidgetAt = (widget: StudioWidget, pageId: string, rows: string[][]) => {
+    this.commitMutations(
+      [
+        { type: 'addWidget', args: { widget, pageId } },
+        { type: 'setWidgetLayout', args: { rows: rows.filter((r) => r.length > 0), pageId } },
+      ],
+      {
+        // Matches `addWidget()`'s reducer-default label shape so the compose-drawer
+        // insert is indistinguishable from a plain add in the recent-mutation log.
+        label: `addWidget:${widget.kind}:${widget.id}`,
+        transform: (next) => ({
+          ...next,
+          session: {
+            ...next.session,
+            shell: { ...next.session.shell, selectedWidgetId: widget.id },
+          },
+        }),
+      },
     );
   };
 
@@ -441,7 +677,7 @@ export class StudioController {
    */
   setWidgetLayout = (newRows: string[][]): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
@@ -470,40 +706,16 @@ export class StudioController {
     // Filter out any empty rows (defensive)
     const sanitisedRows = newRows.filter((row) => row.length > 0);
 
-    this.commitState(
-      {
-        ...state,
-        pages: {
-          ...state.pages,
-          [activePage.id]: { ...activePage, widgetRows: sanitisedRows },
-        },
-      },
-      { label: 'setWidgetLayout' },
-    );
-  };
-
-  /**
-   * Sets an explicit column span (3–12) for a widget on the active page.
-   * Pass `null` to remove the explicit span and revert to auto-fill (`flex: 1`).
-   */
-  setWidgetColSpan = (widgetId: string, span: number | null): void => {
-    const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    if (!activePage) {
-      return;
-    }
-    const { [widgetId]: removedWidgetSpan, ...restSpans } = activePage.widgetColSpans ?? {};
-    void removedWidgetSpan;
-    const newSpans =
-      span == null
-        ? restSpans
-        : { ...restSpans, [widgetId]: Math.max(3, Math.min(12, Math.round(span))) };
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: { ...activePage, widgetColSpans: newSpans },
-      },
+    // The throwing validation above (unknown / orphaned ids) stays a
+    // controller-only layer — the reducer's graceful no-op behaviour and this
+    // strict validation are complementary. The state transform itself delegates
+    // to the shared reducer, stamping the active page explicitly (D6). Delegating
+    // here also runs the reducer's `enforceLayoutColSpans` cleanup, so the
+    // keyboard-driven reorder path (`StudioWidgetCard`) now prunes/rebalances
+    // stale column spans exactly like the pointer drag-and-drop path already did.
+    this.commitMutation({
+      type: 'setWidgetLayout',
+      args: { rows: sanitisedRows, pageId: activePage.id },
     });
   };
 
@@ -515,65 +727,17 @@ export class StudioController {
    */
   setPageStackBreakpoint = (breakpoint: number | undefined): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
     this.commitState({
       ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
-      },
-    });
-  };
-
-  /**
-   * Sets the column span for `widgetId` and, if the row's total would exceed 12,
-   * adjusts sibling spans to keep the row valid:
-   * - 2-widget row: sibling is shrunk to the remaining columns (12 - span)
-   * - 3+ widget row: siblings' explicit spans are cleared so they share remaining space via flex:1
-   */
-  setWidgetColSpanInRow = (widgetId: string, span: number | null, rowWidgetIds: string[]): void => {
-    const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    if (!activePage) {
-      return;
-    }
-    const clamped = span == null ? null : Math.max(3, Math.min(12, Math.round(span)));
-    const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
-
-    if (clamped == null) {
-      delete newSpans[widgetId];
-    } else {
-      newSpans[widgetId] = clamped;
-      const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
-      const otherTotal = otherIds.reduce((sum, id) => sum + (newSpans[id] ?? 0), 0);
-      if (clamped + otherTotal > 12) {
-        if (otherIds.length === 1) {
-          // Shrink the sibling to the remaining space
-          const remaining = 12 - clamped;
-          if (remaining >= 3) {
-            newSpans[otherIds[0]] = remaining;
-          } else {
-            delete newSpans[otherIds[0]];
-          }
-        } else {
-          // Clear all siblings — they share remaining space via flex:1
-          for (const id of otherIds) {
-            delete newSpans[id];
-          }
-        }
-      }
-    }
-
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetColSpans: Object.keys(newSpans).length > 0 ? newSpans : undefined,
+      doc: {
+        ...state.doc,
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
         },
       },
     });
@@ -592,7 +756,7 @@ export class StudioController {
     rightMinSpan: number = MIN_SPAN_COLS,
   ): void => {
     const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     if (!activePage) {
       return;
     }
@@ -608,133 +772,126 @@ export class StudioController {
     newSpans[rightId] = clampedRight;
     this.commitState({
       ...state,
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetColSpans: newSpans,
+      doc: {
+        ...state.doc,
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetColSpans: newSpans,
+          },
         },
       },
     });
   };
 
   removeWidget = (widgetId: string) => {
-    const state = this.store.state;
-    const activePage = state.pages[state.dashboard.activePageId];
-    const { [widgetId]: removedWidget, ...remainingWidgets } = state.widgets;
-    void removedWidget;
-    const widgetRows = activePage.widgetRows || [];
-    // Remove widgetId from all rows, and filter out empty rows
-    const newWidgetRows = widgetRows.flatMap((row: string[]) => {
-      const r = row.filter((id: string) => id !== widgetId);
-      return r.length > 0 ? [r] : [];
-    });
-    // Clean up the removed widget's span, and also clear spans for any widgets that are
-    // now the sole occupant of their row (orphaned singleton — span no longer meaningful).
-    const { [widgetId]: removedSpan, ...remainingSpans } = activePage.widgetColSpans ?? {};
-    void removedSpan;
-    for (const row of newWidgetRows) {
-      if (row.length === 1 && remainingSpans[row[0]] != null) {
-        delete remainingSpans[row[0]];
-      }
-    }
-    this.commitState(
+    // Delegate the full state transform to the shared reducer — the single
+    // implementation that sweeps every page's rows, cleans column spans (removed
+    // widget + orphaned singletons), and drops the widget's widget/interactive/
+    // cross-filter filters. Layer only the client-only shell-selection reset on top.
+    // An unknown `widgetId` is a reducer no-op, so `commitMutation` skips it (no
+    // undo entry, no log line, shell untouched).
+    this.commitMutation(
+      { type: 'removeWidget', args: { widgetId } },
       {
-        ...state,
-        widgets: remainingWidgets,
-        pages: {
-          ...state.pages,
-          [activePage.id]: {
-            ...activePage,
-            widgetRows: newWidgetRows,
-            widgetColSpans: Object.keys(remainingSpans).length > 0 ? remainingSpans : undefined,
-          },
-        },
-        filters: (() => {
-          const nextFilters = state.filters.filter(
-            (f: StudioFilterState) =>
-              !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) &&
-              !(f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
-          );
-          // Preserve reference stability when no filters were removed (avoids re-renders)
-          return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
-        })(),
-        shell: {
-          ...state.shell,
-          selectedWidgetId:
-            state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
-        },
+        transform: (next) =>
+          next.session.shell.selectedWidgetId === widgetId
+            ? {
+                ...next,
+                session: {
+                  ...next.session,
+                  shell: { ...next.session.shell, selectedWidgetId: null },
+                },
+              }
+            : next,
       },
-      { label: `removeWidget:${widgetId}` },
     );
   };
 
   updateWidget = (widgetId: string, changes: Partial<Omit<StudioWidget, 'id'>>) => {
-    const state = this.store.state;
-    const existing = state.widgets[widgetId];
-
-    if (!existing) {
-      return;
+    // Delegates to the shared reducer (the last controller mutation method to do
+    // so). The historical hand-written version used a `{ ...existing, ...changes }`
+    // spread whose only irreplaceable behaviour was letting a caller VOID a
+    // top-level field by passing an explicit `undefined` value (e.g. `GridSetupPanel`
+    // resetting `sourceId`, `FormatPanel` clearing `subtitle`). An `undefined` value
+    // can never survive JSON, so the reducer deliberately skips `undefined`-valued
+    // `changes` keys; the wire-safe replacement is `unsetFields`. So we split the
+    // caller's `changes` into keys carrying a real value (→ `args.changes`) and keys
+    // explicitly set to `undefined` (→ `args.unsetFields`, which the reducer deletes),
+    // preserving every existing call site's resulting widget state.
+    const definedChanges: Record<string, unknown> = {};
+    const unsetFields: (keyof Omit<StudioWidget, 'id'>)[] = [];
+    for (const key of Object.keys(changes) as (keyof Omit<StudioWidget, 'id'>)[]) {
+      if (changes[key] === undefined) {
+        unsetFields.push(key);
+      } else {
+        definedChanges[key] = changes[key];
+      }
     }
 
-    const updated: StudioWidget = { ...existing, ...changes };
     // Re-infer titles when source changes, or when switching back to auto mode.
-    // Skip re-inference when the caller is explicitly providing a title/subtitle value.
+    // Skip re-inference when the caller explicitly provides a title/subtitle — keyed
+    // off the presence of the key in `changes` (even with an `undefined` value),
+    // exactly matching the historical `'title' in changes || 'subtitle' in changes`
+    // guard. Live-data title inference is a client-only effect the pure reducer does
+    // not own, so it is layered on afterwards via `transform` (mirrors
+    // `updateWidgetConfig`). `label: null` preserves the hand-written method's
+    // behaviour of NOT writing a recent-mutation-log line.
     const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
-    const withTitles = isExplicitTitleChange
-      ? updated
-      : this.applyInferredTitles(updated, state.dataSources);
-
-    this.commitState({
-      ...state,
-      widgets: {
-        ...state.widgets,
-        [widgetId]: withTitles,
+    this.commitMutation(
+      {
+        type: 'updateWidget',
+        args: {
+          widgetId,
+          changes: definedChanges as Partial<Omit<StudioWidget, 'id'>>,
+          ...(unsetFields.length > 0 ? { unsetFields } : {}),
+        },
       },
-    });
+      {
+        label: null,
+        transform: isExplicitTitleChange
+          ? undefined
+          : (next) => {
+              const updated = next.doc.widgets[widgetId];
+              const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+              return {
+                ...next,
+                doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
+              };
+            },
+      },
+    );
   };
 
   updateWidgetConfig = (
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
   ) => {
-    const state = this.store.state;
-    const existing = state.widgets[widgetId];
-
-    if (!existing) {
-      return;
-    }
-
-    const nextConfig = { ...existing.config } as Record<string, unknown>;
-    Object.entries(config).forEach(([key, value]) => {
-      if (value === undefined) {
-        delete nextConfig[key as keyof typeof nextConfig];
-      } else {
-        nextConfig[key] = value;
-      }
-    });
-
-    const updated: StudioWidget = {
-      ...existing,
-      config: nextConfig as StudioWidget['config'],
-    };
-    const withTitles = this.applyInferredTitles(updated, state.dataSources);
-
-    this.commitState(
+    // Delegate the config-patch merge (delete-on-`undefined` semantics) to the
+    // shared reducer's `updateWidget` handler, whose `config` branch already
+    // implements the identical delete-on-`undefined` behaviour. Live-data title
+    // inference is a client-only effect the pure reducer does not own, so it is
+    // layered on afterwards via `transform`. Per D1 this now uses the reducer's
+    // default `updateWidget:${widgetId}` log label (was `updateWidgetConfig:...`).
+    this.commitMutation(
+      { type: 'updateWidget', args: { widgetId, config: config as StudioWidget['config'] } },
       {
-        ...state,
-        widgets: {
-          ...state.widgets,
-          [widgetId]: withTitles,
+        transform: (next) => {
+          const updated = next.doc.widgets[widgetId];
+          const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+          return {
+            ...next,
+            doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
+          };
         },
       },
-      { label: `updateWidgetConfig:${widgetId}` },
     );
   };
 
   duplicateWidget = (widgetId: string) => {
     const state = this.store.state;
-    const existing = state.widgets[widgetId];
+    const existing = state.doc.widgets[widgetId];
 
     if (!existing) {
       return;
@@ -744,7 +901,7 @@ export class StudioController {
     const MAX_PER_ROW = 4;
 
     const newId = `${widgetId}-copy-${Date.now()}`;
-    const activePage = state.pages[state.dashboard.activePageId];
+    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
     const widgetRows = activePage.widgetRows || [];
 
     // Find the row containing the source widget
@@ -773,7 +930,7 @@ export class StudioController {
     }
 
     // Clone widget-scoped filters (including managed date range filters) for the duplicate.
-    const widgetScopeFilters = state.filters.filter(
+    const widgetScopeFilters = state.doc.filters.filter(
       (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId,
     );
     const clonedFilters = widgetScopeFilters.map((f: StudioFilterState) => ({
@@ -784,21 +941,27 @@ export class StudioController {
 
     this.commitState({
       ...state,
-      widgets: {
-        ...state.widgets,
-        [newId]: { ...existing, id: newId, title: `${existing.title} (copy)` },
-      },
-      pages: {
-        ...state.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetRows: newWidgetRows,
+      doc: {
+        ...state.doc,
+        widgets: {
+          ...state.doc.widgets,
+          [newId]: { ...existing, id: newId, title: `${existing.title} (copy)` },
         },
+        pages: {
+          ...state.doc.pages,
+          [activePage.id]: {
+            ...activePage,
+            widgetRows: newWidgetRows,
+          },
+        },
+        filters: [...state.doc.filters, ...clonedFilters],
       },
-      filters: [...state.filters, ...clonedFilters],
-      shell: {
-        ...state.shell,
-        selectedWidgetId: newId,
+      session: {
+        ...state.session,
+        shell: {
+          ...state.session.shell,
+          selectedWidgetId: newId,
+        },
       },
     });
   };
@@ -809,30 +972,24 @@ export class StudioController {
     // across pages when the user switches pages.
     const stampedFilter =
       filter.scope.kind === 'page'
-        ? { ...filter, scope: { kind: 'page' as const, pageId: state.dashboard.activePageId } }
+        ? { ...filter, scope: { kind: 'page' as const, pageId: state.doc.dashboard.activePageId } }
         : filter;
-    this.commitState(
-      {
-        ...state,
-        filters: [...state.filters, stampedFilter],
-      },
-      { label: `addFilter:${filter.field}` },
-    );
+    // The page-scope stamping above is argument-shaping the controller does today
+    // (not reducer duplication) and must survive; the append itself delegates to
+    // the shared reducer (which is idempotent on a duplicate filter id — appending
+    // a same-id filter twice was never desired behaviour).
+    this.commitMutation({ type: 'addFilter', args: { filter: stampedFilter } });
   };
 
   addRelationship = (relationship: import('../models').StudioRelationship) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: [...state.relationships, relationship],
-    });
+    this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
   };
 
   updateRelationship = (id: string, patch: Partial<import('../models').StudioRelationship>) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: state.relationships.map((rel: StudioRelationship) =>
+    this.commitDocPatch({
+      relationships: state.doc.relationships.map((rel: StudioRelationship) =>
         rel.id === id ? { ...rel, ...patch } : rel,
       ),
     });
@@ -840,25 +997,23 @@ export class StudioController {
 
   removeRelationship = (id: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      relationships: state.relationships.filter((rel: StudioRelationship) => rel.id !== id),
+    this.commitDocPatch({
+      relationships: state.doc.relationships.filter((rel: StudioRelationship) => rel.id !== id),
     });
   };
 
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
-    const hasExistingRankFilter = state.filters.some(
+    const hasExistingRankFilter = state.doc.filters.some(
       (filter: StudioFilterState) =>
         filter.id !== filterId &&
         filter.scope.kind !== 'cross-filter' &&
         filter.filterMode === 'rank',
     );
 
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.map((filter: StudioFilterState) => {
+        filters: state.doc.filters.map((filter: StudioFilterState) => {
           if (filter.id !== filterId) {
             return filter;
           }
@@ -886,26 +1041,59 @@ export class StudioController {
   };
 
   removeFilter = (filterId: string) => {
-    const state = this.store.state;
-
-    this.commitState(
-      {
-        ...state,
-        filters: state.filters.filter((f: StudioFilterState) => f.id !== filterId),
-      },
-      { label: `removeFilter:${filterId}` },
-    );
+    // Delegate to the shared reducer, which returns the same state reference when
+    // no filter matched — so `commitMutation` turns a removeFilter for an unknown
+    // id into a clean no-op (no undo entry, no log line) per D4.
+    this.commitMutation({ type: 'removeFilter', args: { filterId } });
   };
 
   toggleFilter = (filterId: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filters: state.filters.map((f: StudioFilterState) =>
+    this.commitDocPatch({
+      filters: state.doc.filters.map((f: StudioFilterState) =>
         f.id === filterId ? { ...f, disabled: !f.disabled } : f,
       ),
     });
   };
+
+  /**
+   * Builds one managed date-range `StudioFilterState`. Shared by the three
+   * date-range setters below, which previously re-implemented this custom-vs-preset
+   * value logic near-identically. A `'custom'` preset carries the explicit
+   * `{ from, to }` in `value`; every other preset stores `value: null` and is
+   * resolved fresh at query time by `resolveDateRangePreset` (regardless of scope),
+   * so the stored filter never holds stale absolute dates. Returns `null` when a
+   * `'custom'` preset has neither boundary — the caller then clears instead.
+   */
+  private buildDateRangeFilter(args: {
+    id: string;
+    field: string;
+    fieldType: StudioDataField['type'];
+    sourceId: string;
+    preset: StudioDateRangePreset;
+    scope: StudioFilterState['scope'];
+    customFrom?: string;
+    customTo?: string;
+  }): StudioFilterState | null {
+    let value: { from: string; to: string } | null = null;
+    if (args.preset === 'custom') {
+      if (!args.customFrom && !args.customTo) {
+        return null;
+      }
+      value = { from: args.customFrom ?? '', to: args.customTo ?? '' };
+    }
+    return {
+      id: args.id,
+      dateRangePreset: args.preset,
+      field: args.field,
+      fieldType: args.fieldType,
+      filterSourceId: args.sourceId,
+      filterMode: 'condition',
+      operator: 'between',
+      value,
+      scope: args.scope,
+    };
+  }
 
   /**
    * Sets or clears the dashboard-level date range filter for a page.
@@ -928,41 +1116,28 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
-    if (!preset || !fieldId || !sourceId) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
+    const newFilter =
+      preset && fieldId && sourceId
+        ? this.buildDateRangeFilter({
+            id: `dashboard-date-range-${pageId}`,
+            field: fieldId,
+            fieldType: fieldType ?? 'date',
+            sourceId,
+            preset,
+            scope: { kind: 'dashboard-date-range', sourceId, pageId },
+            customFrom,
+            customTo,
+          })
+        : null;
 
-    let value: { from: string; to: string } | null = null;
-
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
-    // dates at query time so the stored filter never holds stale absolute dates.
-
-    const newFilter: import('../models').StudioFilterState = {
-      id: `dashboard-date-range-${pageId}`,
-      dateRangePreset: preset,
-      field: fieldId,
-      fieldType: fieldType ?? 'date',
-      filterSourceId: sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: { kind: 'dashboard-date-range', sourceId, pageId },
-    };
-
-    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+    this.commitDocPatch({
+      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
+    });
   };
 
   /**
@@ -979,40 +1154,27 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
     );
 
-    if (fields.length === 0) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
+    const newFilters = fields
+      .map(({ fieldId, sourceId, fieldType }) =>
+        this.buildDateRangeFilter({
+          id: `dashboard-date-range-${pageId}-${sourceId}`,
+          field: fieldId,
+          fieldType,
+          sourceId,
+          preset,
+          scope: { kind: 'dashboard-date-range', sourceId, pageId },
+          customFrom,
+          customTo,
+        }),
+      )
+      .filter((f): f is StudioFilterState => f !== null);
 
-    let value: { from: string; to: string } | null = null;
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-
-    const newFilters: import('../models').StudioFilterState[] = fields.map(
-      ({ fieldId, sourceId, fieldType }) => ({
-        id: `dashboard-date-range-${pageId}-${sourceId}`,
-        dateRangePreset: preset,
-        field: fieldId,
-        fieldType,
-        filterSourceId: sourceId,
-        filterMode: 'condition' as const,
-        operator: 'between' as const,
-        value,
-        scope: { kind: 'dashboard-date-range' as const, sourceId, pageId },
-      }),
-    );
-
-    this.commitState({ ...state, filters: [...withoutExisting, ...newFilters] });
+    this.commitDocPatch({ filters: [...withoutExisting, ...newFilters] });
   };
 
   /**
@@ -1035,40 +1197,27 @@ export class StudioController {
     customTo?: string,
   ) => {
     const state = this.store.state;
-    const withoutExisting = state.filters.filter(
+    const withoutExisting = state.doc.filters.filter(
       (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
     );
 
-    if (!preset || !fieldId || !sourceId) {
-      this.commitState({ ...state, filters: withoutExisting });
-      return;
-    }
+    const newFilter =
+      preset && fieldId && sourceId
+        ? this.buildDateRangeFilter({
+            id: `widget-date-range-${widgetId}`,
+            field: fieldId,
+            fieldType: fieldType ?? 'date',
+            sourceId,
+            preset,
+            scope: { kind: 'widget', widgetId },
+            customFrom,
+            customTo,
+          })
+        : null;
 
-    let value: { from: string; to: string } | null = null;
-
-    if (preset === 'custom') {
-      if (!customFrom && !customTo) {
-        this.commitState({ ...state, filters: withoutExisting });
-        return;
-      }
-      value = { from: customFrom ?? '', to: customTo ?? '' };
-    }
-    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
-    // dates at query time so the stored filter never holds stale absolute dates.
-
-    const newFilter: import('../models').StudioFilterState = {
-      id: `widget-date-range-${widgetId}`,
-      dateRangePreset: preset,
-      field: fieldId,
-      fieldType: fieldType ?? 'date',
-      filterSourceId: sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: { kind: 'widget', widgetId },
-    };
-
-    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+    this.commitDocPatch({
+      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
+    });
   };
 
   applyInteractiveFilter = (
@@ -1083,7 +1232,7 @@ export class StudioController {
     },
   ) => {
     const state = this.store.state;
-    const existingFilters = state.filters.filter(
+    const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
     );
@@ -1093,16 +1242,13 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'interactive', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'interactive', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
       ...(options?.filterMode && { filterMode: options.filterMode }),
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
     };
 
-    this.commitState(
-      { ...state, filters: [...existingFilters, interactiveFilter] },
-      { undoable: false },
-    );
+    this.commitDocPatch({ filters: [...existingFilters, interactiveFilter] }, { undoable: false });
   };
 
   /**
@@ -1110,10 +1256,9 @@ export class StudioController {
    */
   clearInteractiveFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.filter(
+        filters: state.doc.filters.filter(
           (f: StudioFilterState) =>
             !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
         ),
@@ -1136,7 +1281,7 @@ export class StudioController {
   ) => {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
-    const existingFilters = state.filters.filter(
+    const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
     );
@@ -1146,16 +1291,13 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.dashboard.activePageId },
+      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };
 
-    this.commitState(
-      {
-        ...state,
-        filters: [...existingFilters, crossFilter],
-      },
+    this.commitDocPatch(
+      { filters: [...existingFilters, crossFilter] },
       { label: `applyCrossFilter:${sourceWidgetId}:${field}` },
     );
   };
@@ -1166,10 +1308,9 @@ export class StudioController {
   clearCrossFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
 
-    this.commitState(
+    this.commitDocPatch(
       {
-        ...state,
-        filters: state.filters.filter(
+        filters: state.doc.filters.filter(
           (f: StudioFilterState) =>
             !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
         ),
@@ -1183,9 +1324,9 @@ export class StudioController {
    */
   saveFilterPreset = (name: string): string => {
     const state = this.store.state;
-    const activePageId = state.dashboard.activePageId;
+    const activePageId = state.doc.dashboard.activePageId;
     // Only save filters for the current active page.
-    const pageFilters = state.filters.filter(
+    const pageFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
     );
@@ -1195,10 +1336,7 @@ export class StudioController {
       name,
       filters: pageFilters.map((f: StudioFilterState) => ({ ...f, id: `${id}-${f.id}` })),
     };
-    this.commitState({
-      ...state,
-      filterPresets: [...(state.filterPresets ?? []), preset],
-    });
+    this.commitDocPatch({ filterPresets: [...(state.doc.filterPresets ?? []), preset] });
     return id;
   };
 
@@ -1207,10 +1345,9 @@ export class StudioController {
    */
   clearPageFilters = () => {
     const state = this.store.state;
-    const activePageId = state.dashboard.activePageId;
-    this.commitState({
-      ...state,
-      filters: state.filters.filter(
+    const activePageId = state.doc.dashboard.activePageId;
+    this.commitDocPatch({
+      filters: state.doc.filters.filter(
         (f: StudioFilterState) =>
           f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
@@ -1222,16 +1359,17 @@ export class StudioController {
    */
   applyFilterPreset = (presetId: string) => {
     const state = this.store.state;
-    const preset = (state.filterPresets ?? []).find((p: StudioFilterPreset) => p.id === presetId);
+    const preset = (state.doc.filterPresets ?? []).find(
+      (p: StudioFilterPreset) => p.id === presetId,
+    );
     if (!preset) {
       return;
     }
-    const activePageId = state.dashboard.activePageId;
-    this.commitState({
-      ...state,
+    const activePageId = state.doc.dashboard.activePageId;
+    this.commitDocPatch({
       filters: [
         // Keep all non-page filters, and keep page filters for OTHER pages.
-        ...state.filters.filter(
+        ...state.doc.filters.filter(
           (f: StudioFilterState) =>
             f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
         ),
@@ -1249,9 +1387,8 @@ export class StudioController {
    */
   deleteFilterPreset = (presetId: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filterPresets: (state.filterPresets ?? []).filter(
+    this.commitDocPatch({
+      filterPresets: (state.doc.filterPresets ?? []).filter(
         (p: StudioFilterPreset) => p.id !== presetId,
       ),
     });
@@ -1262,9 +1399,8 @@ export class StudioController {
    */
   renameFilterPreset = (presetId: string, name: string) => {
     const state = this.store.state;
-    this.commitState({
-      ...state,
-      filterPresets: (state.filterPresets ?? []).map((p: StudioFilterPreset) =>
+    this.commitDocPatch({
+      filterPresets: (state.doc.filterPresets ?? []).map((p: StudioFilterPreset) =>
         p.id === presetId ? { ...p, name } : p,
       ),
     });
@@ -1276,9 +1412,8 @@ export class StudioController {
   clearAllCrossFilters = () => {
     const state = this.store.state;
 
-    this.commitState({
-      ...state,
-      filters: state.filters.filter((f: StudioFilterState) => f.scope.kind !== 'cross-filter'),
+    this.commitDocPatch({
+      filters: state.doc.filters.filter((f: StudioFilterState) => f.scope.kind !== 'cross-filter'),
     });
   };
 
@@ -1288,15 +1423,14 @@ export class StudioController {
   /** Updates fields on the active page (e.g. theme). */
   updateActivePage = (changes: Partial<Omit<StudioPage, 'id'>>) => {
     const state = this.store.state;
-    const pageId = state.dashboard.activePageId;
-    const page = state.pages[pageId];
+    const pageId = state.doc.dashboard.activePageId;
+    const page = state.doc.pages[pageId];
     if (!page) {
       return;
     }
-    this.commitState({
-      ...state,
+    this.commitDocPatch({
       pages: {
-        ...state.pages,
+        ...state.doc.pages,
         [pageId]: { ...page, ...changes },
       },
     });
@@ -1304,15 +1438,17 @@ export class StudioController {
 
   setActivePage = (pageId: string) => {
     const state = this.store.state;
-    if (!state.pages[pageId] || state.dashboard.activePageId === pageId) {
+    // Keep the same-value early return: the reducer builds a fresh dashboard object
+    // even when `activePageId` is unchanged, so without this guard a redundant
+    // navigation would still notify subscribers.
+    if (!state.doc.pages[pageId] || state.doc.dashboard.activePageId === pageId) {
       return;
     }
-    this.commitState(
-      {
-        ...state,
-        dashboard: { ...state.dashboard, activePageId: pageId },
-      },
-      { undoable: false },
+    // D5: user-driven navigation stays non-undoable and unlogged (`label: null`) —
+    // only the AI-driven `applyExternalMutation` path logs `setActivePage`.
+    this.commitMutation(
+      { type: 'setActivePage', args: { pageId } },
+      { undoable: false, label: null },
     );
   };
 
@@ -1321,17 +1457,11 @@ export class StudioController {
    * @returns The ID of the newly created page.
    */
   addPage = (title: string): string => {
-    const state = this.store.state;
+    // Generate the id up front (unchanged scheme) so it can be both stamped into
+    // the mutation and returned; the reducer creates the `{ id, title, widgetRows: [] }`
+    // page and re-activates it.
     const id = `page-${Date.now()}`;
-    const newPage: StudioPage = { id, title, widgetRows: [] };
-    this.commitState(
-      {
-        ...state,
-        pages: { ...state.pages, [id]: newPage },
-        dashboard: { ...state.dashboard, activePageId: id },
-      },
-      { label: `addPage:${id}` },
-    );
+    this.commitMutation({ type: 'addPage', args: { id, title } });
     return id;
   };
 
@@ -1340,43 +1470,12 @@ export class StudioController {
    * If the removed page is the active one, the first remaining page becomes active.
    */
   removePage = (pageId: string) => {
-    const state = this.store.state;
-    const page = state.pages[pageId];
-    if (!page) {
-      return;
-    }
-
-    // Collect widget IDs that are only on this page
-    const widgetIdsOnPage = new Set((page.widgetRows ?? []).flat());
-
-    /* eslint-disable-next-line @typescript-eslint/naming-convention */
-    const { [pageId]: _removed, ...remainingPages } = state.pages;
-
-    // Remove widgets that belong to this page
-    const remainingWidgets = Object.fromEntries(
-      Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
-    );
-
-    // Remove filters scoped to this page
-    const remainingFilters = state.filters.filter((f: StudioFilterState) => {
-      const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
-      return p !== pageId;
-    });
-
-    const pageIds = Object.keys(remainingPages);
-    const nextActivePageId =
-      state.dashboard.activePageId === pageId ? (pageIds[0] ?? '') : state.dashboard.activePageId;
-
-    this.commitState(
-      {
-        ...state,
-        pages: remainingPages,
-        widgets: remainingWidgets,
-        filters: remainingFilters,
-        dashboard: { ...state.dashboard, activePageId: nextActivePageId },
-      },
-      { label: `removePage:${pageId}` },
-    );
+    // Delegate the full state transform to the shared reducer — the single
+    // implementation that drops the page and its widgets, cleans page-scoped AND
+    // widget-scoped (orphaned) filters, and reassigns `activePageId`. This is a
+    // pure transform with no client-only effect, so it can delegate wholesale.
+    // An unknown `pageId` is a reducer no-op, skipped by `commitMutation`.
+    this.commitMutation({ type: 'removePage', args: { pageId } });
   };
 
   /**
@@ -1384,18 +1483,9 @@ export class StudioController {
    * Has no effect if the page does not exist.
    */
   renamePage = (pageId: string, title: string) => {
-    const state = this.store.state;
-    const page = state.pages[pageId];
-    if (!page) {
-      return;
-    }
-    this.commitState(
-      {
-        ...state,
-        pages: { ...state.pages, [pageId]: { ...page, title } },
-      },
-      { label: `renamePage:${pageId}` },
-    );
+    // Delegate to the shared reducer; an unknown `pageId` is a reducer no-op that
+    // `commitMutation` skips (matching the old `if (!page) return` guard).
+    this.commitMutation({ type: 'renamePage', args: { pageId, title } });
   };
 
   /**
@@ -1407,85 +1497,121 @@ export class StudioController {
     const state = this.store.state;
     const reordered: Record<string, StudioPage> = {};
     pageIds.forEach((id) => {
-      if (state.pages[id]) {
-        reordered[id] = state.pages[id];
+      if (state.doc.pages[id]) {
+        reordered[id] = state.doc.pages[id];
       }
     });
     // Append any pages omitted from the list (safety fallback)
-    Object.keys(state.pages).forEach((id) => {
+    Object.keys(state.doc.pages).forEach((id) => {
       if (!reordered[id]) {
-        reordered[id] = state.pages[id];
+        reordered[id] = state.doc.pages[id];
       }
     });
-    this.commitState({ ...state, pages: reordered });
+    this.commitDocPatch({ pages: reordered });
+  };
+
+  /**
+   * Single implementation of "move a widget between (or within) pages' rows",
+   * shared by the canvas drag-and-drop entry point ({@link moveWidget}) and the
+   * context-menu "move to page" action ({@link moveWidgetToPage}).
+   *
+   * For a cross-page move this is TWO `setWidgetLayout` mutations — the source
+   * page minus the widget, and the target page with it — folded into ONE commit
+   * via `commitMutations` (one undo step, one log line). For a same-page move it
+   * is a single `setWidgetLayout` on the target page. Either way, each page's
+   * column-span invariants are enforced by the reducer's `enforceLayoutColSpans`
+   * (stale singleton spans cleared, overflowing rows collapsed to flex), so no
+   * manual span-pruning logic lives here — the reducer is the single authority.
+   *
+   * `targetRows` is the target page's COMPLETE desired final layout including
+   * `widgetId`; the caller owns the geometry/splice math. An unknown `widgetId`
+   * (or a missing source page) is a clean no-op.
+   */
+  private commitWidgetMove = (
+    widgetId: string,
+    sourcePageId: string,
+    targetPageId: string,
+    targetRows: string[][],
+    options?: { label?: string | null; transform?: (next: StudioState) => StudioState },
+  ) => {
+    const state = this.store.state;
+    if (!Object.hasOwn(state.doc.widgets, widgetId)) {
+      return;
+    }
+    const mutations: StateMutation[] = [];
+    // Cross-page move: first rewrite the source page's rows without the widget.
+    if (sourcePageId !== targetPageId && Object.hasOwn(state.doc.pages, sourcePageId)) {
+      const sourceRows = (state.doc.pages[sourcePageId].widgetRows ?? [])
+        .map((row) => row.filter((id) => id !== widgetId))
+        .filter((row) => row.length > 0);
+      mutations.push({
+        type: 'setWidgetLayout',
+        args: { rows: sourceRows, pageId: sourcePageId },
+      });
+    }
+    mutations.push({
+      type: 'setWidgetLayout',
+      args: { rows: targetRows.filter((r) => r.length > 0), pageId: targetPageId },
+    });
+    this.commitMutations(mutations, {
+      label: options?.label === null ? null : (options?.label ?? `moveWidget:${widgetId}`),
+      transform: options?.transform,
+    });
+  };
+
+  /**
+   * Canvas drag-and-drop entry point for moving a widget within or across pages.
+   * `targetRows` is the target page's complete desired final layout (the canvas
+   * drop handler computes it). Selects the moved widget after committing.
+   */
+  moveWidget = (
+    widgetId: string,
+    sourcePageId: string,
+    targetPageId: string,
+    targetRows: string[][],
+  ) => {
+    this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows, {
+      transform: (next) => ({
+        ...next,
+        session: {
+          ...next.session,
+          shell: { ...next.session.shell, selectedWidgetId: widgetId },
+        },
+      }),
+    });
   };
 
   /**
    * Moves a widget from the active page to the specified target page.
    * The widget is appended as a new row on the target page.
-   * Widget filters scoped to the current page are re-scoped to the target page.
+   * Widget filters scoped to the current page carry only a `widgetId` (no pageId),
+   * so they need no re-scoping and are preserved automatically.
+   *
+   * Context-menu action — unlike {@link moveWidget} it does NOT select the moved
+   * widget (parity with its historical behaviour). Delegates the actual row/span
+   * transforms to the shared {@link commitWidgetMove} core.
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
     const state = this.store.state;
-    const sourcePageId = state.dashboard.activePageId;
+    const sourcePageId = state.doc.dashboard.activePageId;
     if (sourcePageId === targetPageId) {
       return;
     }
-    const sourcePage = state.pages[sourcePageId];
-    const targetPage = state.pages[targetPageId];
-    if (!sourcePage || !targetPage || !state.widgets[widgetId]) {
+    const sourcePage = state.doc.pages[sourcePageId];
+    const targetPage = state.doc.pages[targetPageId];
+    if (!sourcePage || !targetPage || !state.doc.widgets[widgetId]) {
       return;
     }
-
-    // Remove from source page rows
-    const sourceRows = (sourcePage.widgetRows ?? []).flatMap((row: string[]) => {
-      const r = row.filter((id: string) => id !== widgetId);
-      return r.length > 0 ? [r] : [];
-    });
-    const { [widgetId]: removedSourceSpan, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
-    void removedSourceSpan;
-
-    // Append as a new row on the target page
+    // Append the widget as a new trailing row on the target page (unchanged landing spot).
     const targetRows = [...(targetPage.widgetRows ?? []), [widgetId]];
-
-    // Re-scope widget-level filters to the target page
-    // (widget-scoped filters have no pageId in scope, so no re-scoping needed)
-    const updatedFilters = state.filters;
-
-    this.commitState({
-      ...state,
-      pages: {
-        ...state.pages,
-        [sourcePageId]: {
-          ...sourcePage,
-          widgetRows: sourceRows,
-          widgetColSpans: Object.keys(sourceSpans).length > 0 ? sourceSpans : undefined,
-        },
-        [targetPageId]: {
-          ...targetPage,
-          widgetRows: targetRows,
-        },
-      },
-      filters: updatedFilters,
-    });
+    this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows);
   };
 
   /**
    * Updates the dashboard title
    */
   setDashboardTitle = (title: string) => {
-    const state = this.store.state;
-
-    this.commitState(
-      {
-        ...state,
-        dashboard: {
-          ...state.dashboard,
-          title,
-        },
-      },
-      { label: 'setDashboardTitle' },
-    );
+    this.commitMutation({ type: 'setDashboardTitle', args: { title } });
   };
 
   subscribe = (listener: (state: StudioState) => void) => this.store.subscribe(listener);
@@ -1493,28 +1619,40 @@ export class StudioController {
   canUndo = () => this.undoStack.length > 0;
 
   undo = () => {
-    const previousState = this.undoStack.pop();
+    const previousDoc = this.undoStack.pop();
 
-    if (previousState == null) {
+    if (previousDoc == null) {
       return false;
     }
 
-    this.redoStack.push(this.store.state);
-    this.store.setState(previousState);
+    const current = this.store.state;
+    this.redoStack.push(current.doc);
+    // Swap only the doc; session and runtime carry forward unchanged by construction,
+    // except for nulling a widget selection the reverted doc no longer contains.
+    this.store.setState({
+      ...current,
+      doc: previousDoc,
+      session: this.normalizeSessionAfterDocSwap(current.session, previousDoc),
+    });
     return true;
   };
 
   canRedo = () => this.redoStack.length > 0;
 
   redo = () => {
-    const nextState = this.redoStack.pop();
+    const nextDoc = this.redoStack.pop();
 
-    if (nextState == null) {
+    if (nextDoc == null) {
       return false;
     }
 
-    this.undoStack.push(this.store.state);
-    this.store.setState(nextState);
+    const current = this.store.state;
+    this.undoStack.push(current.doc);
+    this.store.setState({
+      ...current,
+      doc: nextDoc,
+      session: this.normalizeSessionAfterDocSwap(current.session, nextDoc),
+    });
     return true;
   };
 
@@ -1532,7 +1670,7 @@ export class StudioController {
    */
   loadSerializedState = (
     serialized: unknown,
-    shellOverrides?: Partial<StudioState['shell']>,
+    shellOverrides?: Partial<StudioSession['shell']>,
   ): MigrationResult => {
     const migrationResult = migrateState(serialized);
 
@@ -1540,7 +1678,7 @@ export class StudioController {
       // Preserve the host app's data sources — they are never persisted
       const fullState = deserializeState(
         migrationResult.state,
-        this.store.state.dataSources,
+        this.store.state.runtime.dataSources,
         shellOverrides,
       );
       this.commitState(fullState, { undoable: false, resetHistory: true });
@@ -1555,10 +1693,18 @@ export class StudioController {
    * resumes with the undo/redo history intact.
    */
   serializeSession = (): SerializedStudioSession => {
-    const toSnapshot = (state: StudioState) => ({ mode: state.mode, state: serializeState(state) });
+    // `mode` is captured once (the session mode at save time) and stamped onto every
+    // snapshot: mode lives in the non-undoable session partition, so it does not vary
+    // across undo/redo history — the per-snapshot `mode` field is retained only for
+    // on-disk backward compatibility.
+    const { mode } = this.store.state.session;
+    const toSnapshot = (doc: StudioDoc): SerializedStudioSnapshot => ({
+      mode,
+      state: serializeDoc(doc),
+    });
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
-      present: toSnapshot(this.store.state),
+      present: toSnapshot(this.store.state.doc),
       past: this.undoStack.map(toSnapshot),
       future: this.redoStack.map(toSnapshot),
     };
@@ -1589,40 +1735,45 @@ export class StudioController {
       return invalid(['Invalid session: missing "present" snapshot']);
     }
 
-    const dataSources = this.store.state.dataSources;
-    // Restore a snapshot to a full state, re-applying its captured mode (mode is not part
-    // of the serialized state). Returns null if the snapshot fails to migrate.
-    const toState = (snapshot: SerializedStudioSnapshot | undefined): StudioState | null => {
+    const dataSources = this.store.state.runtime.dataSources;
+    // Restore a single history snapshot to its `doc` (migrate → deserialize → .doc).
+    // Undo/redo stacks are docs now, so history entries no longer carry a full state
+    // or a per-entry mode. Returns null if the snapshot fails to migrate.
+    const toDoc = (snapshot: SerializedStudioSnapshot | undefined): StudioDoc | null => {
       const result = snapshot?.state ? migrateState(snapshot.state) : null;
       if (!result?.success || !result.state) {
         return null;
       }
-      const state = deserializeState(result.state, dataSources);
-      return { ...state, mode: snapshot!.mode ?? state.mode };
+      return deserializeState(result.state, dataSources).doc;
     };
 
     const presentResult = migrateState(present.state);
     if (!presentResult.success || !presentResult.state) {
       return presentResult;
     }
-    const presentState = toState(present)!;
+    const presentState = deserializeState(presentResult.state, dataSources);
+    // Mode is taken from the present snapshot only (mode is not per-history-entry).
+    const presentWithMode: StudioState = {
+      ...presentState,
+      session: { ...presentState.session, mode: present.mode ?? presentState.session.mode },
+    };
 
     // Drop any history entries that fail to migrate rather than aborting the whole restore.
-    this.undoStack = (Array.isArray(past) ? past : [])
-      .map(toState)
-      .filter(Boolean) as StudioState[];
+    this.undoStack = (Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[];
     this.redoStack = (Array.isArray(future) ? future : [])
-      .map(toState)
-      .filter(Boolean) as StudioState[];
+      .map(toDoc)
+      .filter(Boolean) as StudioDoc[];
     this.mutationLog = [];
-    this.store.setState(presentState);
+    this.store.setState(presentWithMode);
 
     return presentResult;
   };
 }
 
 /** Creates a new {@link StudioController} with the given initial state. */
-export function createStudioController(initialState?: Partial<StudioState>): StudioController {
+export function createStudioController(
+  initialState?: CreateDefaultStudioStateOverrides,
+): StudioController {
   return new StudioController(initialState);
 }
 

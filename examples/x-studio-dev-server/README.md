@@ -5,6 +5,7 @@ A local development server for MUI X Studio that combines the data and AI middle
 ## What it does
 
 - **Sales data API** (`POST /api/sales-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
+- **Sales mutations API** (`POST /api/sales-mutations`) — applies write-back mutations (INSERT/UPDATE/DELETE) to the sales dataset via `handleMutation`, powering editable Grid widgets.
 - **CRM data API** (`POST /api/crm-data`) — serves the CRM demo dataset (contacts, deals, activities) from a separate database. Demonstrates the multiple-endpoints pattern for cross-source relationships.
 - **AI API** (`POST /api/ai/chat`, `/insight`, `/title`, `/widget`) — handles all Studio AI operations through `@mui/x-studio-ai-middleware`. Builds the system prompt, runs the agentic loop, and streams SSE responses back to the client.
 - **MCP server** (`POST|GET|DELETE /api/mcp`) — exposes all x-studio AI tools via the [Model Context Protocol](https://modelcontextprotocol.io/), allowing Claude Desktop, Cursor, and other MCP clients to manipulate dashboards programmatically without a browser.
@@ -31,21 +32,21 @@ The server starts at `http://localhost:3020` and seeds the database on first run
 
 All configuration is done via environment variables. See `.env.example` for the full list.
 
-| Variable           | Default                                      | Description                                                           |
-| ------------------ | -------------------------------------------- | --------------------------------------------------------------------- |
-| `PORT`             | `3020`                                       | Server port                                                           |
-| `DB_CLIENT`        | `better-sqlite3`                             | Database driver (`better-sqlite3`, `pg`, `mysql2`)                    |
-| `SALES_DB_FILENAME`| `./sales.db`                                 | SQLite file path (sales DB)                                           |
-| `CRM_DB_FILENAME`  | `./crm.db`                                   | SQLite file path (CRM DB)                                             |
-| `SALES_DB_NAME`    | —                                            | Database name for sales (PostgreSQL/MySQL)                            |
-| `CRM_DB_NAME`      | `<SALES_DB_NAME>_crm`                        | Database name for CRM (PostgreSQL/MySQL)                              |
-| `SEED_ORDER_COUNT` | `500`                                        | Number of orders to generate on seed                                  |
-| `LLM_API_KEY`      | —                                            | OpenAI-compatible API key (required for AI features)                  |
-| `LLM_ENDPOINT`     | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL                                                      |
-| `LLM_MODEL`        | `gpt-4o`                                     | Model name                                                            |
-| `JWT_SECRET`       | `dev-secret-change-in-production`            | Secret for signing dev JWTs                                           |
-| `STUDIO_TOKEN`     | —                                            | If set, all API requests must include `Authorization: Bearer <token>` |
-| `ALLOWED_ORIGINS`  | `http://localhost:3004,...`                  | CORS allowed origins (comma-separated)                                |
+| Variable            | Default                                      | Description                                                           |
+| ------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
+| `PORT`              | `3020`                                       | Server port                                                           |
+| `DB_CLIENT`         | `better-sqlite3`                             | Database driver (`better-sqlite3`, `pg`, `mysql2`)                    |
+| `SALES_DB_FILENAME` | `./sales.db`                                 | SQLite file path (sales DB)                                           |
+| `CRM_DB_FILENAME`   | `./crm.db`                                   | SQLite file path (CRM DB)                                             |
+| `SALES_DB_NAME`     | —                                            | Database name for sales (PostgreSQL/MySQL)                            |
+| `CRM_DB_NAME`       | `<SALES_DB_NAME>_crm`                        | Database name for CRM (PostgreSQL/MySQL)                              |
+| `SEED_ORDER_COUNT`  | `500`                                        | Number of orders to generate on seed                                  |
+| `LLM_API_KEY`       | —                                            | OpenAI-compatible API key (required for AI features)                  |
+| `LLM_ENDPOINT`      | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL                                                      |
+| `LLM_MODEL`         | `gpt-4o`                                     | Model name                                                            |
+| `JWT_SECRET`        | `dev-secret-change-in-production`            | Secret for signing dev JWTs                                           |
+| `STUDIO_TOKEN`      | —                                            | If set, all API requests must include `Authorization: Bearer <token>` |
+| `ALLOWED_ORIGINS`   | `http://localhost:3004,...`                  | CORS allowed origins (comma-separated)                                |
 
 ## Scripts
 
@@ -101,6 +102,14 @@ Accepts a natural-language description and returns an AI-generated widget config
 
 Accepts a Studio batch query request body targeting the sales database and returns query results.
 
+### `POST /api/sales-mutations`
+
+Accepts a Studio batch mutation request body (INSERT/UPDATE/DELETE) targeting the sales database via
+`handleMutation` and returns per-mutation results. Grid widgets call this automatically from
+`processRowUpdate` when the widget's `config.gridPkField` is set and the client adapter was created
+with a `mutationEndpoint` pointing here. Permissive-by-default for the demo — every column in the
+allowlisted sales tables is writable.
+
 ### `POST /api/ai/chat`
 
 Accepts a Studio AI chat request and streams SSE responses. Requires `LLM_API_KEY`.
@@ -115,7 +124,7 @@ The dev server exposes an [MCP (Model Context Protocol)](https://modelcontextpro
 
 ### Available MCP tools
 
-All x-studio AI tools are registered except `summarise_page` (requires live client-side row data) and `execute_query` (raw SQL — opt in via `allowedTools` if needed):
+All x-studio AI tools are registered, including `query_data_source` (backed by the sales + CRM databases via `handleBatchQuery`) and `summarise_page` (degrades gracefully without a `data` option, but this dev server always configures one):
 
 | Tool | Description |
 | ---- | ----------- |

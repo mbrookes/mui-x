@@ -138,7 +138,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         filterCapability={fieldCapability}
         getOptionDisabled={sliderGetOptionDisabled}
         label={localeText.filterFieldLabel}
+        required
       />
+
+      {!fieldId && <Alert severity="info">{localeText.filterSetupSelectFieldAlert}</Alert>}
 
       {/* Slider-specific: min / max / step */}
       {filterType === 'slider' && (
@@ -146,9 +149,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
           <Typography variant="caption" color="text.secondary">
             {localeText.filterSetupSliderRangeHelperText}
           </Typography>
-          <Stack direction="row" spacing={1}>
+          <Stack spacing={1}>
             <TextField
               size="small"
+              fullWidth
               label={localeText.filterSetupMinLabel}
               type="number"
               value={config.filterWidgetMin ?? ''}
@@ -157,10 +161,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
                   filterWidgetMin: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
-              sx={{ flex: 1 }}
             />
             <TextField
               size="small"
+              fullWidth
               label={localeText.filterSetupMaxLabel}
               type="number"
               value={config.filterWidgetMax ?? ''}
@@ -169,10 +173,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
                   filterWidgetMax: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
-              sx={{ flex: 1 }}
             />
             <TextField
               size="small"
+              fullWidth
               label={localeText.filterSetupStepLabel}
               type="number"
               value={config.filterWidgetStep ?? ''}
@@ -181,13 +185,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
                   filterWidgetStep: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
-              sx={{ flex: 1 }}
             />
           </Stack>
         </Stack>
       )}
-
-      {!fieldId && <Alert severity="info">{localeText.filterSetupSelectFieldAlert}</Alert>}
     </Stack>
   );
 }

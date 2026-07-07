@@ -1,6 +1,6 @@
 import { detectAnomaliesIQR } from '@mui/x-studio-schema';
 import type { StudioWidget } from '../models';
-import type { StudioChartAnnotation } from '../models/baseTypes';
+import type { StudioChartAnnotation } from '../models/widgetTypes';
 // Tukey IQR detection now lives in the shared `@mui/x-studio-schema` package
 // (previously duplicated here and, byte-for-byte, in the AI middleware's mcp.ts).
 // Re-exported so existing callers importing it from this module keep working.
@@ -31,6 +31,29 @@ export function detectAnomaliesZScore(values: number[], threshold = 2.5): Set<nu
     }
   }
   return result;
+}
+
+// ── Anomaly-annotation sentinel format ────────────────────────────────────────
+// This module owns the id/label format of anomaly annotations (see
+// `detectChartDataAnomalies` below). Consumers that need to distinguish an
+// anomaly annotation from a user-authored one must use `isAnomalyAnnotation`
+// rather than re-deriving the format, so the sentinel lives in exactly one place.
+
+/** Prefix of the auto-generated `id` for every anomaly annotation. */
+export const ANOMALY_ANNOTATION_ID_PREFIX = 'anomaly-';
+/** The sentinel `label` used for anomaly annotations. */
+export const ANOMALY_ANNOTATION_LABEL = '⚠';
+
+/**
+ * Returns true when an annotation was produced by anomaly detection (as opposed
+ * to being user-authored). Kept next to the code that constructs the sentinel so
+ * the two never drift.
+ */
+export function isAnomalyAnnotation(annotation: { id?: string; label?: string }): boolean {
+  return (
+    (annotation.id?.startsWith(ANOMALY_ANNOTATION_ID_PREFIX) ?? false) ||
+    annotation.label === ANOMALY_ANNOTATION_LABEL
+  );
 }
 
 // ── Chart types that support anomaly detection ────────────────────────────────
@@ -99,7 +122,12 @@ export function detectChartDataAnomalies(
       continue;
     }
     seen.add(key);
-    annotations.push({ id: `anomaly-${widgetId}-${counter}`, axis: 'x', value, label: '⚠' });
+    annotations.push({
+      id: `${ANOMALY_ANNOTATION_ID_PREFIX}${widgetId}-${counter}`,
+      axis: 'x',
+      value,
+      label: ANOMALY_ANNOTATION_LABEL,
+    });
     counter += 1;
   }
   return annotations;

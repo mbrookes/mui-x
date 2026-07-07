@@ -255,7 +255,7 @@ type StateMutation =
   | { type: 'setActivePage'; args: { pageId: string } }
   | { type: 'addFilter'; args: { filter: StudioFilterState } }
   | { type: 'removeFilter'; args: { filterId: string } }
-  | { type: 'applyBulkUpdate'; args: { widgets, widgetRows, widgetColSpans, activePageId } };
+  | { type: 'applyBulkUpdate'; args: { removedWidgetIds, addedWidgets, updatedWidgets, widgetRows, widgetColSpans, activePageId } };
 ```
 
 ---
@@ -355,19 +355,19 @@ queryDataSource: async (params) => {
 
 ### `StudioMcpOptions`
 
-| Option                 | Type                                            | Default                    | Description                                                                                                                              |
-| :--------------------- | :---------------------------------------------- | :------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
-| `serverName`           | `string`                                        | `'x-studio'`               | Name reported in `initialize` response                                                                                                   |
-| `serverVersion`        | `string`                                        | `'1.0.0'`                  | Version reported in `initialize` response                                                                                                |
-| `allowedTools`         | `string[]`                                      | all except `execute_query` | Exact list of tool names to expose                                                                                                       |
-| `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                       | Custom widget definitions for tool handling                                                                                              |
-| `data.queryDataSource` | `(params) => Promise<result>`                   | —                          | When provided, enables `query_data_source` tool, `summarise_page` synthesis, and data resources                                          |
-| `data.maxQueryRows`    | `number`                                        | `1000`                     | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
-| `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                          | Called after every mutating tool call. Use to persist the session state to a database (see [State persistence](#state-persistence))      |
+| Option                 | Type                                            | Default             | Description                                                                                                                              |
+| :--------------------- | :---------------------------------------------- | :------------------ | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverName`           | `string`                                        | `'x-studio'`        | Name reported in `initialize` response                                                                                                   |
+| `serverVersion`        | `string`                                        | `'1.0.0'`           | Version reported in `initialize` response                                                                                                |
+| `allowedTools`         | `string[]`                                      | all supported tools | Exact list of tool names to expose                                                                                                       |
+| `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                | Custom widget definitions for tool handling                                                                                              |
+| `data.queryDataSource` | `(params) => Promise<result>`                   | —                   | When provided, enables `query_data_source` tool, `summarise_page` synthesis, and data resources                                          |
+| `data.maxQueryRows`    | `number`                                        | `1000`              | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
+| `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                   | Called after every mutating tool call. Use to persist the session state to a database (see [State persistence](#state-persistence))      |
 
 ### Tools registered by default
 
-All `STUDIO_AI_TOOLS` except `execute_query` (raw SQL — opt in explicitly via `allowedTools`).
+All `STUDIO_AI_TOOLS` except `query_data_source`, which is only registered when `data.queryDataSource` is provided.
 
 `summarise_page` synthesises a page summary by querying each widget's data source when `data` is configured; it returns a descriptive error when `data` is not provided.
 

@@ -5,7 +5,7 @@ import type {
   StudioRelationship,
   StudioState,
 } from '../models';
-import { resolveChartRowsForAggregation } from './chartUtils';
+import { resolveChartRowsForAggregation } from './chartAggregation';
 import { selectFiltersForWidget } from './filterScoping';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
@@ -96,7 +96,15 @@ export interface StudioPipeline {
  * ```
  */
 export function createStudioPipeline(state: StudioPipelineState | StudioState): StudioPipeline {
-  const { dataSources, relationships, expressionFields, filters } = state;
+  const { dataSources, relationships, expressionFields, filters } =
+    'doc' in state
+      ? {
+          dataSources: state.runtime.dataSources,
+          relationships: state.doc.relationships,
+          expressionFields: state.doc.expressionFields,
+          filters: state.doc.filters,
+        }
+      : state;
 
   return {
     resolveWidgetRows(widgetId, sourceId, rows, pageId) {

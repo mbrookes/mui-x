@@ -14,7 +14,6 @@ import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
 import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
-import { RedisTierCacheProvider } from '../cache/RedisTierCacheProvider';
 
 // The handler computes cache keys via generateCacheKey(), which now fails closed
 // when no HMAC secret is configured. Provide one for the whole test file.
@@ -76,6 +75,13 @@ const GLOBEX_CLAIMS: JwtSecurityClaims = {
   userId: 'user-456',
   roleIds: ['analyst'],
 };
+
+// Tenancy is now a required, explicit decision on every options object. Tests that
+// configure a tenant column use MULTI_TENANT; tests that configure none declare
+// SINGLE_TENANT explicitly (the same unscoped behavior, now stated rather than
+// silently implied by omission).
+const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+const SINGLE_TENANT = { mode: 'single-tenant' } as const;
 
 function makeDb() {
   return createMockDb({ sales: SALES_ROWS });
@@ -207,6 +213,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
         columnAllowlist: { orders: ['id'] }, // no 'sales' entry
       }),
     ).rejects.toThrow(/Table "sales" has no entry in the column allowlist/);
@@ -220,6 +227,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
       columnAllowlist: { sales: ['*'] },
     });
     expect(result.results[0].error).toBeUndefined();
@@ -241,10 +249,129 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
         // 'sales' present, but no 'customers' entry → join.on right side is rejected.
         columnAllowlist: { sales: ['region', 'customer_id'] },
       }),
     ).rejects.toThrow(/Table "customers" has no entry in the column allowlist \(join.on\)/);
+  });
+
+  it('validates an UNQUALIFIED join.on right-side column against the JOINED table, not the primary', async () => {
+    // Regression: the right side of a join `on` pair conventionally belongs to
+    // the JOINED table. An unqualified column allowlisted only on the primary
+    // table, but sensitive on the joined table, used to pass validation (checked
+    // against the primary allowlist) while Knex resolves it against the joined
+    // table at execution time. It must now be validated against `join.table`.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          // `id` is allowlisted on `sales` (primary) but NOT on `customers`; as
+          // the unqualified RIGHT side it belongs to `customers` and is rejected.
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'id']] }],
+        },
+      ],
+    };
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
+        columnAllowlist: { sales: ['region', 'customer_id', 'id'], customers: ['name'] },
+      }),
+    ).rejects.toThrow(/Column "id" on table "customers" is not in the column allowlist/);
+  });
+
+  // Pins the invariant every alias-resolution call site relies on `resolveAlias`
+  // (shared/columnValidation.ts) for: a `columnAliases` entry can only ever
+  // RELABEL a column the caller could already reach — it can never make a query
+  // touch a column outside the allowlist. Exercised end-to-end through
+  // `handleBatchQuery` (not just `buildSecureQuery` in isolation) so the
+  // assertion covers validation and execution agreeing, not just one side.
+  // 'ssn'/'customers.ssn' is never allowlisted on either table in the shared
+  // options below — an alias resolving to it must be rejected regardless of
+  // which clause (columns/filters/join.on) used it.
+  it.each<[string, BatchQueryRequest['widgets'][number]]>([
+    [
+      'columns',
+      { id: 'w1', table: 'sales', columns: ['revenue'], columnAliases: { revenue: 'ssn' } },
+    ],
+    [
+      'filters',
+      {
+        id: 'w1',
+        table: 'sales',
+        columns: ['region'],
+        columnAliases: { customerSsn: 'ssn' },
+        filters: [{ column: 'customerSsn', operator: 'eq', value: '123-45-6789' }],
+      },
+    ],
+    [
+      'join.on',
+      {
+        id: 'w1',
+        table: 'sales',
+        columns: ['region'],
+        columnAliases: { customerSsn: 'customers.ssn' },
+        joins: [{ table: 'customers', on: [['sales.customer_id', 'customerSsn']] }],
+      },
+    ],
+  ])(
+    'rejects a columnAliases target that is not in the column allowlist (%s)',
+    async (_context, widget) => {
+      await expect(
+        handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
+          db: makeDb(),
+          schemaAllowlist: ['sales', 'customers'],
+          tenancy: SINGLE_TENANT,
+          columnAllowlist: { sales: ['region', 'revenue', 'customer_id'], customers: [] },
+        }),
+      ).rejects.toThrow(/is not in the column allowlist/);
+    },
+  );
+});
+
+// ─── handleBatchQuery — empty-region scope (regionIds: []) is fail-closed ──────
+
+describe('handleBatchQuery — empty-region scope (regionIds: []) is fail-closed on reads', () => {
+  const REGION_ROWS = [
+    { id: 1, tenant_id: 'acme', region_id: 1, product: 'a' },
+    { id: 2, tenant_id: 'acme', region_id: 2, product: 'b' },
+  ];
+  const body: BatchQueryRequest = {
+    pageId: 'p1',
+    widgets: [{ id: 'w1', table: 'orders', columns: ['id'] }],
+  };
+
+  it('returns ZERO rows when the caller is authorized for zero regions (regionIds: [])', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS, regionIds: [] },
+      {
+        db: createMockDb({ orders: REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenancy: MULTI_TENANT,
+      },
+    );
+    // `regionIds: []` must NOT widen to the whole tenant table — zero rows.
+    expect(res.results[0].rows).toHaveLength(0);
+  });
+
+  it('returns all tenant rows when regionIds is undefined (deployment not region-scoped)', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS },
+      {
+        db: createMockDb({ orders: REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenancy: MULTI_TENANT,
+      },
+    );
+    // undefined ≠ [] — no region restriction, so both tenant rows are returned.
+    expect(res.results[0].rows).toHaveLength(2);
   });
 });
 
@@ -261,6 +388,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
       }),
     ).rejects.toThrow('not in schema allowlist');
   });
@@ -274,6 +402,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
     expect(result.results[0].error).toBeUndefined();
   });
@@ -291,7 +420,7 @@ describe('handleBatchQuery — tenant isolation', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
@@ -312,7 +441,7 @@ describe('handleBatchQuery — tenant isolation', () => {
     const result = await handleBatchQuery(body, GLOBEX_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
@@ -342,7 +471,7 @@ describe('handleBatchQuery — user filter predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
       cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
@@ -369,6 +498,7 @@ describe('handleBatchQuery — user filter predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     const rows = result.results[0].rows;
@@ -393,6 +523,7 @@ describe('handleBatchQuery — user filter predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     const rows = result.results[0].rows;
@@ -416,6 +547,7 @@ describe('handleBatchQuery — user filter predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     const rows = result.results[0].rows;
@@ -423,6 +555,61 @@ describe('handleBatchQuery — user filter predicates', () => {
       expect(row.amount).toBeGreaterThanOrEqual(150);
     }
   });
+});
+
+// ─── handleBatchQuery — columnAliases success path ───────────────────────────
+//
+// `mockDb.ts` previously had no `db.raw()`, so any descriptor using
+// `columnAliases` would crash with "db.raw is not a function" — only the
+// alias-mapping *logic* was covered (via a recording mock in preflight.test.ts
+// that just asserts on the call args), never the actual renamed-output rows
+// produced end-to-end through `handleBatchQuery`. `mockDb.ts` now implements a
+// minimal `raw('?? as ??', [phys, alias])`, so this exercises the real success
+// path: a logical column id that maps to a different physical column actually
+// comes back under the logical id, with the right values.
+describe('handleBatchQuery — columnAliases success path', () => {
+  it('SELECTs the physical column AS the logical id (client/server tier)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['revenue'],
+          columnAliases: { revenue: 'amount' },
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+    });
+
+    expect(result.results[0].error).toBeUndefined();
+    const rows = result.results[0].rows;
+    expect(rows.length).toBeGreaterThan(0);
+
+    // The logical id "revenue" must be present with the underlying "amount"
+    // value, and the physical column name must NOT leak into the row shape.
+    const expectedAmounts = SALES_ROWS.filter((r) => r.tenant_id === 'acme')
+      .map((r) => r.amount)
+      .sort((a, b) => a - b);
+    expect(rows.map((r) => r.revenue as number).sort((a, b) => a - b)).toEqual(expectedAmounts);
+    for (const row of rows) {
+      expect(row).not.toHaveProperty('amount');
+    }
+  });
+
+  // Note: the 'db' (aggregation push-down) tier also calls `db.raw('?? as ??', ...)`
+  // for an aliased dimension column (see `executeForTier` in router/preflight.ts),
+  // but `mockDb.ts`'s aggregation branch builds output rows directly from its
+  // `groupBy()` columns rather than from `select()`'s projection list, so it does
+  // not honor column-alias renaming for aggregated queries. Extending the mock's
+  // aggregation-grouping code to do so is a known, currently out-of-scope gap in
+  // this test double — the client/server-tier case above already proves the renamed-output
+  // success path that was previously untestable at all.
 });
 
 // ─── handleBatchQuery — batch of multiple widgets ────────────────────────────
@@ -444,6 +631,7 @@ describe('handleBatchQuery — batch', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     expect(result.pageId).toBe('dashboard-1');
@@ -463,7 +651,12 @@ describe('handleBatchQuery — cache', () => {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
-    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: cache,
+    };
 
     const result1 = await handleBatchQuery(body, ACME_CLAIMS, opts);
     const result2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
@@ -482,7 +675,12 @@ describe('handleBatchQuery — cache', () => {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
-    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: cache,
+    };
 
     const first = await handleBatchQuery(body, ACME_CLAIMS, opts);
     const second = await handleBatchQuery(body, ACME_CLAIMS, opts);
@@ -519,6 +717,7 @@ describe('handleBatchQuery — cache', () => {
     await handleBatchQuery(body, ACME_CLAIMS, {
       db: joinCapableDb,
       schemaAllowlist: ['sales', 'customers'],
+      tenancy: SINGLE_TENANT,
       cacheProvider: cache,
     });
     expect(setTags[0]).toEqual(['sales', 'customers']);
@@ -534,7 +733,7 @@ describe('handleBatchQuery — cache', () => {
       db: makeDb(),
       schemaAllowlist: ['sales'],
       cacheProvider: cache,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     };
 
     const acmeResult = await handleBatchQuery(body, ACME_CLAIMS, opts);
@@ -545,85 +744,31 @@ describe('handleBatchQuery — cache', () => {
     expect([...acmeTenantIds]).toEqual(['acme']);
     expect([...globexTenantIds]).toEqual(['globex']);
   });
-});
 
-// ─── LRUCacheProvider ─────────────────────────────────────────────────────────
-
-describe('LRUCacheProvider', () => {
-  it('stores and retrieves values', async () => {
+  it('reports a stable rowCount across cold miss and cache hit when limit truncates (finding 1.7)', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
-    const entry = { rows: [{ id: 1 }], cachedAt: Date.now() };
-    await cache.set('key1', entry);
-    const retrieved = await cache.get('key1');
-    expect(retrieved?.rows).toEqual(entry.rows);
-  });
+    // 4 acme rows, but limit truncates the returned rows to 2. The reported
+    // rowCount must reflect the preflight total (4) on BOTH the cold miss and the
+    // subsequent cache hit — not flip to rows.length (2) on the hit.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', limit: 2 }],
+    };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      cacheProvider: cache,
+      tenancy: MULTI_TENANT,
+    };
 
-  it('returns undefined for missing keys', async () => {
-    const cache = new LRUCacheProvider();
-    const result = await cache.get('nonexistent');
-    expect(result).toBeUndefined();
-  });
+    const first = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    const second = await handleBatchQuery(body, ACME_CLAIMS, opts);
 
-  it('invalidates entries by prefix', async () => {
-    const cache = new LRUCacheProvider({ ttlMs: 5000 });
-    const entry = { rows: [], cachedAt: Date.now() };
-    await cache.set('studio:v1:acme:abc:123', entry);
-    await cache.set('studio:v1:acme:abc:456', entry);
-    await cache.set('studio:v1:globex:def:789', entry);
-
-    await cache.invalidatePrefix('studio:v1:acme:');
-    expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
-    expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
-    expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
-  });
-});
-
-// ─── MapTierCacheProvider ─────────────────────────────────────────────────────
-
-describe('MapTierCacheProvider', () => {
-  it('stores and retrieves tier entries', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('key1', { tier: 'server', rowCount: 5000 });
-    const entry = await cache.get('key1');
-    expect(entry?.tier).toBe('server');
-    expect(entry?.rowCount).toBe(5000);
-  });
-
-  it('returns undefined for missing keys', async () => {
-    const cache = new MapTierCacheProvider();
-    expect(await cache.get('missing')).toBeUndefined();
-  });
-
-  it('returns undefined after TTL expires', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('key1', { tier: 'client', rowCount: 100 }, 1); // 1ms TTL
-    await new Promise((r) => {
-      setTimeout(r, 10);
-    });
-    expect(await cache.get('key1')).toBeUndefined();
-  });
-
-  it('invalidates entries by prefix', async () => {
-    const cache = new MapTierCacheProvider();
-    const entry = { tier: 'server' as const, rowCount: 50000 };
-    await cache.set('studio:v1:acme:abc:123', entry);
-    await cache.set('studio:v1:acme:abc:456', entry);
-    await cache.set('studio:v1:globex:def:789', entry);
-
-    await cache.invalidatePrefix('studio:v1:acme:');
-    expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
-    expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
-    expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
-  });
-
-  it('size counts only non-expired entries', async () => {
-    const cache = new MapTierCacheProvider();
-    await cache.set('k1', { tier: 'client', rowCount: 1 }, 50);
-    await cache.set('k2', { tier: 'server', rowCount: 2 }, 1); // expires immediately
-    await new Promise((r) => {
-      setTimeout(r, 10);
-    });
-    expect(cache.size).toBe(1); // k2 is expired
+    expect(first.results[0].rows).toHaveLength(2);
+    expect(first.results[0].rowCount).toBe(4);
+    // Cache hit: rows still truncated, but rowCount stays the preflight total.
+    expect(second.results[0].rows).toHaveLength(2);
+    expect(second.results[0].rowCount).toBe(4);
   });
 });
 
@@ -639,6 +784,7 @@ describe('handleBatchQuery — tier routing cache', () => {
     await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
       cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }), // fresh cache — no prior entries
       tierCacheProvider: tierCache,
       tierCacheTtlMs: 60_000,
@@ -658,6 +804,7 @@ describe('handleBatchQuery — tier routing cache', () => {
     const opts = {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
       // No data cache — forces cold path each time
       cacheProvider: new LRUCacheProvider({ ttlMs: 1 }), // 1ms TTL → always expires
       tierCacheProvider: tierCache,
@@ -689,100 +836,12 @@ describe('handleBatchQuery — tier routing cache', () => {
     await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
       tierCacheProvider: tierCache,
       tierCacheTtlMs: 0,
     });
     // Tier cache should not be populated when disabled
     expect(tierCache.size).toBe(0);
-  });
-});
-
-// ─── RedisTierCacheProvider ──────────────────────────────────────────────────
-
-/** Minimal in-memory Redis mock that satisfies RedisClient. */
-function makeRedisClient() {
-  const store = new Map<string, { value: string; expiresAt: number }>();
-  return {
-    store,
-    async get(key: string): Promise<string | null> {
-      const entry = store.get(key);
-      if (!entry || Date.now() > entry.expiresAt) {
-        return null;
-      }
-      return entry.value;
-    },
-    async set(key: string, value: string, _exMode: 'EX', ttlSeconds: number): Promise<void> {
-      store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
-    },
-    async keys(pattern: string): Promise<string[]> {
-      const prefix = pattern.slice(0, -1); // strip trailing '*'
-      return [...store.keys()].filter((k) => k.startsWith(prefix));
-    },
-    async del(...keys: string[]): Promise<void> {
-      for (const key of keys) {
-        store.delete(key);
-      }
-    },
-  };
-}
-
-describe('RedisTierCacheProvider', () => {
-  it('returns undefined for a missing key', async () => {
-    const provider = new RedisTierCacheProvider(makeRedisClient());
-    expect(await provider.get('missing')).toBeUndefined();
-  });
-
-  it('stores and retrieves a tier entry', async () => {
-    const provider = new RedisTierCacheProvider(makeRedisClient());
-    await provider.set('k1', { tier: 'server', rowCount: 5000 }, 60_000);
-    expect(await provider.get('k1')).toEqual({ tier: 'server', rowCount: 5000 });
-  });
-
-  it('converts ttlMs to seconds (rounds up)', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis);
-    await provider.set('k1', { tier: 'client', rowCount: 100 }, 1500); // 1.5s → 2s
-    const entry = redis.store.get('k1');
-    // expiresAt should be ~2000ms from now (not ~1500ms)
-    expect(entry?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 1000);
-  });
-
-  it('uses defaultTtlSeconds when ttlMs is omitted', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 10 });
-    await provider.set('k1', { tier: 'db', rowCount: 200_000 });
-    const entry = redis.store.get('k1');
-    expect(entry?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 9000);
-  });
-
-  it('applies keyPrefix to all operations', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { keyPrefix: 'studio:' });
-    await provider.set('k1', { tier: 'server', rowCount: 9000 });
-    expect(redis.store.has('studio:k1')).toBe(true);
-    expect(await provider.get('k1')).toEqual({ tier: 'server', rowCount: 9000 });
-  });
-
-  it('invalidatePrefix removes matching keys only', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis, { keyPrefix: 'p:' });
-    await provider.set('tenant1|table1', { tier: 'client', rowCount: 50 });
-    await provider.set('tenant1|table2', { tier: 'server', rowCount: 8000 });
-    await provider.set('tenant2|table1', { tier: 'client', rowCount: 30 });
-
-    await provider.invalidatePrefix('tenant1|');
-
-    expect(await provider.get('tenant1|table1')).toBeUndefined();
-    expect(await provider.get('tenant1|table2')).toBeUndefined();
-    expect(await provider.get('tenant2|table1')).toEqual({ tier: 'client', rowCount: 30 });
-  });
-
-  it('invalidatePrefix is a no-op when no keys match', async () => {
-    const redis = makeRedisClient();
-    const provider = new RedisTierCacheProvider(redis);
-    await provider.set('k1', { tier: 'db', rowCount: 50_000 });
-    await provider.invalidatePrefix('no-match|');
-    expect(await provider.get('k1')).toEqual({ tier: 'db', rowCount: 50_000 });
   });
 });
 
@@ -805,6 +864,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     expect(result.results[0].tier).toBe('db');
@@ -828,7 +888,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows, tier, rowCount } = result.results[0];
@@ -864,7 +924,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows, tier } = result.results[0];
@@ -895,7 +955,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows, tier, rowCount } = result.results[0];
@@ -924,7 +984,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     // 4 ACME rows in 3 distinct regions → rowCount should be 3, not 4
@@ -950,7 +1010,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     expect(result.results[0].rows).toHaveLength(2);
@@ -974,6 +1034,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
       tierCacheProvider: tierCache,
       tierCacheTtlMs: 60_000,
     });
@@ -1010,7 +1071,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
       db: makeDb(),
       schemaAllowlist: ['sales'],
       columnAllowlist,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows } = result.results[0];
@@ -1040,7 +1101,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
       db: makeDb(),
       schemaAllowlist: ['sales'],
       columnAllowlist,
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows } = result.results[0];
@@ -1067,9 +1128,116 @@ describe('handleBatchQuery — HAVING predicates', () => {
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
         columnAllowlist,
       }),
     ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+
+  it('rejects an undeclared HAVING alias even with NO columnAllowlist (finding 1.3)', async () => {
+    // The HAVING-alias check must run unconditionally — not only when a column
+    // allowlist is configured. Without this, HAVING becomes an arbitrary-column
+    // comparison oracle.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'raw_amount', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        // NO columnAllowlist supplied.
+      }),
+    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+
+  it('rejects HAVING when the descriptor declares no aggregations at all', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          // No aggregations — HAVING would compare an arbitrary raw column.
+          having: [{ alias: 'total', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/require at least one aggregation/);
+  });
+
+  it.each([
+    ['a backtick', 'total`--'],
+    ['a space', 'total sales'],
+    ['a SQL keyword with punctuation', 'total; DROP TABLE sales'],
+    ['a parenthesis', 'count(*)'],
+  ])('rejects an aggregation alias containing %s (unsafe identifier)', async (_label, alias) => {
+    // `agg.alias` is the one free-form, attacker-controlled token interpolated
+    // into the SQL projection as an identifier — it must be constrained to a safe
+    // identifier charset and rejected fail-closed otherwise.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        columnAllowlist,
+      }),
+    ).rejects.toThrow(/Aggregation alias .* contains characters outside the allowed set/);
+  });
+
+  it('accepts a normal snake_case aggregation alias', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total_sales' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenancy: MULTI_TENANT,
+    });
+
+    const { rows } = result.results[0];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => typeof r.total_sales !== 'undefined')).toBe(true);
   });
 
   it('DB error from an expression-field aggregation column is returned in the widget result, not thrown', async () => {
@@ -1101,6 +1269,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: failingDb,
       schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
     });
 
     expect(result.results[0].rows).toEqual([]);
@@ -1141,7 +1310,7 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: joinCapableDb,
       schemaAllowlist: ['sales', 'regions'],
-      tenantColumn: 'tenant_id',
+      tenancy: MULTI_TENANT,
     });
 
     const { rows } = result.results[0];
@@ -1226,6 +1395,7 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: mixedDb,
       schemaAllowlist: ['sales', 'broken'],
+      tenancy: SINGLE_TENANT,
     });
 
     // ok-widget returns rows; err-widget returns an error field

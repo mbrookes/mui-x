@@ -22,6 +22,12 @@ export const CanvasScrollContext =
 
 const StudioContext = React.createContext<StudioController | null>(null);
 
+// Stable reference used as the default `featureFlags` value so omitting the prop
+// doesn't create a new object identity on every render — a fresh `{}` here would
+// defeat the `uiConfig` memo below and churn `StudioUIConfigContext` for every
+// consumer on every `StudioProvider` render.
+const EMPTY_FLAGS: StudioFeatureFlags = Object.freeze({});
+
 export interface StudioProviderProps {
   controller: StudioController;
   children: React.ReactNode;
@@ -67,7 +73,7 @@ export function StudioProvider(props: StudioProviderProps) {
     children,
     controller,
     tableSourceMode = 'explicit',
-    featureFlags = {},
+    featureFlags = EMPTY_FLAGS,
     localeText,
     aiConfig,
     customWidgets,

@@ -7,6 +7,33 @@ import { computeDateRangePreset } from './dateRangeUtils';
 type Row = Record<string, unknown>;
 
 /**
+ * Resolves a single filter's non-custom date-range preset to a concrete
+ * `{ from, to }` value using the current date. Returns the filter unchanged when
+ * it carries no preset, a `'custom'` preset, or a `RelativeDateValue`.
+ *
+ * The preset is resolved regardless of `scope.kind`: dashboard-date-range filters
+ * AND widget-scoped presets (e.g. a per-KPI date range from `setWidgetDateRange`)
+ * both need fresh dates at query time. Resolving only `dashboard-date-range`
+ * scopes is what silently dropped widget-scoped presets as "incomplete" (their
+ * `value` stayed `null`).
+ *
+ * The single source of truth for preset resolution, shared by
+ * `resolveDateRangePresets` (pipeline) and `kpiUtils.extractDateRange` (KPI trend).
+ */
+export function resolveDateRangePreset(filter: StudioFilterState): StudioFilterState {
+  if (
+    !filter.dateRangePreset ||
+    filter.dateRangePreset === 'custom' ||
+    isRelativeDateValue(filter.value)
+  ) {
+    return filter;
+  }
+  const { from, to } = computeDateRangePreset(filter.dateRangePreset);
+  const resolvedTo = filter.fieldType === 'datetime' ? `${to}T23:59:59` : to;
+  return { ...filter, value: { from, to: resolvedTo } };
+}
+
+/**
  * Returns a new filter array where any date-range preset filters have been resolved
  * to concrete `{ from, to }` values using the current date.
  *
@@ -16,7 +43,8 @@ type Row = Record<string, unknown>;
  *
  * All other non-custom preset filters (null values from `setDashboardDateRange` /
  * `setWidgetDateRange`, or stale absolute `{ from, to }` objects from legacy persisted
- * state) are always recomputed fresh from the preset key so stale dates self-heal.
+ * state) are always recomputed fresh from the preset key so stale dates self-heal —
+ * regardless of scope (dashboard-date-range or widget).
  *
  * Custom presets (`dateRangePreset === 'custom'`) are always left unchanged — they
  * carry the user's explicit date selection in `value`.
@@ -24,28 +52,12 @@ type Row = Record<string, unknown>;
 export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFilterState[] {
   if (
     !filters.some(
-      (f) =>
-        f.scope.kind === 'dashboard-date-range' &&
-        f.dateRangePreset &&
-        f.dateRangePreset !== 'custom' &&
-        !isRelativeDateValue(f.value),
+      (f) => f.dateRangePreset && f.dateRangePreset !== 'custom' && !isRelativeDateValue(f.value),
     )
   ) {
     return filters;
   }
-  return filters.map((f) => {
-    if (
-      f.scope.kind !== 'dashboard-date-range' ||
-      !f.dateRangePreset ||
-      f.dateRangePreset === 'custom' ||
-      isRelativeDateValue(f.value)
-    ) {
-      return f;
-    }
-    const { from, to } = computeDateRangePreset(f.dateRangePreset);
-    const resolvedTo = f.fieldType === 'datetime' ? `${to}T23:59:59` : to;
-    return { ...f, value: { from, to: resolvedTo } };
-  });
+  return filters.map(resolveDateRangePreset);
 }
 
 export function isRelativeDateValue(value: unknown): value is RelativeDateValue {

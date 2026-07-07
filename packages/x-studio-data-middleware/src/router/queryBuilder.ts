@@ -7,8 +7,9 @@
  * SECURITY INVARIANTS:
  * 1. All WHERE values use Knex parameterized bindings (never string concat)
  * 2. Table and column names are validated against the caller's allowlists
- *    BEFORE this function is called — see handler.ts `validateColumns()`.
- *    This function trusts the descriptor has already been vetted.
+ *    BEFORE this function is called — see `shared/columnValidation.ts`
+ *    (`validateDescriptorColumns`). This function trusts the descriptor has
+ *    already been vetted.
  * 3. Security claims are applied FIRST and cannot be overridden by user filters
  * 4. The Knex `??` operator (double question mark) is used for identifier binding
  *
@@ -18,15 +19,16 @@
 import type {
   JwtSecurityClaims,
   BatchWidgetDescriptor,
+  FilterPredicate,
   HavingPredicate,
-  HandleBatchQueryOptions,
 } from '../security/types';
+import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
 import {
-  applyPredicates,
-  applySecurityPredicates,
-  resolveJoinSecurityColumns,
-  resolvePrimarySecurityColumns,
-} from '../shared/predicates';
+  toCompiledSecurityPolicy,
+  type CompiledSecurityPolicy,
+  type SecurityPolicyOptions,
+} from '../security/compileSecurityPolicy';
+import { toValidatedQueryPlan, type ValidatedQueryPlan } from '../security/validateQueryPlan';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -39,14 +41,35 @@ import {
  * @param db - Knex instance
  * @param claims - Pre-verified security claims
  * @param descriptor - Widget query descriptor (validated before calling)
+ * @param options - Compiled security policy (request path) or the raw `SecurityPolicyOptions`
+ *   (direct callers). REQUIRED — an enforcement site is never reachable without an explicit
+ *   tenancy decision, not even from a direct/test caller.
+ * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Direct callers omit it; a plan is then
+ *   resolved on the spot from `descriptor`, reproducing the pre-refactor inline `resolveAlias` behavior.
  */
 export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  options?: Pick<HandleBatchQueryOptions, 'tenantColumn' | 'securityColumns'>,
+  options: CompiledSecurityPolicy | SecurityPolicyOptions,
+  plan?: ValidatedQueryPlan,
 ): any {
-  const query = db(descriptor.table);
+  // Resolve the validated query plan ONCE. In the request path this is the plan
+  // already compiled + threaded from the handler (returned as-is, no re-resolution);
+  // direct callers (unit tests) pass only the descriptor, from which a plan is
+  // resolved on the spot. Every column reference below reads a pre-resolved
+  // `ColumnRef` off the plan — this function never calls `resolveAlias` itself, so
+  // the ambiguous logical form is structurally unreachable here.
+  const queryPlan = plan ?? toValidatedQueryPlan(descriptor);
+
+  const query = db(queryPlan.table);
+
+  // Resolve the security policy ONCE. In the request path this is the compiled
+  // policy already threaded from the handler (returned as-is, no recompile);
+  // direct callers (unit tests) may still pass the legacy raw option pair, which
+  // is compiled on the spot. Enforcement then goes through the policy's
+  // `forPrimaryTable` / `forJoinedTable` — never the fallback chain inline.
+  const policy = toCompiledSecurityPolicy(options);
 
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
@@ -54,7 +77,12 @@ export function buildSecureQuery(
   // conditions within a SINGLE join — a per-pair call would join the same table
   // once per pair, producing invalid SQL ("table name not unique") for composite
   // keys.
-  for (const join of descriptor.joins ?? []) {
+  //
+  // The `on` pairs are already alias-resolved on the plan (`ResolvedJoin.on`
+  // carries physical `ColumnRef`s on both sides — the SAME resolution
+  // `validateDescriptorColumns` checked against the allowlist), so execution can
+  // never target a different physical column than validation approved.
+  for (const join of queryPlan.joins) {
     let joinMethod: string;
     if (join.type === 'left') {
       joinMethod = 'leftJoin';
@@ -71,35 +99,33 @@ export function buildSecureQuery(
   }
 
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
-  // Applied to the primary table and to any joined table that has a configured
-  // tenant column (shared lookup tables without one are intentionally not scoped).
+  // Applied to the primary table and, by default, to every joined table — a
+  // joined table inherits the primary table's resolved security columns unless
+  // the host explicitly opts it out as a shared/lookup table (`perTable[table] =
+  // null`). See `resolveJoinSecurityColumns`.
   applySecurityPredicates(
     query,
-    descriptor.table,
+    queryPlan.table,
     claims,
-    resolvePrimarySecurityColumns(
-      descriptor.table,
-      options?.securityColumns,
-      options?.tenantColumn,
-    ),
+    policy.forPrimaryTable(queryPlan.table),
+    'read',
   );
 
-  for (const join of descriptor.joins ?? []) {
-    applySecurityPredicates(
-      query,
-      join.table,
-      claims,
-      resolveJoinSecurityColumns(join.table, options?.securityColumns),
-    );
+  for (const join of queryPlan.joins) {
+    applySecurityPredicates(query, join.table, claims, policy.forJoinedTable(join.table), 'read');
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
-  applyPredicates(query, descriptor.filters, 'read');
+  // The filter columns are already alias-resolved on the plan (`plan.filters`
+  // carry physical `ColumnRef`s — the same resolution `validateDescriptorColumns`
+  // checked against `columnAllowlist`), so execution can never target a different
+  // physical column than validation approved.
+  applyPredicates(query, queryPlan.filters as FilterPredicate[], 'read');
 
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
   // Only allowed against aggregation aliases (validated by handler.ts before
   // this function is called). Uses Knex parameterized havingRaw to prevent injection.
-  for (const h of descriptor.having ?? []) {
+  for (const h of queryPlan.having) {
     applyHaving(query, h);
   }
 

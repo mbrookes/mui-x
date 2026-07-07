@@ -36,11 +36,55 @@ import { WidgetGap } from './WidgetGap';
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 
 /** Return the minimum resize column span for a widget based on its kind and config. */
-function getWidgetMinSpan(widget: StudioWidget | undefined): number {
+export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
   if (widget?.kind === 'kpi' && !widget.config.kpiSparkline) {
     return KPI_NO_SPARKLINE_MIN_SPAN;
   }
   return MIN_SPAN;
+}
+
+/** State describing an in-progress resize drag between two adjacent widgets in a row. */
+export interface LiveDragState {
+  leftId: string;
+  rightId: string;
+  leftSpanLive: number;
+  totalSpan: number;
+}
+
+/**
+ * Compute the CSS `left` values for the column-divider overlay lines shown while a
+ * resize drag is active on a row. One value is returned per grid-column boundary
+ * (`GRID_COLS - 1` of them); each string is a `left` calc() expression relative to
+ * the row's flex container.
+ */
+export function computeGridLineLefts(
+  row: string[],
+  widgetColSpans: Record<string, number> | undefined,
+  liveDrag: LiveDragState,
+): string[] {
+  const flexGrowDefault = Math.round(GRID_COLS / row.length);
+  let acc = 0;
+  const cumSpans = row.map((wId) => {
+    const start = acc;
+    if (wId === liveDrag.leftId) {
+      acc += liveDrag.leftSpanLive;
+    } else if (wId === liveDrag.rightId) {
+      acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
+    } else {
+      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
+    }
+    return start;
+  });
+  return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
+    const col = i + 1;
+    let j = 0;
+    for (let k = 1; k < cumSpans.length; k += 1) {
+      if (cumSpans[k] <= col) {
+        j = k;
+      }
+    }
+    return `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`;
+  });
 }
 
 export interface StudioCanvasProps {
@@ -125,8 +169,6 @@ function StudioPageRows({
 
   const widgetRowsRef = React.useRef(widgetRows);
   widgetRowsRef.current = widgetRows;
-  const widgetColSpansRef = React.useRef(widgetColSpans);
-  widgetColSpansRef.current = widgetColSpans;
 
   const handleDrop = React.useCallback(
     (
@@ -138,11 +180,13 @@ function StudioPageRows({
       const currentRows = widgetRowsRef.current;
 
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
-        const sources = Object.values(controller.getState().dataSources);
+        const sources = Object.values(controller.getState().runtime.dataSources);
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
           return;
         }
         const newWidget = createDefaultWidget(data.kind);
+        // Canvas-side geometry: splice the new widget into the target page's rows at
+        // the drop position. The reducer owns the actual state transform + span cleanup.
         const rows = currentRows.map((r) => [...r]);
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [newWidget.id]);
@@ -151,24 +195,17 @@ function StudioPageRows({
           row.splice(colIndex, 0, newWidget.id);
           rows[rowIndex] = row;
         }
-        const state = controller.getState();
-        const targetPage = state.pages[pageId];
-        controller.updateState({
-          widgets: { ...state.widgets, [newWidget.id]: newWidget },
-          pages: {
-            ...state.pages,
-            [pageId]: { ...targetPage, widgetRows: rows },
-          },
-          shell: { ...state.shell, selectedWidgetId: newWidget.id },
-        });
+        controller.insertWidgetAt(newWidget, pageId, rows);
         announce(localeText.canvasWidgetAddedAnnouncement);
       } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
         const widgetId: string = data.widgetId;
         const sourcePageId: string | undefined = data.sourcePageId;
-        const isCrossPage = sourcePageId != null && sourcePageId !== pageId;
 
-        // Build the target page rows: start from currentRows (already the target page)
-        // and place the widget in the correct position.
+        // Canvas-side geometry: build the target page's final rows by placing the
+        // widget at the drop position (removing any prior occurrence first). The
+        // reducer's `enforceLayoutColSpans` governs ALL span cleanup — stale singleton
+        // spans, overflowing rows, and the source page's leftover span — so no manual
+        // span-pruning happens here.
         const rows = currentRows.map((r) => r.filter((id) => id !== widgetId));
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [widgetId]);
@@ -179,59 +216,7 @@ function StudioPageRows({
         }
         const cleaned = rows.filter((r) => r.length > 0);
 
-        // Determine the destination row after cleaning
-        const destRow = cleaned.find((r) => r.includes(widgetId)) ?? [];
-        const isNewSingleton = destRow.length === 1;
-
-        // Clear the moved widget's colSpan if it lands alone in a row, or if
-        // its span would push the row total beyond 12 columns.
-        let nextColSpans = widgetColSpansRef.current;
-        if (isNewSingleton) {
-          if (nextColSpans?.[widgetId] != null) {
-            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
-            void removedSpan;
-            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
-          }
-        } else if (nextColSpans?.[widgetId] != null) {
-          // Check if the destination row's total spans exceed 12
-          const destSpanTotal = destRow.reduce((sum, id) => {
-            const s = nextColSpans?.[id];
-            return sum + (s ?? 0);
-          }, 0);
-          if (destSpanTotal > GRID_COLS) {
-            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
-            void removedSpan;
-            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
-          }
-        }
-
-        const state = controller.getState();
-
-        // When dropping onto a different page, also remove the widget from the source page.
-        const sourcePageUpdate: Record<string, StudioPage> = {};
-        if (isCrossPage && sourcePageId && state.pages[sourcePageId]) {
-          const srcRows = (state.pages[sourcePageId].widgetRows ?? []).flatMap((r) => {
-            const row = r.filter((id) => id !== widgetId);
-            return row.length > 0 ? [row] : [];
-          });
-          sourcePageUpdate[sourcePageId] = {
-            ...state.pages[sourcePageId],
-            widgetRows: srcRows,
-          };
-        }
-
-        controller.updateState({
-          pages: {
-            ...state.pages,
-            ...sourcePageUpdate,
-            [pageId]: {
-              ...state.pages[pageId],
-              widgetRows: cleaned,
-              widgetColSpans: nextColSpans,
-            },
-          },
-          shell: { ...state.shell, selectedWidgetId: widgetId },
-        });
+        controller.moveWidget(widgetId, sourcePageId ?? pageId, pageId, cleaned);
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
@@ -428,46 +413,22 @@ function StudioPageRows({
               {/* Column grid lines overlay — shown during a resize drag on this row. */}
               {liveDrag &&
                 row.includes(liveDrag.leftId) &&
-                (() => {
-                  const flexGrowDefault = Math.round(GRID_COLS / row.length);
-                  let acc = 0;
-                  const cumSpans = row.map((wId) => {
-                    const start = acc;
-                    if (wId === liveDrag.leftId) {
-                      acc += liveDrag.leftSpanLive;
-                    } else if (wId === liveDrag.rightId) {
-                      acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
-                    } else {
-                      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
-                    }
-                    return start;
-                  });
-                  return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
-                    const col = i + 1;
-                    let j = 0;
-                    for (let k = 1; k < cumSpans.length; k += 1) {
-                      if (cumSpans[k] <= col) {
-                        j = k;
-                      }
-                    }
-                    return (
-                      <Box
-                        key={i}
-                        sx={{
-                          position: 'absolute',
-                          top: 0,
-                          bottom: 0,
-                          left: `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
-                          width: '1px',
-                          bgcolor: 'divider',
-                          opacity: 0.6,
-                          pointerEvents: 'none',
-                          zIndex: 15,
-                        }}
-                      />
-                    );
-                  });
-                })()}
+                computeGridLineLefts(row, widgetColSpans, liveDrag).map((left, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left,
+                      width: '1px',
+                      bgcolor: 'divider',
+                      opacity: 0.6,
+                      pointerEvents: 'none',
+                      zIndex: 15,
+                    }}
+                  />
+                ))}
             </Box>
             {/* Insertion point below this row */}
             {mode === 'edit' && (

@@ -1,16 +1,111 @@
 import type {
   StudioFilterWidgetType,
   StudioWidgetKind,
-  StudioGridColumn,
   StudioGridSummaryAggregation,
-  StudioChartSeries,
-  StudioChartAnnotation,
   StudioBarLayout,
   StudioCrossFilterMode,
   StudioKpiAggregation,
   StudioChartType,
-  StudioConditionalFormat,
 } from './baseTypes';
+
+// ── Widget-config building blocks ───────────────────────────────────────────────
+
+/** A visual style applied to cells matching a conditional format rule. */
+export interface StudioConditionalFormatStyle {
+  backgroundColor?: string;
+  color?: string;
+  fontWeight?: 'bold' | 'normal';
+}
+
+/** A single conditional formatting rule for a grid column. */
+export interface StudioConditionalFormat {
+  /** The column field this rule applies to. */
+  fieldId: string;
+  /** Comparison operator. Only single-value operators are supported (no 'between'). */
+  operator:
+    | 'equals'
+    | 'not_equals'
+    | 'greater_than'
+    | 'less_than'
+    | 'greater_than_or_equal'
+    | 'less_than_or_equal'
+    | 'contains'
+    | 'is_empty'
+    | 'is_not_empty';
+  /** The value to compare against (not used for is_empty / is_not_empty). */
+  value?: unknown;
+  /** Style to apply to the cell when the rule matches. */
+  style: StudioConditionalFormatStyle;
+}
+
+/**
+ * A column definition for a grid widget.
+ *
+ * Replaces the previous `string[]` columns format to carry per-column
+ * aggregation and (optionally) cross-source metadata.
+ */
+export interface StudioGridColumn {
+  /** Field ID within the source identified by `sourceId` or `widget.sourceId`. */
+  fieldId: string;
+  /**
+   * Source ID for this column. When set and different from `widget.sourceId`,
+   * the column's data is pulled from a related source via the declared
+   * `StudioRelationship`. Both `many-to-one` and `many-to-many` relationships
+   * are supported. For `many-to-one`, the widget's primary source must be the
+   * "many" side. For `many-to-many`, the widget source is one of the two endpoint
+   * sources; data is fetched through the junction table.
+   */
+  sourceId?: string;
+  /**
+   * Aggregation function applied when `gridGroupByField` is active, or when
+   * this column references a related source at a coarser grain (fan-out).
+   * Falls back to `StudioDataField.defaultAggregationFn` then `'sum'` for
+   * numeric fields if absent.
+   */
+  aggregationFn?: StudioGridSummaryAggregation;
+  /** Column header label override (defaults to `StudioDataField.label`). */
+  label?: string;
+}
+
+export interface StudioChartSeries {
+  fieldId: string;
+  /** Optional display label for this series in legends and tooltips. */
+  label?: string;
+  /**
+   * Series render type for mixed charts.
+   * - `'bar'` (default): renders as a bar/column
+   * - `'line'`: renders as a line (with optional markers)
+   *
+   * Only used when `chartType === 'mixed'`.
+   */
+  seriesType?: 'bar' | 'line';
+  /** Alias for `seriesType` — preferred spelling in config objects. */
+  type?: 'bar' | 'line';
+  /** Aggregation function applied to this series. @default 'sum' */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /**
+   * Optional data source for this series, enabling cross-source blending on a
+   * `'mixed'` chart. When set to a source other than the widget's primary
+   * `sourceId`, the series is aggregated independently in that source and aligned
+   * onto the chart's shared categorical `xField` (which must exist with the same
+   * field id in every source used). When omitted, the series reads from the
+   * widget's primary source. Only honoured for `chartType === 'mixed'`.
+   */
+  sourceId?: string;
+}
+
+/**
+ * A single reference-line annotation drawn on a chart widget.
+ */
+export interface StudioChartAnnotation {
+  id: string;
+  /** 'y' = horizontal line at a numeric y-axis value; 'x' = vertical line at an x-axis label value */
+  axis: 'y' | 'x';
+  /** Numeric value for y-axis lines; for x-axis band-scale charts, a string matching the axis label */
+  value: number | string;
+  /** Short label shown at the end of the line. Omit for an unlabelled marker. */
+  label?: string;
+}
 
 // ── Forecast ──────────────────────────────────────────────────────────────────
 
@@ -46,8 +141,16 @@ export interface StudioWidgetForecast {
   showConfidenceBands?: boolean;
 }
 
-export interface StudioWidgetConfig {
-  // Grid config
+// ── Per-kind widget configuration ───────────────────────────────────────────────
+//
+// `StudioWidgetConfig` below is the flat union of every widget kind's config keys
+// (all optional, because a widget currently carries keys from other kinds). The
+// per-kind interfaces below name each kind's slice so setup panels can reference a
+// focused shape; the combined `StudioWidgetConfig` remains structurally identical to
+// its historical single-interface form.
+
+/** Grid / table widget configuration. */
+export interface StudioGridConfig {
   /** Ordered list of visible columns. Use `normalizeGridColumn()` when reading persisted state. */
   columns?: StudioGridColumn[];
   /** Optional field used to group raw rows into one aggregated grid row per unique value. */
@@ -72,7 +175,24 @@ export interface StudioWidgetConfig {
    * @example 'id'
    */
   gridPkField?: string;
-  // Chart config
+  /**
+   * Aggregation to show in the pinned summary footer for each field.
+   * Only fields included in this map will have a summary cell rendered.
+   * Numeric-only aggregations (sum, avg, min, max) are ignored for non-number fields.
+   */
+  gridSummaryFields?: Record<string, StudioGridSummaryAggregation>;
+  /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to the first visible grid column. */
+  crossFilterField?: string;
+}
+
+/**
+ * Chart widget configuration.
+ *
+ * Covers every chart sub-shape (bar / line / area / mixed / heatmap / gantt /
+ * funnel / sankey / pie / donut / scatter / gauge). Sub-shape-specific keys are
+ * grouped by prefix; which keys are relevant depends on `chartType`.
+ */
+export interface StudioChartConfig {
   /** Chart sub-type. Determines which other config keys are relevant. @default 'bar' */
   chartType?: StudioChartType;
   /** Bar orientation. `'horizontal'` — prefer for >5 categories, long labels, or ranking lists. */
@@ -299,15 +419,33 @@ export interface StudioWidgetConfig {
    * @default false
    */
   pieLegendBelow?: boolean;
-  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
-  titleFontSize?: number;
-  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
-  cardExpandTitle?: string;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
   gaugeMax?: number;
-  // KPI config
+  /**
+   * How this chart widget responds to incoming cross-filters from other widgets.
+   * See {@link StudioCrossFilterMode} for details.
+   * @default 'cross-highlight'
+   */
+  crossFilterMode?: StudioCrossFilterMode;
+  /**
+   * Reference lines drawn on chart widgets.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
+   * Not supported for pie / donut / gauge chart types.
+   */
+  annotations?: StudioChartAnnotation[];
+  /**
+   * Forecast/trend configuration for line and area charts.
+   * When enabled, a linear extrapolation is rendered beyond the last data point
+   * as a dashed line, optionally with a shaded confidence band.
+   * Only supported for `chartType: 'line' | 'area'` with a single y-field.
+   */
+  forecast?: StudioWidgetForecast;
+}
+
+/** KPI widget configuration (headline metric + optional sparkline & trend badge). */
+export interface StudioKpiConfig {
   /** Field whose values are aggregated to produce the headline metric. */
   kpiValueField?: string;
   /** Aggregation applied to `kpiValueField`. @default 'sum' */
@@ -359,23 +497,10 @@ export interface StudioWidgetConfig {
   kpiTrendFixedPeriod?: 'month' | 'quarter' | 'year';
   /** Maximum value for the gauge sparkline. Used as the arc end when kpiSparklinePlotType is 'gauge'. @default 100 */
   kpiSparklineGaugeMax?: number;
-  // Grid summary (totals) row
-  /**
-   * Aggregation to show in the pinned summary footer for each field.
-   * Only fields included in this map will have a summary cell rendered.
-   * Numeric-only aggregations (sum, avg, min, max) are ignored for non-number fields.
-   */
-  gridSummaryFields?: Record<string, StudioGridSummaryAggregation>;
-  // Grid cross-filter
-  /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to the first visible grid column. */
-  crossFilterField?: string;
-  /**
-   * How this chart widget responds to incoming cross-filters from other widgets.
-   * See {@link StudioCrossFilterMode} for details.
-   * @default 'cross-highlight'
-   */
-  crossFilterMode?: StudioCrossFilterMode;
-  // Text config
+}
+
+/** Text / markdown widget configuration, including per-section typography overrides. */
+export interface StudioTextConfig {
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;
   /** Subtitle text (HTML string). Rendered between the title and body. */
@@ -415,7 +540,10 @@ export interface StudioWidgetConfig {
   textBodyColor?: string;
   /** Text alignment for the body section. undefined = left. */
   textBodyAlign?: 'left' | 'center' | 'right';
-  // Filter widget config
+}
+
+/** Interactive filter widget configuration. */
+export interface StudioFilterWidgetConfig {
   /** The type of filter control to render. */
   filterWidgetType?: StudioFilterWidgetType;
   /** Field ID to filter on */
@@ -428,7 +556,10 @@ export interface StudioWidgetConfig {
   filterWidgetMax?: number;
   /** Step increment for slider filter widgets */
   filterWidgetStep?: number;
-  // Pivot table config
+}
+
+/** Pivot table widget configuration. */
+export interface StudioPivotConfig {
   /** Field used as row groups (vertical axis of the pivot table). */
   pivotRowField?: string;
   /** Field used as column headers (horizontal axis of the pivot table). */
@@ -445,21 +576,10 @@ export interface StudioWidgetConfig {
   pivotAggregation?: 'sum' | 'avg' | 'count' | 'min' | 'max';
   /** When true, a Totals row and Totals column are shown. @default true */
   pivotShowTotals?: boolean;
-  // Chart annotations
-  /**
-   * Reference lines drawn on chart widgets.
-   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
-   * Not supported for pie / donut / gauge chart types.
-   */
-  annotations?: StudioChartAnnotation[];
-  /**
-   * Forecast/trend configuration for line and area charts.
-   * When enabled, a linear extrapolation is rendered beyond the last data point
-   * as a dashed line, optionally with a shaded confidence band.
-   * Only supported for `chartType: 'line' | 'area'` with a single y-field.
-   */
-  forecast?: StudioWidgetForecast;
-  // Map / choropleth widget config
+}
+
+/** Choropleth map widget configuration. */
+export interface StudioMapConfig {
   /**
    * Field providing the country identifier (ISO alpha-2, alpha-3, or full English name).
    * Rows are grouped by this field before applying mapAggregation.
@@ -511,13 +631,19 @@ export interface StudioWidgetConfig {
    */
   mapLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
   mapLegendAlign?: 'start' | 'center' | 'end';
-  // Shared
+}
+
+/** Config keys shared across widget kinds (card chrome, custom-widget config). */
+export interface StudioSharedWidgetConfig {
+  /** Font size in px for the card header title, applied to all widget kinds. undefined = h6 default (~20px). */
+  titleFontSize?: number;
+  /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
+  cardExpandTitle?: string;
   /** Numeric fields to aggregate (used by some custom widgets). */
   measures?: string[];
   /** Categorical / grouping fields (used by some custom widgets). */
   dimensions?: string[];
 
-  // AI Summary widget config
   // ── Custom widget configuration ────────────────────────────────────────────
 
   /**
@@ -528,6 +654,26 @@ export interface StudioWidgetConfig {
    */
   customConfig?: Record<string, unknown>;
 }
+
+/**
+ * Flat configuration bag for a `StudioWidget`.
+ *
+ * Composed from the per-kind config interfaces above. Every kind's keys remain
+ * optional (via `Partial<...>`) because a widget can carry keys authored while it
+ * was a different kind. The shape is structurally identical to the historical
+ * single-interface `StudioWidgetConfig`; the split exists only so setup panels can
+ * reference a focused per-kind shape.
+ */
+export interface StudioWidgetConfig
+  extends
+    StudioSharedWidgetConfig,
+    Partial<StudioGridConfig>,
+    Partial<StudioChartConfig>,
+    Partial<StudioKpiConfig>,
+    Partial<StudioTextConfig>,
+    Partial<StudioFilterWidgetConfig>,
+    Partial<StudioPivotConfig>,
+    Partial<StudioMapConfig> {}
 
 export interface StudioWidget {
   id: string;

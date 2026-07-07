@@ -5,7 +5,7 @@
  * case. These tests target the prefix-index correctness (tenant isolation), the
  * fallback scan for non-indexed prefixes, value overwrite, and TTL expiry.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LRUCacheProvider } from '../LRUCacheProvider';
 import type { CacheEntry } from '../types';
 
@@ -14,11 +14,62 @@ function entry(rows: Record<string, unknown>[] = [{ id: 1 }]): CacheEntry {
 }
 
 describe('LRUCacheProvider', () => {
+  it('returns undefined for a key that was never set', async () => {
+    const cache = new LRUCacheProvider();
+    expect(await cache.get('nonexistent')).toBeUndefined();
+  });
+
   it('overwrites an existing key with a new value', async () => {
     const cache = new LRUCacheProvider();
     await cache.set('k1', entry([{ v: 1 }]));
     await cache.set('k1', entry([{ v: 2 }]));
     expect((await cache.get('k1'))?.rows).toEqual([{ v: 2 }]);
+  });
+
+  describe('TTL expiry under continuous reads (regression for updateAgeOnGet)', () => {
+    beforeEach(() => {
+      // `lru-cache` uses `performance.now()` (not `Date.now()`) as its clock
+      // source, and it captures a module-scoped reference to the *object*
+      // `globalThis.performance` at import time. Vitest's fake-timer install
+      // (`toFake: ['performance']`) swaps in a brand-new `performance` object
+      // rather than patching the existing one in place, so it would not be
+      // visible through lru-cache's already-captured reference. Instead, fake
+      // only `Date`/`setTimeout` and monkey-patch `performance.now` in place
+      // (same object, patched method) to track the fake `Date` clock — this
+      // is visible to any code holding a reference to the real `performance`
+      // object, including lru-cache.
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('expires an entry once its TTL elapses even when read more often than the TTL', async () => {
+      // Regression test for finding 1.2: `updateAgeOnGet: true` used to reset the
+      // TTL clock on every `get()`, so a key read faster than its TTL never
+      // expired. With `updateAgeOnGet: false`, the TTL is a hard staleness bound
+      // regardless of how often the entry is read.
+      const cache = new LRUCacheProvider({ ttlMs: 30 });
+      await cache.set('hot-key', entry([{ v: 1 }]));
+
+      // Read repeatedly at an interval much faster than the TTL — three reads
+      // 10ms apart (elapsed 0ms, 10ms, 20ms at each read), all comfortably
+      // inside the 30ms TTL window.
+      for (let i = 0; i < 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await cache.get('hot-key')).toBeDefined();
+        vi.advanceTimersByTime(10);
+      }
+
+      // 30ms have elapsed since the write. Advance past the TTL and confirm
+      // the entry now expires — despite every prior read landing well inside
+      // the TTL window, the reads themselves must not have extended it.
+      vi.advanceTimersByTime(15);
+      expect(await cache.get('hot-key')).toBeUndefined();
+    });
   });
 
   describe('invalidatePrefix — prefix index (tenant isolation)', () => {
@@ -94,6 +145,67 @@ describe('LRUCacheProvider', () => {
 
       expect(await cache.get('studio:v1:acme:q1')).toBeUndefined();
       expect(await cache.get('studio:v1:globex:q1')).toBeUndefined();
+    });
+  });
+
+  describe('byte-based eviction under real maxSizeBytes pressure', () => {
+    // sizeCalculation = value.rows.length * avgBytesPerRow + 64 (see LRUCacheProvider.ts).
+    // With avgBytesPerRow=100 and 1 row per entry, each entry costs 164 bytes.
+    // maxSizeBytes=500 fits ~3 entries — writing 6 must force real lru-cache
+    // eviction (as opposed to the explicit `.delete()`-driven tests above,
+    // which never exercise the `maxSize`/`sizeCalculation` byte-pressure path).
+    it('evicts least-recently-used entries once total size exceeds maxSizeBytes', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 500, avgBytesPerRow: 100 });
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`k${i}`, entry([{ v: i }]));
+      }
+
+      let present = 0;
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await cache.get(`k${i}`)) {
+          present += 1;
+        }
+      }
+      // Not all 6 entries can fit under the byte cap — some must have been evicted.
+      expect(present).toBeGreaterThan(0);
+      expect(present).toBeLessThan(6);
+
+      // LRU semantics: the most recently written key must survive, and the
+      // very first (least-recently-used) key must have been evicted.
+      expect(await cache.get('k5')).toBeDefined();
+      expect(await cache.get('k0')).toBeUndefined();
+    });
+
+    it('evicts a larger (multi-row) entry sooner than several small entries under the same byte cap', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 500, avgBytesPerRow: 100 });
+      // A 4-row entry costs 4*100+64=464 bytes — nearly the whole budget on its own.
+      await cache.set('big', entry([{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }]));
+      expect(await cache.get('big')).toBeDefined();
+
+      // Writing several small (164-byte) entries afterward must evict 'big'
+      // once the cumulative size exceeds maxSizeBytes.
+      for (let i = 0; i < 4; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`small${i}`, entry([{ v: i }]));
+      }
+
+      expect(await cache.get('big')).toBeUndefined();
+      // The most recently written small entry must still be present.
+      expect(await cache.get('small3')).toBeDefined();
+    });
+
+    it('keeps every entry when their combined size stays under maxSizeBytes', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 10_000, avgBytesPerRow: 100 });
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`k${i}`, entry([{ v: i }]));
+      }
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await cache.get(`k${i}`)).toBeDefined();
+      }
     });
   });
 });

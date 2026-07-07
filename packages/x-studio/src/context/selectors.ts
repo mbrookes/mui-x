@@ -1,5 +1,6 @@
 import { createSelectorMemoized } from '@mui/x-internals/store';
 import type {
+  StudioDoc,
   StudioExpressionField,
   StudioFilterState,
   StudioState,
@@ -15,24 +16,26 @@ import type {
  * in React 19's useSyncExternalStore path.
  */
 
-export const selectFilters = (state: StudioState) => state.filters;
-const EMPTY_FILTER_PRESETS: NonNullable<StudioState['filterPresets']> = [];
+export const selectFilters = (state: StudioState) => state.doc.filters;
+const EMPTY_FILTER_PRESETS: NonNullable<StudioDoc['filterPresets']> = [];
 export const selectFilterPresets = (state: StudioState) =>
-  state.filterPresets ?? EMPTY_FILTER_PRESETS;
-export const selectDataSources = (state: StudioState) => state.dataSources;
-export const selectRelationships = (state: StudioState) => state.relationships;
-export const selectExpressionFields = (state: StudioState) => state.expressionFields;
-export const selectWidgets = (state: StudioState) => state.widgets;
-export const selectMode = (state: StudioState) => state.mode;
-export const selectShell = (state: StudioState) => state.shell;
-export const selectActivePageId = (state: StudioState) => state.dashboard.activePageId;
-export const selectPages = (state: StudioState) => state.pages;
-export const selectDashboard = (state: StudioState) => state.dashboard;
-export const selectActivePage = (state: StudioState) => state.pages[state.dashboard.activePageId];
+  state.doc.filterPresets ?? EMPTY_FILTER_PRESETS;
+export const selectDataSources = (state: StudioState) => state.runtime.dataSources;
+export const selectRelationships = (state: StudioState) => state.doc.relationships;
+export const selectExpressionFields = (state: StudioState) => state.doc.expressionFields;
+export const selectWidgets = (state: StudioState) => state.doc.widgets;
+export const selectMode = (state: StudioState) => state.session.mode;
+export const selectShell = (state: StudioState) => state.session.shell;
+export const selectActivePageId = (state: StudioState) => state.doc.dashboard.activePageId;
+export const selectPages = (state: StudioState) => state.doc.pages;
+export const selectDashboard = (state: StudioState) => state.doc.dashboard;
+export const selectActivePage = (state: StudioState) =>
+  state.doc.pages[state.doc.dashboard.activePageId];
 export const selectGlobalCrossFilterMode = (state: StudioState) =>
-  state.dashboard.globalCrossFilterMode ?? null;
+  state.doc.dashboard.globalCrossFilterMode ?? null;
 export const selectCrossFilterAllPages = (state: StudioState) =>
-  state.dashboard.crossFilterAllPages ?? false;
+  state.doc.dashboard.crossFilterAllPages ?? false;
+export const selectAi = (state: StudioState) => state.doc.ai;
 
 /**
  * Returns a stable memoized selector for the active interactive filter
@@ -47,7 +50,9 @@ export const selectCrossFilterAllPages = (state: StudioState) =>
  */
 export function makeSelectActiveInteractiveFilter(widgetId: string) {
   return (state: StudioState) =>
-    state.filters.find((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId) ?? null;
+    state.doc.filters.find(
+      (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId,
+    ) ?? null;
 }
 
 /**
@@ -76,7 +81,7 @@ export function makeSelectExpressionFieldsForSource(sourceId: string) {
   let lastResult: StudioExpressionField[] | undefined;
 
   return (state: StudioState): StudioExpressionField[] => {
-    const exprFields = state.expressionFields;
+    const exprFields = state.doc.expressionFields;
     if (exprFields === lastInput && lastResult !== undefined) {
       return lastResult;
     }
@@ -113,7 +118,7 @@ export function makeSelectExpressionFieldsForSources(sourceIds: ReadonlySet<stri
   let lastResult: StudioExpressionField[] | undefined;
 
   return (state: StudioState): StudioExpressionField[] => {
-    const exprFields = state.expressionFields;
+    const exprFields = state.doc.expressionFields;
     if (exprFields === lastInput && lastResult !== undefined) {
       return lastResult;
     }
@@ -145,56 +150,7 @@ export interface PartitionedFilters {
 }
 
 /**
- * Partitions the filters array into typed buckets in a single O(F) pass.
- * Returned object is reference-stable as long as `state.filters` and
- * `state.dashboard.activePageId` do not change — all N widgets share the
- * same partition result.
- *
- * Page-scoped filters are scoped to the active page: only filters whose
- * `pageId` matches `activePageId` (or have no `pageId` for legacy data) are
- * included in the `page` bucket.
- *
- * Use this instead of N independent `.filter()` calls in each widget hook.
- *
- * Memoized with createSelectorMemoized (x-internals): re-computes only when
- * `filters` or `activePageId` change by reference.
- */
-export const selectPartitionedFilters = createSelectorMemoized(
-  selectFilters,
-  selectActivePageId,
-  (filters, activePageId): PartitionedFilters => {
-    const page: StudioFilterState[] = [];
-    const byWidgetId = new Map<string, StudioFilterState[]>();
-    const cross: StudioFilterState[] = [];
-    const interactive: StudioFilterState[] = [];
-
-    for (const f of filters) {
-      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        if (!scopePageId || scopePageId === activePageId) {
-          page.push(f);
-        }
-      } else if (f.scope.kind === 'widget') {
-        const key = f.scope.widgetId;
-        let bucket = byWidgetId.get(key);
-        if (!bucket) {
-          bucket = [];
-          byWidgetId.set(key, bucket);
-        }
-        bucket.push(f);
-      } else if (f.scope.kind === 'cross-filter') {
-        cross.push(f);
-      } else if (f.scope.kind === 'interactive') {
-        interactive.push(f);
-      }
-    }
-
-    return { page, byWidgetId, cross, interactive };
-  },
-);
-
-/**
- * Like selectPartitionedFilters but only includes page-scoped and widget-scoped
+ * Like `PartitionedFilters` but only includes page-scoped and widget-scoped
  * filters — it is intentionally stable when only cross-filters or interactive
  * filters change.
  *
@@ -206,30 +162,28 @@ export interface BasePartitionedFilters {
   byWidgetId: Map<string, StudioFilterState[]>;
 }
 
-let lastBaseFiltersInput: StudioFilterState[] | undefined;
-let lastBaseActivePageId: string | undefined;
-let lastBasePartitionResult: BasePartitionedFilters | undefined;
+// ── Shared partitioning core ────────────────────────────────────────────────
+//
+// `selectPartitionedFilters`, `selectPartitionedBaseFilters`,
+// `makeSelectPartitionedFiltersForPage`, and `makeSelectPartitionedBaseFiltersForPage`
+// all partition the same `filters` array into the same page/widget/cross/interactive
+// buckets and apply the same "reuse the previous result when bucket content is
+// unchanged" reference-stability rule — historically copy-pasted four times with two
+// toggles (where `pageId` comes from, and whether cross/interactive are included).
+// `partitionFilters` and `isPartitionUnchanged` below are the one shared
+// implementation of those two pieces; each of the four exports is now a thin wrapper.
 
-export const selectPartitionedBaseFilters = (state: StudioState): BasePartitionedFilters => {
-  const filters = state.filters;
-  const activePageId = state.dashboard.activePageId;
-  if (
-    filters === lastBaseFiltersInput &&
-    activePageId === lastBaseActivePageId &&
-    lastBasePartitionResult !== undefined
-  ) {
-    return lastBasePartitionResult;
-  }
-
-  // Check whether the page/widget filters are the same as before — if so,
-  // return the previous result so useDeferredValue sees no change (no spinner).
+/** Single O(F) pass that buckets `filters` by scope kind, scoping the `page` bucket to `pageId`. */
+function partitionFilters(filters: StudioFilterState[], pageId: string | undefined) {
   const page: StudioFilterState[] = [];
   const byWidgetId = new Map<string, StudioFilterState[]>();
+  const cross: StudioFilterState[] = [];
+  const interactive: StudioFilterState[] = [];
 
   for (const f of filters) {
     if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
       const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
-      if (!scopePageId || scopePageId === activePageId) {
+      if (!scopePageId || scopePageId === pageId) {
         page.push(f);
       }
     } else if (f.scope.kind === 'widget') {
@@ -240,39 +194,168 @@ export const selectPartitionedBaseFilters = (state: StudioState): BasePartitione
         byWidgetId.set(key, bucket);
       }
       bucket.push(f);
+    } else if (f.scope.kind === 'cross-filter') {
+      cross.push(f);
+    } else if (f.scope.kind === 'interactive') {
+      interactive.push(f);
     }
   }
 
-  // If the previous result had the same page/widget filter content, reuse it.
-  if (lastBasePartitionResult !== undefined) {
-    const prev = lastBasePartitionResult;
-    const pageUnchanged =
-      prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
-    if (pageUnchanged) {
-      // Check byWidgetId: same keys and same arrays
-      let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
-      if (widgetUnchanged) {
-        for (const [key, arr] of byWidgetId) {
-          const prevArr = prev.byWidgetId.get(key);
-          if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
-            widgetUnchanged = false;
-            break;
-          }
-        }
-      }
-      if (widgetUnchanged) {
-        lastBaseFiltersInput = filters;
-        return prev;
-      }
+  return { page, byWidgetId, cross, interactive };
+}
+
+function filterArrayUnchanged(prev: StudioFilterState[], next: StudioFilterState[]): boolean {
+  return prev.length === next.length && prev.every((f, i) => f === next[i]);
+}
+
+function byWidgetIdUnchanged(
+  prev: Map<string, StudioFilterState[]>,
+  next: Map<string, StudioFilterState[]>,
+): boolean {
+  if (prev.size !== next.size) {
+    return false;
+  }
+  for (const [key, arr] of next) {
+    const prevArr = prev.get(key);
+    if (!prevArr || !filterArrayUnchanged(prevArr, arr)) {
+      return false;
     }
   }
+  return true;
+}
 
-  const result: BasePartitionedFilters = { page, byWidgetId };
-  lastBaseFiltersInput = filters;
-  lastBaseActivePageId = activePageId;
-  lastBasePartitionResult = result;
-  return result;
-};
+/**
+ * True when `next`'s buckets are all content-equal to `prev`'s (same filter object
+ * references, same order) — `cross`/`interactive` are only compared when
+ * `includeCrossAndInteractive` is set, since `BasePartitionedFilters` doesn't have them.
+ */
+function isPartitionUnchanged(
+  prev: PartitionedFilters | BasePartitionedFilters,
+  next: PartitionedFilters | BasePartitionedFilters,
+  includeCrossAndInteractive: boolean,
+): boolean {
+  if (
+    !filterArrayUnchanged(prev.page, next.page) ||
+    !byWidgetIdUnchanged(prev.byWidgetId, next.byWidgetId)
+  ) {
+    return false;
+  }
+  if (includeCrossAndInteractive) {
+    const p = prev as PartitionedFilters;
+    const n = next as PartitionedFilters;
+    return (
+      filterArrayUnchanged(p.cross, n.cross) && filterArrayUnchanged(p.interactive, n.interactive)
+    );
+  }
+  return true;
+}
+
+/**
+ * Creates a memoized partitioning selector: recomputes only when `state.doc.filters`
+ * or the resolved `pageId` change by reference, and even then reuses the previous
+ * result object when the relevant buckets are content-identical (so
+ * `useSyncExternalStore` / `useDeferredValue` consumers see no change).
+ *
+ * The returned selector owns a private closure (`lastFilters`/`lastResult`) — callers
+ * that need per-instance isolation (e.g. one selector per mounted widget) must call
+ * this factory fresh for each instance; see `makeSelectPartitionedFiltersForPage` and
+ * `makeSelectPartitionedBaseFiltersForPage`.
+ */
+function makePartitionedFiltersSelector(
+  getPageId: (state: StudioState) => string | undefined,
+  includeCrossAndInteractive: true,
+): (state: StudioState) => PartitionedFilters;
+function makePartitionedFiltersSelector(
+  getPageId: (state: StudioState) => string | undefined,
+  includeCrossAndInteractive: false,
+): (state: StudioState) => BasePartitionedFilters;
+function makePartitionedFiltersSelector(
+  getPageId: (state: StudioState) => string | undefined,
+  includeCrossAndInteractive: boolean,
+) {
+  let lastFilters: StudioFilterState[] | undefined;
+  let lastPageId: string | undefined;
+  let lastResult: PartitionedFilters | BasePartitionedFilters | undefined;
+
+  return (state: StudioState): PartitionedFilters | BasePartitionedFilters => {
+    const filters = state.doc.filters;
+    const pageId = getPageId(state);
+    if (filters === lastFilters && pageId === lastPageId && lastResult !== undefined) {
+      return lastResult;
+    }
+
+    const full = partitionFilters(filters, pageId);
+    const next: PartitionedFilters | BasePartitionedFilters = includeCrossAndInteractive
+      ? full
+      : { page: full.page, byWidgetId: full.byWidgetId };
+
+    // Reference-stable: if the relevant bucket content matches the previous result,
+    // return the prior object so downstream memo/selector consumers see no change.
+    if (
+      lastResult !== undefined &&
+      isPartitionUnchanged(lastResult, next, includeCrossAndInteractive)
+    ) {
+      lastFilters = filters;
+      lastPageId = pageId;
+      return lastResult;
+    }
+
+    lastFilters = filters;
+    lastPageId = pageId;
+    lastResult = next;
+    return next;
+  };
+}
+
+/**
+ * Partitions the filters array into typed buckets in a single O(F) pass.
+ * Returned object is reference-stable as long as `state.doc.filters` and
+ * `state.doc.dashboard.activePageId` do not change — all N widgets share the
+ * same partition result.
+ *
+ * Page-scoped filters are scoped to the active page: only filters whose
+ * `pageId` matches `activePageId` (or have no `pageId` for legacy data) are
+ * included in the `page` bucket.
+ *
+ * Use this instead of N independent `.filter()` calls in each widget hook.
+ *
+ * Memoized with createSelectorMemoized (x-internals): re-computes only when
+ * `filters` or `activePageId` change by reference. Deliberately NOT built on
+ * `makePartitionedFiltersSelector` (unlike the other three exports below) —
+ * `createSelectorMemoized` keys its cache per store instance (via a `__cacheKey__`
+ * tag carried on the state object), so this bare, module-level export stays safe
+ * when multiple `<Studio>` instances share the same process. A plain closure like
+ * the other three use would leak state across instances for a bare export (see
+ * `selectPartitionedBaseFilters` below).
+ */
+export const selectPartitionedFilters = createSelectorMemoized(
+  selectFilters,
+  selectActivePageId,
+  (filters, activePageId): PartitionedFilters => partitionFilters(filters, activePageId),
+);
+
+/**
+ * Like selectPartitionedFilters but only includes page-scoped and widget-scoped
+ * filters — it is intentionally stable when only cross-filters or interactive
+ * filters change.
+ *
+ * Use this for `isRecomputing` comparisons so that the loading overlay is NOT
+ * shown during cross-filter changes (those use cached row results and are fast).
+ *
+ * KNOWN LIMITATION (pre-existing, unchanged by this refactor): unlike
+ * `selectPartitionedFilters`, this bare export's memo closure is a single
+ * module-level instance shared by every caller, so multiple `<Studio>` instances in
+ * the same process would ping-pong its cache. No production code calls this bare
+ * export directly today (production goes through `makeSelectPartitionedBaseFiltersForPage`,
+ * which correctly creates one closure per widget instance) — only tests and, in
+ * principle, external deep-importers do. Left as-is rather than "fixed" via
+ * `createSelectorMemoized`, which would drop the content-level bucket-reuse
+ * behavior this selector is specifically tested for.
+ */
+export const selectPartitionedBaseFilters = makePartitionedFiltersSelector(
+  (state) => state.doc.dashboard.activePageId,
+  false,
+);
 
 /**
  * Per-page variant of `selectPartitionedFilters`. Returns a memoized selector
@@ -284,74 +367,7 @@ export const selectPartitionedBaseFilters = (state: StudioState): BasePartitione
  * their own page's filters.
  */
 export function makeSelectPartitionedFiltersForPage(pageId: string) {
-  let lastInput: StudioFilterState[] | undefined;
-  let lastResult: PartitionedFilters | undefined;
-
-  return (state: StudioState): PartitionedFilters => {
-    const filters = state.filters;
-    if (filters === lastInput && lastResult !== undefined) {
-      return lastResult;
-    }
-
-    const page: StudioFilterState[] = [];
-    const byWidgetId = new Map<string, StudioFilterState[]>();
-    const cross: StudioFilterState[] = [];
-    const interactive: StudioFilterState[] = [];
-
-    for (const f of filters) {
-      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        if (!scopePageId || scopePageId === pageId) {
-          page.push(f);
-        }
-      } else if (f.scope.kind === 'widget') {
-        const key = f.scope.widgetId;
-        let bucket = byWidgetId.get(key);
-        if (!bucket) {
-          bucket = [];
-          byWidgetId.set(key, bucket);
-        }
-        bucket.push(f);
-      } else if (f.scope.kind === 'cross-filter') {
-        cross.push(f);
-      } else if (f.scope.kind === 'interactive') {
-        interactive.push(f);
-      }
-    }
-
-    const result: PartitionedFilters = { page, byWidgetId, cross, interactive };
-
-    // Reference-stable: if the content matches the previous result, return the
-    // prior object so useSyncExternalStore / useDeferredValue see no change.
-    if (lastResult !== undefined) {
-      const prev = lastResult;
-      const pageUnchanged =
-        prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
-      const crossUnchanged =
-        prev.cross.length === cross.length && prev.cross.every((f, i) => f === cross[i]);
-      const interactiveUnchanged =
-        prev.interactive.length === interactive.length &&
-        prev.interactive.every((f, i) => f === interactive[i]);
-      let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
-      if (widgetUnchanged) {
-        for (const [key, arr] of byWidgetId) {
-          const prevArr = prev.byWidgetId.get(key);
-          if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
-            widgetUnchanged = false;
-            break;
-          }
-        }
-      }
-      if (pageUnchanged && crossUnchanged && interactiveUnchanged && widgetUnchanged) {
-        lastInput = filters;
-        return prev;
-      }
-    }
-
-    lastInput = filters;
-    lastResult = result;
-    return result;
-  };
+  return makePartitionedFiltersSelector(() => pageId, true);
 }
 
 /**
@@ -361,63 +377,7 @@ export function makeSelectPartitionedFiltersForPage(pageId: string) {
  * Use this for `isRecomputing` detection in mounted-but-inactive page widgets.
  */
 export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
-  let lastInput: StudioFilterState[] | undefined;
-  let lastResult: BasePartitionedFilters | undefined;
-
-  return (state: StudioState): BasePartitionedFilters => {
-    const filters = state.filters;
-    if (filters === lastInput && lastResult !== undefined) {
-      return lastResult;
-    }
-
-    const page: StudioFilterState[] = [];
-    const byWidgetId = new Map<string, StudioFilterState[]>();
-
-    for (const f of filters) {
-      if (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') {
-        const scopePageId = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        if (!scopePageId || scopePageId === pageId) {
-          page.push(f);
-        }
-      } else if (f.scope.kind === 'widget') {
-        const key = f.scope.widgetId;
-        let bucket = byWidgetId.get(key);
-        if (!bucket) {
-          bucket = [];
-          byWidgetId.set(key, bucket);
-        }
-        bucket.push(f);
-      }
-    }
-
-    // Reference-stable: reuse prior result when content is identical.
-    if (lastResult !== undefined) {
-      const prev = lastResult;
-      const pageUnchanged =
-        prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
-      if (pageUnchanged) {
-        let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
-        if (widgetUnchanged) {
-          for (const [key, arr] of byWidgetId) {
-            const prevArr = prev.byWidgetId.get(key);
-            if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
-              widgetUnchanged = false;
-              break;
-            }
-          }
-        }
-        if (widgetUnchanged) {
-          lastInput = filters;
-          return prev;
-        }
-      }
-    }
-
-    const result: BasePartitionedFilters = { page, byWidgetId };
-    lastInput = filters;
-    lastResult = result;
-    return result;
-  };
+  return makePartitionedFiltersSelector(() => pageId, false);
 }
 
 /**
@@ -437,7 +397,7 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
  */
 export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
-    state.filters.find(
+    state.doc.filters.find(
       (f) =>
         f.scope.kind === 'cross-filter' &&
         f.scope.sourceWidgetId === widgetId &&
@@ -466,7 +426,7 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
   let lastResult: StudioFilterState[] | undefined;
 
   return (state: StudioState): StudioFilterState[] => {
-    const filters = state.filters;
+    const filters = state.doc.filters;
     if (filters === lastInput && lastResult !== undefined) {
       return lastResult;
     }
@@ -505,14 +465,14 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
 export function makeSelectWidget(
   widgetId: string,
 ): (state: StudioState) => StudioWidget | undefined {
-  return (state) => state.widgets[widgetId];
+  return (state) => state.doc.widgets[widgetId];
 }
 
 /**
  * Returns true when this widget is the currently selected widget.
  */
 export function makeSelectIsWidgetSelected(widgetId: string): (state: StudioState) => boolean {
-  return (state) => state.shell.selectedWidgetId === widgetId;
+  return (state) => state.session.shell.selectedWidgetId === widgetId;
 }
 
 /**
@@ -522,7 +482,8 @@ export function makeSelectIsWidgetSelected(widgetId: string): (state: StudioStat
  */
 export function makeSelectIsWidgetDimmed(widgetId: string): (state: StudioState) => boolean {
   return (state) =>
-    state.shell.selectedWidgetId !== null && state.shell.selectedWidgetId !== widgetId;
+    state.session.shell.selectedWidgetId !== null &&
+    state.session.shell.selectedWidgetId !== widgetId;
 }
 
 /**
@@ -533,8 +494,8 @@ export function makeSelectWidgetSource(
   widgetId: string,
 ): (state: StudioState) => StudioDataSource | undefined {
   return (state) => {
-    const w = state.widgets[widgetId];
-    return w?.sourceId ? state.dataSources[w.sourceId] : undefined;
+    const w = state.doc.widgets[widgetId];
+    return w?.sourceId ? state.runtime.dataSources[w.sourceId] : undefined;
   };
 }
 
@@ -546,12 +507,12 @@ export function makeSelectWidgetRankFilter(
   widgetId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.widgets[widgetId];
+    const w = state.doc.widgets[widgetId];
     if (w?.kind !== 'chart') {
       return null;
     }
     return (
-      state.filters.find(
+      state.doc.filters.find(
         (f) =>
           f.scope.kind === 'widget' &&
           f.scope.widgetId === widgetId &&
@@ -572,13 +533,16 @@ export function makeSelectWidgetSliderFilter(
   pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.widgets[widgetId];
+    const w = state.doc.widgets[widgetId];
     if (w?.kind !== 'filter' || w?.config?.filterWidgetType !== 'slider') {
       return null;
     }
     return (
-      state.filters.find(
-        (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
+      state.doc.filters.find(
+        (f) =>
+          f.scope.kind === 'interactive' &&
+          f.scope.sourceWidgetId === widgetId &&
+          f.scope.pageId === pageId,
       ) ?? null
     );
   };
@@ -594,13 +558,16 @@ export function makeSelectWidgetActiveCrossFilter(
   pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.widgets[widgetId];
+    const w = state.doc.widgets[widgetId];
     if (w?.kind !== 'chart' && w?.kind !== 'grid') {
       return null;
     }
     return (
-      state.filters.find(
-        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widgetId && f.scope.pageId === pageId,
+      state.doc.filters.find(
+        (f) =>
+          f.scope.kind === 'cross-filter' &&
+          f.scope.sourceWidgetId === widgetId &&
+          f.scope.pageId === pageId,
       ) ?? null
     );
   };

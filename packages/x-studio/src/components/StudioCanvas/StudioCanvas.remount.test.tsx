@@ -39,18 +39,21 @@ function counterWidget(id: string): StudioWidget {
 function setup() {
   const { controller, wrapper } = createStudioHarness({
     initialState: {
-      mode: 'edit',
-      pages: {
-        'page-1': {
-          id: 'page-1',
-          title: 'Page 1',
-          // Both widgets share one row — the row Box used to be keyed by
-          // `row.join('-')`, so reordering/adding/removing anything in this
-          // row changed that key and remounted every widget in it.
-          widgetRows: [['w1', 'w2']],
+      // `mode: 'edit'` is already `createDefaultStudioState`'s default, so no
+      // `session` override is needed here.
+      doc: {
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'Page 1',
+            // Both widgets share one row — the row Box used to be keyed by
+            // `row.join('-')`, so reordering/adding/removing anything in this
+            // row changed that key and remounted every widget in it.
+            widgetRows: [['w1', 'w2']],
+          },
         },
+        widgets: { w1: counterWidget('w1'), w2: counterWidget('w2') },
       },
-      widgets: { w1: counterWidget('w1'), w2: counterWidget('w2') },
     },
     providerProps: { customWidgets: [COUNTER_WIDGET_DEF] },
   });
@@ -91,10 +94,12 @@ describe('StudioCanvas row keying (remount regression)', () => {
     act(() => {
       const state = controller.getState();
       controller.updateState({
-        widgets: { ...state.widgets, w3: counterWidget('w3') },
-        pages: {
-          ...state.pages,
-          'page-1': { ...state.pages['page-1'], widgetRows: [['w1', 'w2', 'w3']] },
+        doc: {
+          widgets: { ...state.doc.widgets, w3: counterWidget('w3') },
+          pages: {
+            ...state.doc.pages,
+            'page-1': { ...state.doc.pages['page-1'], widgetRows: [['w1', 'w2', 'w3']] },
+          },
         },
       });
     });
@@ -114,9 +119,11 @@ describe('StudioCanvas row keying (remount regression)', () => {
     act(() => {
       const state = controller.getState();
       controller.updateState({
-        pages: {
-          ...state.pages,
-          'page-1': { ...state.pages['page-1'], widgetRows: [['w1']] },
+        doc: {
+          pages: {
+            ...state.doc.pages,
+            'page-1': { ...state.doc.pages['page-1'], widgetRows: [['w1']] },
+          },
         },
       });
     });

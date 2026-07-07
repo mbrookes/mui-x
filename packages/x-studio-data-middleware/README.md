@@ -36,6 +36,9 @@ app.post('/api/studio-data', async (req, res) => {
       db,
       cacheProvider: cache,
       schemaAllowlist: ['orders', 'customers', 'products'],
+      // Tenancy is REQUIRED — declare it explicitly. Multi-tenant deployments use
+      // `{ mode: 'multi-tenant', tenantColumn: 'tenant_id' }`.
+      tenancy: { mode: 'single-tenant' },
     });
     res.json(result);
   } catch (err) {
@@ -98,23 +101,27 @@ Table names are validated against `schemaAllowlist` before any query is built. C
 
 Cache keys incorporate a security hash so users with different row-level permissions never share cache entries. The client's `cacheKey` is never used server-side.
 
+### Sanitize error messages in production
+
+For developer convenience, error results echo the underlying message verbatim — this can include driver SQL text (with bound values and column names) and, for allowlist violations, the full list of allowed tables/columns. Before returning a per-item `error` (or a thrown handler error) to an untrusted client, **sanitize or redact it in production**: log the detailed message server-side and surface a generic message (and a correlation ID) to the caller so you do not hand a prober your schema inventory.
+
 ## API
 
 ### `handleBatchQuery(body, claims, options)`
 
-| Parameter                             | Type                       | Description                                                     |
-| :------------------------------------ | :------------------------- | :-------------------------------------------------------------- |
-| `body`                                | `BatchQueryRequest`        | Parsed request body from the client                             |
-| `claims`                              | `JwtSecurityClaims`        | Pre-verified JWT claims                                         |
-| `options.db`                          | `Knex.Knex`                | **Required.** Configured Knex instance                          |
-| `options.schemaAllowlist`             | `string[]`                 | **Required.** Permitted table names                             |
-| `options.columnAllowlist`             | `Record<string, string[]>` | Per-table column allowlist — strongly recommended in production |
-| `options.cacheProvider`               | `CacheProvider`            | Default: shared `LRUCacheProvider`                              |
-| `options.tierCacheProvider`           | `TierCacheProvider`        | Default: shared `MapTierCacheProvider` (see below)              |
-| `options.tierCacheTtlMs`              | `number`                   | Default: `300_000` (5 min). Set `0` to disable tier cache.      |
-| `options.thresholds.clientTier`       | `number`                   | Default: `10_000`                                               |
-| `options.thresholds.serverMemoryTier` | `number`                   | Default: `100_000`                                              |
-| `options.tenantColumn`                | `string`                   | Column used for tenant isolation (e.g. `'tenant_id'`)           |
+| Parameter                             | Type                       | Description                                                                           |
+| :------------------------------------ | :------------------------- | :------------------------------------------------------------------------------------ |
+| `body`                                | `BatchQueryRequest`        | Parsed request body from the client                                                   |
+| `claims`                              | `JwtSecurityClaims`        | Pre-verified JWT claims                                                               |
+| `options.db`                          | `Knex.Knex`                | **Required.** Configured Knex instance                                                |
+| `options.schemaAllowlist`             | `string[]`                 | **Required.** Permitted table names                                                   |
+| `options.columnAllowlist`             | `Record<string, string[]>` | Per-table column allowlist — strongly recommended in production                       |
+| `options.cacheProvider`               | `CacheProvider`            | Default: shared `LRUCacheProvider`                                                    |
+| `options.tierCacheProvider`           | `TierCacheProvider`        | Default: shared `MapTierCacheProvider` (see below)                                    |
+| `options.tierCacheTtlMs`              | `number`                   | Default: `300_000` (5 min). Set `0` to disable tier cache.                            |
+| `options.thresholds.clientTier`       | `number`                   | Default: `10_000`                                                                     |
+| `options.thresholds.serverMemoryTier` | `number`                   | Default: `100_000`                                                                    |
+| `options.tenancy`                     | `TenancyConfig`            | **Required.** `{ mode: 'multi-tenant', tenantColumn }` or `{ mode: 'single-tenant' }` |
 
 ### Column allowlist (recommended)
 
@@ -122,6 +129,7 @@ Cache keys incorporate a security hash so users with different row-level permiss
 const result = await handleBatchQuery(req.body, claims, {
   db,
   schemaAllowlist: ['orders', 'customers'],
+  tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' },
   columnAllowlist: {
     orders: ['id', 'customer_id', 'total_amount', 'created_at', 'status'],
     customers: ['id', 'name', 'region_id', 'department'],

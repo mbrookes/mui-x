@@ -791,18 +791,9 @@ importers:
       '@mui/x-studio':
         specifier: workspace:*
         version: link:../../packages/x-studio/build
-      '@mui/x-studio-data-middleware':
-        specifier: workspace:*
-        version: link:../../packages/x-studio-data-middleware
-      better-sqlite3:
-        specifier: ^12.10.0
-        version: 12.11.1
       dayjs:
         specifier: 'catalog:'
         version: 1.11.21
-      knex:
-        specifier: ^3.1.0
-        version: 3.2.10(better-sqlite3@12.11.1)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.22.0)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -816,9 +807,6 @@ importers:
         specifier: workspace:*
         version: link:../x-studio-shared
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^7.6.13
-        version: 7.6.13
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.15
@@ -860,7 +848,7 @@ importers:
         version: 9.1.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       ag-studio-react:
         specifier: latest
-        version: 2.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 2.0.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react:
         specifier: 'catalog:'
         version: 19.2.6
@@ -1063,6 +1051,9 @@ importers:
       '@mui/x-studio-data-middleware':
         specifier: workspace:*
         version: link:../../packages/x-studio-data-middleware
+      '@mui/x-studio-schema':
+        specifier: workspace:*
+        version: link:../../packages/x-studio-schema
       cors:
         specifier: ^2.8.5
         version: 2.8.6
@@ -1085,9 +1076,6 @@ importers:
       '@mui/x-chat-headless':
         specifier: workspace:*
         version: link:../../packages/x-chat-headless/build
-      '@mui/x-studio':
-        specifier: workspace:*
-        version: link:../../packages/x-studio/build
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -2509,12 +2497,13 @@ importers:
 
   packages/x-studio-data-middleware:
     dependencies:
-      knex:
-        specifier: ^3.1.0
-        version: 3.2.10(better-sqlite3@12.11.1)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.22.0)
       lru-cache:
         specifier: ^11.0.0
         version: 11.5.1
+    devDependencies:
+      knex:
+        specifier: ^3.1.0
+        version: 3.2.10(better-sqlite3@12.11.1)(mysql2@3.22.5(@types/node@22.19.19))(pg@8.22.0)
       rimraf:
         specifier: 'catalog:'
         version: 6.1.3
@@ -2937,6 +2926,12 @@ importers:
       tsx:
         specifier: 'catalog:'
         version: 4.22.3
+
+  test/e2e-studio:
+    devDependencies:
+      x-studio-example:
+        specifier: workspace:*
+        version: link:../../examples/x-studio
 
   test/performance-charts:
     devDependencies:
@@ -6890,14 +6885,14 @@ packages:
   ag-stack@36.0.0:
     resolution: {integrity: sha512-ciXqjZygVLk3tnZWOAQyOxP48Ju2ZmaSAtIebekXJwHqA7vB+NJ8ZME/O4XTRpInTSHn2KSu/KTxgWJO8dduiw==}
 
-  ag-studio-react@2.0.0:
-    resolution: {integrity: sha512-I1nymxtNL8hFSAqeoEFE8KBlI+o05vnwdQiAJtVLuTotjzBMX6rGMd4Ih+PNUNatdDYNuR4mf6wIJ/8ZecwrZg==}
+  ag-studio-react@2.0.1:
+    resolution: {integrity: sha512-f3j7VfzmUL8VVxQiVkmztn8WFsFDuI01OvkyCMhr/18qIbv7Mkj41U06rlw3lWI6dtoC+zU6ydMYFVjArQ/DKA==}
     peerDependencies:
       react: ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  ag-studio@2.0.0:
-    resolution: {integrity: sha512-MVVwU4002VSCdTWQ93tLcjl3g3W8d7LwQ5d4yweQgOakgZNN3aYJ2stI2lCQ9M6mZNxhRDsvh3dnnga6dU2tow==}
+  ag-studio@2.0.1:
+    resolution: {integrity: sha512-rq8mdVcRehQV3rxgPG0WQkv6TWVjfznfLNUuu6SKXIs8iqxFwJ4NeRLHDALnTEQ6lzXpeDWVow7xhH2NEylinA==}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -17158,14 +17153,14 @@ snapshots:
 
   ag-stack@36.0.0: {}
 
-  ag-studio-react@2.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+  ag-studio-react@2.0.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:
       ag-stack: 36.0.0
-      ag-studio: 2.0.0
+      ag-studio: 2.0.1
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  ag-studio@2.0.0:
+  ag-studio@2.0.1:
     dependencies:
       ag-charts-enterprise: 14.0.0
       ag-grid-enterprise: 36.0.0
@@ -17508,6 +17503,7 @@ snapshots:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
+    optional: true
 
   bezier-easing@3.0.0: {}
 
@@ -17531,6 +17527,7 @@ snapshots:
   bindings@1.5.0:
     dependencies:
       file-uri-to-path: 1.0.0
+    optional: true
 
   bippy@0.5.42(react@19.2.6):
     dependencies:
@@ -17743,7 +17740,8 @@ snapshots:
       fsevents: 2.3.3
     optional: true
 
-  chownr@1.1.4: {}
+  chownr@1.1.4:
+    optional: true
 
   chownr@3.0.0: {}
 
@@ -18214,6 +18212,7 @@ snapshots:
   decompress-response@6.0.0:
     dependencies:
       mimic-response: 3.1.0
+    optional: true
 
   dedent@1.5.3(babel-plugin-macros@3.1.0):
     optionalDependencies:
@@ -18926,7 +18925,8 @@ snapshots:
       strip-final-newline: 4.0.0
       yoctocolors: 2.1.1
 
-  expand-template@2.0.3: {}
+  expand-template@2.0.3:
+    optional: true
 
   expect-type@1.3.0: {}
 
@@ -19083,7 +19083,8 @@ snapshots:
     dependencies:
       flat-cache: 4.0.1
 
-  file-uri-to-path@1.0.0: {}
+  file-uri-to-path@1.0.0:
+    optional: true
 
   fill-range@7.1.1:
     dependencies:
@@ -19344,7 +19345,8 @@ snapshots:
     dependencies:
       ini: 1.3.8
 
-  github-from-package@0.0.0: {}
+  github-from-package@0.0.0:
+    optional: true
 
   github-slugger@2.0.0: {}
 
@@ -21082,7 +21084,8 @@ snapshots:
 
   mimic-function@5.0.1: {}
 
-  mimic-response@3.1.0: {}
+  mimic-response@3.1.0:
+    optional: true
 
   min-indent@1.0.1: {}
 
@@ -21150,7 +21153,8 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  mkdirp-classic@0.5.3: {}
+  mkdirp-classic@0.5.3:
+    optional: true
 
   modify-values@1.0.1: {}
 
@@ -21234,7 +21238,8 @@ snapshots:
 
   nanoid@3.3.12: {}
 
-  napi-build-utils@2.0.0: {}
+  napi-build-utils@2.0.0:
+    optional: true
 
   napi-postinstall@0.3.2: {}
 
@@ -21277,6 +21282,7 @@ snapshots:
   node-abi@3.92.0:
     dependencies:
       semver: 7.8.1
+    optional: true
 
   node-gyp@12.2.0:
     dependencies:
@@ -22075,6 +22081,7 @@ snapshots:
       simple-get: 4.0.1
       tar-fs: 2.1.4
       tunnel-agent: 0.6.0
+    optional: true
 
   prelude-ls@1.2.1: {}
 
@@ -22166,6 +22173,7 @@ snapshots:
     dependencies:
       end-of-stream: 1.4.5
       once: 1.4.0
+    optional: true
 
   punycode@1.4.1:
     optional: true
@@ -23051,13 +23059,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  simple-concat@1.0.1: {}
+  simple-concat@1.0.1:
+    optional: true
 
   simple-get@4.0.1:
     dependencies:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+    optional: true
 
   sinon@22.0.0:
     dependencies:
@@ -23448,6 +23458,7 @@ snapshots:
       mkdirp-classic: 0.5.3
       pump: 3.0.4
       tar-stream: 2.2.0
+    optional: true
 
   tar-stream@2.2.0:
     dependencies:
@@ -23612,6 +23623,7 @@ snapshots:
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
+    optional: true
 
   type-check@0.4.0:
     dependencies:

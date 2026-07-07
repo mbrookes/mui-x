@@ -118,6 +118,25 @@ describe('RedisTierCacheProvider', () => {
       expect(expiresAt).toBeGreaterThanOrEqual(Date.now() + 900);
       expect(expiresAt).toBeLessThan(Date.now() + 2_000);
     });
+
+    it('honors a constructor defaultTtlSeconds override', async () => {
+      const redis = makeIoredisClient();
+      const provider = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 10 });
+      await provider.set('k1', ENTRY);
+      expect(redis.store.get('k1')?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 9_000);
+      expect(redis.store.get('k1')?.expiresAt).toBeLessThan(Date.now() + 30_000);
+    });
+  });
+
+  describe('keyPrefix namespacing', () => {
+    it('applies the prefix to the underlying store but not to the logical key', async () => {
+      const redis = makeIoredisClient();
+      const provider = new RedisTierCacheProvider(redis, { keyPrefix: 'studio:' });
+      await provider.set('k1', ENTRY);
+      expect(redis.store.has('studio:k1')).toBe(true);
+      expect(redis.store.has('k1')).toBe(false);
+      expect(await provider.get('k1')).toEqual(ENTRY);
+    });
   });
 
   describe('node-redis v4 client compatibility', () => {
@@ -176,6 +195,14 @@ describe('RedisTierCacheProvider', () => {
       expect(scanSpy).toHaveBeenCalled();
       expect(await provider.get('studio:v1:acme:a')).toBeUndefined();
       expect(await provider.get('studio:v1:acme:b')).toBeUndefined();
+    });
+
+    it('is a no-op when no keys match', async () => {
+      const redis = makeIoredisClient();
+      const provider = new RedisTierCacheProvider(redis);
+      await provider.set('k1', ENTRY);
+      await provider.invalidatePrefix('no-match:');
+      expect(await provider.get('k1')).toEqual(ENTRY);
     });
   });
 });

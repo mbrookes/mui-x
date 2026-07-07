@@ -12,22 +12,26 @@ function fakeController(
 
 function stateWithSales() {
   return createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
-    widgets: {},
-    dataSources: {
-      src1: {
-        id: 'src1',
-        label: 'Sales',
-        fields: [
-          { id: 'amount', label: 'Amount', type: 'number' },
-          { id: 'region', label: 'Region', type: 'string' },
-        ],
-        rows: [
-          { amount: 100, region: 'EU' },
-          { amount: 200, region: 'US' },
-          { amount: 300, region: 'US' },
-        ],
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+      widgets: {},
+    },
+    runtime: {
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [
+            { id: 'amount', label: 'Amount', type: 'number' },
+            { id: 'region', label: 'Region', type: 'string' },
+          ],
+          rows: [
+            { amount: 100, region: 'EU' },
+            { amount: 200, region: 'US' },
+            { amount: 300, region: 'US' },
+          ],
+        },
       },
     },
   });
@@ -57,12 +61,14 @@ describe('buildRichContext', () => {
 
   it('omits field stats for sources without local rows', () => {
     const state = createDefaultStudioState({
-      dataSources: {
-        remote: {
-          id: 'remote',
-          label: 'Remote',
-          fields: [{ id: 'x', label: 'X', type: 'number' }],
-          // no rows
+      runtime: {
+        dataSources: {
+          remote: {
+            id: 'remote',
+            label: 'Remote',
+            fields: [{ id: 'x', label: 'X', type: 'number' }],
+            // no rows
+          },
         },
       },
     });
@@ -72,22 +78,24 @@ describe('buildRichContext', () => {
 
   it('builds the page layout with widget kind, chart type, and cross-filter edges', () => {
     const state = createDefaultStudioState({
-      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
-      pages: {
-        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
-      },
-      widgets: {
-        w1: { id: 'w1', kind: 'chart', title: 'Sales', config: { chartType: 'bar' } },
-      },
-      filters: [
-        {
-          id: 'xf',
-          field: 'region',
-          operator: 'equals',
-          value: 'US',
-          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
         },
-      ],
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'Sales', config: { chartType: 'bar' } },
+        },
+        filters: [
+          {
+            id: 'xf',
+            field: 'region',
+            operator: 'equals',
+            value: 'US',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+        ],
+      },
     });
     const result = buildRichContext(state, fakeController());
     expect(result?.pageLayout?.pageId).toBe('page-1');
@@ -115,17 +123,21 @@ describe('buildRichContext', () => {
       { label: 'addFilter:revenue', at: '2026-01-01T00:00:00.000Z' },
     ];
     const state = createDefaultStudioState({
-      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
-      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] } },
-      widgets: {
-        w1: { id: 'w1', kind: 'chart', title: 'Sales', config: { chartType: 'bar' } },
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'Sales', config: { chartType: 'bar' } },
+        },
       },
-      dataSources: {
-        src1: {
-          id: 'src1',
-          label: 'Sales',
-          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
-          rows: [{ amount: 100 }, { amount: 200 }],
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [{ amount: 100 }, { amount: 200 }],
+          },
         },
       },
     });

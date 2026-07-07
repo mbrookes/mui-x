@@ -277,6 +277,14 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   filterRankTop: 'Größte',
   filterRankBottom: 'Kleinste',
 
+  // Filter summary
+  filterSummaryAnyValue: 'beliebiger Wert',
+  filterSummaryIsOneOf: 'ist eines von:',
+  filterSummaryIsNot: 'ist nicht:',
+  filterSummaryAndMore: (count) => `und ${count} weitere`,
+  filterSummaryFrom: (value) => `ab ${value}`,
+  filterSummaryUntil: (value) => `bis ${value}`,
+
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'Ist gleich',
   filterOperator_string_not_equals: 'Ist nicht gleich',

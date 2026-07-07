@@ -20,14 +20,14 @@
  */
 
 import { describe, bench, beforeAll } from 'vitest';
+import { normalizeDataSourceRows } from '../internals/temporalUtils';
+import { resolveRows } from '../internals/dataSourceGraph';
 import {
-  normalizeDataSourceRows,
-  resolveRows,
   resolveChartRowsForAggregation,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
-} from '../internals/chartUtils';
+} from '../internals/chartAggregation';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';

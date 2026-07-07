@@ -84,15 +84,11 @@ export function TextSetupPanel(props: { widgetId: string }) {
         />
       )}
       <TextField
-        label={aiEnabled ? 'Prompt' : localeText.textSetupBodyLabel}
+        label={aiEnabled ? localeText.textSetupPromptLabel : localeText.textSetupBodyLabel}
         fullWidth
         multiline
         minRows={5}
-        helperText={
-          aiEnabled
-            ? 'Describe what the AI should write — it can query the data sources on this page'
-            : localeText.textSetupBodyHelper
-        }
+        helperText={aiEnabled ? localeText.textSetupPromptHelper : localeText.textSetupBodyHelper}
         value={form.body}
         onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
         onBlur={handleTextFieldBlur}

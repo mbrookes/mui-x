@@ -14,26 +14,38 @@
  */
 import { createHmac, createHash } from 'node:crypto';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
+import { SINGLE_TENANT_POLICY_DIGEST } from './compileSecurityPolicy';
 
 /**
- * Generate a HMAC-SHA256 security hash from the user's row-level claims.
- * Two users with identical row-level permissions will share the same hash
- * (and thus share cache entries) — intentionally, for cache efficiency.
+ * Generate a HMAC-SHA256 security hash from the user's row-level claims AND the
+ * compiled security-policy digest.
+ *
+ * Two users with identical row-level permissions served by nodes running the
+ * identical security policy share the same hash (and thus share cache entries) —
+ * intentionally, for cache efficiency. Folding the `policyDigest` in means two
+ * nodes running DIFFERENT `securityColumns` config (e.g. mid-rollout, tightening
+ * a `perTable` scope) produce different hashes, so one node can never serve its
+ * cached rows to the other node's differently-scoped requests (Gap B).
  *
  * Result is memoized: the security profile only changes when tenantId,
- * regionIds, or department change, so repeated calls for the same user
- * within a request (or across requests from the same user) pay the HMAC
- * cost at most once per unique permission set per process lifetime.
+ * regionIds, department, or the policy digest change, so repeated calls for the
+ * same user within a request (or across requests from the same user) pay the
+ * HMAC cost at most once per unique permission set per process lifetime.
  * The memo map is bounded to MAX_MEMO_SIZE entries to prevent unbounded growth.
  */
 const securityHashMemo = new Map<string, string>();
 const MAX_MEMO_SIZE = 1_000;
 
-function computeSecurityHash(claims: JwtSecurityClaims, hmacSecret: string): string {
+function computeSecurityHash(
+  claims: JwtSecurityClaims,
+  hmacSecret: string,
+  policyDigest: string,
+): string {
   const securityProfile = sortedStringify({
     tenantId: claims.tenantId,
     regionIds: claims.regionIds ? [...claims.regionIds].sort((a, b) => a - b) : undefined,
     department: claims.department,
+    policyDigest,
   });
 
   const memoKey = `${hmacSecret}::${securityProfile}`;
@@ -91,11 +103,18 @@ function sortedStringify(obj: unknown): string {
  * @param claims - Verified security claims from extractSecurityClaims()
  * @param descriptor - The widget query descriptor from the batch request
  * @param hmacSecret - Server-side HMAC secret (from environment, never from client)
+ * @param policyDigest - Digest of the compiled security policy in force
+ *   (`CompiledSecurityPolicy.digest`). Folds the row-level-security POLICY — not
+ *   just the caller's claims — into the key so differently-scoped nodes never
+ *   share cache entries. Defaults to the single-tenant policy digest so direct
+ *   callers (e.g. unit tests) that don't pass one stay deterministic and match a
+ *   single-tenant deployment.
  */
 export function generateCacheKey(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   hmacSecret: string = process.env.CACHE_HMAC_SECRET ?? process.env.JWT_SECRET ?? '',
+  policyDigest: string = SINGLE_TENANT_POLICY_DIGEST,
 ): string {
   if (!hmacSecret) {
     throw new Error(
@@ -104,7 +123,7 @@ export function generateCacheKey(
         'Set CACHE_HMAC_SECRET (or JWT_SECRET) or pass an explicit secret to generateCacheKey().',
     );
   }
-  const securityHash = computeSecurityHash(claims, hmacSecret);
+  const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest);
   const queryHash = computeQueryHash(descriptor);
   return `studio:v1:${claims.tenantId}:${securityHash}:${queryHash}`;
 }

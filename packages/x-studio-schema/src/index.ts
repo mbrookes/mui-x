@@ -16,7 +16,47 @@ export * from './widgetTypes';
 export * from './expressionTypes';
 export * from './stateTypes';
 export * from './aiTypes';
+// `StudioAIToolName` is re-exported via `aiTypes.ts` above (which re-exports it
+// from `aiToolRegistry.ts`); export the runtime registry and its facts type
+// explicitly here rather than `export *`-ing `aiToolRegistry` (which would
+// re-export `StudioAIToolName` a second time and conflict with the line above).
+export { STUDIO_AI_TOOL_REGISTRY } from './aiToolRegistry';
+export type { StudioAIToolFacts } from './aiToolRegistry';
 
-export { createDefaultWidget } from './widgetFactory';
-export { detectAnomaliesIQR, median } from './anomalyDetection';
-export { applyMutation, mutationLabel } from './applyMutation';
+// The `factories` runtime module's functions are exported explicitly here (they
+// live in a runtime module, not a `export *`-ed type module).
+export {
+  createDefaultWidget,
+  createWidgetId,
+  createMutationId,
+  createMutationEnvelope,
+  normalizeGridColumn,
+  normalizeChartSeries,
+  createDefaultStudioState,
+} from './factories';
+export type { CreateDefaultStudioStateOverrides } from './factories';
+export { detectAnomaliesIQR } from './anomalyDetection';
+export {
+  applyDocMutation,
+  applyMutation,
+  mutationLabel,
+  GRID_COLS,
+  MIN_SPAN,
+  MUTATION_TYPES,
+} from './applyMutation';
+export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
+export type { ParseStateMutationResult } from './parseStateMutation';
+export { isoWeek, truncateToPeriod } from './temporalUtils';
+export {
+  CURRENT_SCHEMA_VERSION,
+  serializeDoc,
+  serializeState,
+  deserializeState,
+  migrateState,
+} from './statePersistence';
+export type {
+  SerializedStudioState,
+  SerializedStudioSnapshot,
+  SerializedStudioSession,
+  MigrationResult,
+} from './statePersistence';

@@ -82,6 +82,201 @@ export interface StudioWidgetCardActionsOverlayProps {
 
 const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
 
+// ── Shared per-action buttons ───────────────────────────────────────────────
+//
+// The edit-mode and view-mode toolbars render the same set of actions (export, expand,
+// AI insight menu, anomaly toggle/explain, AI refresh) with only two things differing
+// per mode: `tabIndex` (edit-mode buttons are always focusable-when-visible; several
+// view-mode buttons intentionally omit `tabIndex` — see call sites below) and which
+// `show*` flag gates it. Each action is its own component, parameterized by those two
+// knobs, so the two toolbars below compose the same building blocks instead of
+// maintaining two independent copies (which had already drifted on `tabIndex`).
+
+interface ActionButtonProps {
+  tabIndex?: number;
+}
+
+function ExportAction({
+  label,
+  tabIndex,
+  onExport,
+}: ActionButtonProps & { label: string; onExport: (event: React.MouseEvent) => void }) {
+  return (
+    <Tooltip title={label}>
+      <IconButton
+        size="small"
+        sx={actionButtonSx}
+        onClick={onExport}
+        aria-label={label}
+        tabIndex={tabIndex}
+      >
+        <DownloadIcon />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function ExpandAction({
+  label,
+  tabIndex,
+  onExpand,
+}: ActionButtonProps & { label: string; onExpand: () => void }) {
+  return (
+    <Tooltip title={label}>
+      <IconButton
+        size="small"
+        sx={actionButtonSx}
+        onClick={(event) => {
+          event.stopPropagation();
+          onExpand();
+        }}
+        aria-label={label}
+        tabIndex={tabIndex}
+      >
+        <OpenInFullIcon />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function InsightMenuAction({
+  label,
+  insightTypes,
+  tabIndex,
+  onInsightRequest,
+}: ActionButtonProps & {
+  label: string;
+  insightTypes: Array<'summary' | 'analysis' | 'forecast'>;
+  onInsightRequest: (type: 'summary' | 'analysis' | 'forecast') => void;
+}) {
+  const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
+  return (
+    <React.Fragment>
+      <Tooltip title={label}>
+        <IconButton
+          size="small"
+          sx={actionButtonSx}
+          onClick={(event) => {
+            event.stopPropagation();
+            setAnchorEl(event.currentTarget);
+          }}
+          aria-label={label}
+          tabIndex={tabIndex}
+        >
+          <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {insightTypes.map((type) => (
+          <MenuItem
+            key={type}
+            dense
+            sx={{ textTransform: 'capitalize' }}
+            onClick={() => {
+              onInsightRequest(type);
+              setAnchorEl(null);
+            }}
+          >
+            {type.charAt(0).toUpperCase() + type.slice(1)}
+          </MenuItem>
+        ))}
+      </Menu>
+    </React.Fragment>
+  );
+}
+
+function AnomalyToggleAction({
+  anomalyEnabled,
+  anomalyCount,
+  tabIndex,
+  onAnomalyToggle,
+  labelOn,
+  labelOff,
+}: ActionButtonProps & {
+  anomalyEnabled?: boolean;
+  anomalyCount?: number;
+  onAnomalyToggle: () => void;
+  labelOn: string;
+  labelOff: string;
+}) {
+  const label = anomalyEnabled ? labelOn : labelOff;
+  return (
+    <Tooltip title={label}>
+      <IconButton
+        size="small"
+        sx={{
+          ...actionButtonSx,
+          color: anomalyEnabled ? 'warning.main' : undefined,
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAnomalyToggle();
+        }}
+        aria-label={label}
+        tabIndex={tabIndex}
+      >
+        <Badge
+          badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
+          color="warning"
+          sx={{ '& .MuiBadge-badge': { fontSize: 8, minWidth: 12, height: 12, p: 0 } }}
+        >
+          <TroubleshootIcon />
+        </Badge>
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function AnomalyExplainAction({
+  label,
+  tabIndex,
+  onAnomalyExplain,
+}: ActionButtonProps & { label: string; onAnomalyExplain: () => void }) {
+  return (
+    <Tooltip title={label}>
+      <IconButton
+        size="small"
+        sx={actionButtonSx}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAnomalyExplain();
+        }}
+        aria-label={label}
+        tabIndex={tabIndex}
+      >
+        <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function AiRefreshAction({
+  tabIndex,
+  onAiRefresh,
+}: ActionButtonProps & { onAiRefresh: () => void }) {
+  return (
+    <Tooltip title="Refresh AI content">
+      <IconButton
+        size="small"
+        sx={actionButtonSx}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAiRefresh();
+        }}
+        aria-label="Refresh AI content"
+        tabIndex={tabIndex}
+      >
+        <RefreshIcon />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
 // react-doctor-disable-next-line react-doctor/no-giant-component -- this component is a single cohesive overlay; splitting it would distribute tightly-coupled action state
 export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOverlayProps) {
   const {
@@ -114,7 +309,6 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   } = props;
 
   const [moveMenuAnchor, setMoveMenuAnchor] = React.useState<HTMLElement | null>(null);
-  const [insightMenuAnchor, setInsightMenuAnchor] = React.useState<HTMLElement | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   const deleteButtonRef = React.useRef<HTMLButtonElement>(null);
   const localeText = useStudioLocaleText();
@@ -141,6 +335,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   };
 
   if (mode === 'edit') {
+    const editTabIndex = showEditActions ? 0 : -1;
     return (
       <React.Fragment>
         <Stack
@@ -165,33 +360,14 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           }}
         >
           {canExport && (
-            <Tooltip title={exportLabel}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={onExport}
-                aria-label={exportLabel}
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
+            <ExportAction label={exportLabel} tabIndex={editTabIndex} onExport={onExport} />
           )}
           {isChart && (
-            <Tooltip title={localeText.widgetExpandTooltip}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onExpand();
-                }}
-                aria-label={localeText.widgetExpandTooltip}
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <OpenInFullIcon />
-              </IconButton>
-            </Tooltip>
+            <ExpandAction
+              label={localeText.widgetExpandTooltip}
+              tabIndex={editTabIndex}
+              onExpand={onExpand}
+            />
           )}
           {onAiRequest && (
             <Tooltip title={localeText.widgetAiAssistantTooltip}>
@@ -203,117 +379,38 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                   onAiRequest();
                 }}
                 aria-label={localeText.widgetAiAssistantTooltip}
-                tabIndex={showEditActions ? 0 : -1}
+                tabIndex={editTabIndex}
               >
                 <AutoAwesomeIcon />
               </IconButton>
             </Tooltip>
           )}
           {onInsightRequest && (
-            <React.Fragment>
-              <Tooltip title={localeText.widgetAiInsightTooltip}>
-                <IconButton
-                  size="small"
-                  sx={actionButtonSx}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setInsightMenuAnchor(event.currentTarget);
-                  }}
-                  aria-label={localeText.widgetAiInsightTooltip}
-                  tabIndex={showEditActions ? 0 : -1}
-                >
-                  <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
-                </IconButton>
-              </Tooltip>
-              <Menu
-                anchorEl={insightMenuAnchor}
-                open={Boolean(insightMenuAnchor)}
-                onClose={() => setInsightMenuAnchor(null)}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {insightTypes.map((type) => (
-                  <MenuItem
-                    key={type}
-                    dense
-                    sx={{ textTransform: 'capitalize' }}
-                    onClick={() => {
-                      onInsightRequest(type);
-                      setInsightMenuAnchor(null);
-                    }}
-                  >
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </MenuItem>
-                ))}
-              </Menu>
-            </React.Fragment>
+            <InsightMenuAction
+              label={localeText.widgetAiInsightTooltip}
+              insightTypes={insightTypes}
+              tabIndex={editTabIndex}
+              onInsightRequest={onInsightRequest}
+            />
           )}
           {isChart && onAnomalyToggle && (
-            <Tooltip
-              title={
-                anomalyEnabled
-                  ? localeText.widgetHideAnomalyTooltip
-                  : localeText.widgetDetectAnomalyTooltip
-              }
-            >
-              <IconButton
-                size="small"
-                sx={{
-                  ...actionButtonSx,
-                  color: anomalyEnabled ? 'warning.main' : undefined,
-                }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAnomalyToggle();
-                }}
-                aria-label={
-                  anomalyEnabled
-                    ? localeText.widgetHideAnomalyTooltip
-                    : localeText.widgetDetectAnomalyTooltip
-                }
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <Badge
-                  badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
-                  color="warning"
-                  sx={{ '& .MuiBadge-badge': { fontSize: 8, minWidth: 12, height: 12, p: 0 } }}
-                >
-                  <TroubleshootIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
+            <AnomalyToggleAction
+              anomalyEnabled={anomalyEnabled}
+              anomalyCount={anomalyCount}
+              tabIndex={editTabIndex}
+              onAnomalyToggle={onAnomalyToggle}
+              labelOn={localeText.widgetHideAnomalyTooltip}
+              labelOff={localeText.widgetDetectAnomalyTooltip}
+            />
           )}
           {anomalyEnabled && onAnomalyExplain && (
-            <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
-              <IconButton
-                size="small"
-                sx={{ ...actionButtonSx }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAnomalyExplain();
-                }}
-                aria-label={localeText.widgetExplainAnomalyTooltip}
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
-              </IconButton>
-            </Tooltip>
+            <AnomalyExplainAction
+              label={localeText.widgetExplainAnomalyTooltip}
+              tabIndex={editTabIndex}
+              onAnomalyExplain={onAnomalyExplain}
+            />
           )}
-          {onAiRefresh && (
-            <Tooltip title="Refresh AI content">
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAiRefresh();
-                }}
-                aria-label="Refresh AI content"
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          )}
+          {onAiRefresh && <AiRefreshAction tabIndex={editTabIndex} onAiRefresh={onAiRefresh} />}
           <Tooltip title={localeText.widgetEditTooltip}>
             <IconButton
               size="small"
@@ -323,7 +420,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 onEdit();
               }}
               aria-label={localeText.widgetEditTooltip}
-              tabIndex={showEditActions ? 0 : -1}
+              tabIndex={editTabIndex}
             >
               <EditIcon />
             </IconButton>
@@ -337,7 +434,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 onDuplicate();
               }}
               aria-label={localeText.widgetDuplicateTooltip}
-              tabIndex={showEditActions ? 0 : -1}
+              tabIndex={editTabIndex}
             >
               <ContentCopyIcon />
             </IconButton>
@@ -354,7 +451,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                   }}
                   aria-label={localeText.widgetMoveToPageLabel}
                   aria-haspopup="menu"
-                  tabIndex={showEditActions ? 0 : -1}
+                  tabIndex={editTabIndex}
                 >
                   <DriveFileMoveOutlinedIcon />
                 </IconButton>
@@ -446,7 +543,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               sx={actionButtonSx}
               onClick={handleDeleteClick}
               aria-label={localeText.widgetDeleteTooltip}
-              tabIndex={showEditActions ? 0 : -1}
+              tabIndex={editTabIndex}
             >
               <CloseIcon />
             </IconButton>
@@ -507,135 +604,42 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
         }}
       >
         {canExport && (
-          <Tooltip title={exportLabel}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={onExport}
-              aria-label={exportLabel}
-              tabIndex={showViewExport ? 0 : -1}
-            >
-              <DownloadIcon />
-            </IconButton>
-          </Tooltip>
+          <ExportAction
+            label={exportLabel}
+            tabIndex={showViewExport ? 0 : -1}
+            onExport={onExport}
+          />
         )}
         {isChart && (
-          <Tooltip title={localeText.widgetExpandTooltip}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                onExpand();
-              }}
-              aria-label={localeText.widgetExpandTooltip}
-              tabIndex={showViewExpand ? 0 : -1}
-            >
-              <OpenInFullIcon />
-            </IconButton>
-          </Tooltip>
+          <ExpandAction
+            label={localeText.widgetExpandTooltip}
+            tabIndex={showViewExpand ? 0 : -1}
+            onExpand={onExpand}
+          />
         )}
         {onInsightRequest && (
-          <React.Fragment>
-            <Tooltip title={localeText.widgetAiInsightTooltip}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setInsightMenuAnchor(event.currentTarget);
-                }}
-                aria-label={localeText.widgetAiInsightTooltip}
-              >
-                <AutoAwesomeIcon />
-              </IconButton>
-            </Tooltip>
-            <Menu
-              anchorEl={insightMenuAnchor}
-              open={Boolean(insightMenuAnchor)}
-              onClose={() => setInsightMenuAnchor(null)}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {insightTypes.map((type) => (
-                <MenuItem
-                  key={type}
-                  dense
-                  sx={{ textTransform: 'capitalize' }}
-                  onClick={() => {
-                    onInsightRequest(type);
-                    setInsightMenuAnchor(null);
-                  }}
-                >
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </MenuItem>
-              ))}
-            </Menu>
-          </React.Fragment>
+          <InsightMenuAction
+            label={localeText.widgetAiInsightTooltip}
+            insightTypes={insightTypes}
+            onInsightRequest={onInsightRequest}
+          />
         )}
         {isChart && onAnomalyToggle && (
-          <Tooltip
-            title={
-              anomalyEnabled
-                ? localeText.widgetHideAnomalyTooltip
-                : localeText.widgetDetectAnomalyTooltip
-            }
-          >
-            <IconButton
-              size="small"
-              sx={{
-                ...actionButtonSx,
-                color: anomalyEnabled ? 'warning.main' : undefined,
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onAnomalyToggle();
-              }}
-              aria-label={
-                anomalyEnabled
-                  ? localeText.widgetHideAnomalyTooltip
-                  : localeText.widgetDetectAnomalyTooltip
-              }
-            >
-              <Badge
-                badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
-                color="warning"
-                sx={{ '& .MuiBadge-badge': { fontSize: 8, minWidth: 12, height: 12, p: 0 } }}
-              >
-                <TroubleshootIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
+          <AnomalyToggleAction
+            anomalyEnabled={anomalyEnabled}
+            anomalyCount={anomalyCount}
+            onAnomalyToggle={onAnomalyToggle}
+            labelOn={localeText.widgetHideAnomalyTooltip}
+            labelOff={localeText.widgetDetectAnomalyTooltip}
+          />
         )}
         {anomalyEnabled && onAnomalyExplain && (
-          <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                onAnomalyExplain();
-              }}
-              aria-label={localeText.widgetExplainAnomalyTooltip}
-            >
-              <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
-            </IconButton>
-          </Tooltip>
+          <AnomalyExplainAction
+            label={localeText.widgetExplainAnomalyTooltip}
+            onAnomalyExplain={onAnomalyExplain}
+          />
         )}
-        {onAiRefresh && (
-          <Tooltip title="Refresh AI content">
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                onAiRefresh();
-              }}
-              aria-label="Refresh AI content"
-            >
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-        )}
+        {onAiRefresh && <AiRefreshAction onAiRefresh={onAiRefresh} />}
       </Stack>
     );
   }

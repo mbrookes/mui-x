@@ -23,7 +23,7 @@ export async function summarizeRankHeatmaps(
   dashboardState: StudioState,
   schema: Map<string, Set<string>>,
 ): Promise<string | null> {
-  const widgets = Object.values(dashboardState.widgets ?? {}).filter(
+  const widgets = Object.values(dashboardState.doc.widgets ?? {}).filter(
     (w) => w.kind === 'survey-rank-heatmap',
   );
   if (widgets.length === 0) {
@@ -32,7 +32,9 @@ export async function summarizeRankHeatmaps(
 
   const summaries: string[] = [];
   for (const widget of widgets) {
-    const source = widget.sourceId ? dashboardState.dataSources[widget.sourceId] : undefined;
+    const source = widget.sourceId
+      ? dashboardState.runtime.dataSources[widget.sourceId]
+      : undefined;
     const tableName = source?.tableName;
     const field = (widget.config.customConfig as { field?: string } | undefined)?.field;
     if (!tableName || !field || !schema.get(tableName)?.has(field)) {

@@ -42,7 +42,7 @@ import {
   selectExpressionFields,
   useStudioLocaleText,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/chartUtils';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
@@ -417,7 +417,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 {...params}
                 label={localeText.gridSetupDataSourceLabel}
                 placeholder={localeText.gridSetupDataSourcePlaceholder}
-                helperText={!source ? localeText.gridSetupChooseSourceHelper : undefined}
+                slotProps={{
+                  ...params.slotProps,
+                  htmlInput: {
+                    ...params.slotProps.htmlInput,
+                    title: sourcePickerValue?.label,
+                  },
+                }}
               />
             )}
           />
@@ -489,11 +495,22 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   generated={fieldInfo?.generated}
                   size={14}
                 />
-                <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0 }}
+                  noWrap
+                  title={fieldInfo?.label ?? col.fieldId}
+                >
                   {fieldInfo?.label ?? col.fieldId}
                 </Typography>
                 {col.sourceId && (
-                  <Typography variant="caption" color="text.secondary" noWrap>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    noWrap
+                    sx={{ minWidth: 0 }}
+                    title={fieldInfo?.sourceLabel ?? ''}
+                  >
                     {fieldInfo?.sourceLabel}
                   </Typography>
                 )}

@@ -36,7 +36,7 @@ import {
   selectPages,
   selectCrossFilterAllPages,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/chartUtils';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
@@ -196,7 +196,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       return true;
     }
     const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
-    const summary = summarizeFilter(filter);
+    const summary = summarizeFilter(filter, localeText);
     return (
       fieldLabel.toLowerCase().includes(searchLower) || summary.toLowerCase().includes(searchLower)
     );

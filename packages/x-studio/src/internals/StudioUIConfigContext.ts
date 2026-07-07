@@ -320,6 +320,20 @@ export interface StudioLocaleText {
   filterRankTop: string;
   filterRankBottom: string;
 
+  // ── Filter summary (drawer row / quick-filter-bar chip condensed descriptions) ──
+  /** Shown for a selection-mode filter with no values chosen, e.g. "any value" */
+  filterSummaryAnyValue: string;
+  /** Prefix for an inclusive selection summary, e.g. "is one of: A, B" */
+  filterSummaryIsOneOf: string;
+  /** Prefix for an exclusive (not_in) selection summary, e.g. "is not: A, B" */
+  filterSummaryIsNot: string;
+  /** Returns e.g. "and 2 more" appended after a truncated selection summary */
+  filterSummaryAndMore: (count: number) => string;
+  /** Returns e.g. "from 10" for a `between` condition with only a lower bound */
+  filterSummaryFrom: (value: string) => string;
+  /** Returns e.g. "until 20" for a `between` condition with only an upper bound */
+  filterSummaryUntil: (value: string) => string;
+
   // ── Filter operator labels (per field type) ───────────────────────────────
   // Keys follow `filterOperator_${fieldType}_${operator}`; see
   // `StudioFiltersDrawer/filterOperatorMetadata.ts` for the authoritative list
@@ -435,6 +449,8 @@ export interface StudioLocaleText {
   chartSetupValueFieldLabel: string;
   chartSetupValueFieldHelperText: string;
   chartSetupAggregationLabel: string;
+  /** Shown when the Aggregation control is disabled because no value/measure field is chosen yet. */
+  aggregationLockedHelperText: string;
   chartSetupMinLabel: string;
   chartSetupMaxLabel: string;
   chartSetupGroupByLabel: string;
@@ -517,10 +533,15 @@ export interface StudioLocaleText {
   chartSetupXFieldHorizontalHelperText: string;
   chartSetupXFieldGroupVertHelperText: string;
   chartSetupXFieldGroupHorizHelperText: string;
+  chartSetupXFieldPieDonutLabel: string;
+  chartSetupXFieldPieDonutHelperText: string;
+  chartSetupXFieldFunnelLabel: string;
+  chartSetupXFieldFunnelHelperText: string;
   chartSetupYMeasureFieldsLabel: string;
   chartSetupXMeasureFieldsLabel: string;
   chartSetupYMeasureFieldLabel: string;
   chartSetupXMeasureFieldLabel: string;
+  chartSetupYMeasurePieDonutLabel: string;
   chartSetupNoDataAlert: string;
   chartSetupSeriesLabel: (index: number) => string;
   chartSetupSeriesNumericHorizHelperText: string;
@@ -530,11 +551,13 @@ export interface StudioLocaleText {
   chartSetupCalculatedField: string;
   chartSetupCategoryFieldLabel: string;
   chartSetupRemoveSplitByTooltip: string;
+  chartSetupFieldlessCountSplitByTooltip: string;
   chartSetupInnerRingLabel: string;
   chartSetupSplitByLabel: string;
   chartSetupArcLabelsTitle: string;
   chartSetupSplitByHelperText: string;
   chartSetupSplitByDisabledHelperText: string;
+  chartSetupSplitByFieldlessCountHelperText: string;
   chartSetupInnerRingHelperText: string;
 
   // ── KPI setup panel ────────────────────────────────────────────────────────
@@ -555,6 +578,7 @@ export interface StudioLocaleText {
   kpiSetupGaugeMaxLabel: string;
   kpiSetupTrendLabel: string;
   kpiSetupDateRangeLabel: string;
+  kpiSetupDateRangePresetLabel: string;
   kpiSetupDateRangeFieldLabel: string;
   kpiSetupCompPeriodLabel: string;
   kpiSetupDateAggEarliest: string;
@@ -615,11 +639,14 @@ export interface StudioLocaleText {
   // ── Map setup panel ────────────────────────────────────────────────────────
   mapSetupMapTypeLabel: string;
   mapSetupValueFieldLabel: string;
+  mapSetupValueFieldHelperText: string;
   mapSetupColourSchemeLabel: string;
   mapSetupLegendPositionLabel: string;
   mapSetupScaleFromZeroLabel: string;
   mapSetupClickableLabel: string;
   mapSetupCrossFilterLabel: string;
+  mapSetupInteractionsTitle: string;
+  mapSetupInteractionsDescription: string;
   mapSetupColorBlues: string;
   mapSetupColorReds: string;
   mapSetupColorGreens: string;
@@ -709,6 +736,10 @@ export interface StudioLocaleText {
   textSetupSubtitleHelper: string;
   textSetupBodyLabel: string;
   textSetupBodyHelper: string;
+  /** @default 'Prompt' */
+  textSetupPromptLabel: string;
+  /** @default 'Describe what the AI should write — it can query the data sources on this page' */
+  textSetupPromptHelper: string;
   /** @default 'AI mode' */
   textSetupAiModeLabel: string;
   /** @default 'Use your text as a prompt to generate AI content' */
@@ -790,7 +821,7 @@ export interface StudioLocaleText {
   ganttHiddenRowsLabel: (count: number) => string;
 
   // ── Color input ───────────────────────────────────────────────────────────
-  /** Returns e.g. "Clear background colour" */
+  /** Returns e.g. "Clear background color" */
   colorInputClearAriaLabel: (label: string) => string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
@@ -1345,6 +1376,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRankTop: 'Top',
   filterRankBottom: 'Bottom',
 
+  // Filter summary
+  filterSummaryAnyValue: 'any value',
+  filterSummaryIsOneOf: 'is one of:',
+  filterSummaryIsNot: 'is not:',
+  filterSummaryAndMore: (count) => `and ${count} more`,
+  filterSummaryFrom: (value) => `from ${value}`,
+  filterSummaryUntil: (value) => `until ${value}`,
+
   // Filter operator labels (per field type)
   filterOperator_string_equals: 'Equals',
   filterOperator_string_not_equals: 'Not equals',
@@ -1458,6 +1497,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupValueFieldLabel: 'Value field',
   chartSetupValueFieldHelperText: 'Numeric field to aggregate',
   chartSetupAggregationLabel: 'Aggregation',
+  aggregationLockedHelperText: 'Counts rows — pick a value field to sum, average, etc.',
   chartSetupMinLabel: 'Min',
   chartSetupMaxLabel: 'Max',
   chartSetupGroupByLabel: 'Group by',
@@ -1482,9 +1522,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupReferenceLineLabelLabel: 'Label',
   chartSetupYFieldLabel: 'Y field (numeric)',
   chartSetupYFieldHelperText: 'Numeric field plotted on the vertical axis',
-  chartSetupColorByLabel: 'Color by (optional)',
-  chartSetupColorByHelperText: 'Splits points into colour-coded series per category',
-  chartSetupSizeByLabel: 'Size by (optional)',
+  chartSetupColorByLabel: 'Color by',
+  chartSetupColorByHelperText: 'Splits points into color-coded series per category',
+  chartSetupSizeByLabel: 'Size by',
   chartSetupSizeByHelperText: 'Numeric field that controls bubble radius (produces a bubble chart)',
   chartSetupMinRadiusLabel: 'Min radius',
   chartSetupMaxRadiusLabel: 'Max radius',
@@ -1510,9 +1550,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupHeatmapRowAxisLabel: 'Row axis field',
   chartSetupHeatmapRowAxisHelperText:
     'Field for the vertical (row) axis — any field type from the primary source, e.g. category, discount %, or hour of day',
-  chartSetupHeatmapValueLabel: 'Value / colour field',
-  chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
-  chartSetupHeatmapColourSchemeLabel: 'Colour scheme',
+  chartSetupHeatmapValueLabel: 'Value / color field',
+  chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine color intensity',
+  chartSetupHeatmapColourSchemeLabel: 'Color scheme',
   chartSetupHeatmapSortByLabel: 'Sort by',
   chartSetupHeatmapSortXAxis: 'Column axis (X)',
   chartSetupHeatmapSortYAxis: 'Row axis (Y)',
@@ -1521,7 +1561,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSankeyTargetLabel: 'Target (to) field',
   chartSetupSankeyTargetHelperText: 'Categorical field for the end node of each flow',
   chartSetupSankeyValueHelperText: 'Numeric field summed per source → target link',
-  chartSetupSankeyLinkColorLabel: 'Link colour',
+  chartSetupSankeyLinkColorLabel: 'Link color',
   chartSetupSankeyLinkColorSource: 'From source node',
   chartSetupSankeyLinkColorTarget: 'From target node',
   chartSetupSankeyShowValuesLabel: 'Show values on links',
@@ -1535,19 +1575,24 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupGanttStartDateHelperText: 'Date / datetime field for the start of each bar',
   chartSetupGanttEndDateLabel: 'End date field',
   chartSetupGanttEndDateHelperText: 'Date / datetime field for the end of each bar',
-  chartSetupGanttColourByLabel: 'Colour by (optional)',
+  chartSetupGanttColourByLabel: 'Color by',
   chartSetupGanttColourByHelperText:
-    'Categorical field used to colour-code bars (e.g. status or category)',
+    'Categorical field used to color-code bars (e.g. status or category)',
   chartSetupXFieldNumericLabel: 'X field (numeric)',
   chartSetupXFieldCategoryVertLabel: 'Y / Category field',
   chartSetupXFieldCategoryHorizLabel: 'X / Category field',
   chartSetupXFieldHorizontalHelperText: 'Plotted on the horizontal axis',
   chartSetupXFieldGroupVertHelperText: 'Groups data along the vertical axis',
   chartSetupXFieldGroupHorizHelperText: 'Groups data along the horizontal axis',
+  chartSetupXFieldPieDonutLabel: 'Slice category',
+  chartSetupXFieldPieDonutHelperText: 'Each unique value becomes a slice',
+  chartSetupXFieldFunnelLabel: 'Stage field',
+  chartSetupXFieldFunnelHelperText: 'Categorical field defining each funnel stage',
   chartSetupYMeasureFieldsLabel: 'Y / Measure fields',
   chartSetupXMeasureFieldsLabel: 'X / Measure fields',
   chartSetupYMeasureFieldLabel: 'Y / Measure field',
   chartSetupXMeasureFieldLabel: 'X / Measure field',
+  chartSetupYMeasurePieDonutLabel: 'Slice value',
   chartSetupNoDataAlert: 'No data fields available for chart configuration.',
   chartSetupSeriesLabel: (index) => `Series ${index + 1}`,
   chartSetupSeriesNumericHorizHelperText: 'Numeric field plotted along the horizontal axis',
@@ -1557,11 +1602,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupCalculatedField: 'Calculated field…',
   chartSetupCategoryFieldLabel: 'Category field',
   chartSetupRemoveSplitByTooltip: 'Remove extra measure fields to enable split-by',
+  chartSetupFieldlessCountSplitByTooltip: 'Pick a measure field to enable split-by',
   chartSetupInnerRingLabel: 'Inner ring category',
   chartSetupSplitByLabel: 'Split by (series field)',
   chartSetupArcLabelsTitle: 'Arc labels',
   chartSetupSplitByHelperText: 'Divides data into a separate series per value',
   chartSetupSplitByDisabledHelperText: 'Not available when multiple measure fields are configured',
+  chartSetupSplitByFieldlessCountHelperText:
+    'Not available for a fieldless count — pick a measure field first',
   chartSetupInnerRingHelperText: 'Adds a concentric inner ring grouped by this field',
 
   // KPI setup panel
@@ -1582,6 +1630,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupGaugeMaxLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Date range',
+  kpiSetupDateRangePresetLabel: 'Range',
   kpiSetupDateRangeFieldLabel: 'Date field',
   kpiSetupCompPeriodLabel: 'Comparison period',
   kpiSetupDateAggEarliest: 'Earliest',
@@ -1590,7 +1639,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupCumulativeLabel: 'Cumulative (running total)',
   kpiSetupAutoDateFilterPrefix: 'Using date filter:',
   kpiSetupCalculatedField: 'Calculated field…',
-  kpiSetupInvertColours: 'Invert colours (lower is better)',
+  kpiSetupInvertColours: 'Invert colors (lower is better)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
   kpiSetupFixedWindowMonth: 'Last 30 days',
@@ -1645,12 +1694,15 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Map type',
-  mapSetupValueFieldLabel: 'Value field (optional for count)',
-  mapSetupColourSchemeLabel: 'Colour scheme',
+  mapSetupValueFieldLabel: 'Value field',
+  mapSetupValueFieldHelperText: 'Leave empty to count rows',
+  mapSetupColourSchemeLabel: 'Color scheme',
   mapSetupLegendPositionLabel: 'Legend position',
   mapSetupScaleFromZeroLabel: 'Scale from zero',
   mapSetupClickableLabel: 'Clickable (filter source)',
   mapSetupCrossFilterLabel: 'Respond to cross-filters',
+  mapSetupInteractionsTitle: 'Interactions',
+  mapSetupInteractionsDescription: 'When other widgets are clicked, this map…',
   mapSetupColorBlues: 'Blues',
   mapSetupColorReds: 'Reds',
   mapSetupColorGreens: 'Greens',
@@ -1742,20 +1794,23 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textSetupSubtitleHelper: 'Smaller text below the heading',
   textSetupBodyLabel: 'Body',
   textSetupBodyHelper: 'Main content of the widget; supports plain text',
+  textSetupPromptLabel: 'Prompt',
+  textSetupPromptHelper:
+    'Describe what the AI should write — it can query the data sources on this page',
   textSetupAiModeLabel: 'AI mode',
   textSetupAiModeHelper: 'Use your text as a prompt to generate AI content',
 
   // Page config panel
   pageConfigPageSectionTitle: 'Page',
   pageConfigCardsSectionTitle: 'Cards',
-  pageConfigBackgroundColourLabel: 'Background colour',
+  pageConfigBackgroundColourLabel: 'Background color',
   pageConfigBackgroundColourPlaceholder: 'e.g. #f5f5f5',
   pageConfigCardBackgroundLabel: 'Card background',
   pageConfigCardBackgroundPlaceholder: 'e.g. #ffffff',
   pageConfigPaddingLabel: 'Padding',
   pageConfigCornerRadiusLabel: 'Corner radius (px)',
   pageConfigCardBorderLabel: 'Card border',
-  pageConfigBorderColourLabel: 'Border colour',
+  pageConfigBorderColourLabel: 'Border color',
   pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
   pageConfigBorderWidthLabel: 'Border width (px)',
   pageConfigPaddingNone: 'None',

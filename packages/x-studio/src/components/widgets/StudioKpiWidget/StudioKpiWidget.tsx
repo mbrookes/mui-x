@@ -5,11 +5,11 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../../../models';
 import { summarizeFilter } from '../../StudioFiltersDrawer/filterDrawerUtils';
+import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
-  resolveRows,
   resolveChartRowsForAggregation,
   analyzeChartSupport,
-} from '../../../internals/chartUtils';
+} from '../../../internals/chartAggregation';
 import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
 import { usePageChartColors } from '../../../internals/usePageChartColors';

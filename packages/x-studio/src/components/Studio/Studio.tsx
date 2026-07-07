@@ -3,8 +3,14 @@
 import * as React from 'react';
 import { useThemeProps } from '@mui/material/styles';
 
+import type {
+  SerializedStudioState,
+  SerializedStudioSession,
+  MigrationResult,
+} from '@mui/x-studio-schema';
 import { StudioProvider } from '../../context';
 import type {
+  StudioDataSource,
   StudioDataSourceAdapter,
   StudioFeatureFlags,
   StudioMode,
@@ -14,11 +20,6 @@ import type {
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
 import { StudioController } from '../../store';
-import type {
-  SerializedStudioState,
-  SerializedStudioSession,
-  MigrationResult,
-} from '../../store/statePersistence';
 // StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
@@ -87,6 +88,16 @@ export interface StudioHandle {
    * @param rows - The rows to store on the source.
    */
   setDataSourceRows(sourceId: string, rows: Record<string, unknown>[]): void;
+  /**
+   * Inserts or fully replaces a data source (fields, rows, adapter, etc.) by id.
+   * Unlike {@link StudioHandle.setDataSourceAdapter}/{@link StudioHandle.setDataSourceRows},
+   * this also registers a data source that doesn't exist in the current state yet — use it
+   * to re-inject a caller-owned `dataSources` map after {@link StudioHandle.loadSerializedState}
+   * (which preserves the *previous* state's data sources, since they are never persisted).
+   *
+   * @param dataSource - The full data source definition to upsert.
+   */
+  upsertDataSource(dataSource: StudioDataSource): void;
 }
 
 // ── Slots / Props ─────────────────────────────────────────────────────────────
@@ -309,6 +320,7 @@ export const Studio = React.memo(
         setDataSourceAdapter: (sourceId, adapter) =>
           controller.setDataSourceAdapter(sourceId, adapter),
         setDataSourceRows: (sourceId, rows) => controller.setDataSourceRows(sourceId, rows),
+        upsertDataSource: (dataSource) => controller.upsertDataSource(dataSource),
       }),
       [controller],
     );

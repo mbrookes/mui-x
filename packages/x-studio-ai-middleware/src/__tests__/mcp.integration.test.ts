@@ -146,10 +146,10 @@ describe('MCP server — tools', () => {
     expect(names).toContain('set_dashboard_title');
   });
 
-  it('excludes execute_query by default', async () => {
+  it('excludes query_data_source by default (no data option configured)', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    expect(names).not.toContain('execute_query');
+    expect(names).not.toContain('query_data_source');
   });
 
   it('includes summarise_page (degrades gracefully without data option)', async () => {
@@ -172,9 +172,9 @@ describe('MCP server — resources', () => {
     const contents = result.contents as Array<{ text: string; mimeType: string }>;
     expect(contents[0].mimeType).toBe('application/json');
     const state = JSON.parse(contents[0].text);
-    expect(state).toHaveProperty('dashboard');
-    expect(state).toHaveProperty('pages');
-    expect(state).toHaveProperty('widgets');
+    expect(state.doc).toHaveProperty('dashboard');
+    expect(state.doc).toHaveProperty('pages');
+    expect(state.doc).toHaveProperty('widgets');
   });
 
   it('reads the system-prompt resource as plain text', async () => {
@@ -191,11 +191,11 @@ describe('MCP server — tool calls', () => {
     const result = await client.callTool({ name: 'get_dashboard_state', arguments: {} });
     const content = (result.content as Array<{ type: string; text: string }>)[0];
     expect(content.type).toBe('text');
-    // Response is { output: { dashboard, pages, widgets, ... } }
+    // Response is { output: { doc: { dashboard, pages, widgets, ... }, session, runtime } }
     const response = JSON.parse(content.text);
-    expect(response.output).toHaveProperty('dashboard');
-    expect(response.output).toHaveProperty('pages');
-    expect(response.output).toHaveProperty('widgets');
+    expect(response.output.doc).toHaveProperty('dashboard');
+    expect(response.output.doc).toHaveProperty('pages');
+    expect(response.output.doc).toHaveProperty('widgets');
   });
 
   it('add_page reports success and mutation, page appears in state resource', async () => {
@@ -221,7 +221,7 @@ describe('MCP server — tool calls', () => {
     const result = await client.readResource({ uri: 'studio://dashboard/state' });
     const contents = result.contents as Array<{ text: string }>;
     const state = JSON.parse(contents[0].text);
-    expect(state.dashboard.title).toBe('My Integration Dashboard');
+    expect(state.doc.dashboard.title).toBe('My Integration Dashboard');
   });
 });
 

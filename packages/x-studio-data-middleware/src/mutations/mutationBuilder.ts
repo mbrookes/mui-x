@@ -3,7 +3,11 @@
  *
  * Applies the same security invariants as `buildSecureQuery` to write operations:
  *   1. Tenant column is set unconditionally on INSERT and scoped unconditionally
- *      on UPDATE/DELETE — clients cannot override or remove it.
+ *      on UPDATE/DELETE — clients cannot override or remove it. The tenant column
+ *      is resolved via `resolvePrimarySecurityColumns` from the required
+ *      `TenancyConfig` (multi-tenant → `tenancy.tenantColumn`, with an optional
+ *      `securityColumns.perTable[t].tenant` override; single-tenant → no tenant
+ *      column), exactly as the read/update/delete paths do.
  *   2. Column values are bound via Knex parameterized bindings (never string concat).
  *   3. Table and column names are validated against caller-supplied allowlists
  *      BEFORE reaching these functions (see `validateMutation` below).
@@ -11,6 +15,8 @@
  *      accidental full-table mutations.
  *   5. The tenant column is stripped from client-supplied `values` for updates —
  *      a client can never move a row to a different tenant.
+ *   6. Region/department scope is validated on INSERT/UPDATE values so a caller
+ *      restricted to a region/department cannot write outside it.
  *
  * OWASP note: Parameterized queries (Defense Option 1) are used throughout.
  * No raw SQL strings are constructed from user input.
@@ -19,13 +25,85 @@ import type {
   JwtSecurityClaims,
   MutationDescriptor,
   HandleMutationOptions,
-  SecurityColumnsConfig,
+  SecurityColumns,
 } from '../security/types';
+import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
+import { checkColumnAgainstAllowlist } from '../shared/columnValidation';
 import {
-  applyPredicates,
-  applySecurityPredicates,
-  resolvePrimarySecurityColumns,
-} from '../shared/predicates';
+  toCompiledSecurityPolicy,
+  type CompiledSecurityPolicy,
+  type SecurityPolicyOptions,
+} from '../security/compileSecurityPolicy';
+
+/**
+ * Resolve the PRIMARY-table security columns through a `CompiledSecurityPolicy`.
+ *
+ * - Compiled policy (the request path) → used as-is (no recompile).
+ * - Raw `SecurityPolicyOptions` (direct callers) → compiled on the spot, so the
+ *   resolution chain runs inside `compileSecurityPolicy` and never inline here.
+ *
+ * There is no legacy string arm: the ONLY way to configure tenancy is the
+ * `tenancy` field inside a `SecurityPolicyOptions` / `CompiledSecurityPolicy`.
+ */
+function resolvePrimaryCols(
+  table: string,
+  policy: CompiledSecurityPolicy | SecurityPolicyOptions,
+): SecurityColumns {
+  return toCompiledSecurityPolicy(policy).forPrimaryTable(table);
+}
+
+/**
+ * Validate the row-level-security scope carried in a mutation's `values`.
+ *
+ * - The tenant column may never be client-supplied (the server sets it).
+ * - When the caller is region/department restricted, any region/department value
+ *   present in `values` must fall inside the caller's scope — otherwise a
+ *   region-5 user could stamp a row into region 6.
+ */
+function validateSecurityColumnValues(
+  values: Record<string, unknown>,
+  claims: JwtSecurityClaims,
+  cols: SecurityColumns,
+): void {
+  if (cols.tenant && Object.prototype.hasOwnProperty.call(values, cols.tenant)) {
+    throw new Error(
+      `MUI X Studio Server: Column "${cols.tenant}" cannot be set by client mutations ` +
+        `(it is the tenant isolation column and is controlled by the server).`,
+    );
+  }
+
+  // Distinguish "no region scoping" (`regionIds === undefined`) from "authorized
+  // for zero regions" (`regionIds === []`). With `[]`, `[].includes(region)` is
+  // always false, so ANY region value in `values` is (correctly) rejected — a
+  // caller scoped to zero regions must not be able to stamp a row into any region.
+  if (
+    cols.region &&
+    claims.regionIds !== undefined &&
+    Object.prototype.hasOwnProperty.call(values, cols.region)
+  ) {
+    const region = values[cols.region] as number;
+    if (!claims.regionIds.includes(region)) {
+      throw new Error(
+        `MUI X Studio Server: Column "${cols.region}" value "${String(region)}" is outside the caller's permitted regions. ` +
+          `A mutation cannot write a row into a region the caller cannot access. ` +
+          `Permitted region(s): ${claims.regionIds.join(', ') || '(none)'}.`,
+      );
+    }
+  }
+
+  if (
+    cols.department &&
+    claims.department &&
+    Object.prototype.hasOwnProperty.call(values, cols.department) &&
+    values[cols.department] !== claims.department
+  ) {
+    throw new Error(
+      `MUI X Studio Server: Column "${cols.department}" value "${String(values[cols.department])}" is outside the caller's department. ` +
+        `A mutation cannot write a row into a department the caller does not belong to. ` +
+        `Caller department: "${claims.department}".`,
+    );
+  }
+}
 
 /**
  * Validate a mutation descriptor before building the query.
@@ -33,7 +111,16 @@ import {
  */
 export function validateMutation(
   descriptor: MutationDescriptor,
-  options: Pick<HandleMutationOptions, 'writableColumns' | 'tenantColumn' | 'columnAllowlist'>,
+  claims: JwtSecurityClaims,
+  options: Pick<HandleMutationOptions, 'writableColumns' | 'columnAllowlist'> & {
+    /**
+     * Security policy governing tenant/region/department scope for this table.
+     * Either the pre-compiled policy threaded once from `handleMutation`, or raw
+     * `SecurityPolicyOptions` (direct callers). REQUIRED — an explicit tenancy
+     * decision is never optional at an enforcement site.
+     */
+    policy: CompiledSecurityPolicy | SecurityPolicyOptions;
+  },
 ): void {
   // Require WHERE for update/delete — prevents full-table mutations.
   if (descriptor.operation !== 'insert' && (!descriptor.where || descriptor.where.length === 0)) {
@@ -43,43 +130,30 @@ export function validateMutation(
     );
   }
 
+  // Resolve the security columns for this table once, through the compiled
+  // policy — the same resolution the read/update/delete paths use.
+  const cols = resolvePrimaryCols(descriptor.table, options.policy);
+
   // Validate where-predicate columns against the column allowlist — mirrors the
-  // read path (handler.ts validateColumns) so a client cannot reference arbitrary
-  // columns (e.g. to probe rows by hidden columns via the affected-row count).
+  // read path so a client cannot reference arbitrary columns (e.g. to probe rows
+  // by hidden columns via the affected-row count). Fail-closed + `'*'`-aware via
+  // the shared helper.
   if (options.columnAllowlist && descriptor.where) {
     for (const pred of descriptor.where) {
-      const dotIdx = pred.column.indexOf('.');
-      const table = dotIdx !== -1 ? pred.column.slice(0, dotIdx) : descriptor.table;
-      const column = dotIdx !== -1 ? pred.column.slice(dotIdx + 1) : pred.column;
-      const allowed = options.columnAllowlist[table];
-      if (allowed && !allowed.includes(column)) {
-        throw new Error(
-          `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist ` +
-            `for "where" predicates. Allowed columns for "${table}": ${allowed.join(', ')}`,
-        );
-      }
+      checkColumnAgainstAllowlist(pred.column, descriptor.table, options.columnAllowlist, 'where');
     }
   }
 
-  // Validate value keys against the writable columns allowlist.
+  // Enforce row-level-security scope carried in `values` (tenant / region /
+  // department) — independent of the writable-columns allowlist.
+  const values = descriptor.values ?? {};
+  validateSecurityColumnValues(values, claims, cols);
+
+  // Validate value keys against the writable columns allowlist. Fail-closed +
+  // `'*'`-aware via the shared helper (a table with no entry is rejected).
   if (options.writableColumns) {
-    const allowed = options.writableColumns[descriptor.table];
-    if (allowed) {
-      for (const col of Object.keys(descriptor.values ?? {})) {
-        // Reject the tenant column from client values — the server always sets it.
-        if (col === options.tenantColumn) {
-          throw new Error(
-            `MUI X Studio Server: Column "${col}" cannot be set by client mutations ` +
-              `(it is the tenant isolation column and is controlled by the server).`,
-          );
-        }
-        if (!allowed.includes(col)) {
-          throw new Error(
-            `MUI X Studio Server: Column "${col}" is not in the writable columns allowlist ` +
-              `for table "${descriptor.table}". Allowed: ${allowed.join(', ')}`,
-          );
-        }
-      }
+    for (const col of Object.keys(values)) {
+      checkColumnAgainstAllowlist(col, descriptor.table, options.writableColumns, 'values');
     }
   }
 }
@@ -87,7 +161,8 @@ export function validateMutation(
 /**
  * Build a parameterized INSERT query.
  *
- * The tenant column (if configured) is unconditionally injected from `claims`,
+ * The tenant column (resolved from the required `TenancyConfig`, with an optional
+ * `securityColumns.perTable` override) is unconditionally injected from `claims`,
  * overriding any client-supplied value.
  *
  * Returns a Knex query builder — await the result to execute and get the
@@ -97,13 +172,14 @@ export function buildInsertMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
+  policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
   const values: Record<string, unknown> = { ...descriptor.values };
+  const cols = resolvePrimaryCols(descriptor.table, policy);
 
   // Unconditionally set the tenant column — clients cannot set it to another tenant.
-  if (tenantColumn) {
-    values[tenantColumn] = claims.tenantId;
+  if (cols.tenant) {
+    values[cols.tenant] = claims.tenantId;
   }
 
   return db(descriptor.table).insert(values);
@@ -124,14 +200,15 @@ export function buildUpdateMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
-  securityColumns?: SecurityColumnsConfig,
+  policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
   const query = db(descriptor.table);
-  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
+  const cols = resolvePrimaryCols(descriptor.table, policy);
 
   // Unconditional security scope — applied first so it cannot be AND-ed away.
-  applySecurityPredicates(query, descriptor.table, claims, cols);
+  // 'write' mode: an empty region scope (`regionIds: []`) throws rather than
+  // silently dropping the region predicate and widening the mutation.
+  applySecurityPredicates(query, descriptor.table, claims, cols, 'write');
 
   // 'write' mode: an empty `in` list or an unknown operator throws rather than
   // silently widening the mutation to the whole tenant table.
@@ -159,13 +236,12 @@ export function buildDeleteMutation(
   db: any,
   claims: JwtSecurityClaims,
   descriptor: MutationDescriptor,
-  tenantColumn?: string,
-  securityColumns?: SecurityColumnsConfig,
+  policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
   const query = db(descriptor.table);
-  const cols = resolvePrimarySecurityColumns(descriptor.table, securityColumns, tenantColumn);
+  const cols = resolvePrimaryCols(descriptor.table, policy);
 
-  applySecurityPredicates(query, descriptor.table, claims, cols);
+  applySecurityPredicates(query, descriptor.table, claims, cols, 'write');
 
   // 'write' mode: an empty `in` list or an unknown operator throws rather than
   // silently widening the mutation to the whole tenant table.

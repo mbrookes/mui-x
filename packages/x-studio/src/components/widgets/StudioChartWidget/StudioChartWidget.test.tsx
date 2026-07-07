@@ -77,35 +77,59 @@ function renderChart(widget: StudioWidget, dataSource: StudioDataSource) {
   );
 }
 
-function createState(overrides?: Partial<StudioState>): StudioState {
+/**
+ * Flat override bag for `createState` — deliberately mirrors the pre-partition
+ * `StudioState` shape as test-fixture sugar local to this file. `createState`
+ * itself routes each field into the correct `doc`/`session`/`runtime` partition
+ * of the real `StudioState` it returns.
+ */
+interface StateOverrides {
+  mode?: StudioState['session']['mode'];
+  dashboard?: Partial<StudioState['doc']['dashboard']>;
+  pages?: StudioState['doc']['pages'];
+  widgets?: StudioState['doc']['widgets'];
+  dataSources?: StudioState['runtime']['dataSources'];
+  relationships?: StudioState['doc']['relationships'];
+  filters?: StudioState['doc']['filters'];
+  expressionFields?: StudioState['doc']['expressionFields'];
+  shell?: Partial<StudioState['session']['shell']>;
+}
+
+function createState(overrides?: StateOverrides): StudioState {
   return {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: {
-      id: 'dashboard-1',
-      title: 'Dashboard',
-      activePageId: 'page-1',
-      ...overrides?.dashboard,
-    },
-    pages: {
-      'page-1': {
-        id: 'page-1',
-        title: 'Overview',
-        widgetRows: [],
+    doc: {
+      schemaVersion: 1,
+      dashboard: {
+        id: 'dashboard-1',
+        title: 'Dashboard',
+        activePageId: 'page-1',
+        ...overrides?.dashboard,
       },
-      ...overrides?.pages,
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'Overview',
+          widgetRows: [],
+        },
+        ...overrides?.pages,
+      },
+      widgets: overrides?.widgets ?? {},
+      relationships: overrides?.relationships ?? [],
+      filters: overrides?.filters ?? [],
+      expressionFields: overrides?.expressionFields ?? [],
     },
-    widgets: overrides?.widgets ?? {},
-    dataSources: overrides?.dataSources ?? {},
-    relationships: overrides?.relationships ?? [],
-    filters: overrides?.filters ?? [],
-    expressionFields: overrides?.expressionFields ?? [],
-    shell: {
-      openDrawers: { data: true, compose: true, filters: false },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-      ...overrides?.shell,
+    session: {
+      mode: overrides?.mode ?? 'edit',
+      shell: {
+        openDrawers: { data: true, compose: true, filters: false },
+        selectedWidgetId: null,
+        selectedFieldId: null,
+        selectedSourceId: null,
+        ...overrides?.shell,
+      },
+    },
+    runtime: {
+      dataSources: overrides?.dataSources ?? {},
     },
   };
 }
@@ -948,6 +972,68 @@ describe('<StudioChartWidget />', () => {
     expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
   });
 
+  it('clears the cross-filter (does not add a duplicate) when the already-selected pie slice is clicked again', () => {
+    // Regression for the crossFilterValueEquals toggle: clicking the currently-selected
+    // value must clear the filter, not stack a second equal filter on top of it.
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', category: 'A', total: 10 },
+        { id: '2', category: 'B', total: 20 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-pie-toggle',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'pie',
+        xField: 'category',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      // This widget already emits an equals cross-filter on category = 'B'.
+      filters: [
+        {
+          id: 'cf-pie-toggle',
+          field: 'category',
+          operator: 'equals',
+          value: 'B',
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
+      onItemClick?: (event: unknown, params: { dataIndex: number }) => void;
+      series: Array<{ data: Array<{ label: string }> }>;
+    };
+    // Locate the rendered arc index of the already-selected 'B' slice.
+    const bIndex = props.series[0].data.findIndex((d) => d.label === 'B');
+    expect(bIndex).toBeGreaterThanOrEqual(0);
+
+    act(() => {
+      props.onItemClick?.(null, { dataIndex: bIndex });
+    });
+
+    // Toggle: same value clicked again → clear, never re-apply.
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith(widget.id);
+    expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+  });
+
   it('highlights the selected point when a single-series line chart has an active cross-filter', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
@@ -1351,7 +1437,7 @@ describe('<StudioChartWidget />', () => {
       firstProps.onHighlightChange({ seriesId: 'A', dataIndex: 0 });
     });
 
-    mockState.widgets[widget.id] = {
+    mockState.doc.widgets[widget.id] = {
       ...widget,
       config: {
         chartType: 'bar',
@@ -1365,7 +1451,7 @@ describe('<StudioChartWidget />', () => {
       view.rerender(
         <ThemeProvider theme={createTheme()}>
           <StudioChartWidget
-            widget={mockState.widgets[widget.id]}
+            widget={mockState.doc.widgets[widget.id]}
             dataSource={dataSource}
             pageId="page-1"
           />
@@ -1479,7 +1565,11 @@ describe('<StudioChartWidget />', () => {
         operator: 'equals' as const,
         value: 'Supplies',
         filterSourceId: 'source-order-items',
-        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-category', pageId: 'page-1' },
+        scope: {
+          kind: 'cross-filter' as const,
+          sourceWidgetId: 'widget-chart-category',
+          pageId: 'page-1',
+        },
       },
       {
         id: 'cf-date',
@@ -1488,7 +1578,11 @@ describe('<StudioChartWidget />', () => {
         value: { from: '2024-01-01', to: '2024-03-31' },
         filterSourceId: 'source-orders',
         fieldType: 'date' as const,
-        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-quarterly', pageId: 'page-1' },
+        scope: {
+          kind: 'cross-filter' as const,
+          sourceWidgetId: 'widget-chart-quarterly',
+          pageId: 'page-1',
+        },
       },
     ];
 
@@ -1531,6 +1625,86 @@ describe('<StudioChartWidget />', () => {
       expect(props.xAxis[0].data).toEqual(['Electronics', 'Furniture', 'Supplies']);
       // series data = all-category totals (ghost baseline): Electronics:200, Furniture:300, Supplies:250
       expect(props.series[0].data).toEqual([200, 300, 250]);
+    });
+
+    // Tier-1 #10: the single-series line/area cross-highlight ghost must carry its faded
+    // alpha directly on `series.color`, not rely on a positional `colors` array (which x-charts
+    // overrides with the explicit series color, rendering the ghost at full opacity). Since my
+    // fix sets active.color = lineColor and ghost.color = `${lineColor}40`/`30`, the ghost color
+    // must equal the active color plus the alpha suffix — a palette-independent invariant that
+    // fails on the pre-fix code (where ghost.color === active.color at full opacity).
+    it('Revenue by Category (line): renders the single-series line ghost at faded opacity', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-category',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'line',
+          xField: 'category',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      expect(lineChartSpy).toHaveBeenCalled();
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ id: string; color?: string }>;
+      };
+      const ghost = props.series.find((s) => s.id.endsWith('-ghost'));
+      const active = props.series.find((s) => s.id === 'cross-filter-series');
+      expect(ghost).toBeDefined();
+      expect(active?.color).toBeDefined();
+      expect(ghost!.color).toBe(`${active!.color}40`);
+      expect(ghost!.color).not.toBe(active!.color);
+    });
+
+    it('Revenue by Category (area): renders the single-series area ghost at faded opacity', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-category',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'area',
+          xField: 'category',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      expect(lineChartSpy).toHaveBeenCalled();
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ id: string; color?: string }>;
+      };
+      const ghost = props.series.find((s) => s.id.endsWith('-ghost'));
+      const active = props.series.find((s) => s.id === 'cross-filter-series');
+      expect(ghost).toBeDefined();
+      expect(active?.color).toBeDefined();
+      expect(ghost!.color).toBe(`${active!.color}30`);
+      expect(ghost!.color).not.toBe(active!.color);
     });
 
     it('Revenue by Country (ORDERS pie): renders a PieChart with cross-filter overlay when both cross-filters active', () => {

@@ -109,28 +109,28 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 The AI can call the following tools on the server:
 
-| Tool                   | What it does                                                                    |
-| :--------------------- | :------------------------------------------------------------------------------ |
-| `set_dashboard_title`  | Sets the dashboard title                                                        |
-| `add_page`             | Adds a new dashboard page                                                       |
-| `rename_page`          | Renames a page                                                                  |
-| `remove_page`          | Removes a page                                                                  |
-| `set_active_page`      | Navigates to a specific page                                                    |
-| `add_widget`           | Adds a new widget to the active page                                            |
-| `update_widget`        | Updates a widget's type, title, data source, series, dimensions, or aggregation |
-| `remove_widget`        | Removes a widget by ID                                                          |
-| `set_widget_layout`    | Rearranges widgets by specifying row groupings                                  |
-| `set_widget_width`     | Sets the column span of a widget (3–12 columns)                                 |
-| `set_widget_forecast`  | Enables or disables a linear trend/forecast overlay on a line or area chart     |
-| `add_page_filter`      | Adds a filter scoped to the active page                                         |
-| `remove_page_filter`   | Removes a page-scoped filter by ID                                              |
-| `add_widget_filter`    | Adds a filter scoped to a specific widget                                       |
-| `remove_widget_filter` | Removes a widget-scoped filter by ID                                            |
-| `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)              |
-| `summarise_page`       | Returns a rich data snapshot of every widget on the active page                 |
-| `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation               |
-| `rename_thread`        | Auto-renames the current conversation thread after the first message            |
-| `execute_query`        | Runs an ad-hoc query against a data source (requires server-side data resolver) |
+| Tool                   | What it does                                                                                    |
+| :--------------------- | :---------------------------------------------------------------------------------------------- |
+| `set_dashboard_title`  | Sets the dashboard title                                                                        |
+| `add_page`             | Adds a new dashboard page                                                                       |
+| `rename_page`          | Renames a page                                                                                  |
+| `remove_page`          | Removes a page                                                                                  |
+| `set_active_page`      | Navigates to a specific page                                                                    |
+| `add_widget`           | Adds a new widget to the active page                                                            |
+| `update_widget`        | Updates a widget's type, title, data source, series, dimensions, or aggregation                 |
+| `remove_widget`        | Removes a widget by ID                                                                          |
+| `set_widget_layout`    | Rearranges widgets by specifying row groupings                                                  |
+| `set_widget_width`     | Sets the column span of a widget (3–12 columns)                                                 |
+| `set_widget_forecast`  | Enables or disables a linear trend/forecast overlay on a line or area chart                     |
+| `add_page_filter`      | Adds a filter scoped to the active page                                                         |
+| `remove_page_filter`   | Removes a page-scoped filter by ID                                                              |
+| `add_widget_filter`    | Adds a filter scoped to a specific widget                                                       |
+| `remove_widget_filter` | Removes a widget-scoped filter by ID                                                            |
+| `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)                              |
+| `summarise_page`       | Returns a rich data snapshot of every widget on the active page                                 |
+| `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation                               |
+| `rename_thread`        | Auto-renames the current conversation thread after the first message                            |
+| `query_data_source`    | Queries a data source with structured filters/aggregations (requires server-side `data` config) |
 
 You can restrict which tools are available using `allowedTools` in `aiConfig`.
 See [AI tools](/x/react-studio/ai/tools/) for details.

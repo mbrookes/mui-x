@@ -31,16 +31,13 @@ x-studio is an embedded analytics dashboard builder. Understanding the layered a
 
 `StudioController` (`packages/x-studio/src/store/StudioController.ts`) owns all mutable state via `Store<StudioState>` from `@mui/x-internals/store`. `Store<T>` is a minimal observable (subscribe/setState/getSnapshot) compatible with `useSyncExternalStore`. `StudioController` adds undo/redo stacks and all imperative mutation methods.
 
-`StudioState` (`src/models/stateTypes.ts`) contains:
+`StudioState` (`packages/x-studio-schema/src/stateTypes.ts` — the shared, zero-dependency schema package; `x-studio/src/models/stateTypes.ts` is a thin re-export shim for existing deep imports) is partitioned by lifetime into three top-level fields:
 
-- `dashboard` — global settings (title, date range, theme)
-- `pages` — record of `StudioPage` by ID
-- `widgets` — record of `StudioWidget` by ID (flat, not nested per-page)
-- `filters` — array of `StudioFilterState`
-- `dataSources` — record of `StudioDataSource` (data never persisted)
-- `relationships` — join definitions across sources
-- `expressionFields` — computed column definitions
-- `ai` — chat thread state
+- `doc: StudioDoc` — the user-authored dashboard document, and the ONLY partition that is persisted, undoable, and mutated by the shared `applyMutation` reducer: `dashboard` (title, date range, theme), `pages`, `widgets` (flat, not nested per-page), `relationships`, `filters` (including cross-filter entries — those live here, not in `session`, because the reducer manipulates them and `applyCrossFilter` is deliberately undoable; they're stripped only at the persistence boundary), `expressionFields`, `filterPresets?`, `ai?` (chat thread state).
+- `session: StudioSession` — ephemeral UI state, never persisted, never undoable, never touched by the reducer: `mode` (view/edit — deliberately not in `doc`, since switching modes isn't a dashboard edit) and `shell` (open drawers, selection).
+- `runtime: StudioRuntime` — host-injected state, never persisted, never undoable, never touched by the reducer: `dataSources` (row data is never persisted or undone, since an undo must not revert live data to stale rows).
+
+`StudioController`'s undo/redo stacks snapshot `StudioDoc[]` only — session and runtime changes are never pushed onto them.
 
 ### React integration
 
@@ -60,7 +57,7 @@ Widget components call `resolveWidgetRows()` then apply widget-specific aggregat
 
 ### State persistence
 
-`statePersistence.ts` (`src/store/statePersistence.ts`) handles serialization. Only the user-authored config is persisted (data sources are runtime-injected). `CURRENT_SCHEMA_VERSION` is an integer; add a migration entry keyed by the **old** version when bumping. The `migrateState` function runs migrations sequentially.
+`statePersistence.ts` (`packages/x-studio-schema/src/statePersistence.ts`) handles serialization of the `doc` partition only — `serializeState`/`serializeDoc` take a `StudioDoc` (or the `doc` field of a `StudioState`); `session` and `runtime` are never serialized (session state resets to defaults and runtime data sources are re-injected by the host on load). `CURRENT_SCHEMA_VERSION` is an integer; add a migration entry keyed by the **old** version when bumping. The `migrateState` function runs migrations sequentially.
 
 ### Widget system
 
@@ -97,9 +94,9 @@ cd examples/<name> && pnpm dev
 
 ## Schema migrations
 
-When changing `StudioState` in a way that breaks deserialization of persisted dashboards:
+When changing `StudioDoc` (the persisted partition of `StudioState`) in a way that breaks deserialization of persisted dashboards:
 
-1. Increment `CURRENT_SCHEMA_VERSION` in `src/store/statePersistence.ts`
+1. Increment `CURRENT_SCHEMA_VERSION` in `packages/x-studio-schema/src/statePersistence.ts`
 2. Add a migration function keyed by the **previous** version number
 3. Add a test in `statePersistence.test.ts` with a v(N) fixture
 

@@ -63,7 +63,7 @@ const OPERATOR_SQL: Record<'eq' | 'gt' | 'lt' | 'gte' | 'lte', string> = {
  * becomes one data source whose `tableName` is the SQLite table and whose
  * fields mirror the columns (all TEXT, so `type: 'string'`).
  */
-function buildSurveyDataSources(tables: SeededTable[]): StudioState['dataSources'] {
+function buildSurveyDataSources(tables: SeededTable[]): StudioState['runtime']['dataSources'] {
   const entries = tables.map((t) => [
     t.tableName,
     {
@@ -73,7 +73,7 @@ function buildSurveyDataSources(tables: SeededTable[]): StudioState['dataSources
       fields: t.columns.map((column) => ({ id: column, label: column, type: 'string' as const })),
     },
   ]);
-  return Object.fromEntries(entries) as StudioState['dataSources'];
+  return Object.fromEntries(entries) as StudioState['runtime']['dataSources'];
 }
 
 /**
@@ -81,7 +81,7 @@ function buildSurveyDataSources(tables: SeededTable[]): StudioState['dataSources
  * against the survey SQLite database. Identifiers are validated against the
  * seeded schema; values are bound. Read-only by construction (SELECT only).
  */
-function createQueryDataSource(db: Db, schema: Map<string, Set<string>>) {
+export function createQueryDataSource(db: Db, schema: Map<string, Set<string>>) {
   return async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
     const { tableName, columns, filters, aggregations, having, orderBy, limit, offset } = params;
 
@@ -213,7 +213,7 @@ function createContextEnricher(db: Db, schema: Map<string, Set<string>>): Studio
   return async ({ dashboardState }) => {
     const notes: string[] = [];
     await Promise.all(
-      Object.values(dashboardState.dataSources).map(async (source) => {
+      Object.values(dashboardState.runtime.dataSources).map(async (source) => {
         const table = source.tableName;
         if (!table || !schema.has(table)) {
           return;
@@ -267,7 +267,10 @@ export function makeMcpRouter(db: Db, tables: SeededTable[]): Router {
       log('[mcp] → initialize (new session)');
 
       const stateBox: StudioStateBox = {
-        current: createDefaultStudioState({ dataSources, mode: 'edit' } as Partial<StudioState>),
+        current: createDefaultStudioState({
+          runtime: { dataSources },
+          session: { mode: 'edit' },
+        }),
       };
 
       const transport = new StreamableHTTPServerTransport({

@@ -36,7 +36,7 @@ import {
  */
 export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const widget = useStudioSelector((state) => state.doc.widgets[widgetId]);
   const dataSources = useStudioSelector(selectDataSources);
   const allExpressionFields = useStudioSelector(selectExpressionFields);
   const t = useAppLocaleText();

@@ -110,19 +110,19 @@ graph TD
 
 #### Key Differentiators vs x-studio
 
-| Feature                                  | AG Studio                           | x-studio                                |
-| :--------------------------------------- | :---------------------------------- | :-------------------------------------- |
-| Multi-agent orchestration                | ✅ 5 agents                         | ⚠️ Single agentic loop (multi-turn)     |
-| Structured planning before execution     | ✅ Plan shown to user               | ⚠️ Not displayed (planned server-side)  |
-| Named conversation threads               | ✅ Multiple persistent threads      | ✅ Thread selector + `rename_thread`    |
-| `execute_query` (data questions)         | ✅                                  | ✅ Implemented                          |
-| `add_page_filter` / `remove_page_filter` | ✅                                  | ✅ Implemented                          |
-| `add_widget_filter` (per-widget)         | ✅                                  | ✅ Implemented                          |
-| `rename_thread`                          | ✅                                  | ✅ Auto-generated + renameable          |
-| State persistence (AI + dashboard)       | ✅ `getState()`/`setState()`        | ✅ `StudioState.ai` (schema v2)         |
-| Custom widget AI integration             | ✅ `formatShape` + `ai` metadata    | ⚠️ Partial (customWidgets context only) |
-| LLM-agnostic by design                   | ✅ Adapter interface                | ✅ OpenAI-compatible endpoint           |
-| Streaming                                | ✅ `AsyncIterable<AgAiStreamEvent>` | ✅ SSE streaming                        |
+| Feature                                  | AG Studio                           | x-studio                                        |
+| :--------------------------------------- | :---------------------------------- | :---------------------------------------------- |
+| Multi-agent orchestration                | ✅ 5 agents                         | ⚠️ Single agentic loop (multi-turn)             |
+| Structured planning before execution     | ✅ Plan shown to user               | ⚠️ Not displayed (planned server-side)          |
+| Named conversation threads               | ✅ Multiple persistent threads      | ✅ Thread selector + `rename_thread`            |
+| Ad-hoc data queries (`execute_query`)    | ✅                                  | ✅ `query_data_source` (structured, no raw SQL) |
+| `add_page_filter` / `remove_page_filter` | ✅                                  | ✅ Implemented                                  |
+| `add_widget_filter` (per-widget)         | ✅                                  | ✅ Implemented                                  |
+| `rename_thread`                          | ✅                                  | ✅ Auto-generated + renameable                  |
+| State persistence (AI + dashboard)       | ✅ `getState()`/`setState()`        | ✅ `StudioState.ai` (schema v2)                 |
+| Custom widget AI integration             | ✅ `formatShape` + `ai` metadata    | ⚠️ Partial (customWidgets context only)         |
+| LLM-agnostic by design                   | ✅ Adapter interface                | ✅ OpenAI-compatible endpoint                   |
+| Streaming                                | ✅ `AsyncIterable<AgAiStreamEvent>` | ✅ SSE streaming                                |
 
 #### Integration API
 
@@ -750,7 +750,7 @@ The documentation claims several AI features that were not in the original code:
 `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`,
 `set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`,
 `add_widget_filter`, `remove_widget_filter`, `summarise_page`, `apply_bulk_update`,
-`rename_thread`, `execute_query`, `set_widget_forecast`.  
+`rename_thread`, `query_data_source`, `set_widget_forecast`.  
 Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 
 ### 🔴 Feature Status vs Competitors
@@ -770,7 +770,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | **`allowedTools` / `extraTools`** (API completeness)                        | P1       | ✅ Implemented (`studioBackendAdapter.ts`)                                                                                            | AG Grid Studio (custom widget AI metadata)            |
 | **`skillHandlers` in `handleAIChat`**                                       | P1       | ✅ `StudioAIHandlerOptions.skillHandlers`                                                                                             | —                                                     |
 | **MCP server** for x-studio                                                 | P1       | ✅ `buildStudioMcpServer` in `mcp.ts` — production-ready; 20 tools; `render_chart` SVG tool                                           | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
-| **Data question answering** (`execute_query`)                               | P2       | ✅ `execute_query` tool + `StudioDataResolver`                                                                                        | AG Grid Studio (Data agent)                           |
+| **Data question answering** (structured query tool)                         | P2       | ✅ `query_data_source` tool + `StudioAIDataConfig`                                                                                    | AG Grid Studio (Data agent)                           |
 | **Forecasting / trend bands** in charts                                     | P2       | ✅ `StudioWidgetForecast` + `set_widget_forecast` tool                                                                                | Highcharts Orbit, Reveal BI                           |
 | **`privateMode`** flag (suppress dashboard state in system prompt)          | P2       | ✅ `StudioAIConfig.privateMode`                                                                                                       | DataGrid AI Assistant                                 |
 | **Correlation analysis insight type**                                       | P2       | ✅ `generateCorrelationInsight` + Pearson r client-side                                                                               | Highcharts Orbit                                      |

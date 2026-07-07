@@ -33,6 +33,11 @@ import {
   buildUpdateMutation,
   buildDeleteMutation,
 } from './mutationBuilder';
+import { assertTablesAllowed } from '../shared/assertTablesAllowed';
+import {
+  compileSecurityPolicy,
+  type CompiledSecurityPolicy,
+} from '../security/compileSecurityPolicy';
 
 /**
  * Handle a batch of mutation operations from a Studio client.
@@ -46,24 +51,30 @@ export async function handleMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<BatchMutationResponse> {
-  const { schemaAllowlist } = options;
+  const { schemaAllowlist, tenancy, securityColumns } = options;
+
+  // ── Compile the row-level-security policy ONCE for the whole batch ─────────
+  // The single compiled object is threaded into every mutation builder in place
+  // of the raw `(tenancy, securityColumns)` pair, so the resolution chain runs
+  // once here instead of fresh at each of the four builder call sites.
+  const policy = compileSecurityPolicy({ tenancy, securityColumns });
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
-  const invalidTables = body.mutations
-    .map((m) => m.table)
-    .filter((t) => !schemaAllowlist.includes(t));
-
-  if (invalidTables.length > 0) {
-    throw new Error(
-      `MUI X Studio Server: Requested table(s) not in schema allowlist: ${invalidTables.join(', ')}. ` +
-        `Allowed tables: ${schemaAllowlist.join(', ')}`,
-    );
-  }
-
-  // ── Per-mutation processing with error isolation ──────────────────────────
-  const results = await Promise.all(
-    body.mutations.map((descriptor) => processMutation(descriptor, claims, options)),
+  assertTablesAllowed(
+    body.mutations.map((m) => m.table),
+    schemaAllowlist,
   );
+
+  // ── Per-mutation processing — SEQUENTIAL with error isolation ─────────────
+  // Mutations run in array order (not concurrently) so a batch like
+  // `[insert row, update that row]` is deterministic: the update observes the
+  // insert's effect instead of racing it. Batch sizes are small, so correctness
+  // beats the marginal latency of `Promise.all`.
+  const results: MutationResult[] = [];
+  for (const descriptor of body.mutations) {
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await processMutation(descriptor, claims, options, policy));
+  }
 
   return { results };
 }
@@ -72,9 +83,9 @@ async function processMutation(
   descriptor: MutationDescriptor,
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
+  policy: CompiledSecurityPolicy,
 ): Promise<MutationResult> {
-  const { db, writableColumns, tenantColumn, cacheProvider, columnAllowlist, securityColumns } =
-    options;
+  const { db, writableColumns, cacheProvider, columnAllowlist } = options;
 
   try {
     // Validate operation type
@@ -84,14 +95,20 @@ async function processMutation(
       );
     }
 
-    // Validate invariants (writable columns, required WHERE) before building query
-    validateMutation(descriptor, { writableColumns, tenantColumn, columnAllowlist });
+    // Validate invariants (writable columns, required WHERE, tenant/region/
+    // department scope on values) before building query — using the compiled
+    // policy so resolution matches the builders exactly.
+    validateMutation(descriptor, claims, {
+      writableColumns,
+      columnAllowlist,
+      policy,
+    });
 
     let rowsAffected: number;
 
     switch (descriptor.operation) {
       case 'insert': {
-        const result = await buildInsertMutation(db, claims, descriptor, tenantColumn);
+        const result = await buildInsertMutation(db, claims, descriptor, policy);
         // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others.
         if (Array.isArray(result)) {
           rowsAffected = result.length;
@@ -103,24 +120,12 @@ async function processMutation(
         break;
       }
       case 'update': {
-        const result = await buildUpdateMutation(
-          db,
-          claims,
-          descriptor,
-          tenantColumn,
-          securityColumns,
-        );
+        const result = await buildUpdateMutation(db, claims, descriptor, policy);
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
       case 'delete': {
-        const result = await buildDeleteMutation(
-          db,
-          claims,
-          descriptor,
-          tenantColumn,
-          securityColumns,
-        );
+        const result = await buildDeleteMutation(db, claims, descriptor, policy);
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }

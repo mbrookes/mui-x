@@ -21,32 +21,38 @@ const salesSources = [
 ] as const;
 
 const mergedDataSources = {
-  ...INITIAL_STATE.dataSources,
+  ...INITIAL_STATE.runtime?.dataSources,
   ...Object.fromEntries(salesSources.map((source) => [source.id, source])),
-} as StudioState['dataSources'];
+} as StudioState['runtime']['dataSources'];
 
 function buildInitialStudioState(): StudioState {
   const defaultState = createDefaultStudioState();
-  const initialState = INITIAL_STATE as Partial<StudioState>;
+  const initialDoc = (INITIAL_STATE.doc ?? {}) as Partial<StudioState['doc']>;
   const defaultPageId = 'page-1';
 
   return {
     ...defaultState,
-    ...initialState,
-    dashboard: {
-      ...defaultState.dashboard,
-      ...initialState.dashboard,
-      activePageId: defaultPageId,
+    doc: {
+      ...defaultState.doc,
+      ...initialDoc,
+      dashboard: {
+        ...defaultState.doc.dashboard,
+        ...initialDoc.dashboard,
+        activePageId: defaultPageId,
+      },
+      pages: {
+        [defaultPageId]: { id: defaultPageId, title: 'Dashboard', widgetRows: [] },
+      },
+      widgets: {},
+      filters: [],
     },
-    dataSources: {
-      ...defaultState.dataSources,
-      ...mergedDataSources,
+    runtime: {
+      ...defaultState.runtime,
+      dataSources: {
+        ...defaultState.runtime.dataSources,
+        ...mergedDataSources,
+      },
     },
-    pages: {
-      [defaultPageId]: { id: defaultPageId, title: 'Dashboard', widgetRows: [] },
-    },
-    widgets: {},
-    filters: [],
   };
 }
 
@@ -63,6 +69,11 @@ function buildDataAdapter(
   const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   if (serverUrl) {
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/sales-data`;
+    // Derive the write-back endpoint from the read endpoint (same suffix-swap
+    // pattern used elsewhere to derive sibling endpoints). Wiring this attaches
+    // `submitMutation` to the adapter, making sales-table Grid widgets editable
+    // once their `config.gridPkField` is set.
+    const mutationEndpoint = dataEndpoint.replace(/\/api\/sales-data$/, '/api/sales-mutations');
     const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>
@@ -71,7 +82,7 @@ function buildDataAdapter(
             headers: { ...init?.headers, Authorization: `Bearer ${serverToken}` },
           })
       : globalThis.fetch;
-    return createBatchingAdapter(dataEndpoint, { fetchFn });
+    return createBatchingAdapter(dataEndpoint, { fetchFn, mutationEndpoint });
   }
   return createDataAdapter(rows);
 }

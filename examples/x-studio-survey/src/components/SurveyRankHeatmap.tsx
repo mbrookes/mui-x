@@ -292,7 +292,7 @@ function SurveyRankHeatmap({ widget, dataSource, exportRef }: StudioCustomWidget
 /** Compose-drawer setup panel: toggles for the heatmap's optional display elements. */
 function RankHeatmapSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const widget = useStudioSelector((state) => state.doc.widgets[widgetId]);
   const t = useAppLocaleText();
 
   if (!widget) {

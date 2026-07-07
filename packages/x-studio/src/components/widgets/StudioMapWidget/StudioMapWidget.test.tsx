@@ -114,31 +114,54 @@ const baseWidget: StudioWidget = {
   },
 } as unknown as StudioWidget;
 
-function createState(overrides?: Partial<StudioState>): StudioState {
+/**
+ * Flat override bag for `createState` — deliberately mirrors the pre-partition
+ * `StudioState` shape as test-fixture sugar local to this file. `createState`
+ * itself routes each field into the correct `doc`/`session`/`runtime` partition
+ * of the real `StudioState` it returns.
+ */
+interface StateOverrides {
+  dashboard?: Partial<StudioState['doc']['dashboard']>;
+  pages?: StudioState['doc']['pages'];
+  widgets?: StudioState['doc']['widgets'];
+  dataSources?: StudioState['runtime']['dataSources'];
+  relationships?: StudioState['doc']['relationships'];
+  filters?: StudioState['doc']['filters'];
+  expressionFields?: StudioState['doc']['expressionFields'];
+  shell?: Partial<StudioState['session']['shell']>;
+}
+
+function createState(overrides?: StateOverrides): StudioState {
   return {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: {
-      id: 'dashboard-1',
-      title: 'Dashboard',
-      activePageId: 'page-1',
-      ...overrides?.dashboard,
+    doc: {
+      schemaVersion: 1,
+      dashboard: {
+        id: 'dashboard-1',
+        title: 'Dashboard',
+        activePageId: 'page-1',
+        ...overrides?.dashboard,
+      },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
+        ...overrides?.pages,
+      },
+      widgets: overrides?.widgets ?? {},
+      relationships: overrides?.relationships ?? [],
+      filters: overrides?.filters ?? [],
+      expressionFields: overrides?.expressionFields ?? [],
     },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
-      ...overrides?.pages,
+    session: {
+      mode: 'edit',
+      shell: {
+        openDrawers: { data: false, compose: false, filters: false },
+        selectedWidgetId: null,
+        selectedFieldId: null,
+        selectedSourceId: null,
+        ...overrides?.shell,
+      },
     },
-    widgets: overrides?.widgets ?? {},
-    dataSources: overrides?.dataSources ?? {},
-    relationships: overrides?.relationships ?? [],
-    filters: overrides?.filters ?? [],
-    expressionFields: overrides?.expressionFields ?? [],
-    shell: {
-      openDrawers: { data: false, compose: false, filters: false },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-      ...overrides?.shell,
+    runtime: {
+      dataSources: overrides?.dataSources ?? {},
     },
   } as unknown as StudioState;
 }

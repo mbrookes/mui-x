@@ -42,31 +42,55 @@ vi.mock('../context', async (importOriginal) => ({
 
 // ── Factories ───────────────────────────────────────────────────────────────
 
-function createState(overrides: Partial<StudioState> = {}): StudioState {
+/**
+ * Flat override bag for `createState` — deliberately mirrors the pre-partition
+ * `StudioState` shape as test-fixture sugar local to this file. `createState`
+ * itself routes each field into the correct `doc`/`session`/`runtime` partition
+ * of the real `StudioState` it returns.
+ */
+interface StateOverrides {
+  mode?: StudioState['session']['mode'];
+  dashboard?: Partial<StudioState['doc']['dashboard']>;
+  pages?: StudioState['doc']['pages'];
+  widgets?: StudioState['doc']['widgets'];
+  dataSources?: StudioState['runtime']['dataSources'];
+  relationships?: StudioState['doc']['relationships'];
+  filters?: StudioState['doc']['filters'];
+  expressionFields?: StudioState['doc']['expressionFields'];
+  shell?: Partial<StudioState['session']['shell']>;
+}
+
+function createState(overrides: StateOverrides = {}): StudioState {
   return {
-    schemaVersion: 1,
-    mode: 'view',
-    dashboard: {
-      id: 'dash-1',
-      title: 'Dashboard',
-      activePageId: 'page-1',
-      ...overrides.dashboard,
+    doc: {
+      schemaVersion: 1,
+      dashboard: {
+        id: 'dash-1',
+        title: 'Dashboard',
+        activePageId: 'page-1',
+        ...overrides.dashboard,
+      },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
+        ...overrides.pages,
+      },
+      widgets: overrides.widgets ?? {},
+      relationships: overrides.relationships ?? [],
+      filters: overrides.filters ?? [],
+      expressionFields: overrides.expressionFields ?? [],
     },
-    pages: {
-      'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
-      ...overrides.pages,
+    session: {
+      mode: overrides.mode ?? 'view',
+      shell: {
+        openDrawers: { data: true, compose: true, filters: false },
+        selectedWidgetId: null,
+        selectedFieldId: null,
+        selectedSourceId: null,
+        ...overrides.shell,
+      },
     },
-    widgets: overrides.widgets ?? {},
-    dataSources: overrides.dataSources ?? {},
-    relationships: overrides.relationships ?? [],
-    filters: overrides.filters ?? [],
-    expressionFields: overrides.expressionFields ?? [],
-    shell: {
-      openDrawers: { data: true, compose: true, filters: false },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-      ...overrides.shell,
+    runtime: {
+      dataSources: overrides.dataSources ?? {},
     },
   };
 }
@@ -92,7 +116,9 @@ function makeDataSource(rows: Row[], overrides: Partial<StudioDataSource> = {}):
   };
 }
 
-function makeFilter(overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] }): StudioFilterState {
+function makeFilter(
+  overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] },
+): StudioFilterState {
   return {
     id: 'f1',
     field: 'region',
@@ -144,7 +170,13 @@ describe('sync path (no adapter)', () => {
   it('applies a page filter to rows', () => {
     mockState = createState({
       filters: [
-        makeFilter({ id: 'f1', scope: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
+        makeFilter({
+          id: 'f1',
+          scope: { kind: 'page' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+        }),
       ],
     });
     const widget = makeWidget();
@@ -445,6 +477,61 @@ describe('async adapter path', () => {
     expect(result.current.filteredRowsNoCross).not.toBe(result.current.filteredRows);
   });
 
+  it('honors crossFilterAllPages for a cross-filter from another page', async () => {
+    // The cross-filter originates on page-2 while the widget lives on page-1. It must
+    // only apply when crossFilterAllPages is enabled — this exercises the adapter path
+    // now routing through selectFiltersForWidget (previously hand-encoded inline).
+    const buildState = (crossFilterAllPages: boolean) =>
+      createState({
+        dashboard: {
+          id: 'dash-1',
+          title: 'Dashboard',
+          activePageId: 'page-1',
+          crossFilterAllPages,
+        },
+        filters: [
+          makeFilter({
+            id: 'f-cross',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-2' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const makeAdapterSource = () =>
+      makeDataSource([], { adapter: { getRows: vi.fn().mockResolvedValue({ rows }) } });
+
+    // Default (crossFilterAllPages = false): the other-page cross-filter is ignored.
+    mockState = buildState(false);
+    const { result: resultOff, unmount: unmountOff } = renderHook(() =>
+      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultOff.current.isLoading);
+    });
+    expect(resultOff.current.hasCrossFilters).toBe(false);
+    expect(resultOff.current.filteredRows).toHaveLength(3);
+    unmountOff();
+
+    studioRequestCache.clear();
+
+    // crossFilterAllPages = true: the other-page cross-filter now applies (EU rows only).
+    mockState = buildState(true);
+    const { result: resultOn, unmount: unmountOn } = renderHook(() =>
+      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultOn.current.isLoading);
+    });
+    expect(resultOn.current.hasCrossFilters).toBe(true);
+    expect(resultOn.current.filteredRows).toHaveLength(2);
+    unmountOn();
+  });
+
   it('sets isLoading=false when adapter rejects', async () => {
     mockState = createState();
     const widget = makeWidget({ sourceId: 'src1' });
@@ -465,6 +552,54 @@ describe('async adapter path', () => {
     expect(result.current.isLoading).toBe(false);
     // Rows remain empty after failure
     expect(result.current.filteredRows).toHaveLength(0);
+  });
+
+  it('does not stay stuck loading when the descriptor changes to a cached one before the first fetch resolves', async () => {
+    // Regression: descriptor A misses the cache → isLoading becomes true with an in-flight
+    // fetch. Before A resolves, the descriptor switches to B, which IS already cached. A's
+    // effect cleanup marks its (never-resolving) promise cancelled, so its `.then` never
+    // runs; the B branch serves the cached result synchronously. That synchronous cache-hit
+    // branch must reset isLoading — otherwise the loading overlay stays true forever even
+    // though valid data is already rendered.
+    const { buildQueryDescriptor } = await import('./queryDescriptor');
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    // Descriptor B — a page filter on region=EU — pre-seeded into the cache so switching to
+    // it produces a synchronous cache hit.
+    const filtersB = [
+      makeFilter({
+        id: 'f-page',
+        scope: { kind: 'page' },
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+      }),
+    ];
+    const descriptorB = buildQueryDescriptor(widget, filtersB, 'page-1', undefined, []);
+    studioRequestCache.set(descriptorB.cacheKey, { rows: [{ id: 'cached-B', region: 'EU' }] });
+
+    // State A — no filters → descriptor A, NOT cached → an in-flight fetch that never resolves.
+    mockState = createState({ filters: [] });
+    const neverResolves = new Promise<StudioQueryResult>(() => {});
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockReturnValue(neverResolves),
+    };
+    const dataSource = makeDataSource([], { adapter });
+
+    const { result, rerender } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    // A missed the cache → loading, fetch still in-flight.
+    expect(result.current.isLoading).toBe(true);
+
+    // Switch to descriptor B (cache hit) before A ever resolves. `rerender` flushes effects
+    // (it wraps in act internally), so the synchronous cache-hit branch runs before we assert.
+    mockState = createState({ filters: filtersB });
+    rerender();
+
+    // The cache-hit branch cleared isLoading — not left it stuck true — and served B's data.
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.filteredRows).toHaveLength(1);
+    expect(result.current.filteredRows[0]).toMatchObject({ id: 'cached-B' });
   });
 });
 
@@ -665,5 +800,101 @@ describe('sync vs async parity', () => {
     expect(result.current.filteredRows).toHaveLength(euCount);
     // filteredRowsNoCross excludes cross-filter → all rows
     expect(result.current.filteredRowsNoCross).toHaveLength(rows.length);
+  });
+});
+
+// ── usedFieldIds cache-key scoping (Tier 3 #5 / architecture review item 4) ──
+//
+// `usedFieldIds` must be derived only from filters that can actually reach this
+// widget (its own page's page filters, its OWN widget-scoped filters, and
+// cross/interactive filters). A filter on a different page, or a widget-scoped
+// filter belonging to a DIFFERENT widget, must never widen this widget's field
+// set — doing so would change the content-based cache key that
+// `getCachedNormalizedDataSource` / `resolveRowsCached` key off of, forcing an
+// unnecessary re-normalization/re-enrichment/re-resolution pass even though the
+// filter could never apply to this widget.
+describe('usedFieldIds cache-key scoping', () => {
+  it('a page filter on a DIFFERENT page does not change this widget cache key', () => {
+    // Stable references across both mockState assignments — the underlying
+    // content-based caches gate on these object identities, so recreating them
+    // on every mockState reassignment would defeat the cache hit this test
+    // observes.
+    const stableDataSources = { src1: makeDataSource(rows) };
+    const stableRelationships: StudioState['doc']['relationships'] = [];
+    const stableExpressionFields: StudioState['doc']['expressionFields'] = [];
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [],
+    });
+    const { result, rerender } = renderHook(() =>
+      useWidgetRows(widget, stableDataSources.src1, 'page-1'),
+    );
+    const firstFilteredRows = result.current.filteredRows;
+    expect(firstFilteredRows).toHaveLength(3);
+
+    // Add a page-scoped filter for a completely different page, referencing a
+    // field this widget never uses. Before the fix, this field would still be
+    // folded into `usedFieldIds` (derived from the raw, dashboard-wide filters
+    // array), changing the cache key and forcing a fresh (if value-equal) array.
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [
+        makeFilter({
+          id: 'f-other-page',
+          scope: { kind: 'page', pageId: 'page-2' },
+          field: 'unrelatedField',
+          operator: 'equals',
+          value: 'x',
+        }),
+      ],
+    });
+    rerender();
+
+    expect(result.current.filteredRows).toBe(firstFilteredRows);
+  });
+
+  it('a widget-scoped filter belonging to a DIFFERENT widget does not change this widget cache key', () => {
+    const stableDataSources = { src1: makeDataSource(rows) };
+    const stableRelationships: StudioState['doc']['relationships'] = [];
+    const stableExpressionFields: StudioState['doc']['expressionFields'] = [];
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [],
+    });
+    const { result, rerender } = renderHook(() =>
+      useWidgetRows(widget, stableDataSources.src1, 'page-1'),
+    );
+    const firstFilteredRows = result.current.filteredRows;
+    expect(firstFilteredRows).toHaveLength(3);
+
+    // Widget-scoped filter owned by a DIFFERENT widget ('w-other'), referencing a
+    // field this widget never uses — can never apply to `widget` ('w1').
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [
+        makeFilter({
+          id: 'f-other-widget',
+          scope: { kind: 'widget', widgetId: 'w-other' },
+          field: 'unrelatedField',
+          operator: 'equals',
+          value: 'x',
+        }),
+      ],
+    });
+    rerender();
+
+    expect(result.current.filteredRows).toBe(firstFilteredRows);
   });
 });

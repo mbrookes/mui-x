@@ -417,7 +417,9 @@ function buildDashboardState(
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
 ): string {
-  const { dashboard, pages, widgets, dataSources, filters, mode } = state;
+  const { dashboard, pages, widgets, filters } = state.doc;
+  const { dataSources } = state.runtime;
+  const { mode } = state.session;
 
   const pageList = Object.values(pages);
   const activePage = pages[dashboard.activePageId];
@@ -583,7 +585,7 @@ function buildDashboardState(
   );
 
   if (focusedWidgetId) {
-    const focused = state.widgets[focusedWidgetId];
+    const focused = state.doc.widgets[focusedWidgetId];
     if (focused) {
       lines.push('');
       lines.push('## Per-widget focus');

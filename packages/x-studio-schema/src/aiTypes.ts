@@ -10,7 +10,7 @@
  *  - Persist and restore AI conversation threads (`StudioAIState`)
  *
  * Server-only AI types (`StudioAISkill` with its `execute` function,
- * `SkillExecuteResult`, `StudioDataResolver`, rate-limit/usage types) live in
+ * `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage types) live in
  * `@mui/x-studio-ai-middleware` — they are not part of the shared schema.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
@@ -65,13 +65,55 @@ export type StateMutation =
         widgetId: string;
         changes?: Partial<Omit<StudioWidget, 'id'>>;
         config?: StudioWidget['config'];
+        /**
+         * Top-level widget keys to DELETE from the widget — the wire-safe way to
+         * void a field. Unlike a `changes` entry with an `undefined` value (which
+         * `JSON.stringify` silently drops, so it can never survive the SSE stream
+         * or an AI tool-call argument), a KEY NAME survives JSON intact. The
+         * reducer skips `undefined`-valued `changes` keys precisely so an untrusted
+         * wire caller cannot void a required field the old (unsafe) way; these
+         * arrays are the ONLY sanctioned clear affordance, in-process or over the
+         * wire. Applied AFTER the `config` patch and `changes` merge, so an explicit
+         * unset always wins over a same-turn set of the same key.
+         */
+        unsetFields?: (keyof Omit<StudioWidget, 'id'>)[];
+        /**
+         * Config keys to DELETE from the merged config — the wire-safe equivalent
+         * of a `config`-patch entry with an `undefined` value. Applied AFTER the
+         * `config` patch and `changes` merge (which may replace `config` wholesale).
+         */
+        unsetConfigKeys?: string[];
       };
     }
   | { type: 'removeWidget'; args: { widgetId: string } }
-  | { type: 'setWidgetLayout'; args: { rows: string[][] } }
+  | {
+      type: 'setWidgetLayout';
+      args: {
+        rows: string[][];
+        /**
+         * Explicit target page whose rows are replaced, chosen server-side.
+         * Mirrors `addWidget.pageId`: if the user navigates to another page while
+         * the model is thinking, the layout still lands on the page the model was
+         * reasoning about rather than overwriting whatever page is now active.
+         * Falls back to the active page when omitted (legacy payloads).
+         */
+        pageId?: string;
+      };
+    }
   | {
       type: 'setWidgetColSpan';
-      args: { widgetId: string; columns: number | null; rowWidgetIds: string[] };
+      args: {
+        widgetId: string;
+        columns: number | null;
+        rowWidgetIds: string[];
+        /**
+         * Explicit target page for the span change, chosen server-side. Mirrors
+         * `addWidget.pageId` — the span is written to this page's `widgetColSpans`
+         * regardless of which page happens to be active on the applying side.
+         * Falls back to the active page when omitted (legacy payloads).
+         */
+        pageId?: string;
+      };
     }
   | { type: 'renamePage'; args: { pageId: string; title: string } }
   | { type: 'removePage'; args: { pageId: string } }
@@ -81,7 +123,35 @@ export type StateMutation =
   | {
       type: 'applyBulkUpdate';
       args: {
-        widgets: Record<string, StudioWidget>;
+        /**
+         * Lost-update-safe delta shape. Rather than carrying a snapshot of the
+         * ENTIRE `widgets` record (which wholesale-replaced `state.widgets` and
+         * silently reverted any widget the user edited on ANY page between the
+         * agentic turn's start snapshot and this mutation applying), this mutation
+         * carries only the specific widgets to remove/add/update. The reducer
+         * applies these deltas on top of the receiver's CURRENT `state.widgets`, so
+         * widgets not named here — including ones concurrently edited while the turn
+         * was running — are preserved, and a delete only drops the named ids
+         * (which the producer restricts to widgets on `activePageId`).
+         *
+         * `widgetRows`/`widgetColSpans` still replace the layout of `activePageId`
+         * only (never any other page), matching `setWidgetLayout`'s per-page scope.
+         */
+        /** Widget IDs to delete. Producer only lists ids that live on `activePageId`. */
+        removedWidgetIds: string[];
+        /** Fully-built new widget objects to insert. */
+        addedWidgets: StudioWidget[];
+        /**
+         * Partial patches to existing widgets, applied against the CURRENT widget.
+         * `config` is a shallow-merge patch (merged onto the live widget's config),
+         * so a concurrent edit to a different config key survives.
+         */
+        updatedWidgets: Array<{
+          widgetId: string;
+          title?: string;
+          sourceId?: string;
+          config?: StudioWidget['config'];
+        }>;
         widgetRows: string[][];
         widgetColSpans: Record<string, number>;
         activePageId: string;
@@ -89,8 +159,48 @@ export type StateMutation =
     }
   | {
       type: 'renameAIThread';
-      args: { name: string };
+      args: {
+        name: string;
+        /**
+         * ISO 8601 timestamp stamped once by the producer (server-side), so the
+         * server-computed `nextState` and the client-applied result agree. The
+         * reducer must never call `Date.now()`/`new Date()` itself — that would
+         * make this otherwise-pure reducer non-deterministic. Required: the sole
+         * producer (`executeToolOnState`'s `rename_thread` handler) always supplies it.
+         */
+        updatedAt: string;
+        /**
+         * Explicit target thread, stamped from the originating request's thread
+         * context (server-side). The reducer renames `threads.find(t => t.id ===
+         * threadId)` rather than whatever thread happens to be active on the
+         * applying side — so a rename cannot land on the wrong thread when the user
+         * switches threads while the model is running. Falls back to the active
+         * thread when omitted (legacy payloads).
+         */
+        threadId?: string;
+      };
     };
+
+/**
+ * A `StateMutation` addressed for wire transport: every mutation that crosses
+ * the AI-middleware ↔ client SSE boundary is wrapped in this envelope rather
+ * than sent bare, so it carries an identity (`id`) and a production timestamp
+ * (`at`) independent of the mutation's own domain fields (contrast with e.g.
+ * `renameAIThread.args.updatedAt` above, which is domain data the mutation
+ * itself persists — this `at` is transport metadata about the envelope).
+ *
+ * `id` is generated once, at the producer (`createMutationEnvelope`), and
+ * travels with the mutation end-to-end — the same shape a future replay/ack
+ * mechanism over SSE reconnects would need (mirroring `ChatStreamEnvelope`'s
+ * `sequence`-based dedup in `@mui/x-chat-headless`, used for chat-token chunks).
+ */
+export interface MutationEnvelope<T = StateMutation> {
+  /** Collision-resistant id, unique per envelope. See `createMutationId`. */
+  id: string;
+  /** ISO 8601 timestamp of when the envelope was produced (server-side). */
+  at: string;
+  mutation: T;
+}
 
 // ── Rich AI context ─────────────────────────────────────────────────────────
 // Extra, purely-additive context attached to each chat request to give the model
@@ -172,33 +282,13 @@ export interface StudioAIRichContext {
  * Names of the built-in AI tools.
  * Use `allowedTools` in `StudioAIConfig` to restrict which tools are available.
  *
- * Kept in sync with `STUDIO_AI_TOOLS` in `@mui/x-studio-ai-middleware`
- * (`studioAITools.ts`) — a type-level guard in that package fails CI if the two
- * ever drift. Deriving this union directly from `STUDIO_AI_TOOLS` is a good
- * follow-up (would require `as const` on the tool array).
+ * Derived from `STUDIO_AI_TOOL_REGISTRY` (`aiToolRegistry.ts`) — the single
+ * source of truth for tool facts (title, destructive/idempotent/etc.
+ * classification). `STUDIO_AI_TOOLS` in `@mui/x-studio-ai-middleware`
+ * (`studioAITools.ts`) is type-checked against this same union, so the two
+ * can no longer drift.
  */
-export type StudioAIToolName =
-  | 'get_dashboard_state'
-  | 'list_pages'
-  | 'add_page'
-  | 'set_dashboard_title'
-  | 'add_widget'
-  | 'update_widget'
-  | 'remove_widget'
-  | 'set_widget_layout'
-  | 'set_widget_width'
-  | 'rename_page'
-  | 'remove_page'
-  | 'set_active_page'
-  | 'add_page_filter'
-  | 'remove_page_filter'
-  | 'add_widget_filter'
-  | 'remove_widget_filter'
-  | 'summarise_page'
-  | 'apply_bulk_update'
-  | 'rename_thread'
-  | 'execute_query'
-  | 'set_widget_forecast';
+export type { StudioAIToolName } from './aiToolRegistry';
 
 // ── Conversation state ────────────────────────────────────────────────────────
 

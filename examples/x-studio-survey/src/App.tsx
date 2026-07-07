@@ -69,7 +69,7 @@ export default function App() {
     if (!survey) {
       return null;
     }
-    return { ...SURVEY_DASHBOARD, dataSources: survey.dataSources };
+    return { ...SURVEY_DASHBOARD, runtime: { dataSources: survey.dataSources } };
   }, [survey]);
 
   const [mode, setMode] = React.useState<StudioMode>('view');
@@ -257,7 +257,7 @@ export default function App() {
   // restored from the persisted session, so clearing the query string resets navigation.
   // Runs after any session restore so it overrides the restored active page.
   const applyInitialNav = React.useCallback(() => {
-    const pagesNow = studioRef.current?.getState().pages ?? {};
+    const pagesNow = studioRef.current?.getState().doc.pages ?? {};
     const pageIds = Object.keys(pagesNow);
     if (pageIds.length === 0) {
       return;
@@ -334,7 +334,7 @@ export default function App() {
         finish();
         if (seedServer) {
           const state = studioRef.current?.getState();
-          if (state && Object.keys(state.pages ?? {}).length > 0) {
+          if (state && Object.keys(state.doc.pages ?? {}).length > 0) {
             flushSave();
           }
         }
@@ -395,7 +395,7 @@ export default function App() {
       serverInstanceRef.current = status.instanceId;
       if (!status.hasState && hydratedRef.current) {
         const state = studioRef.current?.getState();
-        if (state && Object.keys(state.pages ?? {}).length > 0) {
+        if (state && Object.keys(state.doc.pages ?? {}).length > 0) {
           flushSave();
           // eslint-disable-next-line no-console
           console.info('[x-studio-survey] Server restarted with empty state — re-seeded.');
@@ -419,17 +419,17 @@ export default function App() {
 
   const handleStateChange = React.useCallback(
     (state: StudioState) => {
-      setMode((prev) => (prev === state.mode ? prev : state.mode));
-      setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
-      setPages((prev) => (prev === state.pages ? prev : state.pages));
+      setMode((prev) => (prev === state.session.mode ? prev : state.session.mode));
+      setTitle((prev) => (prev === state.doc.dashboard.title ? prev : state.doc.dashboard.title));
+      setPages((prev) => (prev === state.doc.pages ? prev : state.doc.pages));
       setActivePageId((prev) =>
-        prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
+        prev === state.doc.dashboard.activePageId ? prev : state.doc.dashboard.activePageId,
       );
       setCanUndo(studioRef.current?.canUndo() ?? false);
       setCanRedo(studioRef.current?.canRedo() ?? false);
       // Only edit-mode changes are the user's authored work — flag the pending save so its
       // failure is surfaced. View-mode changes (e.g. navigation) save silently.
-      if (state.mode === 'edit') {
+      if (state.session.mode === 'edit') {
         notifyOnSaveErrorRef.current = true;
       }
       scheduleSave();

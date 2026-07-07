@@ -117,6 +117,15 @@ function makeNodeRedisV4Client() {
     async expire(key: string, seconds: number) {
       expiries.set(key, Date.now() + seconds * 1000);
     },
+    async ttl(key: string) {
+      // Redis TTL semantics: -2 if the key doesn't exist, -1 if it exists
+      // with no expiry, else remaining seconds.
+      const expiresAt = expiries.get(key);
+      if (expiresAt === undefined) {
+        return sets.has(key) || store.has(key) ? -1 : -2;
+      }
+      return Math.ceil((expiresAt - Date.now()) / 1000);
+    },
     async sAdd(key: string, members: string | string[]) {
       let set = sets.get(key);
       if (!set) {
@@ -202,6 +211,45 @@ describe('RedisCacheProvider', () => {
       const provider = new RedisCacheProvider(redis, { defaultTtlSeconds: 60 });
       await provider.set('k1', ENTRY, { ttlMs: 5_000 });
       expect(redis.store.get('k1')?.expiresAt).toBeLessThan(Date.now() + 10_000);
+    });
+
+    describe('ttlMs: 0 (finding 10 — parity with RedisTierCacheProvider)', () => {
+      // `ttlMs: 0` naively rounds to `Math.ceil(0 / 1000)` = 0 seconds. Sending
+      // that straight through as `SET key value EX 0` is a real Redis error
+      // ("invalid expire time"). RedisCacheProvider.set (RedisCacheProvider.ts)
+      // guards this with `Math.max(1, ttlSeconds)`, exactly like its sibling
+      // RedisTierCacheProvider.set — this test locks in that both providers
+      // treat `ttlMs: 0` identically (floor to 1 second), not "never expires"
+      // (the lru-cache convention) and not a thrown error.
+      it('floors to a minimum 1-second TTL instead of sending "EX 0"', async () => {
+        const redis = makeRedisClient();
+        let capturedTtlSeconds: number | undefined;
+        const originalSet = redis.set.bind(redis);
+        redis.set = async (key: string, value: string, _exMode: 'EX', ttlSeconds: number) => {
+          capturedTtlSeconds = ttlSeconds;
+          return originalSet(key, value, _exMode, ttlSeconds);
+        };
+        const provider = new RedisCacheProvider(redis);
+
+        await provider.set('k1', ENTRY, { ttlMs: 0 });
+
+        expect(capturedTtlSeconds).toBe(1); // never 0 — that's an invalid Redis EX value
+        const expiresAt = redis.store.get('k1')?.expiresAt ?? 0;
+        expect(expiresAt).toBeGreaterThanOrEqual(Date.now() + 900);
+        expect(expiresAt).toBeLessThan(Date.now() + 2_000);
+      });
+
+      it('also floors to 1 second against a node-redis-v4-shaped client', async () => {
+        const { client: redis } = makeNodeRedisV4Client();
+        const provider = new RedisCacheProvider(redis);
+
+        await provider.set('k1', ENTRY, { ttlMs: 0 });
+
+        const stored = redis.store.get('k1');
+        expect(stored).toBeDefined();
+        expect(stored?.expiresAt).toBeGreaterThanOrEqual(Date.now() + 900);
+        expect(stored?.expiresAt).toBeLessThan(Date.now() + 2_000);
+      });
     });
   });
 
@@ -398,6 +446,32 @@ describe('RedisCacheProvider', () => {
 
       // The whole reverse-index set for k1 must be gone, not merely missing 'sales'.
       expect(sets.has('__ktag__:k1')).toBe(false);
+    });
+
+    it('does not shorten the forward tag index TTL on a later short-TTL write for the same tag (finding 1.9)', async () => {
+      const { client: redis, expiries } = makeNodeRedisV4Client();
+      const provider = new RedisCacheProvider(redis);
+
+      // Entry A: long TTL, tagged 'sales'.
+      await provider.set('long-lived', ENTRY, { tags: ['sales'], ttlMs: 300_000 });
+      const expiryAfterLongWrite = expiries.get('__tag__:sales');
+      expect(expiryAfterLongWrite).toBeDefined();
+
+      // Entry B: same tag, much shorter TTL, written afterward. Before the fix,
+      // this unconditionally reset the shared forward index's expiry down to
+      // B's 1s TTL — stranding A, which is still supposed to be tracked.
+      await provider.set('short-lived', ENTRY, { tags: ['sales'], ttlMs: 1_000 });
+      const expiryAfterShortWrite = expiries.get('__tag__:sales');
+
+      // The index's expiry must never move backward — only extend, never shorten.
+      expect(expiryAfterShortWrite).toBeGreaterThanOrEqual(expiryAfterLongWrite!);
+
+      // And functionally: deleteByTag still finds and evicts the long-TTL
+      // entry via the (still-alive) forward index, well after the short TTL
+      // would have elapsed on its own.
+      await provider.deleteByTag('sales');
+      expect(await provider.get('long-lived')).toBeUndefined();
+      expect(await provider.get('short-lived')).toBeUndefined();
     });
   });
 });

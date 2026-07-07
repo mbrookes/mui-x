@@ -1,172 +1,566 @@
-# Architecture & technical-debt review (Fable)
+# Architecture Review — `packages/x-studio`
 
-Independent review by the Fable model, run in two passes: (1) a review of `ARCHITECTURE.md` across all three Studio packages, verified against source and extended with new findings; (2) a dedicated technical-debt sweep of this package's UI/component layer and its internals/state layer. Read-only analysis — no code was changed to produce this report. See also [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the baseline this review evaluates.
+Independent, unbiased review of the current source, done as two parallel passes (UI/component
+layer and internals/state layer) and merged here. Every claim in both passes was verified against
+the current source at review time; file:line references reflect the tree as reviewed.
 
-Findings marked **cross-cutting** also appear in [`x-studio-ai-middleware/ARCHITECTURE_REVIEW.md`](../x-studio-ai-middleware/ARCHITECTURE_REVIEW.md) since they span both packages.
+## Top findings across both layers (quick triage)
 
----
-
-## Part 1 — Architecture proposals concerning this package
-
-### Proposal: End the hand-synced duplication between x-studio and ai-middleware with a shared zero-dependency package (cross-cutting)
-
-**Problem**: The "structural typing boundary" (ai-middleware ARCHITECTURE invariant #7) has already produced three parallel copies that must be maintained by hand:
-
-- `detectAnomaliesIQR` (`packages/x-studio/src/internals/anomalyDetection.ts:16-36`) vs `mcpDetectAnomaliesIQR` + `mcpMedian` (`packages/x-studio-ai-middleware/src/mcp.ts:383-408`) — byte-for-byte identical logic today; nothing enforces they stay so.
-- `createDefaultWidget` duplicated wholesale: `packages/x-studio/src/internals/widgetFactory.ts:14-94` vs `packages/x-studio-ai-middleware/src/models/studioTypes.ts:508-557` — identical branch-for-branch. If a default config changes in one, AI-created widgets and UI-created widgets get different defaults.
-- The entire 557-line `models/studioTypes.ts` re-declares `StudioState`/`StudioWidget`/etc. from the client package.
-- Tell-tale smell: `packages/x-studio/src/internals/widgetFactory.ts:7` imports `from '@mui/x-studio'` — a self-import inside its own package, clearly a copy that drifted across the boundary.
-
-**Architectural cost**: Every `StudioState` shape change is a two-package edit with no compiler assistance (structural typing means drift surfaces as a runtime mismatch in AI tool behavior, not a type error). The stated rationale — keeping the middleware dependency-free — does not require duplication: it only requires not depending on a package with React peer deps.
-
-**Recommended change**: Create an unpublished-or-published `@mui/x-studio-schema` package (zero runtime deps, no React, no Node built-ins) containing: (a) all `StudioState`/widget/filter/expression/AI-protocol types, (b) pure functions both sides need — `createDefaultWidget`, `createDefaultStudioState`, `detectAnomaliesIQR`/`median`, and the `StateMutation` reducers (see the AI-mutations proposal below). `@mui/x-studio` and `@mui/x-studio-ai-middleware` both depend on it; `models/studioTypes.ts` becomes `export * from '@mui/x-studio-schema'`. This preserves the framework-agnostic invariant exactly (the schema package is pure) while deleting the drift surface.
-
-**Effort/risk**: Medium-large mechanically (import-path churn across both packages) but low semantic risk — it's a move, not a rewrite. Needs monorepo release wiring (catalog entry, build config). Biggest payoff of any proposal for long-term maintenance.
-
-### Proposal: AI mutation semantics are implemented three times and already disagree (cross-cutting)
-
-**Problem**: Every AI tool's state effect exists twice as executable code: the server computes `nextState` inline (`packages/x-studio-ai-middleware/src/executeToolOnState.ts`, e.g. `add_widget` at 102-141 appends `[widget.id]` to `activePage.widgetRows`), and the client independently re-derives the same effect by mapping the `StateMutation` to controller methods (`packages/x-studio/src/components/StudioChatPanel/applyStateMutation.ts:13-140` → `StudioController.addWidget`, `store/StudioController.ts:382-409`). Today they agree ("append as a new row") only by parallel authorship. There is already a live divergence: the server appends to _its_ `state.dashboard.activePageId` (`executeToolOnState.ts:123`), while the client's `controller.addWidget` uses the _client's current_ `activePageId` (`StudioController.ts:384`) — if the user switches pages while the model is thinking, the model is told the widget landed on page A while it actually rendered on page B, and every subsequent turn reasons about the wrong layout. `applyStateMutation` also bypasses controller semantics for `addPage`/`applyBulkUpdate` via raw `setState` (lines 15-28, 95-111), so those two paths skip label-logging that other mutations get.
-
-**Architectural cost**: The AI feature's core correctness contract — "server-threaded state equals client-applied state" — is unenforced and already violated in a reachable scenario. Every new tool doubles the divergence surface.
-
-**Recommended change**: Make `StateMutation` the single semantic authority. In the shared schema package (above), define pure reducers `applyMutation(state: StudioState, mutation: StateMutation): StudioState` — one per mutation type. The server's `executeToolOnState` becomes "parse args → build mutation → `nextState = applyMutation(state, mutation)`"; the client's `applyStateMutation` becomes `controller.commitExternal(applyMutation(controller.getState(), mutation), label)`. Fix the page-targeting divergence by making mutations carry their target explicitly (`addWidget` args gain `pageId`, chosen by the server), so both sides apply to the same page regardless of client navigation.
-
-**Effort/risk**: Medium. The reducer extraction is mechanical; the behavioral change is `pageId`-explicit targeting, which is strictly more correct. Undo/label integration on the client needs one new controller entry point.
-
-### Proposal: Widget-kind registry — the registry already half-exists; built-ins should live in it
-
-**Problem**: Verified, and worse than the docs say. Kind dispatch is hardcoded in at least five client locations, not three: `StudioWidgetCard.tsx:711-914` (render + per-kind context menus at 450-504) plus a hardcoded kind-list literal at 235; `StudioComposeDrawer.tsx:83-89`; `StudioWidgetEditDialog.tsx:197-203`; `StudioWidgetEditDialog/BuiltinWidgetPreview.tsx:38-58`; `internals/widgetFactory.ts:20-93` (default configs, with the same hardcoded kind-array at line 77). Cross-package, a sixth and seventh: `x-studio-ai-middleware/src/widgetConfigMeta.ts:6-70` and the middleware's `createDefaultWidget` copy. Meanwhile the exact registry abstraction needed already exists for custom widgets: `CustomWidgetMap = ReadonlyMap<string, StudioCustomWidgetDef>` (`internals/StudioUIConfigContext.ts:1994-1995`), where each def carries `component`, `setupPanel`, `defaultConfig`.
-
-**Live divergence already present** (found independently during the tech-debt sweep, see Part 2 below): `StudioComposeDrawer.tsx` renders `customDef?.setupPanel` for custom widgets, but `StudioWidgetEditDialog.tsx` has **no custom-widget handling at all** — editing a custom widget via the built-in edit dialog shows a blank Setup tab while its preview renders fine.
-
-**Architectural cost**: Adding a widget kind is currently a 7+-site scavenger hunt across two packages; the compiler catches none of the misses (each dispatch site silently renders nothing for an unknown kind). The hardcoded kind-array literals at `StudioWidgetCard.tsx:235` and `widgetFactory.ts:77` are the classic forgotten-eighth-place.
-
-**Recommended change**: Define `BUILTIN_WIDGET_DEFS: Record<StudioBuiltinWidgetKind, StudioWidgetDef>` in `internals/` where `StudioWidgetDef` extends the existing `StudioCustomWidgetDef` shape with the extra hooks built-ins need (`previewComponent`, `defaultConfig`, `capabilities: { export: 'csv' | 'png', filters: boolean, ... }`). Change `useCustomWidgetMap()` to a `useWidgetDefMap()` that layers custom defs over built-ins. Each dispatch site becomes a single map lookup; `widgetFactory` reads `def.defaultConfig`; a `satisfies Record<StudioWidgetKind, ...>` constraint makes a missed registration a compile error.
-
-**Effort/risk**: Medium — mostly mechanical extraction of existing JSX into `component` fields. Risk: per-kind props differ slightly (`dataSource`, `pageId` etc. at `StudioWidgetCard.tsx:890-916`), so the def's component signature must take a normalized prop bag; that normalization is the only design work.
-
-### Proposal: Fan-out/double-counting-safe aggregation — unify at the row-grain layer, not the aggregation layer
-
-**Problem**: Verified — two independent solutions to double-counting: chart L4 re-anchors the _row set_ to the fan-out source's grain (`internals/chartAggregation.ts:390-449` anchor selection, 494-670 re-anchored row construction) then aggregates normally; grids keep fanned-out rows and dedupe _inside each aggregation call_ via FK (`utils/gridGrouping.ts:53-75` `symmetricAggregate`). These are semantically different algorithms: `symmetricAggregate` collapses null and empty-string FKs into one bucket (`String(row[fkField] ?? '')`, line 64), dedupes per-group (so a related row spanning two groups is counted once _per group_, correct for sums but with different `avg` denominators than the chart's anchor-row approach), and only handles direct many-to-one (`gridGrouping.ts:100-105`), while charts additionally handle many-to-many via junction anchoring (`chartAggregation.ts:403-419`). A chart and a grid grouping the same measure over the same join can legitimately disagree today, and only one of the two gets fixed when a bug is found.
-
-**Architectural cost**: Correctness parity between widget kinds is the product's credibility ("why does the chart say 4.2M and the table 4.6M?"). Two implementations means such tickets get fixed twice or diverge.
-
-**Recommended change**: Don't merge the aggregation functions — merge the _grain resolution_. Extract the L4 re-anchoring core from `chartAggregation.ts` into `internals/grainResolution.ts` with signature `resolveRowsAtGrain(widgetRows, requestedFields, anchorSourceId, dataSources, relationships, expressionFields): Row[]`. Grid grouping then becomes: detect fan-out columns (reuse `analyzeChartSupport`'s owner analysis), call `resolveRowsAtGrain`, and run the plain `aggregateGridValue` — deleting `symmetricAggregate` and its cross-source FK map plumbing (`gridGrouping.ts:92-127`). Grids inherit many-to-many support for free.
-
-**Effort/risk**: Large-ish and the riskiest proposal here: grid group-row composition (non-aggregated "first row" columns, `gridGrouping.ts:173`) must be re-derived from anchored rows, and existing dashboards' grid numbers may _change where the old dedupe was subtly wrong_ — that's the point, but it needs golden tests comparing chart totals vs grid totals over shared fixtures before and after.
-
-### Proposal: No integrity validation on deserialized dashboard state
-
-**Problem**: `validateStateStructure` accepts anything object-shaped (`store/statePersistence.ts:136-141`); `deserializeState` (statePersistence.ts:249-286) restores `pages`/`widgets`/`dashboard` verbatim with no checks that `dashboard.activePageId` exists in `pages`, that every ID in `page.widgetRows` exists in `widgets`, or that `filters[].scope` references live widgets. Downstream code assumes integrity: `StudioController.addWidget` dereferences `state.pages[state.dashboard.activePageId].widgetRows` with no null guard (`store/StudioController.ts:384-385`) — a dashboard persisted with a since-removed page ID throws a `TypeError` deep in the controller on the first widget add.
-
-**Architectural cost**: Persisted dashboards live in host databases and localStorage, get hand-edited, truncated, and produced by older/newer app builds; the deserialize boundary is exactly where garbage must be stopped. Today the failure mode is a delayed, unattributable crash rather than a load-time diagnostic — expensive support burden for an embedded product where MUI doesn't control the storage.
-
-**Recommended change**: Add a `repairStateIntegrity(state): { state, warnings[] }` pass at the end of `deserializeState`: drop `widgetRows` entries with no matching widget, drop widgets on no page into a recovery row (or delete), reset `activePageId` to the first page if dangling, drop filters scoped to missing widgets. Return warnings through the existing `MigrationResult.errors`-style channel so hosts can log them. This mirrors the migration system's philosophy (state is upgraded/sanitized before any application code sees it) and makes migrations themselves safer to write.
-
-**Effort/risk**: Small-medium; pure additive function plus tests with corrupted fixtures. Only behavioral risk is that previously-crashing states now load with repairs — an improvement.
-
-### Smaller observations relevant to this package
-
-- **`studioRequestCache` is a module singleton** (`internals/StudioRequestCache.ts`, imported at `StudioController.ts:33`): two `<Studio>` instances on one page with different adapters but a colliding `sourceId` share cache entries and invalidations. Keys should incorporate a per-controller/adapter identity, or the cache should live on the controller.
-- **Client-side `createDefaultWidget` IDs are `widget-${kind}-${Date.now()}`** (`internals/widgetFactory.ts:18`) — collision-prone under programmatic use; the ai-middleware's `executeToolOnState.ts:117` already fixed this with a random suffix on the server side. Align the client (fold into the shared-package proposal above).
-- **Verification note on the seeded "widget registry" and "fan-out aggregation" items**: both confirmed accurate in the original `ARCHITECTURE.md`, and both undercounted in scope — see the two proposals above for the corrected picture.
+1. **Grid `crossFilterField` emits the wrong value** (UI 1.1, `StudioGridWidget.tsx:277-291`) —
+   clicking any column other than the configured cross-filter field applies a filter using that
+   other column's clicked value against the configured field, silently blanking every downstream
+   widget. Existing test only exercises the one column where the bug is invisible.
+2. **Transient doc writes leak through undo/redo** (Internals 1.1, `StudioController.ts:112-136`
+   - related) — `{ undoable: false }` doc commits (interactive-filter selection, cross-filter mode
+     toggles) don't clear the redo stack and can be silently reverted/resurrected by unrelated
+     undo/redo steps, violating the doc/session/runtime partition's own "never undoable" contract.
+3. **`resolvedRowsCache` permanently stale when a cross-filter's foreign source loads late**
+   (Internals 1.2, `resolvedRowsCache.ts:216-224`) — the fallback dependency-recording path that
+   exists specifically to handle "foreign source has no rows yet" is itself guarded by `if (foreignRows)`,
+   so it records nothing in exactly the case it claims to cover.
+4. **Bar-chart cross-filter highlight/ghost indices misalign after category grouping** (UI 1.2,
+   `StudioBarChart.tsx:736-814`) — selection/ghost arrays are computed before the empty-label
+   filter and `barMaxCategories` "Other" grouping shift indices; pie has the equivalent guard
+   (`StudioPieChart.tsx:372`), bar doesn't.
+5. **Adapter-path cross-filter baseline is unrecoverable** (Internals 1.3, `queryDescriptor.ts:201-205`)
+   — server-backed widgets bake cross/interactive filters into the query descriptor itself, so the
+   "no-cross" ghost baseline the UI needs is already pre-filtered server-side; cross-highlight mode
+   silently degrades to hard-filter mode for every adapter-backed source.
 
 ---
 
-## Part 2 — Technical debt: UI/component layer (`src/components/`)
+# Part A — UI / Component Layer (`src/components/`)
 
-No TODO/FIXME/HACK markers exist anywhere in the directory — the debt below is all structural. Ordered by impact.
+**Security preamble:** no XSS surface was found. The only markdown renderers
+(`widgets/StudioTextWidget/renderMarkdown.tsx`, used for both user- and AI-authored text) use
+`markdown-to-jsx` with `disableParsingRawHTML: true` plus a URL-protocol allowlist sanitizer, and
+there is no `dangerouslySetInnerHTML` / `innerHTML` / `eval` anywhere under `components/`.
 
-**1. `StudioChartWidget` is a ~3,140-line single React component**
-`src/components/widgets/StudioChartWidget/StudioChartWidget.tsx:149-3292`
-One `React.memo` function renders every chart type via a sequential if-chain (`gauge` :986, `scatter` :1420, mixed :1655, bar :1684, pie/donut :1900, line :2909, area :3042...). Each branch re-derives axes, formatters, ghost-bar alignment, and cross-filter context inline — e.g. the multi-Y axis construction at :1712-1735 is near-identical to the area-chart version after :2550; there are 8 non-null assertions (`scatterSeries!` :1423, :1459; `effectiveSingleSeriesData!` :2813, :2823, :2919, :3054; `singleSeriesChartData!` :2949, :3083) that only hold because of the if-order, and 5 `react/jsx-no-constructed-context-values` suppressions (:1757, :2198, :2395, :2825, :2835). Any change to shared behavior (forecast, ghost bars, annotations) must be applied N times. Fix: the file already demonstrates the right pattern — `StudioFunnelChart.tsx`, `StudioGanttChart.tsx`, `StudioSankeyChart.tsx` are extracted per-type renderers. Extract bar/line/area/pie/scatter/mixed/gauge the same way, passing a shared `ChartRenderContext`.
+## Tier 1: Correctness & Security
 
-**2. The three StudioCanvas "tests" are mirror tests — they exercise zero production code**
-`src/components/StudioCanvas/StudioCanvas.regressions.test.ts` (113 lines), `StudioCanvas.responsive.test.ts` (139), `StudioCanvas.gridLines.test.ts` (175) import only `vitest` and re-implement copies of `getWidgetMinSpan`, the responsive span math, and the grid-line math inline. They pass forever regardless of what `StudioCanvas.tsx` actually does — worse than no tests, they create false confidence in exactly the drag/layout math they claim to cover. No test anywhere imports `StudioCanvas`, `RowResizeHandle`, `useStudioDropTarget`, `useStudioDraggable`, `createClonePreview`, `StudioDragLayer`, `StudioCrossFilterBar`, or `StudioDateRangeBar`. Fix: export the real functions (e.g. `getWidgetMinSpan` at `StudioCanvas.tsx:39`) and import them in the tests; add a rendered test for `RowResizeHandle`'s snap math (`:127-168`) and keyboard path (`:47-97`).
+### 1.1 Grid `crossFilterField` applies the wrong _value_ when any other column is clicked
 
-**3. `handleDrop` re-implements controller mutations inline — and is untestable**
-`src/components/StudioCanvas/StudioCanvas.tsx:131-239`
-The drop handler builds widget rows, redistributes col-spans (`destSpanTotal` :197-206), and performs cross-page moves (:211-221) via raw `controller.updateState()`, even though `StudioController` already owns `addWidget` (`store/StudioController.ts:382`), `moveWidgetToPage` (:1405), and `setWidgetLayout` (used by the keyboard-move path in `StudioWidgetCard.tsx:341`). Two divergent implementations of "move widget" (pointer vs keyboard); drop-created widgets bypass whatever `addWidget` does (e.g. inferred titles via `applyInferredTitles`); and because the logic lives in a component closure it's exactly the code finding #2 shows has no real test. Fix: move the row-splice/cross-page logic into controller methods (`insertWidgetAt`, `moveWidgetTo(rowIndex, colIndex)`) and unit-test them against the store.
+- **Files:** `src/components/widgets/StudioGridWidget/StudioGridWidget.tsx:277-291`;
+  intended semantics in `src/internals/StudioUIConfigContext.ts:1659-1660`
+  ("Field applied to other widgets **when a row is selected**; defaults to the first visible column").
+- **Failure scenario:** configure `crossFilterField: 'country'` on a grid, then click a cell in the
+  `revenue` column. `handleCellClick` does
+  `const fieldId = widget.config.crossFilterField ?? params.field; const value = params.value;` —
+  so it emits a cross-filter of `country = 1834.50` (the revenue cell's value). Every other widget
+  on the page filters to zero rows. The toggle-off branch also can't match, so a second click
+  re-applies another nonsense filter instead of clearing.
+- **Why untested:** `StudioGridWidget.crossFilter.test.tsx` only ever clicks cells **in** the
+  configured `crossFilterField` column (`label`), where cell value and remapped field coincide.
+- **Fix sketch:** when `crossFilterField` is set, read the value from the clicked **row**:
+  `const value = cfField ? params.row[cfField] : params.value;` (and add the cross-column test).
 
-**4. Widget-kind dispatch is copy-pasted 4+ times — with a real divergence bug already**
-See "Widget-kind registry" proposal in Part 1 above for the full writeup; this is where the custom-widget/edit-dialog divergence was found.
+### 1.2 Single-series bar chart: cross-filter highlight/ghost indices misalign with the rendered bars
 
-**5. Cross-filter value equality has three different semantics across widget kinds**
-Chart uses loose `==` (`StudioChartWidget.tsx:499-501` `looseEq`); Grid uses `String(a) === String(b)` (`StudioGridWidget.tsx:262`); and `chartWidgetHelpers.ts:108` exports a third normalization (`normalizeCrossFilterValue`, ISO-string for dates). These disagree on real inputs (`'' == 0` is true but `String('') !== String(0)`; `null == undefined` is true), so "click same value to clear the filter" toggles correctly in one widget kind and double-applies in another depending on column type. Fix: one exported `crossFilterValueEquals(a, b)` (co-located with `normalizeCrossFilterValue`), used by chart, grid, and map, with a unit test covering number/string/date/null.
+- **File:** `src/components/widgets/StudioChartWidget/StudioBarChart.tsx:736-814` (single-series branch).
+- **Failure scenario:** `selectedDataIndices`, the multi-select `SourceSelectionContext` set
+  (`:736-739`), and the ghost-bar context arrays (`:741-757`, aligned to
+  `allBarChartData.labels`) are all computed **before** the display transform at `:786-814`,
+  which (a) drops empty-string/null category labels and (b) applies `barMaxCategories`
+  "Other" grouping. The rendered `BarChart` gets `displayXAxisData`/`displayBarValues`, but
+  `highlightedItem` / `SourceSelectionBar` / `CrossFilterGhostBar` consume the **pre-transform**
+  indices. With one empty category or `barMaxCategories` set, clicking bar _k_ highlights bar
+  _k±n_, and ghost "filtered / total" tooltips read values from the wrong category.
+- **Contrast:** the pie renderer explicitly guards this — `StudioPieChart.tsx:372`
+  (`const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(displayLabels);`) and
+  rebuilds its ratio map against the rendered order (`:495-515`). The bar chart has no equivalent.
+- **Fix sketch:** compute selection indices and ghost-context arrays from `displayXAxisData` after
+  the empty-filter/Other transform (or suppress highlight/ghost when the transform changed indices,
+  mirroring the pie).
 
-**6. Filter operator metadata duplicated and divergent, both copies bypassing i18n**
-`StudioWidgetEditDialog/FilterRow.tsx:27-73` vs `StudioFiltersDrawer/filterDrawerUtils.ts:8-53`. The sets disagree: FilterRow offers `between` and `is_empty/is_not_empty` for numbers/dates; the drawer's table doesn't have `between` but has `not_starts_with`/`not_ends_with` which FilterRow lacks. Consequence: a `between` widget filter created in the edit dialog can't be round-tripped when re-edited in the filters drawer. Both tables also hardcode English labels even though the package ships de/es/fr/ptBR locales and `FilterRow.tsx:14` already imports `useStudioLocaleText`. Fix: single operator-metadata module keyed by field type, labels from `localeText`, consumed by both surfaces.
+### 1.3 `barMaxCategories` groups by axis position, not by value ("top-N" is not top-N)
 
-**7. SSE streaming + state-stripping copy-pasted into the text widget**
-`widgets/StudioTextWidget/useTextWidgetAI.ts:134-199` duplicates `StudioChatPanel/studioBackendAdapter.ts`: the strip-rows/adapter serialization (:134-146 vs adapter :219-228) and the hand-rolled `data:`-line SSE parse loop (:165-199 vs adapter :281-300). The copy is also lower-fidelity — it needs `source as unknown as { rows?; adapter? }` (:139) where the adapter destructures typed. Any protocol change (event names, buffering, abort handling) must be fixed twice. Fix: export `serializeDashboardState(state)` and a small `parseSSEStream(response, onEvent)` from a shared module and use them in both.
+- **Files:** `StudioBarChart.tsx:797-814`; label ordering in
+  `src/internals/aggregators.ts:158-198` (`orderLabels` returns insertion/category order unless
+  `chartSortBy === 'value'`).
+- **Failure scenario:** the prop is documented as "Group all but the **top-N** categories into an
+  'Other' bar" (`StudioBarChart.tsx:65`), but the code slices the first `N-1` labels **in axis
+  order** with no value sort. With default sort (`category`) and data `A:1, B:900, C:2, D:800`,
+  `barMaxCategories: 3` keeps A and B and folds C+D (including the #2 value) into "Other". The pie
+  implementation sorts pairs by value descending first (`StudioPieChart.tsx:334-338`) — the two
+  copies of "Other" grouping have drifted semantically.
+- **Test mask:** `StudioBarChart.test.tsx:340-350` passes only because its fixture values are
+  already sorted descending (`[5,4,3,2,1]`).
+- **Fix sketch:** sort pairs by value desc before slicing (matching the pie and the prop doc), or
+  change the doc + test to pin "first N in axis order" as intended behavior.
 
-**8. Two `makeValueFormatter` functions with the same name and different behavior**
-`widgets/StudioChartWidget/chartWidgetHelpers.ts:92-106` (exported: always returns a formatter, falls back to `String(value)`) vs `widgets/StudioChartWidget/lineSeries.ts:5-19` (private: returns `undefined` when no format). Identical name, silently different output — axis/tooltip number formatting differs depending on which code path built the series. Fix: delete the `lineSeries.ts` copy, import the shared one, make the "no format → undefined" behavior an explicit option.
+### 1.4 Quick-filter bar renders `[object Object]` for date-range cross-filters
 
-**9. `useChartWidgetData` (837 lines) is tested only for cross-source blending**
-`widgets/StudioChartWidget/useChartWidgetData.ts` — `useChartWidgetData.test.tsx` (244 lines) covers blended series/outer-join/count only. Untested: the cross-filter ghost baseline memos (`allChartData`/`allSeriesFieldData`/`allMultiYData` :567/:614/:656), rank-filter separation (:89), stable color assignment (:436/:475), scatter series (:694-776), and adapter-backed foreign fetch promise plumbing (:266-347). This is the data spine of every chart widget; regressions here render wrong numbers, not crashes. Fix: table-driven unit tests per memo, starting with ghost alignment.
+- **File:** `src/components/StudioCanvas/StudioQuickFilterBar.tsx:231`
+  (`const summary = String(filter.value ?? '');`).
+- **Failure scenario:** clicking a period-grouped bar emits a `between` cross-filter whose value is
+  `{ from, to }` (see `StudioChartWidget.tsx:370-399`). The widget-card chip formats this correctly
+  (`StudioWidgetCard.tsx:660-668` via dayjs), but the quick-filter bar chip shows
+  `Order Date: [object Object]`. Shift-click multi-select (`in`) values render as a raw comma join.
+- **Fix sketch:** extract the widget card's cross-filter value-label logic into a shared helper and
+  use it in both chips.
 
-**10. Row `key={row.join('-')}` remounts every widget in a row on layout change; `hydratedWidgets` papers over it and leaks**
-`StudioCanvas.tsx:279` keys each row by its joined widget IDs, so adding/moving/removing any widget in a row changes the key and remounts all its siblings — discarding widget-local state. The module-level `const hydratedWidgets = new Set<string>()` (`StudioWidgetCard.tsx:140`) exists specifically to hide the resulting blank-flash, and it grows forever, is shared across all `Studio` instances on a page, and is never cleared when widgets/dashboards are deleted. Fix: key rows by a stable row identity (or key the widget Boxes by `widgetId` instead of the row), then delete `hydratedWidgets`.
+### 1.5 Multi-Y line/area chart: cross-filter selection highlight is a knowing no-op
 
-**11. Type-safety escape hatches on closed unions**
-`StudioComposeDrawer/GridSetupPanel.tsx:488,639` — `type={(fieldInfo?.type ?? 'string') as any}` disables exhaustiveness on the closed `FieldType` union. `widgets/StudioMapWidget/geographyLoaders.ts:75-79` — `topo: any` plus `as unknown as ExtendedFeatureCollection`. `StudioCanvas/useStudioDraggable.ts:60` — a cast that erases `StudioDragItem` at the DnD boundary.
+- **File:** `src/components/widgets/StudioChartWidget/StudioLineAreaChart.tsx:398-409`.
+- **Failure scenario:** with two Y-series on a line chart and an active own cross-filter,
+  `highlightedItem.seriesId` is set to the bare `fieldId` while rendered series ids are
+  `${fieldId}-${i}` — it never matches, so the selected point is never highlighted. The code
+  comment says "Preserved as-is on purpose" from the extraction, i.e. a known shipped bug rather
+  than a regression — but it is still user-visible (clicking a point on a multi-Y line chart gives
+  no selection feedback while sibling widgets visibly filter).
+- **Fix sketch:** use `${multiYData.series[0].fieldId}-0` (one-line change) and delete the comment.
 
-**12. Dead barrel re-exports**
-Nothing outside tests imports these; `src/index.ts` cherry-picks from source files instead: `widgets/StudioKpiWidget/index.ts:2-7`, `StudioWidgetEditDialog/index.ts:3`, `widgets/StudioMapWidget/index.ts:3-4`, `StudioCanvas/index.ts:2`. Trim barrels to what's actually consumed.
+### 1.6 Clicking a synthetic "Other" bar/slice emits a filter that matches nothing
 
-Also noted: `StudioFiltersDrawer` remains a knowingly-unsplit multi-section file (482 lines + 20 sibling files) — its util layer is well-tested, so the pressing issue there is only finding #6, not file size. Untested heavyweight panels (`GridSetupPanel.tsx` 780 lines, `KpiSetupPanel.tsx` 487, `InlineFormulaBar.tsx`'s `buildExpression` with `parseFloat(x) || 0` fallbacks) are the natural next tier of test targets after findings #2/#3/#9.
+- **Files:** `StudioBarChart.tsx:902-906` (`onAxisClick` passes `params.axisValue`, which is the
+  synthetic `'Other'` label after grouping); `StudioPieChart.tsx:536-541, 616-621`
+  (`onItemClick(displayLabels[params.dataIndex], …)`).
+- **Failure scenario:** with `barMaxCategories`/`pieMaxSlices` active, clicking the "Other"
+  bar/slice applies a cross-filter `xField = 'Other'`. Unless a real category literally named
+  "Other" exists, every downstream widget shows the no-data overlay; on the bar chart the
+  selection can't even render (1.2), so there's no visual cue why the dashboard emptied.
+- **Fix sketch:** ignore clicks on the synthetic bucket, or emit `not_in(keptLabels)`.
+
+### 1.7 `StudioCanvas.onBackgroundClick` fires on _every_ mousedown (doc contract violated) and is un-overridable by consumers
+
+- **Files:** `src/components/StudioCanvas/StudioCanvas.tsx:100` (doc: "Called when the user clicks
+  the canvas background **(not on a widget)**") vs `:576-583` (`onBackgroundClick?.()` runs
+  unconditionally; only the deselect is gated by `closest('[data-widget-card]')`);
+  `src/components/Studio/StudioContent.tsx:324-327` spreads `{...slotProps?.canvas}` **before**
+  `onBackgroundClick={() => setChatOpen(false)}`, silently clobbering any consumer-provided
+  callback.
+- **Failure scenario:** an embedder wiring `onBackgroundClick` to close a side panel finds it also
+  fires when users click widgets (contradicting the docs); inside `StudioContent`, a consumer's
+  `slotProps.canvas.onBackgroundClick` is discarded.
+- **Fix sketch:** move `onBackgroundClick?.()` inside the `!closest('[data-widget-card]')` branch;
+  in `StudioContent`, compose rather than overwrite the consumer callback.
+
+### 1.8 Grid write-back: `processRowUpdate` rejects with no `onProcessRowUpdateError`
+
+- **File:** `src/components/widgets/StudioGridWidget/StudioGridWidget.tsx:242-268, 443`
+  (`processRowUpdate={isEditable ? processRowUpdate : undefined}`; `onProcessRowUpdateError`
+  appears nowhere in the package).
+- **Failure scenario:** an adapter mutation fails (`result.ok === false` → `throw new Error(...)`).
+  Per DataGridPremium's contract, a rejected `processRowUpdate` without `onProcessRowUpdateError`
+  logs a console error and leaves the cell stuck in edit mode; the user gets zero UI feedback that
+  their edit was not persisted.
+- **Fix sketch:** pass an `onProcessRowUpdateError` that surfaces a snackbar/error overlay and
+  reverts the cell.
+
+### 1.9 Column resize drag has no `pointercancel` handling — stuck live-drag state
+
+- **Files:** `src/components/StudioCanvas/RowResizeHandle.tsx:147-168` (handles `pointerup` only);
+  live state consumed in `StudioCanvas.tsx:163-168, 347-431`.
+- **Failure scenario:** a captured pointer drag interrupted by `pointercancel` (touch interruption,
+  window losing the pointer, browser gesture takeover) never runs `handlePointerUp`; `dragRef`
+  stays set, the handle stays `active`, and `StudioPageRows.liveDrag` keeps the row frozen at the
+  live spans with the resize outline and grid-line overlay stuck on screen. No commit or rollback
+  happens until a subsequent unrelated pointerup.
+- **Fix sketch:** add `onPointerCancel` (and `onLostPointerCapture`) that clears `dragRef`/`active`
+  and calls a cancel callback so `StudioPageRows` can `setLiveDrag(null)`.
+
+### 1.10 Locale system bypassed by hardcoded English UI strings
+
+- **Files:** `widgets/StudioChartWidget/chartTypeDefs.tsx:396, 444-445, 520-521, 560-561`
+  (heatmap/funnel/sankey/gantt "requires …" hints); `StudioCanvas/StudioCanvas.tsx:550-557`
+  ("Canvas is empty", "Use the Compose panel…"); `StudioChatPanel/StudioChatPanel.tsx:350-353,
+407-409, 494` ("No conversations yet", "How can I help?", "Ask me anything…", "AI Assistant");
+  `StudioWidgetCard/StudioWidgetCardActionsOverlay.tsx:263, 271` ("Refresh AI content");
+  `StudioMapWidget.tsx:559` (`'Value'` fallback in a legend aria-label).
+- **Failure scenario:** the package ships `fr`/`de`/`es`/`ptBR` locales
+  (`src/locales/`), and every sibling string in these same files goes through `localeText`. A
+  German dashboard renders a mixed-language UI in precisely these spots — a real defect for a
+  localized commercial product, not a style nit.
+- **Fix sketch:** add the missing keys to `StudioLocaleText` and the four locale files.
+
+### 1.11 Accessibility: keyboard traps around chips and widget-card activation
+
+- **Files:** `StudioCanvas/StudioQuickFilterBar.tsx:85-104` — the chip's remove affordance is a
+  `role="button"` span with **no `tabIndex` and no key handler**; keyboard users cannot remove a
+  quick filter from the bar (Chip `onDelete` would give this for free).
+  `StudioWidgetCard/StudioWidgetCard.tsx:521-531` — the card handles `' '` (Space) in `onKeyDown`
+  without `event.preventDefault()`, so activating a card with Space also scrolls the canvas.
+- **Fix sketch:** use `Chip.onDelete` (renders a focusable delete icon) in the quick-filter chip;
+  `preventDefault()` on Space in the card's key handler.
+
+## Tier 2: Structural Duplication
+
+### 2.1 `StudioBarChart` triplicates its own scaffolding; highlight gating copy-pasted across bar/line/pie
+
+- **Files:** `StudioBarChart.tsx` — five near-identical densify memos (`:152-279`), three
+  ghost-context builders (`:387-411`, `:558-581`, `:741-757`), two `totals100` percent
+  normalizations (`:350-357`, `:549-556`), the legend `slotProps` literal repeated 3× (`:514-522`,
+  `:704-712`, `:909-917`), the `onAxisClick` lambda repeated 3×.
+  Across renderers, the `highlightableSeriesIds` + `controlledHighlightedItem/Axis` block is
+  **verbatim-duplicated three times**: `StudioBarChart.tsx:317-334`,
+  `StudioLineAreaChart.tsx:143-164`, `StudioPieChart.tsx:199-210`.
+- **Risk realized:** the copies have already drifted — the multi-Y line highlight bug (1.5) exists
+  only in one copy; the bar copy lacks the pie's grouped-index guard (1.2); "Other" grouping
+  semantics differ between bar and pie (1.3).
+- **Fix sketch:** shared helpers in `chartWidgetHelpers.ts` — `useDensified(data)`,
+  `buildGhostContext(all, filtered)`, `useControlledHighlight(...)`, one `CHART_LEGEND_SLOT_PROPS`
+  constant — then per-branch code shrinks to the genuinely type-specific parts.
+
+### 2.2 Cross-filter value equality re-drifted in the map widget
+
+- **File:** `widgets/StudioMapWidget/StudioMapWidget.tsx:417-419` uses
+  `String(activeCrossFilter?.value) === String(rawValue)`.
+- **Context:** the header comment of `StudioGridWidget.crossFilter.test.tsx:14-22` records that
+  grid and chart were deliberately consolidated onto `crossFilterValueEquals`
+  (`StudioChartWidget/chartWidgetHelpers.ts:213-215`) because `String(a) === String(b)` disagrees
+  on `null`/`undefined`/date inputs. The map widget either predates or escaped that consolidation
+  and reintroduces the exact pattern the test warns about.
+- **Fix sketch:** import and use `crossFilterValueEquals` (also compare against
+  `activeCrossFilter.field === countryField` as the chart does).
+
+### 2.3 "Interactions" cross-filter-mode toggle triplicated across setup panels
+
+- **Files:** `StudioComposeDrawer/ChartSetupPanel/ChartSetupPanel.tsx:813-838`,
+  `StudioComposeDrawer/GridSetupPanel.tsx:752-779`, `StudioComposeDrawer/KpiSetupPanel.tsx:475-499`.
+- **Drift:** near-identical `SetupSection` + `ToggleButtonGroup` blocks, but each hand-rolls its
+  default (`'cross-highlight'` for chart/grid, `'none'` for KPI) and the KPI copy additionally
+  remaps `cross-highlight → cross-filter` inline. The per-kind default/valid-mode policy lives in
+  three JSX blobs instead of one component.
+- **Fix sketch:** a `CrossFilterModeSection({ widgetId, defaultMode, modes })` shared component.
+
+### 2.4 Five independent re-implementations of the "all sources → field catalog / label map" fold
+
+- **Files:** `ChartSetupPanel.tsx:74-106` (`allFields` with sourceLabel + expression fields),
+  `GridSetupPanel.tsx:110-205` (`allSelectableFields`, same fold plus reachability),
+  `StudioFiltersDrawer.tsx:100-110` (`allFields`), `StudioQuickFilterBar.tsx:154-161` and
+  `StudioKpiWidget.tsx:530-542` (flat `fieldId → label` maps).
+- **Correctness edge shared by all copies:** every copy is first-writer-wins on `field.id`. Two
+  sources both exposing a `country` field will show one source's label for the other's filter, and
+  the filters drawer conflates them into a single option. Centralizing would make that policy
+  explicit (and fixable) in one place.
+- **Fix sketch:** one memoized selector/util (e.g. `selectFieldCatalog` /
+  `buildFieldLabelMap(dataSources, expressionFields)`) in `context`/`internals`.
+
+### 2.5 Cross-filter chip label formatting duplicated between widget card and quick-filter bar
+
+- **Files:** `StudioWidgetCard.tsx:651-677` (handles `between` ranges via dayjs) vs
+  `StudioQuickFilterBar.tsx:229-235` (naive `String(value)` — see 1.4). Same data, two formatters,
+  one already broken.
+
+## Tier 3: God-Files / Cohesion
+
+Line counts verified at review time (non-test files):
+
+| File                                                      | Lines | Verdict                   |
+| --------------------------------------------------------- | ----- | ------------------------- |
+| `widgets/StudioChartWidget/StudioBarChart.tsx`            | 925   | regrown god-file          |
+| `widgets/StudioChartWidget/useChartWidgetData.ts`         | 843   | two concerns fused        |
+| `StudioComposeDrawer/ChartSetupPanel/ChartSetupPanel.tsx` | 841   | acceptable orchestrator   |
+| `StudioWidgetCard/StudioWidgetCard.tsx`                   | 804   | responsibility creep      |
+| `StudioComposeDrawer/GridSetupPanel.tsx`                  | 797   | borderline                |
+| `widgets/StudioChartWidget/chartTypeDefs.tsx`             | 715   | OK structure, perf hazard |
+| `widgets/StudioChartWidget/StudioChartWidget.tsx`         | 712   | decomposition held        |
+| `widgets/StudioKpiWidget/StudioKpiWidget.tsx`             | 630   | one 330-line memo         |
+
+### 3.1 `StudioBarChart.tsx` (925 lines) — the decomposition's mass migrated here
+
+The earlier pass successfully thinned the orchestrator (`StudioChartWidget.tsx` now genuinely just
+wires state + guards + registry dispatch; `chartTypeDefs.tsx` is a clean, exhaustiveness-checked
+registry). But the bar renderer absorbed three full sub-charts (multi-Y `:337-529`, split-by
+`:532-719`, single-series `:721-925`), each a page of axis/series/ghost config with the
+duplication catalogued in 2.1. It is the largest non-test file in `components/` and the file where
+three of the Tier-1 bugs live. Split into three sibling components sharing extracted helpers.
+
+### 3.2 `useChartWidgetData.ts` (843 lines) — data hook doubles as a cross-source query engine
+
+Lines 194-360 implement foreign-source row acquisition for blended mixed charts (spec building,
+sync in-memory resolution, adapter-descriptor construction, an async fetch effect with in-flight
+caching, merge). That is a self-contained subsystem with its own lifecycle, glued into a hook whose
+other ~500 lines are memoized aggregations. Extract `useBlendedSeriesRows(widget, config, …)`;
+the remaining aggregation memos are repetitive but mechanical.
+
+### 3.3 `StudioWidgetCard.tsx` (804 lines) — card chrome plus five stowaways
+
+Beyond chrome (paper, title, chips, overlay), the card owns: DnD registration, keyboard layout
+moves, export dispatch for three widget kinds (including building a pipeline inline at
+`:434-457`), anomaly-detection UI state, **AI insight prompt authoring** (`:254-306` — English
+prompt copy embedded in a chrome component), the expand `Dialog` (`:729-790`), and the fallback
+edit dialog. The insight-prompt builder and the expand dialog are the cleanest extractions.
+Minor bug found here in passing: the expanded-dialog PNG export (`:782`) omits the
+`theme.palette.background.default` argument that the normal export path passes (`:451`), so
+full-screen exports get a transparent/undefined background.
+
+### 3.4 `StudioKpiWidget.tsx` (630 lines) — one `useMemo` computes value + sparkline + trend
+
+`:176-513` is a single ~330-line memo closure with three unrelated outputs and two trend sub-modes.
+Consequences are already visible: the fixed-period trend branch (`:320-371`) uses raw child-grain
+`rows` and bare `computeAggregate` — it ignores both the grain-anchoring the headline value gets
+(`:122-166`) and measure expression fields (handled only by the filter-based branch at `:444-470`).
+A KPI whose value field is cross-source or a measure shows a correct headline with a silently wrong
+(or zero) fixed-period delta. Split into `useKpiValue` / `useKpiSparkline` / `useKpiTrend` and the
+inconsistency becomes impossible to miss.
+
+### 3.5 `chartTypeDefs.tsx` — unmemoized aggregation on every render for 4 chart types
+
+`renderHeatmap` (`:405`), `renderFunnel` (`:457/:479`), `renderSankey` (`:527`), `renderGantt`
+(`:566`) call `aggregateHeatmap`/`aggregateFunnelReached`/`buildFunnelStages`/`aggregateSankey`/
+`buildGanttItems` synchronously inside plain render functions — no hooks allowed, so no
+memoization, unlike every other chart type (which aggregates inside `useChartWidgetData` memos +
+`cachedCompute`). Any re-render of `StudioChartWidget` (hover state, any subscribed selector tick)
+re-aggregates the full `filteredRows`. Fine at demo scale; a real cost at 100k+ rows. Fix: make
+these thin components (so they can `useMemo`) or route their aggregation through
+`useChartWidgetData`/`cachedCompute` like the rest.
+
+### 3.6 Clean bills of health (explicitly checked)
+
+- `StudioWidgetCardActionsOverlay.tsx` (648): genuinely decomposed — shared per-action components
+  parameterized by `tabIndex`/gating; the header comment's claim about preventing edit/view drift
+  is accurate.
+- `ChartSetupPanel/` sections and the other setup panels: the per-chart-type section split
+  (Gauge/Scatter/Funnel/Heatmap/Sankey/Gantt/PieArcs) is real — sections are 64-158 lines each and
+  contain only type-specific fields; no copy-paste drift found between them.
+- `StudioCanvas/` and `StudioChatPanel/`: well factored into small files; `StudioCanvas.tsx`'s
+  size is mostly one cohesive layout algorithm.
+
+## Tier 4: Testing Gaps
+
+### 4.1 Canvas drag-and-drop drop path has zero tests
+
+`StudioPageRows.handleDrop` (`StudioCanvas.tsx:173-224`) implements the entire drop geometry:
+horizontal (new row) vs vertical (into row) splices, removing the widget's prior occurrence,
+cross-page moves (`sourcePageId ?? pageId`), compose-drops rejected when a data source is required
+but absent. None of it is exercised: `InsertionPoint`, `WidgetGap`, `useStudioDropTarget`,
+`useStudioDraggable` have no test files, and the five `StudioCanvas.*.test.*` files cover pure
+functions (grid lines, spans, responsive math) and remount behavior only. A regression here (e.g.
+an off-by-one in `colIndex` splicing, or dropping a widget onto its own page duplicating it) ships
+undetected. These are jsdom-testable by invoking `handleDrop` through the drop-target callback with
+synthetic drag items.
+
+### 4.2 `RowResizeHandle` untested (keyboard splitter + pointer snapping + the cancel hole)
+
+`RowResizeHandle.tsx` implements an APG-splitter keyboard protocol (Arrow/Home/End with clamping to
+per-widget min spans) and midpoint pointer snapping — all pure logic behind DOM events, none
+covered. The `pointercancel` bug (1.9) would have been surfaced by the first "interrupt a drag"
+test.
+
+### 4.3 Grid cross-filter remap tested only on the trivial column
+
+`StudioGridWidget.crossFilter.test.tsx` sets `crossFilterField: 'label'` and clicks only `label`
+cells — the one case where the bug (1.1) is invisible. Add: click a **different** column with
+`crossFilterField` configured; assert the emitted filter's value comes from the configured column
+of the clicked row.
+
+### 4.4 Bar chart "Other"/empty-category × cross-filter interaction untested (donut has the exact analogue)
+
+`StudioChartWidget.donutHighlight.test.tsx:170` explicitly asserts that with `pieMaxSlices` the MUI
+`highlightedItem` stays null under cross-highlight — the regression test for the pie's index-shift
+guard. The bar chart has no counterpart: no test combines `barMaxCategories` (or an empty-string
+category) with `getSelectedDataIndices`/ghost mode, which is precisely bug 1.2. Additionally, the
+existing grouping test (`StudioBarChart.test.tsx:340-350`) uses pre-sorted-descending values,
+masking 1.3 — an unsorted fixture would pin the intended "top-N" semantics either way.
+
+### 4.5 Grid write-back editing path untested
+
+`processRowUpdate` (`StudioGridWidget.tsx:242-268`) — changed-value diffing, PK `where` clause
+construction, and the failure path (`result.ok === false` → throw) have no test. Combined with the
+missing `onProcessRowUpdateError` (1.8), the entire editing failure UX is unverified.
+
+### 4.6 Quick-filter bar: cross-filter chips and keyboard removal uncovered
+
+`StudioQuickFilterBar.test.tsx` doesn't render a `between` or `in` cross-filter chip (the
+`[object Object]` case, 1.4), and no test attempts keyboard removal of a chip (1.11). Both are
+cheap jsdom tests.
+
+### 4.7 Browser-mode-only gaps
+
+The repo has browser-mode infra (`pnpm test:browser`), but none of these visually-dependent
+behaviors are covered there: real SVG hit-testing for chart `onAxisClick`/`onItemClick` (jsdom
+tests invoke the props directly), the custom DnD ghost preview (`createClonePreview` +
+`setCustomNativeDragPreview`), the `clip-path: inset(100%)` keep-alive of inactive pages
+(`StudioCanvas.tsx:594-640` — the code comments describe SVG bleed-through bugs that only a
+browser can regress), and the horizontal-bar explicit y-axis width computation
+(`StudioBarChart.tsx:831-838`, a text-measurement heuristic).
 
 ---
 
-## Part 3 — Technical debt: internals/state layer (`src/internals/`, `src/store/`, `src/context/`, `src/utils/`)
+# Part B — Internals/State Layer (`src/store/`, `src/internals/`, `src/context/`, `src/models/`)
 
-Ordered by impact.
+## Tier 1: Correctness & Security
 
-**1. `resolvedRowsCache` filter fingerprint omits operator/field/mode — stale rows after editing a filter**
-`internals/resolvedRowsCache.ts:100-108`. The inner cache key is only `` `${f.id}:${JSON.stringify(f.value ?? '')}` ``, but a compiled row-test also depends on `operator`, `field`, `fieldType`, `operator2`/`value2`/`conjunction`, `filterMode`, `rankDirection`, `rankByField` (`filterUtils.ts:101-321`). `StudioController.updateFilter` accepts arbitrary partial changes, so changing a filter's operator from `equals` to `not_equals` (same id, same value) keeps the same cache key, `isEntryValid` passes, and every widget on the source silently shows the _old_ filtered rows until something else invalidates. This is exactly the stale-data class the per-entry-invalidation design exists to prevent, and it is untested — `resolvedRowsCache.test.ts` covers value changes, ref changes, and foreign-row changes, but never an operator/field edit. Fix: fingerprint the full behavioral content (`sortedStringify` of `{field, operator, value, value2, operator2, conjunction, filterMode, fieldType, rankDirection, rankByField, disabled}` — the `sortedStringify` helper already exists in `queryDescriptor.ts:18`), and add the missing test.
+### 1.1 Transient doc writes leak through undo/redo — the `{ undoable: false }` doc-mutation family violates its own contract
 
-**2. `resolvedRowsCache` dependency tracking misses two foreign-row dependencies created inside `resolveRows`**
-`internals/resolvedRowsCache.ts:39-58` vs `internals/dataSourceGraph.ts:181-184` and `:246`. `isEntryValid` only re-checks `dataSources[f.filterSourceId].rows` for filters that _arrive_ with a `filterSourceId`. But `resolveRows` itself creates two more foreign-row dependencies the cache never records: a page filter targeting an expression field owned by a different source is rerouted as a cross-filter with a **derived** `filterSourceId` that the cache entry never tracks; and two-hop many-to-many semi-joins read `dataSources[joinPath.junctionSourceId].rows`, also untracked. Refreshing either foreign source serves a stale semi-join. Fix: have `resolveRows` expose the set of source IDs it actually joined against, and record those rows refs in the cache entry; add tests mirroring the existing "cross-filter foreign source rows change" test for both paths.
+**Files:** `src/store/StudioController.ts:112-136` (`commitState`), `:1223-1268` (`applyInteractiveFilter`/`clearInteractiveFilter`), `:321-341` (`setGlobalCrossFilterMode`, `setCrossFilterAllPages`), `:1621-1657` (`undo`/`redo`).
 
-**3. Editing an expression-field formula or a relationship serves stale results through two caches**
-`internals/resolvedRowsCache.ts:28-29` (stale comment) and `internals/chartAggregation.ts:531`. `resolvedRowsCache`'s comment says expression fields are "intentionally NOT tracked here — enrichedRowsCache handles per-source enrichment invalidation" — true only on a cache _miss_; on a hit, the cached result (embedding values computed with the old formula) is returned without ever consulting `enrichedRowsCache`. Same class in the chart L4 cache (`rcfaCache`): its `configKey` excludes `relationships` and `expressionFields` entirely, so editing a relationship's join fields or an anchor-source expression formula returns a stale joined result while row refs stay unchanged. Fix: include a relationships fingerprint and the relevant expression-field refs in the entry validity check for both caches; add the missing tests.
+The doc/session/runtime partition promises "never undoable" for transient state, but four methods write **transient state into the `doc` partition** with `{ undoable: false }`: interactive-filter selection, interactive-filter clearing, `globalCrossFilterMode`, and `crossFilterAllPages`. Because undo snapshots are whole `StudioDoc` objects, `undoable: false` only suppresses _creating_ an undo entry — it cannot exempt those fields from being reverted by _other_ entries. Two concrete failure scenarios:
 
-**4. Fan-out-safe aggregation solved twice, with contradictory join-key semantics**
-See the "Fan-out/double-counting-safe aggregation" proposal in Part 1. Additional detail from this sweep: `gridGrouping.ts:64,123` and `crossSourceEnrichment.ts:72,84` coerce join keys with `String(x ?? '')`, while `dataSourceGraph.ts:236,247` and `chartAggregation.ts:605-621` use raw values in `Map`/`Set` — a numeric FK (`5`) against a string PK (`"5"`) joins in the grid path but fails in the chart/filter path, so the same relationship behaves differently per widget kind. Fix: extract one `joinKeys`/`dedupeByFk` module with a single key-coercion policy.
+- **Silent revert:** user selects a value in a filter widget (`applyInteractiveFilter`, non-undoable by design: "same convention as interactive filter selection"), then adds a widget (undoable, pushes the post-selection doc), then presses Ctrl+Z twice. The second undo pops a doc snapshotted _before_ the selection — the filter widget's selection silently resets, exactly the class of behavior the non-undoable convention exists to prevent (compare the `runtime` rationale at `:58-61`).
+- **Stale redo replay:** `commitState` clears `redoStack` only inside the `undoable && doc changed` branch (`:116-124`). A non-undoable doc commit therefore leaves a stale redo stack alive. Sequence: add widget → undo → select in a filter widget (`applyInteractiveFilter`, doc changes, redo stack survives) → press redo. Redo swaps in the pre-selection doc: the widget reappears **and the user's just-made selection is silently destroyed**; pressing undo then _resurrects_ the "non-undoable" selection. `setGlobalCrossFilterMode`/`setCrossFilterAllPages` time-travel the same way. Standard undo semantics (any new state-changing action invalidates redo) are violated for this whole method family.
 
-**5. Cross-source join resolution implemented four times**
-`dataSourceGraph.ts:64-114` (`findJoinPath`) and `:274-454` (`enrichRowsWithRelatedFields`); `crossSourceEnrichment.ts:28-95`; `utils/gridGrouping.ts:98-127`; `chartAggregation.ts:180-289,576-684`. Each file re-derives "which relationship links source A to source B, which side is the FK, build a PK→row lookup" from scratch — `gridGrouping.ts:99` and `crossSourceEnrichment.ts:54` even share the identical comment. `crossSourceEnrichment.enrichWithCrossSourceFields` is a strict subset of `dataSourceGraph.enrichRowsWithRelatedFields`. Every relationship-model change must be re-implemented in four places. Fix: make `findJoinPath` + a lookup-builder in `dataSourceGraph.ts` the single traversal API; delete the other three's bespoke resolution in favor of it.
+**Fix sketch:** either (a) clear `redoStack` on _every_ doc-reference change regardless of `undoable`, and carry transient filter entries (`scope.kind === 'interactive'`) and the two dashboard toggles forward across `undo()`/`redo()` doc swaps (the same way `normalizeSessionAfterDocSwap` already patches selection), or (b) move genuinely transient state out of `doc` into `session` and accept the reducer/persistence plumbing cost. Note `ARCHITECTURE.md:74` claims `undoable: false` is used for "interactive/**cross-filter** selection" while `:68` says "`applyCrossFilter` is undoable" — the code makes `applyCrossFilter` undoable (`:1299-1303`), so line 74 is also self-contradictory documentation.
 
-**6. Five independent aggregation-primitive implementations, with capability drift**
-`chartAggregation.ts:719-803` (`aggregateByField`), `:1173-1271` (`aggregateHeatmap`), `utils/gridGrouping.ts:8-40` (`aggregateGridValue`), `utils/gridSummary.ts:42-75`, `utils/expressionEvaluator.ts:442-462` (`aggregate`). User-visible consequences: `aggregateByTwoFields` (`:817`) and `aggregateMultipleSeries` (`:917`) hard-code sum — no `yAggregation` parameter, so setting `config.yAggregation: 'avg'` on a chart silently stops working the moment a series field is added, while single-series charts honor it. Null handling also differs (grid `avg` excludes nulls from the denominator; chart `avg` coerces null→0 into the sum). Fix: one shared `aggregate(values, fn)` + accumulator module; thread `yAggregation` through the two multi-series aggregators.
+### 1.2 `resolvedRowsCache` never invalidates when a cross-filter's foreign source gains rows _after_ the entry was computed
 
-**7. `useWidgetRows` God-hook: three copy-pasted pipeline blocks and re-implemented filter scoping**
-`internals/useWidgetRows.ts:346-419, 421-471, 479-549` (three near-identical memos differing only in which filter buckets they include) and `:586-647` (three identical `enrichWithCrossSourceFields` memos). The cross-filter/interactive scope predicates are duplicated inline four times even though `filterScoping.ts:20-85` is documented as the "single source of truth for all three data paths" — the adapter path bypasses it and re-encodes the rules by hand (and doesn't honor `crossFilterAllPages` the same way the interactive branch of `selectFiltersForWidget` does). Fix: extract a single `computeFilteredRows(include)` closure reusing `selectFiltersForWidget` (it already supports the three include modes) for both adapter and sync branches; extract one `enrichIfNeeded(rows)` helper. Cuts ~250 duplicated lines.
+**Files:** `src/internals/resolvedRowsCache.ts:102-133` (`isEntryValid`), `:216-224` (dependency recording); `src/internals/dataSourceGraph.ts:264-267`.
 
-**8. `enrichedRowsCache` retains rows forever (strong module-level Map) and is shared across Studio instances**
-`internals/enrichedRowsCache.ts:42`. Unlike its WeakMap-keyed siblings, this cache is a plain module `Map` keyed by `sourceId` string with entries that strongly hold `rows`/`result`/`joinedSourceRows` and are never evicted — only replaced on access with the same key. Deleting a widget, removing a data source, or unmounting `Studio` leaves the enriched row arrays pinned for the page lifetime; being keyed by bare `sourceId`, two `Studio` instances with same-named sources also share/thrash entries. Fix: restructure as `WeakMap<Row[], Map<fieldSetKey, entry>>` like its siblings.
+`isEntryValid` only iterates dependencies that were _recorded at compute time_ (`entry.crossFilterSourceRows`). Both recording paths skip a foreign source whose rows are absent:
 
-**9. `chartAggregation.ts` God-file: L4 join resolution, support analysis, a cache, and 8 aggregator families in one module**
-1,491 lines mixing relationship analysis, row re-anchoring + its hand-rolled cache, generic aggregators, and chart-type-specific prep. The sort/categoryOrder/desc post-processing block is copy-pasted four times; rank filtering is implemented twice (post-aggregation here, pre-aggregation in `filterUtils.applyFilters`). Fix: split into `chartSupport.ts`, `chartRowResolution.ts`, `aggregators.ts` (with one shared `orderLabels` helper), and `chartShapes/`.
+- `resolveRows` bails with `continue` before reporting the source when `!foreignSource?.rows` (`dataSourceGraph.ts:264-267`), so it never lands in `collectJoinedSourceIds`;
+- the fallback loop that exists _specifically_ to "record any declared filterSourceId even if the join was skipped (e.g. the foreign source had no rows yet) so a later data load invalidates the entry" (`resolvedRowsCache.ts:216-224`) is guarded by `if (foreignRows)` — it records nothing in exactly the case its comment says it handles.
 
-**10. `moveWidgetToPage`: doc comment promises behavior the code doesn't do; dead assignment**
-`store/StudioController.ts:1404,1428-1430,1446`. The JSDoc says widget filters scoped to the current page are re-scoped to the target page; the body contains `const updatedFilters = state.filters;` — a no-op passed straight through. Page-scoped cross/interactive filters emitted by the moved widget keep their old `pageId` after the move. The widget's `colSpan` is also dropped from the source page but never carried to the target. Fix: implement the re-scoping or delete the dead variable and correct the comments; add a controller test for widget-move + filter behavior.
+**Failure scenario:** widget on `orders` has a cross-filter with `filterSourceId: 'customers'` while `customers` rows haven't been injected yet (staggered `upsertDataSource`, or async host loading). The entry is cached with the semi-join skipped (unfiltered rows) and an empty dependency map. When `customers` rows arrive, `orders`' own rows ref is unchanged and the filter fingerprint is unchanged → cache HIT → the widget permanently shows **unfiltered** rows despite the cross-filter now being resolvable. Only editing the filter or replacing the widget's own rows unsticks it.
 
-**11. `EvaluationContext.allRows` is dead — required by the API, read by nothing**
-`utils/expressionEvaluator.ts:43,319,431` and every external caller. Nothing in the evaluator ever reads `context.allRows`; the comment describes a capability that doesn't exist. Related gap: measure evaluation of conditional operators builds a context without `sourceId`/`dataSources`/`joinIndexes`, so a `JoinFieldExpression` nested inside a conditional measure silently evaluates to `null`→0. Fix: delete `allRows` (or implement the documented behavior); hoist the per-row context object out of the field loop.
+**Fix sketch:** record absent foreign sources with a sentinel (e.g. `crossFilterSourceRows.set(id, null)`) and treat `entry.get(id) !== (dataSources[id]?.rows ?? null)` as invalidation; the existing test at `resolvedRowsCache.test.ts:215` covers rows _changing_, not rows _appearing_ (see Tier 4).
 
-**12. `StudioRequestCache` doc claims stale-while-revalidate; `get()` hard-expires instead**
-`internals/StudioRequestCache.ts:16-17` vs `:40-46`. The stale-serving actually happens in `useWidgetRows`'s React state, not the cache. Also `cacheKey.split(':')[0]` silently corrupts the source index if a `sourceId` ever contains `:`. Fix: correct the comment, store `sourceId` alongside the entry instead of parsing the key.
+### 1.3 Adapter path bakes cross/interactive filters into the server query — breaks the cross-highlight ghost baseline and forces a server round-trip per cross-filter click
 
-**13. Two grid systems coexist in `StudioController` span math**
-`store/StudioController.ts:36-38` vs `:477,520,529-533`. `GRID_COLS = 24`/`MIN_SPAN_COLS = 6` are defined with a "must match StudioCanvas" warning, but `setWidgetColSpan`/`setWidgetColSpanInRow` clamp with hard-coded `3`/`12` (a 12-column mental model), while `setAdjacentWidgetColSpans` uses `MIN_SPAN_COLS = 6` (24-column model). If the canvas grid changes, half the clamps break silently. Fix: derive all clamps from `GRID_COLS`/`MIN_SPAN_COLS`.
+**Files:** `src/internals/queryDescriptor.ts:201-205` (`buildQueryDescriptor` calls `selectFiltersForWidget` with default `include: 'all'` and no `crossFilterAllPages`), `src/internals/useWidgetRows.ts:393-429` (`computeFilteredRows`, adapter branch), `:476-497` (baselines).
 
-**14. Smaller items**
+`buildQueryDescriptor` includes same-page cross-filters and interactive filters in `descriptor.filter` (asserted intentional by `queryDescriptor.test.ts:257`). Two consequences on the adapter path:
 
-- `queryDescriptor.test.ts:322` has an unfilled `(BL-XXX)` ticket marker — the only TODO-style marker in the audited surface.
-- `restoreSession` migrates the present snapshot twice, papered over with a non-null assertion (`StudioController.ts:1581-1585`).
-- Type-guard fragility: the expression model distinguishes variants by structural `'key' in expr` probing instead of a discriminated `kind` tag; three separate walkers depend on guard order staying correct.
-- `usedFieldIds` over-collection: `useWidgetRows.ts:256-266` adds the field of _every_ filter in the store (any page, any widget) to a widget's `usedFieldIds`, churning cache keys whenever an unrelated filter appears.
+1. **Ghost baseline is unrecoverable.** For adapter widgets, `computeFilteredRows('no-cross')` scopes only `[cross, interactive]` buckets, gets `scoped.length === 0`, and returns `enrichedAdapterRows` — but those rows came back from a fetch whose descriptor _already excluded_ the cross-filtered rows server-side. So `filteredRowsNoCross === filteredRows` whenever a cross-filter is active, `shouldShowGhost` is true, and the ghost overlay has nothing to ghost: cross-highlight mode silently degrades to hard-filter mode for every server-backed source. The `useWidgetRows.ts:397-401` comment ("rows were already excluded, making this idempotent") acknowledges the row-set is pre-filtered but the baseline computation ignores it. `ARCHITECTURE.md:153` claims the adapter path is "scoped to `include: 'no-cross' | 'no-chart-cross'`" — the descriptor is not.
+2. **Refetch per click.** Every cross-filter application changes `descriptor.cacheKey` → cache miss → fresh `adapter.getRows()` round-trip, even though the client re-applies the same cross-filters locally anyway. This defeats the "cross-filters are cheap, client-side, cached" design that `isRecomputing`/`selectPartitionedBaseFilters` are built around.
 
-**Positive note on test coverage**: undo/redo and session round-tripping are well covered (`StudioController.test.ts:848-1163`), as are happy-path cache hit/miss cases. The systematic hole is the one pattern shared by findings 1-3: no test anywhere changes a non-row dependency (filter operator, relationship, expression formula, junction/remote rows) while keeping row refs stable — precisely the regime the per-entry invalidation design is supposed to handle.
+**Fix sketch:** build the descriptor with `include: 'no-cross'` (page + widget only), and let the client-side `computeFilteredRows` remain the single place cross/interactive filters are enforced — which is already what it does correctly for the in-memory path.
+
+### 1.4 `StudioRequestCache` derives sourceId by `cacheKey.split(':')[0]` — invalidation silently misses any sourceId containing `:`
+
+**Files:** `src/internals/StudioRequestCache.ts:57, 67, 96-97, 117-130`; `src/internals/queryDescriptor.ts:230`.
+
+The cacheKey is `` `${widget.sourceId}:${sortedStringify(...)}` `` and the cache recovers the sourceId by splitting on the **first** colon. For a sourceId like `pg:orders` (host-defined, unconstrained strings):
+
+- `set()` indexes the entry under `"pg"`, but `invalidateSource('pg:orders')` (called by `upsertDataSource`/`setDataSourceAdapter`) looks up `sourceIndex.get('pg:orders')` → finds nothing → **cached entries survive invalidation** and are served for up to 30s after the host replaced the source.
+- The generation guard is keyed inconsistently: `addInflight` captures `getGeneration('pg')` while `invalidateSource` bumps `'pg:orders'` — so a request invalidated mid-flight **does** write its stale result back into the cache with a fresh TTL, the exact bug the generation mechanism exists to prevent (`:29-36`).
+
+**Fix sketch:** stop parsing the sourceId out of the key — pass it explicitly to `get`/`set`/`addInflight` (the descriptor already carries `sourceId` separately), or delimit with a character the descriptor guarantees can't appear (the JSON body starts with `{`, so splitting on `':{'` would also work but is fragile).
+
+### 1.5 `createStudioPipeline` drops dashboard cross-filter settings — non-React consumers (CSV export, AI insights) diverge from what the widget renders
+
+**Files:** `src/internals/StudioPipeline.ts:98-124`; `src/internals/filterScoping.ts:30` (defaults `include: 'all'`, `crossFilterAllPages: false`). Consumers: `src/components/StudioWidgetCard/StudioWidgetCard.tsx:236,443` (export path), `StudioChatPanel/generateInsight.ts`, `StudioChatPanel/richContext.ts`.
+
+`StudioPipelineState` carries only `{ dataSources, relationships, expressionFields, filters }` — `dashboard.crossFilterAllPages`, `dashboard.globalCrossFilterMode`, and per-widget `config.crossFilterMode` never reach `selectFiltersForWidget`. Divergences from the rendered widget:
+
+- With `crossFilterAllPages: true`, a cross-filter from another page filters the on-screen widget (`useWidgetRows` passes the flag) but is **excluded** from the exported CSV / AI-insight rows (pipeline hard-defaults `false`).
+- With `crossFilterMode: 'none'` (globally or per widget), the widget renders `effectiveRows = filteredRowsNoCross` (cross-filters ignored), but the pipeline always applies `include: 'all'` — the export **includes** cross-filtering the user's widget visibly ignores.
+
+**Fix sketch:** extend `StudioPipelineState` with the two dashboard toggles (extract them in the `'doc' in state` branch), add `include`/`crossFilterMode` awareness to `resolveWidgetRows`, and thread the widget's mode from the export call site.
+
+### 1.6 Hand-rolled doc-writers commit content-identical states as undoable steps — dead Ctrl+Z presses and phantom mutation-log lines
+
+**Files:** `src/store/StudioController.ts:1005-1041` (`updateFilter`), `:1050-1057` (`toggleFilter`), `:989-1003` (`updateRelationship`/`removeRelationship`), `:1388-1407` (`deleteFilterPreset`/`renameFilterPreset`), `:1496-1511` (`reorderPages`), `:598-609` (`removeExpressionField`).
+
+Reducer-delegated methods get no-op detection for free (`commitMutation` skips when the reducer returns the same reference — deliberately tested as "D4" for `removeFilter`). The remaining hand-rolled methods always build a fresh array/object via `.map`/`.filter`, so `nextState.doc !== current.doc` even when nothing changed, and `commitState:116` pushes an undo entry. Concrete cases:
+
+- `updateFilter(unknownId, …)` or a **rejected** rank-filter change (`:1022-1034` returns the original filter object) still commits: a new-but-identical doc is pushed, the redo stack is cleared, and `updateFilter:<id>` is written to the AI-visible mutation log — the model is told a mutation happened that was actually rejected.
+- `toggleFilter`, `updateRelationship`, `renameFilterPreset`, `removeExpressionField`, `deleteFilterPreset` with unknown ids, and `reorderPages` with the current order, all do the same. The user's next Ctrl+Z visibly does nothing (pops an identical doc).
+
+**Fix sketch:** give `commitDocPatch` (or the individual writers) cheap short-circuits — e.g. return early when the mapped array is element-wise reference-identical, or route these through reducer mutations where equivalents exist.
+
+### 1.7 `updateFilter` rank-uniqueness guard doesn't match its own error message (dashboard-wide, not per-page)
+
+**File:** `src/store/StudioController.ts:1006-1034`.
+
+`hasExistingRankFilter` scans **all** filters except cross-filters — including widget-scoped rank filters belonging to widgets on other pages and page filters of other pages — while the warning says "Only one rank filter is allowed per page at a time." A user with a top-N rank filter on Page A's chart cannot switch any filter to rank mode on Page B; the change is silently rejected (dev-only console.warn) and, per 1.6, still pollutes the undo stack/log. **Fix sketch:** scope the scan to the same page (page filters with matching `pageId`, widget filters whose widget lives on that page), or fix the message and make the rejection an observable no-op.
+
+### 1.8 `duplicateWidget`: unguarded active page + `Date.now()` id collisions
+
+**File:** `src/store/StudioController.ts:892-967`.
+
+- `state.doc.pages[state.doc.dashboard.activePageId]` is used without a null guard (`:904-905` reads `activePage.widgetRows`) — every sibling method (`setWidgetLayout:680`, `setPageStackBreakpoint:730`, `setAdjacentWidgetColSpans:759`) guards this exact lookup. A dangling `activePageId` (host-supplied initial state, or a future reducer regression) throws a raw TypeError here instead of no-opping.
+- `newId = ${widgetId}-copy-${Date.now()}` (`:903`): two duplications of the same widget within the same millisecond (double-click, or scripted/AI-driven calls) produce the same id — the second silently overwrites the first in `doc.widgets` while `widgetRows` gains the id twice, corrupting the layout. Cloned filter ids share the same scheme (`:938`).
+
+**Fix sketch:** guard the page like the sibling methods; use a monotonic counter or crypto-random suffix for generated ids (`addPage`, `applyInteractiveFilter`, `applyCrossFilter`, `saveFilterPreset` share the `Date.now()` scheme but are lower-risk since replaces/removals are keyed differently).
+
+### 1.9 Unbounded growth of `resolvedRowsCache` inner maps under interactive/cross-filter churn
+
+**Files:** `src/internals/resolvedRowsCache.ts:50, 75-92, 179-182`; `src/store/StudioController.ts:1241, 1290`.
+
+The outer key is the rows array (WeakMap — fine), but the inner `Map<string, ResolvedCacheEntry>` grows monotonically for the lifetime of that rows array, and `filterFingerprint` includes `f.id`. Interactive and cross-filter ids embed `Date.now()` and are regenerated on **every** application (`interactive-${w}-${Date.now()}`), so each slider tick / chart click produces a never-again-hit cache key whose entry retains a full filtered `Row[]`. On a long-lived dashboard with a large static source, dragging a slider filter accumulates one retained row-array copy per drag step until the source rows are replaced. **Fix sketch:** drop `f.id` from the fingerprint (two filters with identical behavioral content produce identical rows — the id adds no correctness, only misses), and/or cap the inner map (small LRU).
+
+## Tier 2: Structural Duplication
+
+### 2.1 `duplicateWidget` hand-rolls what `commitMutations` composition already solved
+
+**File:** `src/store/StudioController.ts:892-967`; compare `insertWidgetAt:649-668` and `commitWidgetMove:1530-1560`.
+
+`insertWidgetAt` established the pattern: compose existing reducer mutations (`addWidget` + `setWidgetLayout` + `addFilter`) into one `commitMutations` commit with a `transform` for shell selection. `duplicateWidget` predates it and still hand-assembles the full state: its own row-splice geometry, its own `MAX_PER_ROW = 4` constant re-deriving the grid invariant ("GRID_COLS=24, MIN_SPAN=6") that the reducer's `enforceLayoutColSpans` already owns, a hand-spread `{...state, doc: {...}, session: {...}}`, and — unlike the reducer paths — no column-span handling at all for the duplicate. It is also listed in `ARCHITECTURE.md:90` as "permanently controller-owned by design", which the `insertWidgetAt` precedent contradicts: it is expressible today as `addWidget` + `setWidgetLayout` + N×`addFilter` in one fold.
+
+### 2.2 `sortedStringify` and the expression-ref walker are each duplicated verbatim
+
+- `sortedStringify`: `src/internals/resolvedRowsCache.ts:56-67` and `src/internals/queryDescriptor.ts:18-29` — byte-identical except the cache copy's `?? 'null'` guard (meaning the two can fingerprint `undefined` differently, a latent divergence for two functions doing the same job).
+- Expression field-ref walkers: `collectExpressionFieldRefs` (`src/internals/enrichedRowsCache.ts:99-113`) and `collectExpressionRefs` (`src/internals/queryDescriptor.ts:85-97`) are the same recursive walk with the same skip-join-field comment.
+
+Both belong in a shared internals module; drift in either pair produces cache-vs-descriptor disagreements that are hard to trace.
+
+### 2.3 Session/shell writers spread four levels of nesting five times; dashboard-toggle writers bypass `commitDocPatch`
+
+**File:** `src/store/StudioController.ts:343-448` (`toggleDrawer`, `setDrawerOpen`, `setSelectedWidget`, `selectField`, `clearSelection`), `:321-341` (`setGlobalCrossFilterMode`, `setCrossFilterAllPages`), `:728-786` (`setPageStackBreakpoint`, `setAdjacentWidgetColSpans`).
+
+`commitDocPatch` exists precisely so doc-writers don't hand-spread `{...state, doc: {...state.doc, ...}}` — yet the two dashboard toggles and the two page-layout writers still do (and `duplicateWidget`, `addExpressionField`, `updateExpressionField`, `removeExpressionField`, `updateDataSourceField` likewise hand-assemble). There is no `commitShellPatch`/`commitSessionPatch` mirror at all, so five shell methods each repeat the same four-level spread. One helper each removes ~80 lines and one class of copy-paste partition mistakes.
+
+### 2.4 Three near-identical "stable filtered array" selector closures
+
+**File:** `src/context/selectors.ts:79-105, 116-139, 424-453`.
+
+`makeSelectExpressionFieldsForSource`, `makeSelectExpressionFieldsForSources`, and `makeSelectIncomingCrossFilters` are the same memo pattern (input-ref check → filter → element-wise ref comparison → reuse previous array) with only the predicate differing. A single `makeStableFilteredSelector(predicate)` factory collapses them; the partitioning selectors already went through exactly this consolidation (`:165-175` documents that history), so this is the leftover half.
+
+### 2.5 Cache-entry validity loops duplicated across the two row caches
+
+**Files:** `src/internals/enrichedRowsCache.ts:50-91`, `src/internals/resolvedRowsCache.ts:102-133`.
+
+Both `isEntryValid` implementations are the same three checks (ref-array element-wise compare, joined-source rows map compare, relationship compare) with different field names. Not urgent, but the fix for finding 1.2 (absent-source sentinel) has to be made in the right one — a shared `depsUnchanged` helper would make the two caches' invalidation semantics converge instead of drifting.
+
+## Tier 3: God-Files / Cohesion
+
+### 3.1 `StudioUIConfigContext.ts` — 2,385 lines, four unrelated concerns, misfiled
+
+**File:** `src/internals/StudioUIConfigContext.ts`.
+
+~2,050 of its lines are the `StudioLocaleText` interface (`:28-1095`) and `DEFAULT_STUDIO_LOCALE_TEXT` (`:1097-2070`). The remainder is (a) the UI-config React context, (b) the unified built-in/custom widget-kind registry (`StudioWidgetDef`, `StudioWidgetRenderProps`, `StudioWidgetCapabilities`, `:2164-2261`), (c) geography resolution, and (d) feature-flag resolution (`ResolvedStudioFeatures`, `resolveSubFlag`, `:2290-2385`). Locale tokens are public API surface (the `localeText` prop type) living in `internals/`; the widget registry is a registry, not a context. Splitting into `localeText.ts` (or a `locales/` module), `widgetRegistry.ts`, and a slim config-context file would drop the largest file in the reviewed tree to ~350 lines. Every locale-token addition currently churns the same file that defines the widget-capability contract.
+
+### 3.2 `StudioController.ts` — 1,781 lines; the facade is fine, but two method families are business logic that re-crept in
+
+**File:** `src/store/StudioController.ts`.
+
+The reducer-delegation refactor thinned the widget/page/layout methods well. What remains oversized is not method count but two families of controller-resident domain logic:
+
+- **Date-range filters** (`buildDateRangeFilter` + `setDashboardDateRange` + `setDashboardDateRangeAll` + `setWidgetDateRange`, `:1068-1221`, ~150 lines): filter-construction policy (id schemes, scope stamping, custom-vs-preset value rules) that neither the reducer nor `filterUtils` can see — the AI path cannot express any of it.
+- **Filter presets** (`saveFilterPreset`/`clearPageFilters`/`applyFilterPreset`/`deleteFilterPreset`/`renameFilterPreset`, `:1325-1407`): page-scoping and id-prefixing policy, same situation.
+
+Both are pure `StudioDoc → StudioDoc` transforms; extracting them to a `docTransforms`-style module (controller keeps the one-line `commitDocPatch` call) would restore the "controller = orchestration, transforms = pure functions" split, and is the precondition for ever exposing them as reducer mutations.
+
+### 3.3 `useWidgetRows.ts` — one 582-line hook owning two data paths and an async state machine
+
+**File:** `src/internals/useWidgetRows.ts`.
+
+The hook interleaves: the adapter fetch state machine (descriptor build + cache seed + effect + 4 useState, `:165-255`), deferred-value scheduling policy (`:119-132`), the sync pipeline, three row baselines, ghost-flag derivation, and cross-source column enrichment (`:499-567`). The adapter block is a self-contained `useAdapterRows(descriptor, adapter)` hook by inspection (its only outputs are `adapterRows`/`isLoading`/`isError`/`errorMessage`); extracting it would make the subtle cancellation/stuck-`isLoading` logic (`:205-221`) independently testable and cut the main hook to ~350 lines. The cross-source enrichment tail is similarly separable.
+
+### 3.4 Layer-numbering drift in `StudioPipeline` documentation
+
+**File:** `src/internals/StudioPipeline.ts:27-69`.
+
+`resolveWidgetRows` is documented as "Layers L1 + L3" while `getEnrichedRows` is "Layer L2" and `useWidgetRows.ts:90` says "L1 (metric-ref resolution) and L3 (enrich + filter)" — but `CLAUDE.md`/`ARCHITECTURE.md` define the pipeline as L2 (enrichment) / L3 (filters) / L4 (grain). `resolveWidgetRows` in fact performs L2+L3 (it calls `resolveRowsCached` → enrichment + filtering); no "metric-ref resolution" step exists in the current code. Cosmetic, but this is the exact kind of stale map the ARCHITECTURE.md patch was supposed to eliminate — and note ARCHITECTURE.md's own contradictions flagged in 1.1 (line 74 vs 68) and 1.3 (line 153).
+
+`src/context/` and `src/models/` are otherwise healthy: models is a genuine thin re-export shim over `@mui/x-studio-schema` exactly as documented, and `selectors.ts` is large but single-purpose.
+
+## Tier 4: Testing Gaps
+
+Ordered by the severity of the untested behavior (each maps to a Tier 1 finding).
+
+### 4.1 No test covers transient doc state × undo/redo (finding 1.1)
+
+`StudioController.test.ts:1333` ("undo never reverts runtime or session") tests the _session/runtime_ partitions but nothing tests the transient-**doc** family. Missing cases: (a) `applyInteractiveFilter` between two undoable edits, then `undo()` × 2 → assert the interactive filter survives (currently fails); (b) undo → `applyInteractiveFilter` → `canRedo()` should be false, or redo must not destroy the selection (currently redo replays over it); (c) `setGlobalCrossFilterMode` followed by undo of a prior edit → mode survives. There are **zero** tests referencing `setGlobalCrossFilterMode`/`setCrossFilterAllPages` anywhere in the package.
+
+### 4.2 No test for "foreign source rows appear after the cache entry was computed" (finding 1.2)
+
+`resolvedRowsCache.test.ts:215` covers foreign rows _changing_ ref; no test covers the foreign source having **no rows** at compute time and rows arriving later — the scenario the recording code's own comment (`resolvedRowsCache.ts:217-218`) claims to handle. A test that caches with `dataSources.customers.rows === undefined`, then injects rows and asserts a recompute, currently fails and pins the fix.
+
+### 4.3 No test for the adapter-path ghost baseline (finding 1.3)
+
+`useWidgetRows.test.ts:480` covers `crossFilterAllPages` on the adapter path, but no test asserts that `filteredRowsNoCross` for an adapter-backed widget still contains the rows a cross-filter excluded (i.e. that the ghost baseline is a genuine superset). Any such test would expose that the descriptor pre-filters them away. Similarly nothing asserts that applying a cross-filter does _not_ change `descriptor.cacheKey` (`queryDescriptor.test.ts:257` asserts the opposite behavior as intended, so the design decision and the ghost feature have never been tested against each other).
+
+### 4.4 No test for sourceIds containing `:` in `StudioRequestCache` (finding 1.4)
+
+`StudioRequestCache.test.ts:170` ("does not affect sources with a similar prefix") tests prefix confusion between distinct sourceIds but never a sourceId that itself contains the delimiter. Missing: `set('a:b:{…}', r)` → `invalidateSource('a:b')` → `get` must miss; and the mid-flight generation test (`:127`) repeated with a colon-bearing sourceId (currently the stale result _would_ be re-cached).
+
+### 4.5 `filterScoping.test.ts` never exercises `crossFilterAllPages`
+
+The option is a branch in the single scoping authority (`filterScoping.ts:57`) but the unit suite (`filterScoping.test.ts`) has no test for it — coverage exists only indirectly via one adapter-path integration test in `useWidgetRows.test.ts`. Missing combinations: `crossFilterAllPages: true` × other-page cross-filter (include), × self-emitted other-page cross-filter (exclude), and the asymmetry that `interactive` filters ignore the flag entirely (other-page interactive filters are always excluded — line 66 — which is either intended and should be pinned, or a bug the flag was meant to cover).
+
+### 4.6 No-op commit behavior is tested only for the reducer-delegated side (finding 1.6)
+
+`StudioController.test.ts:1909` pins "removeFilter unknown id → no undo entry, no log line" (D4), but the hand-rolled writers have no equivalent tests: `updateFilter` with unknown id, the _rejected_ rank-mode change (`:22` asserts the filter value is unchanged but not that no undo entry/log line was created — it currently is), `toggleFilter` unknown id, `reorderPages` with the identical order. Adding these as the D4-style contract would immediately surface the asymmetry.

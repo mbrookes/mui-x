@@ -83,22 +83,40 @@ function makeSource(): StudioDataSource {
   };
 }
 
-function createState(overrides?: Partial<StudioState>): StudioState {
+/**
+ * Flat override bag for `createState` — deliberately mirrors the pre-partition
+ * `StudioState` shape as test-fixture sugar local to this file. `createState`
+ * itself routes each field into the correct `doc`/`session`/`runtime` partition
+ * of the real `StudioState` it returns.
+ */
+interface StateOverrides {
+  widgets?: StudioState['doc']['widgets'];
+  dataSources?: StudioState['runtime']['dataSources'];
+  filters?: StudioState['doc']['filters'];
+}
+
+function createState(overrides?: StateOverrides): StudioState {
   return {
-    schemaVersion: 1,
-    mode: 'edit',
-    dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
-    pages: { 'page-1': { id: 'page-1', title: 'P', widgetRows: [] } },
-    widgets: overrides?.widgets ?? {},
-    dataSources: overrides?.dataSources ?? {},
-    relationships: [],
-    filters: overrides?.filters ?? [],
-    expressionFields: [],
-    shell: {
-      openDrawers: { data: true, compose: true, filters: false },
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
+    doc: {
+      schemaVersion: 1,
+      dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P', widgetRows: [] } },
+      widgets: overrides?.widgets ?? {},
+      relationships: [],
+      filters: overrides?.filters ?? [],
+      expressionFields: [],
+    },
+    session: {
+      mode: 'edit',
+      shell: {
+        openDrawers: { data: true, compose: true, filters: false },
+        selectedWidgetId: null,
+        selectedFieldId: null,
+        selectedSourceId: null,
+      },
+    },
+    runtime: {
+      dataSources: overrides?.dataSources ?? {},
     },
   };
 }

@@ -1,97 +1,374 @@
-# Architecture & technical-debt review (Fable)
+# Architecture & Tech-Debt Review — `@mui/x-studio-ai-middleware`
 
-Independent review by the Fable model, run in two passes: (1) a review of `ARCHITECTURE.md` across all three Studio packages, verified against source and extended with new findings; (2) a dedicated technical-debt sweep of this package. Read-only analysis — no code was changed to produce this report. See also [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the baseline this review evaluates.
-
-Findings marked **cross-cutting** also appear in [`x-studio/ARCHITECTURE_REVIEW.md`](../x-studio/ARCHITECTURE_REVIEW.md) since they span both packages.
-
----
-
-## Part 1 — Architecture proposals concerning this package
-
-### Proposal: End the hand-synced duplication between x-studio and ai-middleware with a shared zero-dependency package (cross-cutting)
-
-**Problem**: The "structural typing boundary" (this package's ARCHITECTURE invariant #7) has already produced three parallel copies that must be maintained by hand:
-
-- `detectAnomaliesIQR` (`packages/x-studio/src/internals/anomalyDetection.ts:16-36`) vs `mcpDetectAnomaliesIQR` + `mcpMedian` (`src/mcp.ts:383-408`) — byte-for-byte identical logic today; nothing enforces they stay so. The tech-debt sweep below found this has **already drifted**: `mcpTruncateToPeriod`/`mcpIsoWeek` (`mcp.ts:332-364`) don't share `@mui/x-studio`'s `normalizeToDate()` fallback, so a DB driver returning numeric timestamps makes MCP's `summarise_page` silently drop every period bucket while the client shows anomalies fine.
-- `createDefaultWidget` duplicated wholesale: `packages/x-studio/src/internals/widgetFactory.ts:14-94` vs `models/studioTypes.ts:508-557` — identical branch-for-branch today.
-- The entire 557-line `models/studioTypes.ts` re-declares `StudioState`/`StudioWidget`/etc. from the client package — and per the tech-debt sweep, it's **already missing keys** the client's real type has (`heatLegendPosition`, `heatLegendAlign`, `funnelCategoryOrder`, `funnelReachedField`, `funnelStageSequence`, `funnelLabelFormat`, `funnelLabelPlacement`, `textContent`, `textAiEnabled`, and `StudioChartSeries.sourceId`) — while `widgetConfigMeta.ts:60-105` _instructs the LLM to emit exactly those keys_, so the server accepts and forwards config it cannot type-check (this forced the `(s: any)` cast at `mcp.ts:1084`).
-- The mirrored `StudioAIToolName` union (`models/aiTypes.ts:148-167` vs `x-studio/src/models/aiTypes.ts:159-179`) is missing `set_widget_forecast` in this package's copy, and **both** copies are missing `list_pages` even though it's a real, handled tool.
-
-**Architectural cost**: Every `StudioState` shape change is a two-package edit with no compiler assistance (structural typing means drift surfaces as a runtime mismatch in AI tool behavior, not a type error) — and the drift has already happened in three separate places, not hypothetically.
-
-**Recommended change**: Create an unpublished-or-published `@mui/x-studio-schema` package (zero runtime deps, no React, no Node built-ins) containing: (a) all `StudioState`/widget/filter/expression/AI-protocol types, (b) pure functions both sides need — `createDefaultWidget`, `createDefaultStudioState`, `detectAnomaliesIQR`/`median`, `truncateToGranularity`/`normalizeToDate`, and the `StateMutation` reducers (see the AI-mutations proposal below). Both packages depend on it; `models/studioTypes.ts` becomes `export * from '@mui/x-studio-schema'`. Derive `StudioAIToolName` from `STUDIO_AI_TOOLS` (`typeof STUDIO_AI_TOOLS[number]['function']['name']`) so it can't drift from the actual tool list. At minimum as an interim step: port the `normalizeToDate` fallback into `mcpTruncateToPeriod` now, and add a type-level sync test (`expectTypeOf<XStudioConfig>().toMatchTypeOf<LocalConfig>()`) so further drift breaks CI instead of shipping silently.
-
-**Effort/risk**: Medium-large mechanically (import-path churn across both packages) but low semantic risk — it's a move, not a rewrite. Biggest payoff of any proposal for long-term maintenance.
-
-### Proposal: AI mutation semantics are implemented three times and already disagree (cross-cutting)
-
-**Problem**: Every AI tool's state effect exists twice as executable code: the server computes `nextState` inline (`src/executeToolOnState.ts`, e.g. `add_widget` at 102-141 appends `[widget.id]` to `activePage.widgetRows`), and the client independently re-derives the same effect by mapping the `StateMutation` to controller methods (`x-studio/src/components/StudioChatPanel/applyStateMutation.ts:13-140` → `StudioController.addWidget`). There is already a live divergence: the server appends to _its_ `state.dashboard.activePageId` (`executeToolOnState.ts:123`), while the client's `controller.addWidget` uses the _client's current_ `activePageId` — if the user switches pages while the model is thinking, the model is told the widget landed on page A while it actually rendered on page B.
-
-**This package's own tech-debt sweep found a second, concrete instance of the same class of bug**: `remove_page` (`executeToolOnState.ts:290-300`) doesn't clean up orphaned widgets/page-scoped filters or reassign `activePageId` the way `StudioController.removePage` does. Within one agentic turn the server's `nextState` has orphaned widgets and a dangling `activePageId` while the client (which runs the real cleanup) doesn't. On the MCP path, where `stateBox.current` is authoritative, removing the active page leaves `activePageId` dangling permanently — a follow-up `add_widget` then spreads `{...state.pages[activePageId]}` where the page is `undefined` (`executeToolOnState.ts:124-135`), silently writing a malformed page object into persisted state. The same latent spread-of-undefined exists in `set_widget_width` (`executeToolOnState.ts:262`, `...activePage!`).
-
-**Architectural cost**: The AI feature's core correctness contract — "server-threaded state equals client-applied state" — is unenforced and already violated in at least two reachable scenarios (page-target drift, and now confirmed page-removal corruption).
-
-**Recommended change**: Make `StateMutation` the single semantic authority. In the shared schema package (above), define pure reducers `applyMutation(state: StudioState, mutation: StateMutation): StudioState` — one per mutation type, including the client's _full_ `removePage` cleanup semantics (orphan widgets, page filters, `activePageId` reassignment). `executeToolOnState` becomes "parse args → build mutation → `nextState = applyMutation(state, mutation)`"; the client's `applyStateMutation` becomes `controller.commitExternal(applyMutation(controller.getState(), mutation), label)`. Make `add_widget`/`set_widget_width` error explicitly when there is no active page, rather than spreading `undefined`.
-
-**Effort/risk**: Medium. The reducer extraction is mechanical; fixing `remove_page` to match controller semantics is the main behavioral change and is strictly more correct. Add a regression test asserting `remove_page` of the active page leaves a coherent state (none exists today).
-
-### Proposal: Tool-approval pause can hang the SSE stream and its server resources forever
-
-**Problem**: When a destructive tool needs approval, `runAgenticLoop` awaits a bare promise whose resolver is stashed in `approvalPending` (`agenticLoop.ts:599-603`). Nothing else can settle it: the `AbortSignal` is checked only in the fetch/SSE loop (`agenticLoop.ts:300,325`), not raced against this promise, and the loop never deletes its own map entry. If the user closes the tab, the browser never calls the approval endpoint, and even a host-wired abort signal cannot unstick the generator — `handleAIChat`'s `for await` (`handleAIChat.ts:328`) blocks on the generator forever, keeping the stream, closure state, and the map entry alive per abandoned request. Confirmed independently by the tech-debt sweep, which also notes `handleAIChat`'s `ReadableStream` has no `cancel()` handler, so consumer-side cancellation doesn't stop the loop either, and the `controller.enqueue` in the catch block will itself throw once a stream is cancelled.
-
-**Architectural cost**: Unbounded server-side resource leak proportional to abandoned approval prompts; also violates the package's own invariant #5 ("errors never abort the stream — the stream always closes") since this path closes nothing.
-
-**Recommended change**: Race the approval promise against the abort signal and a configurable timeout: `await Promise.race([approvalPromise, abortAsPromise(signal), timeout(options.approvalTimeoutMs ?? 120_000)])`, with `finally { approvalPending.delete(tc.id); }`. On timeout/abort, feed the model `{denied: true, reason: 'approval timed out'}` (timeout) or return silently (abort). Add a `cancel()` to the `ReadableStream` that aborts an internal `AbortController` linked to `options.signal`, and guard the catch-block `enqueue`.
-
-**Effort/risk**: Small. The only semantic change is that indefinite waits become bounded — strictly safer.
-
-### Smaller observation relevant to this package
-
-- **`agenticLoop.ts:109-111`**: an assistant message containing both text and tool calls drops the text when replaying history (`toOpenAIMessages`) — minor conversation-fidelity loss with models that interleave prose and tool calls.
+Independent review, 2026-07-07. Every claim below was verified against the current source
+(not against `ARCHITECTURE.md`/`README.md`, which were treated as possibly stale).
+File references are relative to `packages/x-studio-ai-middleware/`.
 
 ---
 
-## Part 2 — Technical debt: this package (full sweep)
+## Tier 1: Correctness & Security
 
-Ordered by impact. No TODO/FIXME/HACK markers exist anywhere in the package source — the debt below is entirely unmarked, which itself argues for the sync tests proposed above rather than relying on comments like "kept in sync".
+### 1.1 MCP dispatch-table tools bypass the `toolPolicy` chokepoint entirely — including `query_data_source`
 
-**1. `remove_page` diverges from the client controller — corrupts server-carried state**
-`executeToolOnState.ts:290-300` vs `x-studio/src/store/StudioController.ts:1319-1357`. See the AI-mutations proposal in Part 1 for the full writeup — this is the concrete bug that proposal is built around.
+**Files:** `src/mcp.ts:370-373` (dispatch), `src/mcp.ts:266-286` (table contents);
+contrast `src/agenticLoop.ts:486-510` (chat consults the policy for `query_data_source`)
+and `src/toolPolicy.ts:50-63` (`ToolPolicyContext` doc: "Absent for server-tool skills,
+query_data_source, and read-only tools — args-only judgment for those").
 
-**2. The duplicated type model (`models/studioTypes.ts`) has already drifted behind `@mui/x-studio` — and behind this package's own prompts**
-See the shared-schema proposal in Part 1 for the full writeup.
+In `mcp.ts`'s `tools/call` handler, any tool found in the `toolHandlers` table returns
+**before** `executeToolWithPolicy` is ever reached:
 
-**3. Mirrored `StudioAIToolName` union is doubly stale**
-`models/aiTypes.ts:148-167` vs `x-studio/src/models/aiTypes.ts:159-179` vs `studioAITools.ts` (21 tools). See the shared-schema proposal in Part 1.
+```ts
+const handler = toolHandlers[toolName];
+if (handler) {
+  return await handler(args); // ← no policy, no usage.toolCalls increment
+}
+```
 
-**4. Confirmed: inlined algorithms in `mcp.ts` duplicate `@mui/x-studio` — with real behavioral drift**
-`mcp.ts:332-408` vs `x-studio/src/internals/temporalUtils.ts:233-279` and `anomalyDetection.ts:6-64`. See the shared-schema proposal in Part 1 for the drift details. Additionally, `mcpMutationLabel` (`mcp.ts:539-566`) hand-mirrors `StudioController` ring-buffer labels while missing `setDashboardTitle`/`applyBulkUpdate`/`renameAIThread` cases (they fall through to raw type names).
+The table contains `get_dashboard_state`, `query_data_source`, `describe_data_source`,
+`get_field_values`, `compute_field_stats`, `render_chart`, `get_recent_changes`, and
+(when `data` is set) `summarise_page`. None of these consults `sessionToolPolicy`.
 
-**5. Chat loop and MCP disagree on the same tool names — "single source of truth" is only partially true**
-`mcp.ts:964-974,984-1167` vs `executeToolOnState.ts:44-49,521-540`; `agenticLoop.ts:218`. Mutation tools do share `executeToolOnState` (`mcp.ts:1602`), but: `get_dashboard_state` returns the raw `StudioState` on MCP vs. the rendered system prompt on chat — same tool name, different output contract. `summarise_page` has two independent implementations: MCP runs live server-side queries and honors the `pageId` argument (`mcp.ts:991-992`); the chat path returns a client-prebuilt `pageSnapshot` and **silently ignores `pageId`**, even though the shared tool schema explicitly promises "Pass pageId to summarise a non-active page" (`studioAITools.ts:348,360-364`) — the model will pass `pageId` in chat and get the active page's data mislabeled as the requested page. Approval gating also differs: chat pauses `remove_page`/`remove_widget`/`apply_bulk_update` for human approval; MCP executes them immediately. Fix: fold the `pageId` mismatch (scope the chat snapshot per page or drop the promise from the schema); give `get_dashboard_state` one canonical output in both paths; document or implement MCP-side approval.
+On the chat transport, `query_data_source` **does** consult the policy args-only before
+executing (`agenticLoop.ts:489-497`), and read-only built-ins pass through
+`executeToolWithPolicy` too. So the identical host policy — e.g. one that returns
+`{ action: 'deny' }` for `query_data_source`, or gates all reads for a tenant — works on
+chat and is **silently ignored on MCP**. This directly contradicts `toolPolicy.ts`'s
+header ("the single authorization chokepoint … on BOTH transports") and the
+`ToolPolicyContext` contract, which explicitly models args-only judgment for
+`query_data_source`. `sessionUsage.toolCalls` is also never incremented for these calls,
+so a usage-aware policy sees different counters per transport.
 
-**6. Approval wait can hang the SSE stream forever; no abort propagation**
-See the tool-approval proposal in Part 1.
+**Failure scenario:** host wires `toolPolicy: (ctx) => ctx.toolName === 'query_data_source' ? { action: 'deny', reason: … } : { action: 'allow' }`
+to both transports as the docs recommend (same `data` object, same policy). An MCP client
+calls `query_data_source` → the live DB query executes; the deny never runs.
 
-**7. Malformed tool arguments are silently coerced to `{}`, then "succeed"**
-`agenticLoop.ts:467-472`; `executeToolOnState.ts:188-210 (remove_widget), 290-300 (remove_page), 302-313 (set_active_page)`. When the model streams unparseable JSON args, the loop swallows the parse error and executes the tool with `{}`. Combined with non-validating tools, `remove_widget` with `widgetId: ''` removes nothing yet returns `{"success":true,"widgetId":""}`; `remove_page`/`set_active_page` likewise never check existence (inconsistent with `update_widget`/`rename_page`, which do). The model is told a destructive operation succeeded when it was a no-op. Fix: on JSON parse failure, feed `{"error":"invalid tool arguments: <snippet>"}` back to the model instead of executing; make `remove_widget`/`remove_page`/`set_active_page` return `not found` errors like their sibling cases.
+**Fix sketch:** route dispatch-table tools through the args-only policy path before
+invoking the handler (mirror `agenticLoop.ts`'s pre-execution consult: deny → `errorResult`,
+require-approval → `approvalHandler` bridge), and increment `sessionUsage.toolCalls` there.
 
-**8. `mcp.ts` is a 2079-line God-file**
-Stats helpers (332-408), `query_data_source` JSON schema (410-528), tool title/annotation tables (569-682), a single `CallToolRequestSchema` handler containing ~700 lines of per-tool business logic (957-1657, incl. the ~185-line `summarise_page` at 984-1167), resources (1659-1904), prompts (1906-2027), completions (2029-2076). Protocol wiring, data-analytics business logic, statistics, and schema metadata all change for different reasons; the `tools/call` handler is a chain of 8 special-case `if` blocks before the generic `executeToolOnState` fallthrough, each repeating the same error-result boilerplate (~14 times). Fix: split into `mcp/dataTools.ts`, `mcp/resources.ts`, `mcp/prompts.ts`, `mcp/toolMetadata.ts`, keeping `mcp.ts` as the factory; introduce `errorResult(msg)`/`jsonResult(obj)` helpers and a `Record<string, ToolHandler>` dispatch instead of the if-chain.
+### 1.2 MCP commits stale state across async awaits — lost updates during `approvalHandler` / async policy
 
-**9. `query_data_source` forwards unknown source IDs as physical table names**
-`mcp.ts:1210-1211` — `const tableName = source?.tableName ?? sourceId`. For an unknown `sourceId`, the model-supplied string is passed verbatim as `tableName` to the host's `queryDataSource`, unlike its sibling `describe_data_source` which correctly rejects unknown sources (`mcp.ts:1264-1277`). Widens the attack surface (probing arbitrary table names) and produces confusing DB-level errors instead of a helpful message. Fix: return the same `Unknown data source: "<id>"` error `describe_data_source` uses.
+**Files:** `src/mcp.ts:385-428` (dry-run → `await policy` → `await approvalHandler` →
+`commitMutation`), `src/mcp.ts:294-349` (`commitMutation` does `stateBox.current = result.nextState`).
 
-**10. Error swallowing and timer leak in MCP `summarise_page`**
-`mcp.ts:1139-1143,322-330`. Per-widget query failures are only sent to `logger` (a no-op unless configured); if every widget fails, the client sees "No queryable widgets found on page" — indistinguishable from an empty page, hiding e.g. a down database. `withTimeout` never `clearTimeout`s, so every summarise/aggregation query pins the event loop for up to 15s after resolving, meaningful in serverless hosts. Fix: collect per-widget error strings into a "Skipped widgets" section; clear the timer in a `finally`.
+`executeToolWithPolicy` computes `nextState` from `stateBox.current` captured at call
+entry. Between that capture and `commitMutation`, the handler awaits (a) the host policy
+(may be async) and (b) `approvalHandler` — which by design can take minutes of human
+time. The MCP Streamable-HTTP transport does not serialize `tools/call` requests, so a
+second call can execute and commit during that window. `commitMutation` then overwrites
+`stateBox.current` with the **stale** `nextState`, silently discarding every mutation
+committed in between (and `onStateChange` persists the rolled-back state).
 
-**11. Missing test coverage for the agentic loop's less-common branches**
-`agenticLoop.test.ts` (304 lines) covers only rate limiting and tool advertisement gating. Zero tests exist for: the approval flow (`tool-approval-request`, denial output, `approvalPending` resolution), abort/`signal` behavior, server-tool skill execution and its error path, the `execute_query` execution path (only its gating is tested), the unregistered-skill fallback, malformed-args parsing, and the tool-call accumulation fallback when deltas carry `id` but no `index`. These are exactly the branches that regress silently. Fix: extend the existing mocked-SSE harness with an approval test, an abort test, a skill-handler success/throw pair, and a malformed-arguments turn.
+**Failure scenario:** call A (`remove_page`, needs approval) starts; while the human
+deliberates, call B (`add_widget`) commits. Human approves A → `stateBox.current`
+becomes A's nextState computed _before_ B existed → B's widget vanishes from session
+state and from the persisted snapshot, while B's tool result claimed success.
 
-**12. Dead code: `dataAnalystSkill` and `pageExplorerSkill`**
-`studioSkills.ts:56-89`; `index.ts:69` exports only `dashboardNarratorSkill` and `insightSuggestorSkill`. Both skills are defined, documented, and unused anywhere in the repo. `dataAnalystSkill` instructs the model to call `describe_data_source`/`get_field_values`/`compute_field_stats`/`render_chart` — tools that exist only on the MCP server, and MCP doesn't consume skills at all, so as written they're unusable in either path. Fix: either delete them, or wire the MCP data tools into the chat loop and then export the skills — they read like an intended follow-up that never landed.
+The chat loop is immune only because it is single-threaded per request and each request
+owns its own state snapshot.
 
-**13. Type-safety gaps at the OpenAI wire boundary + stale casts**
-`agenticLoop.ts:329-345` (`chunk.choices as Array<...>`, `chunk.usage as ...`), `parseSSE.ts:33-37`, `buildAISystemPrompt.ts:155-170`. Streamed chunks are blind-cast; a provider returning `choices: null` on an error chunk throws `TypeError` mid-generator, surfacing as an opaque error frame. `parseSSE` silently drops malformed `data:` lines and a stream truncated before `[DONE]` ends the turn as a normal `finishReason: 'stop'` — truncated answers are indistinguishable from complete ones. The `(cfg as any)` casts for `kpiTrend`/`gridSortField`/etc. are stale — those keys already exist on the local `StudioWidgetConfig` type, so the casts only disable typo checking. Fix: add a runtime guard (`Array.isArray(chunk.choices)`) before use; track whether a `finish_reason` was ever seen and emit a distinguishable `finishReason: 'truncated'` otherwise; delete the stale `as any` casts.
+**Fix sketch:** re-run the pure plan against the _current_ `stateBox.current` at commit
+time (re-dry-run after approval, the plan is pure and cheap), or serialize mutating
+`tools/call` handling per session with a simple promise queue.
 
-**The highest-leverage single move is the shared pure-TS protocol/model package (findings 2-4 collapse into it); the highest-urgency bug fixes are findings 1, 6, and 7.**
+### 1.3 Opposite fail-open/fail-closed defaults for `require-approval` with no approval channel
+
+**Files:** `src/agenticLoop.ts:354-362` (`runApprovalFlow`: no `approvalPending` map →
+`return { kind: 'approved' }`), `src/mcp.ts:397-404` (no `approvalHandler` → deny with error).
+
+When a policy returns `require-approval` and no approval channel is configured:
+
+- **Chat** treats the call as **approved** and executes it (documented as "historical
+  behavior" — `agenticLoop.ts:350-353`, and `AgenticLoopOptions.approvalPending` doc:
+  "When not provided, destructive tools execute without approval").
+- **MCP** **denies** it with "no approval channel configured".
+
+A host that supplies the same custom policy to both transports (the documented pattern)
+gets destructive mutations silently _executed_ on chat and refused on MCP. The chat
+default is also fail-open for a security control: forgetting to wire `approvalPending`
+in production removes the human-in-the-loop gate for `remove_page`/`remove_widget`/
+`apply_bulk_update` with no error or warning anywhere.
+
+**Fix sketch:** make chat fail closed (deny with an actionable message) behind a major
+version or an explicit `approvalFallback: 'allow' | 'deny'` option defaulting to `'deny'`;
+at minimum emit a loud one-time warning via `onToolError` when a require-approval is
+auto-approved.
+
+### 1.4 `allowedTools` cannot gate the MCP extra data tools — excluding `query_data_source` is trivially bypassed
+
+**Files:** `src/mcp.ts:236-240` + `src/mcp.ts:358-373` (T1-3 gate applies only to
+`studioAiToolNames`; comment: extra tools "are always-available by design"),
+`src/mcp/dataTools.ts:160-370` (`describe_data_source`, `get_field_values`,
+`compute_field_stats` run live aggregate queries).
+
+The `allowedTools` gate (`mcp.ts:366`) checks
+`studioAiToolNames.has(toolName) && !registeredToolNames.has(toolName)`. The five extra
+tools are not `STUDIO_AI_TOOLS` members, so **no configuration short of removing `data`
+entirely can disable them**, and (per 1.1) `toolPolicy` cannot intercept them either:
+
+- A host that excludes `query_data_source` via `allowedTools` still exposes
+  `describe_data_source` (schema + row count + 10 sample rows + per-field stats),
+  `get_field_values` (up to 200 distinct values with counts), and
+  `compute_field_stats` (full-table aggregates) — i.e. most of the data-access surface
+  the exclusion was meant to close.
+- `allowedTools: []` (lock everything down) still serves all five extra tools.
+
+**Failure scenario:** host config `allowedTools: ['list_pages']`, `data` configured for
+`summarise_page`. An MCP client calls `describe_data_source` per source and pages
+through `get_field_values` — bulk data readout despite the allowlist.
+
+**Fix sketch:** include `McpExtraToolName` members in the `allowedTools` filter (defaulting
+to allowed when the option is omitted), and route them through the policy (1.1).
+
+### 1.5 Server-tool-skill mutations bypass `maxMutationsPerRequest`
+
+**Files:** `src/toolPolicy.ts:283-293` (`Policy.mutationBudget` denies only when
+`ctx.proposed` is set), `src/agenticLoop.ts:445-475` (skill path: policy consulted with
+`proposed: undefined`, then `execute()` runs and its `result.mutation` is committed and
+counted _after_ the fact).
+
+The mutation budget is expressed as "deny any call carrying a `proposed` mutation once
+committed ≥ max". Skill calls are args-only (`proposed: undefined` — correctly, per the
+purity invariant), so the budget policy always allows them; the mutation they return is
+then committed unconditionally (`agenticLoop.ts:471-474`). Committed skill mutations _do_
+increment the counter, so they starve subsequent built-in calls, but skills themselves
+can commit an unlimited number of mutations under any `maxMutationsPerRequest`.
+
+**Failure scenario:** `rateLimit.maxMutationsPerRequest: 3` as a runaway-agent guard; a
+prompt-injected model loops a mutating server-tool skill 50 times in one request — all
+50 mutations stream to the client as `state-mutation` events.
+
+**Fix sketch:** check the committed count against the cap at the skill commit point
+(before `yield { type: 'state-mutation', … }`), or pass a `mayMutate` hint in the
+args-only policy context so the budget can deny mutating-capable skills up front.
+
+### 1.6 `get_dashboard_state` dumps the raw state — including `runtime.dataSources[*].rows` — to the LLM provider
+
+**Files:** `src/executeToolOnState.ts:118-131` (`output: JSON.stringify(state)`),
+`src/studioAITools.ts:21-24` (tool description claims "Returns a **summary**"),
+`packages/x-studio-schema` `dataTypes.ts` (`StudioDataSource.rows?: Record<string, unknown>[]`),
+`src/mcp/resources.ts:111-121` (same full dump as a resource — acceptable there since the
+host owns the box).
+
+On chat, `dashboardState` comes from the client request body and — for client-side data
+sources — carries the full `rows` arrays and `fieldDistinctValues`. Outside `privateMode`
+a single `get_dashboard_state` call serializes **the entire dataset** into a tool-result
+message that round-trips to the LLM provider: a data-exfiltration channel in the default
+(non-private) mode, a token bomb against `maxTokensPerRequest` (the check runs only
+_after_ the next model turn), and a direct contradiction of the advertised behavior
+("Returns a summary of the current dashboard"). The carefully bounded system-prompt
+serializer (`buildAISystemPrompt.ts` `describeSource`: visible fields only, ≤30 distinct
+values) shows the intended altitude; the tool output ignores it. The system prompt's own
+security rule "Never include raw data values from the dashboard in your text responses"
+is undermined by handing the model those raw values as tool output.
+
+**Fix sketch:** strip `runtime.dataSources[*].rows` (and cap `fieldDistinctValues`) from
+the tool output — return `doc` + source _metadata_ only; keep the full dump exclusively on
+the host-controlled MCP resource.
+
+### 1.7 Shared `approvalPending` map: cross-request `toolCallId` collisions
+
+**Files:** `src/agenticLoop.ts:229-259` (`waitForApproval` does
+`approvalPending.set(toolCallId, …)` unconditionally), `src/handleAIChat.ts:204-231`
+(documented pattern: one module-level map shared by all requests).
+
+The map key is the provider-generated `tc.id` from the model stream. With the documented
+module-level shared map, two concurrent requests whose providers emit the same tool-call
+id (id reuse across requests is not guaranteed unique by any provider contract, and a
+malicious client can replay a crafted conversation) collide: the second `set` overwrites
+the first request's resolver, so request A's approval prompt can never be resolved
+(hangs until the 120 s timeout ⇒ denied), while an approval intended for A resolves B's
+destructive call. The approval decision is thus routable to the wrong mutation.
+
+**Fix sketch:** namespace the key per request (`{requestId}:{toolCallId}` with a
+loop-generated `requestId` echoed in the `tool-approval-request` event), or refuse to
+overwrite an existing entry.
+
+### 1.8 (Minor) Approval display hardening covers `remove_widget`/`remove_page` but not `apply_bulk_update`
+
+**Files:** `src/agenticLoop.ts:319-334` (`buildApprovalDisplayInput`).
+
+The prompt-injection defense that overwrites model-supplied display labels with real
+state titles handles the two single-entity destructive tools only. `apply_bulk_update`
+(also approval-gated) shows the raw model args: `widgetRemovals` is bare ids, so the
+human approves against un-resolved identifiers and any narrative the model chose. Low
+severity (execution keys off ids regardless), but the same hardening rationale applies.
+
+**Fix sketch:** for `apply_bulk_update`, enrich the display input with
+`{ id, title }` pairs resolved from `state.doc.widgets` for each removal id.
+
+---
+
+## Tier 2: Structural Duplication
+
+### 2.1 The args-only "policy → deny → approval-pause" block is copy-pasted twice in `dispatchToolCall`
+
+**Files:** `src/agenticLoop.ts:445-466` (server-tool skill branch) vs
+`src/agenticLoop.ts:489-510` (`query_data_source` branch).
+
+Both branches contain the byte-identical sequence: `usage.toolCalls += 1` → build the
+same `ToolPolicyContext` (`transport: 'chat'`, `proposed: undefined`) → `deny` → return
+`{error}` → `require-approval` → `buildApprovalDisplayInput` → `runApprovalFlow` →
+aborted/denied handling. A third side-effectful tool would clone it a third time — and
+this is exactly the kind of duplication that produced the chat/MCP drift in 1.1.
+**Fix sketch:** extract `async function* consultArgsOnlyPolicy(name, input, ctx): ApprovalFlowResult | 'denied-output'`
+and call it from both branches (and, per 1.1, from the MCP dispatch table).
+
+### 2.2 MCP `get_dashboard_state` reimplements the pure tool with a _different_ output envelope
+
+**Files:** `src/mcp.ts:267-271` (`jsonResult({ output: stateBox.current })`) vs
+`src/executeToolOnState.ts:118-131` (`output: JSON.stringify(state)`).
+
+Both sites carry comments claiming a "canonical output contract shared with the
+chat/MCP path", but the shapes differ: chat's tool result **is** the state JSON; MCP's
+text item is `{"output": {...state}}` — a wrapper object with the state nested under
+`output` (and note other MCP mutation results nest `output` as a _string_ of JSON,
+so even within MCP the `output` key's type is inconsistent). The MCP entry exists only
+to skip the policy walk (which per 1.1 it shouldn't skip anyway).
+**Fix sketch:** delete the table entry and let `get_dashboard_state` fall through to the
+shared `executeToolWithPolicy` path like every other STUDIO_AI_TOOL.
+
+### 2.3 Source-resolution + "Unknown data source" validation duplicated 4× with drifting messages
+
+**Files:** `src/mcp/dataTools.ts:132-137` (`query_data_source`, with the
+`studio://dashboard/state` hint), `:168-173` (`describe_data_source`, with hint),
+`:257-259` (`get_field_values`, no hint), `:331-333` (`compute_field_stats`, no hint).
+
+Same `stateBox.current.runtime.dataSources[sourceId]` + `tableName` check, four copies,
+two message variants. The hint text also leaks an MCP resource URI into the chat
+transport's tool output (chat models cannot read `studio://` URIs), a small
+transport-appropriateness drift inherited from sharing the handler.
+**Fix sketch:** one `resolveSource(stateBox, sourceId): { source } | { errorResult }`
+helper; make the hint transport-neutral ("call get_dashboard_state / read
+studio://dashboard/state").
+
+### 2.4 Chat builds the entire `createDataToolHandlers` bundle per `query_data_source` call
+
+**Files:** `src/agenticLoop.ts:520-526` (fresh factory per call, dummy
+`recentChanges: []`, discards 6 of 7 handlers), `src/agenticLoop.ts:38-39`
+(`DEFAULT_MAX_QUERY_ROWS = 1000` — a hand-mirrored copy of `mcp.ts:160`'s default,
+"mirroring `mcp.ts`'s default" by comment rather than by a shared constant).
+
+Correct but wasteful and misleading: it implies `query_data_source` needs the recent-
+changes log and chart renderer. **Fix sketch:** export a focused
+`createQueryDataSourceHandler(deps)` from `dataTools.ts` (used by both the factory and
+the chat branch) and a shared `DEFAULT_MAX_QUERY_ROWS` constant.
+
+---
+
+## Tier 3: God-Files / Cohesion
+
+### 3.1 `agenticLoop.ts` (1 162 lines) — five distinguishable responsibilities in one module
+
+**File:** `src/agenticLoop.ts`.
+
+Currently contains: (1) OpenAI wire-format types + `toOpenAIMessages` history
+serialization (:41-137), (2) streaming tool-call delta accumulation (:139-214),
+(3) approval machinery (`waitForApproval`, `runApprovalFlow`,
+`buildApprovalDisplayInput`, :216-394), (4) `dispatchToolCall` — the entire chat-side
+authorization/dispatch decision tree (:396-618), and (5) the loop itself with rate
+limiting, budget wiring, and skill-collision filtering (:716-1162). The internal
+sectioning is disciplined, but items 1-2 (pure, provider-protocol) and 3-4 (security-
+critical) have completely different change cadences and reviewers; 1.5/2.1 above both
+live in the seams of this file. **Fix sketch:** extract `openaiWire.ts`
+(messages + accumulator) and `toolDispatch.ts` (approval + dispatch), leaving the loop
+~400 lines.
+
+### 3.2 `mcp/dataTools.ts` (574 lines) — misnamed grab-bag
+
+**File:** `src/mcp/dataTools.ts`.
+
+Despite the name, it holds the data-query tools **plus** `render_chart` (pure SVG,
+no data config), `get_recent_changes` (session log, no data config), and ~190 lines of
+`summarise_page` statistics/CSV/anomaly-detection logic. `createDataToolHandlers` is the
+symbol both transports share, so its contents define the shared surface — the two
+non-data tools riding along is why 1.4's "always-available" set is larger than it needs
+to be. **Fix sketch:** split into `queryTools.ts`, `summarisePage.ts`, and move
+`render_chart`/`get_recent_changes` beside their metadata in a `utilityTools.ts`.
+
+### 3.3 Fine as-is (explicitly checked, nothing to flag)
+
+- `executeToolOnState.ts` (818): one exhaustively-typed table, single responsibility;
+  the `PureToolImpl`/`ExternalToolImpl` split is genuinely good design.
+- `buildAISystemPrompt.ts` (774): ~180 lines are one prompt-copy constant; cohesive.
+- `studioAITools.ts` (709): pure data + a load-bearing type assert.
+- `mcp.ts` (459): a real composition root after the `mcp/` extraction. One nit: the
+  inner `try/catch` at :381-431 duplicates the outer catch at :432-437 (both return
+  `errorResult(String(err))`; only the outer logs), so mutation-path errors skip the
+  error log — collapse to one.
+
+---
+
+## Tier 4: Testing Gaps
+
+### 4.1 No test pins whether MCP dispatch-table tools consult the policy
+
+**Files:** `src/mcp.test.ts:896-1060` ("toolPolicy chokepoint" suite covers only
+mutation-path tools), `src/mcp/dataTools.test.ts` (tests handlers directly, below the
+dispatch layer).
+
+The suite would pass identically whether 1.1 is a bug or a design decision — there is no
+test asserting that a deny-all policy blocks (or deliberately doesn't block)
+`query_data_source` / `describe_data_source` / `get_dashboard_state` on MCP. Whichever
+way 1.1 is resolved, add a test that a `toolPolicy` denying `query_data_source` is
+honored on **both** transports (the chat side has one at `agenticLoop.test.ts:1260`;
+MCP has none).
+
+### 4.2 No concurrency test for the MCP stale-commit window
+
+**File:** `src/mcp.test.ts` (all `tools/call` tests are strictly sequential).
+
+The 1.2 lost-update is reproducible deterministically: start call A with an
+`approvalHandler` that blocks on a deferred promise, run call B (`add_page`) to
+completion, resolve A's approval `true`, then assert B's page still exists in
+`stateBox.current`. Today that assertion fails; no test exercises it.
+
+### 4.3 No test for skill mutations vs `maxMutationsPerRequest`
+
+**Files:** `src/agenticLoop.test.ts:1496-1546` (budget tested with built-in `add_page`
+calls only), `:655-775` (skill tests never combine with `rateLimit`).
+
+A test with `maxMutationsPerRequest: 1` and a server-tool skill that returns a mutation
+twice would document the 1.5 bypass (currently: both commit).
+
+### 4.4 Approval-flow races untested: late resolution and shared-map collision
+
+**File:** `src/agenticLoop.test.ts:459-654` covers timeout, abort, approve, deny — all
+single-request, single-entry.
+
+Untested: (a) host resolves `approved: true` _after_ the timeout already settled the
+promise (expected: no commit — holds today only via the settled-promise semantics of
+`waitForApproval`, which nothing pins); (b) two concurrent loops sharing one
+`approvalPending` map with a colliding `toolCallId` (1.7 — currently the wrong request's
+mutation gets approved; a test would force the design conversation).
+
+### 4.5 Chat-side `query_data_source` unknown-source / no-`data` outputs untested at the dispatch layer
+
+**Files:** `src/agenticLoop.test.ts:776-867` (happy path + rejected promise only);
+the unknown-`sourceId` and missing-`data` branches (`agenticLoop.ts:513-535`) are only
+covered via the MCP-facing `dataTools.test.ts`.
+
+The chat wrapper does nontrivial work on the error path — extracts the first text item,
+`JSON.parse`s it on `isError` to feed `onToolError` (`agenticLoop.ts:527-535`) — and
+`JSON.parse` would throw on any future handler that sets `isError` with non-JSON text
+(today safe only because `errorResult` always wraps JSON; nothing pins that coupling).
+One chat-level test with an unknown `sourceId` asserting the `{error}` tool result and
+the `onToolError` call would pin both.
+
+### 4.6 The MCP `allowedTools` bypass for extra tools is unpinned in either direction
+
+**File:** `src/mcp.test.ts:858-894` (T1-3 suite tests `get_dashboard_state` only).
+
+Whether "extra tools ignore `allowedTools`" is a bug (1.4) or by design, no test asserts
+it. `allowedTools: []` + `data` configured → `describe_data_source` currently succeeds;
+add a test capturing the intended behavior once 1.4 is decided.
+
+### 4.7 MCP resource `subscribe` accepts and stores arbitrary URIs
+
+**Files:** `src/mcp/resources.ts:281-288`, `src/mcp.test.ts:188-206` (only checks the
+handlers "run without error").
+
+`subscribedUris.add(uri)` is unvalidated and unbounded (a client can grow the set
+indefinitely with garbage URIs; only two URIs are ever notified). Minor DoS-hygiene +
+an easy validation test (reject or ignore non-`studio://` URIs).

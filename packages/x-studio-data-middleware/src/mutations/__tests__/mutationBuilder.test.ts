@@ -128,6 +128,15 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
 
 const CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'] };
 
+// Tenancy is now a required, explicit decision at every enforcement site. Builders
+// and validateMutation take a security policy: multi-tenant tests use MT_POLICY;
+// tests that configure no tenant column declare ST_POLICY (single-tenant)
+// explicitly — the same unscoped behavior, now stated rather than silently implied.
+const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+const SINGLE_TENANT = { mode: 'single-tenant' } as const;
+const MT_POLICY = { tenancy: MULTI_TENANT } as const;
+const ST_POLICY = { tenancy: SINGLE_TENANT } as const;
+
 // ── validateMutation ──────────────────────────────────────────────────────────
 
 describe('validateMutation', () => {
@@ -139,7 +148,8 @@ describe('validateMutation', () => {
       values: { status: 'pending', total: 100 },
     };
     expect(() =>
-      validateMutation(descriptor, {
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
         writableColumns: { orders: ['status', 'total', 'notes'] },
       }),
     ).not.toThrow();
@@ -152,7 +162,9 @@ describe('validateMutation', () => {
       table: 'orders',
       values: { status: 'shipped' },
     };
-    expect(() => validateMutation(descriptor, {})).toThrow(/requires at least one "where"/);
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+      /requires at least one "where"/,
+    );
   });
 
   it('throws when a delete has no WHERE predicates', () => {
@@ -162,7 +174,9 @@ describe('validateMutation', () => {
       table: 'orders',
       where: [],
     };
-    expect(() => validateMutation(descriptor, {})).toThrow(/requires at least one "where"/);
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+      /requires at least one "where"/,
+    );
   });
 
   it('throws when a value key is not in the writable columns list', () => {
@@ -172,9 +186,12 @@ describe('validateMutation', () => {
       table: 'orders',
       values: { status: 'ok', secret_field: 'bad' },
     };
-    expect(() => validateMutation(descriptor, { writableColumns: { orders: ['status'] } })).toThrow(
-      /not in the writable columns allowlist/,
-    );
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        writableColumns: { orders: ['status'] },
+      }),
+    ).toThrow(/not in the column allowlist/);
   });
 
   it('throws when the client tries to set the tenant column', () => {
@@ -185,9 +202,9 @@ describe('validateMutation', () => {
       values: { tenant_id: 'other-tenant', status: 'ok' },
     };
     expect(() =>
-      validateMutation(descriptor, {
+      validateMutation(descriptor, CLAIMS, {
+        policy: MT_POLICY,
         writableColumns: { orders: ['status', 'tenant_id'] },
-        tenantColumn: 'tenant_id',
       }),
     ).toThrow(/tenant isolation column/);
   });
@@ -201,7 +218,10 @@ describe('validateMutation', () => {
       where: [{ column: 'id', operator: 'eq', value: 42 }],
     };
     expect(() =>
-      validateMutation(descriptor, { writableColumns: { orders: ['status', 'notes'] } }),
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        writableColumns: { orders: ['status', 'notes'] },
+      }),
     ).not.toThrow();
   });
 
@@ -213,8 +233,11 @@ describe('validateMutation', () => {
       where: [{ column: 'secret_internal_flag', operator: 'eq', value: true }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
-    ).toThrow(/not in the column allowlist for "where" predicates/);
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        columnAllowlist: { orders: ['id', 'status'] },
+      }),
+    ).toThrow(/not in the column allowlist/);
   });
 
   it('passes when all WHERE columns are in the column allowlist', () => {
@@ -226,7 +249,10 @@ describe('validateMutation', () => {
       where: [{ column: 'id', operator: 'eq', value: 42 }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        columnAllowlist: { orders: ['id', 'status'] },
+      }),
     ).not.toThrow();
   });
 
@@ -238,7 +264,10 @@ describe('validateMutation', () => {
       where: [{ column: 'orders.deleted_at', operator: 'eq', value: null as unknown as number }],
     };
     expect(() =>
-      validateMutation(descriptor, { columnAllowlist: { orders: ['id', 'status'] } }),
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        columnAllowlist: { orders: ['id', 'status'] },
+      }),
     ).toThrow(/Column "deleted_at" on table "orders"/);
   });
 });
@@ -254,13 +283,13 @@ describe('buildInsertMutation', () => {
       table: 'orders',
       values: { status: 'pending', total: 100 },
     };
-    await buildInsertMutation(db, CLAIMS, descriptor, 'tenant_id');
+    await buildInsertMutation(db, CLAIMS, descriptor, MT_POLICY);
     const { orders } = db.snapshot();
     expect(orders).toHaveLength(1);
     expect(orders[0]).toMatchObject({ status: 'pending', total: 100, tenant_id: 'acme' });
   });
 
-  it('inserts without tenant column when tenantColumn is undefined', async () => {
+  it('inserts without a tenant column in single-tenant mode', async () => {
     const db = createMutableMockDb({ orders: [] });
     const descriptor: MutationDescriptor = {
       id: 'm1',
@@ -268,7 +297,7 @@ describe('buildInsertMutation', () => {
       table: 'orders',
       values: { status: 'pending' },
     };
-    await buildInsertMutation(db, CLAIMS, descriptor);
+    await buildInsertMutation(db, CLAIMS, descriptor, ST_POLICY);
     expect(db.snapshot().orders[0]).not.toHaveProperty('tenant_id');
   });
 
@@ -280,7 +309,7 @@ describe('buildInsertMutation', () => {
       table: 'orders',
       values: { status: 'pending' },
     };
-    const result = await buildInsertMutation(db, CLAIMS, descriptor);
+    const result = await buildInsertMutation(db, CLAIMS, descriptor, ST_POLICY);
     expect(Array.isArray(result)).toBe(true);
   });
 });
@@ -303,7 +332,7 @@ describe('buildUpdateMutation', () => {
       values: { status: 'shipped' },
       where: [{ column: 'id', operator: 'eq', value: 1 }],
     };
-    const rowsAffected = await buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id');
+    const rowsAffected = await buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY);
     expect(rowsAffected).toBe(1);
     const { orders } = db.snapshot();
     expect(orders.find((r) => r.id === 1)?.status).toBe('shipped');
@@ -322,7 +351,7 @@ describe('buildUpdateMutation', () => {
       values: { status: 'shipped', tenant_id: 'attacker' },
       where: [{ column: 'id', operator: 'eq', value: 1 }],
     };
-    await buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id');
+    await buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY);
     // tenant_id must remain 'acme'
     expect(db.snapshot().orders[0].tenant_id).toBe('acme');
   });
@@ -341,7 +370,7 @@ describe('buildUpdateMutation', () => {
       values: { status: 'shipped' },
       where: [{ column: 'status', operator: 'eq', value: 'pending' }],
     };
-    const count = await buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id');
+    const count = await buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY);
     expect(count).toBe(2);
   });
 });
@@ -363,7 +392,7 @@ describe('buildDeleteMutation', () => {
       table: 'orders',
       where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
     };
-    const rowsAffected = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    const rowsAffected = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
     expect(rowsAffected).toBe(1); // only acme's cancelled row
     const { orders } = db.snapshot();
     expect(orders).toHaveLength(2); // id=2 (acme) + id=3 (other)
@@ -384,7 +413,7 @@ describe('buildDeleteMutation', () => {
       table: 'orders',
       where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
     };
-    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
     expect(count).toBe(2);
   });
 });
@@ -406,7 +435,7 @@ describe('write-path predicate safety', () => {
       where: [{ column: 'id', operator: 'in', value: [] }],
     };
     // Build throws synchronously — the predicate is NOT silently dropped.
-    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
       /"in" predicate with an empty value list/,
     );
     // Nothing was deleted.
@@ -422,7 +451,7 @@ describe('write-path predicate safety', () => {
       values: { status: 'z' },
       where: [{ column: 'id', operator: 'in', value: [] }],
     };
-    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
       /"in" predicate with an empty value list/,
     );
     expect(db.snapshot().orders[0].status).toBe('a');
@@ -436,7 +465,7 @@ describe('write-path predicate safety', () => {
       table: 'orders',
       where: [{ column: 'id', operator: 'sql' as any, value: 1 }],
     };
-    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id')).toThrow(
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
       /Unsupported filter operator/,
     );
     expect(db.snapshot().orders).toHaveLength(1);
@@ -455,9 +484,125 @@ describe('write-path predicate safety', () => {
       table: 'orders',
       where: [{ column: 'id', operator: 'in', value: [1] }],
     };
-    const count = await buildDeleteMutation(db, CLAIMS, descriptor, 'tenant_id');
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
     expect(count).toBe(1);
     expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]);
+  });
+});
+
+// ── Write-path predicate operators beyond eq/in (between, like, lte, gte) ──────
+//
+// `applyPredicates` (shared/predicates.ts) supports the full `SAFE_OPERATORS`
+// set on both read and write, but until now no mutation test exercised
+// `between`/`like`/`lte`/`gte` — only `eq` and `in` were proven to actually
+// scope a mutation. These prove each operator narrows the UPDATE/DELETE to the
+// matching rows (not merely "accepted without throwing").
+
+describe('write-path predicate operators (between/like/lte/gte)', () => {
+  it('"gte" scopes an update to rows at or above the threshold', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 50, status: 'pending' },
+        { id: 2, tenant_id: 'acme', total: 100, status: 'pending' },
+        { id: 3, tenant_id: 'acme', total: 150, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'total', operator: 'gte', value: 100 }],
+    };
+    const count = await buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(2);
+    const { orders } = db.snapshot();
+    expect(orders.find((r) => r.id === 1)?.status).toBe('pending'); // below threshold
+    expect(orders.find((r) => r.id === 2)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 3)?.status).toBe('shipped');
+  });
+
+  it('"lte" scopes a delete to rows at or below the threshold', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 50 },
+        { id: 2, tenant_id: 'acme', total: 100 },
+        { id: 3, tenant_id: 'acme', total: 150 },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'total', operator: 'lte', value: 100 }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(2);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([3]); // only the row above threshold survives
+  });
+
+  it('"between" scopes an update to rows inside the inclusive range', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 40, status: 'pending' },
+        { id: 2, tenant_id: 'acme', total: 100, status: 'pending' }, // inclusive lower bound
+        { id: 3, tenant_id: 'acme', total: 150, status: 'pending' },
+        { id: 4, tenant_id: 'acme', total: 200, status: 'pending' }, // inclusive upper bound
+        { id: 5, tenant_id: 'acme', total: 260, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'total', operator: 'between', value: [100, 200] }],
+    };
+    const count = await buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(3);
+    const { orders } = db.snapshot();
+    expect(orders.find((r) => r.id === 1)?.status).toBe('pending'); // below range
+    expect(orders.find((r) => r.id === 2)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 3)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 4)?.status).toBe('shipped');
+    expect(orders.find((r) => r.id === 5)?.status).toBe('pending'); // above range
+  });
+
+  it('"like" scopes a delete to rows matching the pattern', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', notes: 'urgent: rush order' },
+        { id: 2, tenant_id: 'acme', notes: 'standard delivery' },
+        { id: 3, tenant_id: 'acme', notes: 'urgent: hold for pickup' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'notes', operator: 'like', value: 'urgent%' }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(2);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]); // only the non-matching row survives
+  });
+
+  it('"between"/"like"/"lte"/"gte" still respect tenant scoping (do not leak across tenants)', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', total: 150 },
+        { id: 2, tenant_id: 'other', total: 150 }, // same shape, different tenant
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'total', operator: 'between', value: [100, 200] }],
+    };
+    const count = await buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(1);
+    expect(db.snapshot().orders.map((r) => r.id)).toEqual([2]); // other tenant's row untouched
   });
 });
 
@@ -480,7 +625,7 @@ describe('write-path security scoping', () => {
       values: { status: 'shipped' },
       where: [{ column: 'status', operator: 'eq', value: 'pending' }],
     };
-    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, 'tenant_id');
+    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, MT_POLICY);
     expect(count).toBe(1);
     const { orders } = db.snapshot();
     expect(orders.find((r) => r.id === 1)?.status).toBe('shipped'); // region 1
@@ -500,7 +645,7 @@ describe('write-path security scoping', () => {
       table: 'orders',
       where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
     };
-    const count = await buildDeleteMutation(db, REGION_CLAIMS, descriptor, 'tenant_id');
+    const count = await buildDeleteMutation(db, REGION_CLAIMS, descriptor, MT_POLICY);
     expect(count).toBe(1);
     const { orders } = db.snapshot();
     expect(orders.map((r) => r.id)).toEqual([2]); // region 2 row survives
@@ -520,10 +665,262 @@ describe('write-path security scoping', () => {
       values: { status: 'shipped' },
       where: [{ column: 'status', operator: 'eq', value: 'pending' }],
     };
-    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, 'tenant_id', {
-      region: 'sales_region',
+    const count = await buildUpdateMutation(db, REGION_CLAIMS, descriptor, {
+      tenancy: MULTI_TENANT,
+      securityColumns: {
+        region: 'sales_region',
+      },
     });
     expect(count).toBe(1);
     expect(db.snapshot().orders.find((r) => r.id === 2)?.status).toBe('pending');
+  });
+});
+
+// ── Empty-region scope (regionIds: []) is fail-CLOSED on writes ────────────────
+//
+// Regression: `regionIds: []` means "authorized for zero regions" and must NOT
+// be conflated with `regionIds: undefined` ("this deployment is not region
+// scoped"). On the write path an empty region scope must REJECT the mutation
+// rather than silently drop the region predicate (which would widen it).
+
+describe('write-path empty-region scope (regionIds: [])', () => {
+  const ZERO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [] };
+
+  it('REJECTS an update when the caller is authorized for zero regions', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    expect(() => buildUpdateMutation(db, ZERO_REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /authorized for zero regions/,
+    );
+    // Nothing was updated.
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('REJECTS a delete when the caller is authorized for zero regions', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'cancelled' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'status', operator: 'eq', value: 'cancelled' }],
+    };
+    expect(() => buildDeleteMutation(db, ZERO_REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /authorized for zero regions/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('REJECTS an insert that stamps ANY region_id when authorized for zero regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 3 },
+    };
+    expect(() =>
+      validateMutation(descriptor, ZERO_REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/outside the caller's permitted regions/);
+  });
+
+  it('still allows an update with regionIds: undefined (deployment is not region-scoped)', async () => {
+    const NO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'] };
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', region_id: 1, status: 'pending' },
+        { id: 2, tenant_id: 'acme', region_id: 2, status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    // No region scoping → both tenant rows are updated (undefined ≠ []).
+    const count = await buildUpdateMutation(db, NO_REGION_CLAIMS, descriptor, MT_POLICY);
+    expect(count).toBe(2);
+  });
+});
+
+// ── INSERT tenant stamping in multi-tenant mode ───────────────────────────────
+//
+// Regression for finding 1.1 (CRITICAL): a multi-tenant deployment must stamp the
+// caller's tenant on insert AND reject a client-supplied tenant value. (The global
+// tenant column now lives in the required `tenancy` posture rather than a
+// `securityColumns.tenant` field, so multi-tenant mode is the equivalent premise;
+// a per-table override still lets a single table use a different tenant column.)
+
+describe('INSERT tenant stamping (multi-tenant)', () => {
+  it('stamps the tenant column in multi-tenant mode', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'pending', total: 100 },
+    };
+    await buildInsertMutation(db, CLAIMS, descriptor, MT_POLICY);
+    const { orders } = db.snapshot();
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({ status: 'pending', total: 100, tenant_id: 'acme' });
+  });
+
+  it('rejects a client-supplied tenant value in multi-tenant mode', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { tenant_id: 'victim-tenant', status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'tenant_id'] },
+      }),
+    ).toThrow(/tenant isolation column/);
+  });
+
+  it('resolves the tenant column from a perTable override', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'pending' },
+    };
+    await buildInsertMutation(db, CLAIMS, descriptor, {
+      tenancy: MULTI_TENANT,
+      securityColumns: {
+        perTable: { orders: { tenant: 'org_id' } },
+      },
+    });
+    expect(db.snapshot().orders[0]).toMatchObject({ status: 'pending', org_id: 'acme' });
+  });
+});
+
+// ── INSERT region / department scope validation (finding 1.5) ─────────────────
+
+describe('INSERT region/department scope validation', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+  const DEPT_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], department: 'Sales' };
+
+  it('rejects an insert whose region_id is outside the caller regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 6 },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/outside the caller's permitted regions/);
+  });
+
+  it('allows an insert whose region_id is inside the caller regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 5 },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects an insert whose department is outside the caller department', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', department: 'Finance' },
+    };
+    expect(() =>
+      validateMutation(descriptor, DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'department'] },
+      }),
+    ).toThrow(/outside the caller's department/);
+  });
+});
+
+// ── Write-path column validation is fail-closed + wildcard-aware (finding 1.4) ─
+
+describe('write-path column validation (fail-closed + wildcard)', () => {
+  it('rejects a value key when the target table has NO writableColumns entry (fail-closed)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    // writableColumns supplied, but 'orders' has no entry — must reject, not pass.
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        writableColumns: { customers: ['name'] },
+      }),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+
+  it('rejects a WHERE column when the target table has NO columnAllowlist entry (fail-closed)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'status', operator: 'eq', value: 'x' }],
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        columnAllowlist: { customers: ['id'] },
+      }),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+
+  it('honors ["*"] as an opt-out for writable value keys', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', anything: 1 },
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('honors ["*"] as an opt-out for WHERE columns', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [{ column: 'whatever', operator: 'eq', value: 'x' }],
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        columnAllowlist: { orders: ['*'] },
+      }),
+    ).not.toThrow();
   });
 });

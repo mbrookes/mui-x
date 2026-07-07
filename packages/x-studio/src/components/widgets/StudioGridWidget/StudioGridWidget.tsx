@@ -21,6 +21,7 @@ import { formatFieldValue } from '../../../internals/numberFormat';
 
 import { computeGridSummary } from '../../../utils/gridSummary';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
+import { getRowIdentity } from '../../../internals/rowIdentity';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
@@ -172,24 +173,44 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       ? filteredRowsNoChartCross
       : filteredRows;
 
-  // IDs of rows that pass the chart cross-filter — used to determine which rows to highlight.
-  const highlightedRowIds = React.useMemo((): Set<unknown> | null => {
+  // Per-row match keys for the chart cross-filter — used to decide which rows to highlight.
+  //
+  // We can't key on `row.id`: it is `undefined` for id-less data sources (an explicitly
+  // supported case — see the synthetic-id fallback in `rows` below), which would make every
+  // row appear "unmatched" and get dimmed regardless of whether it actually passed the filter.
+  //
+  // `filteredRows` and `baseRows` (`filteredRowsNoChartCross` in cross-highlight mode) are
+  // both filtered from the *same* underlying pipeline-cached row array (see
+  // `useWidgetRows`/`resolveRowsCached`). For a widget with NO cross-source display column
+  // that means a row in `filteredRows` is the exact same JS object as its counterpart in
+  // `baseRows`, so raw reference identity is a valid match key. But when a cross-source column
+  // IS configured, `enrichWithCrossSourceFields` clones (`{ ...row }`) each row that receives a
+  // cross-source value, and it does so in a *separate* pass per baseline — so the two baselines
+  // hold different instances for the same logical row and raw reference matching silently fails
+  // (everything dimmed, nothing highlighted). To survive that clone we key on the stable
+  // identity token that cross-source enrichment stamps onto every row (see rowIdentity.ts),
+  // falling back to the row object itself when no token is present (the no-cross-source case).
+  const rowMatchKey = React.useCallback(
+    (row: Record<string, unknown>): number | Record<string, unknown> => getRowIdentity(row) ?? row,
+    [],
+  );
+
+  const highlightedRowKeys = React.useMemo((): Set<number | Record<string, unknown>> | null => {
     if (!hasChartCrossFilters || crossFilterMode !== 'cross-highlight') {
       return null;
     }
-    const ids = new Set<unknown>();
-    for (const row of filteredRows) {
-      ids.add(row.id);
-    }
-    return ids;
-  }, [hasChartCrossFilters, crossFilterMode, filteredRows]);
+    return new Set(filteredRows.map(rowMatchKey));
+  }, [hasChartCrossFilters, crossFilterMode, filteredRows, rowMatchKey]);
 
   const rows = React.useMemo(() => {
     return baseRows.map((row, index) => ({
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
+      // Stashed during this same pass (while `row` still has its original identity) so
+      // `getRowClassName` below never needs to re-derive matching from `row.id`.
+      __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
     }));
-  }, [baseRows, widget.id]);
+  }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey]);
 
   // Native DataGridPremium row grouping
   const rowGroupingModel = React.useMemo(
@@ -388,8 +409,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             return '';
           }
           // Incoming chart cross-highlight: dim rows that don't match the cross-filter.
-          if (highlightedRowIds !== null) {
-            return highlightedRowIds.has(params.row.id) ? '' : 'StudioGrid-dimmed';
+          if (highlightedRowKeys !== null) {
+            // eslint-disable-next-line no-underscore-dangle -- internal synthetic flag stashed in `rows` above
+            return (params.row as Record<string, unknown>).__highlighted ? '' : 'StudioGrid-dimmed';
           }
           // Outgoing cross-filter: highlight the row this table is filtering on.
           if (activeCrossFilter) {

@@ -44,7 +44,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const hasField = !!filter.field;
   const currentField = fields.find((f) => f.id === filter.field);
   const fieldType = filter.fieldType ?? currentField?.fieldType;
-  const operators = getOperators(fieldType);
+  const operators = getOperators(fieldType, localeText);
   const activeOperator = operators.find((o) => o.value === filter.operator)
     ? filter.operator
     : operators[0].value;
@@ -154,7 +154,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   return (
     <FilterCard
       title={fieldLabel}
-      summary={summarizeFilter(filter)}
+      summary={summarizeFilter(filter, localeText)}
       onRemove={() => onRemove(filter.id)}
       initialExpanded={isFilterFresh(filter) || !isFilterEffective(filter)}
     >

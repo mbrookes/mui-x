@@ -166,16 +166,16 @@ export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';
-export { createDefaultStudioState } from './models';
+export { createDefaultStudioState, normalizeGridColumn } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
-export { serializeState, deserializeState, migrateState } from './store/statePersistence';
+export { serializeState, deserializeState, migrateState } from '@mui/x-studio-schema';
 export type {
   SerializedStudioState,
   SerializedStudioSession,
   SerializedStudioSnapshot,
   MigrationResult,
-} from './store/statePersistence';
+} from '@mui/x-studio-schema';
 
 // ─── Models / domain types ────────────────────────────────────────────────────
 export type {
@@ -197,7 +197,6 @@ export type {
   StudioKpiAggregation,
   StudioGridSummaryAggregation,
   StudioGridColumn,
-  normalizeGridColumn,
   StudioNumberFormat,
   StudioChartType,
   StudioChartSeries,
@@ -235,7 +234,7 @@ export type { RelativeDateValue, RelativeDateUnit } from './internals/filterType
 export { computeDateRangePreset } from './store/StudioController';
 
 // ─── Schema version ───────────────────────────────────────────────────────────
-export { CURRENT_SCHEMA_VERSION } from './store/statePersistence';
+export { CURRENT_SCHEMA_VERSION } from '@mui/x-studio-schema';
 
 // ─── Brand ───────────────────────────────────────────────────────────────────
 export { StudioWordmark } from './icons/StudioWordmark';
@@ -256,6 +255,7 @@ export type { UseSpeechRecognitionReturn } from './components/StudioChatPanel/us
 // StudioAISkill (with server-side execute) and skill implementations live in @mui/x-studio-ai-middleware.
 export type {
   StateMutation,
+  MutationEnvelope,
   SerializableSkill,
   StudioAIToolName,
   StudioAIState,

@@ -3,12 +3,14 @@ import * as React from 'react';
 import {
   FormControl,
   FormControlLabel,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   Switch,
-  Typography,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   useStudioController,
@@ -19,8 +21,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
+import type { StudioCrossFilterMode } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import { SetupSection } from './SetupSection';
 
 interface MapSetupPanelProps {
   widgetId: string;
@@ -185,39 +189,29 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         </Select>
       </FormControl>
 
-      <div>
-        <Typography variant="subtitle2" gutterBottom>
-          {fieldLabel}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          {fieldHint}
-        </Typography>
-        <DataSourceFieldSelect
-          label={fieldLabel}
-          value={config.mapCountryField ?? ''}
-          valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
-          fields={allStringFields}
-          onChange={handleCountryFieldChange}
-        />
-      </div>
+      <DataSourceFieldSelect
+        label={fieldLabel}
+        helperText={fieldHint}
+        required
+        value={config.mapCountryField ?? ''}
+        valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
+        fields={allStringFields}
+        onChange={handleCountryFieldChange}
+      />
 
-      <div>
-        <Typography variant="subtitle2" gutterBottom>
-          {localeText.mapSetupValueFieldLabel}
-        </Typography>
-        <DataSourceFieldSelect
-          label={localeText.mapSetupValueFieldLabel}
-          value={config.mapValueField ?? ''}
-          valueSourceId={config.mapValueSourceId}
-          fields={numericFields}
-          onChange={(fieldId, sourceId) =>
-            update({
-              mapValueField: fieldId || undefined,
-              mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
-            })
-          }
-        />
-      </div>
+      <DataSourceFieldSelect
+        label={localeText.mapSetupValueFieldLabel}
+        helperText={localeText.mapSetupValueFieldHelperText}
+        value={config.mapValueField ?? ''}
+        valueSourceId={config.mapValueSourceId}
+        fields={numericFields}
+        onChange={(fieldId, sourceId) =>
+          update({
+            mapValueField: fieldId || undefined,
+            mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
+          })
+        }
+      />
 
       <FormControl size="small" fullWidth disabled={!config.mapValueField}>
         <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
@@ -232,6 +226,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
           <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
         </Select>
+        {!config.mapValueField && (
+          <FormHelperText>{localeText.aggregationLockedHelperText}</FormHelperText>
+        )}
       </FormControl>
 
       <FormControl size="small" fullWidth>
@@ -271,18 +268,29 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         label={localeText.mapSetupClickableLabel}
       />
 
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
-            checked={crossFilterMode !== 'none'}
-            onChange={(event) =>
-              update({ crossFilterMode: event.target.checked ? 'cross-highlight' : 'none' })
+      <SetupSection
+        title={localeText.mapSetupInteractionsTitle}
+        description={localeText.mapSetupInteractionsDescription}
+      >
+        <ToggleButtonGroup
+          value={(crossFilterMode !== 'none' ? 'cross-filter' : 'none') as StudioCrossFilterMode}
+          exclusive
+          onChange={(_e, value: StudioCrossFilterMode | null) => {
+            if (value) {
+              update({ crossFilterMode: value });
             }
-          />
-        }
-        label={localeText.mapSetupCrossFilterLabel}
-      />
+          }}
+          size="small"
+          fullWidth
+        >
+          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeFilter}
+          </ToggleButton>
+          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeNone}
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </SetupSection>
     </Stack>
   );
 }

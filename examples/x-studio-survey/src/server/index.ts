@@ -25,14 +25,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  handleAIChat,
-  handleGenerateTitle,
-  handleCreateWidget,
-  type StudioDataResolver,
-} from '@mui/x-studio-ai-middleware';
+import { handleAIChat, handleGenerateTitle, handleCreateWidget } from '@mui/x-studio-ai-middleware';
 import { seedSurveyDatabase, type SeededTable } from './seedFromExcel.js';
-import { makeMcpRouter } from './mcp.js';
+import { makeMcpRouter, createQueryDataSource } from './mcp.js';
 import { createStateStore, STATE_DB_PATH } from './stateStore.js';
 import { log, error } from './logger.js';
 import { summarizeRankHeatmaps } from './rankHeatmapInsightContext.js';
@@ -60,48 +55,6 @@ const ALLOWED_ORIGINS = (
 )
   .split(',')
   .map((s) => s.trim());
-
-/** Reject anything that isn't a single read-only SELECT/WITH statement. */
-function isReadOnlyQuery(sql: string): boolean {
-  const trimmed = sql.trim().replace(/;\s*$/, '');
-  if (trimmed.includes(';')) {
-    return false;
-  }
-  if (!/^\s*(select|with)\b/i.test(trimmed)) {
-    return false;
-  }
-  return !/\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|truncate|vacuum)\b/i.test(
-    trimmed,
-  );
-}
-
-function createDataResolver(db: ReturnType<typeof knex>): StudioDataResolver {
-  return {
-    async resolve(query) {
-      if (!isReadOnlyQuery(query)) {
-        throw new Error(
-          'execute_query only supports a single read-only SELECT statement. ' +
-            'Rewrite the request as a SELECT (no INSERT/UPDATE/DELETE/DDL or stacked statements).',
-        );
-      }
-
-      const raw = (await db.raw(query)) as unknown;
-      let allRows: Record<string, unknown>[] = [];
-      if (Array.isArray(raw)) {
-        allRows = raw as Record<string, unknown>[];
-      } else if (Array.isArray((raw as { rows?: unknown }).rows)) {
-        allRows = (raw as { rows: Record<string, unknown>[] }).rows;
-      }
-
-      const rows = allRows.slice(0, 200);
-      return {
-        rows,
-        columns: rows.length > 0 ? Object.keys(rows[0]) : undefined,
-        totalCount: allRows.length,
-      };
-    },
-  };
-}
 
 async function main(): Promise<void> {
   const db = knex({
@@ -224,7 +177,9 @@ async function main(): Promise<void> {
     });
   });
 
-  const dataResolver = createDataResolver(db);
+  // The chat loop's query_data_source tool runs the same structured, secured query builder as
+  // the MCP route (see mcp.ts) — no raw SQL passthrough for the in-app chat transport.
+  const queryDataSource = createQueryDataSource(db, schema);
   const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
 
   // POST /api/ai/chat — SSE stream
@@ -247,7 +202,7 @@ async function main(): Promise<void> {
         apiKey: LLM_API_KEY,
         model: LLM_MODEL,
         approvalPending: pendingApprovals,
-        dataResolver,
+        data: { queryDataSource },
         // Injects exact rank-heatmap numbers (see rankHeatmapInsightContext.ts) into the AI's
         // context, so a heatmap's "AI insight" request gets real data instead of the model
         // trying to parse the underlying comma-separated ranked-list field itself via SQL.

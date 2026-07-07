@@ -10,11 +10,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import {
-  Studio,
-  createBatchingAdapter,
-
-} from '@mui/x-studio';
+import { Studio, createBatchingAdapter } from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -146,7 +142,8 @@ function getUrlDatasetParam(): 'sales' | 'ag-studio' {
 
 /**
  * Read ?server=<url> to route queries through a real server instead of
- * simulatedServer.ts. Example: ?server=http://localhost:3001/api/sales-data
+ * simulatedServer.ts. Example: ?server=http://localhost:3020/api/sales-data
+ * (run the x-studio-dev-server, or set STUDIO_SERVER_URL).
  * Uses createBatchingAdapter() which collapses N widget requests into one POST.
  */
 function getUrlServerParam(): string | undefined {
@@ -246,7 +243,7 @@ export default function App() {
     () =>
       resolvePageIdFromQuery(
         getUrlPageParam(),
-        dataset === 'ag-studio' ? OS_INITIAL_STATE.pages : INITIAL_STATE.pages,
+        dataset === 'ag-studio' ? OS_INITIAL_STATE.doc?.pages : INITIAL_STATE.doc?.pages,
       ),
     [dataset],
   );
@@ -278,36 +275,42 @@ export default function App() {
             [osData.orderItemsSource.id]: osData.orderItemsSource,
             [osData.shipmentsSource.id]: osData.shipmentsSource,
           }
-        : INITIAL_STATE.dataSources),
+        : INITIAL_STATE.runtime?.dataSources),
       [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
     };
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
 
-    let baseState: Partial<StudioState> = { ...baseConfig, dataSources: baseDataSources };
+    let baseState: Partial<StudioState> = {
+      ...baseConfig,
+      runtime: { ...baseConfig.runtime, dataSources: baseDataSources },
+    };
 
     // Apply ?fv= filter value overrides from URL
     const fvParam = getUrlFilterValuesParam();
     if (fvParam) {
       const filterValues = decodeFilterValues(fvParam);
-      if (filterValues && baseState.filters) {
+      if (filterValues && baseState.doc?.filters) {
         baseState = {
           ...baseState,
-          filters: baseState.filters.map((f) => {
-            const patch = filterValues[f.id];
-            if (!patch) {
-              return f;
-            }
-            return {
-              ...f,
-              operator: patch.operator as StudioFilterOperator,
-              value: patch.value,
-              ...(patch.operator2 != null && {
-                operator2: patch.operator2 as StudioFilterOperator,
-              }),
-              ...(patch.value2 != null && { value2: patch.value2 }),
-            };
-          }),
-        };
+          doc: {
+            ...baseState.doc,
+            filters: baseState.doc.filters.map((f) => {
+              const patch = filterValues[f.id];
+              if (!patch) {
+                return f;
+              }
+              return {
+                ...f,
+                operator: patch.operator as StudioFilterOperator,
+                value: patch.value,
+                ...(patch.operator2 != null && {
+                  operator2: patch.operator2 as StudioFilterOperator,
+                }),
+                ...(patch.value2 != null && { value2: patch.value2 }),
+              };
+            }),
+          },
+        } as Partial<StudioState>;
       }
     }
 
@@ -316,9 +319,12 @@ export default function App() {
     }
     return {
       ...baseState,
-      dashboard: {
-        ...baseState.dashboard,
-        activePageId: urlPageId,
+      doc: {
+        ...baseState.doc,
+        dashboard: {
+          ...baseState.doc?.dashboard,
+          activePageId: urlPageId,
+        },
       },
     } as Partial<StudioState>;
   }, [dataset, osData, urlPageId]);
@@ -361,19 +367,22 @@ export default function App() {
       );
       const newState: Partial<StudioState> = {
         ...baseInitialState,
-        dataSources: {
-          ...INITIAL_STATE.dataSources,
-          [customersSource.id]: customersSource,
-          [productsSource.id]: productsSource,
-          [ordersSource.id]: ordersSource,
-          [orderItemsSource.id]: orderItemsSource,
-          [shipmentsSource.id]: shipmentsSource,
-          [shipmentItemsSource.id]: shipmentItemsSource,
-          [contactsSource.id]: contactsSource,
-          [dealsSource.id]: dealsSource,
-          [activitiesSource.id]: activitiesSource,
-          [dealTransitionsSource.id]: dealTransitionsSource,
-          [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
+        runtime: {
+          ...baseInitialState.runtime,
+          dataSources: {
+            ...INITIAL_STATE.runtime?.dataSources,
+            [customersSource.id]: customersSource,
+            [productsSource.id]: productsSource,
+            [ordersSource.id]: ordersSource,
+            [orderItemsSource.id]: orderItemsSource,
+            [shipmentsSource.id]: shipmentsSource,
+            [shipmentItemsSource.id]: shipmentItemsSource,
+            [contactsSource.id]: contactsSource,
+            [dealsSource.id]: dealsSource,
+            [activitiesSource.id]: activitiesSource,
+            [dealTransitionsSource.id]: dealTransitionsSource,
+            [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
+          },
         },
       };
       React.startTransition(() => {
@@ -536,7 +545,7 @@ export default function App() {
       return;
     }
 
-    for (const source of Object.values(state.dataSources)) {
+    for (const source of Object.values(state.runtime.dataSources)) {
       if (source.rows && source.rows.length > 0) {
         studioRef.current?.setDataSourceAdapter(source.id, createAdapter(source.rows));
       }
@@ -572,21 +581,30 @@ export default function App() {
     // Sales sources → /api/sales-data; CRM sources (prefix "source-crm-") → /api/crm-data
     const salesEndpoint = serverEndpoint;
     const crmEndpoint = serverEndpoint.replace(/\/api\/sales-data$/, '/api/crm-data');
+    // Write-back endpoint, derived with the same suffix-swap as crmEndpoint.
+    // Wiring this attaches `submitMutation` to the sales adapter, making
+    // sales-table Grid widgets editable once their `config.gridPkField` is set.
+    // CRM has no mutations endpoint on the dev server, so its adapter stays read-only.
+    const salesMutationEndpoint = serverEndpoint.replace(
+      /\/api\/sales-data$/,
+      '/api/sales-mutations',
+    );
 
     const salesAdapter = createBatchingAdapter(salesEndpoint, {
       fetchFn,
-      dataSources: state.dataSources,
-      relationships: state.relationships,
-      expressionFields: state.expressionFields,
+      mutationEndpoint: salesMutationEndpoint,
+      dataSources: state.runtime.dataSources,
+      relationships: state.doc.relationships,
+      expressionFields: state.doc.expressionFields,
     });
     const crmAdapter = createBatchingAdapter(crmEndpoint, {
       fetchFn,
-      dataSources: state.dataSources,
-      relationships: state.relationships,
-      expressionFields: state.expressionFields,
+      dataSources: state.runtime.dataSources,
+      relationships: state.doc.relationships,
+      expressionFields: state.doc.expressionFields,
     });
 
-    for (const source of Object.values(state.dataSources)) {
+    for (const source of Object.values(state.runtime.dataSources)) {
       // Employees are served directly from the external server-side-data server.
       if (source.id === EMPLOYEES_SOURCE_ID) {
         continue;
@@ -619,13 +637,13 @@ export default function App() {
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
     // and so the calls are batched into a single App re-render (React 18+).
-    setMode((prev) => (prev === state.mode ? prev : state.mode));
-    setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
-    setPages((prev) => (prev === state.pages ? prev : state.pages));
+    setMode((prev) => (prev === state.session.mode ? prev : state.session.mode));
+    setTitle((prev) => (prev === state.doc.dashboard.title ? prev : state.doc.dashboard.title));
+    setPages((prev) => (prev === state.doc.pages ? prev : state.doc.pages));
     setActivePageId((prev) =>
-      prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
+      prev === state.doc.dashboard.activePageId ? prev : state.doc.dashboard.activePageId,
     );
-    setFilters((prev) => (prev === state.filters ? prev : state.filters));
+    setFilters((prev) => (prev === state.doc.filters ? prev : state.doc.filters));
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
   }, []);
@@ -712,10 +730,9 @@ export default function App() {
     if (!serialized) {
       return;
     }
-    const dashboardTitle = (studioRef.current?.getState().dashboard.title ?? 'dashboard').replace(
-      /[^a-z0-9]/gi,
-      '_',
-    );
+    const dashboardTitle = (
+      studioRef.current?.getState().doc.dashboard.title ?? 'dashboard'
+    ).replace(/[^a-z0-9]/gi, '_');
     downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
 
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;

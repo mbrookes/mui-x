@@ -672,14 +672,35 @@ export const SURVEY_SECTIONS: SurveyNavSection[] = SECTION_DEFS.map((s) => ({
   })),
 }));
 
-/** The full survey report dashboard config (data sources are injected at load time). */
+/**
+ * The full survey report dashboard config (data sources are injected at load time as
+ * `runtime.dataSources` — see App.tsx). `StudioState` is partitioned by lifetime into
+ * `doc` (persisted/undoable content), `session` (ephemeral UI state — never persisted, so
+ * this static default is the only place `mode: 'view'` is actually set for a first-ever
+ * visit; `App.tsx` re-forces it on every *restored* session too, since the report should
+ * never resume in edit mode) and `runtime` (host-injected data, set separately by App.tsx).
+ */
 export const SURVEY_DASHBOARD: Partial<StudioState> = {
-  mode: 'view',
-  dashboard: {
-    id: 'dashboard-survey-2025',
-    title: 'MUI · 2025 Annual Developer Survey – Insights & Analysis',
-    activePageId: 'page-styling',
+  session: {
+    mode: 'view',
+    shell: {
+      openDrawers: { data: true, compose: true, filters: false },
+      selectedWidgetId: null,
+      selectedFieldId: null,
+      selectedSourceId: null,
+    },
   },
-  pages,
-  widgets,
+  doc: {
+    schemaVersion: 1,
+    dashboard: {
+      id: 'dashboard-survey-2025',
+      title: 'MUI · 2025 Annual Developer Survey – Insights & Analysis',
+      activePageId: 'page-styling',
+    },
+    pages,
+    widgets,
+    relationships: [],
+    filters: [],
+    expressionFields: [],
+  },
 };

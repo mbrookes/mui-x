@@ -11,15 +11,32 @@
  * `applyMutation` reducer in `@mui/x-studio-schema`. The controller applies it
  * through `applyExternalMutation`, so the client-applied state is guaranteed to
  * match the server-threaded state.
+ *
+ * This is also the ONE trust boundary where a value claiming to be a
+ * `StateMutation` arrives from outside the process that produced it (the SSE
+ * payload was `JSON.parse`'d), so the value is validated through
+ * `parseStateMutation` before it reaches the controller — a malformed event is
+ * dropped (logged, not applied) rather than corrupting state.
  */
+import { parseStateMutation } from '@mui/x-studio-schema';
 import type { StudioController } from '../../store/StudioController';
-import type { StateMutation } from '../../models';
 
 /**
- * Applies a single `StateMutation` to the local `StudioController`.
+ * Validates and applies a single wire-sourced `state-mutation` event to the local
+ * `StudioController`.
  *
  * Called by the thin client adapter whenever a `state-mutation` SSE event arrives.
+ * The `value` is untrusted (deserialized network input): it is run through
+ * `parseStateMutation` first, and a value that fails validation is logged and
+ * dropped WITHOUT touching the controller (never thrown — one bad event must not
+ * kill the SSE stream). Only a validated mutation reaches
+ * `controller.applyExternalMutation`.
  */
-export function applyStateMutation(mutation: StateMutation, controller: StudioController): void {
-  controller.applyExternalMutation(mutation);
+export function applyStateMutation(value: unknown, controller: StudioController): void {
+  const parsed = parseStateMutation(value);
+  if (!parsed.ok) {
+    console.error(`[StudioBackendAdapter] Dropped malformed state-mutation event: ${parsed.error}`);
+    return;
+  }
+  controller.applyExternalMutation(parsed.mutation);
 }

@@ -5,7 +5,7 @@ import type {
   StudioRelationship,
   StudioWidget,
 } from '../../../models';
-import { resolveRows } from '../../../internals/chartUtils';
+import { resolveRows } from '../../../internals/dataSourceGraph';
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {

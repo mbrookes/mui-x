@@ -60,9 +60,13 @@ function makeSource(overrides?: Partial<StudioDataSource>): StudioDataSource {
 
 function makeStableState() {
   const state = createDefaultStudioState({
-    dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
-    pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
-    dataSources: { 'source-orders': makeSource() },
+    doc: {
+      dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+    },
+    runtime: {
+      dataSources: { 'source-orders': makeSource() },
+    },
   });
   return state;
 }
@@ -524,7 +528,7 @@ describe('buildStudioMcpServer', () => {
       expect(onStateChange).toHaveBeenCalledOnce();
       const savedState = onStateChange.mock.calls[0][0];
       expect(
-        Object.values(savedState.pages as Record<string, { title: string }>).some(
+        Object.values(savedState.doc.pages as Record<string, { title: string }>).some(
           (p) => p.title === 'New Page',
         ),
       ).toBe(true);
@@ -542,6 +546,41 @@ describe('buildStudioMcpServer', () => {
         method: CALL_TOOL,
       });
       expect(onStateChange).not.toHaveBeenCalled();
+    });
+
+    it('reports the tool call as successful even when onStateChange throws', async () => {
+      // The state mutation has already applied to the session by the time the
+      // persistence hook runs; a hook failure must NOT surface as a failed tool
+      // call (an AI would retry and duplicate the mutation). It is the host's
+      // concern to surface through their own monitoring.
+      const stateBox = { current: makeStableState() };
+      const logger = { log: vi.fn(), error: vi.fn() };
+      const onStateChange = vi.fn(() => {
+        throw new Error('DB write failed');
+      });
+      const server = buildStudioMcpServer(stateBox, { onStateChange, logger });
+
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'add_page', arguments: { title: 'New Page' } },
+        method: CALL_TOOL,
+      })) as { isError?: boolean; content: Array<{ text: string }> };
+
+      // The persistence hook threw, but the tool call still reports success.
+      expect(onStateChange).toHaveBeenCalledOnce();
+      expect(result.isError).toBeUndefined();
+      const payload = JSON.parse(result.content[0].text) as { output?: string };
+      expect(payload.output).toBeDefined();
+      // The mutation applied to the live session state regardless of the hook.
+      expect(
+        Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'New Page',
+        ),
+      ).toBe(true);
+      // The failure was logged server-side rather than swallowed silently.
+      expect(logger.error).toHaveBeenCalled();
     });
   });
 
@@ -561,15 +600,15 @@ describe('buildStudioMcpServer', () => {
       const state = makeStableState();
       // Add a widget with sourceId to the page
       const widgetId = 'w-test';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'grid',
         title: 'Orders Grid',
         sourceId: 'source-orders',
         config: {},
       } as any;
-      state.pages[PAGE_ID] = {
-        ...state.pages[PAGE_ID],
+      state.doc.pages[PAGE_ID] = {
+        ...state.doc.pages[PAGE_ID],
         widgetRows: [[widgetId]],
       };
       const stateBox = { current: state };
@@ -609,14 +648,14 @@ describe('buildStudioMcpServer', () => {
 
     it('runs anomaly detection via GROUP BY query for time-series charts', async () => {
       const state = makeStableState();
-      state.dataSources['source-orders'] = makeSource({
+      state.runtime.dataSources['source-orders'] = makeSource({
         fields: [
           ...(makeSource().fields ?? []),
           { id: 'order_date', label: 'Order Date', type: 'date' } as any,
         ],
       });
       const widgetId = 'w-chart';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'chart',
         title: 'Monthly Revenue',
@@ -629,7 +668,7 @@ describe('buildStudioMcpServer', () => {
           yAggregation: 'sum',
         },
       } as any;
-      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
 
       const queryDataSource = vi.fn(
         async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
@@ -680,7 +719,7 @@ describe('buildStudioMcpServer', () => {
     it('skips anomaly detection for blended charts', async () => {
       const state = makeStableState();
       const widgetId = 'w-blended';
-      state.widgets[widgetId] = {
+      state.doc.widgets[widgetId] = {
         id: widgetId,
         kind: 'chart',
         title: 'Blended Chart',
@@ -692,7 +731,7 @@ describe('buildStudioMcpServer', () => {
           ySeries: [{ fieldId: 'revenue', sourceId: 'other-source' }],
         },
       } as any;
-      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
 
       const queryDataSource = vi.fn(
         async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
@@ -748,15 +787,15 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
 
   it('includes the distilled cross-filter graph in the system-prompt resource', async () => {
     const state = makeStableState();
-    state.widgets.w1 = {
+    state.doc.widgets.w1 = {
       id: 'w1',
       kind: 'chart',
       title: 'Orders',
       sourceId: 'source-orders',
       config: { chartType: 'bar' },
     } as any;
-    state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [['w1']] };
-    state.filters = [
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w1']] };
+    state.doc.filters = [
       {
         id: 'xf',
         field: 'status',
@@ -812,4 +851,363 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
     expect(text).not.toContain('<server_context>');
     expect(errorLog).toHaveBeenCalled();
   });
+});
+
+const CALL_TOOL = 'tools/call';
+
+describe('buildStudioMcpServer — tools/call allowedTools gating (T1-3)', () => {
+  it('rejects a table-backed tool (get_dashboard_state) excluded via allowedTools', async () => {
+    const stateBox = { current: makeStableState() };
+    // allowedTools excludes get_dashboard_state, which is otherwise always in the
+    // special-case dispatch table. It must be rejected, not served.
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['add_page'] });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/unknown tool/i);
+    // The real dashboard state (title "Test") was never leaked.
+    expect(JSON.stringify(result)).not.toContain('"Test"');
+  });
+
+  it('still serves get_dashboard_state when it is in allowedTools', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['get_dashboard_state'] });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result)).toContain('Test');
+  });
+});
+
+describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
+  it('deny leaves stateBox untouched, records no change, and does not fire onStateChange', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const onStateChange = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      onStateChange,
+      toolPolicy: () => ({ action: 'deny', reason: 'blocked by policy' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Nope' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/blocked by policy/);
+    // The state box was never written.
+    expect(stateBox.current).toBe(before);
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    // No recentChanges entry was recorded.
+    const changes = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'get_recent_changes', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const { output } = JSON.parse(changes.content[0].text);
+    expect(output).toHaveLength(0);
+  });
+
+  it('require-approval without an approvalHandler denies cleanly (no throw, isError)', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Needs approval' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/no approval channel/i);
+    expect(stateBox.current).toBe(before);
+  });
+
+  it('approvalHandler returning true commits the mutation', async () => {
+    const stateBox = { current: makeStableState() };
+    const approvalHandler = vi.fn(async () => true);
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Approved Page' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    expect(result.isError).toBeFalsy();
+    expect(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'Approved Page',
+      ),
+    ).toBe(true);
+  });
+
+  it('approvalHandler returning false denies and leaves state untouched', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler: async () => false,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Denied' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(stateBox.current).toBe(before);
+  });
+
+  it('maxMutationsPerSession denies further mutating calls once exceeded', async () => {
+    const stateBox = { current: makeStableState() };
+    const onLimitReached = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      rateLimit: { maxMutationsPerSession: 1, onLimitReached },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const first = (await call({
+      params: { name: 'add_page', arguments: { title: 'P1' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(first.isError).toBeFalsy();
+
+    const second = (await call({
+      params: { name: 'add_page', arguments: { title: 'P2' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(second.isError).toBe(true);
+    expect(second.content[0].text).toMatch(/budget exceeded/i);
+    expect(onLimitReached).toHaveBeenCalledWith('mutations', 1);
+
+    // Only the first page was committed.
+    expect(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'P2',
+      ),
+    ).toBe(false);
+  });
+
+  it('omitted toolPolicy preserves current execute-everything behavior (remove_page runs)', async () => {
+    // Critical regression guard: the MCP default is allow-all, NOT createDefaultToolPolicy().
+    // A destructive tool must still execute with no approval pause when no policy is set.
+    const state = makeStableState();
+    (state.doc.pages as Record<string, unknown>)['page-2'] = {
+      id: 'page-2',
+      title: 'Page 2',
+      widgetRows: [],
+    };
+    const stateBox = { current: state };
+    const server = buildStudioMcpServer(stateBox);
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'remove_page', arguments: { pageId: 'page-2' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(stateBox.current.doc.pages['page-2']).toBeUndefined();
+  });
+});
+
+// ── tools/list golden output (Stage 1 registry retrofit regression guard) ────
+//
+// `TOOL_TITLES`/`TOOL_ANNOTATIONS` (mcp/toolMetadata.ts) are now derived from
+// `STUDIO_AI_TOOL_REGISTRY` (`@mui/x-studio-schema`) instead of being
+// hand-written per tool. This pins the exact title + annotations the default
+// (no `data`, no `allowedTools`) `tools/list` response produced BEFORE that
+// change, so a future edit to the registry's facts (or the derivation logic in
+// `annotationsFromFacts`) that silently changes what an MCP client sees is
+// caught here rather than shipping unnoticed — the exact failure mode this
+// whole retrofit exists to close (see `apply_bulk_update`'s prior
+// destructive-classification drift).
+describe('buildStudioMcpServer — tools/list golden output', () => {
+  const LIST_TOOLS = 'tools/list';
+
+  const EXPECTED_TOOLS: Record<string, { title: string; annotations: Record<string, boolean> }> = {
+    get_dashboard_state: {
+      title: 'Get dashboard state',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    list_pages: {
+      title: 'List pages',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    add_page: {
+      title: 'Add page',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    set_dashboard_title: {
+      title: 'Set dashboard title',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    add_widget: {
+      title: 'Add widget',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    update_widget: {
+      title: 'Update widget',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    remove_widget: {
+      title: 'Remove widget',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    set_widget_layout: {
+      title: 'Set widget layout',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    set_widget_width: {
+      title: 'Set widget width',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    rename_page: {
+      title: 'Rename page',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    remove_page: {
+      title: 'Remove page',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    set_active_page: {
+      title: 'Switch page',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    add_page_filter: {
+      title: 'Add page filter',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    remove_page_filter: {
+      title: 'Remove page filter',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    add_widget_filter: {
+      title: 'Add widget filter',
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    remove_widget_filter: {
+      title: 'Remove widget filter',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    summarise_page: {
+      title: 'Summarise page',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    apply_bulk_update: {
+      title: 'Apply bulk update',
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    rename_thread: {
+      title: 'Rename thread',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    set_widget_forecast: {
+      title: 'Set widget forecast',
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    // Extra (non-STUDIO_AI_TOOLS) tools registered unconditionally.
+    render_chart: {
+      title: 'Render chart',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    get_recent_changes: {
+      title: 'Get recent changes',
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+  };
+
+  it('produces exactly the expected set of tool names (no data source configured)', async () => {
+    const server = buildStudioMcpServer({ current: makeStableState() });
+    const result = (await getHandler(server, LIST_TOOLS)({ params: {}, method: LIST_TOOLS })) as {
+      tools: Array<{ name: string }>;
+    };
+    const names = result.tools.map((t) => t.name).sort();
+    // query_data_source and other data-query tools are excluded (no `data`
+    // option configured).
+    expect(names).toEqual(Object.keys(EXPECTED_TOOLS).sort());
+  });
+
+  it.each(Object.entries(EXPECTED_TOOLS))(
+    'pins the exact title and annotations for %s',
+    async (name, expected) => {
+      const server = buildStudioMcpServer({ current: makeStableState() });
+      const result = (await getHandler(
+        server,
+        LIST_TOOLS,
+      )({
+        params: {},
+        method: LIST_TOOLS,
+      })) as {
+        tools: Array<{ name: string; title?: string; annotations?: Record<string, boolean> }>;
+      };
+      const tool = result.tools.find((t) => t.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.title).toBe(expected.title);
+      expect(tool!.annotations).toEqual(expected.annotations);
+    },
+  );
 });

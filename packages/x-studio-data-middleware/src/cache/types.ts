@@ -48,6 +48,13 @@ export interface CacheEntry {
    * Optional for backward compatibility with entries written before this field.
    */
   tier?: 'client' | 'server' | 'db';
+  /**
+   * Originating row count from the COUNT(*) preflight. Echoed back on a cache
+   * hit so a limit-truncated result reports the same total as the cold miss
+   * (where `rowCount` reflects the preflight, not `rows.length`).
+   * Optional for backward compatibility with entries written before this field.
+   */
+  rowCount?: number;
 }
 
 export interface CacheProvider {

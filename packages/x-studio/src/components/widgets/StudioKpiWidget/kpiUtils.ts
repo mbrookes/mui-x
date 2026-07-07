@@ -3,8 +3,8 @@
  * Extracted here so they can be unit-tested independently of the React component.
  */
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
-import { normalizeToDate } from '../../../internals/chartUtils';
-import { computeDateRangePreset } from '../../../internals/dateRangeUtils';
+import { normalizeToDate } from '../../../internals/temporalUtils';
+import { resolveDateRangePreset } from '../../../internals/filterUtils';
 import {
   isRelativeDateValue,
   relativeToAbsolute,
@@ -90,42 +90,32 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
-  // Handle `operator: 'between'` with a preset or concrete `{ from, to }` value.
-  if (filter.operator === 'between') {
-    // If a non-custom preset is stored, resolve dates fresh from today.
-    let from: unknown;
-    let to: unknown;
+  // Resolve any non-custom date-range preset to a concrete `{ from, to }` value
+  // first — regardless of scope, so a widget-scoped KPI preset is honored the same
+  // as a dashboard-date-range one. Shares the single resolver with the pipeline.
+  const resolved = resolveDateRangePreset(filter);
+
+  // Handle `operator: 'between'` with a concrete `{ from, to }` value.
+  if (resolved.operator === 'between') {
     if (
-      filter.scope.kind === 'dashboard-date-range' &&
-      filter.dateRangePreset &&
-      filter.dateRangePreset !== 'custom'
+      resolved.value !== null &&
+      typeof resolved.value === 'object' &&
+      'from' in (resolved.value as object)
     ) {
-      const resolved = computeDateRangePreset(filter.dateRangePreset);
-      from = resolved.from;
-      to = filter.fieldType === 'datetime' ? `${resolved.to}T23:59:59` : resolved.to;
-    } else if (
-      filter.value !== null &&
-      typeof filter.value === 'object' &&
-      'from' in (filter.value as object)
-    ) {
-      const obj = filter.value as { from?: string; to?: string };
-      from = obj.from;
-      to = obj.to;
-    } else {
-      return null;
-    }
-    const start = toDate(from);
-    const end = toDate(to);
-    if (start && end) {
-      return start <= end ? { start, end } : { start: end, end: start };
+      const obj = resolved.value as { from?: string; to?: string };
+      const start = toDate(obj.from);
+      const end = toDate(obj.to);
+      if (start && end) {
+        return start <= end ? { start, end } : { start: end, end: start };
+      }
     }
     return null;
   }
 
-  const v1 = toDate(filter.value);
-  const v2 = toDate(filter.value2);
+  const v1 = toDate(resolved.value);
+  const v2 = toDate(resolved.value2);
 
-  if (v1 && v2 && filter.conjunction === 'and') {
+  if (v1 && v2 && resolved.conjunction === 'and') {
     const start = v1 < v2 ? v1 : v2;
     const end = v1 < v2 ? v2 : v1;
     return { start, end };
@@ -152,7 +142,10 @@ export function findDateFilter(
   dataSource: StudioDataSource,
 ): StudioFilterState | undefined {
   const relevant = filters.filter(
-    (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range' || (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
+    (f) =>
+      f.scope.kind === 'page' ||
+      f.scope.kind === 'dashboard-date-range' ||
+      (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
   );
   return relevant.find((f) => {
     // Prefer the stored fieldType — reliable even for cross-source filters

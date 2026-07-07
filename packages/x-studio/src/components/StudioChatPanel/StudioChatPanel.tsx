@@ -348,7 +348,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         {sortedThreads.length === 0 && (
           <MenuItem disabled>
             <Typography variant="caption" color="text.secondary">
-              No conversations yet
+              {localeText.chatNoConversationsLabel}
             </Typography>
           </MenuItem>
         )}
@@ -404,9 +404,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             }}
             localeText={{
               // Studio-appropriate empty-state and placeholder text
-              composerInputPlaceholder: 'How can I help?',
-              threadNoMessagesLabel: 'Ask me anything about your dashboard',
-              threadNoMessagesHelperText: 'I can add widgets, analyse your data, and more',
+              composerInputPlaceholder: localeText.chatComposerPlaceholder,
+              threadNoMessagesLabel: localeText.chatEmptyStateTitle,
+              threadNoMessagesHelperText: localeText.chatEmptyStateSubtitle,
               // Consumer overrides last so they can tailor every string
               ...slotProps?.chatBox?.localeText,
             }}
@@ -492,10 +492,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           }}
         >
           <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            AI Assistant
+            {localeText.aiAssistantPanelTitle}
           </Typography>
           {onClose && (
-            <Tooltip title={localeText.aiCloseTooltip}>
+            <Tooltip title={localeText.aiAssistantCloseTooltip}>
               <IconButton
                 size="small"
                 onClick={onClose}

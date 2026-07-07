@@ -564,9 +564,11 @@ export function StudioMapWidget({
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={legendDirection}
-                aria-label={`${valueFieldLabel ?? 'Value'} color scale from ${formatMapValueCompact(
-                  minVal,
-                )} to ${formatMapValueCompact(maxVal)}`}
+                aria-label={localeText.mapLegendAriaLabel(
+                  valueFieldLabel ?? localeText.chartDefaultSeriesLabel,
+                  formatMapValueCompact(minVal),
+                  formatMapValueCompact(maxVal),
+                )}
                 labelPosition="extremes"
                 minLabel={({ value }) => formatMapValueCompact(value as number)}
                 maxLabel={({ value }) => formatMapValueCompact(value as number)}

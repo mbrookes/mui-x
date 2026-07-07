@@ -32,6 +32,7 @@ import {
   buildGanttItems,
 } from '../../../internals/chartAggregation';
 import type { StudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { cachedCompute } from '../../../internals/computedCache';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
@@ -393,7 +394,7 @@ function renderHeatmap(ctx: ChartRenderContext): React.ReactElement {
   if (!heatXField || !heatYField || !heatValueField) {
     return (
       <ChartHintBox height={chartHeight}>
-        Heatmap requires column axis, row axis, and value fields.
+        {ctx.localeText.chartHeatmapRequiresFieldsHint}
       </ChartHintBox>
     );
   }
@@ -402,17 +403,33 @@ function renderHeatmap(ctx: ChartRenderContext): React.ReactElement {
   const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
   const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
   const heatAggregation = (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
-  const heatData = aggregateHeatmap(
+  const heatData = cachedCompute(
     filteredRows,
-    heatXField,
-    heatYField,
-    heatValueField,
-    xGroupBy,
-    heatAggregation,
-    xFieldDef?.orderedValues,
-    yFieldDef?.orderedValues,
-    config.heatSortBy,
-    config.heatSortDirection,
+    JSON.stringify([
+      'heatmap',
+      heatXField,
+      heatYField,
+      heatValueField,
+      xGroupBy,
+      heatAggregation,
+      config.heatSortBy,
+      config.heatSortDirection,
+      xFieldDef?.orderedValues,
+      yFieldDef?.orderedValues,
+    ]),
+    () =>
+      aggregateHeatmap(
+        filteredRows,
+        heatXField,
+        heatYField,
+        heatValueField,
+        xGroupBy,
+        heatAggregation,
+        xFieldDef?.orderedValues,
+        yFieldDef?.orderedValues,
+        config.heatSortBy,
+        config.heatSortDirection,
+      ),
   );
   const heatFormatDef = valueFieldDef?.type
     ? (valueFieldDef as Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>)
@@ -442,7 +459,7 @@ function renderFunnel(ctx: ChartRenderContext): React.ReactElement {
   if (!funnelXField || !funnelValueField) {
     return (
       <ChartHintBox height={chartHeight}>
-        Funnel chart requires a stage field and a value field.
+        {ctx.localeText.chartFunnelRequiresFieldsHint}
       </ChartHintBox>
     );
   }
@@ -454,11 +471,21 @@ function renderFunnel(ctx: ChartRenderContext): React.ReactElement {
   // > 100%). The terminal exit stage (e.g. Closed Lost) is excluded from the
   // sequential math and reported separately. Opt-in via `funnelReachedField`.
   if (config.funnelReachedField && config.funnelStageSequence) {
-    const reached = aggregateFunnelReached(
+    const reached = cachedCompute(
       filteredRows,
-      funnelXField,
-      config.funnelReachedField,
-      config.funnelStageSequence,
+      JSON.stringify([
+        'funnelReached',
+        funnelXField,
+        config.funnelReachedField,
+        config.funnelStageSequence,
+      ]),
+      () =>
+        aggregateFunnelReached(
+          filteredRows,
+          funnelXField,
+          config.funnelReachedField!,
+          config.funnelStageSequence!,
+        ),
     );
 
     return (
@@ -476,14 +503,27 @@ function renderFunnel(ctx: ChartRenderContext): React.ReactElement {
   }
 
   const fieldOrderedValues = dataSource?.fields.find((f) => f.id === funnelXField)?.orderedValues;
-  const { stages, sort } = buildFunnelStages(
+  const { stages, sort } = cachedCompute(
     filteredRows,
-    funnelXField,
-    funnelValueField,
-    config.yAggregation,
-    config.chartSortBy,
-    config.funnelCategoryOrder,
-    fieldOrderedValues,
+    JSON.stringify([
+      'funnelStages',
+      funnelXField,
+      funnelValueField,
+      config.yAggregation,
+      config.chartSortBy,
+      config.funnelCategoryOrder,
+      fieldOrderedValues,
+    ]),
+    () =>
+      buildFunnelStages(
+        filteredRows,
+        funnelXField,
+        funnelValueField,
+        config.yAggregation,
+        config.chartSortBy,
+        config.funnelCategoryOrder,
+        fieldOrderedValues,
+      ),
   );
 
   // Auto-default label placement to outside-end when conversion format is chosen.
@@ -518,17 +558,16 @@ function renderSankey(ctx: ChartRenderContext): React.ReactElement {
   if (!sankeySourceField || !sankeyTargetField || !sankeyValueField) {
     return (
       <ChartHintBox height={chartHeight}>
-        Sankey chart requires source, target, and value fields.
+        {ctx.localeText.chartSankeyRequiresFieldsHint}
       </ChartHintBox>
     );
   }
 
   const valueFieldDef = dataSource?.fields.find((f) => f.id === sankeyValueField);
-  const sankeyData = aggregateSankey(
+  const sankeyData = cachedCompute(
     filteredRows,
-    sankeySourceField,
-    sankeyTargetField,
-    sankeyValueField,
+    JSON.stringify(['sankey', sankeySourceField, sankeyTargetField, sankeyValueField]),
+    () => aggregateSankey(filteredRows, sankeySourceField, sankeyTargetField, sankeyValueField),
   );
   if (sankeyData.links.length === 0) {
     return <StudioNoDataOverlay height={chartHeight} />;
@@ -558,17 +597,15 @@ function renderGantt(ctx: ChartRenderContext): React.ReactElement {
   if (!labelField || !startField || !endField) {
     return (
       <ChartHintBox height={chartHeight}>
-        Gantt chart requires a label field, start date field, and end date field.
+        {ctx.localeText.chartGanttRequiresFieldsHint}
       </ChartHintBox>
     );
   }
 
-  const { items, categories } = buildGanttItems(
+  const { items, categories } = cachedCompute(
     filteredRows,
-    labelField,
-    startField,
-    endField,
-    colorField,
+    JSON.stringify(['gantt', labelField, startField, endField, colorField]),
+    () => buildGanttItems(filteredRows, labelField, startField, endField, colorField),
   );
 
   return <StudioGanttChart items={items} height={chartHeight} categories={categories} />;
@@ -587,7 +624,11 @@ function renderGauge(ctx: ChartRenderContext): React.ReactElement {
   }
 
   const gaugeAggregation = config.yAggregation ?? 'sum';
-  const gaugeValue = computeAggregate(filteredRows, gaugeValueField, gaugeAggregation);
+  const gaugeValue = cachedCompute(
+    filteredRows,
+    JSON.stringify(['gauge', gaugeValueField, gaugeAggregation]),
+    () => computeAggregate(filteredRows, gaugeValueField, gaugeAggregation),
+  );
 
   return (
     <StudioGaugeChart

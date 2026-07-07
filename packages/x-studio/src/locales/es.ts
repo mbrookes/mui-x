@@ -63,6 +63,10 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetDeleteTooltip: 'Eliminar widget',
   widgetAiAssistantTooltip: 'Asistente de IA',
   widgetAiInsightTooltip: 'Información de IA',
+  widgetAiRefreshTooltip: 'Actualizar contenido de IA',
+  widgetInsightTypeSummary: 'Resumen',
+  widgetInsightTypeAnalysis: 'Análisis',
+  widgetInsightTypeForecast: 'Pronóstico',
   widgetDetectAnomalyTooltip: 'Detectar anomalías',
   widgetHideAnomalyTooltip: 'Ocultar anomalías',
   widgetExplainAnomalyTooltip: 'Explicar anomalías',
@@ -78,6 +82,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   aiAssistantOpenTooltip: 'Abrir asistente de IA',
   aiAssistantCloseTooltip: 'Cerrar asistente de IA',
   aiCloseTooltip: 'Cerrar',
+  aiAssistantPanelTitle: 'Asistente de IA',
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Cerrar configuración del widget',
@@ -756,6 +761,14 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // Chart widget
   chartMixedRequiresFieldsHint: 'El gráfico mixto requiere 2 o más campos de medida.',
   chartDefaultSeriesLabel: 'Valor',
+  chartHeatmapRequiresFieldsHint:
+    'El mapa de calor requiere campos de eje de columnas, eje de filas y valor.',
+  chartFunnelRequiresFieldsHint:
+    'El gráfico de embudo requiere un campo de etapa y un campo de valor.',
+  chartSankeyRequiresFieldsHint:
+    'El diagrama de Sankey requiere campos de origen, destino y valor.',
+  chartGanttRequiresFieldsHint:
+    'El diagrama de Gantt requiere un campo de etiqueta, un campo de fecha de inicio y uno de fecha de fin.',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -795,6 +808,10 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionWhatDataAvailable: '¿Qué datos están disponibles?',
   chatNewConversationName: 'Nueva conversación',
   chatSwitchConversationTooltip: 'Cambiar conversación',
+  chatNoConversationsLabel: 'Aún no hay conversaciones',
+  chatComposerPlaceholder: '¿Cómo puedo ayudar?',
+  chatEmptyStateTitle: 'Pregúnteme lo que quiera sobre su panel',
+  chatEmptyStateSubtitle: 'Puedo añadir widgets, analizar sus datos y más',
   chatVoiceInputStart: 'Iniciar entrada de voz',
   chatVoiceInputStop: 'Detener la entrada de voz',
   chatVoiceInputNotSupported: 'La entrada de voz no es compatible con este navegador',
@@ -879,6 +896,15 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetDeleteConfirmMessage: 'Este widget se eliminará permanentemente de la página.',
   widgetDeleteConfirmOk: 'Eliminar',
   widgetDeleteConfirmCancel: 'Cancelar',
+
+  // Canvas empty state
+  canvasEmptyTitle: 'El lienzo está vacío',
+  canvasEmptyEditModeHint: 'Use el panel Componer para añadir widgets o arrástrelos aquí.',
+  canvasEmptyViewModeHint: 'Cambie al modo de edición para añadir widgets.',
+
+  // Map widget legend
+  mapLegendAriaLabel: (fieldLabel, min, max) =>
+    `Escala de colores de ${fieldLabel} de ${min} a ${max}`,
 };
 
 export const es: Localization = getStudioLocalization(esLocaleText);

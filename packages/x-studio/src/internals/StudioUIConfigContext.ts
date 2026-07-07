@@ -97,6 +97,14 @@ export interface StudioLocaleText {
   widgetDeleteTooltip: string;
   widgetAiAssistantTooltip: string;
   widgetAiInsightTooltip: string;
+  /** Tooltip and aria-label for the "refresh AI content" action. */
+  widgetAiRefreshTooltip: string;
+  /** Label for the "Summary" AI insight type menu item. */
+  widgetInsightTypeSummary: string;
+  /** Label for the "Analysis" AI insight type menu item. */
+  widgetInsightTypeAnalysis: string;
+  /** Label for the "Forecast" AI insight type menu item. */
+  widgetInsightTypeForecast: string;
   widgetDetectAnomalyTooltip: string;
   widgetHideAnomalyTooltip: string;
   widgetExplainAnomalyTooltip: string;
@@ -117,6 +125,8 @@ export interface StudioLocaleText {
   aiAssistantCloseTooltip: string;
   /** Tooltip on the close button inside the chat panel header. */
   aiCloseTooltip: string;
+  /** Title shown in the AI assistant chat panel header. */
+  aiAssistantPanelTitle: string;
 
   // ── Drawer panel / sidebar ────────────────────────────────────────────────
   drawerPanelCloseAriaLabel: string;
@@ -841,6 +851,14 @@ export interface StudioLocaleText {
   chartMixedRequiresFieldsHint: string;
   /** Fallback series label when no field label is available */
   chartDefaultSeriesLabel: string;
+  /** Hint shown when a heatmap chart is missing required fields */
+  chartHeatmapRequiresFieldsHint: string;
+  /** Hint shown when a funnel chart is missing required fields */
+  chartFunnelRequiresFieldsHint: string;
+  /** Hint shown when a sankey chart is missing required fields */
+  chartSankeyRequiresFieldsHint: string;
+  /** Hint shown when a gantt chart is missing required fields */
+  chartGanttRequiresFieldsHint: string;
 
   // ── Map widget ────────────────────────────────────────────────────────────
   /** Returns the unconfigured-map hint, e.g. "Use the Setup tab to choose a country field and a value field." */
@@ -878,6 +896,14 @@ export interface StudioLocaleText {
   chatNewConversationName: string;
   /** Tooltip on the thread-switcher button */
   chatSwitchConversationTooltip: string;
+  /** Label shown in the thread-switcher menu when there are no conversations yet */
+  chatNoConversationsLabel: string;
+  /** Placeholder text for the chat composer input */
+  chatComposerPlaceholder: string;
+  /** Title shown in the empty chat thread state */
+  chatEmptyStateTitle: string;
+  /** Subtitle shown in the empty chat thread state */
+  chatEmptyStateSubtitle: string;
   /** Tooltip on the mic button when voice input is inactive */
   chatVoiceInputStart: string;
   /** Tooltip on the mic button when voice input is active (click to stop) */
@@ -1071,6 +1097,12 @@ export interface StudioLocaleText {
   canvasWidgetMovedAnnouncement: string;
   /** Live-region announcement after a widget is added to the canvas */
   canvasWidgetAddedAnnouncement: string;
+  /** Title shown when the canvas has no widgets */
+  canvasEmptyTitle: string;
+  /** Hint shown under the empty-canvas title in edit mode */
+  canvasEmptyEditModeHint: string;
+  /** Hint shown under the empty-canvas title in view mode */
+  canvasEmptyViewModeHint: string;
   /** Text alternative for the gantt chart */
   ganttChartAriaLabel: (itemCount: number, from: string, to: string, details: string) => string;
   /** Text alternative for the sankey diagram */
@@ -1093,6 +1125,8 @@ export interface StudioLocaleText {
   ) => string;
   /** Text alternative for the data-lineage graph */
   lineageGraphAriaLabel: (sourceCount: number, relationshipCount: number) => string;
+  /** aria-label for the map color-scale legend, e.g. "Revenue color scale from 0 to 100" */
+  mapLegendAriaLabel: (fieldLabel: string, min: string, max: string) => string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1166,6 +1200,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetDeleteTooltip: 'Delete widget',
   widgetAiAssistantTooltip: 'AI assistant',
   widgetAiInsightTooltip: 'AI insight',
+  widgetAiRefreshTooltip: 'Refresh AI content',
+  widgetInsightTypeSummary: 'Summary',
+  widgetInsightTypeAnalysis: 'Analysis',
+  widgetInsightTypeForecast: 'Forecast',
   widgetDetectAnomalyTooltip: 'Detect anomalies',
   widgetHideAnomalyTooltip: 'Hide anomalies',
   widgetExplainAnomalyTooltip: 'Explain anomalies',
@@ -1181,6 +1219,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiAssistantOpenTooltip: 'Open AI assistant',
   aiAssistantCloseTooltip: 'Close AI assistant',
   aiCloseTooltip: 'Close',
+  aiAssistantPanelTitle: 'AI Assistant',
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Close widget configuration',
@@ -1888,6 +1927,11 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Chart widget
   chartMixedRequiresFieldsHint: 'Mixed chart requires 2 or more measure fields.',
   chartDefaultSeriesLabel: 'Value',
+  chartHeatmapRequiresFieldsHint: 'Heatmap requires column axis, row axis, and value fields.',
+  chartFunnelRequiresFieldsHint: 'Funnel chart requires a stage field and a value field.',
+  chartSankeyRequiresFieldsHint: 'Sankey chart requires source, target, and value fields.',
+  chartGanttRequiresFieldsHint:
+    'Gantt chart requires a label field, start date field, and end date field.',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -1914,6 +1958,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionWhatDataAvailable: 'What data is available?',
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
+  chatNoConversationsLabel: 'No conversations yet',
+  chatComposerPlaceholder: 'How can I help?',
+  chatEmptyStateTitle: 'Ask me anything about your dashboard',
+  chatEmptyStateSubtitle: 'I can add widgets, analyse your data, and more',
   chatVoiceInputStart: 'Start voice input',
   chatVoiceInputStop: 'Stop voice input',
   chatVoiceInputNotSupported: 'Voice input is not supported in this browser',
@@ -2044,6 +2092,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Column resized to ${span} of ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget moved',
   canvasWidgetAddedAnnouncement: 'Widget added',
+  canvasEmptyTitle: 'Canvas is empty',
+  canvasEmptyEditModeHint: 'Use the Compose panel to add widgets or drag them here.',
+  canvasEmptyViewModeHint: 'Switch to Edit mode to add widgets.',
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Gantt chart with ${itemCount} ${
       itemCount === 1 ? 'item' : 'items'
@@ -2070,6 +2121,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Data relationship graph with ${sourceCount} ${
       sourceCount === 1 ? 'source' : 'sources'
     } and ${relationshipCount} ${relationshipCount === 1 ? 'relationship' : 'relationships'}.`,
+  mapLegendAriaLabel: (fieldLabel, min, max) => `${fieldLabel} color scale from ${min} to ${max}`,
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

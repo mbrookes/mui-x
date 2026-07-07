@@ -2,6 +2,8 @@ import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
+import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { frLocaleText } from '../../locales/fr';
 import {
   StudioWidgetCardActionsOverlay,
   type StudioWidgetCardActionsOverlayProps,
@@ -9,7 +11,10 @@ import {
 
 const { render } = createRenderer();
 
-function setup(overrides: Partial<StudioWidgetCardActionsOverlayProps> = {}) {
+function setup(
+  overrides: Partial<StudioWidgetCardActionsOverlayProps> = {},
+  localeText?: Partial<StudioLocaleText>,
+) {
   const handlers = {
     onExport: vi.fn(),
     onExpand: vi.fn(),
@@ -31,7 +36,7 @@ function setup(overrides: Partial<StudioWidgetCardActionsOverlayProps> = {}) {
     ...handlers,
     ...overrides,
   };
-  const { wrapper } = createStudioHarness();
+  const { wrapper } = createStudioHarness({ providerProps: { localeText } });
   const view = render(<StudioWidgetCardActionsOverlay {...props} />, { wrapper });
   return { ...view, ...handlers };
 }
@@ -105,6 +110,36 @@ describe('StudioWidgetCardActionsOverlay — edit mode', () => {
     await user.click(screen.getByRole('button', { name: 'AI insight' }));
     await user.click(screen.getByRole('menuitem', { name: 'Forecast' }));
     expect(onInsightRequest).toHaveBeenCalledWith('forecast');
+  });
+
+  it('shows the AI-refresh action with the default tooltip/aria-label', async () => {
+    const onAiRefresh = vi.fn();
+    const { user } = setup({ onAiRefresh });
+    await user.click(screen.getByRole('button', { name: 'Refresh AI content' }));
+    expect(onAiRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('localizes the AI-refresh tooltip/aria-label instead of hardcoding English', () => {
+    setup({ onAiRefresh: vi.fn() }, frLocaleText);
+    expect(screen.getByRole('button', { name: frLocaleText.widgetAiRefreshTooltip })).not.toBe(
+      null,
+    );
+    expect(screen.queryByRole('button', { name: 'Refresh AI content' })).toBe(null);
+  });
+
+  it('localizes the insight-type menu item labels instead of hardcoding capitalized English', async () => {
+    const { user } = setup({ onInsightRequest: vi.fn(), supportsForecast: true }, frLocaleText);
+    await user.click(screen.getByRole('button', { name: frLocaleText.widgetAiInsightTooltip }));
+    expect(screen.getByRole('menuitem', { name: frLocaleText.widgetInsightTypeSummary })).not.toBe(
+      null,
+    );
+    expect(screen.getByRole('menuitem', { name: frLocaleText.widgetInsightTypeAnalysis })).not.toBe(
+      null,
+    );
+    expect(screen.getByRole('menuitem', { name: frLocaleText.widgetInsightTypeForecast })).not.toBe(
+      null,
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Summary' })).toBe(null);
   });
 });
 

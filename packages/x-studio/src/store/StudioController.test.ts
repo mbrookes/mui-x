@@ -1938,3 +1938,511 @@ describe('StudioController.updateWidgetConfig — reducer default label (D1)', (
     expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['updateWidget:text1']);
   });
 });
+
+// ─── Step A (2.3): helpers + mechanical routing preserved semantics ──────────
+
+describe('StudioController — commit*Patch routing (2.3)', () => {
+  it('setPageStackBreakpoint stays undoable after routing through commitDocPatch', () => {
+    const controller = new StudioController();
+    expect(controller.canUndo()).toBe(false);
+    controller.setPageStackBreakpoint(600);
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(
+      controller.getState().doc.pages[controller.getState().doc.dashboard.activePageId]
+        .stackBreakpoint,
+    ).toBeUndefined();
+  });
+
+  it('shell writers stay non-undoable and leave the doc reference untouched', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+
+    controller.toggleDrawer('filters');
+
+    const after = controller.getState();
+    // Only session changed; the doc partition is the SAME reference.
+    expect(after.doc).toBe(before.doc);
+    expect(after.session.shell.openDrawers.filters).toBe(true);
+    expect(controller.canUndo()).toBe(undoBefore);
+  });
+
+  it('updateDataSourceField on an unknown sourceId is a state-reference no-op', () => {
+    const controller = new StudioController();
+    const before = controller.getState();
+    controller.updateDataSourceField('nope', 'field', { label: 'X' });
+    expect(controller.getState()).toBe(before);
+  });
+
+  it('setDataSourceAdapter on an unknown sourceId is a state-reference no-op', () => {
+    const controller = new StudioController();
+    const before = controller.getState();
+    controller.setDataSourceAdapter('nope', undefined);
+    expect(controller.getState()).toBe(before);
+  });
+});
+
+// ─── Step B (1.6): identity-preserving no-op writers ─────────────────────────
+// Each writer, called with an unknown/rejected target, must be a clean no-op:
+// same state reference, no undo entry, no mutation-log line. A single anchor
+// commit precedes each so a final undo proves the no-op added no step.
+
+describe('StudioController — identity-preserving no-op writers (1.6)', () => {
+  function relationship(id: string) {
+    return {
+      id,
+      sourceId: 'a',
+      sourceField: 'x',
+      targetId: 'b',
+      targetField: 'y',
+      type: 'many-to-one' as const,
+    };
+  }
+
+  const expressionField = {
+    id: 'ef1',
+    label: 'Margin',
+    expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+    sourceId: 'orders',
+    type: 'number' as const,
+    isMeasure: false,
+  };
+
+  function assertNoOp(controller: StudioController, act: () => void) {
+    controller.setDashboardTitle('anchor');
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+    const logBefore = controller.getRecentMutations();
+
+    act();
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(undoBefore);
+    expect(controller.getRecentMutations()).toEqual(logBefore);
+    // A single undo reverts only the anchor — proving the no-op added no step.
+    expect(controller.undo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+  }
+
+  it('updateFilter with an unknown id is a no-op', () => {
+    const controller = new StudioController({ doc: { filters: [makeFilter({ id: 'f1' })] } });
+    assertNoOp(controller, () => controller.updateFilter('does-not-exist', { value: 'x' }));
+  });
+
+  it('a rejected rank change is a no-op (no undo entry, no log line)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController({
+      doc: {
+        filters: [
+          makeFilter({ id: 'rank-filter', filterMode: 'rank', rankDirection: 'top', value: 10 }),
+          makeFilter({ id: 'condition-filter', filterMode: 'condition', value: 'foo' }),
+        ],
+      },
+    });
+    controller.setDashboardTitle('anchor');
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+    const logBefore = controller.getRecentMutations();
+
+    controller.updateFilter('condition-filter', {
+      filterMode: 'rank',
+      value: 5,
+      rankDirection: 'top',
+    });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(undoBefore);
+    expect(controller.getRecentMutations()).toEqual(logBefore);
+  });
+
+  it('toggleFilter with an unknown id is a no-op', () => {
+    const controller = new StudioController({ doc: { filters: [makeFilter({ id: 'f1' })] } });
+    assertNoOp(controller, () => controller.toggleFilter('does-not-exist'));
+  });
+
+  it('updateRelationship / removeRelationship with an unknown id are no-ops', () => {
+    const controller = new StudioController({ doc: { relationships: [relationship('r1')] } });
+    assertNoOp(controller, () => {
+      controller.updateRelationship('nope', { targetId: 'z' });
+      controller.removeRelationship('nope');
+    });
+  });
+
+  it('deleteFilterPreset / renameFilterPreset with an unknown id are no-ops', () => {
+    const controller = new StudioController({
+      doc: { filterPresets: [{ id: 'p1', name: 'Preset', filters: [] }] },
+    });
+    assertNoOp(controller, () => {
+      controller.deleteFilterPreset('nope');
+      controller.renameFilterPreset('nope', 'X');
+    });
+  });
+
+  it('removeExpressionField with an unknown id is a no-op', () => {
+    const controller = new StudioController({ doc: { expressionFields: [expressionField] } });
+    assertNoOp(controller, () => controller.removeExpressionField('nope'));
+  });
+
+  it('reorderPages with the current order is a no-op but a genuine reorder still commits', () => {
+    const build = () =>
+      new StudioController({
+        doc: {
+          dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+          pages: {
+            'page-1': { id: 'page-1', title: 'One', widgetRows: [] },
+            'page-2': { id: 'page-2', title: 'Two', widgetRows: [] },
+          },
+        },
+      });
+
+    const noop = build();
+    assertNoOp(noop, () => noop.reorderPages(['page-1', 'page-2']));
+
+    const reordered = build();
+    reordered.setDashboardTitle('anchor');
+    const undoBefore = reordered.canUndo();
+    reordered.reorderPages(['page-2', 'page-1']);
+    expect(Object.keys(reordered.getState().doc.pages)).toEqual(['page-2', 'page-1']);
+    expect(reordered.canUndo()).toBe(undoBefore); // still true — but a NEW step was added
+    reordered.undo(); // reverts the reorder
+    expect(Object.keys(reordered.getState().doc.pages)).toEqual(['page-1', 'page-2']);
+  });
+});
+
+// ─── Step C (1.7): per-page rank-filter uniqueness scope ─────────────────────
+// A rank filter is unique PER PAGE, not dashboard-wide: page filters gate on
+// `pageId === activePageId` and widget rank filters are per-widget, so a rank
+// filter on page-1 must not block one on page-2.
+
+describe('StudioController.updateFilter — per-page rank scope (1.7)', () => {
+  function twoPageController(filters: StudioFilterState[]) {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
+        },
+        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
+        filters,
+      },
+    });
+  }
+
+  it('allows a rank filter on a different page than an existing one', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      makeFilter({
+        id: 'rank-1',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'page', pageId: 'page-1' },
+      }),
+      makeFilter({
+        id: 'cond-2',
+        filterMode: 'condition',
+        value: 'foo',
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    ]);
+
+    controller.updateFilter('cond-2', { filterMode: 'rank', value: 5, rankDirection: 'top' });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    expect(controller.getState().doc.filters.find((f) => f.id === 'cond-2')?.filterMode).toBe(
+      'rank',
+    );
+  });
+
+  it('still rejects a second rank filter on the SAME page', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      makeFilter({
+        id: 'rank-1',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'page', pageId: 'page-1' },
+      }),
+      makeFilter({
+        id: 'cond-1',
+        filterMode: 'condition',
+        value: 'foo',
+        scope: { kind: 'page', pageId: 'page-1' },
+      }),
+    ]);
+
+    controller.updateFilter('cond-1', { filterMode: 'rank', value: 5, rankDirection: 'top' });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+    expect(controller.getState().doc.filters.find((f) => f.id === 'cond-1')?.filterMode).toBe(
+      'condition',
+    );
+  });
+
+  it('a pageId-less page rank filter conflicts on every page', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      // No pageId → applies everywhere → conflicts everywhere.
+      makeFilter({
+        id: 'rank-global',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'page' },
+      }),
+      makeFilter({
+        id: 'cond-2',
+        filterMode: 'condition',
+        value: 'foo',
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    ]);
+
+    controller.updateFilter('cond-2', { filterMode: 'rank', value: 5, rankDirection: 'top' });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+    expect(controller.getState().doc.filters.find((f) => f.id === 'cond-2')?.filterMode).toBe(
+      'condition',
+    );
+  });
+
+  it('a widget rank filter blocks only its own page', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      // Rank filter on w1, which lives on page-1.
+      makeFilter({
+        id: 'rank-w1',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'widget', widgetId: 'w1' },
+      }),
+      makeFilter({
+        id: 'cond-p1',
+        filterMode: 'condition',
+        value: 'foo',
+        scope: { kind: 'page', pageId: 'page-1' },
+      }),
+      makeFilter({
+        id: 'cond-p2',
+        filterMode: 'condition',
+        value: 'bar',
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    ]);
+
+    // Same page as the widget rank filter → rejected.
+    controller.updateFilter('cond-p1', { filterMode: 'rank', value: 5, rankDirection: 'top' });
+    expect(controller.getState().doc.filters.find((f) => f.id === 'cond-p1')?.filterMode).toBe(
+      'condition',
+    );
+    expect(warnSpy).toHaveBeenCalledOnce();
+
+    // Different page → allowed.
+    controller.updateFilter('cond-p2', { filterMode: 'rank', value: 3, rankDirection: 'top' });
+    expect(controller.getState().doc.filters.find((f) => f.id === 'cond-p2')?.filterMode).toBe(
+      'rank',
+    );
+    expect(warnSpy).toHaveBeenCalledOnce(); // no further warning
+    warnSpy.mockRestore();
+  });
+});
+
+// ─── Step D (2.1 + 1.8): duplicateWidget rewrite ─────────────────────────────
+
+describe('StudioController.duplicateWidget — rewrite (2.1 + 1.8)', () => {
+  it('is a clean no-op when the active page is missing (1.8)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const state = controller.getState();
+    // Point the dashboard at a page that does not exist.
+    controller.updateState({
+      doc: { dashboard: { ...state.doc.dashboard, activePageId: 'ghost' } },
+    });
+    const before = controller.getState();
+    // Must NOT throw a TypeError reading `activePage.widgetRows`; must no-op.
+    controller.duplicateWidget('w1');
+    expect(controller.getState()).toBe(before);
+  });
+
+  it('mints collision-free ids under rapid synchronous duplication (2.1)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.duplicateWidget('w1');
+    controller.duplicateWidget('w1');
+    const ids = Object.keys(controller.getState().doc.widgets);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('collapses the duplicate (widget + cloned filters) into a single undo step', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.setWidgetDateRange('w1', 'orderDate', 'src1', 'date', 'last_3_months');
+    const filtersBefore = controller.getState().doc.filters.length;
+
+    controller.duplicateWidget('w1');
+    expect(Object.keys(controller.getState().doc.widgets)).toHaveLength(2);
+    expect(controller.getState().doc.filters).toHaveLength(filtersBefore + 1);
+
+    controller.undo();
+    expect(Object.keys(controller.getState().doc.widgets)).toHaveLength(1);
+    expect(controller.getState().doc.filters).toHaveLength(filtersBefore);
+  });
+
+  it('remaps a managed date-range filter id to the copy so setWidgetDateRange replaces it', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.setWidgetDateRange('w1', 'orderDate', 'src1', 'date', 'last_3_months');
+
+    controller.duplicateWidget('w1');
+    const copyId = Object.keys(controller.getState().doc.widgets).find((id) => id !== 'w1')!;
+    const clonedDate = controller
+      .getState()
+      .doc.filters.find((f) => f.scope.kind === 'widget' && f.scope.widgetId === copyId);
+    expect(clonedDate?.id).toBe(`widget-date-range-${copyId}`);
+
+    // Setting the copy's date range must REPLACE the cloned managed filter, not stack.
+    controller.setWidgetDateRange(copyId, 'orderDate', 'src1', 'date', 'this_month');
+    const copyDateFilters = controller
+      .getState()
+      .doc.filters.filter((f) => f.id === `widget-date-range-${copyId}`);
+    expect(copyDateFilters).toHaveLength(1);
+    expect(copyDateFilters[0].dateRangePreset).toBe('this_month');
+  });
+
+  it('writes no mutation-log line (parity pin, label: null)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const logBefore = controller.getRecentMutations().length;
+    controller.duplicateWidget('w1');
+    expect(controller.getRecentMutations().length).toBe(logBefore);
+  });
+
+  it('runs the reducer col-span normalization (row spans stay within GRID_COLS)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1', 'w2']]);
+    controller.setAdjacentWidgetColSpans('w1', 12, 'w2', 12); // sum to GRID_COLS
+
+    controller.duplicateWidget('w1');
+    const activePageId = controller.getState().doc.dashboard.activePageId;
+    const page = controller.getState().doc.pages[activePageId];
+    const spans = page.widgetColSpans ?? {};
+    const row = page.widgetRows.find((r) => r.includes('w1'))!;
+    const sum = row.reduce((acc, id) => acc + (spans[id] ?? 0), 0);
+    expect(sum).toBeLessThanOrEqual(GRID_COLS);
+  });
+});
+
+// ─── Step E (1.1): transient doc state vs. undo/redo ─────────────────────────
+
+describe('StudioController — transient doc state across undo/redo (1.1)', () => {
+  it('carries an interactive filter across undo, and prunes it when its source widget is reverted away', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('fw', { kind: 'filter' })); // undoable step 1
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']); // non-undoable
+    controller.addWidget(makeWidget('w2')); // undoable step 2
+
+    // Undo step 2: the filter widget still exists → the interactive filter survives.
+    controller.undo();
+    expect(
+      controller
+        .getState()
+        .doc.filters.some((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === 'fw'),
+    ).toBe(true);
+
+    // Undo step 1 (removes the filter widget): the interactive filter now dangles → pruned.
+    controller.undo();
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'interactive')).toBe(
+      false,
+    );
+  });
+
+  it('redo does not destroy a transient selection applied after the undo', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1')); // undoable
+    controller.setDashboardTitle('New'); // undoable
+    controller.undo(); // reverts the title
+
+    // A transient interactive filter selection lands AFTER the undo.
+    controller.applyInteractiveFilter('w1', 'category', 'in', ['Books']);
+    expect(controller.canRedo()).toBe(true); // non-undoable action did NOT clear redo
+
+    controller.redo(); // reapplies the title
+    expect(controller.getState().doc.dashboard.title).toBe('New');
+    // ...and the interactive filter is preserved, exactly once (not resurrected/duplicated).
+    expect(
+      controller.getState().doc.filters.filter((f) => f.scope.kind === 'interactive'),
+    ).toHaveLength(1);
+
+    controller.undo(); // reverts the title again
+    expect(controller.getState().doc.dashboard.title).not.toBe('New');
+    expect(
+      controller.getState().doc.filters.filter((f) => f.scope.kind === 'interactive'),
+    ).toHaveLength(1);
+  });
+
+  it('does not resurrect a cleared selection on undo', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1')); // selects w1
+    controller.setDashboardTitle('New'); // undoable
+    controller.clearSelection();
+
+    controller.undo();
+    expect(controller.getState().session.shell.selectedWidgetId).toBeNull();
+  });
+
+  it('carries dashboard cross-filter toggles across undo and redo without an undo step', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Anchor'); // the only undoable step
+    controller.setGlobalCrossFilterMode('cross-filter'); // non-undoable
+    controller.setCrossFilterAllPages(true); // non-undoable
+
+    controller.undo(); // reverts the title
+    expect(controller.getState().doc.dashboard.globalCrossFilterMode).toBe('cross-filter');
+    expect(controller.getState().doc.dashboard.crossFilterAllPages).toBe(true);
+    expect(controller.getState().doc.dashboard.title).not.toBe('Anchor');
+    // The toggles were not undo steps: nothing left to undo.
+    expect(controller.canUndo()).toBe(false);
+
+    controller.redo(); // reapplies the title
+    expect(controller.getState().doc.dashboard.title).toBe('Anchor');
+    expect(controller.getState().doc.dashboard.globalCrossFilterMode).toBe('cross-filter');
+    expect(controller.getState().doc.dashboard.crossFilterAllPages).toBe(true);
+  });
+
+  it('restores a deep-equal doc on undo when there is no transient state', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const docAfterAdd = controller.getState().doc;
+    controller.setDashboardTitle('New');
+
+    controller.undo();
+    expect(controller.getState().doc).toEqual(docAfterAdd);
+  });
+
+  it('still time-travels cross-filters (undoable), unlike interactive filters', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { kind: 'chart' }));
+    controller.applyCrossFilter('w1', 'category', 'Books'); // undoable
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      true,
+    );
+
+    controller.undo(); // cross-filters ARE time-travelled → reverted
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      false,
+    );
+  });
+});

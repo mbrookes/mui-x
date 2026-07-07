@@ -94,6 +94,24 @@ function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
   return isRecord(value) && Object.values(value).every((v) => isFiniteNumber(v));
 }
 
+/**
+ * Object keys that are unsafe to copy into a record the reducer rebuilds via bracket
+ * assignment (`record[key] = value`) — mirrors `applyMutation.ts`'s `UNSAFE_KEYS`.
+ */
+const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * True when `record` carries one of the prototype-polluting keys as an OWN property.
+ * The reducer rebuilds `updateWidget.config`/`changes` and `applyBulkUpdate`'s
+ * `widgetColSpans` key-by-key, so a payload carrying `__proto__` as a real own key
+ * (e.g. `JSON.parse('{"__proto__":…}')`, where it IS an own property rather than the
+ * prototype accessor) is rejected here at the wire boundary. The reducer's own
+ * `isSafePatchKey` guard is the defense-in-depth backstop for server-built mutations.
+ */
+function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
+  return Object.keys(record).some((key) => UNSAFE_KEYS.has(key));
+}
+
 // ── Nested-structure validators ─────────────────────────────────────────────────
 
 /**
@@ -217,11 +235,21 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     if (!isSafeId(args.widgetId)) {
       return "updateWidget.args.widgetId must be a string id and not '__proto__'/'constructor'/'prototype'";
     }
-    if (args.changes !== undefined && !isRecord(args.changes)) {
-      return 'updateWidget.args.changes must be an object when present';
+    if (args.changes !== undefined) {
+      if (!isRecord(args.changes)) {
+        return 'updateWidget.args.changes must be an object when present';
+      }
+      if (hasUnsafeOwnKeys(args.changes)) {
+        return "updateWidget.args.changes must not carry a '__proto__'/'constructor'/'prototype' key";
+      }
     }
-    if (args.config !== undefined && !isRecord(args.config)) {
-      return 'updateWidget.args.config must be an object when present';
+    if (args.config !== undefined) {
+      if (!isRecord(args.config)) {
+        return 'updateWidget.args.config must be an object when present';
+      }
+      if (hasUnsafeOwnKeys(args.config)) {
+        return "updateWidget.args.config must not carry a '__proto__'/'constructor'/'prototype' key";
+      }
     }
     // The wire-safe field/config-key clear affordance. Both are arrays of KEY
     // NAMES (a `delete` target, never a `record[key] = value` set), so an entry
@@ -330,8 +358,13 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       if (update.sourceId !== undefined && !isString(update.sourceId)) {
         return `${at}.sourceId must be a string when present`;
       }
-      if (update.config !== undefined && !isRecord(update.config)) {
-        return `${at}.config must be an object when present`;
+      if (update.config !== undefined) {
+        if (!isRecord(update.config)) {
+          return `${at}.config must be an object when present`;
+        }
+        if (hasUnsafeOwnKeys(update.config)) {
+          return `${at}.config must not carry a '__proto__'/'constructor'/'prototype' key`;
+        }
       }
     }
     if (!isStringMatrix(args.widgetRows)) {
@@ -339,6 +372,12 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     }
     if (!isFiniteNumberRecord(args.widgetColSpans)) {
       return 'applyBulkUpdate.args.widgetColSpans must be a Record<string, number>';
+    }
+    // The reducer rebuilds `widgetColSpans` key-by-key, so an unsafe own key here
+    // (e.g. `JSON.parse('{"__proto__":6}')`) is rejected even though it passes the
+    // finite-number-record shape check above.
+    if (hasUnsafeOwnKeys(args.widgetColSpans)) {
+      return "applyBulkUpdate.args.widgetColSpans must not carry a '__proto__'/'constructor'/'prototype' key";
     }
     if (!isSafeId(args.activePageId)) {
       return "applyBulkUpdate.args.activePageId must be a string id and not '__proto__'/'constructor'/'prototype'";

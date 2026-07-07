@@ -22,18 +22,27 @@ export function isoWeek(d: Date): { year: number; week: number } {
  * Parses a date-like value into UTC year/month(0-indexed)/day components, or
  * `null` if the value can't be interpreted as a date.
  *
- * Fast-paths canonical ISO strings (`YYYY-MM-DD` or `YYYY-MM-DDTHH:...`) by
- * slicing directly instead of allocating a `Date`. Falls back to `new Date(...)`
- * for `Date` instances, numeric (millisecond) timestamps, and any other string
- * format — the same permissive fallback both prior hand-copies relied on.
+ * Fast-paths canonical, OFFSET-FREE ISO strings (`YYYY-MM-DD`, or a datetime whose
+ * time carries no explicit `±HH:MM` offset) by slicing directly instead of allocating
+ * a `Date`. An offset-carrying string (`2024-06-01T01:00:00+05:00`) and any other
+ * format fall back to `new Date(...)`, which converts to UTC — slicing the written
+ * components there would bucket the value into the wrong UTC day.
  */
 function toUtcYMD(value: unknown): { y: number; m: number; day: number } | null {
   if (typeof value === 'string' && value.length >= 10 && value[4] === '-' && value[7] === '-') {
-    const y = Number(value.slice(0, 4));
-    const m = Number(value.slice(5, 7)) - 1;
-    const day = Number(value.slice(8, 10));
-    if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(day)) {
-      return { y, m, day };
+    // Take the fast path only when there is no explicit UTC offset in the tail after
+    // the date: a bare date (nothing after position 10) or a time ending in `Z`/no
+    // offset. A `+`/`-` in the tail signals an offset that must be converted via `Date`.
+    const tail = value.slice(10);
+    if (!tail.includes('+') && !tail.includes('-')) {
+      const y = Number(value.slice(0, 4));
+      const m = Number(value.slice(5, 7)) - 1;
+      const day = Number(value.slice(8, 10));
+      // Range-check the sliced components so a malformed date (`2024-13-40`) falls
+      // through to `new Date(...)`, where it becomes `Invalid Date` → `null`.
+      if (!Number.isNaN(y) && m >= 0 && m <= 11 && day >= 1 && day <= 31) {
+        return { y, m, day };
+      }
     }
   }
 

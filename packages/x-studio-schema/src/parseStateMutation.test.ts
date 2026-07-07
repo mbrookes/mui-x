@@ -328,6 +328,33 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     expect(parsed.ok).toBe(false);
   });
 
+  // 1.2: the reducer rebuilds config/changes/widgetColSpans key-by-key, so a payload
+  // carrying an unsafe key as an OWN property (JSON.parse, not an object literal) is
+  // rejected at the wire boundary.
+  it('rejects an updateWidget whose config carries an own __proto__ key', () => {
+    const parsed = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: JSON.parse('{"__proto__":{"polluted":true}}') },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects an updateWidget whose changes carries an own __proto__ key', () => {
+    const parsed = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: JSON.parse('{"__proto__":{"polluted":true}}') },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects an applyBulkUpdate whose widgetColSpans carries an own __proto__ key', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), widgetColSpans: JSON.parse('{"__proto__":6}') },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
   it('running every valid payload through parse + applyMutation never pollutes Object.prototype', () => {
     for (const { mutation } of VALID_CASES) {
       const wire = JSON.parse(JSON.stringify(mutation)) as unknown;

@@ -405,6 +405,7 @@ function StudioPageRows({
                             nextId ? getWidgetMinSpan(widgets[nextId]) : MIN_SPAN,
                           );
                         }}
+                        onDragCancel={() => setLiveDrag(null)}
                       />
                     )}
                   </React.Fragment>
@@ -574,11 +575,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
       onMouseDown={(event) => {
-        onBackgroundClick?.();
-        // Deselect when clicking the canvas background (not a widget card)
+        // Deselect + notify only when clicking the canvas background (not a widget card)
         const target = event.target as HTMLElement;
         if (!target.closest('[data-widget-card]')) {
           controller.setSelectedWidget(null);
+          onBackgroundClick?.();
         }
       }}
     >

@@ -324,7 +324,10 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                     <StudioCanvas
                       stackBreakpoint={stackBreakpoint}
                       {...slotProps?.canvas}
-                      onBackgroundClick={() => setChatOpen(false)}
+                      onBackgroundClick={() => {
+                        setChatOpen(false);
+                        slotProps?.canvas?.onBackgroundClick?.();
+                      }}
                       slotProps={{
                         ...slotProps?.canvas?.slotProps,
                         widgetCard: {

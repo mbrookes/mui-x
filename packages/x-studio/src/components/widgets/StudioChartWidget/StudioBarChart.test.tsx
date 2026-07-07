@@ -464,6 +464,34 @@ describe('StudioBarChart', () => {
       expect([...capturedSourceSelection!].sort((a, b) => a - b)).toEqual([0, 2]);
     });
 
+    it('ignores a click on the synthetic "Other" bucket but forwards a kept category', () => {
+      const onItemClick = vi.fn();
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [5, 4, 3, 2, 1] },
+          barMaxCategories: 3,
+          onItemClick,
+        }),
+      );
+      // Display order is ['A','B','Other']; the synthetic bucket must not cross-filter.
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'Other' });
+      expect(onItemClick).not.toHaveBeenCalled();
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'B' });
+      expect(onItemClick).toHaveBeenCalledWith('B', false);
+    });
+
+    it('forwards a click on a REAL "Other" category when no grouping is active', () => {
+      const onItemClick = vi.fn();
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'Other', 'C'], values: [5, 4, 3] },
+          onItemClick,
+        }),
+      );
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'Other' });
+      expect(onItemClick).toHaveBeenCalledWith('Other', false);
+    });
+
     it('uses the SourceSelectionBar slot and no item highlight for a multi-selection', () => {
       renderChart(baseProps({ getSelectedDataIndices: () => [0, 2] }));
       const props = lastBarProps();

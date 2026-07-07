@@ -328,6 +328,9 @@ export function StudioPieChart({
   // Also absorb any top-N item whose share is < 1% of total into the "Other" group.
   let displayLabels = pieBaseData.labels;
   let displayValues: (number | undefined)[] = pieBaseData.values;
+  // True once the "Other" slice is a grouping bucket (an appended synthetic bucket, or a real
+  // "Other" category that also absorbed the folded remainder). Used to guard clicks on it.
+  let otherIsSynthetic = false;
   if (pieMaxSlices && displayLabels.length >= pieMaxSlices) {
     const rawTotal = displayValues.reduce<number>((s, v) => s + (v ?? 0), 0);
     const minPct = rawTotal > 0 ? rawTotal * 0.01 : 0; // 1% threshold
@@ -361,8 +364,25 @@ export function StudioPieChart({
         displayLabels = [...kept.map((p) => p.label), 'Other'];
         displayValues = [...kept.map((p) => p.value), otherValue];
       }
+      otherIsSynthetic = true;
     }
   }
+
+  // Clicking the synthetic "Other" bucket would emit a cross-filter that matches no single
+  // category, so ignore it. A real "Other" category (no grouping active) still cross-filters.
+  const handleSliceClick = (
+    event: { shiftKey?: boolean } | null,
+    params: { dataIndex: number },
+  ) => {
+    const label = displayLabels[params.dataIndex];
+    if (label === undefined) {
+      return;
+    }
+    if (otherIsSynthetic && String(label) === 'Other') {
+      return;
+    }
+    onItemClick(label, Boolean(event?.shiftKey));
+  };
 
   // When no "Other" grouping is applied, displayLabels === pieBaseData.labels (which is
   // allChartData.labels while a cross-highlight is active, chartData.labels otherwise) —
@@ -533,12 +553,7 @@ export function StudioPieChart({
               onHighlightChange={(item) =>
                 onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
               }
-              onItemClick={(_event, params) => {
-                const label = displayLabels[params.dataIndex];
-                if (label !== undefined) {
-                  onItemClick(label, Boolean(_event?.shiftKey));
-                }
-              }}
+              onItemClick={handleSliceClick}
               sx={{ cursor: 'default' }}
             />
             {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
@@ -613,12 +628,7 @@ export function StudioPieChart({
               onHighlightChange={(item) =>
                 onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
               }
-              onItemClick={(_event, params) => {
-                const label = displayLabels[params.dataIndex];
-                if (label !== undefined) {
-                  onItemClick(label, Boolean(_event?.shiftKey));
-                }
-              }}
+              onItemClick={handleSliceClick}
               sx={{ cursor: 'default' }}
             />
           </div>

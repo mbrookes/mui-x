@@ -38,6 +38,7 @@ type PieCallProps = {
   highlightedItem?: { seriesId: string; dataIndex: number } | null;
   colors?: string[];
   slots?: Record<string, unknown>;
+  onItemClick?: (event: { shiftKey?: boolean } | null, params: { dataIndex: number }) => void;
 };
 
 function lastPieProps(): PieCallProps {
@@ -146,6 +147,35 @@ describe('StudioPieChart', () => {
     expect(labels).toEqual(['a', 'b', 'Other']);
     const otherSlice = props.series[0].data.find((d) => d.label === 'Other');
     expect(otherSlice?.value).toBe(60 + 40 + 20);
+  });
+
+  it('ignores a click on the synthetic "Other" bucket but forwards a kept slice', () => {
+    const onItemClick = vi.fn();
+    const chartData: AggregatedData = {
+      labels: ['a', 'b', 'c', 'd', 'e'],
+      values: [100, 80, 60, 40, 20],
+    };
+    renderPie(baseProps({ chartData, pieMaxSlices: 3, onItemClick }));
+    const props = lastPieProps();
+    const labels = props.series[0].data.map((d) => d.label);
+    const otherIndex = labels.indexOf('Other');
+    // The synthetic "Other" bucket must not cross-filter.
+    props.onItemClick!({ shiftKey: false }, { dataIndex: otherIndex });
+    expect(onItemClick).not.toHaveBeenCalled();
+    // A kept slice forwards its label.
+    const keptIndex = labels.indexOf('a');
+    props.onItemClick!({ shiftKey: false }, { dataIndex: keptIndex });
+    expect(onItemClick).toHaveBeenCalledWith('a', false);
+  });
+
+  it('forwards a click on a REAL "Other" slice when no grouping is active', () => {
+    const onItemClick = vi.fn();
+    const chartData: AggregatedData = { labels: ['a', 'Other'], values: [10, 20] };
+    renderPie(baseProps({ chartData, onItemClick }));
+    const props = lastPieProps();
+    const otherIndex = props.series[0].data.map((d) => d.label).indexOf('Other');
+    props.onItemClick!({ shiftKey: false }, { dataIndex: otherIndex });
+    expect(onItemClick).toHaveBeenCalledWith('Other', false);
   });
 
   it('merges into an existing category literally named "Other" instead of duplicating it', () => {

@@ -939,9 +939,16 @@ export function StudioBarChart({
               onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
             onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) {
-                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
+              if (params?.axisValue === undefined) {
+                return;
               }
+              // The synthetic "Other" bucket has no single underlying category value, so a
+              // cross-filter on it would match nothing — ignore the click. A real "Other"
+              // category (no grouping active) still cross-filters normally.
+              if (otherGroupingApplied && params.axisValue === 'Other') {
+                return;
+              }
+              onItemClick(params.axisValue, Boolean(_event?.shiftKey));
             }}
             sx={{ cursor: 'default' }}
             slots={singleBarSlots}

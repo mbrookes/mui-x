@@ -12,6 +12,7 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from './widgetTypes';
+import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
 import type { StateMutation, MutationEnvelope } from './aiTypes';
 
@@ -172,7 +173,7 @@ export function createDefaultStudioState(
   overrides?: CreateDefaultStudioStateOverrides,
 ): StudioState {
   const baseDoc: StudioDoc = {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     dashboard: {
       id: 'dashboard-1',
       title: 'Untitled Dashboard',

@@ -39,6 +39,18 @@ export interface SerializableSkill {
 }
 
 /**
+ * The widget fields that may legitimately be voided via `updateWidget.unsetFields`:
+ * exactly the OPTIONAL keys of `StudioWidget`. The required keys (`id`, `kind`,
+ * `title`, `config`) are excluded structurally, so a wire caller cannot type a
+ * payload that strands a widget without one — and the reducer's runtime denylist
+ * backstops the same set for untrusted (un-type-checked) input. Derived, so it stays
+ * correct as `StudioWidget` gains or loses optional fields.
+ */
+export type OptionalWidgetField = {
+  [K in keyof StudioWidget]-?: undefined extends StudioWidget[K] ? K : never;
+}[keyof StudioWidget];
+
+/**
  * A state mutation produced server-side and streamed to the client as an SSE event.
  * Both sides apply it through the shared `applyMutation` reducer.
  */
@@ -66,17 +78,20 @@ export type StateMutation =
         changes?: Partial<Omit<StudioWidget, 'id'>>;
         config?: StudioWidget['config'];
         /**
-         * Top-level widget keys to DELETE from the widget — the wire-safe way to
-         * void a field. Unlike a `changes` entry with an `undefined` value (which
+         * Optional top-level widget keys to DELETE from the widget — the wire-safe way
+         * to void a field. Unlike a `changes` entry with an `undefined` value (which
          * `JSON.stringify` silently drops, so it can never survive the SSE stream
          * or an AI tool-call argument), a KEY NAME survives JSON intact. The
          * reducer skips `undefined`-valued `changes` keys precisely so an untrusted
          * wire caller cannot void a required field the old (unsafe) way; these
          * arrays are the ONLY sanctioned clear affordance, in-process or over the
-         * wire. Applied AFTER the `config` patch and `changes` merge, so an explicit
-         * unset always wins over a same-turn set of the same key.
+         * wire. Only OPTIONAL fields are unsettable (`OptionalWidgetField`): the
+         * required `id`/`kind`/`title`/`config` are excluded so a widget can never be
+         * left without a field its rendering or the widget factory depends on.
+         * Applied AFTER the `config` patch and `changes` merge, so an explicit unset
+         * always wins over a same-turn set of the same key.
          */
-        unsetFields?: (keyof Omit<StudioWidget, 'id'>)[];
+        unsetFields?: OptionalWidgetField[];
         /**
          * Config keys to DELETE from the merged config — the wire-safe equivalent
          * of a `config`-patch entry with an `undefined` value. Applied AFTER the

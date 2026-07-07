@@ -1,22 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
+  REGISTERED_MIGRATION_VERSIONS,
   deserializeState,
   migrateState,
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
 
+// A minimal but STRUCTURALLY COMPLETE serialized doc (all four required top-level
+// fields), for tests exercising migration success paths now that `migrateState`
+// validates structure fail-closed.
+function completeSerialized(overrides: Record<string, unknown> = {}) {
+  return {
+    dashboard: { id: 'd', title: 'T', activePageId: 'p' },
+    pages: {},
+    widgets: {},
+    filters: [],
+    ...overrides,
+  };
+}
+
 // ─── migrateState ─────────────────────────────────────────────────────────────
 
 describe('migrateState', () => {
   it('returns success when state is already at CURRENT_SCHEMA_VERSION', () => {
-    const state = { schemaVersion: CURRENT_SCHEMA_VERSION, widgets: {}, pages: {}, filters: [] };
+    const state = completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION });
     const result = migrateState(state);
     expect(result.success).toBe(true);
     expect(result.fromVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.errors).toHaveLength(0);
+    // Fast path: the already-current success path returns the SAME reference.
     expect(result.state).toBe(state);
   });
 
@@ -37,14 +52,12 @@ describe('migrateState', () => {
     expect(migrateState(42).success).toBe(false);
   });
 
-  it('returns failure for an array', () => {
-    // Arrays pass typeof === 'object', so migrateState treats them as a v0 state
-    // and migrates (bumps schemaVersion). This is acceptable behaviour — the
-    // caller should validate input before calling migrateState.
+  it('returns failure for an array (fails the fail-closed structure check)', () => {
+    // An array passes `typeof === 'object'` so it is treated as a v0 state, but the
+    // post-migration structure check now rejects it (no `dashboard`/`pages`/…).
     const result = migrateState([]);
-    // At minimum, we verify it doesn't throw and returns a result object
-    expect(result).toHaveProperty('success');
-    expect(result).toHaveProperty('fromVersion');
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
   });
 
   it('returns failure when state was created with a newer version', () => {
@@ -55,13 +68,59 @@ describe('migrateState', () => {
   });
 
   it('migrates from version 0 to 1 (stamps schemaVersion)', () => {
-    const result = migrateState({ widgets: {}, pages: {}, filters: [] }); // no schemaVersion → treated as 0
+    const result = migrateState(completeSerialized()); // no schemaVersion → treated as 0
     expect(result.success).toBe(true);
     expect(result.fromVersion).toBe(0);
     expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(
       CURRENT_SCHEMA_VERSION,
     );
+  });
+
+  // ── fail-closed structural validation (1.3) ──────────────────────────────────
+  it('fails a partial doc missing "dashboard" instead of letting deserializeState crash', () => {
+    const result = migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION });
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/dashboard/);
+  });
+
+  it('fails a doc missing "filters" naming the field', () => {
+    const result = migrateState({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      dashboard: { id: 'd', title: 'T', activePageId: 'p' },
+      pages: {},
+      widgets: {},
+    });
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filters/);
+  });
+
+  it('a full valid doc still succeeds', () => {
+    expect(
+      migrateState(completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION })).success,
+    ).toBe(true);
+  });
+
+  // ── mutate-in-place contract: migrateState must not touch the caller's object (1.9)
+  it('does not mutate the caller-provided object and returns a fresh object', () => {
+    const input = completeSerialized({
+      widgets: { w1: { id: 'w1', config: { nested: { keep: true } } } },
+      filters: [{ id: 'f1', scope: { kind: 'page' } }],
+    }); // no schemaVersion → runs the migration path (not the fast return)
+    const before = JSON.stringify(input);
+    const result = migrateState(input);
+    expect(result.success).toBe(true);
+    expect(JSON.stringify(input)).toBe(before); // caller's object untouched
+    expect(result.state).not.toBe(input); // migrated result is a fresh (deep) copy
+  });
+
+  // ── missing-migration completeness pin (1.4) ─────────────────────────────────
+  it('every version step 0 … CURRENT_SCHEMA_VERSION-1 has a registered migration', () => {
+    const registered = new Set(REGISTERED_MIGRATION_VERSIONS);
+    for (let v = 0; v < CURRENT_SCHEMA_VERSION; v += 1) {
+      expect(registered.has(v)).toBe(true);
+    }
   });
 });
 
@@ -241,6 +300,37 @@ describe('deserializeState', () => {
   it('leaves ai undefined when not in serialized data', () => {
     const state = deserializeState(minimalSerialized, {});
     expect(state.doc.ai).toBeUndefined();
+  });
+
+  // 2.4: the restored doc is stamped at CURRENT_SCHEMA_VERSION (deserialize only runs
+  // on migrated state), even if the serialized object carried no schemaVersion.
+  it('stamps doc.schemaVersion as CURRENT_SCHEMA_VERSION', () => {
+    const { schemaVersion: ignored, ...withoutVersion } = minimalSerialized;
+    const state = deserializeState(withoutVersion as typeof minimalSerialized, {});
+    expect(state.doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  // 2.3: chart ySeries carrying the legacy `seriesType` alias is normalized to `type`.
+  it('normalizes a widget config.ySeries via normalizeChartSeries', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        c1: {
+          id: 'c1',
+          kind: 'chart',
+          title: 'Chart',
+          config: {
+            chartType: 'line',
+            ySeries: [{ fieldId: 'rev', seriesType: 'line' }],
+          },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    const ySeries = (state.doc.widgets.c1.config as { ySeries: Array<Record<string, unknown>> })
+      .ySeries;
+    expect(ySeries[0].type).toBe('line');
+    expect('seriesType' in ySeries[0]).toBe(false);
   });
 });
 

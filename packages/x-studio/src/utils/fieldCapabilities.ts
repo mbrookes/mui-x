@@ -1,16 +1,12 @@
 import type { StudioDataField } from '../models';
+import type { FieldCapability } from '@mui/x-studio-schema';
 
-/**
- * Named capabilities that a field can have.
- * Used to filter field lists for specific picker operations without
- * scattering inline `f.type === 'number'` checks across components.
- *
- * - `numeric`     — can be summed / averaged / used as a chart y-axis value
- * - `categorical` — can be used for grouping / split-by / selection filters
- * - `temporal`    — can be used for date filters, sparkline grouping, x-axis date grouping
- * - `rankTarget`  — can be used as the value that rank mode computes scores over
- */
-export type FieldCapability = 'numeric' | 'categorical' | 'temporal' | 'rankTarget';
+// `FieldCapability` is owned by `@mui/x-studio-schema` (`dataTypes`, re-exported from
+// the schema index). Import and re-export it here so existing `./fieldCapabilities`
+// importers are unaffected, but the union is defined in exactly one place — the same
+// pattern `canvasGridConstants.ts` uses for `GRID_COLS`/`MIN_SPAN`. See the schema
+// declaration for the per-capability meaning.
+export type { FieldCapability };
 
 /** Default capabilities derived purely from the field's declared type. */
 const TYPE_CAPABILITIES: Record<StudioDataField['type'], FieldCapability[]> = {

@@ -1,12 +1,14 @@
-import { createDefaultStudioState, normalizeGridColumn } from './factories';
+import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
+import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
 
-/**
- * Current schema version for the studio state
- */
-export const CURRENT_SCHEMA_VERSION = 1;
+// `CURRENT_SCHEMA_VERSION` is defined in `stateTypes.ts` (the single source of truth —
+// it must be a value there so `factories.ts` can stamp a fresh doc without forming an
+// import cycle). Re-exported here so every existing `import { CURRENT_SCHEMA_VERSION }
+// from './statePersistence'` site (index.ts, StudioController, examples) is unaffected.
+export { CURRENT_SCHEMA_VERSION };
 
 /**
  * Serializable state format for persistence.
@@ -83,10 +85,15 @@ type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
  *
  * HOW TO ADD A MIGRATION
  * ─────────────────────
- * 1. Increment CURRENT_SCHEMA_VERSION above.
+ * 1. Increment CURRENT_SCHEMA_VERSION (in `stateTypes.ts`).
  * 2. Add an entry here for the OLD version number (e.g. if bumping 1→2, add key `1`).
- * 3. The function receives the raw persisted object and must return a new object
- *    with `schemaVersion` set to N+1. Mutating the input is fine — it is already a spread copy.
+ *    EVERY version in `0 … CURRENT_SCHEMA_VERSION − 1` must have an entry — even a
+ *    no-op bump needs an explicit identity migration (see the `0:` entry below), and
+ *    a gap now makes `migrateState` FAIL rather than silently stamp the version. The
+ *    `REGISTERED_MIGRATION_VERSIONS` pin in the test suite catches a forgotten entry.
+ * 3. The function receives the persisted object and must return a new object with
+ *    `schemaVersion` set to N+1. Mutating the input is fine — `migrateState` passes a
+ *    deep copy (`structuredClone`) of the caller's object, so nested mutation is safe.
  * 4. Write a test in statePersistence.test.ts that calls migrateState() with a v(N) fixture
  *    and asserts the output matches the v(N+1) shape.
  *
@@ -130,8 +137,17 @@ type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
  */
 const migrations: Record<number, MigrationFn> = {
   // v0 → v1: first versioned schema. No structural changes needed; just stamp version.
+  // An explicit identity migration — registering it (rather than relying on a silent
+  // bump) is exactly the pattern every future no-op version bump must follow.
   0: (state) => ({ ...state, schemaVersion: 1 }),
 };
+
+/**
+ * The old-version numbers the migration registry covers, exported so a completeness
+ * test can pin that every version in `0 … CURRENT_SCHEMA_VERSION − 1` has a migration
+ * entry — the check that actually catches a forgotten entry when the version is bumped.
+ */
+export const REGISTERED_MIGRATION_VERSIONS = Object.keys(migrations).map(Number);
 
 /**
  * Validates that a state object has the minimum required structure
@@ -141,6 +157,29 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
     return false;
   }
   return true;
+}
+
+/**
+ * The top-level fields a fully-migrated `SerializedStudioState` must carry, checked
+ * fail-closed AFTER migration so a partial persisted doc is rejected cleanly here
+ * (with a named field) instead of crashing later inside `deserializeState`. Returns
+ * the name of the first missing/mis-typed field, or `null` when all are present.
+ */
+function findMissingRequiredField(state: Record<string, unknown>): string | null {
+  const isRecord = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isRecord(state.dashboard)) {
+    return 'dashboard';
+  }
+  if (!isRecord(state.pages)) {
+    return 'pages';
+  }
+  if (!isRecord(state.widgets)) {
+    return 'widgets';
+  }
+  if (!Array.isArray(state.filters)) {
+    return 'filters';
+  }
+  return null;
 }
 
 /**
@@ -161,8 +200,20 @@ export function migrateState(state: unknown): MigrationResult {
 
   const fromVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 0;
 
-  // Already at current version
+  // Already at current version — still validate structure fail-closed, so a partial
+  // persisted doc is rejected here (with a named field) rather than crashing later in
+  // `deserializeState`. On success return the SAME reference (the fast path).
   if (fromVersion === CURRENT_SCHEMA_VERSION) {
+    const missing = findMissingRequiredField(state);
+    if (missing) {
+      return {
+        success: false,
+        state: null,
+        fromVersion,
+        toVersion: CURRENT_SCHEMA_VERSION,
+        errors: [`Invalid persisted state: missing required field "${missing}".`],
+      };
+    }
     return {
       success: true,
       state: state as unknown as SerializedStudioState,
@@ -186,34 +237,60 @@ export function migrateState(state: unknown): MigrationResult {
     };
   }
 
-  // Apply migrations sequentially
-  let currentState = { ...state };
+  // Apply migrations sequentially, on a DEEP copy of the caller's object: a migration
+  // may (and the registry examples encourage it to) mutate nested state in place, so a
+  // shallow spread would leak those edits back to the caller. `StudioController`'s
+  // `restoreSession`/`loadSerializedState` both retain the object they pass in.
+  // Persisted state is JSON, so `structuredClone` (Node ≥ 17, met by the toolchain) is
+  // safe and total.
+  let currentState = structuredClone(state) as Record<string, unknown>;
   for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version += 1) {
     const migrateFn = migrations[version];
-    if (migrateFn) {
-      try {
-        currentState = migrateFn(currentState);
-      } catch (error) {
-        errors.push(
-          `Migration from v${version} to v${version + 1} failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        return {
-          success: false,
-          state: null,
-          fromVersion,
-          toVersion: CURRENT_SCHEMA_VERSION,
-          errors,
-        };
-      }
-    } else {
-      // No migration needed, just bump version
-      currentState = {
-        ...currentState,
-        schemaVersion: version + 1,
+    if (!migrateFn) {
+      // A gap in the registry is a HARD failure — never a silent version bump, which
+      // would ship un-transformed state stamped under a newer version number.
+      errors.push(
+        `No migration registered from v${version} to v${version + 1}. ` +
+          'Every version step needs an explicit migration entry (an identity migration when no transform is required).',
+      );
+      return {
+        success: false,
+        state: null,
+        fromVersion,
+        toVersion: CURRENT_SCHEMA_VERSION,
+        errors,
       };
     }
+    try {
+      currentState = migrateFn(currentState);
+    } catch (error) {
+      errors.push(
+        `Migration from v${version} to v${version + 1} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return {
+        success: false,
+        state: null,
+        fromVersion,
+        toVersion: CURRENT_SCHEMA_VERSION,
+        errors,
+      };
+    }
+  }
+
+  // Validate structure fail-closed on the POST-migration result, so a migration that
+  // synthesizes a required field still passes and a genuinely-partial doc fails here.
+  const missing = findMissingRequiredField(currentState);
+  if (missing) {
+    errors.push(`Invalid persisted state: missing required field "${missing}".`);
+    return {
+      success: false,
+      state: null,
+      fromVersion,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors,
+    };
   }
 
   return {
@@ -268,22 +345,36 @@ export function deserializeState(
 
   return {
     doc: {
-      schemaVersion: serialized.schemaVersion as 1,
+      // `deserializeState` only ever runs on migrated state (a guarantee `migrateState`
+      // now makes real by failing closed), so the doc IS at the current schema version.
+      // Stamping the constant keeps the compile-time tie the previous `as 1` cast erased
+      // — a version bump now forces this to follow via the type system.
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       dashboard: serialized.dashboard,
       pages: serialized.pages,
       widgets: Object.fromEntries(
-        Object.entries(serialized.widgets).map(([id, widget]) => [
-          id,
-          widget.config?.columns
-            ? {
-                ...widget,
-                config: {
-                  ...widget.config,
-                  columns: widget.config.columns.map(normalizeGridColumn),
-                },
-              }
-            : widget,
-        ]),
+        Object.entries(serialized.widgets).map(([id, widget]) => {
+          // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
+          // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
+          // `config` only when one is present; otherwise return the widget untouched
+          // (keeping reference stability for the common case).
+          const columns = widget.config?.columns;
+          const ySeries = widget.config?.ySeries;
+          if (!columns && !ySeries) {
+            return [id, widget];
+          }
+          return [
+            id,
+            {
+              ...widget,
+              config: {
+                ...widget.config,
+                ...(columns ? { columns: columns.map(normalizeGridColumn) } : {}),
+                ...(ySeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
+              },
+            },
+          ];
+        }),
       ),
       filters: serialized.filters,
       relationships: serialized.relationships ?? [],

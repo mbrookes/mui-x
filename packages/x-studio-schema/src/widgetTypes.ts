@@ -710,10 +710,12 @@ export interface StudioPage {
   title: string;
   widgetRows: string[][]; // Each row is an array of widget IDs
   /**
-   * Per-widget explicit column span (3–12).
-   * Widgets absent from this map take equal shares of the remaining space (`flex: 1`).
-   * The total columns in a row do not need to sum to 12 — any remainder is left as
-   * whitespace when all widgets in the row have explicit spans.
+   * Per-widget explicit column span in the `GRID_COLS = 24` unit system. The reducer
+   * (`applyMutation.ts`) clamps each span to `MIN_SPAN` (6, ≈¼ row) … `GRID_COLS`
+   * (24); a row whose spans sum above `GRID_COLS` is rebalanced or dropped by
+   * `setWidgetColSpan`/`enforceLayoutColSpans`. Widgets absent from this map take
+   * equal shares of the remaining space (`flex: 1`). See `applyMutation.ts` for the
+   * authoritative clamping/rebalancing rules.
    */
   widgetColSpans?: Record<string, number>;
   theme?: StudioPageTheme;

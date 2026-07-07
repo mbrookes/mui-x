@@ -84,6 +84,30 @@ describe('truncateToPeriod', () => {
       expect(truncateToPeriod(new Date('invalid'), 'day')).toBeNull();
     });
   });
+
+  // 1.6: an ISO string with an explicit UTC offset must NOT be fast-pathed by slicing
+  // the written components — it falls through to `new Date(...)`, which converts to UTC.
+  describe('explicit UTC offset handling', () => {
+    it('converts a positive offset to UTC (crosses back a day)', () => {
+      // +05:00 local → 2024-05-31T20:00:00Z, so the UTC day is May 31.
+      expect(truncateToPeriod('2024-06-01T01:00:00+05:00', 'day')).toBe('2024-05-31');
+      expect(truncateToPeriod('2024-06-01T01:00:00+05:00', 'month')).toBe('2024-05');
+    });
+
+    it('converts a negative offset to UTC (crosses a year boundary)', () => {
+      // -05:00 local → 2025-01-01T04:00:00Z, so the UTC day is Jan 1 of the next year.
+      expect(truncateToPeriod('2024-12-31T23:00:00-05:00', 'day')).toBe('2025-01-01');
+    });
+
+    it('still fast-paths an offset-free datetime with a trailing Z', () => {
+      expect(truncateToPeriod('2024-06-20T14:32:00Z', 'day')).toBe('2024-06-20');
+    });
+
+    it('returns null for out-of-range month/day (falls through to Invalid Date)', () => {
+      expect(truncateToPeriod('2024-13-40', 'day')).toBeNull();
+      expect(truncateToPeriod('2024-99-01', 'day')).toBeNull();
+    });
+  });
 });
 
 describe('isoWeek', () => {

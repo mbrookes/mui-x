@@ -50,6 +50,21 @@ function clampSpan(span: number): number {
   return Math.max(MIN_SPAN, Math.min(GRID_COLS, Math.round(span)));
 }
 
+/**
+ * Object keys that must never be written through a bracket assignment or copied into
+ * a rebuilt record: `record['__proto__'] = v` invokes the inherited `__proto__`
+ * setter (prototype pollution), and `'constructor'`/`'prototype'` are the sibling
+ * escape hatches. Guarded wherever the reducer rebuilds a record key-by-key from
+ * untrusted input (`updateWidget`'s `config`/`changes` loops, `applyBulkUpdate`'s
+ * span rebuild). The wire boundary (`parseStateMutation`) rejects these too — this is
+ * the defense-in-depth copy for mutations the server constructs WITHOUT the parser
+ * (`executeToolOnState` builds them straight from LLM tool arguments).
+ */
+const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
+function isSafePatchKey(key: string): boolean {
+  return !UNSAFE_KEYS.has(key);
+}
+
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed
 // widget. Extracted from `removeWidget` so `applyBulkUpdate` can enforce the same
 // invariant for every widget its bulk replacement drops (a removed source widget
@@ -102,10 +117,9 @@ function removeSpanEntries(
 
 /**
  * Enforce the col-span invariants a fresh `widgetRows` layout must satisfy, given
- * the layout it replaced. Used by `setWidgetLayout`, whose AI-driven path was
- * previously the only layout mutation that skipped the cleanup the user
- * drag-and-drop path (`pruneWidgetColSpan` in `StudioCanvas`) and `removeWidget`
- * both perform. Three invariants, matching the existing paths' semantics:
+ * the layout it replaced. This reducer is the SOLE implementation of the col-span
+ * invariants: every layout path — user drag/drop, keyboard reorder, and AI-driven
+ * `setWidgetLayout`/`applyBulkUpdate` — reaches them through here. Three invariants:
  *
  *  - **2→1 collapse:** a widget left alone in a row that it previously shared with
  *    others has a stale multi-widget-era span, so its span is cleared (mirrors
@@ -161,6 +175,77 @@ function enforceLayoutColSpans(
     }
   }
   return Object.keys(next).length > 0 ? next : undefined;
+}
+
+/**
+ * Shared widget-removal primitive. Given `pages` ALREADY carrying the caller's row
+ * edits (rows stripped, a page dropped, or a layout replaced), it finishes the job
+ * every removal path shares: it computes which of `candidateIds` are *genuinely gone*
+ * (no longer referenced on ANY surviving page's rows), then
+ *   - deletes those ids from `widgets`,
+ *   - drops their widget/interactive/cross-filter-scoped filters, and
+ *   - prunes their stale `widgetColSpans` entries from every page.
+ * A candidate still referenced on some other page is preserved (its widget entry,
+ * filters, and spans all survive) — this is the cross-page guard `removeWidget`,
+ * `removePage`, and `applyBulkUpdate` all need. Returns the SAME `pages`/`widgets`/
+ * `filters` references when nothing was genuinely removed, preserving the callers'
+ * reference-stable no-op contract.
+ */
+function removeWidgetIds(
+  pages: StudioDoc['pages'],
+  widgets: StudioDoc['widgets'],
+  filters: StudioFilterState[],
+  candidateIds: Iterable<string>,
+): {
+  pages: StudioDoc['pages'];
+  widgets: StudioDoc['widgets'];
+  filters: StudioFilterState[];
+  removedIds: Set<string>;
+} {
+  // (a) which ids still appear on some page's rows after the caller's edits.
+  const stillReferenced = new Set<string>();
+  for (const p of Object.values(pages)) {
+    for (const row of p.widgetRows ?? []) {
+      for (const id of row) {
+        stillReferenced.add(id);
+      }
+    }
+  }
+  // (b) genuinely-removed = candidates no page references any longer.
+  const removedIds = new Set<string>();
+  for (const id of candidateIds) {
+    if (!stillReferenced.has(id)) {
+      removedIds.add(id);
+    }
+  }
+  if (removedIds.size === 0) {
+    return { pages, widgets, filters, removedIds };
+  }
+  // (c) drop the removed widgets from the flat widgets record.
+  const nextWidgets = { ...widgets };
+  for (const id of removedIds) {
+    delete nextWidgets[id];
+  }
+  // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id.
+  const nextFilters = dropWidgetScopedFilters(filters, (id) => removedIds.has(id));
+  // (e) prune each removed id's stale span entry from every page (reference-stable).
+  let pagesChanged = false;
+  const nextPages: StudioDoc['pages'] = {};
+  for (const [pid, p] of Object.entries(pages)) {
+    const prunedSpans = removeSpanEntries(p.widgetColSpans, removedIds);
+    if (prunedSpans !== p.widgetColSpans) {
+      nextPages[pid] = { ...p, widgetColSpans: prunedSpans };
+      pagesChanged = true;
+    } else {
+      nextPages[pid] = p;
+    }
+  }
+  return {
+    pages: pagesChanged ? nextPages : pages,
+    widgets: nextWidgets,
+    filters: nextFilters,
+    removedIds,
+  };
 }
 
 /**
@@ -236,15 +321,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       const page = state.pages[pageId];
-      // Idempotent: re-delivery of the same addWidget event (e.g. an SSE at-least-once
-      // re-delivery) must not append a *second* `[widget.id]` row to the target page —
-      // that would render the widget twice. Mirrors the existing-id guards in
-      // `addPage`/`addFilter`: if the widget already exists AND this page's rows already
-      // hold it, the mutation is already applied, so return `state` unchanged.
-      if (
-        Object.hasOwn(state.widgets, widget.id) &&
-        (page.widgetRows ?? []).some((row) => row.includes(widget.id))
-      ) {
+      // Idempotent: existence anywhere in `state.widgets` means this addWidget event
+      // was already applied, so a re-delivery (e.g. an SSE at-least-once retry, or an
+      // AI retry loop re-issuing the same `add_widget`) must be a no-op — regardless
+      // of where the widget now lives. Keying only off the flat `widgets` record (not
+      // the target page's rows) is deliberate: if the user has since moved the widget
+      // to another page or edited it, re-appending a `[widget.id]` row here would
+      // render it twice and overwriting would revert their edit. `Object.hasOwn` (not
+      // truthy access) so an untrusted `widget.id` can't match a prototype member.
+      if (Object.hasOwn(state.widgets, widget.id)) {
         return state;
       }
       return {
@@ -282,6 +367,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (config !== undefined) {
         const nextConfig = { ...existing.config } as Record<string, unknown>;
         for (const [key, value] of Object.entries(config)) {
+          // Skip prototype-polluting keys: `nextConfig['__proto__'] = value` would
+          // rewrite the record's prototype rather than add an own key. `nextConfig`
+          // is retained as the widget's config, so this is the live pollution vector
+          // for a server-built mutation that bypassed `parseStateMutation`.
+          if (!isSafePatchKey(key)) {
+            continue;
+          }
           if (value === undefined) {
             delete nextConfig[key];
           } else {
@@ -300,7 +392,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (changes) {
         const definedChanges: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(changes)) {
-          if (value !== undefined) {
+          // Skip unsafe keys (defense-in-depth; the spread below copies own props
+          // only, so this is a latent rather than live vector) and `undefined` values.
+          if (isSafePatchKey(key) && value !== undefined) {
             definedChanges[key] = value;
           }
         }
@@ -324,20 +418,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           updated = { ...updated, config: nextConfig as StudioWidget['config'] };
         }
       }
-      // `unsetFields` — delete the named top-level keys from the widget. `id` is
-      // never deletable (it is also the `state.widgets` map key, so dropping it
-      // would strand the widget), matching the `keyof Omit<StudioWidget, 'id'>`
-      // type; `config` is deliberately clearable via `unsetConfigKeys` only, so
-      // an unset of the whole `config` object is ignored to avoid a widget with no
-      // config bag.
+      // `unsetFields` — delete the named top-level keys from the widget. The REQUIRED
+      // widget fields are never deletable: `id` is also the `state.widgets` map key
+      // (dropping it strands the widget); `kind` and `title` are load-bearing for
+      // rendering and the widget factory (a widget missing either crashes downstream);
+      // and `config` is deliberately clearable via `unsetConfigKeys` only (an unset of
+      // the whole bag would leave a widget with no config). Only optional fields
+      // (matching the `OptionalWidgetField` type on `unsetFields`) are unsettable.
       if (unsetFields && unsetFields.length > 0) {
         const nextWidget = { ...updated } as Record<string, unknown>;
         let changedWidget = false;
-        // Iterate as `string[]`: the compile-time type excludes `'id'`, but a value
-        // arriving over the wire is not type-checked, so the runtime `id`/`config`
-        // guards below are load-bearing for an untrusted payload.
+        // Iterate as `string[]`: the compile-time type excludes required fields, but a
+        // value arriving over the wire is not type-checked, so the runtime denylist
+        // below is load-bearing for an untrusted payload.
         for (const key of unsetFields as string[]) {
-          if (key !== 'id' && key !== 'config' && Object.hasOwn(nextWidget, key)) {
+          if (
+            key !== 'id' &&
+            key !== 'config' &&
+            key !== 'kind' &&
+            key !== 'title' &&
+            Object.hasOwn(nextWidget, key)
+          ) {
             delete nextWidget[key];
             changedWidget = true;
           }
@@ -363,30 +464,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!Object.hasOwn(state.widgets, widgetId)) {
         return state;
       }
-      const nextWidgets = { ...state.widgets };
-      delete nextWidgets[widgetId];
 
-      // Remove the widget from its page's rows (drop the now-empty row), and clean
-      // up column spans: drop the removed widget's own span, and clear the span of a
-      // widget that this removal leaves as the *sole occupant of the row it shared
-      // with the removed widget* (that widget now auto-fills the row, so the span it
-      // carried from the old multi-widget layout is stale). Mirrors the client's
-      // `StudioController.removeWidget` so AI-driven and user-driven removals produce
-      // identical layouts.
-      //
-      // Scoping is deliberate and load-bearing: only the row the widget was actually
-      // removed from is collapsed, and only on the page that held it. A pre-existing
-      // single-widget row can legitimately carry a stored span (see `setWidgetColSpan`
-      // — e.g. an AI `set_widget_width` narrowing a lone widget to half-width), so
-      // such spans on other rows/pages, and singleton rows that were already
-      // singletons before this removal, must be left untouched. Sweeping every
-      // singleton row across every page (the previous behavior) silently wiped those
-      // intentional spans dashboard-wide on any unrelated removal.
-      const nextPages = Object.fromEntries(
+      // Row-edit step (the concern specific to a single-widget removal): strip the
+      // widget from every page's rows (dropping an emptied row), and clear the stale
+      // span of a *former row-mate this removal leaves as the sole occupant of the row
+      // they shared* — that widget now auto-fills the row, so its old multi-widget-era
+      // span is dead. This is deliberately scoped: a pre-existing single-widget-row
+      // span (e.g. an AI `set_widget_width` narrowing a lone widget) is intentional and
+      // must survive. The removed widget's OWN stale span entries are pruned by the
+      // shared `removeWidgetIds` primitive below, on every page.
+      const rowEditedPages = Object.fromEntries(
         Object.entries(state.pages).map(([pid, page]) => {
           const oldRows = page.widgetRows ?? [];
-          // Widgets left alone in a row *because* this removal took their last
-          // sibling — the only widgets whose stored span this removal makes stale.
           const orphanedSoleOccupants: string[] = [];
           let pageHeldWidget = false;
           const newRows: string[][] = [];
@@ -406,32 +495,28 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
               newRows.push(filtered);
             }
           }
-
-          // Only the page that actually held the removed widget can have spans made
-          // stale by this removal; leave every other page entirely untouched
-          // (including any intentional single-widget-row spans it carries).
           if (!pageHeldWidget) {
             return [pid, page];
           }
-
-          // Drop the removed widget's own span plus any survivor's now-stale span,
-          // via the shared `removeSpanEntries` helper (Set-based lookup, so an
-          // untrusted `widgetId` can't reach the record's prototype chain the way a
-          // bare `widgetId in oldSpans` could).
-          const nextSpans = removeSpanEntries(page.widgetColSpans, [
-            widgetId,
-            ...orphanedSoleOccupants,
-          ]);
-
+          const nextSpans =
+            orphanedSoleOccupants.length > 0
+              ? removeSpanEntries(page.widgetColSpans, orphanedSoleOccupants)
+              : page.widgetColSpans;
           return [pid, { ...page, widgetRows: newRows, widgetColSpans: nextSpans }];
         }),
       );
 
-      // Drop filters that only made sense while the widget existed: widget-scoped
-      // conditions, the interactive filters it emitted, and the cross-filters it
-      // emitted (a removed source widget would otherwise leave the whole page
-      // filtered with no way to clear it — its clearing affordance is gone).
-      const nextFilters = dropWidgetScopedFilters(state.filters, (id) => id === widgetId);
+      // Finish via the shared primitive: it deletes the (now-unreferenced) widget from
+      // the flat record, drops its widget/interactive/cross-filter-scoped filters (a
+      // removed source widget would otherwise leave the page permanently filtered with
+      // no clearing affordance), and prunes its stale span on every page. This handler
+      // is the single implementation of this cleanup; `StudioController.removeWidget`
+      // delegates to this reducer, so AI-driven and user-driven removals match.
+      const {
+        pages: nextPages,
+        widgets: nextWidgets,
+        filters: nextFilters,
+      } = removeWidgetIds(rowEditedPages, state.widgets, state.filters, [widgetId]);
 
       return {
         ...state,
@@ -456,9 +541,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const targetPage = state.pages[targetPageId];
       // Replacing a page's rows verbatim can leave the col-spans invalid: a row
       // collapsed to a sole occupant keeps its stale multi-widget span, and a row
-      // merged from two widgets can sum past `GRID_COLS`. Enforce the same
-      // invariants the user drag-and-drop path (`pruneWidgetColSpan`) and
-      // `removeWidget` already do, diffing the old rows against the new ones.
+      // merged from two widgets can sum past `GRID_COLS`. `enforceLayoutColSpans` (the
+      // sole implementation of these invariants) reconciles them, diffing the old rows
+      // against the new ones.
       const nextSpans = enforceLayoutColSpans(
         targetPage.widgetRows ?? [],
         args.rows,
@@ -570,40 +655,38 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const page = state.pages[pageId];
       // Full cleanup, matching StudioController.removePage:
-      //   drop the page, remove widgets that lived on it, drop page-scoped
+      //   drop the page, remove widgets that lived ONLY on it, drop page-scoped
       //   filters for it, and reassign activePageId when it was the active page.
       const widgetIdsOnPage = new Set((page.widgetRows ?? []).flat());
 
       const nextPages = { ...state.pages };
       delete nextPages[pageId];
 
-      const nextWidgets = Object.fromEntries(
-        Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
-      );
-
-      // Drop filters that no longer have a home: those scoped directly to the page
-      // (they carry `pageId`), plus widget/interactive/cross-filter scopes that
-      // target a widget that lived on the removed page. A `{ kind: 'widget' }`
-      // scope carries no `pageId`, so without this its filter would survive as a
-      // permanent orphan (its anchor widget is gone, so no UI can ever remove it).
-      const nextFilters = state.filters.filter((f: StudioFilterState) => {
+      // Caller-specific first pass: drop every filter that loses its home the moment
+      // this page is gone REGARDLESS of whether its anchor widget survives elsewhere —
+      // page-scoped filters carrying this `pageId`, and any cross-filter/interactive
+      // filter whose `scope.pageId` is the removed page (they are homeless whether or
+      // not the source widget lives on another page). A `{ kind: 'widget' }` scope
+      // carries no `pageId`, and a cross-filter/interactive scope pinned to a DIFFERENT
+      // page is handled by `removeWidgetIds` below — but only if its source widget is
+      // genuinely removed.
+      const filtersAfterPageDrop = state.filters.filter((f: StudioFilterState) => {
         const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
-        if (p === pageId) {
-          return false;
-        }
-        if (f.scope.kind === 'widget' && widgetIdsOnPage.has(f.scope.widgetId)) {
-          return false;
-        }
-        if (
-          (f.scope.kind === 'interactive' || f.scope.kind === 'cross-filter') &&
-          widgetIdsOnPage.has(f.scope.sourceWidgetId)
-        ) {
-          return false;
-        }
-        return true;
+        return p !== pageId;
       });
 
-      const remainingPageIds = Object.keys(nextPages);
+      // Remove the page's widgets, but only those NOT still referenced on a surviving
+      // page: a widget shared across pages keeps its `widgets` entry AND its
+      // widget-anchored filters/spans (the 1.5 cross-page guard). The primitive also
+      // prunes genuinely-removed widgets' widget/interactive/cross-filter-scoped
+      // filters and their stale spans everywhere.
+      const {
+        pages: prunedPages,
+        widgets: nextWidgets,
+        filters: nextFilters,
+      } = removeWidgetIds(nextPages, state.widgets, filtersAfterPageDrop, widgetIdsOnPage);
+
+      const remainingPageIds = Object.keys(prunedPages);
       const nextActivePageId =
         state.dashboard.activePageId === pageId
           ? (remainingPageIds[0] ?? '')
@@ -611,7 +694,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
       return {
         ...state,
-        pages: nextPages,
+        pages: prunedPages,
         widgets: nextWidgets,
         filters: nextFilters,
         dashboard: { ...state.dashboard, activePageId: nextActivePageId },
@@ -674,44 +757,45 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const page = state.pages[activePageId];
 
-      const nextPages: StudioDoc['pages'] = {
+      // Normalize the producer-supplied active-page spans through the SAME invariants
+      // every other layout path enforces (previously they were stored verbatim, so a
+      // bad producer could persist an out-of-range or overflowing span): clamp each
+      // span to the valid range and drop unsafe keys (so the rebuild can't reintroduce
+      // prototype pollution), then run `enforceLayoutColSpans`. `oldRows = []` so the
+      // 2→1 collapse never fires — the producer supplied rows and spans together, so a
+      // singleton span is intentional — while the row-overflow drop, orphaned-span
+      // drop, and empty→undefined collapse all apply.
+      const clampedSpans: Record<string, number> = {};
+      for (const key of Object.keys(widgetColSpans)) {
+        if (!isSafePatchKey(key)) {
+          continue;
+        }
+        clampedSpans[key] = clampSpan(widgetColSpans[key]);
+      }
+      const normalizedActiveSpans = enforceLayoutColSpans([], widgetRows, clampedSpans);
+
+      const layoutPages: StudioDoc['pages'] = {
         ...state.pages,
-        [activePageId]: { ...page, widgetRows, widgetColSpans },
+        [activePageId]: { ...page, widgetRows, widgetColSpans: normalizedActiveSpans },
       };
 
-      // A widget named in `removedWidgetIds` is only *genuinely gone* if it doesn't
-      // still appear on some OTHER page's rows. The producer already restricts
-      // `removedWidgetIds` to widgets that were on `activePageId`, so this only
-      // matters for the rare case of the same id also living on another page (a
-      // pre-existing cross-page id collision) — deleting it from `state.widgets`
-      // in that case would leave a dangling id in the other page's rows (blank
-      // card), so it must be preserved, not removed.
-      const removedIds = new Set<string>();
-      if (removedWidgetIds && removedWidgetIds.length > 0) {
-        const stillReferenced = new Set<string>();
-        for (const p of Object.values(nextPages)) {
-          for (const row of p.widgetRows ?? []) {
-            for (const id of row) {
-              stillReferenced.add(id);
-            }
-          }
-        }
-        for (const id of removedWidgetIds) {
-          if (!stillReferenced.has(id)) {
-            removedIds.add(id);
-          }
-        }
-      }
+      // Remove every genuinely-gone widget via the shared primitive: a widget named in
+      // `removedWidgetIds` is only truly removed if it doesn't still appear on some
+      // OTHER page's rows (a pre-existing cross-page id collision must not delete a
+      // widget the other page still renders). The primitive deletes those ids from
+      // `state.widgets`, drops their widget/interactive/cross-filter-scoped filters,
+      // and prunes their stale col-spans on every page.
+      const {
+        pages: nextPages,
+        widgets: prunedWidgets,
+        filters: nextFilters,
+      } = removeWidgetIds(layoutPages, state.widgets, state.filters, removedWidgetIds ?? []);
 
-      // Apply the widget deltas on top of the CURRENT `state.widgets` — never a
-      // turn-start snapshot — so any widget the user concurrently created or edited
-      // (on this page or any other) while the agentic turn was running survives.
-      // Only genuinely-removed ids are deleted; added/updated targets are applied
-      // as specified.
-      const nextWidgets = { ...state.widgets };
-      for (const id of removedIds) {
-        delete nextWidgets[id];
-      }
+      // Apply the add/update deltas on top of the pruned widgets — never a turn-start
+      // snapshot — so any widget the user concurrently created or edited (on this page
+      // or any other) while the agentic turn was running survives. Copy first, because
+      // the primitive returns `state.widgets` by reference on a no-op removal.
+      const nextWidgets = { ...prunedWidgets };
       for (const widget of addedWidgets ?? []) {
         nextWidgets[widget.id] = widget;
       }
@@ -733,27 +817,6 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             : {}),
         };
       }
-
-      // Mirror `removeWidget`'s per-widget cleanup for each genuinely-removed widget:
-      // drop its widget/interactive/cross-filter-scoped filters, and prune any stale
-      // col-span entry it left on OTHER pages (the active page's spans are replaced
-      // wholesale above, so only other pages can still carry them).
-      if (removedIds.size > 0) {
-        for (const [pid, p] of Object.entries(nextPages)) {
-          if (pid === activePageId) {
-            continue;
-          }
-          const prunedSpans = removeSpanEntries(p.widgetColSpans, removedIds);
-          if (prunedSpans !== p.widgetColSpans) {
-            nextPages[pid] = { ...p, widgetColSpans: prunedSpans };
-          }
-        }
-      }
-
-      const nextFilters =
-        removedIds.size > 0
-          ? dropWidgetScopedFilters(state.filters, (id) => removedIds.has(id))
-          : state.filters;
 
       return {
         ...state,

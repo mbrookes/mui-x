@@ -5,10 +5,16 @@ import type {
 } from './baseTypes';
 
 /**
- * Named field capabilities derived from a field's declared type (or overridden
- * explicitly via `StudioDataField.capabilities`). Defined here in the shared,
- * React-free schema package; `@mui/x-studio`'s `utils/fieldCapabilities` keeps a
- * structurally-identical copy for its type-inference helpers.
+ * Named capabilities a field can have — derived from its declared type (or overridden
+ * explicitly via `StudioDataField.capabilities`). Used to filter field lists for
+ * specific picker operations without scattering inline `f.type === 'number'` checks
+ * across components. Defined here in the shared, React-free schema package (the single
+ * source of truth); `@mui/x-studio`'s `utils/fieldCapabilities` re-exports this type.
+ *
+ * - `numeric`     — can be summed / averaged / used as a chart y-axis value
+ * - `categorical` — can be used for grouping / split-by / selection filters
+ * - `temporal`    — can be used for date filters, sparkline grouping, x-axis date grouping
+ * - `rankTarget`  — can be used as the value that rank mode computes scores over
  */
 export type FieldCapability = 'numeric' | 'categorical' | 'temporal' | 'rankTarget';
 

@@ -140,6 +140,18 @@ export interface StudioFilterPreset {
 }
 
 /**
+ * The schema version the persisted `StudioDoc` serializes as. The SINGLE source of
+ * truth for this value: it lives here (next to the `StudioDoc.schemaVersion` field
+ * that consumes its literal type) rather than in `statePersistence.ts`, because
+ * `factories.ts` needs it as a runtime value when stamping a fresh doc and importing
+ * it from `statePersistence` (which imports `factories`) would form a cycle.
+ * `statePersistence.ts` re-exports it, so every existing import site is unaffected.
+ * Bumping this forces `StudioDoc.schemaVersion`/the factory to follow via the type
+ * system.
+ */
+export const CURRENT_SCHEMA_VERSION = 1;
+
+/**
  * User-authored dashboard document. The ONLY partition that is persisted,
  * undoable, and mutable by the shared reducer.
  *
@@ -150,7 +162,7 @@ export interface StudioFilterPreset {
  */
 export interface StudioDoc {
   /** Persistence artifact of the doc — the schema version the doc serializes as. */
-  schemaVersion: 1;
+  schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;

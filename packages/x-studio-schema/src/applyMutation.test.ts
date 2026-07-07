@@ -69,6 +69,37 @@ describe('applyMutation', () => {
     expect(next.pages['page-1'].widgetRows.flat().filter((id) => id === 'w1')).toHaveLength(1);
   });
 
+  it('addWidget is idempotent by existence anywhere: re-delivery after a move/edit is a no-op', () => {
+    // 1.7: a re-delivered addWidget must no-op if the widget exists ANYWHERE — even
+    // after the user moved it to another page and edited it — never re-adding a row
+    // or reverting the edit.
+    const add = {
+      type: 'addWidget' as const,
+      args: { widget: chartWidget('w1'), pageId: 'page-1' },
+    };
+    let doc = applyDocMutation(twoPageState('page-1'), add);
+    // Move w1 off page-1 and onto page-2, then retitle it.
+    doc = applyDocMutation(doc, { type: 'setWidgetLayout', args: { rows: [], pageId: 'page-1' } });
+    doc = applyDocMutation(doc, {
+      type: 'setWidgetLayout',
+      args: { rows: [['w1']], pageId: 'page-2' },
+    });
+    doc = applyDocMutation(doc, {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: { title: 'Edited' } },
+    });
+    const next = applyDocMutation(doc, add);
+    expect(next).toBe(doc); // reference-stable no-op
+    expect(next.widgets.w1.title).toBe('Edited'); // edit preserved
+    expect(next.pages['page-1'].widgetRows).toEqual([]);
+    expect(next.pages['page-2'].widgetRows).toEqual([['w1']]);
+    const occurrences = [
+      ...next.pages['page-1'].widgetRows.flat(),
+      ...next.pages['page-2'].widgetRows.flat(),
+    ].filter((id) => id === 'w1');
+    expect(occurrences).toHaveLength(1); // appears exactly once
+  });
+
   it('removePage cleans up widgets, page-scoped filters, and reassigns activePageId', () => {
     const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -151,6 +182,40 @@ describe('applyMutation', () => {
     });
     const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
     expect(next.filters.map((f) => f.id)).toEqual(['fw2']);
+  });
+
+  it('removePage keeps a widget (and its filters) still referenced on a surviving page (1.5)', () => {
+    // w-shared lives on BOTH page-1 (removed) and page-2 (surviving); w-only lives on
+    // page-1 alone. Removing page-1 must delete only w-only — w-shared and its
+    // widget-scoped filter survive because a surviving page still references it.
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-2' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w-shared', 'w-only']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w-shared']] },
+      },
+      widgets: { 'w-shared': chartWidget('w-shared'), 'w-only': chartWidget('w-only') },
+      filters: [
+        {
+          id: 'f-shared',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'widget', widgetId: 'w-shared' },
+        },
+        {
+          id: 'f-only',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'widget', widgetId: 'w-only' },
+        },
+      ],
+    });
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    expect(next.widgets['w-shared']).toBeDefined();
+    expect(next.widgets['w-only']).toBeUndefined();
+    expect(next.filters.map((f) => f.id)).toEqual(['f-shared']);
   });
 
   it('removeWidget drops the widget from every page and its widget-scoped filters', () => {
@@ -277,6 +342,27 @@ describe('applyMutation', () => {
     // `b`, a pre-existing singleton-row span in a *different* row, is left alone.
     expect(next.pages['page-2'].widgetRows).toEqual([['b'], ['d']]);
     expect(next.pages['page-2'].widgetColSpans).toEqual({ b: 10 });
+  });
+
+  it("removeWidget prunes the removed widget's stale span entry on another page (3.2 unification)", () => {
+    // w1 lives on page-1's rows but page-2 carries a stale w1 span (w1 is NOT in
+    // page-2's rows). After the unification, removeWidget prunes that stale span on
+    // every page — not only the holding page as the old per-page code did.
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+        'page-2': {
+          id: 'page-2',
+          title: 'P2',
+          widgetRows: [['w2']],
+          widgetColSpans: { w1: 8, w2: 6 },
+        },
+      },
+      widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+    });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    expect(next.pages['page-2'].widgetColSpans).toEqual({ w2: 6 });
   });
 
   it('addFilter appends the filter verbatim (scope not re-stamped)', () => {
@@ -457,6 +543,48 @@ describe('applyMutation', () => {
       });
       expect(next.widgets.w1.id).toBe('w1');
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
+    });
+
+    it('unsetFields never voids the required title/kind, but does unset an optional field (1.1)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            subtitle: 'Sub',
+            config: { chartType: 'bar' },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        // Wire-shaped payload: an untrusted caller can list required fields; the runtime
+        // denylist must keep `title`/`kind` while unsetting the optional `subtitle`.
+        args: { widgetId: 'w1', unsetFields: ['title', 'kind', 'subtitle'] },
+      } as unknown as StateMutation);
+      expect(next.widgets.w1.title).toBe('W');
+      expect(next.widgets.w1.kind).toBe('chart');
+      expect('subtitle' in next.widgets.w1).toBe(false);
+    });
+
+    it('a config patch with an own __proto__ key does not pollute Object.prototype (1.2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      // JSON.parse makes `__proto__` a real OWN key (an object literal would set the
+      // prototype instead). The reducer must skip it, not write through the setter.
+      const config = JSON.parse('{"__proto__":{"polluted":true},"chartType":"line"}');
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config },
+      });
+      expect(Object.getPrototypeOf(next.widgets.w1.config)).toBe(Object.prototype);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      // The safe key still applied.
+      expect((next.widgets.w1.config as { chartType: string }).chartType).toBe('line');
     });
 
     it('unsetting an absent key is a harmless no-change', () => {
@@ -915,6 +1043,84 @@ describe('applyMutation', () => {
       // page-2, not the active page, is untouched.
       expect(next.pages['page-2'].widgetRows).toEqual([['old2']]);
       expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
+    });
+
+    // 1.8: producer-supplied active-page spans are normalized (clamped + invariant-
+    // enforced) rather than stored verbatim.
+    it('clamps producer-supplied active-page spans into the valid range', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('a'), chartWidget('b')],
+          updatedWidgets: [],
+          widgetRows: [['a'], ['b']],
+          widgetColSpans: { a: 2, b: 99 }, // below MIN_SPAN, above GRID_COLS
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ a: 6, b: 24 });
+    });
+
+    it('drops both spans of an overflowing two-widget row', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('a'), chartWidget('b')],
+          updatedWidgets: [],
+          widgetRows: [['a', 'b']],
+          widgetColSpans: { a: 20, b: 20 }, // 20 + 20 = 40 > 24
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
+    it('drops a producer span for an id absent from widgetRows', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('a')],
+          updatedWidgets: [],
+          widgetRows: [['a']],
+          widgetColSpans: { a: 8, ghost: 8 }, // ghost not in rows
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ a: 8 });
+    });
+
+    it('stores an empty widgetColSpans as undefined (not {})', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('a')],
+          updatedWidgets: [],
+          widgetRows: [['a']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
 
     it('does NOT revert a widget concurrently edited between snapshot and apply (lost-update fix)', () => {

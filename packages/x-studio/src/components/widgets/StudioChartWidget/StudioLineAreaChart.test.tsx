@@ -363,10 +363,10 @@ describe('StudioLineAreaChart', () => {
     expect(props.series.map((s) => s.id)).toContain('revenue-0-ghost');
   });
 
-  it('preserves the known multi-Y highlight-seriesId mismatch (bare fieldId, never matches suffixed ids)', () => {
-    // Pre-existing behaviour intentionally kept: the highlighted seriesId is the bare
-    // `fieldId` of the first series, but rendered series ids are `${fieldId}-${i}`, so the
-    // cross-filter highlight can never match. This test pins the bug as-is.
+  it('highlights the multi-Y cross-filter selection against the suffixed first series id', () => {
+    // The rendered series ids carry an index suffix (`${fieldId}-${i}`), so the highlighted
+    // seriesId must be `${fieldId}-0` (the first rendered series) for the cross-filter highlight
+    // to actually match a rendered series.
     const multiYData = {
       labels: ['A', 'B', 'C'],
       series: [{ fieldId: 'revenue', values: [10, 20, 30] }],
@@ -380,9 +380,33 @@ describe('StudioLineAreaChart', () => {
       }),
     );
     const props = lastLineProps();
-    expect(props.highlightedItem).toEqual({ seriesId: 'revenue', dataIndex: 1 });
-    // The bare `revenue` id is not among the rendered (suffixed) series ids.
-    expect(props.series.map((s) => s.id)).not.toContain('revenue');
+    expect(props.highlightedItem).toEqual({ seriesId: 'revenue-0', dataIndex: 1 });
+    // The highlighted id is among the rendered (suffixed) series ids.
+    expect(props.series.map((s) => s.id)).toContain('revenue-0');
+  });
+
+  it('highlights the suffixed first series id in the multi-Y ghost-active path', () => {
+    const multiYData = {
+      labels: ['A', 'B'],
+      series: [{ fieldId: 'revenue', values: [10, 20] }],
+    };
+    const allMultiYData = {
+      labels: ['A', 'B', 'C'],
+      series: [{ fieldId: 'revenue', values: [10, 20, 30] }],
+    };
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: null,
+        multiYData,
+        allMultiYData,
+        shouldShowGhost: true,
+        preserveXFieldBaseline: true,
+        getSelectedDataIndices: () => [1],
+      }),
+    );
+    const props = lastLineProps();
+    expect(props.highlightedItem).toEqual({ seriesId: 'revenue-0', dataIndex: 1 });
     expect(props.series.map((s) => s.id)).toContain('revenue-0');
   });
 

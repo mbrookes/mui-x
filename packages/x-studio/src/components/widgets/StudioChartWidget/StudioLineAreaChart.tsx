@@ -398,11 +398,12 @@ export function StudioLineAreaChart({
           highlightedItem={
             selectedDataIndices.length > 0
               ? {
-                  // Known pre-existing issue (not introduced by this extraction): the rendered
-                  // series ids carry an index suffix (`${fieldId}-${i}`), so this seriesId — the
-                  // bare `fieldId` of the first series — never matches a rendered series and the
-                  // cross-filter highlight is effectively a no-op. Preserved as-is on purpose.
-                  seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
+                  // The rendered series ids carry an index suffix (`${fieldId}-${i}`), so the
+                  // highlighted seriesId must match the first rendered series id (`${fieldId}-0`)
+                  // rather than the bare `fieldId`.
+                  seriesId: multiYData.series[0]
+                    ? `${multiYData.series[0].fieldId}-0`
+                    : CROSS_FILTER_SERIES_ID,
                   dataIndex: selectedDataIndices[0],
                 }
               : controlledHighlightedItem

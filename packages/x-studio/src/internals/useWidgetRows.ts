@@ -399,11 +399,11 @@ export function useWidgetRows(
   const computeFilteredRows = React.useCallback(
     (include: 'all' | 'no-cross' | 'no-chart-cross'): Row[] => {
       if (hasAdapter) {
-        // Page/widget filters were already applied by the adapter (baked into
-        // descriptor.filter), so only cross-filters + interactive filters are
-        // (re-)applied client-side. For server-side adapters the rows were already
-        // excluded, making this idempotent; for in-memory adapters (e.g. Excel) this
-        // is where cross-filtering is actually enforced. Routing through
+        // Page/widget filters were baked into descriptor.filter by the adapter; the
+        // descriptor deliberately EXCLUDES cross-filters + interactive filters (built
+        // with include:'no-cross' in buildQueryDescriptor), so this client-side pass is
+        // the SOLE enforcement point for them — a chart cross-filter never triggers a
+        // server round-trip or churns the request cacheKey. Routing through
         // selectFiltersForWidget keeps crossFilterAllPages / disabled / source-widget
         // handling identical to the sync path.
         if (!widget.sourceId) {

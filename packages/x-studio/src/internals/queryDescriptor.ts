@@ -149,8 +149,12 @@ function buildAggregations(
 /**
  * Builds a StudioQueryDescriptor for the given widget from the current store state.
  *
- * Only filters scoped to this widget (page, widget, cross-filter from others,
- * interactive from others) are included — same scoping as the sync pipeline.
+ * Only page and widget filters (`include: 'no-cross'`) are baked into the server query.
+ * Chart-click cross-filters and interactive (filter-widget) selections are deliberately
+ * excluded here: they are transient, per-interaction refinements that must NOT trigger a
+ * server round-trip (or churn the request cacheKey). They are enforced client-side on the
+ * fetched rows by `useWidgetRows.computeFilteredRows` (the sole enforcement point) via the
+ * same `selectFiltersForWidget` + `resolveRowsCached` calls the sync path uses.
  *
  * @param widget - The widget to build a descriptor for.
  * @param filters - All active filters from the store.
@@ -168,12 +172,16 @@ export function buildQueryDescriptor(
   tableName?: string,
   expressionFields: StudioExpressionField[] = [],
 ): StudioQueryDescriptor {
-  const allFilters = selectFiltersForWidget(filters, {
+  // 'no-cross' → page + widget + dashboard-date-range only. Cross-filter / interactive
+  // scopes are dropped: they are applied client-side (see useWidgetRows), so they never
+  // reach the server query nor perturb the cacheKey.
+  const serverFilters = selectFiltersForWidget(filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
     activePageId,
+    include: 'no-cross',
   });
-  const filter = filtersToFilterNode(allFilters);
+  const filter = filtersToFilterNode(serverFilters);
 
   // Expression columns are expanded to the native columns they depend on — the server
   // returns the raw inputs and the expression is re-derived client-side.

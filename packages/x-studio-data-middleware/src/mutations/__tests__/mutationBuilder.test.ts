@@ -924,3 +924,136 @@ describe('write-path column validation (fail-closed + wildcard)', () => {
     ).not.toThrow();
   });
 });
+
+// ── Qualified `values` keys are rejected (finding 1.2) ────────────────────────
+//
+// A table-qualified `values` key (`table.column`) must be rejected outright.
+// `validateSecurityColumnValues` matches on BARE column names, so a dotted key
+// like `'orders.region_id'` would slip past the region/department/tenant scope
+// checks while the writableColumns allowlist (which splits on the first dot)
+// wrongly waves it through. Rejection closes that bypass and, incidentally, the
+// cross-table allowlist quirk (a qualifier naming a different table).
+
+describe('qualified values keys are rejected (finding 1.2)', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+  const DEPT_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], department: 'Sales' };
+
+  it('rejects a qualified region key on insert (the exploit — bypasses scope otherwise)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      // Bare region_id: 6 would be rejected by the scope check; the qualifier is
+      // what smuggles it past — so validateMutation must reject the qualified key.
+      values: { status: 'ok', 'orders.region_id': 6 },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).toThrow(/table-qualified/);
+  });
+
+  it('rejects a qualified tenant key on insert (bypasses tenant isolation otherwise)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { 'orders.tenant_id': 'victim-tenant', status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'tenant_id'] },
+      }),
+    ).toThrow(/table-qualified/);
+  });
+
+  it('rejects a qualified department key on insert', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { 'orders.department': 'Finance' },
+    };
+    expect(() =>
+      validateMutation(descriptor, DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).toThrow(/table-qualified/);
+  });
+
+  it('rejects a qualified tenant key on update via validateMutation', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { 'orders.tenant_id': 'attacker', status: 'shipped' },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).toThrow(/table-qualified/);
+  });
+
+  it('rejects a qualified key naming a DIFFERENT table (qualifier-agnostic)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { 'customers.region_id': 6, status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'], customers: ['*'] },
+      }),
+    ).toThrow(/table-qualified/);
+  });
+
+  it('buildInsertMutation rejects a qualified key directly and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', 'orders.tenant_id': 'victim-tenant' },
+    };
+    expect(() => buildInsertMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(/table-qualified/);
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('buildUpdateMutation rejects a qualified key directly and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped', 'orders.region_id': 6 },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(/table-qualified/);
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('leaves bare-key values unaffected (qualified-WHERE and positive paths still work)', () => {
+    // Bare value keys pass exactly as before — the guard only fires on dots.
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'pending', total: 100 },
+    };
+    expect(() =>
+      validateMutation(descriptor, CLAIMS, {
+        policy: ST_POLICY,
+        writableColumns: { orders: ['status', 'total', 'notes'] },
+      }),
+    ).not.toThrow();
+  });
+});

@@ -14,7 +14,11 @@
  *   4. UPDATE and DELETE require at least one `where` predicate to prevent
  *      accidental full-table mutations.
  *   5. The tenant column is stripped from client-supplied `values` for updates —
- *      a client can never move a row to a different tenant.
+ *      a client can never move a row to a different tenant. Table-qualified
+ *      `values` keys (`table.column`) are rejected outright: mutation values
+ *      always target exactly one table, so a qualified key is malformed input and
+ *      would otherwise bypass the row-level-security scope check below (which
+ *      matches on bare column names).
  *   6. Region/department scope is validated on INSERT/UPDATE values so a caller
  *      restricted to a region/department cannot write outside it.
  *
@@ -50,6 +54,30 @@ function resolvePrimaryCols(
   policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): SecurityColumns {
   return toCompiledSecurityPolicy(policy).forPrimaryTable(table);
+}
+
+/**
+ * Reject any table-qualified key (`table.column`) in a mutation's `values`.
+ *
+ * Mutation `values` always target exactly ONE table, so keys must be bare column
+ * names. A qualified key is malformed input on two counts: Knex would render it as
+ * a qualified identifier in an INSERT column list / UPDATE SET clause (invalid SQL
+ * on mainstream databases), and — more importantly — it would slip past the
+ * row-level-security scope checks in `validateSecurityColumnValues`, which match on
+ * bare column names, letting a caller stamp e.g. `'orders.region_id'` outside their
+ * scope. We mirror the `indexOf('.')` convention used by `checkColumnAgainstAllowlist`.
+ */
+function rejectQualifiedValueKeys(values: Record<string, unknown>, table: string): void {
+  for (const key of Object.keys(values)) {
+    if (key.includes('.')) {
+      throw new Error(
+        `MUI X Studio Server: Mutation value key "${key}" is table-qualified. ` +
+          `Mutation values always target exactly one table ("${table}"), so keys must be bare column names — ` +
+          `a qualified key would bypass row-level-security scope validation. ` +
+          `Use the bare column name instead.`,
+      );
+    }
+  }
 }
 
 /**
@@ -147,6 +175,9 @@ export function validateMutation(
   // Enforce row-level-security scope carried in `values` (tenant / region /
   // department) — independent of the writable-columns allowlist.
   const values = descriptor.values ?? {};
+  // Qualified keys (`table.column`) are rejected before any scope check — they
+  // are malformed input and would otherwise dodge the bare-name scope matching.
+  rejectQualifiedValueKeys(values, descriptor.table);
   validateSecurityColumnValues(values, claims, cols);
 
   // Validate value keys against the writable columns allowlist. Fail-closed +
@@ -174,6 +205,9 @@ export function buildInsertMutation(
   descriptor: MutationDescriptor,
   policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
+  // Defense-in-depth: reject qualified keys even for direct callers that skip
+  // `validateMutation`, so a dotted key can never reach the Knex insert payload.
+  rejectQualifiedValueKeys(descriptor.values ?? {}, descriptor.table);
   const values: Record<string, unknown> = { ...descriptor.values };
   const cols = resolvePrimaryCols(descriptor.table, policy);
 
@@ -213,6 +247,10 @@ export function buildUpdateMutation(
   // 'write' mode: an empty `in` list or an unknown operator throws rather than
   // silently widening the mutation to the whole tenant table.
   applyPredicates(query, descriptor.where, 'write');
+
+  // Defense-in-depth: reject qualified keys even for direct callers that skip
+  // `validateMutation`, so a dotted key can never reach the Knex update payload.
+  rejectQualifiedValueKeys(descriptor.values ?? {}, descriptor.table);
 
   // Strip tenant column from update values — never let a client move a row
   // from one tenant to another.

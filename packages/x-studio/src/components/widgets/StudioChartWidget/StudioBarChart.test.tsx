@@ -349,6 +349,21 @@ describe('StudioBarChart', () => {
       expect(props.series[0].data).toEqual([5, 4, 6]);
     });
 
+    it('keeps the top N−1 categories by VALUE (not by axis position) when grouping', () => {
+      // Unsorted input: the two largest categories are B (5) and D (4); everything else
+      // (A=1, C=2, E=3) folds into "Other" = 6. Grouping must sort by value, not slice the
+      // first N axis positions.
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [1, 5, 2, 4, 3] },
+          barMaxCategories: 3,
+        }),
+      );
+      const props = lastBarProps();
+      expect(props.xAxis[0].data).toEqual(['B', 'D', 'Other']);
+      expect(props.series[0].data).toEqual([5, 4, 6]);
+    });
+
     it('merges the remainder into an existing "Other" category when one is already in the top N', () => {
       renderChart(
         baseProps({

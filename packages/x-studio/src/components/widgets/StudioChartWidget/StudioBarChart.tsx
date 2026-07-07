@@ -798,18 +798,23 @@ export function StudioBarChart({
   let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
   if (barMaxCats && displayXAxisData.length > barMaxCats) {
     const topN = barMaxCats - 1;
-    const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    const topLabels = displayXAxisData.slice(0, topN);
-    const topValues = displayBarValues.slice(0, topN);
-    const existingOtherIdx = topLabels.findIndex((l) => l === 'Other');
+    // Group by VALUE (largest categories kept, smallest folded into "Other"), matching the
+    // pie's top-N behavior — not by axis position. Sort a copy so the original order of the
+    // (possibly densified) input is left untouched.
+    const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    const topPairs = sortedPairs.slice(0, topN);
+    const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
+    const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
     if (existingOtherIdx >= 0) {
-      // Real "Other" answer already in top-N — merge remainder into it
-      topValues[existingOtherIdx] = (topValues[existingOtherIdx] ?? 0) + otherValue;
-      displayXAxisData = topLabels;
-      displayBarValues = topValues;
+      // Real "Other" category already in top-N — merge remainder into it
+      const merged = topPairs.map((p, i) =>
+        i === existingOtherIdx ? { label: p.label, value: (p.value ?? 0) + otherValue } : p,
+      );
+      displayXAxisData = merged.map((p) => p.label);
+      displayBarValues = merged.map((p) => p.value);
     } else {
-      displayXAxisData = [...topLabels, 'Other'];
-      displayBarValues = [...topValues, otherValue];
+      displayXAxisData = [...topPairs.map((p) => p.label), 'Other'];
+      displayBarValues = [...topPairs.map((p) => p.value), otherValue];
     }
   }
 

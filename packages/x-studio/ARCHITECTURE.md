@@ -250,7 +250,7 @@ Test files co-located with the canvas target specific concerns: `StudioCanvas.gr
 - `richContext.ts` builds `StudioAIRichContext` — purely-additive, client-derived signal (field statistics, recent mutations, current selection) attached to every chat request so the model has more to work with without the user typing extra detail.
 - `generateInsight.ts` / `createWidgetFromDescription.ts` call the middleware's `/insight` and `/widget` endpoints respectively (one-shot widget insight text and "describe a widget in English" widget creation).
 - `useSpeechRecognition.ts` wraps the Web Speech API for voice input into the chat composer.
-- `StudioAIToolName`/`StateMutation`/`SerializableSkill`/`StudioAIState`/`StudioAIChatThread` (all re-exported from `@mui/x-studio-schema`'s `aiTypes.ts`; `studioAITools.ts` in this package is a thin re-export shim for `StudioAIToolName`) are the client-visible subset of the AI protocol; the server-only pieces (`StudioAISkill.execute`, `SkillExecuteResult`, `StudioDataResolver`, rate-limiting/usage types) live exclusively in `@mui/x-studio-ai-middleware`.
+- `StudioAIToolName`/`StateMutation`/`SerializableSkill`/`StudioAIState`/`StudioAIChatThread` (all re-exported from `@mui/x-studio-schema`'s `aiTypes.ts`; `studioAITools.ts` in this package is a thin re-export shim for `StudioAIToolName`) are the client-visible subset of the AI protocol; the server-only pieces (`StudioAISkill.execute`, `SkillExecuteResult`, `StudioAIDataConfig`, rate-limiting/usage types) live exclusively in `@mui/x-studio-ai-middleware`.
 
 ## Internationalization
 

@@ -55,7 +55,7 @@ export interface StudioAIToolFacts {
   privateModeExcluded?: boolean;
   /**
    * False for tools that exist in `STUDIO_AI_TOOLS` but are never registered
-   * as an MCP tool (e.g. `execute_query`, which has no MCP-side resolver hook).
+   * as an MCP tool because they have no functional MCP handler.
    */
   mcpSupported: boolean;
 }
@@ -193,18 +193,14 @@ export const STUDIO_AI_TOOL_REGISTRY = {
     openWorld: false,
     mcpSupported: true,
   },
-  execute_query: {
-    title: 'Execute query',
+  query_data_source: {
+    title: 'Query data source',
     destructive: false,
     readOnly: true,
     idempotent: true,
     openWorld: true,
     privateModeExcluded: true,
-    // No MCP-side resolver hook exists (`StudioMcpOptions.data` only exposes
-    // structured `queryDataSource`, not arbitrary SQL) and no dispatch branch
-    // handles it in the MCP composition root — see `mcp.ts`'s historical
-    // `MCP_UNSUPPORTED_TOOLS`.
-    mcpSupported: false,
+    mcpSupported: true,
   },
   set_widget_forecast: {
     title: 'Set widget forecast',

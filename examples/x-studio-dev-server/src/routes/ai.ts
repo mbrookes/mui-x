@@ -4,78 +4,12 @@ import {
   handleAIChat,
   handleGenerateTitle,
   handleCreateWidget,
-  type StudioDataResolver,
   type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
 import type { Config } from '../config.js';
 import { error } from '../logger.js';
-
-/** CRM tables live in a separate database (see crmSchema.ts / makeCrmDataRouter). */
-const CRM_TABLES = ['contacts', 'deals', 'activities'];
-
-/** Maximum rows returned to the model from a single `execute_query` call. */
-const MAX_RESULT_ROWS = 200;
-
-/**
- * Reject anything that isn't a single read-only `SELECT`/`WITH` statement.
- * The query text comes from the LLM, so this guard keeps `execute_query` from
- * mutating the database or running multiple statements.
- */
-function isReadOnlyQuery(sql: string): boolean {
-  const trimmed = sql.trim().replace(/;\s*$/, '');
-  if (trimmed.includes(';')) {
-    return false; // no stacked statements
-  }
-  if (!/^\s*(select|with)\b/i.test(trimmed)) {
-    return false;
-  }
-  return !/\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|truncate|vacuum)\b/i.test(
-    trimmed,
-  );
-}
-
-/**
- * Builds the `dataResolver` that powers the AI `execute_query` tool.
- *
- * Routes each query to the correct database: queries that reference a CRM table
- * (or pass a `sourceId` containing "crm") go to `crmDb`, everything else to the
- * sales `db`. Only read-only statements are allowed, and results are capped so a
- * broad query can't flood the model's context.
- */
-function createDataResolver(salesDb: Knex, crmDb: Knex): StudioDataResolver {
-  return {
-    async resolve(query, sourceId) {
-      if (!isReadOnlyQuery(query)) {
-        throw new Error(
-          'execute_query only supports a single read-only SELECT statement. ' +
-            'Rewrite the request as a SELECT (no INSERT/UPDATE/DELETE/DDL or multiple statements).',
-        );
-      }
-
-      const lower = query.toLowerCase();
-      const isCrm =
-        (sourceId?.toLowerCase().includes('crm') ?? false) ||
-        CRM_TABLES.some((table) => new RegExp(`\\b${table}\\b`).test(lower));
-      const targetDb = isCrm ? crmDb : salesDb;
-
-      // knex.raw returns an array of rows on better-sqlite3 and `{ rows }` on pg/mysql.
-      const raw = (await targetDb.raw(query)) as unknown;
-      let allRows: Record<string, unknown>[] = [];
-      if (Array.isArray(raw)) {
-        allRows = raw as Record<string, unknown>[];
-      } else if (Array.isArray((raw as { rows?: unknown }).rows)) {
-        allRows = (raw as { rows: Record<string, unknown>[] }).rows;
-      }
-
-      const rows = allRows.slice(0, MAX_RESULT_ROWS);
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : undefined;
-      return { rows, columns, totalCount: allRows.length };
-    },
-  };
-}
-
-/** Matches a safe SQL identifier so a client-supplied table name can't inject. */
-const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+import { resolveClaims } from '../middleware/claims.js';
+import { CRM_SCHEMA_ALLOWLIST, SAFE_IDENTIFIER, makeQueryDataSource } from '../dataQuery.js';
 
 /**
  * Builds an optional `contextEnricher` that attaches DB-side metadata to the AI
@@ -110,7 +44,7 @@ function createContextEnricher(salesDb: Knex, crmDb: Knex): StudioAIContextEnric
         if (!table || !SAFE_IDENTIFIER.test(table)) {
           return;
         }
-        const db = CRM_TABLES.includes(table) ? crmDb : salesDb;
+        const db = CRM_SCHEMA_ALLOWLIST.includes(table) ? crmDb : salesDb;
         try {
           const [row] = (await db(table).count({ c: '*' })) as Array<{ c: number | string }>;
           rowCountNotes.push(`${source.label} (${table}): ${Number(row.c).toLocaleString()} rows`);
@@ -156,10 +90,6 @@ function createContextEnricher(salesDb: Knex, crmDb: Knex): StudioAIContextEnric
 export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router {
   const router = Router();
 
-  // Enables the AI `execute_query` tool by giving the agentic loop read-only
-  // access to the sales + CRM databases.
-  const dataResolver = createDataResolver(salesDb, crmDb);
-
   // Attaches DB-side metadata (exact row counts, schema comments) to every
   // chat request's system prompt. Optional — remove to send only client context.
   const contextEnricher = createContextEnricher(salesDb, crmDb);
@@ -179,6 +109,17 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
       return;
     }
 
+    // Resolved per request (unlike MCP's session-scoped claims) since the chat
+    // transport is stateless per HTTP request — mirrors salesData.ts's pattern.
+    let claims;
+    try {
+      claims = resolveClaims(req, config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(401).json({ error: message });
+      return;
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -190,7 +131,7 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
         apiKey: config.llm.apiKey,
         model: config.llm.model,
         approvalPending: pendingApprovals,
-        dataResolver,
+        data: { queryDataSource: makeQueryDataSource(salesDb, crmDb, claims) },
         contextEnricher,
       });
 

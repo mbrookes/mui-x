@@ -10,46 +10,25 @@
 import type { StudioState, StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIContextEnricher } from '../handleAIChat';
 import type { ToolPolicy, ToolPolicyContext } from '../toolPolicy';
+import type { StudioAIDataConfig } from '../models/aiTypes';
 
 export type { StudioState };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Data query types (framework-agnostic — no Knex dependency in this package)
+// Data query types — now shared with the chat transport. Defined in
+// `../models/aiTypes` (so `agenticLoop.ts`/`handleAIChat.ts` can import them
+// without depending on this MCP-specific module) and re-exported here under
+// their original names, since `mcp.ts` re-exports every symbol in this file.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Structured filter predicate for `query_data_source`.
- * Operators match those accepted by `@mui/x-studio-data-middleware`'s
- * `FilterPredicate` type so the dev server can forward them unchanged.
- */
-export interface StudioDataFilter {
-  /** Field ID (column name) to filter on. */
-  field: string;
-  /** Comparison operator. */
-  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
-  /** Filter value. For `between`, this is the lower bound; supply `value2` for the upper. */
-  value: unknown;
-  /** Upper bound for `between` operator. */
-  value2?: unknown;
-}
-
-/** Single aggregation function for `query_data_source`. */
-export interface StudioDataAggregation {
-  /** Column to aggregate (field ID / column name). */
-  column: string;
-  /** Aggregation function. */
-  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
-  /** Alias used as the result column key in returned rows. */
-  alias: string;
-}
-
-/** Sort descriptor for `query_data_source`. */
-export interface StudioDataOrderBy {
-  /** Column name (field ID or aggregation alias). */
-  column: string;
-  /** Sort direction. */
-  direction: 'asc' | 'desc';
-}
+export type {
+  StudioDataFilter,
+  StudioDataAggregation,
+  StudioDataOrderBy,
+  StudioDataHavingPredicate,
+  StudioDataQueryParams,
+  StudioDataQueryResult,
+} from '../models/aiTypes';
 
 /**
  * Tool names registered directly by the MCP server that are NOT part of
@@ -62,61 +41,11 @@ export interface StudioDataOrderBy {
  * entry for any MCP-registered tool is a compile error.
  */
 export type McpExtraToolName =
-  | 'query_data_source'
   | 'describe_data_source'
   | 'get_field_values'
   | 'compute_field_stats'
   | 'render_chart'
   | 'get_recent_changes';
-
-/** Post-aggregation HAVING predicate for `query_data_source`. */
-export interface StudioDataHavingPredicate {
-  /** Aggregation alias (from `aggregations[].alias`) to filter on. */
-  alias: string;
-  /** Comparison operator. */
-  operator: 'eq' | 'gt' | 'lt' | 'gte' | 'lte';
-  /** Numeric threshold. */
-  value: number;
-}
-
-/** Arguments for the `query_data_source` MCP tool. */
-export interface StudioDataQueryParams {
-  /** Data source ID from the dashboard state (e.g. `"source-orders"`). */
-  sourceId: string;
-  /**
-   * Physical table name resolved from the data source.
-   * Set internally by the tool handler — callers should not need to set this.
-   */
-  tableName: string;
-  /** Field IDs to project. Omit to return all non-hidden fields. */
-  columns?: string[];
-  /** Structured WHERE predicates. Never raw SQL. */
-  filters?: StudioDataFilter[];
-  /**
-   * Aggregation functions applied via GROUP BY.
-   * Non-aggregated `columns` entries form the GROUP BY list.
-   */
-  aggregations?: StudioDataAggregation[];
-  /**
-   * Post-aggregation HAVING predicates.
-   * Each alias must match an entry in `aggregations[].alias`.
-   */
-  having?: StudioDataHavingPredicate[];
-  /** Sort order. */
-  orderBy?: StudioDataOrderBy[];
-  /** Maximum rows to return. Default 1000. */
-  limit?: number;
-  /** Number of rows to skip before returning results. Use with `limit` for pagination. Default 0. */
-  offset?: number;
-}
-
-/** Result returned by `queryDataSource` and surfaced in the `query_data_source` tool response. */
-export interface StudioDataQueryResult {
-  rows: Record<string, unknown>[];
-  rowCount: number;
-  /** Routing tier applied by the data middleware. */
-  tier?: 'client' | 'server' | 'db';
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public options / state box
@@ -146,19 +75,19 @@ export interface StudioMcpOptions {
    * When omitted, all tools except those with no functional MCP handler are registered.
    * - `summarise_page` works when `data` is configured (queries sources server-side);
    *   falls back to a descriptive error when `data` is not provided.
-   * - `execute_query` cannot be enabled via MCP. It runs arbitrary SQL, which on
-   *   the chat path is backed by `handleAIChat`'s `dataResolver`; `StudioMcpOptions`
-   *   has no equivalent resolver hook, so there is no handler to dispatch it to.
-   *   Listing it here has no effect — it is excluded unconditionally so an opted-in
-   *   call cannot dead-end on an `Unknown tool` error.
+   * - `query_data_source` works when `data` is configured; excluded from the
+   *   registered list otherwise so an opted-in call cannot dead-end on an
+   *   `Unknown tool` error.
    */
   allowedTools?: string[];
   /**
    * Optional data access configuration.
    *
-   * When provided, the `query_data_source` MCP tool becomes available, allowing
-   * MCP clients to query the underlying data sources (order history, CRM contacts,
-   * products, etc.) using structured filters and aggregations.
+   * When provided, the `query_data_source` tool becomes available on both this
+   * MCP server AND `handleAIChat`'s chat loop — pass the SAME `StudioAIDataConfig`
+   * object to both for identical behavior across transports. Allows clients to
+   * query the underlying data sources (order history, CRM contacts, products,
+   * etc.) using structured filters and aggregations.
    *
    * Supply a `queryDataSource` callback that routes queries to the correct database.
    * The dev server implements this via `handleBatchQuery` from `@mui/x-studio-data-middleware`.
@@ -186,22 +115,7 @@ export interface StudioMcpOptions {
    * };
    * ```
    */
-  data?: {
-    /**
-     * Execute a structured query against a data source.
-     * The implementation is responsible for security, allowlisting, and DB routing.
-     * @param {StudioDataQueryParams} params - The structured query (source, columns, aggregations, filters, ordering).
-     * @returns {Promise<StudioDataQueryResult>} The resolved rows together with the row count and routing tier.
-     */
-    queryDataSource: (params: StudioDataQueryParams) => Promise<StudioDataQueryResult>;
-    /**
-     * Hard upper bound on the number of rows the `query_data_source` tool may request.
-     * The model-supplied `limit` (or the default of 1000) is clamped to this value before
-     * the query reaches your `queryDataSource` implementation.
-     * @default 1000
-     */
-    maxQueryRows?: number;
-  };
+  data?: StudioAIDataConfig;
   /**
    * Called after every state-mutating tool call with the updated `StudioState`.
    * Use this to persist the session state to a database so it can be reloaded

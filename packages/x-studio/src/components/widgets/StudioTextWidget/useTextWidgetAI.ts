@@ -144,7 +144,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
             dashboardState: serializableState,
             pageSnapshot: snapshot || undefined,
             // Restrict to read-only tools so no dashboard state mutations occur
-            allowedTools: ['execute_query', 'summarise_page'],
+            allowedTools: ['query_data_source', 'summarise_page'],
           }),
         });
 

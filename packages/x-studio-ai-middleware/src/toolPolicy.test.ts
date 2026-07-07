@@ -255,8 +255,8 @@ describe('createEffectsAwareToolPolicy', () => {
     const policy = createEffectsAwareToolPolicy();
     const decision = await policy({
       transport: 'chat',
-      toolName: 'execute_query',
-      input: { query: 'SELECT 1' },
+      toolName: 'query_data_source',
+      input: { sourceId: 'src1' },
       state: createDefaultStudioState(),
       proposed: undefined,
       usage: EMPTY_USAGE(),
@@ -361,7 +361,7 @@ function makeProposedCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
 function makeArgsOnlyCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
   return {
     transport: 'chat',
-    toolName: 'execute_query',
+    toolName: 'query_data_source',
     input: {},
     state: createDefaultStudioState(),
     proposed: undefined,

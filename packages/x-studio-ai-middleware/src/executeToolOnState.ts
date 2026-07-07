@@ -49,12 +49,12 @@ export interface PureToolImpl {
 /**
  * A tool whose execution has a side effect (I/O) and therefore must NEVER be
  * routed through the execute-then-gate dry-run path — it must be authorized
- * BEFORE it runs, args-only. `execute_query` is the only member: its real
- * dispatch lives in `agenticLoop.ts` (resolved via the app-provided
- * `dataResolver`, consulting the policy first) and is intentionally NOT
- * reachable through `executeToolOnState` — see the `default` case below. This
- * entry exists purely so `TOOL_IMPLS` is exhaustive over every
- * `StudioAIToolName`, letting a future consumer type `executeToolWithPolicy`'s
+ * BEFORE it runs, args-only. `query_data_source` is the only member: its real
+ * dispatch lives in `agenticLoop.ts` (chat) and `mcp/dataTools.ts` (MCP), both
+ * consulting the policy first, and is intentionally NOT reachable through
+ * `executeToolOnState` — see the `default` case below. This entry exists
+ * purely so `TOOL_IMPLS` is exhaustive over every `StudioAIToolName`, letting
+ * a future consumer type `executeToolWithPolicy`'s
  * accepted shape as `PureToolImpl`-only.
  */
 export interface ExternalToolImpl {
@@ -723,16 +723,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     },
   },
 
-  // Side-effectful (runs a live query via the app-provided `dataResolver`) and
+  // Side-effectful (runs a live query via the app-provided `data` config) and
   // therefore must be authorized BEFORE it executes, not dry-run-then-gated —
   // see the PURITY INVARIANT documented in `toolPolicy.ts`. Its real dispatch
-  // lives in `agenticLoop.ts`, resolved via `dataResolver` before ever reaching
-  // this function; MCP never registers it (`MCP_UNSUPPORTED_TOOLS`). This entry
-  // exists only so `TOOL_IMPLS` is exhaustive over `StudioAIToolName` — calling
-  // `executeToolOnState('execute_query', ...)` directly still falls through to
-  // the `default` "Unknown tool" case below, exactly as before this table
-  // existed (there was never a `case 'execute_query'` in the old switch).
-  execute_query: { effect: 'external' },
+  // lives in `agenticLoop.ts` (chat) and `mcp/dataTools.ts` (MCP) — both call
+  // `createDataToolHandlers`, never this function. This entry exists only so
+  // `TOOL_IMPLS` is exhaustive over `StudioAIToolName` — calling
+  // `executeToolOnState('query_data_source', ...)` directly still falls
+  // through to the `default` "Unknown tool" case below.
+  query_data_source: { effect: 'external' },
 
   set_widget_forecast: {
     effect: 'pure',
@@ -795,7 +794,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
  * The `nextState` can be fed into subsequent tool calls within the same turn.
  *
  * Dispatches through `TOOL_IMPLS`. `toolName` is an arbitrary string (unknown or
- * unregistered tool names — including `execute_query`, which is intentionally
+ * unregistered tool names — including `query_data_source`, which is intentionally
  * `{ effect: 'external' }` with no `plan` — fall through to the same
  * `Unknown tool` error the old switch statement's `default` case produced).
  */

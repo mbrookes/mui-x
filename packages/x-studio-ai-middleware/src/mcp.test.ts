@@ -893,46 +893,6 @@ describe('buildStudioMcpServer — tools/call allowedTools gating (T1-3)', () =>
   });
 });
 
-describe('buildStudioMcpServer — execute_query is never available via MCP', () => {
-  const LIST = 'tools/list';
-
-  it('is not listed in tools/list even when explicitly allowed', async () => {
-    const stateBox = { current: makeStableState() };
-    // execute_query has no functional MCP handler, so it must never be advertised —
-    // not even when the host lists it in allowedTools (previously this was a
-    // documented opt-in that silently dead-ended).
-    const server = buildStudioMcpServer(stateBox, {
-      allowedTools: ['execute_query', 'add_page'],
-      data: { queryDataSource: vi.fn() },
-    });
-
-    const result = (await getHandler(server, LIST)({ params: {}, method: LIST })) as any;
-    const names = (result.tools as Array<{ name: string }>).map((t) => t.name);
-    expect(names).not.toContain('execute_query');
-    // The other allowed tool is still advertised — only execute_query is dropped.
-    expect(names).toContain('add_page');
-  });
-
-  it('is rejected as Unknown tool when called even though it is in allowedTools', async () => {
-    const stateBox = { current: makeStableState() };
-    const server = buildStudioMcpServer(stateBox, {
-      allowedTools: ['execute_query'],
-      data: { queryDataSource: vi.fn() },
-    });
-
-    const result = (await getHandler(
-      server,
-      CALL_TOOL,
-    )({
-      params: { name: 'execute_query', arguments: { query: 'SELECT 1' } },
-      method: CALL_TOOL,
-    })) as any;
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/unknown tool/i);
-  });
-});
-
 describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
   it('deny leaves stateBox untouched, records no change, and does not fire onStateChange', async () => {
     const stateBox = { current: makeStableState() };
@@ -1226,8 +1186,8 @@ describe('buildStudioMcpServer — tools/list golden output', () => {
       tools: Array<{ name: string }>;
     };
     const names = result.tools.map((t) => t.name).sort();
-    // execute_query is excluded (MCP_UNSUPPORTED_TOOLS); data-query tools are
-    // excluded (no `data` option configured).
+    // query_data_source and other data-query tools are excluded (no `data`
+    // option configured).
     expect(names).toEqual(Object.keys(EXPECTED_TOOLS).sort());
   });
 

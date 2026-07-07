@@ -48,7 +48,7 @@ export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
   summarise_page: NoteAltIcon,
   apply_bulk_update: AutoFixHighIcon,
   rename_thread: EditNoteIcon,
-  execute_query: StorageIcon,
+  query_data_source: StorageIcon,
   // Date / calendar tools
   get_current_date: CalendarTodayIcon,
 };
@@ -78,7 +78,7 @@ export const STUDIO_TOOL_LABELS: Record<string, string> = {
   summarise_page: 'Summarise page',
   apply_bulk_update: 'Apply bulk update',
   rename_thread: 'Rename thread',
-  execute_query: 'Execute query',
+  query_data_source: 'Query data source',
   // Date / calendar tools
   get_current_date: 'Get current date',
 };

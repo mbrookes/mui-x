@@ -17,7 +17,7 @@ import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type {
   SerializableSkill,
   StudioAISkill,
-  StudioDataResolver,
+  StudioAIDataConfig,
   StudioAIRateLimit,
   StudioAIUsage,
   StudioAIRichContext,
@@ -33,6 +33,10 @@ import {
   type ToolPolicy,
 } from './toolPolicy';
 import type { StudioAISSEEvent } from './models/protocol';
+import { createDataToolHandlers } from './mcp/dataTools';
+
+/** Default cap on rows `query_data_source` may request, mirroring `mcp.ts`'s default. */
+const DEFAULT_MAX_QUERY_ROWS = 1000;
 
 // ── OpenAI message types ──────────────────────────────────────────────────────
 
@@ -260,7 +264,7 @@ function waitForApproval(
 interface ToolDispatchContext {
   skillHandlers: StudioAISkill[];
   skills: SerializableSkill[] | undefined;
-  dataResolver?: StudioDataResolver;
+  data?: StudioAIDataConfig;
   customWidgets: StudioCustomWidgetDef[] | undefined;
   pageSnapshot?: string;
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
@@ -272,7 +276,7 @@ interface ToolDispatchContext {
   /**
    * The per-call authorization policy (the single chokepoint). Consulted after the
    * pure dry-run for built-in mutating tools (`proposed` present) and args-only for
-   * server-tool skills / `execute_query` (`proposed: undefined`).
+   * server-tool skills / `query_data_source` (`proposed: undefined`).
    */
   toolPolicy: ToolPolicy;
   /**
@@ -337,7 +341,7 @@ type ApprovalFlowResult =
 
 /**
  * The single approval-pause implementation, shared by the built-in
- * `require-approval` path and the args-only (skill / `execute_query`)
+ * `require-approval` path and the args-only (skill / `query_data_source`)
  * `require-approval` path so the pause/timeout/abort race lives in exactly one
  * place. Yields the `tool-approval-request` event, then reuses `waitForApproval`
  * verbatim.
@@ -391,7 +395,7 @@ async function* runApprovalFlow(
 
 /**
  * Executes one tool call, owning the full dispatch decision (parse-failure →
- * gating → server-tool skill → execute_query → unregistered skill → approval +
+ * gating → server-tool skill → query_data_source → unregistered skill → approval +
  * built-in). Yields the side-effect events that must precede the result
  * (`state-mutation`, `tool-approval-request`) and returns a uniform outcome; the
  * caller performs the single result/`tool-activity` pairing for every path.
@@ -419,11 +423,12 @@ async function* dispatchToolCall(
   }
 
   // T1-1 — enforce the effective tool set at dispatch time, not just at
-  // advertisement time. `allowedTools`/`privateMode`/resolver filtering only
+  // advertisement time. `allowedTools`/`privateMode`/data-config filtering only
   // controls what is offered to the model; without this gate a prompt-injected
   // call to an unadvertised tool (e.g. `remove_page` in a read-only assistant, or
-  // `execute_query` excluded from `allowedTools`) would still be executed. Unknown
-  // or unadvertised names get the same error the default path produces — never run.
+  // `query_data_source` excluded from `allowedTools`) would still be executed.
+  // Unknown or unadvertised names get the same error the default path produces —
+  // never run.
   if (!ctx.advertisedToolNames.has(name)) {
     return { kind: 'result', output: JSON.stringify({ error: `Unknown tool: ${name}` }) };
   }
@@ -475,10 +480,12 @@ async function* dispatchToolCall(
     }
   }
 
-  // execute_query — resolved via the app-provided dataResolver.
-  if (name === 'execute_query') {
-    // `execute_query` is SIDE-EFFECTFUL (runs a live query), so the policy is
-    // consulted args-only BEFORE `resolve` runs, never as a post-hoc dry-run.
+  // query_data_source — resolved via the app-provided data config, dispatched
+  // through the SAME `createDataToolHandlers` factory the MCP transport uses,
+  // so both transports run the identical structured-query pipeline.
+  if (name === 'query_data_source') {
+    // `query_data_source` is SIDE-EFFECTFUL (runs a live query), so the policy is
+    // consulted args-only BEFORE it runs, never as a post-hoc dry-run.
     ctx.usage.toolCalls += 1;
     const decision = await ctx.toolPolicy({
       transport: 'chat',
@@ -503,16 +510,28 @@ async function* dispatchToolCall(
     }
     let output: string;
     try {
-      if (!ctx.dataResolver) {
+      if (!ctx.data) {
         output = JSON.stringify({
           error:
-            'execute_query is not available: no dataResolver was configured on the server. ' +
-            'Pass a dataResolver in AgenticLoopOptions to enable this tool.',
+            'query_data_source is not available: no data access was configured on the server. ' +
+            'Pass a `data` config in AgenticLoopOptions to enable this tool.',
         });
       } else {
-        const args = toolInput as { query: string; sourceId?: string };
-        const result = await ctx.dataResolver.resolve(args.query, args.sourceId);
-        output = JSON.stringify(result);
+        const handlers = createDataToolHandlers({
+          stateBox: { current: currentState },
+          data: ctx.data,
+          maxQueryRows: ctx.data.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS,
+          recentChanges: [],
+        });
+        const result = await handlers.query_data_source(toolInput as Record<string, unknown>);
+        const textItem = result.content.find(
+          (item): item is { type: 'text'; text: string } => item.type === 'text',
+        );
+        output = textItem?.text ?? JSON.stringify(result);
+        if (result.isError) {
+          const parsed = JSON.parse(output) as { error?: string };
+          ctx.onToolError?.(name, new Error(parsed.error ?? output));
+        }
       }
     } catch (queryErr) {
       const queryError = toError(queryErr);
@@ -614,12 +633,18 @@ export interface AgenticLoopOptions {
    */
   skillHandlers?: StudioAISkill[];
   /**
-   * App-provided data resolver for the `execute_query` tool.
-   * When set, the AI can call `execute_query` to run ad-hoc queries against
-   * the connected data sources and incorporate live results into its response.
-   * If not provided, `execute_query` calls return an informative error.
+   * App-provided data-access configuration for the `query_data_source` tool.
+   * When set, the AI can call `query_data_source` to run structured queries
+   * against the connected data sources and incorporate live results into its
+   * response. If not provided, `query_data_source` calls return an
+   * informative error.
+   *
+   * Pass the SAME `StudioAIDataConfig` object here and to
+   * `buildStudioMcpServer`'s `data` option (from `@mui/x-studio-ai-middleware`'s
+   * MCP entry point) for identical `query_data_source` behavior across both
+   * transports.
    */
-  dataResolver?: StudioDataResolver;
+  data?: StudioAIDataConfig;
   /**
    * When `true`, the `<dashboard_state>` block is omitted from the system prompt.
    * The model operates without knowing current widget/field/layout details.
@@ -713,7 +738,7 @@ export async function* runAgenticLoop(
     signal,
     onToolError,
     skillHandlers = [],
-    dataResolver,
+    data,
     privateMode = false,
     rateLimit,
     approvalPending,
@@ -767,9 +792,9 @@ export async function* runAgenticLoop(
   //
   //  - Client-declared `skills` (request body): advertising a collision would let a
   //    body-declared skill shadow a built-in in `tools/list`, and — because the
-  //    `execute_query` dispatch branch runs before the unregistered-skill check — a
-  //    skill literally named `execute_query` would be routed to `dataResolver.resolve`
-  //    rather than the built-in.
+  //    `query_data_source` dispatch branch runs before the unregistered-skill check —
+  //    a skill literally named `query_data_source` would be routed to the client's
+  //    handler rather than the built-in.
   //  - Host-registered `skillHandlers` (`options.skillHandlers`): the `matchedSkill`
   //    lookup in `dispatchToolCall` runs BEFORE the approval-required branch, so a
   //    host that registered `skillHandlers['remove_page']` would silently route the
@@ -803,15 +828,14 @@ export async function* runAgenticLoop(
   // so sensitive business data is never sent to the provider, but these tools
   // return that same data (field distinct values, widget configs, filter values,
   // source labels) which then round-trips back to the provider in the tool-result
-  // message. `execute_query` belongs here for the same reason: when a
-  // `dataResolver` is configured it returns live database rows straight to the
-  // provider as tool output — at least as sensitive as dashboard structure or
-  // field values — so private mode must withhold it too, even when a resolver is
-  // present. We use approach (a) from the review — exclude them from the
-  // advertised built-in list entirely — rather than redacting tool output,
-  // keeping the fix self-contained to this file. Combined with the T1-1
-  // dispatch-time gate, an injected call to one of these is rejected as an
-  // unadvertised tool.
+  // message. `query_data_source` belongs here for the same reason: when `data`
+  // is configured it returns live database rows straight to the provider as tool
+  // output — at least as sensitive as dashboard structure or field values — so
+  // private mode must withhold it too, even when `data` is configured. We use
+  // approach (a) from the review — exclude them from the advertised built-in
+  // list entirely — rather than redacting tool output, keeping the fix
+  // self-contained to this file. Combined with the T1-1 dispatch-time gate, an
+  // injected call to one of these is rejected as an unadvertised tool.
   //
   // Derived from `STUDIO_AI_TOOL_REGISTRY`'s `privateModeExcluded` fact
   // (`@mui/x-studio-schema`) rather than hand-maintained here, so this set
@@ -830,8 +854,8 @@ export async function* runAgenticLoop(
   // - `summarise_page` needs live per-widget row data that only exists on the
   //   client (see useChartWidgetData); the server only receives structural state.
   //   Offered only when the host explicitly lists it in `allowedTools`.
-  // - `execute_query` needs an app-provided `dataResolver`; without one it can
-  //   only return an error. Offered only when a resolver is configured.
+  // - `query_data_source` needs an app-provided `data` config; without one it can
+  //   only return an error. Offered only when `data` is configured.
   const builtInTools = (
     allowedTools
       ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
@@ -841,8 +865,8 @@ export async function* runAgenticLoop(
     if (privateMode && PRIVATE_MODE_EXCLUDED_TOOLS.has(t.function.name)) {
       return false;
     }
-    if (t.function.name === 'execute_query') {
-      return Boolean(dataResolver);
+    if (t.function.name === 'query_data_source') {
+      return Boolean(data);
     }
     if (t.function.name === 'summarise_page') {
       // Enable when a live data snapshot was pre-built client-side, or host opts in explicitly.
@@ -873,7 +897,7 @@ export async function* runAgenticLoop(
   const dispatchCtx: ToolDispatchContext = {
     skillHandlers: effectiveSkillHandlers,
     skills: effectiveSkills,
-    dataResolver,
+    data,
     customWidgets,
     pageSnapshot,
     approvalPending,

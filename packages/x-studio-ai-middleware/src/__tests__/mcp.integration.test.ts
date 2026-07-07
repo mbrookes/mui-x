@@ -146,10 +146,10 @@ describe('MCP server — tools', () => {
     expect(names).toContain('set_dashboard_title');
   });
 
-  it('excludes execute_query by default', async () => {
+  it('excludes query_data_source by default (no data option configured)', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    expect(names).not.toContain('execute_query');
+    expect(names).not.toContain('query_data_source');
   });
 
   it('includes summarise_page (degrades gracefully without data option)', async () => {

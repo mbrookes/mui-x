@@ -1024,7 +1024,7 @@ describe('executeToolOnState: purity (never mutates the input state in place)', 
     summarise_page: {},
     apply_bulk_update: { widgetUpdates: [{ widgetId: 'widget-1', title: 'Bulk' }] },
     rename_thread: { name: 'Thread' },
-    execute_query: { query: 'SELECT 1' },
+    query_data_source: { sourceId: 'src1' },
     set_widget_forecast: { widgetId: 'widget-1', enabled: false },
   };
 

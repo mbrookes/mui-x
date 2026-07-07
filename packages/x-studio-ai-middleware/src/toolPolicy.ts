@@ -22,8 +22,8 @@
  *   a side effect DURING execution rather than at the caller's commit point
  *   defeats this entire chokepoint: the "dry run" will have already fired the
  *   effect before the policy ever runs, so a `deny` cannot undo it. Side-effectful
- *   tools (server-tool skills, `execute_query` and other resolver-backed tools)
- *   must therefore go through the ARGS-ONLY policy path (`proposed: undefined`) —
+ *   tools (server-tool skills, `query_data_source` and other data-config-backed
+ *   tools) must therefore go through the ARGS-ONLY policy path (`proposed: undefined`) —
  *   the policy is consulted BEFORE they execute — and must never masquerade as a
  *   dry-run through `executeToolWithPolicy`.
  */
@@ -53,7 +53,7 @@ export interface ToolPolicyContext {
   input: unknown;
   state: StudioState; // pre-execution state
   /** Present for built-in mutating tools (execute-then-gate). Absent for server-tool
-   *  skills, execute_query, and read-only tools — args-only judgment for those. */
+   *  skills, query_data_source, and read-only tools — args-only judgment for those. */
   proposed?: {
     mutation: StateMutation;
     nextState: StudioState;

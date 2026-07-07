@@ -10,7 +10,7 @@
  *  - Persist and restore AI conversation threads (`StudioAIState`)
  *
  * Server-only AI types (`StudioAISkill` with its `execute` function,
- * `SkillExecuteResult`, `StudioDataResolver`, rate-limit/usage types) live in
+ * `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage types) live in
  * `@mui/x-studio-ai-middleware` — they are not part of the shared schema.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';

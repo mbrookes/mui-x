@@ -1,10 +1,14 @@
 /**
  * Static tool metadata for the x-studio MCP server — pure data, no logic.
  *
- * Holds the human-readable tool titles, the MCP tool annotations, the
- * `query_data_source` JSON schema, and the ready-to-list tool definitions for
- * the non-built-in tools (data tools + `render_chart` + `get_recent_changes`)
- * that `mcp.ts`'s `tools/list` handler appends.
+ * Holds the human-readable tool titles, the MCP tool annotations, and the
+ * ready-to-list tool definitions for the remaining non-built-in tools
+ * (`describe_data_source`, `get_field_values`, `compute_field_stats`,
+ * `render_chart`, `get_recent_changes`) that `mcp.ts`'s `tools/list` handler
+ * appends. `query_data_source`'s title/annotations/schema are no longer here —
+ * it moved to `STUDIO_AI_TOOLS` (`studioAITools.ts`), shared with the chat
+ * transport, and both `TOOL_TITLES`/`TOOL_ANNOTATIONS` below pick it up
+ * automatically via the registry-derived built-in subset.
  */
 
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
@@ -22,7 +26,6 @@ type McpToolName = StudioAIToolName | McpExtraToolName;
  * entry to derive from.
  */
 const EXTRA_TOOL_TITLES: Record<McpExtraToolName, string> = {
-  query_data_source: 'Query data source',
   describe_data_source: 'Describe data source',
   get_field_values: 'Get field values',
   compute_field_stats: 'Compute field stats',
@@ -110,12 +113,6 @@ const EXTRA_TOOL_ANNOTATIONS: Record<McpExtraToolName, ToolAnnotations> = {
     idempotentHint: true,
     openWorldHint: false,
   },
-  query_data_source: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: true,
-  },
   describe_data_source: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -150,126 +147,6 @@ export const TOOL_ANNOTATIONS: Record<McpToolName, ToolAnnotations> = {
   ...EXTRA_TOOL_ANNOTATIONS,
 };
 
-/** JSON Schema for the `query_data_source` tool input. */
-export const QUERY_DATA_SOURCE_SCHEMA = {
-  type: 'object',
-  properties: {
-    sourceId: {
-      type: 'string',
-      description:
-        'The data source ID from the dashboard state (e.g. "source-orders", "source-crm-deals"). ' +
-        'Read the studio://dashboard/state resource to discover available sources and their field IDs.',
-    },
-    columns: {
-      type: 'array',
-      items: { type: 'string' },
-      description:
-        'Field IDs to return. Omit to return all non-hidden fields. ' +
-        'Field IDs exactly match the column names in the database (camelCase).',
-    },
-    filters: {
-      type: 'array',
-      description:
-        'Structured WHERE predicates. Each filter narrows the result set. ' +
-        'Do NOT use raw SQL — use these structured operators only.',
-      items: {
-        type: 'object',
-        properties: {
-          field: { type: 'string', description: 'Field ID (column name) to filter on.' },
-          operator: {
-            type: 'string',
-            enum: ['eq', 'neq', 'in', 'lt', 'lte', 'gt', 'gte', 'like', 'between'],
-            description:
-              'eq=equal, neq=not equal, in=one of array, lt/lte/gt/gte=numeric comparison, ' +
-              'like=substring (%value%), between=inclusive range (supply value + value2).',
-          },
-          value: { description: 'Filter value. For between, this is the lower bound.' },
-          value2: { description: 'Upper bound for the between operator.' },
-        },
-        required: ['field', 'operator', 'value'],
-      },
-    },
-    aggregations: {
-      type: 'array',
-      description:
-        'Aggregation functions applied via GROUP BY. ' +
-        'Non-aggregated columns in `columns` become the GROUP BY list. ' +
-        'Examples: count orders per status, sum revenue per category.',
-      items: {
-        type: 'object',
-        properties: {
-          column: { type: 'string', description: 'Field ID to aggregate.' },
-          func: {
-            type: 'string',
-            enum: ['sum', 'avg', 'count', 'min', 'max'],
-            description:
-              'Use count for counting rows, sum for totals, avg for averages, min/max for extremes.',
-          },
-          alias: {
-            type: 'string',
-            description: 'Output key for this aggregated value in returned rows.',
-          },
-        },
-        required: ['column', 'func', 'alias'],
-      },
-    },
-    having: {
-      type: 'array',
-      description:
-        'Post-aggregation filters (HAVING clause). Each entry filters on an aggregation alias. ' +
-        'Example: to show only categories with total revenue > 10 000, combine ' +
-        '`aggregations: [{ column: "revenue", func: "sum", alias: "total_revenue" }]` with ' +
-        '`having: [{ alias: "total_revenue", operator: "gt", value: 10000 }]`.',
-      items: {
-        type: 'object',
-        properties: {
-          alias: {
-            type: 'string',
-            description:
-              'Aggregation alias to filter on (must match an entry in aggregations[].alias).',
-          },
-          operator: {
-            type: 'string',
-            enum: ['eq', 'gt', 'lt', 'gte', 'lte'],
-            description: 'eq=equal, gt=greater than, lt=less than, gte/lte=inclusive.',
-          },
-          value: { type: 'number', description: 'Numeric threshold.' },
-        },
-        required: ['alias', 'operator', 'value'],
-      },
-    },
-    orderBy: {
-      type: 'array',
-      description: 'Sort the result rows. Apply after aggregations when using GROUP BY.',
-      items: {
-        type: 'object',
-        properties: {
-          column: {
-            type: 'string',
-            description: 'Column name or aggregation alias to sort by.',
-          },
-          direction: { type: 'string', enum: ['asc', 'desc'] },
-        },
-        required: ['column', 'direction'],
-      },
-    },
-    limit: {
-      type: 'number',
-      description:
-        'Maximum rows to return. Default 1000. Use a smaller value for exploration; ' +
-        'use aggregations instead of high limits for analytical summaries.',
-      default: 1000,
-    },
-    offset: {
-      type: 'number',
-      description:
-        'Number of rows to skip before returning results. Use with limit for pagination. Default 0.',
-      default: 0,
-    },
-  },
-  required: ['sourceId'],
-} as const;
-
 /** Shape of a tool definition entry returned by the `tools/list` handler. */
 export interface McpToolDefinition {
   name: string;
@@ -281,22 +158,11 @@ export interface McpToolDefinition {
 
 /**
  * Tool definitions registered only when `options.data` is provided — the
- * read-only data-access tools.
+ * read-only data-access tools. `query_data_source` is NOT here: it's now a
+ * `STUDIO_AI_TOOLS` member (shared with the chat transport), advertised via
+ * `mcp.ts`'s `toolsToRegister`/`builtinTools` path instead.
  */
 export const DATA_TOOL_DEFINITIONS: McpToolDefinition[] = [
-  {
-    name: 'query_data_source',
-    title: TOOL_TITLES.query_data_source,
-    description:
-      'Query a data source (database table) with structured filters, aggregations, and sorting. ' +
-      'Use this to retrieve data rows, compute aggregates (totals, averages, counts by group), ' +
-      'or explore the underlying data before configuring widgets. ' +
-      'Supports HAVING predicates to filter on aggregation results (e.g. "categories where revenue > $10K"). ' +
-      'Results are read-only — this tool never modifies data. ' +
-      'Tip: use the studio://dashboard/state resource to discover available sourceIds and field names.',
-    inputSchema: QUERY_DATA_SOURCE_SCHEMA as unknown as Record<string, unknown>,
-    annotations: TOOL_ANNOTATIONS.query_data_source,
-  },
   {
     name: 'describe_data_source',
     title: TOOL_TITLES.describe_data_source,

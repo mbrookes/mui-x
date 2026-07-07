@@ -5,8 +5,14 @@
  * `StateMutation`, `StudioAIToolName`, and the rich-context types) now live in
  * `@mui/x-studio-schema` and are re-exported here. The server-only types
  * (`StudioAISkill` with its `execute` function, `SkillExecuteResult`,
- * `StudioDataResolver`, rate-limit/usage/enriched-context types) stay local —
- * the client never needs them.
+ * rate-limit/usage/enriched-context types) stay local — the client never
+ * needs them.
+ *
+ * The `query_data_source` data-query types (`StudioDataFilter` and friends,
+ * `StudioAIDataConfig`) live here — not in `mcp/types.ts` — so both `mcp.ts`
+ * and `agenticLoop.ts`/`handleAIChat.ts` can import them without either
+ * transport depending on the other's composition root. `mcp/types.ts`
+ * re-exports them under their original names for backward compatibility.
  */
 import type { SerializableSkill, StateMutation } from '@mui/x-studio-schema';
 import type { StudioState } from './studioTypes';
@@ -38,44 +44,112 @@ export interface StudioAIEnrichedContext {
   notes?: string;
 }
 
-// ── Data resolver ─────────────────────────────────────────────────────────────
+// ── Data query (`query_data_source`) ──────────────────────────────────────────
 
 /**
- * Result returned by a `StudioDataResolver` after executing a query.
+ * Structured filter predicate for `query_data_source`.
+ * Operators match those accepted by `@mui/x-studio-data-middleware`'s
+ * `FilterPredicate` type so a host server can forward them unchanged.
  */
-export interface StudioDataResolverResult {
-  /** Rows of data. Each row is a record of column-name → value. */
-  rows: Record<string, unknown>[];
-  /** Optional column metadata (names in order, useful for display). */
+export interface StudioDataFilter {
+  /** Field ID (column name) to filter on. */
+  field: string;
+  /** Comparison operator. */
+  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
+  /** Filter value. For `between`, this is the lower bound; supply `value2` for the upper. */
+  value: unknown;
+  /** Upper bound for `between` operator. */
+  value2?: unknown;
+}
+
+/** Single aggregation function for `query_data_source`. */
+export interface StudioDataAggregation {
+  /** Column to aggregate (field ID / column name). */
+  column: string;
+  /** Aggregation function. */
+  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  /** Alias used as the result column key in returned rows. */
+  alias: string;
+}
+
+/** Sort descriptor for `query_data_source`. */
+export interface StudioDataOrderBy {
+  /** Column name (field ID or aggregation alias). */
+  column: string;
+  /** Sort direction. */
+  direction: 'asc' | 'desc';
+}
+
+/** Post-aggregation HAVING predicate for `query_data_source`. */
+export interface StudioDataHavingPredicate {
+  /** Aggregation alias (from `aggregations[].alias`) to filter on. */
+  alias: string;
+  /** Comparison operator. */
+  operator: 'eq' | 'gt' | 'lt' | 'gte' | 'lte';
+  /** Numeric threshold. */
+  value: number;
+}
+
+/** Arguments for the `query_data_source` tool. */
+export interface StudioDataQueryParams {
+  /** Data source ID from the dashboard state (e.g. `"source-orders"`). */
+  sourceId: string;
+  /**
+   * Physical table name resolved from the data source.
+   * Set internally by the tool handler — callers should not need to set this.
+   */
+  tableName: string;
+  /** Field IDs to project. Omit to return all non-hidden fields. */
   columns?: string[];
-  /** Total row count before any LIMIT, if available from the data source. */
-  totalCount?: number;
+  /** Structured WHERE predicates. Never raw SQL. */
+  filters?: StudioDataFilter[];
+  /**
+   * Aggregation functions applied via GROUP BY.
+   * Non-aggregated `columns` entries form the GROUP BY list.
+   */
+  aggregations?: StudioDataAggregation[];
+  /**
+   * Post-aggregation HAVING predicates.
+   * Each alias must match an entry in `aggregations[].alias`.
+   */
+  having?: StudioDataHavingPredicate[];
+  /** Sort order. */
+  orderBy?: StudioDataOrderBy[];
+  /** Maximum rows to return. Default 1000. */
+  limit?: number;
+  /** Number of rows to skip before returning results. Use with `limit` for pagination. Default 0. */
+  offset?: number;
+}
+
+/** Result returned by `queryDataSource` and surfaced in the `query_data_source` tool response. */
+export interface StudioDataQueryResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  /** Routing tier applied by the data middleware. */
+  tier?: 'client' | 'server' | 'db';
 }
 
 /**
- * App-provided data resolver for the `execute_query` AI tool.
- *
- * When configured, the AI assistant can call `execute_query` to run
- * ad-hoc queries and incorporate live data into its responses.
- *
- * @example
- * ```ts
- * const dataResolver: StudioDataResolver = {
- *   async resolve(query, sourceId) {
- *     const db = sourceId ? getDb(sourceId) : defaultDb;
- *     const rows = await db.query(query);
- *     return { rows };
- *   },
- * };
- * ```
+ * App-provided data-access configuration shared by both transports: passing
+ * the SAME object to `handleAIChat`'s `data` option and `buildStudioMcpServer`'s
+ * `data` option gives the chat loop and MCP server identical `query_data_source`
+ * behavior against the same database.
  */
-export interface StudioDataResolver {
+export interface StudioAIDataConfig {
   /**
-   * Execute the query and return the result.
-   * @param query   The query string (SQL or equivalent).
-   * @param sourceId  Optional data source identifier.
+   * Execute a structured query against a data source.
+   * The implementation is responsible for security, allowlisting, and DB routing.
+   * @param {StudioDataQueryParams} params The structured query descriptor.
+   * @returns {Promise<StudioDataQueryResult>} The matching rows and metadata.
    */
-  resolve(query: string, sourceId?: string): Promise<StudioDataResolverResult>;
+  queryDataSource: (params: StudioDataQueryParams) => Promise<StudioDataQueryResult>;
+  /**
+   * Hard upper bound on the number of rows the `query_data_source` tool may request.
+   * The model-supplied `limit` (or the default of 1000) is clamped to this value
+   * before the query reaches `queryDataSource`.
+   * @default 1000
+   */
+  maxQueryRows?: number;
 }
 
 // ── Server-side skill ─────────────────────────────────────────────────────────

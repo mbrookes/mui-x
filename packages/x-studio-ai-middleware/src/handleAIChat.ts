@@ -59,7 +59,7 @@ import type { ToolPolicy } from './toolPolicy';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
   StudioAISkill,
-  StudioDataResolver,
+  StudioAIDataConfig,
   StudioAIRateLimit,
   StudioAIRichContext,
   StudioAIEnrichedContext,
@@ -150,27 +150,34 @@ export interface StudioAIHandlerOptions {
    */
   skillHandlers?: StudioAISkill[];
   /**
-   * App-provided data resolver for the `execute_query` AI tool.
+   * App-provided data-access configuration for the `query_data_source` AI tool.
    *
-   * When set, the model can call `execute_query` to run ad-hoc queries against
-   * the connected data sources. The resolver receives the SQL string (and an
-   * optional `sourceId`) and must return the rows.
+   * When set, the model can call `query_data_source` to run structured queries
+   * (source id + columns/filters/aggregations/having/orderBy) against the
+   * connected data sources. Your `queryDataSource` callback is responsible for
+   * routing, security, and allowlisting — the same shape `buildStudioMcpServer`'s
+   * `data` option accepts, so a single implementation covers both transports.
    *
    * @example
    * ```ts
    * const stream = handleAIChat(body, {
    *   endpoint: process.env.OPENAI_ENDPOINT,
    *   apiKey: process.env.OPENAI_API_KEY,
-   *   dataResolver: {
-   *     async resolve(query, sourceId) {
-   *       const rows = await db.query(query);
-   *       return { rows };
+   *   data: {
+   *     async queryDataSource(params) {
+   *       const result = await handleBatchQuery(
+   *         { pageId: 'chat', widgets: [{ id: 'q', table: params.tableName, ...params }] },
+   *         claims,
+   *         { db, schemaAllowlist },
+   *       );
+   *       const r = result.results[0];
+   *       return { rows: r.rows, rowCount: r.rowCount, tier: r.tier };
    *     },
    *   },
    * });
    * ```
    */
-  dataResolver?: StudioDataResolver;
+  data?: StudioAIDataConfig;
   /**
    * Token and turn budget enforced for this request.
    *
@@ -383,7 +390,7 @@ export function handleAIChat(
             signal: abortController.signal,
             onToolError: options.onToolError,
             skillHandlers: options.skillHandlers,
-            dataResolver: options.dataResolver,
+            data: options.data,
             privateMode: effectivePrivateMode,
             rateLimit: options.rateLimit,
             toolPolicy: options.toolPolicy,

@@ -92,19 +92,9 @@ export type {
 /**
  * Tools declared in STUDIO_AI_TOOLS that have **no functional MCP handler** and
  * are therefore never registered on the MCP surface — regardless of whether the
- * host lists them in `allowedTools`.
- *
- * `execute_query` runs arbitrary SQL. On the chat path it is backed by
- * `options.dataResolver` (an app-supplied `resolve(query, sourceId)` function),
- * but `StudioMcpOptions` has no equivalent resolver hook — `options.data` only
- * exposes structured `queryDataSource(params)`, not arbitrary SQL — and no
- * dispatch branch handles `execute_query` in this composition root. Advertising
- * it as opt-in-able via `allowedTools` was a dead end: an opted-in call fell
- * through to `executeToolOnState`'s default case and returned
- * `{"error":"Unknown tool: execute_query"}`. Until an MCP resolver hook exists it
- * is excluded unconditionally, so `tools/list` never advertises it and a
- * `tools/call` for it is rejected as `Unknown tool`. The chat loop's use of
- * `execute_query` via `dataResolver` is unaffected.
+ * host lists them in `allowedTools`. Currently empty (every built-in tool,
+ * including `query_data_source`, has an MCP dispatch path), but kept as a
+ * generic guard for any future tool that is chat-only.
  *
  * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `mcpSupported` fact
  * (`@mui/x-studio-schema`) rather than hand-maintained here, so this set can't
@@ -225,10 +215,16 @@ export function buildStudioMcpServer(
   // - Tools with no functional MCP handler (`MCP_UNSUPPORTED_TOOLS`) are never
   //   registered, even if the host lists them in `allowedTools` — there is
   //   nothing to dispatch them to, so advertising them would only dead-end.
+  // - `query_data_source` additionally requires `options.data` to be configured —
+  //   without it, `createDataToolHandlers` has no `queryDataSource` callback to
+  //   call, so advertising the tool would only dead-end into an error result.
   // - If allowedTools is provided, use that exact list (caller takes responsibility).
   const toolsToRegister = STUDIO_AI_TOOLS.filter((toolDef) => {
     const name = toolDef.function.name;
     if (MCP_UNSUPPORTED_TOOLS.has(name)) {
+      return false;
+    }
+    if (name === 'query_data_source' && !data) {
       return false;
     }
     if (allowedTools) {

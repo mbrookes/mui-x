@@ -57,7 +57,7 @@ prompts, and Studio executes them to mutate the dashboard state.
 | `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary.                       |
 | `apply_bulk_update`   | Applies multiple coordinated changes (widget updates, additions, removals, layout, column spans) in a single atomic operation. The AI uses this instead of multiple individual tool calls when a prompt requires 3 or more related changes. |
 | `rename_thread`       | Auto-renames the current conversation thread to a concise title after the user's first substantive message. Keeps the thread list readable without prompting the user.                                                                      |
-| `execute_query`       | Runs an ad-hoc query against a data source and returns results as JSON. Only available when a server-side data resolver is configured. Excluded from the MCP default tool set (opt in via `allowedTools`).                                  |
+| `query_data_source`   | Queries a data source with structured filters, aggregations, and sorting (no raw SQL). Only available when a server-side `data` config is provided — available on both the chat and MCP transports.                                         |
 | `set_widget_forecast` | Enables or disables a linear trend/forecast overlay on a `line` or `area` chart widget, projecting forward by a configurable number of periods with optional confidence bands.                                                              |
 
 ## Parallel tool calls

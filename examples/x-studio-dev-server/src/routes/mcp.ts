@@ -41,14 +41,11 @@ import { randomUUID } from 'node:crypto';
 import type { Knex } from 'knex';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { handleBatchQuery } from '@mui/x-studio-data-middleware';
-import type { BatchWidgetDescriptor } from '@mui/x-studio-data-middleware';
 import {
   buildStudioMcpServer,
   createDefaultStudioState,
   type StudioState,
   type StudioStateBox,
-  type StudioDataQueryParams,
   type StudioAIContextEnricher,
 } from '@mui/x-studio-ai-middleware';
 import { deserializeState, migrateState } from '@mui/x-studio-schema';
@@ -71,6 +68,7 @@ import {
 } from 'x-studio-shared';
 import type { Config } from '../config.js';
 import { resolveClaims, DEV_CLAIMS } from '../middleware/claims.js';
+import { CRM_SCHEMA_ALLOWLIST, SAFE_IDENTIFIER, makeQueryDataSource } from '../dataQuery.js';
 
 // ── MCP session initial state ─────────────────────────────────────────────────
 // Use the full sales dashboard layout (pages, widgets, relationships,
@@ -113,20 +111,6 @@ const MCP_INITIAL_STATE = {
   runtime: { ...INITIAL_STATE.runtime, dataSources: MCP_INITIAL_DATA_SOURCES },
 };
 
-const SALES_SCHEMA_ALLOWLIST = [
-  'customers',
-  'products',
-  'orders',
-  'order_items',
-  'shipments',
-  'shipment_items',
-];
-
-const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities', 'deal_stage_transitions'];
-
-/** Matches a safe SQL identifier so a client-supplied table name can't inject. */
-const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 // ── Session maps ──────────────────────────────────────────────────────────────
 // Keyed by the MCP session ID issued on initialization.
 // Entries are removed when the transport closes (client disconnect or DELETE).
@@ -138,57 +122,6 @@ const stateBoxes: Record<string, StudioStateBox> = {};
 
 export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Router {
   const router = Router();
-
-  /**
-   * Build a `queryDataSource` callback for a session.
-   * Routes queries to the correct Knex instance based on the source's table name.
-   */
-  function makeQueryDataSource(claims: ReturnType<typeof resolveClaims>) {
-    return async (params: StudioDataQueryParams) => {
-      // Determine which database owns this table.
-      const isCrm = CRM_SCHEMA_ALLOWLIST.includes(params.tableName);
-      const targetDb = isCrm ? crmDb : salesDb;
-      const schemaAllowlist = isCrm ? CRM_SCHEMA_ALLOWLIST : SALES_SCHEMA_ALLOWLIST;
-
-      const descriptor: BatchWidgetDescriptor = {
-        id: 'mcp-query',
-        table: params.tableName,
-        ...(params.columns && { columns: params.columns }),
-        ...(params.filters && {
-          filters: params.filters.map((f) => ({
-            column: f.field,
-            operator: f.operator,
-            // Cast through unknown — StudioDataFilter.value is unknown whereas
-            // FilterPredicate.value has a stricter type; the DB middleware validates at runtime.
-            value: f.value as unknown,
-          })) as BatchWidgetDescriptor['filters'],
-        }),
-        ...(params.aggregations && {
-          aggregations: params.aggregations as BatchWidgetDescriptor['aggregations'],
-        }),
-        ...(params.orderBy && { orderBy: params.orderBy as BatchWidgetDescriptor['orderBy'] }),
-        ...(params.limit !== undefined && { limit: params.limit }),
-      };
-
-      const response = await handleBatchQuery({ pageId: 'mcp', widgets: [descriptor] }, claims, {
-        db: targetDb,
-        schemaAllowlist,
-        // Dev server is single-tenant — no tenant discriminator column.
-        tenancy: { mode: 'single-tenant' },
-      });
-
-      const result = response.results[0];
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      return {
-        rows: result.rows,
-        rowCount: result.rowCount,
-        tier: result.tier,
-      };
-    };
-  }
 
   /**
    * Demonstrative `contextEnricher`: attaches DB-side metadata the MCP client
@@ -308,7 +241,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         serverName: 'x-studio-dev-server',
         serverVersion: '1.0.0',
         data: {
-          queryDataSource: makeQueryDataSource(claims),
+          queryDataSource: makeQueryDataSource(salesDb, crmDb, claims),
         },
         contextEnricher: makeContextEnricher(),
         logger: { log, error: logError },

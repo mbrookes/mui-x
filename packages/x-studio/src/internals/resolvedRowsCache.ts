@@ -58,14 +58,26 @@ interface ResolvedCacheEntry {
 const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
 /**
+ * Upper bound on distinct filter fingerprints kept per widgetRows array. Interactive /
+ * cross-filter churn produces a stream of value-distinct fingerprints; without a cap the
+ * inner Map would grow unbounded for the lifetime of that rows array. Map insertion order
+ * gives a free LRU — the oldest key is `keys().next().value`.
+ */
+const MAX_ENTRIES_PER_ROWS = 20;
+
+/**
  * Fingerprints every field that affects how a filter selects rows. `compileRowTest`
  * (filterUtils) reads operator/field/fieldType/conjunction/operator2/value2/
  * filterMode/rank*, so all of them must be part of the cache key — omitting them
  * lets an operator edit (same id, same value) silently serve stale rows.
+ *
+ * `f.id` is deliberately NOT included: it does not affect which rows a filter selects,
+ * so two filters identical in every behavioral field should share one cache entry.
+ * Including it would guarantee a miss every time an interactive/cross-filter is
+ * re-applied, since those ids carry a `Date.now()` suffix.
  */
 function filterFingerprint(f: StudioFilterState): string {
   return stableStringify([
-    f.id,
     f.field,
     f.fieldType ?? null,
     f.filterMode ?? null,
@@ -182,6 +194,9 @@ export function resolveRowsCached(
 
   const existing = byKey.get(cacheKey);
   if (existing && isEntryValid(existing, dataSources, relationships, expressionFields)) {
+    // Refresh LRU recency: delete + re-insert moves this key to the newest position.
+    byKey.delete(cacheKey);
+    byKey.set(cacheKey, existing);
     return existing.result;
   }
 
@@ -223,6 +238,15 @@ export function resolveRowsCached(
     }
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
+
+  // Evict the least-recently-used entry before inserting when at capacity. A stale key
+  // (already re-mapped above, so absent) won't count toward the cap.
+  if (!byKey.has(cacheKey) && byKey.size >= MAX_ENTRIES_PER_ROWS) {
+    const oldest = byKey.keys().next().value;
+    if (oldest !== undefined) {
+      byKey.delete(oldest);
+    }
+  }
 
   byKey.set(cacheKey, {
     crossFilterSourceRows,

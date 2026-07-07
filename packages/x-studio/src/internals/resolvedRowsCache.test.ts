@@ -343,6 +343,124 @@ describe('resolveRowsCached', () => {
     expect(result2).toBe(result1);
   });
 
+  // ─── Fingerprint id-independence + bounded inner map (finding 1.9) ───────────
+
+  it('two filters with identical content but different ids share one cache entry', () => {
+    // Interactive / cross-filter ids carry a `Date.now()` suffix. Filters identical in
+    // every behavioral field must hit the same entry regardless of id — otherwise every
+    // re-application is a guaranteed miss.
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const f1 = [
+      makeFilter({ id: 'interactive-w-111', field: 'region', operator: 'equals', value: 'EU' }),
+    ];
+    const f2 = [
+      makeFilter({ id: 'interactive-w-222', field: 'region', operator: 'equals', value: 'EU' }),
+    ];
+    const r1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      f1,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const r2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      f2,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    expect(r2).toBe(r1);
+  });
+
+  it('bounds the inner cache under filter-value churn (LRU eviction)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const filterFor = (v: string) => [
+      makeFilter({ id: 'f', field: 'region', operator: 'equals', value: v }),
+    ];
+    const seedResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('seed'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // Immediate re-request is a hit (same reference) — the entry is cached.
+    expect(
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor('seed'),
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    ).toBe(seedResult);
+    // Churn 20 new distinct filter values → evicts the least-recently-used ('seed').
+    for (let i = 0; i < 20; i += 1) {
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor(`v${i}`),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+    }
+    // 'seed' was evicted → recompute yields a fresh reference (cache miss).
+    const seedAgain = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('seed'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    expect(seedAgain).not.toBe(seedResult);
+  });
+
+  it('keeps a recently-touched entry alive under churn (LRU recency)', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const filterFor = (v: string) => [
+      makeFilter({ id: 'f', field: 'region', operator: 'equals', value: v }),
+    ];
+    const keepResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      filterFor('keep'),
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // Insert far more than the cap, touching 'keep' after each insert so it stays newest
+    // and never becomes the eviction candidate.
+    for (let i = 0; i < 30; i += 1) {
+      resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor(`v${i}`),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+      const touched = resolveRowsCached(
+        ownRows,
+        'orders',
+        filterFor('keep'),
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+      expect(touched).toBe(keepResult);
+    }
+  });
+
   // ─── Fingerprint: operator/field/mode changes (Part A item 1) ────────────────
 
   it('invalidates the cache when a filter operator changes (same id and value)', () => {

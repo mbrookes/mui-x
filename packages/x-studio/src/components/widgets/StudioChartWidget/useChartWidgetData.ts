@@ -3,12 +3,7 @@
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme, useColorScheme } from '@mui/material';
-import type {
-  StudioDataSource,
-  StudioFilterState,
-  StudioQueryDescriptor,
-  StudioWidget,
-} from '../../../models';
+import type { StudioDataSource, StudioWidget } from '../../../models';
 import {
   aggregateBlendedSeries,
   aggregateByField,
@@ -23,10 +18,6 @@ import {
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
 } from '../../../internals/chartAggregation';
-import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
-import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
-import { buildQueryDescriptor } from '../../../internals/queryDescriptor';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   useStudioSelector,
   selectFilters,
@@ -38,6 +29,7 @@ import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
+import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(
   widget: StudioWidget,
@@ -53,15 +45,11 @@ export function useChartWidgetData(
   // A mixed chart may overlay series from different sources, aligned on a shared
   // categorical xField. A series is "foreign" when its sourceId differs from the
   // widget's primary source; it is aggregated independently in its own source and
-  // outer-joined onto the chart's category axis.
+  // outer-joined onto the chart's category axis (see useBlendedSeriesRows). The blend
+  // hook owns `isBlended` (the single source of truth) and resolves each foreign
+  // source's rows; `blendedMultiYData` below aligns them against the primary series.
   const blendSeries = config.ySeries;
-  const isBlended = React.useMemo(
-    () =>
-      config.chartType === 'mixed' &&
-      Array.isArray(blendSeries) &&
-      blendSeries.some((s) => s.sourceId && s.sourceId !== widget.sourceId),
-    [config.chartType, blendSeries, widget.sourceId],
-  );
+  const { isBlended, foreignRowsBySource } = useBlendedSeriesRows(widget, pageId);
 
   // Canonical label order defined on the xField (e.g. pipeline stages).
   // Used by aggregation functions when chartSortBy is not 'value'.
@@ -175,189 +163,6 @@ export function useChartWidgetData(
   // series path; the setup panel disables those combinations. See BL-186.
   const isFieldlessCount = activeYFields.length === 0 && config.yAggregation === 'count';
   const categoryYField = activeYFields[0] ?? '';
-
-  // Page-scoped filters apply across the dashboard, so they also constrain foreign
-  // blended series. Widget-specific, cross-filter and rank filters are tied to the
-  // primary widget/source and are not applied to a foreign source's aggregation.
-  const pageFilters = React.useMemo(
-    () =>
-      filters.filter(
-        (f) =>
-          (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') &&
-          f.filterMode !== 'rank',
-      ),
-    [filters],
-  );
-
-  // Distinct foreign sources referenced by the blended series, with the fields and
-  // page filters each needs. Split downstream into sync (in-memory) and async (adapter).
-  const foreignSpecs = React.useMemo(() => {
-    const specs: {
-      sid: string;
-      fields: string[];
-      applicable: StudioFilterState[];
-      hasAdapter: boolean;
-    }[] = [];
-    if (!isBlended || !blendSeries) {
-      return specs;
-    }
-    const seen = new Set<string>();
-    const xField = config.xField;
-    for (const s of blendSeries) {
-      const sid = s.sourceId;
-      if (!sid || sid === widget.sourceId || seen.has(sid)) {
-        continue;
-      }
-      seen.add(sid);
-      const src = dataSources[sid];
-      if (!src) {
-        continue;
-      }
-      const fields = new Set<string>();
-      if (xField) {
-        fields.add(xField);
-      }
-      for (const o of blendSeries) {
-        if (o.sourceId === sid && o.fieldId) {
-          fields.add(o.fieldId);
-        }
-      }
-      const applicable = pageFilters.filter(
-        (f) => f.field && src.fields.some((fl) => fl.id === f.field),
-      );
-      specs.push({ sid, fields: [...fields], applicable, hasAdapter: Boolean(src.adapter) });
-    }
-    return specs;
-  }, [isBlended, blendSeries, config.xField, widget.sourceId, dataSources, pageFilters]);
-
-  // Sync (in-memory) foreign sources — resolved directly from store rows.
-  const syncForeignRows = React.useMemo(() => {
-    const map = new Map<string, Record<string, unknown>[]>();
-    for (const spec of foreignSpecs) {
-      if (spec.hasAdapter) {
-        continue;
-      }
-      const src = dataSources[spec.sid];
-      if (!src?.rows) {
-        map.set(spec.sid, []);
-        continue;
-      }
-      const usedIds = new Set(spec.fields);
-      for (const f of spec.applicable) {
-        if (f.field) {
-          usedIds.add(f.field);
-        }
-      }
-      const normalized = getCachedNormalizedDataSource(src, usedIds);
-      map.set(
-        spec.sid,
-        resolveRowsCached(
-          normalized.rows ?? [],
-          spec.sid,
-          spec.applicable,
-          dataSources,
-          relationships,
-          [],
-          usedIds,
-        ),
-      );
-    }
-    return map;
-  }, [foreignSpecs, dataSources, relationships]);
-
-  // Adapter-backed foreign sources — build a per-source query descriptor (grouped by
-  // the shared xField, aggregating each foreign measure in its own source) and fetch
-  // via that source's own adapter. This mirrors how the primary series is fetched in
-  // adapter mode and avoids a cross-source JOIN on the widget's primary query.
-  const foreignDescriptors = React.useMemo(() => {
-    const map = new Map<string, StudioQueryDescriptor>();
-    const xField = config.xField;
-    if (!xField) {
-      return map;
-    }
-    for (const spec of foreignSpecs) {
-      if (!spec.hasAdapter) {
-        continue;
-      }
-      const src = dataSources[spec.sid];
-      const seriesForSource = (blendSeries ?? []).filter(
-        (s) => s.sourceId === spec.sid && s.fieldId,
-      );
-      const syntheticWidget: StudioWidget = {
-        id: `${widget.id}::blend::${spec.sid}`,
-        kind: 'chart',
-        title: '',
-        sourceId: spec.sid,
-        config: { chartType: 'mixed', xField, xGroupBy, ySeries: seriesForSource },
-      };
-      map.set(
-        spec.sid,
-        buildQueryDescriptor(syntheticWidget, spec.applicable, pageId, src?.tableName),
-      );
-    }
-    return map;
-  }, [foreignSpecs, blendSeries, config.xField, xGroupBy, widget.id, dataSources, pageId]);
-
-  const [asyncForeignRows, setAsyncForeignRows] = React.useState<
-    Map<string, Record<string, unknown>[]>
-  >(() => new Map());
-
-  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- async fetch results are merged per-source as they resolve
-  React.useEffect(() => {
-    if (foreignDescriptors.size === 0) {
-      return undefined;
-    }
-    // Stable handle (never reassigned) so the per-source promise callbacks below can
-    // safely check liveness without tripping no-loop-func on a reassigned `let`.
-    const live = { current: true };
-    const cachedHits = new Map<string, Record<string, unknown>[]>();
-    for (const [sid, descriptor] of foreignDescriptors) {
-      const adapter = dataSources[sid]?.adapter;
-      if (!adapter) {
-        continue;
-      }
-      const cached = studioRequestCache.get(descriptor.cacheKey);
-      if (cached) {
-        cachedHits.set(sid, cached.rows);
-        continue;
-      }
-      let promise = studioRequestCache.getInflight(descriptor.cacheKey);
-      if (!promise) {
-        promise = studioRequestCache.addInflight(descriptor.cacheKey, adapter.getRows(descriptor));
-      }
-      promise.then(
-        (result) => {
-          if (live.current) {
-            setAsyncForeignRows((prev) => new Map(prev).set(sid, result.rows));
-          }
-        },
-        () => {
-          /* errors leave the series empty; the primary chart still renders */
-        },
-      );
-    }
-    if (cachedHits.size > 0) {
-      setAsyncForeignRows((prev) => {
-        const m = new Map(prev);
-        for (const [sid, rows] of cachedHits) {
-          m.set(sid, rows);
-        }
-        return m;
-      });
-    }
-    return () => {
-      live.current = false;
-    };
-  }, [foreignDescriptors, dataSources]);
-
-  // Merge in-memory and adapter-resolved foreign rows for the blend aggregation.
-  const foreignRowsBySource = React.useMemo(() => {
-    const map = new Map<string, Record<string, unknown>[]>(syncForeignRows);
-    for (const [sid, rows] of asyncForeignRows) {
-      map.set(sid, rows);
-    }
-    return map;
-  }, [syncForeignRows, asyncForeignRows]);
 
   // Blended multi-Y data: each series aggregated in its own source, aligned on xField.
   const blendedMultiYData = React.useMemo(() => {

@@ -58,7 +58,13 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { mutationLabel, STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import type { ToolExecutionResult } from './executeToolOnState';
-import { executeToolWithPolicy, Policy, type ToolPolicy } from './toolPolicy';
+import {
+  consultToolPolicyArgsOnly,
+  executeToolWithPolicy,
+  Policy,
+  type ToolPolicy,
+  type ToolPolicyContext,
+} from './toolPolicy';
 import type { StudioAIRecentMutation } from './models/aiTypes';
 import { errorResult, jsonResult, type ToolHandler } from './mcp/helpers';
 import {
@@ -233,11 +239,15 @@ export function buildStudioMcpServer(
     return true;
   });
 
-  // Names of every STUDIO_AI_TOOL, used to enforce `allowedTools` gating before
-  // the special-case dispatch table (T1-3). Tools outside this set (render_chart,
-  // get_recent_changes, data-query tools) are always-available by design.
-  const studioAiToolNames = new Set<string>(STUDIO_AI_TOOLS.map((t) => t.function.name));
+  // The registered built-in (`STUDIO_AI_TOOLS`) subset for this session. The
+  // MCP-only "extra" surface (data-query tools, render_chart, get_recent_changes)
+  // is dispatched via `toolHandlers` below and is NOT part of STUDIO_AI_TOOLS.
   const registeredToolNames = new Set<string>(toolsToRegister.map((t) => t.function.name));
+  // When `allowedTools` is supplied it is the EXHAUSTIVE allow-list for the WHOLE MCP
+  // tool surface — built-in mutation tools AND the extra data/chart/log tools. A tool
+  // absent from it is rejected as unknown, so even `allowedTools: []` disables the
+  // extra tools (previously always-on). When omitted, every tool is allowed.
+  const isToolAllowed = (name: string): boolean => !allowedTools || allowedTools.includes(name);
 
   // ── tools/list ───────────────────────────────────────────────────────────
 
@@ -251,8 +261,14 @@ export function buildStudioMcpServer(
       annotations: TOOL_ANNOTATIONS[toolDef.function.name],
     }));
 
+    // Extra (non-STUDIO_AI_TOOLS) tools are also gated by `allowedTools` when it is
+    // supplied — otherwise a host could not hide describe_data_source et al.
     return {
-      tools: [...builtinTools, ...(data ? DATA_TOOL_DEFINITIONS : []), ...EXTRA_TOOL_DEFINITIONS],
+      tools: [
+        ...builtinTools,
+        ...(data ? DATA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name)) : []),
+        ...EXTRA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name)),
+      ],
     };
   });
 
@@ -264,11 +280,11 @@ export function buildStudioMcpServer(
   // mutation path below, so adding a data tool is a table entry, not a new
   // branch in a long if-chain.
   const toolHandlers: Record<string, ToolHandler> = {
-    // ── get_dashboard_state — returns the raw StudioState ───────────────
-    // Canonical output contract shared with the chat path (see
-    // executeToolOnState.ts `get_dashboard_state`): both transports return the
-    // raw `StudioState` so the tool means the same thing on both surfaces.
-    get_dashboard_state: () => jsonResult({ output: stateBox.current }),
+    // `get_dashboard_state` is intentionally NOT special-cased here: it falls through
+    // to the shared `executeToolWithPolicy` path (read-only → allowed, no mutation),
+    // which puts it behind the policy chokepoint, unifies its output envelope with the
+    // chat path (a JSON string, not a raw object), and picks up the row-data redaction
+    // from the single pure plan in `executeToolOnState.ts`.
     ...createDataToolHandlers({
       stateBox,
       data,
@@ -348,6 +364,50 @@ export function buildStudioMcpServer(
     return jsonResult(responsePayload);
   }
 
+  /**
+   * Bridge a `require-approval` decision to the host's `approvalHandler` (MCP has no
+   * built-in pause channel). Returns `{ approved, reason }` — a clean deny (never a
+   * throw) when no handler is configured or the handler declines. Shared by the
+   * read-only dispatch-table path (args-only, `proposed: undefined`) and the mutation
+   * path (which passes the proposed mutation/effects).
+   */
+  async function bridgeApproval(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    proposed?: ToolPolicyContext['proposed'],
+  ): Promise<{ approved: boolean; reason: string }> {
+    if (!approvalHandler) {
+      return {
+        approved: false,
+        reason:
+          'This tool call requires human approval and this MCP session has no approval ' +
+          'channel configured. Set StudioMcpOptions.approvalHandler to enable it.',
+      };
+    }
+    const approved = await approvalHandler({
+      transport: 'mcp',
+      toolName,
+      input: args ?? {},
+      state: stateBox.current,
+      proposed,
+      usage: sessionUsage,
+    });
+    return approved
+      ? { approved: true, reason: '' }
+      : {
+          approved: false,
+          reason: 'This tool call was not approved by the configured approvalHandler.',
+        };
+  }
+
+  // Per-session mutex for the MUTATING `tools/call` branch. The snapshot → dry-run →
+  // policy → approval → commit sequence for a non-dispatch-table tool runs as one
+  // chained critical section, so a concurrent mutating call (e.g. one that commits
+  // while this one is blocked on a minutes-long approval) can't clobber this one's
+  // commit with a stale `stateBox.current` snapshot. Read-only dispatch-table tools
+  // stay concurrent — they never write the state box.
+  let mutationChain: Promise<unknown> = Promise.resolve();
+
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
     const t0 = Date.now();
@@ -355,20 +415,37 @@ export function buildStudioMcpServer(
 
     let threw = false;
     try {
-      // T1-3 — enforce `allowedTools` gating BEFORE the special-case dispatch
-      // table for any tool that is a STUDIO_AI_TOOL. `get_dashboard_state` (always
-      // in the table) and `summarise_page` (in the table when `data` is configured)
-      // are STUDIO_AI_TOOLS, so without this check they would be callable even when
-      // the host excluded them via `allowedTools` (e.g. `allowedTools: []` still
-      // serving full dashboard state). Non-STUDIO_AI_TOOLS (render_chart,
-      // get_recent_changes, data-query tools) are always-available by design and
-      // fall through to the table unchanged.
-      if (studioAiToolNames.has(toolName) && !registeredToolNames.has(toolName)) {
+      // `allowedTools`, when supplied, is the EXHAUSTIVE allow-list for the whole MCP
+      // tool surface (built-in AND extra tools). Reject anything not listed before any
+      // dispatch — this is what lets `allowedTools: []` disable describe_data_source
+      // et al., and what excludes get_dashboard_state / summarise_page when the host
+      // omits them.
+      if (!isToolAllowed(toolName)) {
         return errorResult(`Unknown tool: ${toolName}`);
       }
 
+      // Special-cased read-only / side-effectful tools (data queries, chart render,
+      // recent-changes, and — when data is configured — summarise_page). These
+      // previously bypassed the policy entirely; now they pass an ARGS-ONLY
+      // authorization consult (they never mutate dashboard state, so `mayMutate` is
+      // omitted) and, on require-approval, bridge to the host's approvalHandler exactly
+      // like the mutation path. Only on allow/approved does the handler run.
       const handler = toolHandlers[toolName];
       if (handler) {
+        const gate = await consultToolPolicyArgsOnly(toolName, args ?? {}, stateBox.current, {
+          policy: sessionToolPolicy,
+          transport: 'mcp',
+          usage: sessionUsage,
+        });
+        if (gate.kind === 'denied') {
+          return errorResult(gate.reason);
+        }
+        if (gate.kind === 'needs-approval') {
+          const bridged = await bridgeApproval(toolName, args);
+          if (!bridged.approved) {
+            return errorResult(bridged.reason);
+          }
+        }
         return await handler(args);
       }
 
@@ -378,57 +455,57 @@ export function buildStudioMcpServer(
         return errorResult(`Unknown tool: ${toolName}`);
       }
 
-      try {
-        // Run through the single policy chokepoint (execute-then-gate). The pure
-        // dry-run + effect diff + policy decision all happen here; nothing is written
-        // to the session state box until the policy allows/approves the commit.
-        const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
-          policy: sessionToolPolicy,
-          customWidgets,
-          transport: 'mcp',
-          usage: sessionUsage,
-        });
-
-        if (outcome.kind === 'denied') {
-          // A tool result (not a protocol error), matching the errorResult convention.
-          return errorResult(outcome.reason);
-        }
-
-        if (outcome.kind === 'needs-approval') {
-          // MCP has no built-in pause channel — bridge to the host's approvalHandler.
-          if (!approvalHandler) {
-            return errorResult(
-              'This tool call requires human approval and this MCP session has no approval ' +
-                'channel configured. Set StudioMcpOptions.approvalHandler to enable it.',
-            );
-          }
-          const approved = await approvalHandler({
+      // Serialize the mutating branch per session (see `mutationChain`): capturing the
+      // snapshot inside the chained critical section makes cross-call staleness
+      // impossible even when an approval blocks for minutes.
+      const runMutation = async (): Promise<CallToolResult> => {
+        try {
+          // Single policy chokepoint (execute-then-gate). The pure dry-run + effect
+          // diff + policy decision happen here; nothing is written to the session state
+          // box until the policy allows/approves the commit.
+          const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
+            policy: sessionToolPolicy,
+            customWidgets,
             transport: 'mcp',
-            toolName,
-            input: args ?? {},
-            state: stateBox.current,
-            proposed: outcome.result.mutation
-              ? {
-                  mutation: outcome.result.mutation,
-                  nextState: outcome.result.nextState,
-                  effects: outcome.effects,
-                }
-              : undefined,
             usage: sessionUsage,
           });
-          if (!approved) {
-            return errorResult(
-              'This tool call was not approved by the configured approvalHandler.',
-            );
-          }
-          return await commitMutation(outcome.result, toolName);
-        }
 
-        // Allowed — commit exactly like today, just gated now.
-        return await commitMutation(outcome.result, toolName);
-      } catch (err) {
-        return errorResult(String(err));
-      }
+          if (outcome.kind === 'denied') {
+            // A tool result (not a protocol error), matching the errorResult convention.
+            return errorResult(outcome.reason);
+          }
+
+          if (outcome.kind === 'needs-approval') {
+            const bridged = await bridgeApproval(
+              toolName,
+              args,
+              outcome.result.mutation
+                ? {
+                    mutation: outcome.result.mutation,
+                    nextState: outcome.result.nextState,
+                    effects: outcome.effects,
+                  }
+                : undefined,
+            );
+            if (!bridged.approved) {
+              return errorResult(bridged.reason);
+            }
+            return await commitMutation(outcome.result, toolName);
+          }
+
+          // Allowed — commit exactly like today, just gated now.
+          return await commitMutation(outcome.result, toolName);
+        } catch (err) {
+          return errorResult(String(err));
+        }
+      };
+
+      // Chain onto the previous mutating task (running it on both fulfil and reject so a
+      // prior failure doesn't stall the queue), then keep the chain alive for the next
+      // call. `runMutation` maps its own errors to `errorResult`, so it never rejects.
+      const pending = mutationChain.then(runMutation, runMutation);
+      mutationChain = pending.catch(() => undefined);
+      return await pending;
     } catch (err) {
       threw = true;
       logger?.error(

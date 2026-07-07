@@ -20,7 +20,7 @@ export const STUDIO_AI_TOOLS = [
     function: {
       name: 'get_dashboard_state',
       description:
-        'Returns a summary of the current dashboard: pages, widgets on the active page, and available data sources. Call this when you need to know what already exists before making changes.',
+        'Returns the dashboard document (pages, widgets, filters, dashboard settings) plus data-source metadata (id, label, table, fields, and capped distinct values) — never row data. Call this when you need to know what already exists before making changes.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },

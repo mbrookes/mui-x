@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   computeToolEffects,
+  consultToolPolicyArgsOnly,
   createDefaultToolPolicy,
   createEffectsAwareToolPolicy,
   executeToolWithPolicy,
@@ -478,5 +479,70 @@ describe('Policy.mutationBudget', () => {
     expect(await budget(ctx)).toEqual({ action: 'allow' });
     usage.committedMutations = 2;
     expect(await budget(ctx)).toEqual({ action: 'deny', reason: '2/2' });
+  });
+
+  it('denies a mayMutate args-only call at/over budget, but allows a read-only one', async () => {
+    const budget = Policy.mutationBudget({
+      max: 1,
+      getCommitted: (ctx) => ctx.usage.committedMutations,
+      reason: (committed, max) => `budget exceeded: ${committed}/${max}`,
+    });
+
+    // An args-only call flagged `mayMutate` (a server-tool skill that could commit a
+    // mutation) is gated exactly like a `proposed` mutation once the budget is spent.
+    const mutatingSkillCtx: ToolPolicyContext = {
+      ...makeArgsOnlyCtx({ committedMutations: 1, toolCalls: 1 }),
+      toolName: 'greet_user',
+      mayMutate: true,
+    };
+    expect(await budget(mutatingSkillCtx)).toEqual({
+      action: 'deny',
+      reason: 'budget exceeded: 1/1',
+    });
+
+    // A read-only args-only call (mayMutate omitted) is never charged against it.
+    const readOnlyCtx = makeArgsOnlyCtx({ committedMutations: 1, toolCalls: 1 });
+    expect(await budget(readOnlyCtx)).toEqual({ action: 'allow' });
+  });
+});
+
+describe('consultToolPolicyArgsOnly', () => {
+  it('increments toolCalls, passes proposed: undefined + mayMutate, and maps the decision', async () => {
+    const state = createDefaultStudioState();
+    const usage = { committedMutations: 0, toolCalls: 0 };
+    let seen: ToolPolicyContext | undefined;
+    const policy: ToolPolicy = (ctx) => {
+      seen = ctx;
+      return { action: 'allow' };
+    };
+
+    const outcome = await consultToolPolicyArgsOnly('greet_user', { a: 1 }, state, {
+      policy,
+      transport: 'chat',
+      usage,
+      mayMutate: true,
+    });
+
+    expect(outcome).toEqual({ kind: 'allowed' });
+    expect(usage.toolCalls).toBe(1);
+    expect(seen?.proposed).toBeUndefined();
+    expect(seen?.mayMutate).toBe(true);
+    expect(seen?.transport).toBe('chat');
+
+    await expect(
+      consultToolPolicyArgsOnly('q', {}, state, {
+        policy: () => ({ action: 'deny', reason: 'no' }),
+        transport: 'mcp',
+        usage,
+      }),
+    ).resolves.toEqual({ kind: 'denied', reason: 'no' });
+
+    await expect(
+      consultToolPolicyArgsOnly('q', {}, state, {
+        policy: () => ({ action: 'require-approval' }),
+        transport: 'mcp',
+        usage,
+      }),
+    ).resolves.toEqual({ kind: 'needs-approval' });
   });
 });

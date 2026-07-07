@@ -59,6 +59,18 @@ export interface ToolPolicyContext {
     nextState: StudioState;
     effects: ToolEffectSummary;
   };
+  /**
+   * Hint that this ARGS-ONLY call (`proposed: undefined`) is capable of committing a
+   * mutation once it runs. `true` for server-tool skills — any skill's `execute` may
+   * return a mutation, and the args alone can't tell us, so we conservatively treat
+   * every skill as mutating-capable. `false`/omitted for genuinely read-only
+   * side-effectful calls (`query_data_source`, the MCP read-only data tools). This
+   * lets `Policy.mutationBudget` gate a skill mutation exactly like a built-in one —
+   * safe because the skill is authorized BEFORE it runs (pre-execution), honoring the
+   * purity invariant above (we can't drop a mutation post-execution once its side
+   * effects have already fired).
+   */
+  mayMutate?: boolean;
   usage: { committedMutations: number; toolCalls: number };
 }
 
@@ -263,8 +275,10 @@ export const Policy = {
   },
 
   /**
-   * A mutation-rate budget as a composable policy. Denies any call carrying a
-   * `proposed` mutation once `getCommitted(ctx) >= max`, reading the committed
+   * A mutation-rate budget as a composable policy. Denies any call that either
+   * carries a `proposed` mutation (built-in execute-then-gate path) OR is flagged
+   * `mayMutate` (an args-only server-tool skill that could commit a mutation once it
+   * runs) once `getCommitted(ctx) >= max`, reading the committed
    * count via a caller-supplied accessor so both transports can plug in their own
    * usage-tracking shape (chat's `ctx.usage.committedMutations`, MCP's
    * session-scoped counter) without this function needing to know which shape it
@@ -282,7 +296,7 @@ export const Policy = {
     let exceededFired = false;
     return (ctx) => {
       const committed = getCommitted(ctx);
-      if (ctx.proposed && max !== undefined && committed >= max) {
+      if ((ctx.proposed || ctx.mayMutate) && max !== undefined && committed >= max) {
         if (!exceededFired) {
           exceededFired = true;
           onExceeded?.();
@@ -375,4 +389,59 @@ export async function executeToolWithPolicy(
     };
   }
   return { kind: 'allowed', result };
+}
+
+// ── The args-only chokepoint ───────────────────────────────────────────────────
+
+/** Discriminated outcome of an args-only policy consult (no dry-run performed). */
+export type ConsultToolPolicyArgsOnlyResult =
+  | { kind: 'allowed' }
+  | { kind: 'denied'; reason: string }
+  | { kind: 'needs-approval' };
+
+/**
+ * The single ARGS-ONLY authorization consult, shared by both transports for
+ * side-effectful tools that must be authorized BEFORE they run and therefore
+ * cannot use the execute-then-gate dry-run (`proposed: undefined`): server-tool
+ * skills and `query_data_source` on chat, and the read-only data tools on MCP.
+ * See the PURITY INVARIANT at the top of this file.
+ *
+ * Increments `usage.toolCalls` unconditionally, builds the `proposed: undefined`
+ * context (threading `mayMutate` so a mutating-capable skill is still gated by the
+ * mutation budget), awaits the policy, and maps the decision to a uniform outcome.
+ * Approval bridging is transport-specific and stays at the call site: chat handles
+ * `needs-approval` via `runApprovalFlow`, MCP via its `approvalHandler`.
+ */
+export async function consultToolPolicyArgsOnly(
+  toolName: string,
+  input: unknown,
+  state: StudioState,
+  opts: {
+    policy: ToolPolicy;
+    transport: 'chat' | 'mcp';
+    usage: { committedMutations: number; toolCalls: number };
+    mayMutate?: boolean;
+  },
+): Promise<ConsultToolPolicyArgsOnlyResult> {
+  opts.usage.toolCalls += 1;
+
+  const ctx: ToolPolicyContext = {
+    transport: opts.transport,
+    toolName,
+    input,
+    state,
+    proposed: undefined,
+    mayMutate: opts.mayMutate,
+    usage: opts.usage,
+  };
+
+  const decision = await opts.policy(ctx);
+
+  if (decision.action === 'deny') {
+    return { kind: 'denied', reason: decision.reason };
+  }
+  if (decision.action === 'require-approval') {
+    return { kind: 'needs-approval' };
+  }
+  return { kind: 'allowed' };
 }

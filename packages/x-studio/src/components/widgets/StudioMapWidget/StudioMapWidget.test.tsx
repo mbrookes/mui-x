@@ -46,11 +46,13 @@ vi.mock('./StudioMapTooltip', async (importOriginal) => {
   };
 });
 
-// Return fixed rows for the widget, bypassing the filter pipeline.
-const rows = [
+// Return fixed rows for the widget, bypassing the filter pipeline. `rows` is
+// reassigned by individual tests to exercise other raw values, then reset in `afterEach`.
+const DEFAULT_ROWS: Array<Record<string, unknown>> = [
   { country: 'United States', sales: 100 },
   { country: 'France', sales: 50 },
 ];
+let rows: Array<Record<string, unknown>> = DEFAULT_ROWS;
 vi.mock('../../../internals/useWidgetRows', () => ({
   useWidgetRows: () => ({ effectiveRows: rows, isLoading: false, isError: false }),
 }));
@@ -66,11 +68,26 @@ const geographyDef = {
       features: [],
     }),
 };
+// A permissive geography used by the cross-filter-equality regression tests: its
+// normalizer just stringifies the raw value, decoupling the feature id from real
+// country-code lookups so we can drive `handleFeatureClick` with arbitrary raw values
+// (e.g. a `Date`) without needing them to be valid country identifiers.
+const flexGeographyDef = {
+  label: 'Flex',
+  fieldLabel: 'Value field',
+  fieldHint: '',
+  normalizer: (v: unknown) => (v == null ? null : String(v)),
+  loader: () =>
+    Promise.resolve({
+      type: 'FeatureCollection',
+      features: [],
+    }),
+};
 vi.mock('../../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../internals/StudioUIConfigContext')>();
   return {
     ...actual,
-    useStudioGeographies: () => ({ world: geographyDef }),
+    useStudioGeographies: () => ({ world: geographyDef, flex: flexGeographyDef }),
   };
 });
 
@@ -214,6 +231,7 @@ describe('<StudioMapWidget /> cross-filter emit', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
   });
 
   it('emits a cross-filter with the clicked region raw value when the toggle is on', async () => {
@@ -249,5 +267,124 @@ describe('<StudioMapWidget /> cross-filter emit', () => {
     await renderMap(widget);
 
     expect(getLatestOnShapeClick()).toBeUndefined();
+  });
+});
+
+// Regression coverage for the cross-filter equality fix in `handleFeatureClick`:
+// it used to compare `String(activeCrossFilter?.value) === String(rawValue)` (plus a
+// redundant, already-selector-guaranteed `sourceWidgetId` re-check) instead of the
+// chart widget's `field === countryField && crossFilterValueEquals(...)` pattern.
+describe('<StudioMapWidget /> cross-filter equality', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    mapShapePlotSpy.mockClear();
+    controller.clearCrossFilter.mockClear();
+    controller.applyCrossFilter.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+  });
+
+  it('clears the cross-filter when the stored value is a Date and the clicked raw value is its ISO string', async () => {
+    const iso = '2024-01-01T00:00:00.000Z';
+    rows = [{ country: iso, sales: 10 }];
+    const flexWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapGeography: 'flex' },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': flexWidget },
+      dataSources: { sales: dataSource },
+      filters: [
+        {
+          id: 'cf1',
+          field: 'country',
+          operator: 'equals',
+          value: new Date(iso),
+          scope: { kind: 'cross-filter', sourceWidgetId: 'map-1', pageId: 'page-1' },
+        },
+      ],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(flexWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, iso);
+    });
+
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith('map-1');
+    expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+  });
+
+  it('toggles the filter off when clicking the already-active region again (plain string case)', async () => {
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+      filters: [
+        {
+          id: 'cf1',
+          field: 'country',
+          operator: 'equals',
+          value: 'United States',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'map-1', pageId: 'page-1' },
+        },
+      ],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(baseWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, 'US');
+    });
+
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith('map-1');
+    expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a cross-filter on a different field as active', async () => {
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+      filters: [
+        {
+          id: 'cf1',
+          // Different field than `mapCountryField` ('country') — a stale cross-filter
+          // from elsewhere with a coincidentally-equal string value.
+          field: 'region',
+          operator: 'equals',
+          value: 'United States',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'map-1', pageId: 'page-1' },
+        },
+      ],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(baseWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, 'US');
+    });
+
+    expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+      'map-1',
+      'country',
+      'United States',
+      'sales',
+    );
+    expect(controller.clearCrossFilter).not.toHaveBeenCalled();
   });
 });

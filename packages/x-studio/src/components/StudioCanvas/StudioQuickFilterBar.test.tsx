@@ -25,6 +25,8 @@ let mockLocaleText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
 const controller = {
   setDrawerOpen: vi.fn(),
   removeFilter: vi.fn(),
+  toggleFilter: vi.fn(),
+  clearCrossFilter: vi.fn(),
 };
 
 const BASE_FEATURES: ResolvedStudioFeatures = {
@@ -93,6 +95,26 @@ function makePageFilter(id: string, field: string = 'country') {
   };
 }
 
+function makeCrossFilter(
+  id: string,
+  field: string,
+  value: unknown,
+  overrides: { sourceWidgetId?: string } = {},
+) {
+  return {
+    id,
+    field,
+    operator: 'equals' as const,
+    value,
+    scope: {
+      kind: 'cross-filter' as const,
+      sourceWidgetId: overrides.sourceWidgetId ?? 'w1',
+      pageId: PAGE_ID,
+    },
+    filterMode: 'condition' as const,
+  };
+}
+
 const DATA_SOURCES_WITH_DATE = {
   src1: {
     id: 'src1',
@@ -113,6 +135,9 @@ describe('StudioQuickFilterBar', () => {
   beforeEach(() => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
     mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+    controller.removeFilter.mockClear();
+    controller.toggleFilter.mockClear();
+    controller.clearCrossFilter.mockClear();
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
@@ -279,5 +304,101 @@ describe('StudioQuickFilterBar', () => {
     // French translation of the `equals` operator label — not the hardcoded English "Equals".
     expect(screen.getByText(/Est égal à: France/)).toBeDefined();
     expect(screen.queryByText(/Equals: France/)).toBeNull();
+  });
+
+  // Regression coverage for the cross-filter chip value formatting fix: a `between`
+  // (date-range) cross-filter value used to render via bare `String(filter.value)`,
+  // producing "[object Object]" instead of a readable date range.
+  it('renders a date-range (between) cross-filter chip with formatted dates, not [object Object]', () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [makeCrossFilter('cf1', 'order_date', { from: '2024-01-01', to: '2024-01-31' })],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: { dataSources: DATA_SOURCES_WITH_DATE },
+    });
+    render(<StudioQuickFilterBar />);
+    expect(screen.getByText(/Order Date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+  });
+
+  // Regression coverage: an `in` (multi-select, shift-click) cross-filter value is an
+  // array — bare `String(filter.value)` used to join it with commas via the array's
+  // default `toString`, which happens to look readable for simple string arrays but
+  // breaks down for anything else. Assert the shared helper is actually used.
+  it('renders an in (multi-select) cross-filter chip as a readable list', () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [makeCrossFilter('cf1', 'country', ['France', 'Germany'])],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+    expect(screen.getByText(/Country: France, Germany/)).toBeDefined();
+  });
+
+  // Regression coverage for the a11y fix: the remove affordance used to be a
+  // `role="button"` span with no `tabIndex`/keyboard handler. It's now the Chip's
+  // native `onDelete`, which MUI wires up to Backspace/Delete while the chip is focused.
+  it('removes a page filter via keyboard (Backspace) on a focused chip', () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [makePageFilter('f1', 'country')],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+
+    const chip = screen
+      .getByText(/Country: Equals: France/)
+      .closest('.MuiChip-root') as HTMLElement;
+    chip.focus();
+    fireEvent.keyUp(chip, { key: 'Backspace' });
+    expect(controller.removeFilter).toHaveBeenCalledWith('f1');
+  });
+
+  it('clears a cross-filter via keyboard (Backspace) on a focused chip', () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [makeCrossFilter('cf1', 'region', 'EMEA', { sourceWidgetId: 'w9' })],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'region', label: 'Region', type: 'string' as const }],
+            rows: [],
+          },
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+
+    const chip = screen.getByText(/Region: EMEA/).closest('.MuiChip-root') as HTMLElement;
+    chip.focus();
+    fireEvent.keyUp(chip, { key: 'Backspace' });
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith('w9');
   });
 });

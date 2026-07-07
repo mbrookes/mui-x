@@ -1,7 +1,12 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import type { StudioState, StudioWidget, StudioWidgetConfig } from '../../models';
+import type {
+  StudioFilterState,
+  StudioState,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioWidgetCard } from './StudioWidgetCard';
 
@@ -23,6 +28,7 @@ function setup(
     shell?: Partial<StudioState['session']['shell']>;
     onUnconfiguredClick?: (id: string) => void;
     mode?: StudioState['session']['mode'];
+    filters?: StudioFilterState[];
   } = {},
 ) {
   const w = options.widget ?? widget();
@@ -30,6 +36,7 @@ function setup(
     initialState: {
       doc: {
         widgets: { [w.id]: w },
+        ...(options.filters ? { filters: options.filters } : {}),
       },
       session: {
         ...(options.mode ? { mode: options.mode } : {}),
@@ -117,5 +124,46 @@ describe('StudioWidgetCard', () => {
   it('is not aria-current in view mode even when it is the selected widget', () => {
     const { card } = setup({ mode: 'view', shell: { selectedWidgetId: 'w1' } });
     expect(card.getAttribute('aria-current')).toBe(null);
+  });
+
+  // Regression coverage: Space used to select the widget without calling
+  // `event.preventDefault()`, so the browser would also scroll the page (its default
+  // action for a Space keypress) on top of activating the card.
+  it('prevents default scroll behavior when activated with Space in edit mode', () => {
+    const { card } = setup();
+    card.focus();
+    // `fireEvent` returns the result of `dispatchEvent`, which is `false` when the
+    // event was cancelable and a handler called `preventDefault()`.
+    const result = fireEvent.keyDown(card, { key: ' ' });
+    expect(result).toBe(false);
+  });
+
+  it('does not preventDefault for Space in view mode (card is not interactive)', () => {
+    const { card } = setup({ mode: 'view' });
+    card.focus();
+    const result = fireEvent.keyDown(card, { key: ' ' });
+    expect(result).toBe(true);
+  });
+
+  // Regression coverage: the active cross-filter chip label used to be built by an
+  // inline IIFE that has been extracted to the shared `formatCrossFilterValueLabel`
+  // helper (also used by `StudioQuickFilterBar`). Assert a `between` (date-range)
+  // cross-filter value still renders as formatted dates, not "[object Object]".
+  // (`makeSelectWidgetActiveCrossFilter` only resolves for chart/grid widgets, hence
+  // `kind: 'grid'` here instead of the default text widget.)
+  it('formats a between cross-filter chip label via the shared helper', () => {
+    const crossFilter: StudioFilterState = {
+      id: 'cf1',
+      field: 'order_date',
+      operator: 'equals',
+      value: { from: '2024-01-01', to: '2024-01-31' },
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+    };
+    setup({
+      widget: widget({ kind: 'grid', config: {} as StudioWidgetConfig }),
+      filters: [crossFilter],
+    });
+    expect(screen.getByText(/order_date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
   });
 });

@@ -22,6 +22,7 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
 import { formatNumber } from '../../../internals/numberFormat';
+import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -414,9 +415,16 @@ export function StudioMapWidget({
         return;
       }
       const filterSourceId = config.mapCountrySourceId ?? widget.sourceId;
+      // `activeCrossFilter` (via `makeSelectActiveCrossFilter`) is already scoped to
+      // `sourceWidgetId === widget.id && pageId && !disabled`, so no need to re-check the
+      // scope here. What matters is whether the filter targets the *same field* the map
+      // just clicked on (matches the chart widget's pattern) — otherwise a stale
+      // cross-filter on a different field with a coincidentally-equal string value would
+      // wrongly toggle-clear instead of applying the new filter.
       const isActive =
-        (activeCrossFilter?.scope.kind === 'cross-filter' ? activeCrossFilter.scope.sourceWidgetId : undefined) === widget.id &&
-        String(activeCrossFilter?.value) === String(rawValue);
+        activeCrossFilter != null &&
+        activeCrossFilter.field === countryField &&
+        crossFilterValueEquals(activeCrossFilter.value, rawValue);
       if (isActive) {
         controller.clearCrossFilter(widget.id);
       } else {

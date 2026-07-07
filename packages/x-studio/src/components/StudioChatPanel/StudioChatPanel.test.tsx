@@ -14,6 +14,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
+import { frLocaleText } from '../../locales/fr';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -30,11 +31,33 @@ vi.mock('../../context', async (importOriginal) => ({
   useStudioController: mockUseStudioController,
 }));
 
+// Spy on the `localeText` object Studio builds for `ChatBox` (composerInputPlaceholder /
+// threadNoMessagesLabel / threadNoMessagesHelperText) without disturbing real rendering —
+// `generateSuggestions` always returns at least one suggestion in this test's fixtures, so
+// the empty-thread title/helper text ChatBox would show is never actually reachable in the
+// DOM; asserting on the mapped prop object directly is what actually pins the fix.
+const chatBoxSpy = vi.fn();
+vi.mock('@mui/x-chat', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@mui/x-chat')>();
+  return {
+    ...actual,
+    ChatBox: (props: React.ComponentProps<typeof actual.ChatBox>) => {
+      chatBoxSpy(props);
+      return <actual.ChatBox {...props} />;
+    },
+  };
+});
+
+// Mutable so individual tests can swap in a translated locale bundle (see the
+// anti-hardcoding regression tests below) — a plain `vi.mock` factory value is
+// captured once at hoist time and can't be reassigned per-test.
+let mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+
 vi.mock('../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/StudioUIConfigContext')>();
   return {
     ...actual,
-    useStudioLocaleText: () => DEFAULT_STUDIO_LOCALE_TEXT,
+    useStudioLocaleText: () => mockLocaleText,
   };
 });
 
@@ -54,6 +77,7 @@ const { render } = createRenderer();
 beforeEach(() => {
   mockState = createDefaultStudioState();
   configureStudioContextMock({ getState: () => mockState, controller });
+  mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
 });
 
 describe('StudioChatPanel: aiConfig gating', () => {
@@ -82,7 +106,34 @@ describe('StudioChatPanel: basic rendering', () => {
     // Thread selector shows the default conversation name.
     expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.chatNewConversationName)).toBeDefined();
     // Composer input is present (Studio-provided placeholder).
-    expect(screen.getByPlaceholderText('How can I help?')).toBeDefined();
+    expect(
+      screen.getByPlaceholderText(DEFAULT_STUDIO_LOCALE_TEXT.chatComposerPlaceholder),
+    ).toBeDefined();
+  });
+
+  it('localizes the composer placeholder instead of hardcoding English', () => {
+    mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
+
+    render(<StudioChatPanel aiConfig={aiConfig} />);
+
+    expect(screen.getByPlaceholderText(frLocaleText.chatComposerPlaceholder!)).toBeDefined();
+    expect(screen.queryByPlaceholderText('How can I help?')).toBeNull();
+  });
+
+  it('maps the empty-thread title/helper text ChatBox override to localized tokens', () => {
+    // `generateSuggestions` always returns at least one suggestion for this fixture (no
+    // data sources/widgets), so ChatBox's default empty-state title/helper never actually
+    // renders (suggestions take its place) — assert on the prop object Studio builds
+    // instead of the (unreachable) rendered DOM.
+    mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
+
+    render(<StudioChatPanel aiConfig={aiConfig} />);
+
+    const props = chatBoxSpy.mock.calls.at(-1)?.[0] as {
+      localeText?: { threadNoMessagesLabel?: string; threadNoMessagesHelperText?: string };
+    };
+    expect(props.localeText?.threadNoMessagesLabel).toBe(frLocaleText.chatEmptyStateTitle);
+    expect(props.localeText?.threadNoMessagesHelperText).toBe(frLocaleText.chatEmptyStateSubtitle);
   });
 
   it('renders an overlay panel with a close button when overlay + onClose are set', () => {
@@ -93,6 +144,17 @@ describe('StudioChatPanel: basic rendering', () => {
       name: DEFAULT_STUDIO_LOCALE_TEXT.aiAssistantCloseTooltip,
     });
     expect(closeButton).toBeDefined();
+    // Overlay header title is localized (not hardcoded "AI Assistant").
+    expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.aiAssistantPanelTitle)).toBeDefined();
+  });
+
+  it('localizes the overlay panel title instead of hardcoding English', () => {
+    mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
+
+    render(<StudioChatPanel aiConfig={aiConfig} overlay open onClose={vi.fn()} />);
+
+    expect(screen.getByText(frLocaleText.aiAssistantPanelTitle!)).toBeDefined();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
   });
 
   it('starts a brand-new thread with no prior threads in state', () => {

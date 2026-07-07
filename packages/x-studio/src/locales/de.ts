@@ -65,6 +65,10 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetDeleteTooltip: 'Widget löschen',
   widgetAiAssistantTooltip: 'KI-Assistent',
   widgetAiInsightTooltip: 'KI-Einblick',
+  widgetAiRefreshTooltip: 'KI-Inhalt aktualisieren',
+  widgetInsightTypeSummary: 'Zusammenfassung',
+  widgetInsightTypeAnalysis: 'Analyse',
+  widgetInsightTypeForecast: 'Prognose',
   widgetDetectAnomalyTooltip: 'Anomalien erkennen',
   widgetHideAnomalyTooltip: 'Anomalien verbergen',
   widgetExplainAnomalyTooltip: 'Erklären Sie Anomalien',
@@ -80,6 +84,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiAssistantOpenTooltip: 'KI-Assistent öffnen',
   aiAssistantCloseTooltip: 'KI-Assistent schließen',
   aiCloseTooltip: 'Schließen',
+  aiAssistantPanelTitle: 'KI-Assistent',
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Widget-Konfiguration schließen',
@@ -757,6 +762,12 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartMixedRequiresFieldsHint:
     'Für ein gemischtes Diagramm sind zwei oder mehr Kennzahlfelder erforderlich.',
   chartDefaultSeriesLabel: 'Wert',
+  chartHeatmapRequiresFieldsHint:
+    'Die Heatmap erfordert Felder für Spaltenachse, Zeilenachse und Wert.',
+  chartFunnelRequiresFieldsHint: 'Das Trichterdiagramm erfordert ein Phasenfeld und ein Wertfeld.',
+  chartSankeyRequiresFieldsHint: 'Das Sankey-Diagramm erfordert Quell-, Ziel- und Wertfelder.',
+  chartGanttRequiresFieldsHint:
+    'Das Gantt-Diagramm erfordert ein Beschriftungsfeld sowie Felder für Start- und Enddatum.',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -796,6 +807,10 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionWhatDataAvailable: 'Welche Daten sind verfügbar?',
   chatNewConversationName: 'Neues Gespräch',
   chatSwitchConversationTooltip: 'Unterhaltung wechseln',
+  chatNoConversationsLabel: 'Noch keine Gespräche',
+  chatComposerPlaceholder: 'Wie kann ich helfen?',
+  chatEmptyStateTitle: 'Fragen Sie mich alles zu Ihrem Dashboard',
+  chatEmptyStateSubtitle: 'Ich kann Widgets hinzufügen, Ihre Daten analysieren und mehr',
   chatVoiceInputStart: 'Spracheingabe starten',
   chatVoiceInputStop: 'Stoppen Sie die Spracheingabe',
   chatVoiceInputNotSupported: 'Die Spracheingabe wird in diesem Browser nicht unterstützt',
@@ -880,6 +895,15 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetDeleteConfirmMessage: 'Dieses Widget wird dauerhaft von der Seite entfernt.',
   widgetDeleteConfirmOk: 'Löschen',
   widgetDeleteConfirmCancel: 'Abbrechen',
+
+  // Canvas empty state
+  canvasEmptyTitle: 'Die Arbeitsfläche ist leer',
+  canvasEmptyEditModeHint:
+    'Verwenden Sie das Erstellen-Panel, um Widgets hinzuzufügen, oder ziehen Sie sie hierher.',
+  canvasEmptyViewModeHint: 'Wechseln Sie in den Bearbeitungsmodus, um Widgets hinzuzufügen.',
+
+  // Map widget legend
+  mapLegendAriaLabel: (fieldLabel, min, max) => `Farbskala für ${fieldLabel} von ${min} bis ${max}`,
 };
 
 export const de: Localization = getStudioLocalization(deLocaleText);

@@ -9,6 +9,12 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+  type StudioLocaleText,
+} from '../../../internals/StudioUIConfigContext';
+import { frLocaleText } from '../../../locales/fr';
 import { StudioChartWidget } from './StudioChartWidget';
 
 const barChartSpy = vi.fn();
@@ -69,10 +75,22 @@ vi.mock('../../../context', async (importOriginal) => ({
 
 const { render } = createRenderer();
 
-function renderChart(widget: StudioWidget, dataSource: StudioDataSource) {
+function renderChart(
+  widget: StudioWidget,
+  dataSource: StudioDataSource,
+  localeText?: Partial<StudioLocaleText>,
+) {
   return render(
     <ThemeProvider theme={createTheme()}>
-      <StudioChartWidget widget={widget} dataSource={dataSource} pageId="page-1" />
+      <StudioUIConfigContext.Provider
+        value={{
+          tableSourceMode: 'explicit',
+          featureFlags: {},
+          localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeText },
+        }}
+      >
+        <StudioChartWidget widget={widget} dataSource={dataSource} pageId="page-1" />
+      </StudioUIConfigContext.Provider>
     </ThemeProvider>,
   );
 }
@@ -2063,8 +2081,73 @@ describe('<StudioChartWidget />', () => {
 
       expect(sankeyChartSpy).not.toHaveBeenCalled();
       expect(
-        screen.getByText(/Sankey chart requires source, target, and value fields/i),
+        screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.chartSankeyRequiresFieldsHint),
       ).toBeVisible();
     });
+  });
+
+  describe('chart hint localization (heatmap / funnel / sankey / gantt)', () => {
+    const genericSource: StudioDataSource = {
+      id: 'generic',
+      label: 'Generic',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+        { id: 'startDate', label: 'Start date', type: 'date' },
+        { id: 'endDate', label: 'End date', type: 'date' },
+      ],
+      // At least one row so the shared "no data after filtering" guard doesn't
+      // short-circuit before the chart-type-specific "missing fields" guard runs.
+      rows: [
+        { category: 'A', region: 'B', amount: 10, startDate: '2024-01-01', endDate: '2024-01-02' },
+      ],
+    };
+
+    // `xField` is set (where the type needs it) but every OTHER required field is left
+    // unconfigured, so the type-specific hint inside each `render*` function is reached
+    // instead of the shared "chart not configured" / "no data" guards.
+    function makeUnconfiguredWidget(
+      chartType: 'heatmap' | 'funnel' | 'sankey' | 'gantt',
+    ): StudioWidget {
+      return {
+        id: `${chartType}-hint`,
+        kind: 'chart',
+        title: 'Chart',
+        sourceId: 'generic',
+        config: {
+          chartType,
+          ...(chartType !== 'gantt' ? { xField: 'category' } : {}),
+        },
+      };
+    }
+
+    const cases: Array<{
+      chartType: 'heatmap' | 'funnel' | 'sankey' | 'gantt';
+      key: keyof typeof DEFAULT_STUDIO_LOCALE_TEXT;
+    }> = [
+      { chartType: 'heatmap', key: 'chartHeatmapRequiresFieldsHint' },
+      { chartType: 'funnel', key: 'chartFunnelRequiresFieldsHint' },
+      { chartType: 'sankey', key: 'chartSankeyRequiresFieldsHint' },
+      { chartType: 'gantt', key: 'chartGanttRequiresFieldsHint' },
+    ];
+
+    it.each(cases)(
+      'shows the localized $chartType hint and not the English literal',
+      ({ chartType, key }) => {
+        const widget = makeUnconfiguredWidget(chartType);
+        mockState = createState({
+          widgets: { [widget.id]: widget },
+          dataSources: { generic: genericSource },
+        });
+
+        renderChart(widget, genericSource, frLocaleText);
+
+        const frenchHint = frLocaleText[key] as string;
+        const englishHint = DEFAULT_STUDIO_LOCALE_TEXT[key] as string;
+        expect(screen.getByText(frenchHint)).toBeVisible();
+        expect(screen.queryByText(englishHint)).toBeNull();
+      },
+    );
   });
 });

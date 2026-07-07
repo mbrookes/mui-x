@@ -11,6 +11,7 @@ import { ptBRLocaleText } from './ptBR';
 import { frLocaleText } from './fr';
 import { deLocaleText } from './de';
 import { esLocaleText } from './es';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../internals/StudioUIConfigContext';
 
 const REFERENCE_KEYS = Object.keys(ptBRLocaleText) as Array<keyof typeof ptBRLocaleText>;
 
@@ -41,5 +42,38 @@ describe('locale completeness', () => {
       .filter(([, v]) => v == null)
       .map(([k]) => k);
     expect(nullish, `${name} has null/undefined values for: ${nullish.join(', ')}`).toHaveLength(0);
+  });
+
+  // `ptBR` predates several `DEFAULT_STUDIO_LOCALE_TEXT` sections (it's the reference for
+  // the *other* bundles above, not a guaranteed 1:1 mirror of every default key), so a
+  // blanket "every default key is in ptBR" check would fail today on ~100 pre-existing,
+  // unrelated gaps. Scope the regression guard to the keys this change actually added,
+  // so a future accidental default-only key in one of *these* tokens still fails CI.
+  const NEW_LOCALE_KEYS: Array<keyof typeof DEFAULT_STUDIO_LOCALE_TEXT> = [
+    'widgetAiRefreshTooltip',
+    'widgetInsightTypeSummary',
+    'widgetInsightTypeAnalysis',
+    'widgetInsightTypeForecast',
+    'aiAssistantPanelTitle',
+    'chartHeatmapRequiresFieldsHint',
+    'chartFunnelRequiresFieldsHint',
+    'chartSankeyRequiresFieldsHint',
+    'chartGanttRequiresFieldsHint',
+    'chatNoConversationsLabel',
+    'chatComposerPlaceholder',
+    'chatEmptyStateTitle',
+    'chatEmptyStateSubtitle',
+    'canvasEmptyTitle',
+    'canvasEmptyEditModeHint',
+    'canvasEmptyViewModeHint',
+    'mapLegendAriaLabel',
+  ];
+
+  it('every newly-added locale key is present in the ptBR reference bundle', () => {
+    const missing = NEW_LOCALE_KEYS.filter((key) => !(key in ptBRLocaleText));
+    expect(
+      missing,
+      `ptBR is missing ${missing.length} newly-added key(s): ${missing.join(', ')}`,
+    ).toHaveLength(0);
   });
 });

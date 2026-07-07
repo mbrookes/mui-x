@@ -9,6 +9,8 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
+import { frLocaleText } from '../../../locales/fr';
 import { StudioMapWidget } from './StudioMapWidget';
 
 // Capture the props passed to our custom plot so we can drive its `onShapeClick`.
@@ -33,8 +35,12 @@ vi.mock('@mui/x-charts-premium/Map', () => ({
 vi.mock('@mui/x-charts/ChartsSurface', () => ({
   ChartsSurface: ({ children }: { children?: React.ReactNode }) => <svg>{children}</svg>,
 }));
+const continuousColorLegendSpy = vi.fn();
 vi.mock('@mui/x-charts/ChartsLegend', () => ({
-  ContinuousColorLegend: () => null,
+  ContinuousColorLegend: (props: unknown) => {
+    continuousColorLegendSpy(props);
+    return null;
+  },
 }));
 // The tooltip pulls in the real charts context (ChartsTooltipContainer), which is not
 // available behind our stubbed provider — stub it out, it's irrelevant to click wiring.
@@ -83,11 +89,16 @@ const flexGeographyDef = {
       features: [],
     }),
 };
+// Mutable so individual tests can swap in a translated locale bundle — a plain `vi.mock`
+// factory value is captured once at hoist time and can't be reassigned per-test.
+let mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+
 vi.mock('../../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../internals/StudioUIConfigContext')>();
   return {
     ...actual,
     useStudioGeographies: () => ({ world: geographyDef, flex: flexGeographyDef }),
+    useStudioLocaleText: () => mockLocaleText,
   };
 });
 
@@ -386,5 +397,71 @@ describe('<StudioMapWidget /> cross-filter equality', () => {
       'sales',
     );
     expect(controller.clearCrossFilter).not.toHaveBeenCalled();
+  });
+});
+
+describe('<StudioMapWidget /> legend aria-label localization', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    continuousColorLegendSpy.mockClear();
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+  });
+
+  function latestLegendAriaLabel() {
+    const props = continuousColorLegendSpy.mock.calls.at(-1)?.[0] as {
+      'aria-label'?: string;
+    };
+    return props?.['aria-label'];
+  }
+
+  it('uses the default English aria-label built from the field label and formatted min/max', async () => {
+    await renderMap(baseWidget);
+    expect(latestLegendAriaLabel()).toMatch(/^Sales color scale from .+ to .+$/);
+  });
+
+  it('localizes the legend aria-label instead of hardcoding the English pattern', async () => {
+    mockLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };
+    await renderMap(baseWidget);
+    const ariaLabel = latestLegendAriaLabel();
+    expect(ariaLabel).toContain('Sales');
+    expect(ariaLabel).not.toMatch(/color scale from/);
+    expect(ariaLabel).toMatch(/^Échelle de couleurs de Sales de .+ à .+$/);
+  });
+
+  it('falls back to the localized chartDefaultSeriesLabel when mapValueField is unset', async () => {
+    const widgetNoValue: StudioWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapValueField: undefined },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widgetNoValue },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widgetNoValue);
+    expect(latestLegendAriaLabel()).toMatch(
+      new RegExp(`^${DEFAULT_STUDIO_LOCALE_TEXT.chartDefaultSeriesLabel} color scale from`),
+    );
   });
 });

@@ -142,11 +142,13 @@ function ExpandAction({
 function InsightMenuAction({
   label,
   insightTypes,
+  insightTypeLabels,
   tabIndex,
   onInsightRequest,
 }: ActionButtonProps & {
   label: string;
   insightTypes: Array<'summary' | 'analysis' | 'forecast'>;
+  insightTypeLabels: Record<'summary' | 'analysis' | 'forecast', string>;
   onInsightRequest: (type: 'summary' | 'analysis' | 'forecast') => void;
 }) {
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
@@ -176,13 +178,12 @@ function InsightMenuAction({
           <MenuItem
             key={type}
             dense
-            sx={{ textTransform: 'capitalize' }}
             onClick={() => {
               onInsightRequest(type);
               setAnchorEl(null);
             }}
           >
-            {type.charAt(0).toUpperCase() + type.slice(1)}
+            {insightTypeLabels[type]}
           </MenuItem>
         ))}
       </Menu>
@@ -256,11 +257,12 @@ function AnomalyExplainAction({
 }
 
 function AiRefreshAction({
+  label,
   tabIndex,
   onAiRefresh,
-}: ActionButtonProps & { onAiRefresh: () => void }) {
+}: ActionButtonProps & { label: string; onAiRefresh: () => void }) {
   return (
-    <Tooltip title="Refresh AI content">
+    <Tooltip title={label}>
       <IconButton
         size="small"
         sx={actionButtonSx}
@@ -268,7 +270,7 @@ function AiRefreshAction({
           event.stopPropagation();
           onAiRefresh();
         }}
-        aria-label="Refresh AI content"
+        aria-label={label}
         tabIndex={tabIndex}
       >
         <RefreshIcon />
@@ -317,6 +319,11 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   const insightTypes: Array<'summary' | 'analysis' | 'forecast'> = supportsForecast
     ? ['summary', 'analysis', 'forecast']
     : ['summary', 'analysis'];
+  const insightTypeLabels: Record<'summary' | 'analysis' | 'forecast', string> = {
+    summary: localeText.widgetInsightTypeSummary,
+    analysis: localeText.widgetInsightTypeAnalysis,
+    forecast: localeText.widgetInsightTypeForecast,
+  };
 
   const handleDeleteClick = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -389,6 +396,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             <InsightMenuAction
               label={localeText.widgetAiInsightTooltip}
               insightTypes={insightTypes}
+              insightTypeLabels={insightTypeLabels}
               tabIndex={editTabIndex}
               onInsightRequest={onInsightRequest}
             />
@@ -410,7 +418,13 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               onAnomalyExplain={onAnomalyExplain}
             />
           )}
-          {onAiRefresh && <AiRefreshAction tabIndex={editTabIndex} onAiRefresh={onAiRefresh} />}
+          {onAiRefresh && (
+            <AiRefreshAction
+              label={localeText.widgetAiRefreshTooltip}
+              tabIndex={editTabIndex}
+              onAiRefresh={onAiRefresh}
+            />
+          )}
           <Tooltip title={localeText.widgetEditTooltip}>
             <IconButton
               size="small"
@@ -621,6 +635,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           <InsightMenuAction
             label={localeText.widgetAiInsightTooltip}
             insightTypes={insightTypes}
+            insightTypeLabels={insightTypeLabels}
             onInsightRequest={onInsightRequest}
           />
         )}
@@ -639,7 +654,9 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             onAnomalyExplain={onAnomalyExplain}
           />
         )}
-        {onAiRefresh && <AiRefreshAction onAiRefresh={onAiRefresh} />}
+        {onAiRefresh && (
+          <AiRefreshAction label={localeText.widgetAiRefreshTooltip} onAiRefresh={onAiRefresh} />
+        )}
       </Stack>
     );
   }

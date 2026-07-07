@@ -549,12 +549,12 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           }}
         >
           <Typography variant="h6" color="text.secondary">
-            Canvas is empty
+            {localeText.canvasEmptyTitle}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
             {mode === 'edit'
-              ? 'Use the Compose panel to add widgets or drag them here.'
-              : 'Switch to Edit mode to add widgets.'}
+              ? localeText.canvasEmptyEditModeHint
+              : localeText.canvasEmptyViewModeHint}
           </Typography>
         </Paper>
       </Box>

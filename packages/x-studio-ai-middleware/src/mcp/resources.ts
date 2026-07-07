@@ -29,14 +29,57 @@ export interface ResourceHandlerDeps {
   logger?: StudioMcpLogger;
   /** Shared set of subscribed resource URIs (mutated by subscribe/unsubscribe). */
   subscribedUris: Set<string>;
+  /**
+   * Upper bound on the number of distinct URIs `subscribedUris` may hold.
+   * A prefix-validated URI (e.g. `studio://schema/<sourceId>`) is still an
+   * unbounded space — a client could otherwise subscribe to unlimited distinct
+   * garbage sourceIds. Once at capacity, subscribing to a URI that is not
+   * already a member is rejected; re-subscribing an existing member always
+   * succeeds.
+   * @default 256
+   */
+  maxSubscribedUris?: number;
 }
+
+/**
+ * Whether `uri` is one this server can actually serve via `resources/read` —
+ * the same three exact URIs plus the two prefixed families handled there.
+ * Subscribing to anything else would leave the client believing it will
+ * receive updates that will never come.
+ */
+function isKnownResourceUri(uri: string): boolean {
+  if (
+    uri === 'studio://dashboard/state' ||
+    uri === 'studio://dashboard/system-prompt' ||
+    uri === 'studio://dashboard/data-health'
+  ) {
+    return true;
+  }
+  if (uri.startsWith('studio://schema/') && uri.length > 'studio://schema/'.length) {
+    return true;
+  }
+  if (uri.startsWith('studio://data/') && uri.length > 'studio://data/'.length) {
+    return true;
+  }
+  return false;
+}
+
+const DEFAULT_MAX_SUBSCRIBED_URIS = 256;
 
 /**
  * Register `resources/list`, `resources/read`, `resources/subscribe`, and
  * `resources/unsubscribe` handlers on `server`.
  */
 export function registerResourceHandlers(server: Server, deps: ResourceHandlerDeps): void {
-  const { stateBox, data, customWidgets, contextEnricher, logger, subscribedUris } = deps;
+  const {
+    stateBox,
+    data,
+    customWidgets,
+    contextEnricher,
+    logger,
+    subscribedUris,
+    maxSubscribedUris = DEFAULT_MAX_SUBSCRIBED_URIS,
+  } = deps;
 
   // ── resources/list ───────────────────────────────────────────────────────
 
@@ -280,6 +323,26 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
 
   server.setRequestHandler(SubscribeRequestSchema, async (request) => {
     const { uri } = request.params;
+
+    // Reject anything `resources/read` could never actually serve — mirrors the
+    // unknown-URI behavior there (throwing, not silently returning `{}`, so the
+    // client gets real feedback instead of believing it is subscribed).
+    if (!isKnownResourceUri(uri)) {
+      throw new Error(
+        `Cannot subscribe to unknown resource URI: "${uri}". Use resources/list to discover available URIs.`,
+      );
+    }
+
+    // Prefix validation alone doesn't bound the set (a client can still spam
+    // distinct valid-shaped URIs, e.g. `studio://schema/<garbage-N>` for many
+    // N) — enforce a hard cap. Re-subscribing an already-tracked URI is always
+    // allowed even at capacity.
+    if (!subscribedUris.has(uri) && subscribedUris.size >= maxSubscribedUris) {
+      throw new Error(
+        `Cannot subscribe to "${uri}": this session has reached its limit of ${maxSubscribedUris} subscribed resource URIs.`,
+      );
+    }
+
     subscribedUris.add(uri);
     // Immediately notify so clients that wait for a push before reading (e.g. the
     // MCP Inspector in proxy mode) get the current value right after subscribing.

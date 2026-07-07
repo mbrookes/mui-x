@@ -1,0 +1,341 @@
+/**
+ * Data-query tool handlers for the x-studio MCP server:
+ * `query_data_source`, `describe_data_source`, `get_field_values`, and
+ * `compute_field_stats`.
+ *
+ * These are exactly the tools that resolve a `sourceId` against
+ * `stateBox.current.runtime.dataSources` and then call `data.queryDataSource` —
+ * `resolveSource` below is that shared resolution step, exported so it can also
+ * be exercised directly in tests.
+ */
+
+import { renderChartSvg } from '../chartRenderer';
+import { errorResult, jsonResult, type ToolHandler } from './helpers';
+import type {
+  StudioDataFilter,
+  StudioDataAggregation,
+  StudioDataHavingPredicate,
+  StudioDataOrderBy,
+  StudioMcpData,
+  StudioStateBox,
+} from './types';
+
+/** Dependencies needed by the four data-query tool handlers. */
+export interface QueryToolDeps {
+  stateBox: StudioStateBox;
+  /** Data-access configuration; when absent, the handlers return descriptive errors. */
+  data?: StudioMcpData;
+  /** Hard upper bound applied to the `query_data_source` `limit`. */
+  maxQueryRows: number;
+}
+
+/** The shape of a resolved, queryable data source: guaranteed to have a `tableName`. */
+type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string] & {
+  tableName: string;
+};
+
+type ResolveSourceResult =
+  | { ok: true; source: ResolvedSource; tableName: string }
+  | { ok: false; error: ReturnType<typeof errorResult> };
+
+/**
+ * Validate `sourceId` against `stateBox.current.runtime.dataSources` *before*
+ * building a query. Without this, an unknown/unregistered sourceId would fall
+ * straight through as a physical table name and hit the DB, producing a raw
+ * driver error (or worse, querying an unintended table) instead of a clear,
+ * actionable message.
+ *
+ * The message is deliberately transport-neutral (no `studio://` resource hint):
+ * these handlers are reachable both from MCP `tools/call` and from the chat
+ * transport's agentic loop (`agenticLoop.ts`), where an MCP resource URI means
+ * nothing. `get_dashboard_state` is a tool available on both transports, so it
+ * is named instead as the discovery path.
+ */
+export function resolveSource(stateBox: StudioStateBox, sourceId: string): ResolveSourceResult {
+  const source = stateBox.current.runtime.dataSources[sourceId];
+  if (!source || !source.tableName) {
+    return {
+      ok: false,
+      error: errorResult(
+        `Unknown data source: "${sourceId}". Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+      ),
+    };
+  }
+  return { ok: true, source: source as ResolvedSource, tableName: source.tableName };
+}
+
+/**
+ * Build the four data-query tool handlers. Each returns a descriptive error
+ * when `data` is not configured, and defers to `resolveSource` for the shared
+ * unknown-sourceId check.
+ */
+export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, ToolHandler> {
+  const { stateBox, data, maxQueryRows } = deps;
+
+  return {
+    // ── query_data_source — routed separately from state-mutation tools ──
+    query_data_source: async (args) => {
+      if (!data) {
+        return errorResult(
+          'query_data_source is not available: this MCP server was started without data access configuration.',
+        );
+      }
+
+      const { sourceId, columns, filters, aggregations, having, orderBy, limit, offset } = (args ??
+        {}) as {
+        sourceId: string;
+        columns?: string[];
+        filters?: StudioDataFilter[];
+        aggregations?: StudioDataAggregation[];
+        having?: StudioDataHavingPredicate[];
+        orderBy?: StudioDataOrderBy[];
+        limit?: number;
+        offset?: number;
+      };
+
+      const clampedLimit = Math.min(limit ?? maxQueryRows, maxQueryRows);
+
+      if (!sourceId) {
+        return errorResult('sourceId is required');
+      }
+
+      const resolved = resolveSource(stateBox, sourceId);
+      if (!resolved.ok) {
+        return resolved.error;
+      }
+      const { tableName } = resolved;
+
+      try {
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName,
+          columns,
+          filters,
+          aggregations,
+          ...(having && having.length > 0 && { having }),
+          orderBy,
+          limit: clampedLimit,
+          ...(offset !== undefined && { offset }),
+        });
+
+        return jsonResult({ sourceId, ...result });
+      } catch (err) {
+        return errorResult(String(err));
+      }
+    },
+
+    // ── describe_data_source — schema + row count + sample + stats ────────
+    describe_data_source: async (args) => {
+      if (!data) {
+        return errorResult('Data access not configured.');
+      }
+      const { sourceId } = (args ?? {}) as { sourceId: string };
+      if (!sourceId) {
+        return errorResult('sourceId is required');
+      }
+      const resolved = resolveSource(stateBox, sourceId);
+      if (!resolved.ok) {
+        return resolved.error;
+      }
+      const { source, tableName } = resolved;
+      try {
+        const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
+        const numericFields = visibleFields.filter((f) => f.type === 'number');
+
+        // Run sample rows and row count in parallel with per-field numeric stats.
+        const [sampleResult, ...statsResults] = await Promise.all([
+          data.queryDataSource({ sourceId, tableName, limit: 10 }),
+          ...numericFields.map((f) =>
+            data
+              .queryDataSource({
+                sourceId,
+                tableName,
+                aggregations: [
+                  { column: f.id, func: 'min', alias: 'min' },
+                  { column: f.id, func: 'max', alias: 'max' },
+                  { column: f.id, func: 'avg', alias: 'avg' },
+                  { column: f.id, func: 'sum', alias: 'sum' },
+                ],
+                limit: 1,
+              })
+              .catch(() => null),
+          ),
+        ]);
+
+        const fieldStats: Record<
+          string,
+          { min: unknown; max: unknown; avg: unknown; sum: unknown }
+        > = {};
+        numericFields.forEach((f, i) => {
+          const row = statsResults[i]?.rows?.[0];
+          if (row) {
+            fieldStats[f.id] = {
+              min: row.min,
+              max: row.max,
+              avg: typeof row.avg === 'number' ? Math.round(row.avg * 100) / 100 : row.avg,
+              sum: row.sum,
+            };
+          }
+        });
+
+        return jsonResult(
+          {
+            sourceId,
+            label: source.label,
+            tableName: source.tableName,
+            description: source.aiDescription,
+            rowCount: sampleResult.rowCount,
+            fields: visibleFields.map((f) => ({
+              id: f.id,
+              label: f.label,
+              type: f.type,
+              ...(f.format && { format: f.format }),
+              ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
+              ...(source.fieldDistinctValues?.[f.id] && {
+                sampleValues: source.fieldDistinctValues[f.id].slice(0, 5),
+              }),
+            })),
+            sampleRows: sampleResult.rows,
+          },
+          true,
+        );
+      } catch (err) {
+        return errorResult(String(err));
+      }
+    },
+
+    // ── get_field_values — distinct values + counts ────────────────────────
+    get_field_values: async (args) => {
+      if (!data) {
+        return errorResult('Data access not configured.');
+      }
+      const {
+        sourceId,
+        fieldId,
+        limit: fieldLimit,
+      } = (args ?? {}) as {
+        sourceId: string;
+        fieldId: string;
+        limit?: number;
+      };
+      if (!sourceId || !fieldId) {
+        return errorResult('sourceId and fieldId are required');
+      }
+      const resolved = resolveSource(stateBox, sourceId);
+      if (!resolved.ok) {
+        return resolved.error;
+      }
+      const { tableName } = resolved;
+      try {
+        const clampedFieldLimit = Math.min(fieldLimit ?? 50, 200);
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName,
+          columns: [fieldId],
+          aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
+          orderBy: [{ column: 'count', direction: 'desc' }],
+          limit: clampedFieldLimit,
+        });
+        type GfvContentItem =
+          | { type: 'text'; text: string }
+          | { type: 'image'; data: string; mimeType: string };
+        const gfvItems: GfvContentItem[] = [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                sourceId,
+                fieldId,
+                totalDistinctValues: result.rowCount,
+                values: result.rows,
+              },
+              null,
+              2,
+            ),
+          },
+        ];
+        // Auto-render a bar chart of the top values (best-effort).
+        const chartData = result.rows.slice(0, 20).map((r) => ({
+          label: String(r[fieldId] ?? '(null)'),
+          value: Number(r.count ?? 0),
+        }));
+        if (chartData.length >= 2) {
+          try {
+            const fieldLabel =
+              stateBox.current.runtime.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
+                ?.label ?? fieldId;
+            const svg = renderChartSvg({
+              type: 'bar',
+              title: `${fieldLabel} distribution`,
+              data: chartData,
+            });
+            gfvItems.push({
+              type: 'image',
+              data: Buffer.from(svg).toString('base64'),
+              mimeType: 'image/svg+xml',
+            });
+          } catch {
+            // Chart rendering is best-effort.
+          }
+        }
+        return { content: gfvItems };
+      } catch (err) {
+        return errorResult(String(err));
+      }
+    },
+
+    // ── compute_field_stats — full-table min/max/avg/sum/count ────────────
+    compute_field_stats: async (args) => {
+      if (!data) {
+        return errorResult('Data access not configured.');
+      }
+      const { sourceId, fields: statFields } = (args ?? {}) as {
+        sourceId: string;
+        fields: string[];
+      };
+      if (!sourceId || !statFields || statFields.length === 0) {
+        return errorResult('sourceId and fields (non-empty array) are required');
+      }
+      const resolved = resolveSource(stateBox, sourceId);
+      if (!resolved.ok) {
+        return resolved.error;
+      }
+      const { tableName } = resolved;
+      try {
+        const aggregations = statFields.flatMap((f) => [
+          { column: f, func: 'min' as const, alias: `${f}__min` },
+          { column: f, func: 'max' as const, alias: `${f}__max` },
+          { column: f, func: 'avg' as const, alias: `${f}__avg` },
+          { column: f, func: 'sum' as const, alias: `${f}__sum` },
+          { column: f, func: 'count' as const, alias: `${f}__count` },
+        ]);
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName,
+          aggregations,
+          limit: 1,
+        });
+        const row = result.rows[0] ?? {};
+        const statsOut: Record<
+          string,
+          { min: unknown; max: unknown; avg: unknown; sum: unknown; count: unknown }
+        > = {};
+        for (const f of statFields) {
+          statsOut[f] = {
+            min: row[`${f}__min`],
+            max: row[`${f}__max`],
+            avg:
+              typeof row[`${f}__avg`] === 'number'
+                ? Math.round((row[`${f}__avg`] as number) * 100) / 100
+                : row[`${f}__avg`],
+            sum: row[`${f}__sum`],
+            count: row[`${f}__count`],
+          };
+        }
+        return jsonResult({ sourceId, stats: statsOut }, true);
+      } catch (err) {
+        return errorResult(String(err));
+      }
+    },
+  };
+}

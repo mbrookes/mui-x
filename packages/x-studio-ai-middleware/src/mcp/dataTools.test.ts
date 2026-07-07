@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { createDataToolHandlers, createSummarisePageHandler } from './dataTools';
+import { createDataToolHandlers, createSummarisePageHandler, resolveSource } from './dataTools';
 import type { DataToolDeps } from './dataTools';
 import { createDefaultStudioState } from '../models/studioTypes';
 import type { StudioDataSource, StudioState } from '../models/studioTypes';
@@ -91,6 +91,10 @@ describe('createDataToolHandlers', () => {
       const result: any = await handlers.query_data_source({ sourceId: 'not-a-real-source' });
       expect(result.isError).toBe(true);
       expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
+      // The unified, transport-neutral hint (no `studio://` resource URI — this
+      // handler is also reached via the chat transport's agentic loop, where a
+      // resource URI means nothing).
+      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
       // The query was never dispatched against the bogus table name.
       expect(queryDataSource).not.toHaveBeenCalled();
     });
@@ -131,6 +135,8 @@ describe('createDataToolHandlers', () => {
       const result: any = await handlers.describe_data_source({ sourceId: 'nope' });
       expect(result.isError).toBe(true);
       expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(queryDataSource).not.toHaveBeenCalled();
     });
 
     it('aligns per-field stats positionally with numeric fields (Promise.all ordering)', async () => {
@@ -236,9 +242,13 @@ describe('createDataToolHandlers', () => {
     });
 
     it('returns an error for an unknown source', async () => {
-      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource: vi.fn() } }));
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
       const result: any = await handlers.get_field_values({ sourceId: 'nope', fieldId: 'status' });
       expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(queryDataSource).not.toHaveBeenCalled();
     });
   });
 
@@ -250,6 +260,23 @@ describe('createDataToolHandlers', () => {
         fields: [],
       });
       expect(result.isError).toBe(true);
+    });
+
+    it('returns a descriptive error for an unknown sourceId (never queries a phantom table)', async () => {
+      // Regression guard, matching the equivalent test for query_data_source:
+      // compute_field_stats previously had NO hint pointing at a discovery path
+      // for an unknown sourceId — it now shares the unified `resolveSource`
+      // message with the other three data-query handlers.
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'not-a-real-source',
+        fields: ['total'],
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(queryDataSource).not.toHaveBeenCalled();
     });
 
     it('shapes min/max/avg/sum/count per requested field', async () => {
@@ -309,6 +336,45 @@ describe('createDataToolHandlers', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.output).toEqual(recentChanges);
     });
+  });
+});
+
+describe('resolveSource', () => {
+  // Pins the single unified message all four data-query handlers now share
+  // (query_data_source, describe_data_source, get_field_values,
+  // compute_field_stats), guarding against the four messages drifting apart
+  // from each other again.
+  it('returns an ok:false result with the unified, transport-neutral message for an unknown sourceId', () => {
+    const stateBox = { current: makeState() };
+    const result = resolveSource(stateBox, 'not-a-real-source');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.isError).toBe(true);
+      const message = JSON.parse((result.error.content[0] as { text: string }).text).error;
+      expect(message).toMatch(/Unknown data source: "not-a-real-source"/);
+      expect(message).toMatch(/get_dashboard_state/);
+      expect(message).toMatch(/studio:\/\/dashboard\/state/);
+    }
+  });
+
+  it('returns an ok:true result with the resolved source and tableName for a known sourceId', () => {
+    const stateBox = { current: makeState() };
+    const result = resolveSource(stateBox, 'source-orders');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.tableName).toBe('orders');
+      expect(result.source.id).toBe('source-orders');
+    }
+  });
+
+  it('treats a registered source with no tableName as unknown', () => {
+    const stateBox = {
+      current: makeState({
+        dataSources: { 'source-orders': makeSource({ tableName: undefined }) },
+      }),
+    };
+    const result = resolveSource(stateBox, 'source-orders');
+    expect(result.ok).toBe(false);
   });
 });
 

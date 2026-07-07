@@ -27,6 +27,7 @@ interface WidgetGapProps {
   widgetRowsRef: React.RefObject<string[][] | undefined>;
   onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
   onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
+  onDragCancel: (leftId: string, rightId: string) => void;
 }
 
 /**
@@ -53,6 +54,7 @@ export function WidgetGap({
   widgetRowsRef,
   onDragMove,
   onDragEnd,
+  onDragCancel,
 }: WidgetGapProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const posRef = React.useRef({ rowIndex, colIndex });
@@ -114,6 +116,7 @@ export function WidgetGap({
           rightMinSpan={rightMinSpan}
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
+          onDragCancel={onDragCancel}
         />
       )}
     </Box>

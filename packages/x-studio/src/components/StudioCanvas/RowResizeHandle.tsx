@@ -16,6 +16,13 @@ interface RowResizeHandleProps {
   rightMinSpan?: number;
   onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
   onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
+  /**
+   * Called when an in-progress pointer drag is cancelled (`pointercancel`, or a
+   * `lostpointercapture` that isn't the tail end of a normal pointerup) instead of
+   * completed. Rollback only — never commits a span change, so a cancelled gesture
+   * never lands on the undo stack.
+   */
+  onDragCancel: (leftId: string, rightId: string) => void;
 }
 
 // Between-widget column resize handle — sits in the gap between two flex siblings
@@ -28,6 +35,7 @@ export function RowResizeHandle({
   rightMinSpan = MIN_SPAN,
   onDragMove,
   onDragEnd,
+  onDragCancel,
 }: RowResizeHandleProps) {
   const totalSpan = leftSpan + rightSpan;
   const localeText = useStudioLocaleText();
@@ -167,6 +175,20 @@ export function RowResizeHandle({
     [leftId, rightId, leftMinSpan, rightMinSpan, onDragEnd],
   );
 
+  // Rollback path for `pointercancel` / `lostpointercapture` — never commits a span
+  // change (that would push a spurious entry onto the undo stack for a gesture the
+  // user didn't complete). Idempotent: a normal pointerup already nulls `dragRef`
+  // before releasing capture, so the `lostpointercapture` event that follows
+  // `releasePointerCapture` hits this no-op guard instead of double-firing.
+  const abortDrag = React.useCallback(() => {
+    if (!dragRef.current) {
+      return;
+    }
+    dragRef.current = null;
+    setActive(false);
+    onDragCancel(leftId, rightId);
+  }, [leftId, rightId, onDragCancel]);
+
   return (
     <Box
       data-resize-handle
@@ -181,6 +203,8 @@ export function RowResizeHandle({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={abortDrag}
+      onLostPointerCapture={abortDrag}
       sx={{
         position: 'absolute',
         inset: 0,

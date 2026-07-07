@@ -5,6 +5,7 @@ import type {
   StudioExpressionField,
   StudioFilterState,
   StudioRelationship,
+  StudioState,
 } from '../models';
 import type { StudioPipeline, StudioPipelineState } from './StudioPipeline';
 
@@ -24,7 +25,9 @@ function makeSource(id: string, rows: Record<string, unknown>[]): StudioDataSour
   return { id, label: id, fields: [], rows };
 }
 
-function makeFilter(overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] }): StudioFilterState {
+function makeFilter(
+  overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] },
+): StudioFilterState {
   return {
     id: 'f1',
     field: 'region',
@@ -59,7 +62,13 @@ describe('createStudioPipeline', () => {
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
         filters: [
-          makeFilter({ id: 'f1', scope: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
+          makeFilter({
+            id: 'f1',
+            scope: { kind: 'page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
         ],
       });
       const pipeline = createStudioPipeline(state);
@@ -169,7 +178,13 @@ describe('createStudioPipeline', () => {
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
         filters: [
-          makeFilter({ id: 'f1', scope: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
+          makeFilter({
+            id: 'f1',
+            scope: { kind: 'page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
         ],
       });
       const pipeline = createStudioPipeline(state);
@@ -291,26 +306,157 @@ describe('createStudioPipeline', () => {
   });
 
   describe('pipeline accepts StudioState (full store state)', () => {
-    it('accepts a full StudioState object (superset of StudioPipelineState)', () => {
+    // Builds a real partitioned StudioState (doc/session/runtime) so the `'doc' in state`
+    // branch is actually exercised — including the new dashboard cross-filter settings.
+    function makeFullState(
+      rows: Record<string, unknown>[],
+      overrides: {
+        filters?: StudioFilterState[];
+        crossFilterAllPages?: boolean;
+        globalCrossFilterMode?: StudioState['doc']['dashboard']['globalCrossFilterMode'];
+      } = {},
+    ): StudioState {
+      return {
+        doc: {
+          schemaVersion: 1,
+          dashboard: {
+            id: 'd1',
+            title: 'T',
+            activePageId: 'p1',
+            crossFilterAllPages: overrides.crossFilterAllPages,
+            globalCrossFilterMode: overrides.globalCrossFilterMode,
+          },
+          pages: {},
+          widgets: {},
+          relationships: [],
+          filters: overrides.filters ?? [],
+          expressionFields: [],
+        },
+        session: {
+          mode: 'view',
+          shell: {
+            openDrawers: { data: false, compose: false, filters: false },
+            selectedWidgetId: null,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
+        },
+        runtime: {
+          dataSources: { orders: makeSource('orders', rows) },
+        },
+      } as StudioState;
+    }
+
+    it('accepts a full StudioState object and exercises the doc branch', () => {
       const rows = [...ROWS];
-      // createDefaultStudioState would create the full state, but we construct a minimal one here
-      const fullState = {
-        schemaVersion: 1 as const,
-        mode: 'view' as const,
-        dashboard: { id: 'd1', title: 'T', activePageId: 'p1' },
-        pages: {},
-        widgets: {},
-        dataSources: { orders: makeSource('orders', rows) },
-        relationships: [] as StudioRelationship[],
-        expressionFields: [] as StudioExpressionField[],
+      const fullState = makeFullState(rows, {
         filters: [
-          makeFilter({ id: 'f1', scope: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
-        ] as StudioFilterState[],
-        shell: { openDrawer: null },
-      };
+          makeFilter({
+            id: 'f1',
+            scope: { kind: 'page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
       const pipeline = createStudioPipeline(fullState);
       const result = pipeline.resolveWidgetRows('w1', 'orders', rows);
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
+    });
+
+    it('default call is unchanged (no options → include:all, crossFilterAllPages:false)', () => {
+      // A cross-filter from another page must NOT apply when options is omitted, even if
+      // the dashboard has crossFilterAllPages enabled — the default path ignores it.
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        crossFilterAllPages: true,
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'other-page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      // No options → activePageId 'p1' scoping, crossFilterAllPages ignored → all 3 rows.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1');
+      expect(result).toHaveLength(3);
+    });
+
+    it('opting in honors crossFilterAllPages', () => {
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        crossFilterAllPages: true,
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'other-page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      // Opting in (even with {}) forwards crossFilterAllPages → the other-page cross-filter applies.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {});
+      expect(result.map((r) => r.id)).toEqual(['1', '3']);
+    });
+
+    it("opting in with globalCrossFilterMode 'none' excludes cross-filters but keeps page filters", () => {
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        globalCrossFilterMode: 'none',
+        filters: [
+          makeFilter({
+            id: 'pf1',
+            scope: { kind: 'page' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'amount',
+            operator: 'greater_than',
+            value: 150,
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      // 'none' → include coerced to 'no-cross': page filter (region=EU) applies, the
+      // cross-filter (amount>150) is dropped → rows 1 and 3 (both EU) survive.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {});
+      expect(result.map((r) => r.id)).toEqual(['1', '3']);
+    });
+
+    it('bare StudioPipelineState without the new fields behaves identically with and without options', () => {
+      const rows = [...ROWS];
+      // A same-page cross-filter: with default crossFilterAllPages (undefined→false) and no
+      // global mode, opting in resolves to include:'all' on the active page — same as the
+      // default path for a same-page cross-filter.
+      const state = makeState({
+        dataSources: { orders: makeSource('orders', rows) },
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(state);
+      const withoutOptions = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1');
+      const withOptions = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {});
+      expect(withoutOptions.map((r) => r.id)).toEqual(['1', '3']);
+      expect(withOptions.map((r) => r.id)).toEqual(['1', '3']);
     });
   });
 

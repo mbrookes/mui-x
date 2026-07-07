@@ -2,6 +2,8 @@ import * as React from 'react';
 import { createRenderer, fireEvent, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type {
+  ClientMutationDescriptor,
+  ClientMutationResult,
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
   StudioWidget,
@@ -46,7 +48,9 @@ function makeSource(submitMutation: ReturnType<typeof vi.fn>): StudioDataSource 
     ],
     adapter: {
       getRows: async () => ({ rows }),
-      submitMutation,
+      submitMutation: submitMutation as unknown as (
+        descriptor: ClientMutationDescriptor,
+      ) => Promise<ClientMutationResult>,
     },
   };
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildGhostBarContext,
+  computeControlledHighlight,
   crossFilterValueEquals,
+  densifyAggregated,
+  densifyMultiSeries,
+  densifyMultiY,
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
@@ -126,5 +131,127 @@ describe('makeValueFormatter', () => {
       noFormatFallback: 'undefined',
     });
     expect(formatter?.(1_500_000)).not.toMatch(/M/);
+  });
+});
+
+// ─── densify* ─────────────────────────────────────────────────────────────────
+
+describe('densifyAggregated', () => {
+  it('returns the same object when there are no temporal gaps to fill', () => {
+    const data = { labels: ['A', 'B', 'C'], values: [1, 2, 3] };
+    expect(densifyAggregated(data)).toBe(data);
+  });
+
+  it('inserts null-valued positions for filled temporal gaps', () => {
+    const result = densifyAggregated({ labels: ['2024-01', '2024-03'], values: [10, 30] });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.values).toEqual([10, null, 30]);
+  });
+});
+
+describe('densifyMultiSeries', () => {
+  it('returns the same object when there are no gaps', () => {
+    const data = {
+      labels: ['A', 'B'],
+      seriesNames: ['N'],
+      seriesData: { N: [1, 2] },
+    };
+    expect(densifyMultiSeries(data)).toBe(data);
+  });
+
+  it('fills gaps per series with null', () => {
+    const result = densifyMultiSeries({
+      labels: ['2024-01', '2024-03'],
+      seriesNames: ['N', 'S'],
+      seriesData: { N: [1, 2], S: [3, 4] },
+    });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.seriesData.N).toEqual([1, null, 2]);
+    expect(result.seriesData.S).toEqual([3, null, 4]);
+  });
+});
+
+describe('densifyMultiY', () => {
+  it('returns the same object when there are no gaps', () => {
+    const data = {
+      labels: ['A', 'B'],
+      series: [{ fieldId: 'revenue', values: [1, 2] }],
+    };
+    expect(densifyMultiY(data)).toBe(data);
+  });
+
+  it('fills gaps per y-series with null', () => {
+    const result = densifyMultiY({
+      labels: ['2024-01', '2024-03'],
+      series: [{ fieldId: 'revenue', values: [10, 30] }],
+    });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.series[0].values).toEqual([10, null, 30]);
+  });
+});
+
+// ─── buildGhostBarContext ───────────────────────────────────────────────────────
+
+describe('buildGhostBarContext', () => {
+  it('aligns filtered values to the all-label order and null-coalesces baseline values', () => {
+    const ctx = buildGhostBarContext(
+      ['A', 'B', 'C'],
+      ['A', 'C'],
+      [{ seriesId: 's1', allValues: [10, null, 30], filteredValues: [5, 15] }],
+    );
+    // 'A'→5, 'B' absent from the filtered labels → null, 'C'→15.
+    expect(ctx.filteredValuesBySeriesId.s1).toEqual([5, null, 15]);
+    // Baseline nulls become 0.
+    expect(ctx.allValuesBySeriesId.s1).toEqual([10, 0, 30]);
+  });
+
+  it('emits an all-null filtered column for a series missing from the filtered set', () => {
+    const ctx = buildGhostBarContext(
+      ['A', 'B', 'C'],
+      ['A', 'B', 'C'],
+      [{ seriesId: 's2', allValues: [1, 2, 3], filteredValues: null }],
+    );
+    expect(ctx.filteredValuesBySeriesId.s2).toEqual([null, null, null]);
+    expect(ctx.allValuesBySeriesId.s2).toEqual([1, 2, 3]);
+  });
+});
+
+// ─── computeControlledHighlight ─────────────────────────────────────────────────
+
+describe('computeControlledHighlight', () => {
+  const item = { seriesId: 'cross-filter-series', dataIndex: 1 };
+  const axis = [{ axisId: 'cross-filter-axis', dataIndex: 1 }];
+  const owned = new Set(['cross-filter-series']);
+
+  it('passes through the hovered item and axis when nothing is cross-filtering', () => {
+    expect(computeControlledHighlight(item, axis, false, false, owned)).toEqual({ item, axis });
+  });
+
+  it('suppresses both when an own x-filter is active', () => {
+    expect(computeControlledHighlight(item, axis, true, false, owned)).toEqual({
+      item: null,
+      axis: [],
+    });
+  });
+
+  it('suppresses both when an incoming cross-filter is present', () => {
+    expect(computeControlledHighlight(item, axis, false, true, owned)).toEqual({
+      item: null,
+      axis: [],
+    });
+  });
+
+  it('drops the item (but keeps the axis) when the hovered series is not owned', () => {
+    expect(computeControlledHighlight(item, axis, false, false, new Set(['other']))).toEqual({
+      item: null,
+      axis,
+    });
+  });
+
+  it('returns an empty axis when no axis is hovered', () => {
+    expect(computeControlledHighlight(null, null, false, false, owned)).toEqual({
+      item: null,
+      axis: [],
+    });
   });
 });

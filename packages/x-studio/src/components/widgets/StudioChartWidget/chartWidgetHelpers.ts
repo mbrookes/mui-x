@@ -5,12 +5,180 @@ import {
 } from '../../../internals/temporalUtils';
 import { formatNumber } from '../../../internals/numberFormat';
 import type {
+  AggregatedData,
+  MultiSeriesData,
+  MultiYSeriesData,
+} from '../../../internals/chartAggregation';
+import type {
   StudioDataField,
   StudioDataSource,
   StudioExpressionField,
   StudioNumberFormat,
   StudioWidget,
 } from '../../../models';
+
+/** A temporal-gap-densified aggregation — gap-filled positions carry `null` values. */
+export interface DensifiedAggregatedData {
+  labels: (string | number)[];
+  values: (number | null)[];
+}
+export interface DensifiedMultiSeriesData {
+  labels: (string | number)[];
+  seriesNames: (string | number)[];
+  seriesData: Record<string | number, (number | null)[]>;
+}
+export interface DensifiedMultiYSeriesData {
+  labels: (string | number)[];
+  series: Array<{ fieldId: string; values: (number | null)[] }>;
+}
+
+/**
+ * Fills temporal gaps in a single-series aggregation, inserting `null` for the synthesized
+ * label positions. Returns the input unchanged (same object) when there are no gaps, so callers
+ * can keep the cheap identity-equality short-circuit their memos relied on.
+ */
+export function densifyAggregated(data: AggregatedData): DensifiedAggregatedData {
+  const labels = densifyBarLabels(data.labels);
+  if (labels === data.labels) {
+    return data;
+  }
+  const valueByLabel = new Map(data.labels.map((label, index) => [label, data.values[index]]));
+  return {
+    labels,
+    values: labels.map((label) => valueByLabel.get(label) ?? null),
+  };
+}
+
+/** Fills temporal gaps in a split-by (series-field) aggregation. */
+export function densifyMultiSeries(data: MultiSeriesData): DensifiedMultiSeriesData {
+  const labels = densifyBarLabels(data.labels);
+  if (labels === data.labels) {
+    return data;
+  }
+  return {
+    labels,
+    seriesNames: data.seriesNames,
+    seriesData: Object.fromEntries(
+      data.seriesNames.map((seriesName) => {
+        const valueByLabel = new Map(
+          data.labels.map((label, index) => [label, data.seriesData[seriesName][index]]),
+        );
+        return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+      }),
+    ),
+  };
+}
+
+/** Fills temporal gaps in a multi-Y aggregation (one entry per y-field). */
+export function densifyMultiY(data: MultiYSeriesData): DensifiedMultiYSeriesData {
+  const labels = densifyBarLabels(data.labels);
+  if (labels === data.labels) {
+    return data;
+  }
+  return {
+    labels,
+    series: data.series.map((series) => {
+      const valueByLabel = new Map(
+        data.labels.map((label, index) => [label, series.values[index]]),
+      );
+      return {
+        fieldId: series.fieldId,
+        values: labels.map((label) => valueByLabel.get(label) ?? null),
+      };
+    }),
+  };
+}
+
+/** Shape consumed by `CrossFilterBarContext`. */
+export interface GhostBarContext {
+  filteredValuesBySeriesId: Record<string, (number | null)[]>;
+  allValuesBySeriesId: Record<string, number[]>;
+}
+
+/**
+ * Builds the `CrossFilterBarContext` value for the multi-Y and split-by bar ghost overlays.
+ * For each series, the filtered values are aligned to the all-data label order (missing series
+ * → an all-null column) and the baseline values are null-coalesced to `0`.
+ */
+export function buildGhostBarContext(
+  allLabels: (string | number)[],
+  filteredLabels: (string | number)[],
+  series: Array<{
+    seriesId: string;
+    allValues: (number | null)[];
+    filteredValues: (number | null)[] | null;
+  }>,
+): GhostBarContext {
+  const filteredValuesBySeriesId: Record<string, (number | null)[]> = {};
+  const allValuesBySeriesId: Record<string, number[]> = {};
+  for (const { seriesId, allValues, filteredValues } of series) {
+    filteredValuesBySeriesId[seriesId] = filteredValues
+      ? alignFilteredToAllLabels(allLabels, filteredLabels, filteredValues)
+      : allLabels.map(() => null);
+    allValuesBySeriesId[seriesId] = allValues.map((v) => v ?? 0);
+  }
+  return { filteredValuesBySeriesId, allValuesBySeriesId };
+}
+
+/**
+ * Gates the hover-driven highlight for a chart. A hovered item highlights only when nothing is
+ * cross-filtering this widget (neither an active own x-filter nor an incoming cross-filter) and
+ * the hovered series is one this chart owns; the hovered axis is likewise suppressed while a
+ * cross-filter is active. Returns `{ item, axis }` (the axis is `[]` when suppressed).
+ */
+export function computeControlledHighlight<I extends { seriesId: string | number }, A>(
+  hoveredItem: I | null,
+  hoveredAxis: A[] | null,
+  hasActiveXFilter: boolean,
+  hasIncomingCrossFilters: boolean,
+  highlightableSeriesIds: Set<string>,
+): { item: I | null; axis: A[] } {
+  const gated = !hasActiveXFilter && !hasIncomingCrossFilters;
+  return {
+    item:
+      gated && hoveredItem && highlightableSeriesIds.has(hoveredItem.seriesId as string)
+        ? hoveredItem
+        : null,
+    axis: gated ? (hoveredAxis ?? []) : [],
+  };
+}
+
+/**
+ * Shared legend `slotProps` for the multi-series bar/line charts — a scrollable, non-wrapping
+ * legend capped to the chart height. Previously copy-pasted at six call sites.
+ */
+export const CHART_LEGEND_SLOT_PROPS = {
+  legend: {
+    sx: {
+      overflowY: 'auto',
+      flexWrap: 'nowrap',
+      maxHeight: '100%',
+    },
+  },
+} as const;
+
+/**
+ * Builds the `onAxisClick` handler shared by the bar/line charts: forward the clicked axis value
+ * to `onItemClick` (with the shift-key for multi-select). An optional `isBlockedLabel` predicate
+ * suppresses the click for synthetic values that map to no real category (e.g. an "Other" bucket).
+ */
+export function makeAxisClickHandler(
+  onItemClick: (label: string | number | Date, shiftKey: boolean) => void,
+  isBlockedLabel?: (label: string | number | Date) => boolean,
+): (
+  event: { shiftKey?: boolean } | null,
+  params: { axisValue?: string | number | Date } | null,
+) => void {
+  return (event, params) => {
+    if (params?.axisValue === undefined) {
+      return;
+    }
+    if (isBlockedLabel?.(params.axisValue)) {
+      return;
+    }
+    onItemClick(params.axisValue, Boolean(event?.shiftKey));
+  };
+}
 
 /**
  * Resolves a field definition by id, checking the widget's data source first and

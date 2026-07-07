@@ -14,7 +14,10 @@ import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { buildMultiYLineSeries } from './lineSeries';
 import {
   alignFilteredToAllLabels,
+  CHART_LEGEND_SLOT_PROPS,
+  computeControlledHighlight,
   createLineXAxisConfig,
+  makeAxisClickHandler,
   makeCrossHighlightLineFormatter,
   makeValueFormatter,
   resolveFieldDef,
@@ -153,15 +156,14 @@ export function StudioLineAreaChart({
     highlightableSeriesIds = new Set<string>([CROSS_FILTER_SERIES_ID]);
   }
 
-  const controlledHighlightedItem =
-    !hasActiveXFilter &&
-    !hasIncomingCrossFilters &&
-    hoveredItem &&
-    highlightableSeriesIds.has(hoveredItem.seriesId as string)
-      ? hoveredItem
-      : null;
-  const controlledHighlightedAxis =
-    !hasActiveXFilter && !hasIncomingCrossFilters ? (hoveredAxis ?? []) : [];
+  const { item: controlledHighlightedItem, axis: controlledHighlightedAxis } =
+    computeControlledHighlight(
+      hoveredItem,
+      hoveredAxis,
+      hasActiveXFilter,
+      hasIncomingCrossFilters,
+      highlightableSeriesIds,
+    );
 
   // ── seriesField line/area chart: one line (or area) per unique series-field value ──
   if (
@@ -274,21 +276,9 @@ export function StudioLineAreaChart({
             onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onHighlightedAxisChange={onAxisHoverChange}
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
+          onAxisClick={makeAxisClickHandler(onItemClick)}
           sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
+          slotProps={CHART_LEGEND_SLOT_PROPS}
         >
           {children}
         </LineChart>
@@ -398,11 +388,12 @@ export function StudioLineAreaChart({
           highlightedItem={
             selectedDataIndices.length > 0
               ? {
-                  // Known pre-existing issue (not introduced by this extraction): the rendered
-                  // series ids carry an index suffix (`${fieldId}-${i}`), so this seriesId — the
-                  // bare `fieldId` of the first series — never matches a rendered series and the
-                  // cross-filter highlight is effectively a no-op. Preserved as-is on purpose.
-                  seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
+                  // The rendered series ids carry an index suffix (`${fieldId}-${i}`), so the
+                  // highlighted seriesId must match the first rendered series id (`${fieldId}-0`)
+                  // rather than the bare `fieldId`.
+                  seriesId: multiYData.series[0]
+                    ? `${multiYData.series[0].fieldId}-0`
+                    : CROSS_FILTER_SERIES_ID,
                   dataIndex: selectedDataIndices[0],
                 }
               : controlledHighlightedItem
@@ -410,21 +401,9 @@ export function StudioLineAreaChart({
           onHighlightChange={(item) =>
             onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-            }
-          }}
+          onAxisClick={makeAxisClickHandler(onItemClick)}
           sx={{ cursor: 'default' }}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
-            },
-          }}
+          slotProps={CHART_LEGEND_SLOT_PROPS}
         >
           {children}
         </LineChart>

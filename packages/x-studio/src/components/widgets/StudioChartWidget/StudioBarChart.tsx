@@ -10,8 +10,13 @@ import type {
   MultiYSeriesData,
 } from '../../../internals/chartAggregation';
 import {
-  alignFilteredToAllLabels,
-  densifyBarLabels,
+  buildGhostBarContext,
+  CHART_LEGEND_SLOT_PROPS,
+  computeControlledHighlight,
+  densifyAggregated,
+  densifyMultiSeries,
+  densifyMultiY,
+  makeAxisClickHandler,
   makeCrossFilterValueFormatter,
   makeValueFormatter,
   resolveFieldDef,
@@ -149,134 +154,36 @@ export function StudioBarChart({
   // Densified (temporal-gap-filled) bar data. Computed as memos so they only run when a bar
   // chart actually mounts (the orchestrator used to compute these unconditionally for every
   // chart type).
-  const barChartData = React.useMemo(() => {
-    if (!chartData) {
-      return chartData;
-    }
-    const labels = densifyBarLabels(chartData.labels);
-    if (labels === chartData.labels) {
-      return chartData;
-    }
-    const valueByLabel = new Map(
-      chartData.labels.map((label, index) => [label, chartData.values[index]]),
-    );
-    return {
-      labels,
-      values: labels.map((label) => valueByLabel.get(label) ?? null),
-    };
-  }, [chartData]);
+  const barChartData = React.useMemo(
+    () => (chartData ? densifyAggregated(chartData) : chartData),
+    [chartData],
+  );
 
-  const barSeriesFieldData = React.useMemo(() => {
-    if (!seriesFieldData) {
-      return seriesFieldData;
-    }
-    const labels = densifyBarLabels(seriesFieldData.labels);
-    if (labels === seriesFieldData.labels) {
-      return seriesFieldData;
-    }
-    return {
-      labels,
-      seriesNames: seriesFieldData.seriesNames,
-      seriesData: Object.fromEntries(
-        seriesFieldData.seriesNames.map((seriesName) => {
-          const valueByLabel = new Map(
-            seriesFieldData.labels.map((label, index) => [
-              label,
-              seriesFieldData.seriesData[seriesName][index],
-            ]),
-          );
-          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
-        }),
-      ),
-    };
-  }, [seriesFieldData]);
+  const barSeriesFieldData = React.useMemo(
+    () => (seriesFieldData ? densifyMultiSeries(seriesFieldData) : seriesFieldData),
+    [seriesFieldData],
+  );
 
-  const barMultiYData = React.useMemo(() => {
-    if (!multiYData) {
-      return multiYData;
-    }
-    const labels = densifyBarLabels(multiYData.labels);
-    if (labels === multiYData.labels) {
-      return multiYData;
-    }
-    return {
-      labels,
-      series: multiYData.series.map((series) => {
-        const valueByLabel = new Map(
-          multiYData.labels.map((label, index) => [label, series.values[index]]),
-        );
-        return {
-          fieldId: series.fieldId,
-          values: labels.map((label) => valueByLabel.get(label) ?? null),
-        };
-      }),
-    };
-  }, [multiYData]);
+  const barMultiYData = React.useMemo(
+    () => (multiYData ? densifyMultiY(multiYData) : multiYData),
+    [multiYData],
+  );
 
   // Densified all-data arrays for ghost rendering (only computed when shouldShowGhost)
-  const allBarChartData = React.useMemo(() => {
-    if (!shouldShowGhost || !allChartData) {
-      return null;
-    }
-    const labels = densifyBarLabels(allChartData.labels);
-    if (labels === allChartData.labels) {
-      return allChartData;
-    }
-    const valueByLabel = new Map(
-      allChartData.labels.map((label, index) => [label, allChartData.values[index]]),
-    );
-    return {
-      labels,
-      values: labels.map((label) => valueByLabel.get(label) ?? null),
-    };
-  }, [shouldShowGhost, allChartData]);
+  const allBarChartData = React.useMemo(
+    () => (shouldShowGhost && allChartData ? densifyAggregated(allChartData) : null),
+    [shouldShowGhost, allChartData],
+  );
 
-  const allBarSeriesFieldData = React.useMemo(() => {
-    if (!shouldShowGhost || !allSeriesFieldData) {
-      return null;
-    }
-    const labels = densifyBarLabels(allSeriesFieldData.labels);
-    if (labels === allSeriesFieldData.labels) {
-      return allSeriesFieldData;
-    }
-    return {
-      labels,
-      seriesNames: allSeriesFieldData.seriesNames,
-      seriesData: Object.fromEntries(
-        allSeriesFieldData.seriesNames.map((seriesName) => {
-          const valueByLabel = new Map(
-            allSeriesFieldData.labels.map((label, index) => [
-              label,
-              allSeriesFieldData.seriesData[seriesName][index],
-            ]),
-          );
-          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
-        }),
-      ),
-    };
-  }, [shouldShowGhost, allSeriesFieldData]);
+  const allBarSeriesFieldData = React.useMemo(
+    () => (shouldShowGhost && allSeriesFieldData ? densifyMultiSeries(allSeriesFieldData) : null),
+    [shouldShowGhost, allSeriesFieldData],
+  );
 
-  const allBarMultiYData = React.useMemo(() => {
-    if (!shouldShowGhost || !allMultiYData) {
-      return null;
-    }
-    const labels = densifyBarLabels(allMultiYData.labels);
-    if (labels === allMultiYData.labels) {
-      return allMultiYData;
-    }
-    return {
-      labels,
-      series: allMultiYData.series.map((series) => {
-        const valueByLabel = new Map(
-          allMultiYData.labels.map((label, index) => [label, series.values[index]]),
-        );
-        return {
-          fieldId: series.fieldId,
-          values: labels.map((label) => valueByLabel.get(label) ?? null),
-        };
-      }),
-    };
-  }, [shouldShowGhost, allMultiYData]);
+  const allBarMultiYData = React.useMemo(
+    () => (shouldShowGhost && allMultiYData ? densifyMultiY(allMultiYData) : null),
+    [shouldShowGhost, allMultiYData],
+  );
 
   const bandLabelWrap = barBandLabelWrap ?? 0;
   const bandLabelWrapMaxLines = Math.max(1, wrapBandLabelMaxLines ?? 2);
@@ -323,15 +230,14 @@ export function StudioBarChart({
     highlightableSeriesIds = new Set([CROSS_FILTER_SERIES_ID]);
   }
 
-  const controlledHighlightedItem =
-    !hasActiveXFilter &&
-    !hasIncomingCrossFilters &&
-    hoveredItem &&
-    highlightableSeriesIds.has(hoveredItem.seriesId as string)
-      ? hoveredItem
-      : null;
-  const controlledHighlightedAxis =
-    !hasActiveXFilter && !hasIncomingCrossFilters ? (hoveredAxis ?? []) : [];
+  const { item: controlledHighlightedItem, axis: controlledHighlightedAxis } =
+    computeControlledHighlight(
+      hoveredItem,
+      hoveredAxis,
+      hasActiveXFilter,
+      hasIncomingCrossFilters,
+      highlightableSeriesIds,
+    );
 
   // ── Multi-Y-field bar chart: each y-field is its own series ──
   if (barMultiYData && barMultiYData.labels.length > 0) {
@@ -384,31 +290,20 @@ export function StudioBarChart({
         ];
 
     // Build per-series filtered values (aligned to all-data labels) for ghost context
-    const multiYFilteredBySeriesId: Record<string, (number | null)[]> = {};
-    const multiYAllBySeriesId: Record<string, number[]> = {};
-    if (shouldShowGhost && allBarMultiYData) {
-      allBarMultiYData.series.forEach((allSeries, i) => {
-        const seriesId = `${allSeries.fieldId}-${i}`;
-        const filteredSeries = barMultiYData.series[i];
-        const filteredAligned = filteredSeries
-          ? alignFilteredToAllLabels(
-              allBarMultiYData.labels,
-              barMultiYData.labels,
-              filteredSeries.values,
-            )
-          : allBarMultiYData.labels.map(() => null);
-        multiYFilteredBySeriesId[seriesId] = filteredAligned;
-        multiYAllBySeriesId[seriesId] = allSeries.values.map((v) => v ?? 0);
-      });
-    }
     const multiYBarContext =
       shouldShowGhost && allBarMultiYData
         ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-          {
-            filteredValuesBySeriesId: multiYFilteredBySeriesId,
-            allValuesBySeriesId: multiYAllBySeriesId,
-          }
+          buildGhostBarContext(
+            allBarMultiYData.labels,
+            barMultiYData.labels,
+            allBarMultiYData.series.map((allSeries, i) => ({
+              seriesId: `${allSeries.fieldId}-${i}`,
+              allValues: allSeries.values,
+              filteredValues: barMultiYData.series[i]?.values ?? null,
+            })),
+          )
         : null;
+    const multiYFilteredBySeriesId = multiYBarContext?.filteredValuesBySeriesId ?? {};
 
     const series = effectiveMultiYData.series.map((s, i) => {
       const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
@@ -504,22 +399,10 @@ export function StudioBarChart({
                 : controlledHighlightedAxis
             }
             onHighlightedAxisChange={onAxisHoverChange}
-            onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) {
-                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-              }
-            }}
+            onAxisClick={makeAxisClickHandler(onItemClick)}
             sx={{ cursor: 'default' }}
             slots={multiYBarContext ? { bar: CrossFilterGhostBar } : undefined}
-            slotProps={{
-              legend: {
-                sx: {
-                  overflowY: 'auto',
-                  flexWrap: 'nowrap',
-                  maxHeight: '100%',
-                },
-              },
-            }}
+            slotProps={CHART_LEGEND_SLOT_PROPS}
           >
             {children}
           </BarChart>
@@ -556,29 +439,20 @@ export function StudioBarChart({
       : null;
 
     // Build per-series filtered values for ghost context
-    const sfFilteredBySeriesId: Record<string, (number | null)[]> = {};
-    const sfAllBySeriesId: Record<string, number[]> = {};
-    if (shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline) {
-      allBarSeriesFieldData.seriesNames.forEach((name) => {
-        const seriesId = String(name);
-        const allVals = allBarSeriesFieldData.seriesData[name] ?? [];
-        const filteredVals = barSeriesFieldData.seriesData[name];
-        const filteredAligned = filteredVals
-          ? alignFilteredToAllLabels(
-              allBarSeriesFieldData.labels,
-              barSeriesFieldData.labels,
-              filteredVals,
-            )
-          : allBarSeriesFieldData.labels.map(() => null);
-        sfFilteredBySeriesId[seriesId] = filteredAligned;
-        sfAllBySeriesId[seriesId] = allVals.map((v) => v ?? 0);
-      });
-    }
     const sfBarContext =
       shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
         ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-          { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
+          buildGhostBarContext(
+            allBarSeriesFieldData.labels,
+            barSeriesFieldData.labels,
+            allBarSeriesFieldData.seriesNames.map((name) => ({
+              seriesId: String(name),
+              allValues: allBarSeriesFieldData.seriesData[name] ?? [],
+              filteredValues: barSeriesFieldData.seriesData[name] ?? null,
+            })),
+          )
         : null;
+    const sfFilteredBySeriesId = sfBarContext?.filteredValuesBySeriesId ?? {};
 
     const baseSeriesValueFormatter = is100
       ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
@@ -694,22 +568,10 @@ export function StudioBarChart({
               onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
             onHighlightedAxisChange={onAxisHoverChange}
-            onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) {
-                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-              }
-            }}
+            onAxisClick={makeAxisClickHandler(onItemClick)}
             sx={{ cursor: 'default' }}
             slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
-            slotProps={{
-              legend: {
-                sx: {
-                  overflowY: 'auto',
-                  flexWrap: 'nowrap',
-                  maxHeight: '100%',
-                },
-              },
-            }}
+            slotProps={CHART_LEGEND_SLOT_PROPS}
           >
             {children}
           </BarChart>
@@ -733,28 +595,98 @@ export function StudioBarChart({
     yFieldDef?.currencyCode,
     yFieldDef?.precision,
   );
-  const selectedDataIndices = getSelectedDataIndices(effectiveSingleSeriesData!.labels);
+
+  // Apply the display transform (empty-label filter + top-N "Other" grouping) FIRST, so the
+  // selection, ghost-context and highlight computations below all align to the RENDERED
+  // (display) order rather than the pre-transform label order.
+  const barMaxCats = barMaxCategories ?? undefined;
+  // Filter out empty x-axis values before applying max-categories grouping
+  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
+    (acc, label, i) => {
+      if (label !== null && label !== undefined && label !== '') {
+        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
+      }
+      return acc;
+    },
+    [],
+  );
+  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
+  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
+  // True once the "Other" entry is a grouping bucket (an appended synthetic bucket, or a real
+  // "Other" category that also absorbed the folded remainder). Used both to align the ghost
+  // "Other" value and to guard clicks on the synthetic bucket.
+  let otherGroupingApplied = false;
+  if (barMaxCats && displayXAxisData.length > barMaxCats) {
+    const topN = barMaxCats - 1;
+    // Group by VALUE (largest categories kept, smallest folded into "Other"), matching the
+    // pie's top-N behavior — not by axis position. Sort a copy so the original order of the
+    // (possibly densified) input is left untouched.
+    const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    const topPairs = sortedPairs.slice(0, topN);
+    const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
+    const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
+    if (existingOtherIdx >= 0) {
+      // Real "Other" category already in top-N — merge remainder into it
+      const merged = topPairs.map((p, i) =>
+        i === existingOtherIdx ? { label: p.label, value: (p.value ?? 0) + otherValue } : p,
+      );
+      displayXAxisData = merged.map((p) => p.label);
+      displayBarValues = merged.map((p) => p.value);
+    } else {
+      displayXAxisData = [...topPairs.map((p) => p.label), 'Other'];
+      displayBarValues = [...topPairs.map((p) => p.value), otherValue];
+    }
+    otherGroupingApplied = true;
+  }
+
+  // Selection is computed against the RENDERED (display) label order: a folded-away selected
+  // label simply yields no index (getSelectedDataIndices matches by label), and a kept label
+  // highlights the correct rendered bar.
+  const selectedDataIndices = getSelectedDataIndices(displayXAxisData);
   const sourceSelectionCtxValue =
     // eslint-disable-next-line react/jsx-no-constructed-context-values
     selectedDataIndices.length > 1 ? new Set(selectedDataIndices) : null;
 
-  // Filtered values aligned to all-data labels for ghost bar context
-  const singleSeriesFilteredValues =
-    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline
-      ? alignFilteredToAllLabels(allBarChartData.labels, chartData.labels, chartData.values)
-      : null;
-  const singleBarContext =
-    singleSeriesFilteredValues && effectiveSingleSeriesData
-      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-        {
-          filteredValuesBySeriesId: {
-            [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
-          },
-          allValuesBySeriesId: {
-            [CROSS_FILTER_SERIES_ID]: effectiveSingleSeriesData.values.map((v) => v ?? 0),
-          },
+  // Filtered values for the ghost bar context, aligned to the display order. The synthetic
+  // "Other" bucket sums the filtered values of every folded-away label (mirroring the display
+  // baseline), while kept labels absent from the filtered set stay null → "(filtered out)".
+  const ghostActive = Boolean(
+    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline,
+  );
+  let singleSeriesFilteredValues: (number | null)[] | null = null;
+  if (ghostActive && chartData) {
+    const filteredValueByLabel = new Map<string, number | null>(
+      chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
+    );
+    const keepSet = new Set(
+      displayXAxisData
+        .filter((l) => !(otherGroupingApplied && String(l) === 'Other'))
+        .map((l) => String(l)),
+    );
+    singleSeriesFilteredValues = displayXAxisData.map((label) => {
+      if (otherGroupingApplied && String(label) === 'Other') {
+        let sum = 0;
+        for (const [lbl, fv] of filteredValueByLabel) {
+          if (!keepSet.has(lbl)) {
+            sum += fv ?? 0;
+          }
         }
-      : null;
+        return sum;
+      }
+      return filteredValueByLabel.get(String(label)) ?? null;
+    });
+  }
+  const singleBarContext = singleSeriesFilteredValues
+    ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+      {
+        filteredValuesBySeriesId: {
+          [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
+        },
+        allValuesBySeriesId: {
+          [CROSS_FILTER_SERIES_ID]: displayBarValues.map((v) => v ?? 0),
+        },
+      }
+    : null;
   const singleSeriesVF =
     singleBarContext && singleSeriesFilteredValues
       ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
@@ -780,37 +712,6 @@ export function StudioBarChart({
     };
   } else if (selectedDataIndices.length > 1) {
     singleBarHighlightedItem = null;
-  }
-
-  // Apply top-N + "Other" grouping for bar charts
-  const barMaxCats = barMaxCategories ?? undefined;
-  // Filter out empty x-axis values before applying max-categories grouping
-  const nonEmptyBarPairs = xAxisData.reduce<{ label: string | number; value: number | null }[]>(
-    (acc, label, i) => {
-      if (label !== null && label !== undefined && label !== '') {
-        acc.push({ label, value: (effectiveSingleSeriesData?.values[i] ?? null) as number | null });
-      }
-      return acc;
-    },
-    [],
-  );
-  let displayXAxisData: (string | number)[] = nonEmptyBarPairs.map((p) => p.label);
-  let displayBarValues: (number | null)[] = nonEmptyBarPairs.map((p) => p.value);
-  if (barMaxCats && displayXAxisData.length > barMaxCats) {
-    const topN = barMaxCats - 1;
-    const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    const topLabels = displayXAxisData.slice(0, topN);
-    const topValues = displayBarValues.slice(0, topN);
-    const existingOtherIdx = topLabels.findIndex((l) => l === 'Other');
-    if (existingOtherIdx >= 0) {
-      // Real "Other" answer already in top-N — merge remainder into it
-      topValues[existingOtherIdx] = (topValues[existingOtherIdx] ?? 0) + otherValue;
-      displayXAxisData = topLabels;
-      displayBarValues = topValues;
-    } else {
-      displayXAxisData = [...topLabels, 'Other'];
-      displayBarValues = [...topValues, otherValue];
-    }
   }
 
   // Default single-series bar — vertical and horizontal share one render, differing only in
@@ -899,22 +800,16 @@ export function StudioBarChart({
             onHighlightChange={(item) =>
               onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
-            onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) {
-                onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-              }
-            }}
+            // The synthetic "Other" bucket has no single underlying category value, so a
+            // cross-filter on it would match nothing — ignore the click. A real "Other"
+            // category (no grouping active) still cross-filters normally.
+            onAxisClick={makeAxisClickHandler(
+              onItemClick,
+              (label) => otherGroupingApplied && label === 'Other',
+            )}
             sx={{ cursor: 'default' }}
             slots={singleBarSlots}
-            slotProps={{
-              legend: {
-                sx: {
-                  overflowY: 'auto',
-                  flexWrap: 'nowrap',
-                  maxHeight: '100%',
-                },
-              },
-            }}
+            slotProps={CHART_LEGEND_SLOT_PROPS}
           >
             {children}
           </BarChart>

@@ -2,12 +2,24 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CrossFilterBarContext } from './CrossFilterBarContext';
+import { SourceSelectionContext } from './SourceSelectionContext';
 
 const barChartSpy = vi.fn();
+
+// Read the (live) cross-filter / source-selection contexts from inside the mocked BarChart so
+// tests can assert on the per-bar ghost values and multi-select set the wrapping Providers feed.
+let capturedBarCtx: {
+  filteredValuesBySeriesId: Record<string, (number | null)[]>;
+  allValuesBySeriesId: Record<string, number[]>;
+} | null = null;
+let capturedSourceSelection: Set<number> | null = null;
 
 vi.mock('@mui/x-charts/BarChart', () => ({
   BarChart: (props: unknown) => {
     barChartSpy(props);
+    capturedBarCtx = React.useContext(CrossFilterBarContext);
+    capturedSourceSelection = React.useContext(SourceSelectionContext);
     return <div data-testid="bar-chart" />;
   },
 }));
@@ -124,6 +136,8 @@ describe('StudioBarChart', () => {
 
   beforeEach(() => {
     barChartSpy.mockClear();
+    capturedBarCtx = null;
+    capturedSourceSelection = null;
   });
 
   // ── Multi-Y ────────────────────────────────────────────────────────────────
@@ -349,6 +363,21 @@ describe('StudioBarChart', () => {
       expect(props.series[0].data).toEqual([5, 4, 6]);
     });
 
+    it('keeps the top N−1 categories by VALUE (not by axis position) when grouping', () => {
+      // Unsorted input: the two largest categories are B (5) and D (4); everything else
+      // (A=1, C=2, E=3) folds into "Other" = 6. Grouping must sort by value, not slice the
+      // first N axis positions.
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [1, 5, 2, 4, 3] },
+          barMaxCategories: 3,
+        }),
+      );
+      const props = lastBarProps();
+      expect(props.xAxis[0].data).toEqual(['B', 'D', 'Other']);
+      expect(props.series[0].data).toEqual([5, 4, 6]);
+    });
+
     it('merges the remainder into an existing "Other" category when one is already in the top N', () => {
       renderChart(
         baseProps({
@@ -366,6 +395,101 @@ describe('StudioBarChart', () => {
       const props = lastBarProps();
       expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
       expect(props.slots?.bar).toBeUndefined();
+    });
+
+    it('computes the selection against the display order (empty labels dropped)', () => {
+      // The leading empty label is dropped from the rendered order, so getSelectedDataIndices
+      // must be called with the display labels ['A','B'] — a selection of 'B' then lands on the
+      // correct rendered bar (dataIndex 1), not the pre-transform index 2.
+      const seen: Array<Array<string | number | Date>> = [];
+      renderChart(
+        baseProps({
+          chartData: { labels: ['', 'A', 'B'], values: [5, 10, 20] },
+          getSelectedDataIndices: (labels) => {
+            seen.push(labels);
+            return labels.map((l, i) => (String(l) === 'B' ? i : -1)).filter((i) => i >= 0);
+          },
+        }),
+      );
+      expect(seen.at(-1)).toEqual(['A', 'B']);
+      expect(lastBarProps().highlightedItem).toEqual({
+        seriesId: 'cross-filter-series',
+        dataIndex: 1,
+      });
+    });
+
+    it('aligns the ghost cross-filter context to the display order incl. the "Other" bucket', () => {
+      renderChart(
+        baseProps({
+          // Unsorted baseline of >N labels; grouping keeps C(20) & D(15), folds A+B into "Other".
+          allChartData: { labels: ['A', 'B', 'C', 'D'], values: [10, 5, 20, 15] },
+          // Filtered subset (C reduced to 12, A reduced to 6, B & D filtered out entirely).
+          chartData: { labels: ['C', 'A'], values: [12, 6] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+          barMaxCategories: 3,
+        }),
+      );
+      const props = lastBarProps();
+      // Rendered display order: ['C','D','Other'] with baseline values [20,15,15].
+      expect(props.xAxis[0].data).toEqual(['C', 'D', 'Other']);
+      expect(props.series[0].data).toEqual([20, 15, 15]);
+
+      // (a) filtered ghost values align to the display order; the "Other" bucket sums the
+      //     filtered values of every folded-away label (A=6, B absent→0) = 6.
+      const filtered = capturedBarCtx!.filteredValuesBySeriesId['cross-filter-series'];
+      expect(filtered).toHaveLength(3);
+      expect(filtered[2]).toBe(6);
+      // C kept (filtered 12); D kept but absent from the filtered set → null ("filtered out").
+      expect(filtered[0]).toBe(12);
+      expect(filtered[1]).toBe(null);
+
+      // (b) allValues equal the rendered series data.
+      expect(capturedBarCtx!.allValuesBySeriesId['cross-filter-series']).toEqual([20, 15, 15]);
+
+      // (c) the series valueFormatter indexes by the rendered dataIndex → "filtered / total".
+      expect(props.series[0].valueFormatter!(20, { dataIndex: 0 })).toBe('12 / 20');
+    });
+
+    it('feeds the SourceSelectionContext the display-order multi-select indices', () => {
+      renderChart(
+        baseProps({
+          chartData: { labels: ['', 'A', 'B', 'C'], values: [1, 10, 20, 30] },
+          // Two kept-label indices in the display order ['A','B','C'].
+          getSelectedDataIndices: () => [0, 2],
+        }),
+      );
+      const props = lastBarProps();
+      expect(props.slots?.bar).toBe(SourceSelectionBar);
+      expect([...capturedSourceSelection!].sort((a, b) => a - b)).toEqual([0, 2]);
+    });
+
+    it('ignores a click on the synthetic "Other" bucket but forwards a kept category', () => {
+      const onItemClick = vi.fn();
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [5, 4, 3, 2, 1] },
+          barMaxCategories: 3,
+          onItemClick,
+        }),
+      );
+      // Display order is ['A','B','Other']; the synthetic bucket must not cross-filter.
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'Other' });
+      expect(onItemClick).not.toHaveBeenCalled();
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'B' });
+      expect(onItemClick).toHaveBeenCalledWith('B', false);
+    });
+
+    it('forwards a click on a REAL "Other" category when no grouping is active', () => {
+      const onItemClick = vi.fn();
+      renderChart(
+        baseProps({
+          chartData: { labels: ['A', 'Other', 'C'], values: [5, 4, 3] },
+          onItemClick,
+        }),
+      );
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'Other' });
+      expect(onItemClick).toHaveBeenCalledWith('Other', false);
     });
 
     it('uses the SourceSelectionBar slot and no item highlight for a multi-selection', () => {

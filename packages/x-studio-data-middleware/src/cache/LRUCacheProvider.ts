@@ -174,7 +174,8 @@ export class LRUCacheProvider implements CacheProvider {
    * For any other key format, falls back to using the full key as its own prefix.
    */
   private extractPrefix(key: string): string {
-    // Find the 4th colon (index after "studio:v1:<tenantId>:")
+    // Find the 3rd colon (the one right after "studio:v1:<tenantId>"), and
+    // return the slice up to and including it — i.e. "studio:v1:<tenantId>:".
     let colons = 0;
     for (let i = 0; i < key.length; i += 1) {
       if (key[i] === ':') {

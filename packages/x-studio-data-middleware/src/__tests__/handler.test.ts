@@ -247,9 +247,12 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         columnAllowlist: { sales: ['region', 'amount'] },
-        // Isolate from the shared default-cache singleton: the cache key does not
-        // fold in `columnAllowlist` (pre-existing gap), so identical descriptors
-        // across these sibling tests would otherwise share one entry.
+        // Use a fresh cache provider (rather than the shared default-cache
+        // singleton) so this test is hermetic. This is NOT working around a
+        // `columnAllowlist` cache-key gap — `compileSecurityPolicy` folds
+        // `columnAllowlist` into `policy.digest`, which threads into
+        // `generateCacheKey` (`handler.ts:152`) — it just keeps this test's
+        // entries from lingering across runs / sibling tests.
         cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
       });
       const rows = result.results[0].rows;
@@ -1148,6 +1151,106 @@ describe('handleBatchQuery — aggregation push-down', () => {
     // Aggregation queries skip the tier cache to prevent stale 'client' entries
     // from a pre-fix run from shadowing the forced-db-tier path.
     expect(tierCache.size).toBe(0);
+  });
+
+  // finding 1.1 — an ORDER BY targeting an aggregation ALIAS (not a physical
+  // column) must not be rejected by the column allowlist. A host allowlists
+  // physical columns only, never a client's freely-chosen aggregation alias, so
+  // "sum amount by region, ordered by the sum" — the single most common
+  // aggregation shape — must keep working once `columnAllowlist` is configured.
+  it('an ORDER BY on an aggregation alias succeeds under a columnAllowlist (finding 1.1)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total_revenue' }],
+          orderBy: [{ column: 'total_revenue', direction: 'desc' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      // Note: does NOT list 'total_revenue' — it's an aggregation alias, not a
+      // physical column, and must never need to be allowlisted.
+      columnAllowlist: { sales: ['region', 'amount'] },
+    });
+
+    expect(result.results[0].error).toBeUndefined();
+    const { rows } = result.results[0];
+    // ACME totals by region: west=250, east=200, north=75 — ordered desc by total_revenue.
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.region)).toEqual(['west', 'east', 'north']);
+    expect(rows.map((r) => r.total_revenue)).toEqual([250, 200, 75]);
+  });
+
+  // A genuinely-invalid ORDER BY column — neither allowlisted nor an
+  // aggregation alias — must still be rejected. Guards against the alias
+  // exclusion above becoming too permissive.
+  it('still rejects an ORDER BY on a non-allowlisted, non-alias column under a columnAllowlist (finding 1.1)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total_revenue' }],
+          // 'product' is a real column, but not allowlisted and not an alias.
+          orderBy: [{ column: 'product', direction: 'desc' }],
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: MULTI_TENANT,
+        columnAllowlist: { sales: ['region', 'amount'] },
+      }),
+    ).rejects.toThrow(/Column "product" on table "sales" is not in the column allowlist/);
+  });
+
+  // finding 2.4 — an unknown aggregation `func` must produce a clear, clean
+  // rejection instead of being silently dropped (which would otherwise return a
+  // confusing, silently-incomplete GROUP BY with a missing measure column). The
+  // throw lives in `execute.ts`'s per-widget execution path (mirroring a DB
+  // error), so — like any other execution failure — it surfaces as this
+  // widget's `error` rather than rejecting the whole batch (finding 2.1's
+  // execution/validation error-isolation asymmetry is a deliberate, separate
+  // design decision, not something this fix changes).
+  it('rejects an aggregation with an unsupported "func" instead of silently dropping it (finding 2.4)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [
+            // 'median' is not a supported aggregation function — cast past the
+            // literal union type since the whole point of this test is exercising
+            // the runtime rejection of a value the type system would otherwise rule out.
+            { column: 'amount', func: 'median' as unknown as 'sum', alias: 'total' },
+          ],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(result.results[0].error).toMatch(/Aggregation function "median" is not supported/);
+    expect(result.results[0].rows).toEqual([]);
   });
 });
 

@@ -114,6 +114,17 @@ export function validateDescriptorColumns(
       context,
     );
 
+  // An ORDER BY target that names a declared aggregation alias (e.g. "order by
+  // total_revenue desc" where `total_revenue` is an `aggregations[].alias`) is
+  // NOT a physical column — it is never going to appear in a host's column
+  // allowlist, which only lists real columns. Mirrors `buildPlan`'s
+  // `aggAliasSet.has(ob.column)` check in `security/validateQueryPlan.ts`, which
+  // resolves aggregation-alias ORDER BY targets without an allowlist check.
+  // Skipping the allowlist check here is safe: the alias itself is separately
+  // charset-restricted by `validateAggregationAliases`, and its underlying
+  // aggregated column is already allowlist-checked below via `agg.column`.
+  const aggAliasSet = new Set((descriptor.aggregations ?? []).map((agg) => agg.alias));
+
   for (const col of descriptor.columns ?? []) {
     check(col, 'columns');
   }
@@ -121,6 +132,9 @@ export function validateDescriptorColumns(
     check(pred.column, 'filters');
   }
   for (const ob of descriptor.orderBy ?? []) {
+    if (aggAliasSet.has(ob.column)) {
+      continue;
+    }
     check(ob.column, 'orderBy');
   }
   for (const agg of descriptor.aggregations ?? []) {

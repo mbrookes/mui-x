@@ -13,6 +13,12 @@
  * success path end-to-end (as opposed to only being able to test that a
  * `columnAliases`-bearing descriptor crashes because `db.raw` didn't exist).
  *
+ * `.sum()`/`.avg()`/`.count()`/`.min()`/`.max()` accept EITHER a `"column as
+ * alias"` string OR Knex's object/alias-map form (`{ [alias]: column }`) —
+ * `executeForTier` uses the latter (see finding 2.2) to route the aggregate
+ * column+alias through Knex's identifier-wrapping instead of string
+ * interpolation. Both forms resolve to the same internal `AggSpec`.
+ *
  * This avoids any native SQLite driver dependency in tests.
  */
 
@@ -38,14 +44,14 @@ interface MockQueryBuilder {
   whereBetween(column: string, range: [unknown, unknown]): MockQueryBuilder;
   whereNot?: (column: string, value: unknown) => MockQueryBuilder;
   havingRaw(expr: string, bindings: unknown[]): MockQueryBuilder;
-  count(expr: string): MockQueryBuilder;
+  count(expr: string | Record<string, string>): MockQueryBuilder;
   select(columns: string | (string | RawExpr)[]): MockQueryBuilder;
   orderBy(column: string, dir?: string): MockQueryBuilder;
   limit(n: number): MockQueryBuilder;
-  sum(expr: string): MockQueryBuilder;
-  avg(expr: string): MockQueryBuilder;
-  min(expr: string): MockQueryBuilder;
-  max(expr: string): MockQueryBuilder;
+  sum(expr: string | Record<string, string>): MockQueryBuilder;
+  avg(expr: string | Record<string, string>): MockQueryBuilder;
+  min(expr: string | Record<string, string>): MockQueryBuilder;
+  max(expr: string | Record<string, string>): MockQueryBuilder;
   groupBy(columns: string | string[]): MockQueryBuilder;
   first(): Promise<Row | undefined>;
   then(resolve: (rows: Row[]) => void, reject?: (err: Error) => void): void;
@@ -97,9 +103,16 @@ export function createMockDb(
     const predicates: Array<(row: Row) => boolean> = [];
     const havingPredicates: Array<(row: Row) => boolean> = [];
 
-    const parseExpr = (expr: string): { column: string; alias: string } => {
-      const parts = expr.split(' as ');
-      return { column: parts[0].trim(), alias: parts[1]?.trim() ?? parts[0].trim() };
+    const parseExpr = (
+      expr: string | Record<string, string>,
+    ): { column: string; alias: string } => {
+      if (typeof expr === 'string') {
+        const parts = expr.split(' as ');
+        return { column: parts[0].trim(), alias: parts[1]?.trim() ?? parts[0].trim() };
+      }
+      // Knex's object/alias-map form: `{ [alias]: column }`.
+      const [alias, column] = Object.entries(expr)[0];
+      return { column, alias };
     };
 
     const qb: MockQueryBuilder = {
@@ -169,7 +182,7 @@ export function createMockDb(
         }
         return qb;
       },
-      count(expr: string) {
+      count(expr: string | Record<string, string>) {
         const { column, alias } = parseExpr(expr);
         if (column === '*') {
           isStarCount = true;
@@ -179,22 +192,22 @@ export function createMockDb(
         }
         return qb;
       },
-      sum(expr: string) {
+      sum(expr: string | Record<string, string>) {
         const { column, alias } = parseExpr(expr);
         aggSpecs.push({ func: 'sum', column, alias });
         return qb;
       },
-      avg(expr: string) {
+      avg(expr: string | Record<string, string>) {
         const { column, alias } = parseExpr(expr);
         aggSpecs.push({ func: 'avg', column, alias });
         return qb;
       },
-      min(expr: string) {
+      min(expr: string | Record<string, string>) {
         const { column, alias } = parseExpr(expr);
         aggSpecs.push({ func: 'min', column, alias });
         return qb;
       },
-      max(expr: string) {
+      max(expr: string | Record<string, string>) {
         const { column, alias } = parseExpr(expr);
         aggSpecs.push({ func: 'max', column, alias });
         return qb;

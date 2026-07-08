@@ -1,9 +1,12 @@
 'use client';
 import * as React from 'react';
 import { Box } from '@mui/material';
-import type { StudioCustomWidgetDef, StudioCustomWidgetSetupPanelProps } from '../models';
+import type {
+  StudioCustomWidgetDef,
+  StudioCustomWidgetSetupPanelProps,
+  StudioWidgetOf,
+} from '../models';
 import type { BuiltinStudioWidgetKind } from '../models/baseTypes';
-import type { StudioWidgetOf } from '../models';
 import {
   useStudioUIConfig,
   type StudioWidgetDef,

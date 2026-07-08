@@ -317,10 +317,11 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
       args: { widget: { id: 'w', kind: 'grid', title: 'T', config: { chartType: 'bar' } } },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain('chartType');
-      expect(result.error).toContain('grid');
+    if (result.ok) {
+      throw new Error('expected parseStateMutation to reject a cross-kind config key');
     }
+    expect(result.error).toContain('chartType');
+    expect(result.error).toContain('grid');
   });
 
   it('rejects an applyBulkUpdate whose addedWidget config carries a cross-kind key', () => {

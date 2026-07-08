@@ -46,6 +46,7 @@ async function runDispatch(
   let step = await gen.next();
   while (!step.done) {
     events.push(step.value);
+    // eslint-disable-next-line no-await-in-loop -- draining an async generator: each next() depends on the previous one's result, not parallelizable.
     step = await gen.next();
   }
   return { events, outcome: step.value };

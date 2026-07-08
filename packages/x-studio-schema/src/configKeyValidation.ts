@@ -52,7 +52,9 @@ const SHARED_CONFIG_KEYS = [
   'dimensions',
   'customConfig',
 ] as const satisfies readonly (keyof StudioSharedWidgetConfig)[];
-const _assertShared: AssertKeysCovered<StudioSharedWidgetConfig, typeof SHARED_CONFIG_KEYS> = true;
+const SHARED_KEYS_COVERED: AssertKeysCovered<StudioSharedWidgetConfig, typeof SHARED_CONFIG_KEYS> =
+  true;
+void SHARED_KEYS_COVERED;
 
 const GRID_CONFIG_KEYS = [
   'columns',
@@ -66,7 +68,8 @@ const GRID_CONFIG_KEYS = [
   'gridSummaryFields',
   'crossFilterField',
 ] as const satisfies readonly (keyof StudioGridConfig)[];
-const _assertGrid: AssertKeysCovered<StudioGridConfig, typeof GRID_CONFIG_KEYS> = true;
+const GRID_KEYS_COVERED: AssertKeysCovered<StudioGridConfig, typeof GRID_CONFIG_KEYS> = true;
+void GRID_KEYS_COVERED;
 
 const CHART_CONFIG_KEYS = [
   'chartType',
@@ -122,7 +125,8 @@ const CHART_CONFIG_KEYS = [
   'annotations',
   'forecast',
 ] as const satisfies readonly (keyof StudioChartConfig)[];
-const _assertChart: AssertKeysCovered<StudioChartConfig, typeof CHART_CONFIG_KEYS> = true;
+const CHART_KEYS_COVERED: AssertKeysCovered<StudioChartConfig, typeof CHART_CONFIG_KEYS> = true;
+void CHART_KEYS_COVERED;
 
 const KPI_CONFIG_KEYS = [
   'kpiValueField',
@@ -143,7 +147,8 @@ const KPI_CONFIG_KEYS = [
   'kpiTrendFixedPeriod',
   'kpiSparklineGaugeMax',
 ] as const satisfies readonly (keyof StudioKpiConfig)[];
-const _assertKpi: AssertKeysCovered<StudioKpiConfig, typeof KPI_CONFIG_KEYS> = true;
+const KPI_KEYS_COVERED: AssertKeysCovered<StudioKpiConfig, typeof KPI_CONFIG_KEYS> = true;
+void KPI_KEYS_COVERED;
 
 const TEXT_CONFIG_KEYS = [
   'textContent',
@@ -164,7 +169,8 @@ const TEXT_CONFIG_KEYS = [
   'textBodyColor',
   'textBodyAlign',
 ] as const satisfies readonly (keyof StudioTextConfig)[];
-const _assertText: AssertKeysCovered<StudioTextConfig, typeof TEXT_CONFIG_KEYS> = true;
+const TEXT_KEYS_COVERED: AssertKeysCovered<StudioTextConfig, typeof TEXT_CONFIG_KEYS> = true;
+void TEXT_KEYS_COVERED;
 
 const FILTER_CONFIG_KEYS = [
   'filterWidgetType',
@@ -174,7 +180,9 @@ const FILTER_CONFIG_KEYS = [
   'filterWidgetMax',
   'filterWidgetStep',
 ] as const satisfies readonly (keyof StudioFilterWidgetConfig)[];
-const _assertFilter: AssertKeysCovered<StudioFilterWidgetConfig, typeof FILTER_CONFIG_KEYS> = true;
+const FILTER_KEYS_COVERED: AssertKeysCovered<StudioFilterWidgetConfig, typeof FILTER_CONFIG_KEYS> =
+  true;
+void FILTER_KEYS_COVERED;
 
 const PIVOT_CONFIG_KEYS = [
   'pivotRowField',
@@ -183,7 +191,8 @@ const PIVOT_CONFIG_KEYS = [
   'pivotAggregation',
   'pivotShowTotals',
 ] as const satisfies readonly (keyof StudioPivotConfig)[];
-const _assertPivot: AssertKeysCovered<StudioPivotConfig, typeof PIVOT_CONFIG_KEYS> = true;
+const PIVOT_KEYS_COVERED: AssertKeysCovered<StudioPivotConfig, typeof PIVOT_CONFIG_KEYS> = true;
+void PIVOT_KEYS_COVERED;
 
 const MAP_CONFIG_KEYS = [
   'mapCountryField',
@@ -198,7 +207,8 @@ const MAP_CONFIG_KEYS = [
   'mapLegendPosition',
   'mapLegendAlign',
 ] as const satisfies readonly (keyof StudioMapConfig)[];
-const _assertMap: AssertKeysCovered<StudioMapConfig, typeof MAP_CONFIG_KEYS> = true;
+const MAP_KEYS_COVERED: AssertKeysCovered<StudioMapConfig, typeof MAP_CONFIG_KEYS> = true;
+void MAP_KEYS_COVERED;
 
 /**
  * Own (non-shared) config keys per built-in kind. Typed as

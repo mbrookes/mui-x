@@ -49,13 +49,9 @@ export type { ParseStateMutationResult } from './parseStateMutation';
 export { getAllowedConfigKeys, validateConfigKeysForKind } from './configKeyValidation';
 export { isWidgetOfKind } from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
-export {
-  CURRENT_SCHEMA_VERSION,
-  serializeDoc,
-  serializeState,
-  deserializeState,
-  migrateState,
-} from './statePersistence';
+// `CURRENT_SCHEMA_VERSION` is re-exported via `stateTypes.ts` above (its source
+// of truth); omit it here to avoid a duplicate export of the same binding.
+export { serializeDoc, serializeState, deserializeState, migrateState } from './statePersistence';
 export type {
   SerializedStudioState,
   SerializedStudioSnapshot,

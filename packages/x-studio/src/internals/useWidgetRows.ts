@@ -448,7 +448,7 @@ export function useWidgetRows(
       refs.push({ fieldId: mapValueField, sourceId: mapValueSourceId });
     }
     return refs;
-  }, [widget.kind, widget.config, widget.sourceId]);
+  }, [widget]);
 
   const hasCrossSourceColumns = crossSourceColumns.length > 0 || mapCrossSourceFields.length > 0;
 

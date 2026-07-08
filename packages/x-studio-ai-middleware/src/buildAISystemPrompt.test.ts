@@ -375,6 +375,205 @@ describe('buildAISystemPrompt: describeWidget chart config completeness', () => 
     const prompt = buildAISystemPrompt(state);
     expect(prompt).toContain('year-over-year');
   });
+
+  it('shows funnel-specific fields in funnel chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'funnel',
+        xField: 'stage',
+        yField: 'dealId',
+        funnelStageSequence: ['Lead', 'Qualified', 'Won'],
+        funnelReachedField: 'reachedDepth',
+        funnelVariant: 'outlined',
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('funnelStageSequence: [Lead, Qualified, Won]');
+    expect(prompt).toContain('funnelReachedField: reachedDepth');
+    expect(prompt).toContain('funnelVariant: outlined');
+  });
+
+  it('shows sankey-specific fields in sankey chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'sankey',
+        xField: 'fromNode',
+        yField: 'weight',
+        sankeyTargetField: 'toNode',
+        sankeyLinkColor: 'target',
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('sankeyTargetField: toNode');
+    expect(prompt).toContain('sankeyLinkColor: target');
+  });
+
+  it('shows pie-specific fields in pie/donut chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'donut',
+        xField: 'category',
+        yField: 'revenue',
+        pieArcLabel: 'percent',
+        pieMaxSlices: 6,
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('pieArcLabel: percent');
+    expect(prompt).toContain('pieMaxSlices: 6');
+  });
+
+  it('shows gauge-specific fields in gauge chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'gauge',
+        yField: 'utilization',
+        gaugeMin: 10,
+        gaugeMax: 500,
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('gaugeMin: 10');
+    expect(prompt).toContain('gaugeMax: 500');
+  });
+
+  it('mentions an enabled forecast with method and period count for line/area charts', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        yField: 'revenue',
+        forecast: { enabled: true, periods: 6, method: 'linear' },
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('forecast: enabled (linear, 6 periods)');
+  });
+
+  it('does not mention forecast when disabled or absent', () => {
+    const widgetDisabled = makeWidget('w1', {
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        yField: 'revenue',
+        forecast: { enabled: false },
+      } as any,
+    });
+    const widgetAbsent = makeWidget('w2', {
+      config: { chartType: 'line', xField: 'date', yField: 'revenue' } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1'], ['w2']] } },
+      widgets: { w1: widgetDisabled, w2: widgetAbsent },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).not.toContain('forecast');
+  });
+
+  it('mentions an annotation count for bar charts with annotations', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'bar',
+        xField: 'region',
+        yField: 'revenue',
+        annotations: [
+          { id: 'a1', axis: 'y', value: 100, label: 'Target' },
+          { id: 'a2', axis: 'y', value: 200 },
+          { id: 'a3', axis: 'x', value: 'Q1' },
+        ],
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('annotations: 3');
+  });
+
+  it('does not mention annotations when there are none', () => {
+    const widget = makeWidget('w1', {
+      config: { chartType: 'bar', xField: 'region', yField: 'revenue' } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).not.toContain('annotations');
+  });
+
+  it('excludes stale keys from a previous chart type even among the newly-described fields', () => {
+    // Widget was previously configured as a sankey, then switched to gauge. `update_widget`
+    // merges config patches, so the stale sankey/funnel/pie keys are still present on the
+    // stored config even though they no longer apply to the resolved `gauge` chart type.
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'gauge',
+        yField: 'utilization',
+        gaugeMin: 0,
+        gaugeMax: 100,
+        // Stale keys from a previous chart type — must NOT be described for a gauge.
+        sankeyTargetField: 'toNode',
+        sankeyLinkColor: 'target',
+        funnelStageSequence: ['Lead', 'Won'],
+        funnelVariant: 'outlined',
+        pieArcLabel: 'percent',
+        pieMaxSlices: 6,
+        annotations: [{ id: 'a1', axis: 'y', value: 1 }],
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    // Isolate the widget's own description line — the static "## Chart Types" docs
+    // block elsewhere in the prompt legitimately mentions bare words like
+    // "pieArcLabel"/"funnelStageSequence" as documentation, so assertions must be
+    // scoped to what `describeWidget` rendered for this widget, not the whole prompt.
+    const widgetLine = prompt.split('\n').find((line) => line.includes('id: w1'));
+    expect(widgetLine).toBeDefined();
+    expect(widgetLine).toContain('chartType: gauge');
+    // gaugeMax: 100 should show (gaugeMin: 0 is falsy and intentionally omitted by `pushField`)
+    expect(widgetLine).toContain('gaugeMax: 100');
+    expect(widgetLine).not.toContain('sankeyTargetField');
+    expect(widgetLine).not.toContain('sankeyLinkColor');
+    expect(widgetLine).not.toContain('funnelStageSequence');
+    expect(widgetLine).not.toContain('funnelVariant');
+    expect(widgetLine).not.toContain('pieArcLabel');
+    expect(widgetLine).not.toContain('pieMaxSlices');
+    expect(widgetLine).not.toContain('annotations');
+  });
 });
 
 // ── Filter widget guidance ────────────────────────────────────────────────────

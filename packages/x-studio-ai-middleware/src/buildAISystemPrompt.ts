@@ -103,8 +103,24 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushField('xField', cfg.xField);
     pushField('heatYField', cfg.heatYField);
     pushField('yField', cfg.yField);
+    pushField('yField2', cfg.yField2);
     pushField('yAggregation', cfg.yAggregation);
     pushField('barLayout', cfg.barLayout);
+    pushField('barBandLabelWrap', cfg.barBandLabelWrap);
+    pushField('wrapBandLabelMaxLines', cfg.wrapBandLabelMaxLines);
+    pushField('barCategoryGapRatio', cfg.barCategoryGapRatio);
+    pushField('barMinBandSize', cfg.barMinBandSize);
+    pushField('barMaxCategories', cfg.barMaxCategories);
+    pushField('axisTickFontSize', cfg.axisTickFontSize);
+    if (allowed.has('annotations') && cfg.annotations?.length) {
+      parts.push(`annotations: ${cfg.annotations.length}`);
+    }
+    if (allowed.has('forecast') && cfg.forecast?.enabled) {
+      const method = cfg.forecast.method ?? 'linear';
+      const periods = cfg.forecast.periods ?? 3;
+      parts.push(`forecast: enabled (${method}, ${periods} periods)`);
+    }
+    pushField('dualYAxis', cfg.dualYAxis);
     pushField('xGroupBy', cfg.xGroupBy);
     pushField('chartSortBy', cfg.chartSortBy);
     pushField('chartSortDirection', cfg.chartSortDirection);
@@ -120,6 +136,27 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushField('ganttStartField', cfg.ganttStartField);
     pushField('ganttEndField', cfg.ganttEndField);
     pushField('ganttColorField', cfg.ganttColorField);
+    if (allowed.has('funnelCategoryOrder') && cfg.funnelCategoryOrder?.length) {
+      parts.push(`funnelCategoryOrder: [${cfg.funnelCategoryOrder.join(', ')}]`);
+    }
+    pushField('funnelReachedField', cfg.funnelReachedField);
+    if (allowed.has('funnelStageSequence') && cfg.funnelStageSequence?.length) {
+      parts.push(`funnelStageSequence: [${cfg.funnelStageSequence.join(', ')}]`);
+    }
+    pushField('funnelLabelFormat', cfg.funnelLabelFormat);
+    pushField('funnelLabelPlacement', cfg.funnelLabelPlacement);
+    pushField('funnelGap', cfg.funnelGap);
+    pushField('funnelCurve', cfg.funnelCurve);
+    pushField('funnelVariant', cfg.funnelVariant);
+    pushField('sankeyTargetField', cfg.sankeyTargetField);
+    pushField('sankeyLinkColor', cfg.sankeyLinkColor);
+    pushField('sankeyShowValues', cfg.sankeyShowValues);
+    pushField('pieArcLabel', cfg.pieArcLabel);
+    pushField('pieArcLabelMinAngle', cfg.pieArcLabelMinAngle);
+    pushField('pieMaxSlices', cfg.pieMaxSlices);
+    pushField('pieLegendBelow', cfg.pieLegendBelow);
+    pushField('gaugeMin', cfg.gaugeMin);
+    pushField('gaugeMax', cfg.gaugeMax);
     pushField('crossFilterMode', cfg.crossFilterMode);
   } else if (isWidgetOfKind(widget, 'kpi')) {
     const cfg = widget.config;

@@ -11,7 +11,10 @@
 import {
   applyMutation,
   createDefaultWidget,
+  isStudioChartType,
   isWidgetOfKind,
+  STUDIO_CHART_TYPES,
+  validateChartConfigKeysForType,
   validateConfigKeysForKind,
 } from '@mui/x-studio-schema';
 import type { OptionalWidgetField } from '@mui/x-studio-schema';
@@ -121,6 +124,32 @@ function invalidConfigKeyError(kind: string, config: Record<string, unknown>): s
 }
 
 /**
+ * Finer-grained sibling of `invalidConfigKeyError`, scoped to `kind === 'chart'`:
+ * validates `patch`'s keys against the specific `StudioChartType` the patch would
+ * end up with (its own `chartType` if present, else the widget's `existingChartType`,
+ * else the runtime default `'bar'` — the same effective-type rule as
+ * `resolveChartType`), via `validateChartConfigKeysForType`. A key can pass the
+ * kind-level check (it's a valid CHART key somewhere) yet fail this one (it
+ * belongs to a different chart type than the effective one) — e.g. `gauge` with
+ * `sankeyTargetField`. There are no custom chart types, so an unrecognized
+ * `chartType` string is a hard error via `isStudioChartType`, not a pass-through.
+ * Returns `undefined` when the patch is valid for the effective chart type.
+ */
+function invalidChartConfigKeyError(
+  patch: Record<string, unknown>,
+  existingChartType: string | undefined,
+): string | undefined {
+  const effective = String(patch.chartType ?? existingChartType ?? 'bar');
+  if (!isStudioChartType(effective)) {
+    return `unknown chartType '${effective}'. Valid values: ${STUDIO_CHART_TYPES.join(', ')}`;
+  }
+  const invalid = validateChartConfigKeysForType(effective, patch);
+  return invalid.length > 0
+    ? `config carries key(s) not valid for chartType '${effective}': ${invalid.join(', ')}`
+    : undefined;
+}
+
+/**
  * Builds a `StudioWidget` from AI-tool arguments, layering config in one canonical
  * order — factory defaults → custom-widget `defaultConfig` → model-supplied config —
  * and minting the id through the shared `createDefaultWidget` (its
@@ -146,6 +175,14 @@ function buildWidgetFromArgs(
   const error = invalidConfigKeyError(kind, aiConfig as Record<string, unknown>);
   if (error) {
     return { error };
+  }
+  if (kind === 'chart') {
+    // No existing widget yet — the effective chart type is purely
+    // `aiConfig.chartType ?? 'bar'`, so there is no fallback to pass.
+    const chartError = invalidChartConfigKeyError(aiConfig as Record<string, unknown>, undefined);
+    if (chartError) {
+      return { error: chartError };
+    }
   }
   const customDef = customWidgets?.find((d) => d.kind === kind);
   const base = createDefaultWidget(kind);
@@ -307,6 +344,22 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         const error = invalidConfigKeyError(widget.kind, args.config as Record<string, unknown>);
         if (error) {
           return { output: JSON.stringify({ error }), nextState: state };
+        }
+        if (widget.kind === 'chart') {
+          // Fall back to the widget's CURRENT chartType: a patch that omits
+          // `chartType` validates against it, while a patch that changes
+          // `chartType` validates against the NEW type (the patch's own value
+          // takes precedence inside the helper).
+          const existingChartType = isWidgetOfKind(widget, 'chart')
+            ? widget.config.chartType
+            : undefined;
+          const chartError = invalidChartConfigKeyError(
+            args.config as Record<string, unknown>,
+            existingChartType,
+          );
+          if (chartError) {
+            return { output: JSON.stringify({ error: chartError }), nextState: state };
+          }
         }
       }
 
@@ -688,10 +741,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       // 2. Additions
       const addedTitleToId: Record<string, string> = {};
-      // Kind of each widget added THIS batch, keyed by id — so the updates loop
-      // below can resolve the kind of a same-batch addition (not yet present in
-      // `state.doc.widgets`) for its own config-key validation.
+      // Kind (and, for chart widgets, chartType) of each widget added THIS batch,
+      // keyed by id — so the updates loop below can resolve the kind/chartType of
+      // a same-batch addition (not yet present in `state.doc.widgets`) for its own
+      // config-key validation.
       const addedWidgetKinds: Record<string, string> = {};
+      const addedWidgetChartTypes: Record<string, string | undefined> = {};
       const additions =
         (args.widgetAdditions as
           | Array<{
@@ -712,6 +767,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         liveWidgetIds.add(widget.id);
         addedTitleToId[widget.title] = widget.id;
         addedWidgetKinds[widget.id] = widget.kind;
+        if (widget.kind === 'chart' && isWidgetOfKind(widget, 'chart')) {
+          addedWidgetChartTypes[widget.id] = widget.config.chartType;
+        }
         widgetRows.push([widget.id]);
         applied.added += 1;
       }
@@ -738,11 +796,28 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         if (update.config) {
           // Resolve the target's kind from either the CURRENT state or a widget
           // added earlier in this same batch (not yet in `state.doc.widgets`).
-          const kind = state.doc.widgets[wid]?.kind ?? addedWidgetKinds[wid];
+          const existingWidget = state.doc.widgets[wid];
+          const kind = existingWidget?.kind ?? addedWidgetKinds[wid];
           const error = invalidConfigKeyError(kind, update.config as Record<string, unknown>);
           if (error) {
             skipped.push(`update ${wid}: ${error}`);
             continue;
+          }
+          if (kind === 'chart') {
+            // Mirror the kind resolution above: fall back to a same-batch
+            // addition's chartType when the widget isn't in `state.doc.widgets` yet.
+            const existingChartType =
+              existingWidget && isWidgetOfKind(existingWidget, 'chart')
+                ? existingWidget.config.chartType
+                : addedWidgetChartTypes[wid];
+            const chartError = invalidChartConfigKeyError(
+              update.config as Record<string, unknown>,
+              existingChartType,
+            );
+            if (chartError) {
+              skipped.push(`update ${wid}: ${chartError}`);
+              continue;
+            }
           }
         }
         updatedWidgets.push({

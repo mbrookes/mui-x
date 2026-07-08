@@ -415,6 +415,34 @@ describe('executeToolOnState: add_widget', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
   });
+
+  it('rejects a config key that is a valid CHART key but not valid for the requested chartType (no mutation)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'chart', title: 'Flow', config: { chartType: 'gauge', sankeyTargetField: 'x' } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/sankeyTargetField/);
+    expect(out.error).toMatch(/gauge/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('rejects an unrecognized chartType string (no mutation)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'chart', title: 'Bad', config: { chartType: 'not-a-real-type' } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/unknown chartType/i);
+    expect(out.error).toMatch(/not-a-real-type/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
 });
 
 describe('executeToolOnState: update_widget', () => {
@@ -512,6 +540,38 @@ describe('executeToolOnState: update_widget', () => {
     expect(out.error).toMatch(/chart/);
     expect(result.mutation).toBeUndefined();
     expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
+
+  it('rejects a config key belonging to a DIFFERENT chart type than the widget currently has (no mutation)', () => {
+    const state = makeState(); // widget-1 is kind 'chart', chartType 'bar'
+    const result = executeToolOnState(
+      'update_widget',
+      // `sankeyTargetField` is a valid CHART key, but not for 'bar' (the widget's
+      // current, unchanged chartType).
+      { widgetId: 'widget-1', config: { sankeyTargetField: 'x' } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/sankeyTargetField/);
+    expect(out.error).toMatch(/bar/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
+
+  it('accepts a patch that changes chartType alongside a key valid for the NEW type', () => {
+    const state = makeState(); // widget-1 is kind 'chart', chartType 'bar'
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', config: { chartType: 'gauge', gaugeMin: 0 } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toBeUndefined();
+    expect(out.success).toBe(true);
+    expect(result.mutation).toBeDefined();
+    const nextConfig = result.nextState.doc.widgets['widget-1'].config as Record<string, unknown>;
+    expect(nextConfig.chartType).toBe('gauge');
+    expect(nextConfig.gaugeMin).toBe(0);
   });
 });
 
@@ -863,6 +923,23 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
   });
 
+  it('skips an update with a cross-CHART-TYPE config key against an existing chart widget', () => {
+    const state = makeState(); // widget-1 is kind 'chart', chartType 'bar'
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      // `sankeyTargetField` is a valid CHART key, but not for 'bar'.
+      { widgetUpdates: [{ widgetId: 'widget-1', config: { sankeyTargetField: 'x' } }] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { updated: number };
+    expect(applied.updated).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/sankeyTargetField/)]),
+    );
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
+
   it('resolves the kind of a same-batch addition when validating a same-batch update', () => {
     // The widget id minted for the addition isn't known until `buildWidgetFromArgs`
     // runs INSIDE `apply_bulk_update`, so to target it with a `widgetUpdates` entry
@@ -906,6 +983,57 @@ describe('executeToolOnState: apply_bulk_update', () => {
       expect(out.skipped).not.toEqual(expect.arrayContaining([expect.stringMatching(/not found/)]));
       // The addition's config is unaffected by the skipped update.
       expect(result.nextState.doc.widgets[predictedId].config).not.toHaveProperty('chartType');
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('resolves the chartType of a same-batch chart addition when validating a same-batch update', () => {
+    // Same id-prediction technique as the kind-resolution test above, but here the
+    // same-batch addition IS a chart widget (with an explicit chartType), and the
+    // same-batch update carries a key that is valid for the CHART kind but not for
+    // that specific chartType — proving the chartType (not just the kind) was
+    // resolved from the same-batch addition.
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
+    try {
+      const probeId = createWidgetId();
+      const [, timestamp, sequenceBase36, randomSuffix] = probeId.split('-');
+      const predictedSequence = (parseInt(sequenceBase36, 36) + 1).toString(36);
+      const predictedId = `widget-${timestamp}-${predictedSequence}-${randomSuffix}`;
+
+      const state = makeState();
+      const result = executeToolOnState(
+        'apply_bulk_update',
+        {
+          widgetAdditions: [{ kind: 'chart', title: 'New Gauge', config: { chartType: 'gauge' } }],
+          // `sankeyTargetField` is a valid CHART key but not valid for 'gauge'.
+          widgetUpdates: [{ widgetId: predictedId, config: { sankeyTargetField: 'x' } }],
+        },
+        state,
+      );
+
+      // Sanity check: the prediction landed — the addition minted exactly the id
+      // we predicted, as a gauge chart widget.
+      expect(result.nextState.doc.widgets[predictedId]).toBeDefined();
+      expect(result.nextState.doc.widgets[predictedId].kind).toBe('chart');
+      expect(
+        (result.nextState.doc.widgets[predictedId].config as Record<string, unknown>).chartType,
+      ).toBe('gauge');
+
+      const out = parseOutput(result.output);
+      const applied = out.applied as { added: number; updated: number };
+      expect(applied.added).toBe(1);
+      expect(applied.updated).toBe(0);
+      expect(out.skipped).toEqual(
+        expect.arrayContaining([expect.stringMatching(/sankeyTargetField/)]),
+      );
+      // The addition's config is unaffected by the skipped update.
+      expect(result.nextState.doc.widgets[predictedId].config).not.toHaveProperty(
+        'sankeyTargetField',
+      );
     } finally {
       vi.useRealTimers();
       vi.restoreAllMocks();

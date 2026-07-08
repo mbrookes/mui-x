@@ -40,7 +40,7 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import { isWidgetOfKind } from '../../models';
-import type { StudioPageTheme } from '../../models';
+import type { StudioPageTheme, StudioWidgetConfig } from '../../models';
 import type { StudioChartAnnotation } from '../../models/widgetTypes';
 import type { StudioGridWidgetProps } from '../widgets/StudioGridWidget/StudioGridWidget';
 import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
@@ -422,7 +422,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         const sourceRows = source?.rows ?? [];
         const rows =
           sourceRows.length > 0
-            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId)
+            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId, {
+                // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
+                widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
+              })
             : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {

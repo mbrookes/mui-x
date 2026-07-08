@@ -6,6 +6,9 @@ import {
   applyMutation,
   mutationLabel,
   createWidgetId,
+  createPageId,
+  createPresetId,
+  createFilterId,
   GRID_COLS,
   MIN_SPAN as MIN_SPAN_COLS,
   type StateMutation,
@@ -235,16 +238,26 @@ export class StudioController {
           ]
         : incomingDoc.filters;
 
+    // Carry the current page selection forward across the swap — but ONLY when the
+    // swapped-in doc still contains that page (1.2). Undo of `addPage` removes the
+    // page the user was viewing, and redo of `removePage` removes it again; carrying
+    // the id blindly would leave `activePageId` dangling at a page absent from
+    // `incomingDoc.pages` (a page selector / canvas lookup would then resolve to
+    // nothing). When the carried id is gone, fall back to the incoming doc's first
+    // available page id (or `undefined` when it has no pages at all).
+    const carriedActivePageId = Object.hasOwn(incomingDoc.pages, currentDoc.dashboard.activePageId)
+      ? currentDoc.dashboard.activePageId
+      : Object.keys(incomingDoc.pages)[0];
     const dashboardChanged =
       incomingDoc.dashboard.globalCrossFilterMode !== currentDoc.dashboard.globalCrossFilterMode ||
       incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages ||
-      incomingDoc.dashboard.activePageId !== currentDoc.dashboard.activePageId;
+      incomingDoc.dashboard.activePageId !== carriedActivePageId;
     const nextDashboard = dashboardChanged
       ? {
           ...incomingDoc.dashboard,
           globalCrossFilterMode: currentDoc.dashboard.globalCrossFilterMode,
           crossFilterAllPages: currentDoc.dashboard.crossFilterAllPages,
-          activePageId: currentDoc.dashboard.activePageId,
+          activePageId: carriedActivePageId,
         }
       : incomingDoc.dashboard;
 
@@ -1279,7 +1292,7 @@ export class StudioController {
     );
 
     const interactiveFilter: StudioFilterState = {
-      id: `interactive-${sourceWidgetId}-${Date.now()}`,
+      id: createFilterId(),
       field,
       operator,
       value,
@@ -1327,7 +1340,7 @@ export class StudioController {
     );
 
     const crossFilter: StudioFilterState = {
-      id: `cross-filter-${sourceWidgetId}-${Date.now()}`,
+      id: createFilterId(),
       field,
       operator,
       value,
@@ -1361,9 +1374,11 @@ export class StudioController {
    * Saves the current page-level filters as a named preset.
    */
   saveFilterPreset = (name: string): string => {
-    // The `Date.now()`-based id is generated here (a controller-owned side effect) so it
-    // can be both threaded into the pure transform and returned to the caller.
-    const id = `preset-${Date.now()}`;
+    // The id is minted here (a controller-owned side effect) so it can be both
+    // threaded into the pure transform and returned to the caller. `createPresetId`
+    // is collision-resistant (timestamp + per-process counter + random suffix),
+    // unlike the previous millisecond-resolution `preset-${Date.now()}`.
+    const id = createPresetId();
     this.commitDocPatch(docTransforms.saveFilterPreset(this.store.state.doc, id, name));
     return id;
   };
@@ -1459,10 +1474,13 @@ export class StudioController {
    * @returns The ID of the newly created page.
    */
   addPage = (title: string): string => {
-    // Generate the id up front (unchanged scheme) so it can be both stamped into
-    // the mutation and returned; the reducer creates the `{ id, title, widgetRows: [] }`
-    // page and re-activates it.
-    const id = `page-${Date.now()}`;
+    // Generate the id up front so it can be both stamped into the mutation and
+    // returned; the reducer creates the `{ id, title, widgetRows: [] }` page and
+    // re-activates it. `createPageId` is collision-resistant (timestamp +
+    // per-process counter + random suffix), unlike the previous millisecond-
+    // resolution `page-${Date.now()}` (two pages added in the same millisecond
+    // would have collided on their `state.pages` map key).
+    const id = createPageId();
     this.commitMutation({ type: 'addPage', args: { id, title } });
     return id;
   };

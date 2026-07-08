@@ -235,24 +235,35 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
 }
 
 /**
- * Deletes a saved filter preset by ID. Returns a doc whose `filterPresets` is the
- * ORIGINAL array reference when no preset matched (no-op preservation).
+ * Deletes a saved filter preset by ID. Returns the ORIGINAL `doc` reference when
+ * there was nothing to remove (3.2): if the doc never had a `filterPresets` key it
+ * is left as `undefined` (never manufactured into an empty array), and an unknown
+ * `presetId` is a no-op. Only a real removal produces a new doc. This keeps a
+ * logical no-op reference-equal so `commitDocPatch` skips it (no phantom undo entry).
  */
 export function deleteFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
-  const presets = doc.filterPresets ?? [];
+  const presets = doc.filterPresets;
+  if (!presets) {
+    return doc;
+  }
   const next = presets.filter((p: StudioFilterPreset) => p.id !== presetId);
-  return { ...doc, filterPresets: next.length === presets.length ? presets : next };
+  return next.length === presets.length ? doc : { ...doc, filterPresets: next };
 }
 
 /**
- * Renames a saved filter preset. An unknown `presetId` yields the ORIGINAL
- * `filterPresets` array reference (no-op preservation via `mapPreservingIdentity`).
+ * Renames a saved filter preset. Returns the ORIGINAL `doc` reference when there is
+ * nothing to rename (3.2): a doc with no `filterPresets` key is left as `undefined`
+ * (never manufactured into an empty array), and an unknown `presetId` is a no-op via
+ * `mapPreservingIdentity`. Only a real rename produces a new doc — so a logical no-op
+ * stays reference-equal and `commitDocPatch` skips it (no phantom undo entry).
  */
 export function renameFilterPreset(doc: StudioDoc, presetId: string, name: string): StudioDoc {
-  return {
-    ...doc,
-    filterPresets: mapPreservingIdentity(doc.filterPresets ?? [], (p: StudioFilterPreset) =>
-      p.id === presetId ? { ...p, name } : p,
-    ),
-  };
+  const presets = doc.filterPresets;
+  if (!presets) {
+    return doc;
+  }
+  const next = mapPreservingIdentity(presets, (p: StudioFilterPreset) =>
+    p.id === presetId ? { ...p, name } : p,
+  );
+  return next === presets ? doc : { ...doc, filterPresets: next };
 }

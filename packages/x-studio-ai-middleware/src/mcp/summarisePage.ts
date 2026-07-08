@@ -7,7 +7,12 @@
  * that no other handler in this module depends on.
  */
 
-import { detectAnomaliesIQR, truncateToPeriod, isWidgetOfKind } from '@mui/x-studio-schema';
+import {
+  detectAnomaliesIQR,
+  truncateToPeriod,
+  isWidgetOfKind,
+  type StudioChartConfig,
+} from '@mui/x-studio-schema';
 import { withTimeout, type ToolHandler } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
 
@@ -86,10 +91,15 @@ export function createSummarisePageHandler(deps: {
         const numericFields = visibleFields.filter((f) => f.type === 'number');
 
         try {
+          // Time-series charts span the bar/line families, so read the chart config
+          // through the flat cross-family `StudioChartConfig` patch type.
+          const chartCfg = isWidgetOfKind(widget, 'chart')
+            ? (widget.config as StudioChartConfig)
+            : undefined;
           const isTimeSeries =
-            isWidgetOfKind(widget, 'chart') &&
-            Boolean(widget.config.xGroupBy) &&
-            ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
+            chartCfg !== undefined &&
+            Boolean(chartCfg.xGroupBy) &&
+            ANOMALY_CHART_TYPES.has(chartCfg.chartType ?? 'bar');
 
           const result = await withTimeout(
             data.queryDataSource({
@@ -142,24 +152,22 @@ export function createSummarisePageHandler(deps: {
           // Time-series aggregation: GROUP BY query for anomaly detection and charting.
           // Skip blended charts — the y-field belongs to a different source's table.
           const isBlended =
-            isWidgetOfKind(widget, 'chart') &&
-            (widget.config.ySeries ?? []).some(
-              (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
-            );
+            chartCfg !== undefined &&
+            (chartCfg.ySeries ?? []).some((s) => s.sourceId && s.sourceId !== widget.sourceId);
           let tsLabels: string[] | null = null;
           let tsValues: number[] | null = null;
 
-          if (isTimeSeries && !isBlended && isWidgetOfKind(widget, 'chart')) {
-            const xField = widget.config.xField;
+          if (isTimeSeries && !isBlended && chartCfg !== undefined) {
+            const xField = chartCfg.xField;
             const yField =
-              widget.config.yField ?? (widget.config.ySeries?.[0]?.fieldId as string | undefined);
-            const yAgg = (widget.config.yAggregation ?? 'sum') as
+              chartCfg.yField ?? (chartCfg.ySeries?.[0]?.fieldId as string | undefined);
+            const yAgg = (chartCfg.yAggregation ?? 'sum') as
               | 'sum'
               | 'avg'
               | 'count'
               | 'min'
               | 'max';
-            const xGroupBy = widget.config.xGroupBy!;
+            const xGroupBy = chartCfg.xGroupBy!;
             // Summing per-x-value aggregates into a period bucket is only valid
             // for sum/count — see ANOMALY_SAFE_AGGREGATIONS' doc comment. For
             // avg/min/max, skip the anomaly path entirely rather than feed

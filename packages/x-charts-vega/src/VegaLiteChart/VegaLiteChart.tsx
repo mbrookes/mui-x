@@ -14,13 +14,25 @@ import { AreaPlot, LineHighlightPlot, LinePlot, MarkPlot } from '@mui/x-charts/L
 import { ScatterPlot } from '@mui/x-charts/ScatterChart';
 import { PiePlot } from '@mui/x-charts/PieChart';
 import { HeatmapPlot } from '@mui/x-charts-pro/Heatmap';
-import { ChartsDataProviderPremium } from '@mui/x-charts-premium/ChartsDataProviderPremium';
+import { heatmapSeriesConfig } from '@mui/x-charts-pro/Heatmap/seriesConfig';
+import {
+  ChartsDataProviderPremium,
+  defaultSeriesConfigPremium,
+} from '@mui/x-charts-premium/ChartsDataProviderPremium';
 import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
 import { RangeBarPlot } from '@mui/x-charts-premium/BarChartPremium';
 import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import type { DatasetRow, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
+
+// The premium provider's default series config registers every premium
+// series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
+// in), so it must be merged in explicitly for heatmap series to process.
+const SERIES_CONFIG = {
+  ...defaultSeriesConfigPremium,
+  heatmap: heatmapSeriesConfig,
+};
 
 export interface VegaLiteChartProps {
   /** The Vega-Lite specification to translate. */
@@ -114,6 +126,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
   return (
     <ChartsDataProviderPremium
       series={compiled.series}
+      seriesConfig={SERIES_CONFIG as never}
       xAxis={xAxis}
       yAxis={yAxis}
       zAxis={compiled.zAxis}

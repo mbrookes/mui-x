@@ -21,6 +21,8 @@ export interface NormalizedUnit {
   rows: readonly DatasetRow[];
   /** Locator prefix for gap paths, e.g. `layer[0]`. */
   path: string;
+  /** The unit's geographic projection config (geoshape marks). */
+  projection?: Record<string, unknown>;
 }
 
 export interface NormalizedSpec {
@@ -86,7 +88,10 @@ function resolveRows(
   return inherited;
 }
 
-function mergeEncoding(parent: VegaEncoding | undefined, child: VegaEncoding | undefined): VegaEncoding {
+function mergeEncoding(
+  parent: VegaEncoding | undefined,
+  child: VegaEncoding | undefined,
+): VegaEncoding {
   return { ...parent, ...child };
 }
 
@@ -98,13 +103,21 @@ function titleText(title: VegaUnitSpec['title']): string | undefined {
   if (typeof title === 'string') {
     return title;
   }
-  if (title && typeof title === 'object' && typeof (title as { text?: unknown }).text === 'string') {
+  if (
+    title &&
+    typeof title === 'object' &&
+    typeof (title as { text?: unknown }).text === 'string'
+  ) {
     return (title as { text: string }).text;
   }
   return undefined;
 }
 
-function numericSize(value: VegaUnitSpec['width'], gaps: GapCollector, prop: 'width' | 'height'): number | undefined {
+function numericSize(
+  value: VegaUnitSpec['width'],
+  gaps: GapCollector,
+  prop: 'width' | 'height',
+): number | undefined {
   if (typeof value === 'number') {
     return value;
   }
@@ -143,7 +156,8 @@ export function normalizeSpec(
   if (spec.encoding && (spec.encoding.row || spec.encoding.column || spec.encoding.facet)) {
     gaps.add({
       code: 'encoding:facet',
-      message: 'Facet channels (row/column/facet) are not supported. Split the data and render one chart per facet.',
+      message:
+        'Facet channels (row/column/facet) are not supported. Split the data and render one chart per facet.',
       severity: 'unsupported',
       path: 'encoding',
     });
@@ -173,7 +187,13 @@ export function normalizeSpec(
 
     if ('layer' in node && Array.isArray(node.layer)) {
       node.layer.forEach((child, index) => {
-        walk(child, encoding, transform, rows, path === '$' ? `layer[${index}]` : `${path}.layer[${index}]`);
+        walk(
+          child,
+          encoding,
+          transform,
+          rows,
+          path === '$' ? `layer[${index}]` : `${path}.layer[${index}]`,
+        );
       });
       return;
     }
@@ -187,6 +207,7 @@ export function normalizeSpec(
       transform,
       rows,
       path,
+      projection: (node as VegaUnitSpec).projection,
     });
   };
 

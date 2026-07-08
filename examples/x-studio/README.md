@@ -19,8 +19,10 @@ compared and how the GitHub code-search query is built.
     code search requires authentication — baking a personal access token
     into the client bundle via a `VITE_`-prefixed env var would expose it to
     anyone who loads the page);
-  - caches the computed matrix in memory for 24h, since building it costs 16
-    rate-limited GitHub searches;
+  - caches the computed matrix in memory for 24h, since building it costs one
+    rate-limited GitHub search per (component library × data grid library)
+    cell — see `COMPONENT_LIBRARIES`/`DATA_GRID_LIBRARIES` in
+    `src/server/githubLibraryUsage.ts` for the current lists;
   - serves the built static client (`dist/`) when present, so a single
     process/service can host both — see [Deploying to Railway](#deploying-to-railway).
 
@@ -49,7 +51,7 @@ Railway service, which then serves both the static site and the API from the
 same origin. Configure on the Railway service:
 
 - `GITHUB_SEARCH_TOKEN` — required for real heatmap data.
-- `ALLOWED_ORIGINS` — optional; only needed for origins *other than* the
+- `ALLOWED_ORIGINS` — optional; only needed for origins _other than_ the
   service's own (same-origin requests, including the co-hosted production
   client, are always allowed regardless of this list — see
   `src/server/index.ts`).
@@ -65,7 +67,7 @@ Lessons carried over from deploying `examples/x-studio-survey` to Railway:
 - **One service, not two**: this fork's org policy disables GitHub Pages, so
   there's no separate static host for the built client. The API server
   serves `dist/` (with an `index.html` SPA fallback for non-`/api/*` GET
-  requests) when present, registered *after* every `/api/*` route so static
+  requests) when present, registered _after_ every `/api/*` route so static
   serving never shadows the API.
 - **CORS must be scoped to `/api`, not mounted globally**: the built client's
   module `<script>` tag is `crossorigin`, so the browser sends an `Origin`
@@ -75,10 +77,10 @@ Lessons carried over from deploying `examples/x-studio-survey` to Railway:
   needs an actual browser to catch.
 - **Don't hardcode the deployed domain in `ALLOWED_ORIGINS`**: instead, the
   server always allows the request's own origin (computed from
-  `req.protocol`/`req.get('host')`, which requires `app.set('trust proxy',
-  true)` since Railway terminates TLS at an edge proxy). That keeps the
-  co-hosted client working across redeploys to a different Railway domain
-  without needing `ALLOWED_ORIGINS` updated every time.
+  `req.protocol`/`req.get('host')`, which requires `app.set('trust proxy', true)`
+  since Railway terminates TLS at an edge proxy). That keeps the co-hosted
+  client working across redeploys to a different Railway domain without
+  needing `ALLOWED_ORIGINS` updated every time.
 - **Generic env var names collide with ambient ones**: an earlier draft of
   this server read `GITHUB_TOKEN` — a name enough tools set as an ambient
   environment variable (GitHub Actions injects one automatically, as do some

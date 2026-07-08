@@ -34,6 +34,12 @@ export const COMPONENT_LIBRARIES: LibraryDef[] = [
   { id: 'antd', label: 'Ant Design', pkg: 'antd' },
   { id: 'chakra-ui', label: 'Chakra UI', pkg: '@chakra-ui/react' },
   { id: 'react-bootstrap', label: 'React Bootstrap', pkg: 'react-bootstrap' },
+  // The unified `radix-ui` package (their All-in-One release) is the current recommended
+  // install, so it's the cleanest single-package search term here — but many existing repos
+  // still depend on individual `@radix-ui/react-*` primitive packages instead, which this
+  // query won't match. Treat Radix's numbers as an undercount relative to the others.
+  { id: 'radix-ui', label: 'Radix UI', pkg: 'radix-ui' },
+  { id: 'base-ui', label: 'Base UI', pkg: '@base-ui-components/react' },
 ];
 
 export const DATA_GRID_LIBRARIES: LibraryDef[] = [

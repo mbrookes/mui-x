@@ -44,8 +44,14 @@ export const DATA_GRID_LIBRARIES: LibraryDef[] = [
 ];
 
 const GITHUB_SEARCH_ENDPOINT = 'https://api.github.com/search/code';
-// Stay comfortably under GitHub's 30 requests/min authenticated search limit.
-const REQUEST_INTERVAL_MS = 2100;
+// Stay comfortably under GitHub's 30 requests/min authenticated search limit. This alone isn't
+// airtight — the 30/min budget is shared across the whole token, so a run that immediately
+// follows a previous one (e.g. two redeploys in quick succession, each re-running the full
+// matrix on a cold cache) can still exhaust it — see the retry-on-403 handling below, which is
+// the actual backstop.
+const REQUEST_INTERVAL_MS = 2500;
+// Cap retries so a persistently-failing token/query doesn't hang the request forever.
+const MAX_RATE_LIMIT_RETRIES = 3;
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
@@ -57,22 +63,49 @@ function sleep(ms: number) {
 async function fetchCombinationCount(pkgA: string, pkgB: string, token: string): Promise<number> {
   const query = `"${pkgA}" "${pkgB}" filename:package.json`;
   const url = `${GITHUB_SEARCH_ENDPOINT}?q=${encodeURIComponent(query)}&per_page=1`;
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    // Include the response body — GitHub's error payload (e.g. a 422 validation
-    // message naming the bad qualifier) is the only way to diagnose failures
-    // that a bare status code doesn't explain.
+
+  for (let attempt = 1; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      // eslint-disable-next-line no-await-in-loop
+      const data = (await res.json()) as { total_count: number };
+      return data.total_count;
+    }
+
+    // GitHub's rate-limited response is a 403 with X-RateLimit-Remaining: 0 — distinct from an
+    // auth/permissions 403 (bad or under-scoped token), which doesn't carry that header. Wait
+    // for the window to actually reset and retry rather than recording a false 0 for this cell,
+    // which would otherwise sit wrong in the 24h cache until the next natural refresh.
+    const isRateLimited = res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0';
+    if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
+      const resetHeader = res.headers.get('x-ratelimit-reset');
+      const resetAtMs = resetHeader ? Number(resetHeader) * 1000 : Date.now() + 60_000;
+      const waitMs = Math.max(resetAtMs - Date.now(), 0) + 1000;
+      warn(
+        `[github-library-usage] rate limited for "${pkgA}" + "${pkgB}" — waiting ` +
+          `${Math.round(waitMs / 1000)}s for the search quota to reset (attempt ${attempt}/${MAX_RATE_LIMIT_RETRIES})`,
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(waitMs);
+      continue;
+    }
+
+    // Include the response body — GitHub's error payload (e.g. a 422 validation message
+    // naming a bad qualifier, or the rate-limit message once retries are exhausted) is the
+    // only way to diagnose failures that a bare status code doesn't explain.
+    // eslint-disable-next-line no-await-in-loop
     const body = await res.text().catch(() => '');
     throw new Error(`GitHub search failed for "${pkgA}" + "${pkgB}": HTTP ${res.status} ${body}`);
   }
-  const data = (await res.json()) as { total_count: number };
-  return data.total_count;
+  /* istanbul ignore next -- unreachable: the loop above always returns or throws */
+  throw new Error(`GitHub search failed for "${pkgA}" + "${pkgB}": exhausted retries`);
 }
 
 /**

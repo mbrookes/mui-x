@@ -55,7 +55,7 @@ const MAX_DISTINCT_VALUES_IN_STATE_OUTPUT = 20;
  * `fieldDistinctValues` per field with a `truncated` marker. `describe_data_source`
  * is the intentional, opt-in channel for sample rows — this dump is not.
  */
-function projectDataSourceMetadata(source: StudioDataSource): Record<string, unknown> {
+export function projectDataSourceMetadata(source: StudioDataSource): Record<string, unknown> {
   const cappedDistinct: Record<string, { values: string[]; truncated: boolean }> = {};
   for (const [fieldId, values] of Object.entries(source.fieldDistinctValues ?? {})) {
     cappedDistinct[fieldId] = {

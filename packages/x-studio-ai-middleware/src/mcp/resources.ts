@@ -16,6 +16,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { buildAISystemPrompt, serializeFieldForAI } from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
+import { projectDataSourceMetadata } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
 import type { StudioMcpData, StudioMcpLogger, StudioMcpOptions, StudioStateBox } from './types';
@@ -29,6 +30,23 @@ export interface ResourceHandlerDeps {
   logger?: StudioMcpLogger;
   /** Shared set of subscribed resource URIs (mutated by subscribe/unsubscribe). */
   subscribedUris: Set<string>;
+  /**
+   * Authorization gate for the two resource URI families that execute a LIVE data
+   * query — `studio://data/{sourceId}` (raw row preview) and
+   * `studio://dashboard/data-health` (per-source COUNT). Resource reads are a
+   * parallel data-access surface to the MCP tools, and used to bypass every
+   * authorization chokepoint the tool path enforces (finding 2.1): a host that
+   * excludes every data-returning tool from `allowedTools` (or denies it via
+   * `toolPolicy`) still had raw rows served through these resources.
+   *
+   * The composition root (`mcp.ts`) wires this to run the SAME `isToolAllowed` +
+   * args-only policy consult + approval bridge the dispatch-table data tools run,
+   * mapped onto the `query_data_source` tool name (the tool these resource reads
+   * conceptually invoke). It resolves to a deny-reason string when the read is
+   * NOT authorized, or `null` when it may proceed. When omitted, no gate is
+   * applied (used only by unit tests that construct the handlers directly).
+   */
+  authorizeDataAccess?: () => Promise<string | null>;
   /**
    * Upper bound on the number of distinct URIs `subscribedUris` may hold.
    * A prefix-validated URI (e.g. `studio://schema/<sourceId>`) is still an
@@ -78,6 +96,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     contextEnricher,
     logger,
     subscribedUris,
+    authorizeDataAccess,
     maxSubscribedUris = DEFAULT_MAX_SUBSCRIBED_URIS,
   } = deps;
 
@@ -152,11 +171,23 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     const { uri } = request.params;
 
     if (uri === 'studio://dashboard/state') {
+      // Serialize the AUTHORED document plus DATA-SOURCE METADATA ONLY — never the
+      // raw `StudioState`. A host's state box can carry live `rows` (and a
+      // non-serializable `adapter`) on `runtime.dataSources`; dumping them verbatim
+      // is an exfiltration / token-bomb path with no `data`-config opt-in and no
+      // cap (finding 2.2). This mirrors the `get_dashboard_state` TOOL's output
+      // contract exactly (`executeToolOnState.ts`): `{ doc, dataSources }` with each
+      // source projected through `projectDataSourceMetadata` (strips `rows`/`adapter`,
+      // caps `fieldDistinctValues`).
+      const dataSources: Record<string, unknown> = {};
+      for (const [id, source] of Object.entries(stateBox.current.runtime.dataSources)) {
+        dataSources[id] = projectDataSourceMetadata(source);
+      }
       return {
         contents: [
           {
             uri,
-            text: JSON.stringify(stateBox.current, null, 2),
+            text: JSON.stringify({ doc: stateBox.current.doc, dataSources }, null, 2),
             mimeType: 'application/json',
           },
         ],
@@ -205,6 +236,15 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     if (uri === 'studio://dashboard/data-health') {
       if (!data) {
         throw new Error('Data access is not configured for this MCP server instance.');
+      }
+      // Same authorization chokepoint the data TOOLS pass before running a live
+      // query (finding 2.1): this resource runs one COUNT query per source, so it
+      // must not bypass `allowedTools` / `toolPolicy`.
+      if (authorizeDataAccess) {
+        const denied = await authorizeDataAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
       }
       const counts: Record<string, number> = {};
       const errors: Record<string, string> = {};
@@ -288,6 +328,15 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     if (uri.startsWith('studio://data/')) {
       if (!data) {
         throw new Error('Data access is not configured for this MCP server instance.');
+      }
+      // Same authorization chokepoint the data TOOLS pass before returning rows
+      // (finding 2.1): this resource serves up to 20 raw rows, so it must not
+      // bypass `allowedTools` / `toolPolicy`.
+      if (authorizeDataAccess) {
+        const denied = await authorizeDataAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
       }
       const sourceId = uri.slice('studio://data/'.length);
       const source = stateBox.current.runtime.dataSources[sourceId];

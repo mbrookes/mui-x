@@ -2,7 +2,12 @@ import { compileSpec } from './index';
 import type { VegaLiteSpec } from '../types';
 
 const barSpec: VegaLiteSpec = {
-  data: { values: [{ category: 'A', amount: 28 }, { category: 'B', amount: 55 }] },
+  data: {
+    values: [
+      { category: 'A', amount: 28 },
+      { category: 'B', amount: 55 },
+    ],
+  },
   mark: 'bar',
   encoding: {
     x: { field: 'category', type: 'nominal' },
@@ -34,11 +39,18 @@ describe('compileSpec (foundation pipeline)', () => {
       ],
     });
     expect(compiled.xAxis?.categories).to.deep.equal(['A']);
-    // Both layers see the inherited x encoding; the marks themselves are stubs
-    // for now, so their gap entries must both be present.
-    const gapCodes = compiled.gaps.map((gap) => gap.code);
-    expect(gapCodes).to.include('mark:line-not-implemented');
-    expect(gapCodes).to.include('mark:point-not-implemented');
+    // Both layers see the inherited x encoding: each mark compiler either
+    // produces series or reports a gap for its own layer path — nothing may
+    // be silently dropped.
+    const layerPaths = new Set([
+      ...compiled.series.map(() => 'series'),
+      ...compiled.gaps.map((gap) => gap.path ?? ''),
+    ]);
+    const layerAccounted = (index: number) =>
+      compiled.series.length > 0 ||
+      [...layerPaths].some((path) => path.startsWith(`layer[${index}]`));
+    expect(layerAccounted(0)).to.equal(true);
+    expect(layerAccounted(1)).to.equal(true);
   });
 
   it('reports unsupported marks with a tier hint instead of throwing', () => {

@@ -521,6 +521,45 @@ export function buildStudioMcpServer(
 
   // ── resources/* and prompts/* + completion/* ──────────────────────────────
 
+  /**
+   * Authorization gate for the two resource URI families that execute a LIVE data
+   * query — `studio://data/{sourceId}` and `studio://dashboard/data-health`.
+   * Resource reads are a parallel data-access surface that previously bypassed
+   * every authorization chokepoint the tool path enforces (finding 2.1). This runs
+   * the SAME gate the dispatch-table data tools run before returning rows —
+   * `isToolAllowed` + the args-only policy consult + the approval bridge — mapped
+   * onto `query_data_source`, the tool these resource reads conceptually invoke
+   * (and the one whose `allowedTools`/`toolPolicy` restriction a host expects to
+   * govern all raw-row access). Returns a deny-reason string, or `null` to proceed.
+   * `consultToolPolicyArgsOnly` also increments `sessionUsage.toolCalls`, so a
+   * usage-aware policy no longer undercounts these reads.
+   */
+  async function authorizeResourceDataAccess(): Promise<string | null> {
+    const gatedToolName = 'query_data_source';
+    if (!isToolAllowed(gatedToolName)) {
+      return (
+        `MUI X Studio: Reading this resource runs a live '${gatedToolName}' query, but that ` +
+        `tool is not in this MCP session's allowedTools. Raw-data resource reads honor the same ` +
+        `allow-list as the data tools. Add '${gatedToolName}' to allowedTools to permit it.`
+      );
+    }
+    const gate = await consultToolPolicyArgsOnly(gatedToolName, {}, stateBox.current, {
+      policy: sessionToolPolicy,
+      transport: 'mcp',
+      usage: sessionUsage,
+    });
+    if (gate.kind === 'denied') {
+      return gate.reason;
+    }
+    if (gate.kind === 'needs-approval') {
+      const bridged = await bridgeApproval(gatedToolName, {});
+      if (!bridged.approved) {
+        return bridged.reason;
+      }
+    }
+    return null;
+  }
+
   registerResourceHandlers(server, {
     stateBox,
     data,
@@ -528,6 +567,7 @@ export function buildStudioMcpServer(
     contextEnricher,
     logger,
     subscribedUris,
+    authorizeDataAccess: authorizeResourceDataAccess,
   });
 
   registerPromptHandlers(server, { stateBox });

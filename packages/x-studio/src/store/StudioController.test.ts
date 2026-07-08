@@ -609,6 +609,74 @@ describe('StudioController.updateWidgetConfig', () => {
 
     warnSpy.mockRestore();
   });
+
+  it("strips config keys invalid for the widget's CURRENT chart type (and warns), on top of the kind-level check", () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            title: 'Gauge',
+            config: { chartType: 'gauge', yField: 'revenue' },
+          },
+        },
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // `sankeyTargetField` is a valid CHART key (passes the kind-level guard) but
+    // is not valid for a 'gauge' chart; `gaugeMax` IS a legitimate gauge key.
+    controller.updateWidgetConfig('chart1', {
+      sankeyTargetField: 'region',
+      gaugeMax: 100,
+    } as StudioWidgetConfig);
+
+    const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+    // The valid gauge key is applied, and the pre-existing key is untouched...
+    expect(config.gaugeMax).toBe(100);
+    expect(config.yField).toBe('revenue');
+    // ...the wrong-chart-type key is dropped, never persisted...
+    expect('sankeyTargetField' in config).toBe(false);
+    // ...with a dev warning naming the widget, chart type, and offending key.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('sankeyTargetField');
+    expect(warnSpy.mock.calls[0][0]).toContain('gauge');
+    expect(warnSpy.mock.calls[0][0]).toContain('chart1');
+
+    warnSpy.mockRestore();
+  });
+
+  it('validates the NEW chart type (not the stale stored one) when the patch itself switches chartType', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            title: 'Chart',
+            config: { chartType: 'gauge', yField: 'revenue', gaugeMax: 100 },
+          },
+        },
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Switching to 'sankey' together with a sankey-appropriate key should apply
+    // cleanly: the patch's OWN keys are validated against the NEW ('sankey') type
+    // it is declaring, not the widget's previous ('gauge') stored type.
+    controller.updateWidgetConfig('chart1', {
+      chartType: 'sankey',
+      sankeyTargetField: 'region',
+    } as StudioWidgetConfig);
+
+    const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+    expect(config.chartType).toBe('sankey');
+    expect(config.sankeyTargetField).toBe('region');
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('StudioController.updateWidget', () => {

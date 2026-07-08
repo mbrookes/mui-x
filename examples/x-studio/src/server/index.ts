@@ -1,5 +1,5 @@
 /**
- * API server for the x-studio GitHub library-usage heatmap example.
+ * API server for the x-studio GitHub library-usage example.
  *
  * Proxies GitHub's code-search API server-side so the personal access token
  * never ships to the browser — GitHub code search requires authentication,
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     }
     if (!GITHUB_SEARCH_TOKEN) {
       warn(
-        '[startup]   GITHUB_SEARCH_TOKEN not set — the heatmap endpoint will return an empty matrix.',
+        '[startup]   GITHUB_SEARCH_TOKEN not set — the library-usage endpoint will return an empty matrix.',
       );
     }
   });

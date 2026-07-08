@@ -1,11 +1,11 @@
 # x-studio example
 
-A dashboard with a single heatmap widget plotting, for every (UI component
-library, data grid library) pair, how many non-fork GitHub repositories
-declare both as dependencies — e.g. how many repos combine `@mui/material`
-with `@mui/x-data-grid` vs. with `ag-grid-react`. See
-`src/connectors/githubLibraryUsageSource.ts` for the full list of libraries
-compared and how the GitHub code-search query is built.
+A dashboard with a single 100%-stacked bar chart plotting, for every UI
+component library, the relative share of each data grid library among
+non-fork GitHub repositories that declare both as dependencies — e.g. how
+many repos pairing `@mui/material` use `@mui/x-data-grid` vs. `ag-grid-react`.
+See `src/connectors/githubLibraryUsageSource.ts` for the full list of
+libraries compared and how the GitHub code-search query is built.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ compared and how the GitHub code-search query is built.
 # Client (Vite dev server, port 3004)
 pnpm --filter x-studio-example dev
 
-# API server (port 3006) — required for the heatmap to show real data
+# API server (port 3006) — required for the chart to show real data
 cp .env.example .env.local   # then set GITHUB_SEARCH_TOKEN
 pnpm --filter x-studio-example server
 ```
@@ -40,7 +40,7 @@ pnpm --filter x-studio-example server
 `vite.config.ts` proxies `/api` requests from the dev server to
 `http://localhost:3006`, so the client's relative `fetch('/api/...')` calls
 work in dev without any client-side base-URL configuration. Without
-`GITHUB_SEARCH_TOKEN` set (or without the server running at all), the heatmap
+`GITHUB_SEARCH_TOKEN` set (or without the server running at all), the chart
 renders its "No data to display" empty state rather than erroring — see
 `src/connectors/githubLibraryUsageSource.ts`.
 
@@ -50,7 +50,7 @@ renders its "No data to display" empty state rather than erroring — see
 Railway service, which then serves both the static site and the API from the
 same origin. Configure on the Railway service:
 
-- `GITHUB_SEARCH_TOKEN` — required for real heatmap data.
+- `GITHUB_SEARCH_TOKEN` — required for real chart data.
 - `ALLOWED_ORIGINS` — optional; only needed for origins _other than_ the
   service's own (same-origin requests, including the co-hosted production
   client, are always allowed regardless of this list — see

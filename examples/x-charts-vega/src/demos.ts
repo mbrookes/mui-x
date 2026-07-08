@@ -43,6 +43,59 @@ export const shareRows: DatasetRow[] = [
   { category: 'Other', share: 12 },
 ];
 
+/** Rows for the heatmap demo: activity by weekday/daypart. */
+export const activityRows: DatasetRow[] = (() => {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  const parts = ['Morning', 'Afternoon', 'Evening'];
+  const rows: DatasetRow[] = [];
+  days.forEach((day, dayIndex) => {
+    parts.forEach((part, partIndex) => {
+      rows.push({ day, part, visits: 20 + dayIndex * 7 + partIndex * 13 + ((dayIndex * partIndex) % 5) * 9 });
+    });
+  });
+  return rows;
+})();
+
+/** Rows for the ranged-bar demo: daily temperature spans. */
+export const temperatureRows: DatasetRow[] = [
+  { day: 'Mon', low: 8, high: 17 },
+  { day: 'Tue', low: 10, high: 21 },
+  { day: 'Wed', low: 12, high: 24 },
+  { day: 'Thu', low: 9, high: 19 },
+  { day: 'Fri', low: 6, high: 14 },
+];
+
+/**
+ * A tiny inline GeoJSON FeatureCollection (three abstract island polygons)
+ * for the geoshape demo — no topojson fetching in the demo app.
+ */
+export const islandFeatures: DatasetRow[] = [
+  {
+    type: 'Feature',
+    properties: { name: 'North Isle', population: 320 },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[-10, 20], [10, 25], [15, 40], [-5, 45], [-15, 32], [-10, 20]]],
+    },
+  },
+  {
+    type: 'Feature',
+    properties: { name: 'East Isle', population: 540 },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[25, 5], [45, 10], [50, 25], [30, 30], [20, 18], [25, 5]]],
+    },
+  },
+  {
+    type: 'Feature',
+    properties: { name: 'South Isle', population: 150 },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[-20, -30], [5, -35], [10, -15], [-10, -10], [-25, -20], [-20, -30]]],
+    },
+  },
+];
+
 /** Rows for the deliberately-unsupported boxplot demo. */
 export const distributionRows: DatasetRow[] = [
   { category: 'Electronics', revenue: 4200 },
@@ -152,6 +205,53 @@ export const demos: Demo[] = [
       encoding: {
         theta: { field: 'share', type: 'quantitative' },
         color: { field: 'category', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'heatmap',
+    title: 'Heatmap (rect mark — Premium tier)',
+    description:
+      'mark: "rect" with two ordinal channels and an aggregated quantitative color — translates ' +
+      'to the x-charts-pro Heatmap (renders watermarked without a license key).',
+    data: activityRows,
+    spec: {
+      mark: 'rect',
+      encoding: {
+        x: { field: 'day', type: 'ordinal' },
+        y: { field: 'part', type: 'ordinal' },
+        color: { field: 'visits', type: 'quantitative', aggregate: 'sum' },
+      },
+    },
+  },
+  {
+    id: 'range-bar',
+    title: 'Ranged bars (bar mark with y2 — Premium tier)',
+    description:
+      'mark: "bar" with y and y2 quantitative fields — translates to the x-charts-premium ' +
+      'RangeBar series (renders watermarked without a license key).',
+    data: temperatureRows,
+    spec: {
+      mark: 'bar',
+      encoding: {
+        x: { field: 'day', type: 'ordinal' },
+        y: { field: 'low', type: 'quantitative' },
+        y2: { field: 'high' },
+      },
+    },
+  },
+  {
+    id: 'geoshape',
+    title: 'Choropleth map (geoshape mark — Premium tier)',
+    description:
+      'mark: "geoshape" over an inline GeoJSON FeatureCollection with a quantitative color ' +
+      'field — translates to the x-charts-premium Map (renders watermarked without a license key).',
+    data: islandFeatures,
+    spec: {
+      projection: { type: 'naturalEarth1' },
+      mark: 'geoshape',
+      encoding: {
+        color: { field: 'properties.population', type: 'quantitative' },
       },
     },
   },

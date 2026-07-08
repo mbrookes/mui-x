@@ -286,6 +286,28 @@ export interface VegaFoldTransform {
   fold: string[];
   as?: [string, string];
 }
+/** The secondary dataset referenced by a `lookup` transform's `from.data`. */
+export interface VegaLookupData {
+  values?: DatasetRow[];
+  name?: string;
+  url?: string;
+  [key: string]: unknown;
+}
+export interface VegaLookupTransform {
+  /** The field in the primary data to match against `from.key` (may be a dotted path, e.g. GeoJSON `properties.name`). */
+  lookup: string;
+  from: {
+    data: VegaLookupData;
+    /** The field in the secondary data to match against `lookup`. */
+    key: string;
+    /** Fields to copy from the matched secondary row. Omitted means "the entire object". */
+    fields?: string[];
+  };
+  /** Output field name(s). A single string when `fields` is omitted (stores the whole matched datum). */
+  as?: string | string[];
+  /** Value used for non-matching rows. Defaults to `null`. */
+  default?: unknown;
+}
 export type VegaTransform =
   | VegaAggregateTransform
   | VegaBinTransform
@@ -293,6 +315,7 @@ export type VegaTransform =
   | VegaFilterTransform
   | VegaTimeUnitTransform
   | VegaFoldTransform
+  | VegaLookupTransform
   | Record<string, unknown>;
 
 export interface VegaData {

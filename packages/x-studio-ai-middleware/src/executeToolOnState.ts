@@ -76,6 +76,75 @@ export function projectDataSourceMetadata(source: StudioDataSource): Record<stri
   };
 }
 
+/**
+ * Per-thread AI metadata emitted in the AI-safe state snapshot — the shape
+ * `doc.ai` is reduced to. Deliberately carries NO `messages`: only enough for the
+ * model to know which threads exist and how large each is.
+ */
+export interface ProjectedAIThread {
+  id: string;
+  name: string;
+  updatedAt?: string;
+  messageCount: number;
+}
+
+/** The AI-safe `doc.ai` replacement: thread metadata with all transcripts removed. */
+export interface ProjectedAIState {
+  activeThreadId?: string;
+  threads: ProjectedAIThread[];
+}
+
+/** The AI-safe `{ doc, dataSources }` snapshot shared by both read surfaces. */
+export interface ProjectedStateForAI {
+  doc: Omit<StudioState['doc'], 'ai'> & { ai?: ProjectedAIState };
+  dataSources: Record<string, unknown>;
+}
+
+/**
+ * Project a `StudioState` down to the AI-safe `{ doc, dataSources }` snapshot that
+ * both the `get_dashboard_state` TOOL and the `studio://dashboard/state` MCP
+ * RESOURCE emit. This is the single home for the read-surface redaction contract —
+ * previously the doc half was hand-copied across both call sites, so a leak (or a
+ * new sensitive `StudioDoc` sub-partition) had to be remembered in two files.
+ *
+ * Two redactions happen here, in ONE place so the two surfaces cannot drift:
+ *
+ * 1. `runtime.dataSources` is projected through `projectDataSourceMetadata`, which
+ *    strips `rows` (raw live table data) and `adapter` (a non-serializable host
+ *    callback) and caps `fieldDistinctValues`. Emitting the raw `StudioState` here
+ *    would leak live rows into the model context — a token bomb and an exfiltration
+ *    path that defeats `privateMode`.
+ * 2. `doc.ai` is reduced to per-thread METADATA (`{ id, name, updatedAt,
+ *    messageCount }`) with every message transcript removed. `StudioAIChatThread.messages`
+ *    holds the FULL history of EVERY thread (not just the active one), and `doc.ai`
+ *    is persisted with shareable dashboards — so echoing it verbatim would dump every
+ *    conversation's transcript back to the provider (cross-conversation information
+ *    disclosure + an unbounded token bomb). The model already has the active thread as
+ *    its live message array, so it needs no chat history in this snapshot.
+ */
+export function projectStateForAI(state: StudioState): ProjectedStateForAI {
+  const dataSources: Record<string, unknown> = {};
+  for (const [id, source] of Object.entries(state.runtime.dataSources)) {
+    dataSources[id] = projectDataSourceMetadata(source);
+  }
+  const { ai, ...docWithoutAi } = state.doc;
+  const redactedAi: ProjectedAIState | undefined = ai
+    ? {
+        ...(ai.activeThreadId ? { activeThreadId: ai.activeThreadId } : {}),
+        threads: (ai.threads ?? []).map((thread) => ({
+          id: thread.id,
+          name: thread.name,
+          ...(thread.updatedAt ? { updatedAt: thread.updatedAt } : {}),
+          messageCount: thread.messages?.length ?? 0,
+        })),
+      }
+    : undefined;
+  return {
+    doc: { ...docWithoutAi, ...(redactedAi ? { ai: redactedAi } : {}) },
+    dataSources,
+  };
+}
+
 /** Context threaded into every pure tool's `plan` function. */
 export interface ToolPlanContext {
   state: StudioState;
@@ -274,20 +343,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (_args, { state }) => {
       // Return the dashboard document plus DATA-SOURCE METADATA ONLY — never raw
-      // row data. The `doc` partition (pages/widgets/dashboard/filters/…) is the
-      // authored structure the model needs; `runtime.dataSources` is projected down
-      // to `{ id, label, tableName, aiDescription, fields, fieldDistinctValues }`
-      // with `rows`/`adapter` stripped and distinct values capped. This is the
-      // canonical output contract, shared with the MCP transport (both fall through
-      // this same pure plan). Emitting raw `StudioState` here would leak live rows
-      // straight into the model context — a token bomb and an exfiltration path that
-      // defeats `privateMode` — so it is deliberately redacted.
-      const dataSources: Record<string, unknown> = {};
-      for (const [id, source] of Object.entries(state.runtime.dataSources)) {
-        dataSources[id] = projectDataSourceMetadata(source);
-      }
+      // row data, and never the AI chat transcripts. The `doc` partition
+      // (pages/widgets/dashboard/filters/…) is the authored structure the model
+      // needs; `runtime.dataSources` is projected down to
+      // `{ id, label, tableName, aiDescription, fields, fieldDistinctValues }` with
+      // `rows`/`adapter` stripped and distinct values capped, and `doc.ai` is reduced
+      // to per-thread metadata with transcripts removed. This is the canonical output
+      // contract, shared with the MCP transport (both call `projectStateForAI`, so the
+      // redaction rules live in exactly one place and cannot drift).
       return {
-        output: JSON.stringify({ doc: state.doc, dataSources }),
+        output: JSON.stringify(projectStateForAI(state)),
         nextState: state,
       };
     },
@@ -570,10 +635,17 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         type: 'setWidgetColSpan',
         args: { widgetId, columns, rowWidgetIds, pageId: activePageId },
       };
+      const nextState = applyMutation(state, mutation);
+      // Report the value that ACTUALLY landed in state, not the raw model input:
+      // the `setWidgetColSpan` reducer clamps `columns` to 6–24 (and coerces a
+      // non-finite value to the minimum), so `columns: 100` really becomes 24 and
+      // `columns: null` clears the span (read back as `null`). Echoing the unclamped
+      // input would tell the model a width took effect that never did.
+      const appliedColumns = nextState.doc.pages[activePageId]?.widgetColSpans?.[widgetId] ?? null;
       return {
-        output: JSON.stringify({ success: true, widgetId, columns }),
+        output: JSON.stringify({ success: true, widgetId, columns: appliedColumns }),
         mutation,
-        nextState: applyMutation(state, mutation),
+        nextState,
       };
     },
   },

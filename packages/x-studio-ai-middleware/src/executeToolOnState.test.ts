@@ -185,6 +185,76 @@ describe('executeToolOnState: get_dashboard_state', () => {
     expect(capped.values).toHaveLength(20);
     expect(capped.truncated).toBe(true);
   });
+
+  it('reduces doc.ai to per-thread metadata and never leaks chat transcripts', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+        ai: {
+          activeThreadId: 'thread-1',
+          threads: [
+            {
+              id: 'thread-1',
+              name: 'Salaries',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+              messages: [
+                {
+                  id: 'm1',
+                  role: 'user',
+                  parts: [{ type: 'text', text: 'CONFIDENTIAL-SALARY-QUESTION' }],
+                },
+                {
+                  id: 'm2',
+                  role: 'assistant',
+                  parts: [{ type: 'text', text: 'CONFIDENTIAL-SALARY-ANSWER' }],
+                },
+              ],
+            },
+            {
+              id: 'thread-2',
+              name: 'Other',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              messages: [
+                {
+                  id: 'm3',
+                  role: 'user',
+                  parts: [{ type: 'text', text: 'UNRELATED-THREAD-SECRET' }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const result = executeToolOnState('get_dashboard_state', {}, state);
+
+    // No transcript content from ANY thread appears in the serialized output.
+    expect(result.output).not.toContain('CONFIDENTIAL-SALARY-QUESTION');
+    expect(result.output).not.toContain('CONFIDENTIAL-SALARY-ANSWER');
+    expect(result.output).not.toContain('UNRELATED-THREAD-SECRET');
+    expect(result.output).not.toContain('"messages"');
+
+    const parsed = JSON.parse(result.output) as {
+      doc: {
+        ai?: {
+          activeThreadId?: string;
+          threads: Array<{ id: string; name: string; updatedAt?: string; messageCount: number }>;
+        };
+      };
+    };
+    // `doc.ai` is reduced to per-thread metadata (no `messages`), not omitted.
+    expect(parsed.doc.ai?.activeThreadId).toBe('thread-1');
+    expect(parsed.doc.ai?.threads).toEqual([
+      { id: 'thread-1', name: 'Salaries', updatedAt: '2026-01-01T00:00:00.000Z', messageCount: 2 },
+      { id: 'thread-2', name: 'Other', messageCount: 1 },
+    ]);
+    parsed.doc.ai?.threads.forEach((t) => {
+      expect(t).not.toHaveProperty('messages');
+    });
+  });
 });
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -700,6 +770,21 @@ describe('executeToolOnState: set_widget_width', () => {
     // Must NOT fall through to the `[widgetId]` fallback and emit a phantom mutation.
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
+  });
+
+  it('reports the CLAMPED column value that actually landed in state, not the raw input', () => {
+    const state = makeState();
+    // 100 is out of range; the reducer clamps to the 24-col max.
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: 100 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.columns).toBe(24);
+    // The output matches what the reducer actually wrote.
+    expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-1']).toBe(24);
   });
 });
 

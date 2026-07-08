@@ -370,4 +370,58 @@ describe('resources/read studio://dashboard/state redaction (finding 2.2)', () =
     // Field metadata is still present (this is the useful, safe part).
     expect(src.fields).toEqual([{ id: 'status', label: 'Status', type: 'string' }]);
   });
+
+  // finding 1.1 — doc.ai chat transcripts must never be served verbatim; they are
+  // reduced to per-thread metadata (shared with the get_dashboard_state tool contract).
+  it('reduces doc.ai to per-thread metadata and never serves chat transcripts', async () => {
+    const server = new Server(
+      { name: 'test', version: '1.0.0' },
+      { capabilities: { resources: { subscribe: true } } },
+    );
+    const stateBox: StudioStateBox = {
+      current: createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+          pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+          ai: {
+            activeThreadId: 'thread-1',
+            threads: [
+              {
+                id: 'thread-1',
+                name: 'Salaries',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+                messages: [
+                  {
+                    id: 'm1',
+                    role: 'user',
+                    parts: [{ type: 'text', text: 'CROSS-THREAD-SECRET' }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    };
+    registerResourceHandlers(server, { stateBox, customWidgets: [], subscribedUris: new Set() });
+
+    const result = (await getHandler(
+      server,
+      READ,
+    )({
+      params: { uri: 'studio://dashboard/state' },
+      method: READ,
+    })) as { contents: { text: string }[] };
+
+    const text = result.contents[0].text;
+    expect(text).not.toContain('CROSS-THREAD-SECRET');
+    expect(text).not.toContain('"messages"');
+
+    const payload = JSON.parse(text);
+    expect(payload.doc.ai.activeThreadId).toBe('thread-1');
+    expect(payload.doc.ai.threads).toEqual([
+      { id: 'thread-1', name: 'Salaries', updatedAt: '2026-01-01T00:00:00.000Z', messageCount: 1 },
+    ]);
+  });
 });

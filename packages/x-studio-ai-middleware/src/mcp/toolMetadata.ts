@@ -202,7 +202,7 @@ export const DATA_TOOL_DEFINITIONS: McpToolDefinition[] = [
         },
         limit: {
           type: 'number',
-          description: 'Maximum number of distinct values to return. Default 50.',
+          description: 'Maximum number of distinct values to return. Default 50, capped at 200.',
           default: 50,
         },
       },

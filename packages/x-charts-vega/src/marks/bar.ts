@@ -5,7 +5,7 @@ import type { BarSeriesType, StackOffsetType } from '@mui/x-charts/models';
 import type { RangeBarSeriesType } from '@mui/x-charts-premium/models';
 import type { AxisResolution, CompiledUnit, UnitContext } from '../compile/context';
 import { resolveColor } from '../compile/color';
-import { toNumber } from '../compile/fieldTypes';
+import { toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaChannelDef } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
 
@@ -54,6 +54,15 @@ function resolveOrientation(ctx: UnitContext): 'horizontal' | 'vertical' {
   return 'vertical';
 }
 
+/**
+ * Temporal axis categories are Date objects (see scales.ts), so raw row
+ * values (often ISO strings) must be coerced before the category lookup —
+ * same as point.ts/lineArea.ts/rect.ts.
+ */
+function toCategoryValue(axis: AxisResolution, raw: unknown): unknown {
+  return axis.fieldType === 'temporal' ? toDate(raw) : raw;
+}
+
 /** Builds a category-aligned data array for one group of rows, summing duplicates. */
 function buildSeriesData(
   ctx: UnitContext,
@@ -67,7 +76,7 @@ function buildSeriesData(
     return data;
   }
   for (const row of rows) {
-    const index = ctx.categoryIndex(categoryAxis, row[categoryField]);
+    const index = ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]));
     if (index < 0) {
       continue;
     }
@@ -109,7 +118,7 @@ function buildRangedSeriesData(
     return data;
   }
   for (const row of rows) {
-    const index = ctx.categoryIndex(categoryAxis, row[categoryField]);
+    const index = ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]));
     if (index < 0) {
       continue;
     }

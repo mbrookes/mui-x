@@ -82,30 +82,14 @@ describe('<VegaLiteChart /> rect/heatmap mark', () => {
     expect(reported.map((gap) => gap.code)).to.include('mark:rect-missing-discrete-axes');
   });
 
-  // KNOWN SHELL GAP (outside this work unit's file ownership — see the final
-  // report instead of fixing it here): <VegaLiteChart /> feeds heatmap series
-  // into <ChartsDataProviderPremium> (packages/x-charts-vega/src/VegaLiteChart/VegaLiteChart.tsx),
-  // but that provider's default seriesConfig
-  // (packages/x-charts-premium/src/ChartsDataProviderPremium/ChartsDataProviderPremium.tsx
-  // `defaultSeriesConfigPremium`, itself built on
-  // packages/x-charts-pro/src/ChartsDataProviderPro/ChartsDataProviderPro.tsx
-  // `defaultSeriesConfigPro`) never registers a `'heatmap'` processor — only
-  // bar/scatter/line/pie/rangeBar/ohlc are wired in. The dedicated `<Heatmap>`
-  // component works around this by passing its own local
-  // `seriesConfig={{ heatmap: heatmapSeriesConfig }}` override (see
-  // packages/x-charts-pro/src/Heatmap/useHeatmapProps.ts), but
-  // `heatmapSeriesConfig` (packages/x-charts-pro/src/Heatmap/seriesConfig/index.ts)
-  // isn't re-exported from any subpath reachable through x-charts-pro's
-  // package.json `exports` map (only whole-folder `index.ts` barrels are
-  // reachable — `@mui/x-charts-pro/Heatmap` does not export it), so
-  // <VegaLiteChart /> has no way to obtain it either. As a result, mounting
-  // <VegaLiteChart /> with any heatmap-producing spec currently throws
-  // `TypeError: Cannot read properties of undefined (reading
-  // 'getSeriesWithDefaultValues')` from
-  // packages/x-charts/src/internals/plugins/corePlugins/useChartSeries/processSeries.ts
-  // instead of rendering. Repro (throws instead of rendering 4 cells):
-  //   render(<VegaLiteChart width={500} height={350} spec={gridSpec} onGaps={() => {}} />)
-  it.todo(
-    'BUG: renders heatmap cells through <VegaLiteChart /> (blocked by a shell seriesConfig gap, see comment above)',
-  );
+  // Regression: the premium provider's default seriesConfig registers no
+  // heatmap processor; the shell merges `heatmapSeriesConfig` (imported via
+  // `@mui/x-charts-pro/Heatmap/seriesConfig` — the `./*` exports pattern
+  // matches nested paths) into the config it passes down.
+  it('renders heatmap cells through <VegaLiteChart />', () => {
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={gridSpec} onGaps={() => {}} />,
+    );
+    expect(container.querySelectorAll(`.${heatmapClasses.cell}`).length).to.equal(4);
+  });
 });

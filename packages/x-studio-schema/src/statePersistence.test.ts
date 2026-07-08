@@ -147,6 +147,42 @@ describe('serializeState', () => {
     expect(serialized.filters.some((f) => f.id === 'page-f')).toBe(true);
   });
 
+  it('strips both cross-filter and interactive scoped filters from the output', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        filters: [
+          { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+          {
+            id: 'cross-f',
+            field: 'category',
+            operator: 'equals',
+            value: 'A',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+          {
+            id: 'interactive-f',
+            field: 'region',
+            operator: 'equals',
+            value: 'EMEA',
+            scope: { kind: 'interactive', sourceWidgetId: 'w2', pageId: 'page-1' },
+          },
+          {
+            id: 'range-f',
+            field: 'date',
+            operator: 'equals',
+            value: '',
+            scope: { kind: 'dashboard-date-range', sourceId: 'orders', pageId: 'page-1' },
+          },
+        ],
+      },
+    });
+    const serialized = serializeState(state);
+    // Only the non-transient scope kinds survive persistence.
+    expect(serialized.filters.map((f) => f.id)).toEqual(['page-f', 'range-f']);
+    expect(serialized.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
+    expect(serialized.filters.some((f) => f.scope?.kind === 'interactive')).toBe(false);
+  });
+
   it('retains page-scoped and widget-scoped filters', () => {
     const state = createDefaultStudioState({
       doc: {

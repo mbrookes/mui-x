@@ -307,16 +307,22 @@ export function migrateState(state: unknown): MigrationResult {
  * Serializes a {@link StudioDoc} for persistence — the doc-only inner logic shared by
  * {@link serializeState} and by `StudioController`'s undo/redo session snapshotting.
  *
- * The persisted JSON shape is exactly `StudioDoc` MINUS its ephemeral cross-filter
- * entries: it spreads every doc field (so a newly-added `StudioDoc` field is carried
- * automatically — no hand-picked field list to forget it from), stripping only the
- * cross-filter-scoped filters and normalizing the empties-are-omitted fields.
+ * The persisted JSON shape is exactly `StudioDoc` MINUS its ephemeral cross-filter and
+ * interactive-scoped filter entries: it spreads every doc field (so a newly-added
+ * `StudioDoc` field is carried automatically — no hand-picked field list to forget it
+ * from), stripping the cross-filter- and interactive-scoped filters and normalizing the
+ * empties-are-omitted fields. Both scope kinds are transient/session-only — they're
+ * carried forward across undo/redo by `StudioController.carryTransientDocState` rather
+ * than being part of the undoable history — so persisting them to disk would be
+ * inconsistent with how they're treated everywhere else.
  */
 export function serializeDoc(doc: StudioDoc): SerializedStudioState {
   const { filters, ...rest } = doc;
   return {
     ...rest,
-    filters: filters.filter((f) => f.scope.kind !== 'cross-filter'),
+    filters: filters.filter(
+      (f) => f.scope.kind !== 'cross-filter' && f.scope.kind !== 'interactive',
+    ),
     expressionFields: doc.expressionFields.length > 0 ? doc.expressionFields : undefined,
     filterPresets: (doc.filterPresets?.length ?? 0) > 0 ? doc.filterPresets : undefined,
     ai: doc.ai?.threads && doc.ai.threads.length > 0 ? doc.ai : undefined,
@@ -326,7 +332,7 @@ export function serializeDoc(doc: StudioDoc): SerializedStudioState {
 /**
  * Serializes the studio state for persistence. Reads exclusively from `state.doc`
  * (the only persisted partition), so transient session state (mode/shell), host-app
- * data sources (runtime), and cross-filter entries are all excluded.
+ * data sources (runtime), and cross-filter/interactive filter entries are all excluded.
  */
 export function serializeState(state: StudioState): SerializedStudioState {
   return serializeDoc(state.doc);

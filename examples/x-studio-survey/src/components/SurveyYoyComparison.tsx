@@ -65,22 +65,48 @@ function SurveyYoyComparison({ widget, dataSource }: StudioCustomWidgetProps) {
     },
   ];
 
+  // The right-side axis has no series bound to it (a series can only bind to one y-axis), so it
+  // can't auto-derive its domain the way the left axis does. Both axes get this same explicit
+  // [0, niceMax] domain instead, so the mirrored axis actually shows matching ticks rather than
+  // an unlabeled line.
+  const rawMax = Math.max(0, ...pct2023, ...pct2025);
+  const niceMax = Math.max(10, Math.ceil(rawMax / 10) * 10);
+
   return (
     <Box sx={{ width: '100%' }}>
       <LineChart
         dataset={dataset}
         xAxis={[{ dataKey: 'wave', scaleType: 'point', height: 28 }]}
-        yAxis={[{ width: 44, valueFormatter: (value: number) => `${value}%` }]}
+        yAxis={[
+          // Mirrored on both sides so the 2025 endpoint's value can be read directly, without
+          // tracing each line back to the left edge.
+          {
+            id: 'left',
+            width: 44,
+            min: 0,
+            max: niceMax,
+            valueFormatter: (value: number) => `${value}%`,
+          },
+          {
+            id: 'right',
+            position: 'right',
+            width: 44,
+            min: 0,
+            max: niceMax,
+            valueFormatter: (value: number) => `${value}%`,
+          },
+        ]}
         series={categories.map((category, i) => ({
           dataKey: category,
           label: category,
+          yAxisId: 'left',
           color: PIE_PALETTE[i % PIE_PALETTE.length],
           curve: 'linear',
           showMark: true,
           valueFormatter: (value: number | null) => (value == null ? '' : `${value.toFixed(1)}%`),
         }))}
         height={300}
-        margin={{ left: 52, right: 16, top: 16, bottom: 32 }}
+        margin={{ left: 52, right: 52, top: 16, bottom: 32 }}
         grid={{ horizontal: true }}
       />
       <Stack spacing={0.25} sx={{ mt: 1 }}>

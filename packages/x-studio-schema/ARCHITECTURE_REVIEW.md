@@ -1,348 +1,284 @@
 # Architecture / tech-debt review — `@mui/x-studio-schema`
 
-Independent review of `packages/x-studio-schema/src/` (all 20 files read in full), 2026-07-07.
-Line numbers refer to the current working tree. Cross-package claims (grid constants,
-`parseStateMutation` call sites, controller delegation, `FieldCapability` copy) were verified
-against `packages/x-studio` / `packages/x-studio-ai-middleware` source, not taken from comments
-or `ARCHITECTURE.md`.
+Independent review of `packages/x-studio-schema/src/` (all 26 files read in full — 19 source
+modules + 7 test suites), fresh pass over the post-migration tree: the `StudioWidget` per-kind
+discriminated union, the `StudioChartConfig` per-chart-family discriminated union, the two-level
+write-side key validators, the reducer/parser pair, persistence, factories, and the temporal/
+anomaly helpers were each re-derived from current code rather than carried over from the previous
+review (whose Tier 1 findings — `unsetFields` on required fields, `__proto__` patch keys,
+fail-open migrations, silent migration gaps, `removePage` cross-page deletion, temporal offset
+divergence, `addWidget` re-delivery, bulk-update span hygiene, `migrateState` caller mutation —
+are all verifiably fixed in the current tree, with pinning tests). Line numbers refer to the
+current working tree. Cross-package claims (setup-panel write paths, chart aggregation reads,
+controller guards, the SSE trust boundary, AI-middleware tool execution, `GRID_COLS` /
+`FieldCapability` re-exports) were verified against `packages/x-studio` /
+`packages/x-studio-ai-middleware` source, not taken from comments or `ARCHITECTURE.md`.
 
-**Partition sanity-check (asked for explicitly):** the doc/session/runtime split holds up well.
-Handlers are typed against `StudioDoc` only (`applyMutation.ts:178-181`), the wrapper provably
-leaves `session`/`runtime` referentially identical (`applyMutation.test.ts:1287-1348`), the
-cross-filter-lives-in-doc/stripped-at-persistence design is implemented as described
-(`statePersistence.ts:241`), and `deserializeState` never resurrects session/runtime data.
-No handler assumes the old flat shape. The real problems are elsewhere — below.
+**Partition/invariant sanity-check:** the core invariants hold up under direct inspection.
+(1) _Lifetime partition_: mutation handlers are typed against `StudioDoc` only
+(`applyMutation.ts:263-266`), the full-state wrapper provably leaves `session`/`runtime`
+referentially identical (`applyMutation.test.ts:1497-1558`), `serializeState` reads exclusively
+from `state.doc` (`statePersistence.ts:337-339`), and `deserializeState` resets session and
+re-injects runtime. (2) _Single reducer / single trust boundary_: every wire-sourced mutation
+reaches `applyMutation` through exactly one validated path
+(`studioBackendAdapter.ts:395` → `applyStateMutation.ts:36` → `parseStateMutation`), the
+controller's user-driven methods delegate to the same reducer via `commitMutation`, and the
+server threads state through `applyMutation` in `executeToolOnState.ts` — no second
+implementation of any mutation's effect exists. (3) _Table sync_: `MUTATION_HANDLERS` and
+`MUTATION_ARG_VALIDATORS` are both exhaustively mapped over `StateMutation` and runtime-pinned
+equal (`parseStateMutation.test.ts:188-191`). (4) _Consolidation claims_: `GRID_COLS`/`MIN_SPAN`
+are genuinely re-exported by `x-studio` (`canvasGridConstants.ts:7`), as is `FieldCapability`
+(`utils/fieldCapabilities.ts:1-9`). (5) _Kind narrowing_: every bare `widget.kind === '…'` site
+in `x-studio` either reads only kind-agnostic fields or deliberately widens to the flat
+`StudioWidgetConfig` with an explanatory comment (`generateInsight.ts:624-627`,
+`widgetUtils.tsx:104-167`, `StudioWidgetCard.tsx:426-427`) — no site reads a kind-specific
+config key through an unnarrowed union. The problems found are below; the most significant is a
+functional regression the chart-family migration introduced (1.1).
 
 ---
 
 ## Tier 1: Correctness & Security
 
-### 1.1 `updateWidget.unsetFields` can delete the required `title` and `kind` fields — the "cannot void a required field" guarantee does not hold
+### 1.1 Pie/donut family omits `chartSortBy`/`chartSortDirection`/`xGroupBy`, which the pie data pipeline honors and the setup panel writes — the new write-side guard now silently discards user sort/group-by edits on pie and donut charts
 
-- `packages/x-studio-schema/src/applyMutation.ts:333-348` (runtime guard), `src/aiTypes.ts:79` (type), `src/parseStateMutation.ts:229-231` (validator)
+- `packages/x-studio-schema/src/widgetTypes.ts:550-591` (`StudioPieFamilyChartConfig` extends
+  only `StudioChartConfigBase`, not `StudioChartSortConfig`, and has no `xGroupBy`)
+- `packages/x-studio-schema/src/configKeyValidation.ts:228-245` (`PIE_FAMILY_CHART_KEYS`
+  faithfully mirrors the interface, so the allow-list inherits the omission)
+- Verified read path: `packages/x-studio/src/components/widgets/StudioChartWidget/useChartWidgetData.ts:42-45`
+  reads `config.chartSortBy`/`chartSortDirection`/`xGroupBy` from the flat config for **every**
+  chart type, and builds the `chartData` that `renderPieDonut` consumes through
+  `aggregateByField(rows, xField, yField, xGroupBy, yAggregation, sortBy, sortDirection, …)`
+  (`packages/x-studio/src/internals/aggregators.ts:252-319`); `StudioPieChart.tsx:325-331`
+  renders slices in exactly that label order (unless `pieMaxSlices` regroups).
+- Verified write path: `packages/x-studio/src/components/StudioComposeDrawer/ChartSetupPanel/ChartSetupPanel.tsx:474-539`
+  shows the Sort controls for every non-scatter/heatmap/sankey/gauge/gantt chart — **including
+  pie and donut** — and `:447-472` shows the Group-by select for any non-sankey chart with a
+  date/datetime x-field (again including pie/donut). Both call
+  `controller.updateWidgetConfig(widgetId, { chartSortBy: … })` etc.
+- Verified guard: `packages/x-studio/src/store/StudioController.ts:936-961` resolves the
+  effective chart type (`'pie'`), calls `validateChartConfigKeysForType`, and **strips** the
+  offending key (dev-only `console.warn`, silent in production).
 
-The reducer goes to great lengths to stop a wire payload from voiding a required field: `changes`
-keys with `undefined` values are skipped (`applyMutation.ts:300-310`), and the comment declares
-`unsetFields` the "sanctioned" clear affordance. But the runtime guard for `unsetFields` only
-excludes `'id'` and `'config'` (`applyMutation.ts:340`), the compile-time type
-`(keyof Omit<StudioWidget, 'id'>)[]` _includes_ `'title'` and `'kind'`, and `parseStateMutation`
-accepts any `string[]`.
+The family interfaces claim to "group the keys each chart sub-shape actually reads (verified
+against `chartTypeDefs.tsx` and `chartTypeRegistry.ts`)" (`widgetTypes.ts:196-199`) — but the
+sort/group-by keys are read one layer _above_ the per-family renderers, in the shared
+`useChartWidgetData` aggregation that feeds `renderPieDonut` its `chartData`. That read site was
+missed, so the migration assigned the sort keys to the bar/line/mixed families only (plus
+`chartSortBy` to funnel). The pie/donut sort and date-group-by features shipped and still render
+correctly for configs that already carry the keys — only _new writes_ are now blocked.
+
+**Failure scenario:** a user builds a donut of revenue by region, opens the compose drawer's
+Sort control, and picks "Value" / descending. The controller's chart-type guard classifies
+`chartSortBy` as invalid for `'pie'`, strips it, and commits an empty config patch: the select
+snaps back to "Category" and nothing persists — silently, in production. Same for the Group-by
+select on a pie sliced by a date field (`xGroupBy` stripped). The AI path degrades identically:
+`update_widget` with `config: { chartSortBy: 'value' }` on a pie returns
+`config carries key(s) not valid for chartType 'pie'` to the model
+(`executeToolOnState.ts:343-364`), and an `addWidget` carrying `chartType: 'pie', chartSortBy`
+is rejected outright at the SSE boundary (`parseStateMutation.ts:168-176`).
+
+**Fix:** extend `StudioPieFamilyChartConfig` with `StudioChartSortConfig` and `xGroupBy?` — the
+`AssertKeysCovered` lock then forces `PIE_FAMILY_CHART_KEYS` to follow, and all four guard
+layers (parser, controller, middleware, MCP) inherit the fix automatically. While there, decide
+funnel's story: the panel also shows the sort-_direction_ toggle and Group-by for funnel, but
+`buildFunnelStages` reads neither (`chartTypeDefs.tsx:520-541`), so for funnel the schema
+matches the renderer and it's the _panel_ offering dead controls — either exclude funnel from
+those two controls in `ChartSetupPanel.tsx`, or add + honor the keys.
+
+### 1.2 `updateWidget.args.changes` is an unvalidated wholesale widget merge on the wire — a payload can overwrite `id` (desyncing it from its `widgets` map key) or set `title`/`kind`/`config` to arbitrarily-typed garbage
+
+- `packages/x-studio-schema/src/parseStateMutation.ts:274-281` (validator: `isRecord` +
+  `hasUnsafeOwnKeys` only — no per-field checks)
+- `packages/x-studio-schema/src/applyMutation.ts:392-404` (reducer merges every defined key of
+  `changes` onto the widget verbatim)
+- `packages/x-studio-schema/src/mutationTypes.ts:75` (compile-time type
+  `Partial<Omit<StudioWidget, 'id'>>` — the `'id'` exclusion has **no runtime counterpart**)
+
+The reducer is scrupulous about the _other_ three channels: `config` values are
+delete-on-`undefined` with pollution-safe keys, `unsetFields` has a runtime denylist protecting
+`id`/`kind`/`title`/`config` (with a test pinning it, `applyMutation.test.ts:552-573`), and
+`unsetConfigKeys` only deletes. But the `changes` merge only skips unsafe keys and
+`undefined` values — it happily writes `changes.id`, and it writes `changes.title`/`kind`/
+`config` without any type check. The parser — whose header states its purpose is that "a
+malformed payload can reach a handler and corrupt state" and which validates `setWidgetLayout.rows`'s
+shape for exactly that reason — checks none of these.
 
 **Failure scenario:** the SSE payload
-`{ type: 'updateWidget', args: { widgetId: 'w1', unsetFields: ['kind', 'title'] } }` passes the
-validator, and the reducer deletes both keys. The result is a value that no longer satisfies
-`StudioWidget` (kind-less widgets can't be dispatched by the widget factory; `title` is read
-unguarded across the client). `serializeDoc` then persists the corrupt widget, so the breakage
-survives reload — and note the same widget would now _fail_ `validateWidget` if it ever came back
-over the wire.
-
-**Fix:** extend the runtime denylist to all required fields (`id`, `config`, `kind`, `title`) and
-narrow the `unsetFields` element type to the optional keys of `StudioWidget`.
-
-### 1.2 Prototype poisoning of a widget's `config` object via patch _keys_ — the id-hygiene defense only covers ids, not record keys inside patches
-
-- `packages/x-studio-schema/src/applyMutation.ts:283-291`; validator gap at `src/parseStateMutation.ts:223-226`
-
-`parseStateMutation` rejects `'__proto__'`/`'constructor'`/`'prototype'` as _ids_ (`isSafeId`),
-but `updateWidget.args.config` is only checked with `isRecord`. `JSON.parse` creates `__proto__`
-as an **own** property, `Object.entries(config)` therefore yields it, and the reducer's patch loop
-does a bare bracket assignment:
-
-```ts
-const nextConfig = { ...existing.config } as Record<string, unknown>;
-for (const [key, value] of Object.entries(config)) {
-  ... nextConfig[key] = value;   // key === '__proto__' invokes the inherited setter
-}
-```
-
-`nextConfig['__proto__'] = value` (with `value` an object) replaces the config object's
-`[[Prototype]]` with an attacker-chosen object.
-
-**Failure scenario:** a malformed/hostile SSE event
-`{ type: 'updateWidget', args: { widgetId: 'w1', config: { "__proto__": { gridPkField: "id" } } } }`
-passes validation and produces a widget whose config _appears_ to contain `gridPkField: "id"` to
-every bare `config.x` read in the client (e.g. enabling grid write-back), while
-`JSON.stringify`/`serializeDoc` sees only own properties — so the live state and the persisted
-state silently disagree. This is exactly the class of bug the file's own header says
-`parseStateMutation` exists to close (`parseStateMutation.ts:10-14`); it is closed for
-`nextWidgets[widget.id]` but not for patch keys. (The `changes` loop at
-`applyMutation.ts:301-305` has the same bracket assignment but is harmless: the poisoned
-prototype of the local `definedChanges` is dropped by the subsequent own-property spread.
-`applyBulkUpdate`'s config merge uses spread, which defines an own `__proto__` data property —
-also safe.)
-
-**Fix:** either reject dangerous keys in the validator for `config`/`changes` records, or make
-the patch loop pollution-proof (null-prototype scratch object, or skip
-`__proto__`/`constructor`/`prototype` keys — mirroring what `removeSpanEntries` already does for
-span records).
-
-### 1.3 Persistence load path is fail-open: `migrateState` "succeeds" on structurally-empty objects, then `deserializeState` throws
-
-- `packages/x-studio-schema/src/statePersistence.ts:139-144` (`validateStateStructure`), `:274` (`Object.entries(serialized.widgets)`)
-
-`validateStateStructure` checks only `typeof state === 'object'`. `migrateState({ schemaVersion: 1 })`
-returns `success: true` with the input passed through by reference. The only consumer gate is
-`result.success` (`packages/x-studio/src/store/StudioController.ts:1675-1679`), after which
-`deserializeState` runs `Object.entries(serialized.widgets)` → `TypeError: Cannot convert
-undefined or null to object`, or, for a doc missing `dashboard`, builds a state whose first
-reducer touch (`state.dashboard.activePageId`) throws later and further from the cause.
-
-**Failure scenario:** any truncated, hand-edited, or partially-written persisted blob that is
-still a JSON object crashes with an unhandled `TypeError` instead of the structured
-`MigrationResult` failure the API promises ("Say what happened / why / how to solve" per repo
-error guidelines — this path says none of them).
-
-**Fix:** have `migrateState` (or a guard at the top of `deserializeState`) verify the required
-top-level fields (`dashboard`, `pages`, `widgets`, `filters`) and return a failed
-`MigrationResult` naming the missing field.
-
-### 1.4 A forgotten migration entry silently "succeeds": the version-gap branch stamps `schemaVersion` without transforming
-
-- `packages/x-studio-schema/src/statePersistence.ts:210-216`
-
-The sequential migration loop treats a missing `migrations[version]` entry as "No migration
-needed, just bump version". The documented workflow (`:84-91`) is: bump
-`CURRENT_SCHEMA_VERSION`, _then_ add the entry. If step 2 is forgotten (or the entry key is
-off-by-one), every old persisted doc is stamped with the new version untransformed and reported
-as a successful migration — the exact silent-drift failure the framework exists to prevent, and
-one that additionally _corrupts_ stored state, because the mis-stamped doc will never be migrated
-again. The `StudioDoc['schemaVersion']` literal type (`stateTypes.ts:153`) and the factory's
-hardcoded `schemaVersion: 1` (`factories.ts:175`) give some compile-time pressure, but nothing
-protects the runtime path, and `deserializeState`'s `as 1` cast (`:271`) suppresses it.
-
-**Fix:** make a missing migration for `version < CURRENT_SCHEMA_VERSION` a hard
-`MigrationResult` failure; when a bump genuinely needs no transformation, register an explicit
-identity migration (like the existing `0:` entry).
-
-### 1.5 `removePage` deletes widgets still referenced by other pages' rows — inconsistent with `applyBulkUpdate`'s own `stillReferenced` guard
-
-- `packages/x-studio-schema/src/applyMutation.ts:575-581` vs `:689-704`
-
-`applyBulkUpdate` carefully refuses to delete a widget id that still appears in another page's
-rows (documented at `:685-688` as protecting against a dangling id / blank card).
-`removePage` deletes every widget in `widgetIdsOnPage` unconditionally and also drops all their
-filters. Cross-page row references are a real state (nothing prevents `setWidgetLayout` /
-`applyBulkUpdate.widgetRows` from naming an id already on another page, and `removeWidget`
-explicitly sweeps _all_ pages' rows because of it).
-
-**Failure scenario:** widget `w` appears in both `page-1` and `page-2` rows.
-`removePage('page-1')` deletes `w` from `doc.widgets` and drops its widget-scoped filters while
-`page-2.widgetRows` still contains `'w'` → permanent blank card plus lost filters on the
-surviving page.
-
-**Fix:** apply the same still-referenced check `applyBulkUpdate` uses before deleting widgets
-(and their filters) in `removePage`.
-
-### 1.6 `truncateToPeriod` fast path diverges from the `Date` fallback: timezone offsets ignored and impossible dates accepted
-
-- `packages/x-studio-schema/src/temporalUtils.ts:31-37`
-
-The fast path fires for any string with `-` at positions 4 and 7 and slices the _wall-clock_
-date part; the fallback (and both prior hand-copies this file replaced, per its own header)
-convert to UTC.
-
-**Failure scenarios:**
-
-1. `'2024-01-01T02:00:00+05:00'` → fast path buckets to `2024-01-01`; the same instant as a
-   `Date`/epoch-number input buckets to `2023-12-31`. The same dataset produces different
-   day/month/week buckets depending on whether the DB driver returns strings or Dates — a silent
-   chart-grouping regression relative to the pre-consolidation behavior.
-2. `'2024-13-40'` → fast path emits month key `'2024-13'`; the old code (`new Date(...)` →
-   Invalid Date) returned `null`. Garbage keys now flow into chart axes.
-
-**Fix:** restrict the fast path to offset-free / `Z` strings and range-check month (1-12) and
-day (1-31), falling back to `Date` otherwise.
-
-### 1.7 `addWidget` idempotency guard only inspects the target page's rows
-
-- `packages/x-studio-schema/src/applyMutation.ts:244-248`
-
-The re-delivery guard requires the widget to exist **and** be present in the _target_ page's
-rows. If an at-least-once SSE re-delivery arrives after the user has moved the widget to another
-page, the guard misses: the handler appends a fresh `[widget.id]` row on the original target page
-and overwrites the widget object (reverting user edits). The widget now renders on two pages.
-Narrow window, but it is precisely the re-delivery scenario the guard's comment claims to close.
-**Fix:** treat existence in `state.widgets` (or any page's rows) as "already applied".
-
-### 1.8 (Lower severity) `applyBulkUpdate` writes `widgetColSpans` verbatim — no clamping, no overflow enforcement, no empty-map normalization
-
-- `packages/x-studio-schema/src/applyMutation.ts:679`; validator at `parseStateMutation.ts:340-342`
-
-`setWidgetColSpan` clamps to `MIN_SPAN..GRID_COLS` and rebalances overflow;
-`setWidgetLayout` runs `enforceLayoutColSpans`. `applyBulkUpdate` stores whatever the wire says:
-spans of `1`, `-5`, or `240` (validator only requires finite numbers), rows summing far past 24,
-and an empty `{}` instead of the `undefined` every other handler collapses to. An AI-produced
-bulk update can therefore persist exactly the corrupted layouts the other two handlers exist to
-prevent. **Fix:** run each value through `clampSpan` and the row-overflow check (and collapse
-empty to `undefined`) before writing.
-
-### 1.9 (Lower severity) `migrateState`'s documented pattern mutates the caller's nested state
-
-- `packages/x-studio-schema/src/statePersistence.ts:88-89` ("Mutating the input is fine — it is already a spread copy") vs `:190` (shallow spread only)
-
-`{ ...state }` copies one level; the recommended migration examples (`:109-117`) mutate nested
-filter/widget objects in place — i.e. the caller's objects. `StudioController` passes _retained_
-session snapshot objects into `migrateState` (`StudioController.ts:1743`), so the first real
-nested-shape migration written to this recipe will silently corrupt stored undo/redo snapshots.
-Also, the already-current branch (`:165-173`) returns the input by reference, so
-`deserializeState`'s doc aliases the caller's blob. **Fix:** deep-copy (e.g.
-`structuredClone`/JSON round-trip) at the top of `migrateState`, or correct the comment to demand
-copy-on-write migrations.
-
----
-
-## Tier 2: Structural Duplication
-
-### 2.1 `FieldCapability` maintained as two hand-synced copies
-
-- `packages/x-studio-schema/src/dataTypes.ts:13` and `packages/x-studio/src/utils/fieldCapabilities.ts:13`
-
-The schema comment itself admits the client "keeps a structurally-identical copy". Both are the
-literal union `'numeric' | 'categorical' | 'temporal' | 'rankTarget'`. `StudioDataField.capabilities`
-(persist-adjacent, AI-visible) is typed against the schema copy while all client capability logic
-uses the local copy — adding a capability to one and not the other type-checks fine on both sides
-and silently mis-filters pickers. **Fix:** the client file should re-export the schema type
-(same pattern already used for `GRID_COLS` in `canvasGridConstants.ts`).
-
-### 2.2 Two contradictory descriptions of the column-span unit system
-
-- `packages/x-studio-schema/src/widgetTypes.ts:712-717` ("Per-widget explicit column span (3–12)",
-  "total columns in a row do not need to sum to 12") vs `src/applyMutation.ts:39-41`
-  (`GRID_COLS = 24`, `MIN_SPAN = 6`)
-
-The runtime single-source-of-truth consolidation was done properly (verified:
-`canvasGridConstants.ts` re-exports from the schema), but the _type-level_ documentation on
-`StudioPage.widgetColSpans` still describes the old 12-column system. This JSDoc is exactly what
-a developer — or an LLM given the type — reads when producing span values, and "3–12" values are
-silently legal (they pass `clampSpan` after being bumped to 6) so the drift produces
-wrong-but-valid layouts rather than errors. **Fix:** rewrite the JSDoc in terms of
-`GRID_COLS`/`MIN_SPAN`.
-
-### 2.3 Two different normalization strategies for the two legacy config shapes
-
-- `normalizeGridColumn`: applied once at the persistence boundary (`statePersistence.ts:274-287`)
-- `normalizeChartSeries`: never applied at the boundary; each consumer must remember to call it
-  (`factories.ts:140` even says "Call this when reading persisted state (same pattern as
-  `normalizeGridColumn`)" — but `deserializeState` doesn't)
-
-Verified call sites: `ChartSetupPanel.tsx`, `StudioMixedChart.tsx` call it ad hoc. Any consumer
-that reads `ySeries[].type` directly (AI prompt builders, exports, future widgets) silently gets
-the wrong `seriesType`/`type` precedence for persisted docs. **Fix:** normalize `ySeries` inside
-`deserializeState` next to the columns normalization, then the per-consumer calls become
-redundant hardening.
-
-### 2.4 The schema version literal lives in three places
-
-- `statePersistence.ts:9` (`CURRENT_SCHEMA_VERSION = 1`), `stateTypes.ts:153`
-  (`schemaVersion: 1` literal type), `factories.ts:175` (`schemaVersion: 1` value)
-
-Bumping the version requires touching all three (the type literal at least forces a compile
-error at the factory; nothing ties `CURRENT_SCHEMA_VERSION` to the other two), and
-`deserializeState`'s `serialized.schemaVersion as 1` cast (`statePersistence.ts:271`) erases the
-one place a mismatch would surface. Combined with finding 1.4 this is how a version-bump lands
-half-done. **Fix:** derive the doc literal from `typeof CURRENT_SCHEMA_VERSION` and drop the cast.
-
-### 2.5 Stale "mirror" comments pointing at code that no longer exists
-
-- `applyMutation.ts:106-108` and `:460-461` reference `pruneWidgetColSpan` in `StudioCanvas` —
-  that function was **deleted** (see `StudioCanvas.colSpanLeak.test.ts:17` "`pruneWidgetColSpan`
-  was deleted…"; `StudioCanvas.tsx:206` says the reducer's `enforceLayoutColSpans` now governs
-  all span cleanup).
-- `applyMutation.ts:373-375` says the handler "Mirrors the client's
-  `StudioController.removeWidget`" — inverted: the controller _delegates to this reducer_
-  (`StudioController.ts:788-796`); there is no second implementation to mirror.
-
-Not cosmetic: these comments instruct a future editor to keep this code in sync with copies that
-don't exist, i.e. they re-create the duplication mindset the consolidation removed. **Fix:**
-update the comments to state this file is the sole implementation.
-
-### 2.6 "Zero-dependency" claim vs the `@mui/x-chat-headless` type import
-
-- `src/aiTypes.ts:16` (`import type { ChatMessage } from '@mui/x-chat-headless'`),
-  `package.json:19-21` (devDependency only), `src/index.ts:9` ("Zero runtime dependencies")
-
-Type-only, so no runtime cost — but the package ships TypeScript source (`main: ./src/index.ts`),
-so every consumer type-checks this import. A consumer without `@mui/x-chat-headless` installed
-(the data middleware, a host app importing the schema directly) gets a broken `StudioAIChatThread`
-/ `ai` surface, and `package.json` doesn't declare the requirement. The package description
-("dependency-free"), CLAUDE.md, and the code disagree with reality. **Fix:** either inline a
-minimal structural `ChatMessage` type here (making the claim true), or declare the dependency
-honestly (peer/optional).
-
----
-
-## Tier 3: God-Files / Cohesion
-
-### 3.1 `StudioWidgetConfig` is a ~120-key flat bag shared by all widget kinds
-
-- `packages/x-studio-schema/src/widgetTypes.ts:667-676` (and it is why the file is 726 lines)
-
-Every widget of every kind carries the full key space of all eight kinds (`Partial<>` of each
-per-kind interface, documented as historical). Consequences observable _inside this package_:
-the reducer cannot type config writes (four `as StudioWidget['config']` /
-`as Record<string, unknown>` casts in `updateWidget`/`applyBulkUpdate`), `validateWidget` can
-never validate config beyond `isRecord` (`parseStateMutation.ts:100-124` explicitly gives up),
-a `kind` change via `updateWidget.changes` leaves the old kind's keys behind as permanent
-persisted dead weight, and typo'd config keys are silently legal. The per-kind interface split
-already done is the right first step; the missing second step is a discriminated
-`kind → config` union (with a migration) or at minimum a runtime `kind → allowed keys` map that
-the validator and reducer can share. Until then, "shallow config validation" is not a choice but
-a structural necessity.
-
-### 3.2 `applyMutation.ts` (847 lines) is cohesive but `applyBulkUpdate` re-implements removal semantics
-
-- `packages/x-studio-schema/src/applyMutation.ts:667-766`
-
-The handler-table design is good (exhaustive mapped type, co-located labels). The one cohesion
-wrinkle: `applyBulkUpdate` is a ~100-line second implementation of "remove these widget ids"
-that shares only `dropWidgetScopedFilters`/`removeSpanEntries` with `removeWidget` — the
-still-referenced logic, span pruning scope, and filter cleanup are re-derived inline, which is
-already drifting (findings 1.5, 1.8). Extracting a single `removeWidgetIds(doc, ids)` primitive
-used by `removeWidget`, `removePage`, and `applyBulkUpdate` would eliminate all three
-inconsistencies at once.
-
-### 3.3 Minor: `aiTypes.ts` mixes four concerns
-
-Wire mutations, transport envelope, rich-context DTOs, and _persisted_ conversation state
-(`StudioAIState`, which belongs conceptually with `stateTypes.ts` since it is a `StudioDoc`
-field) share one file. Low priority; worth splitting only when the file next grows.
-
-Beyond these, the tier is healthy: file sizes are modest, factories/persistence/parsing are
-cleanly separated, and `statePersistence.ts` is fine at 303 lines.
-
----
-
-## Tier 4: Testing Gaps
-
-Ranked by risk. The existing suites are unusually strong (idempotency, proto-id hygiene,
-reference-equality no-ops, doc-completeness round-trip are all pinned) — the gaps below track the
-Tier 1 findings almost one-to-one, which is itself evidence they are real blind spots.
-
-1. **`unsetFields` on required fields** — `applyMutation.test.ts:446-460` pins only
-   `['id', 'config']`; there is no test for `['title']`/`['kind']`, so the 1.1 hole is invisible.
-   A test asserting these are rejected/ignored would have caught it.
-2. **`__proto__` as a patch _key_** — the proto-hygiene suites (`applyMutation.test.ts:1200-1273`,
-   `parseStateMutation.test.ts:312-343`) cover ids only. No test feeds
-   `JSON.parse('{"__proto__":{...}}')` into `updateWidget.args.config` and asserts
-   `Object.getPrototypeOf(next.widgets.w1.config) === Object.prototype` (finding 1.2).
-3. **Persistence failure modes** — no test passes a structurally-hollow-but-versioned object
-   (`{ schemaVersion: 1 }`) through `migrateState` → `deserializeState` (crash path, 1.3); no
-   test covers the missing-migration gap branch (`statePersistence.ts:210-216`, finding 1.4 —
-   currently a bump-without-entry ships green); no multi-step migration-chain test exists (the
-   sequential loop is only ever exercised for the trivial 0→1 stamp).
-4. **`applyBulkUpdate` span hygiene** — no test feeds out-of-range/overflowing `widgetColSpans`
-   (finding 1.8) or asserts `{}`-vs-`undefined` normalization; the tests only use already-valid
-   spans.
-5. **`temporalUtils` boundary inputs** — no test for offset-carrying datetimes
-   (`'…+05:00'`, finding 1.6a) or impossible fast-path dates (`'2024-13-40'`, 1.6b); the suite
-   only exercises `Z`/date-only strings, so the fast-path/fallback divergence is unobserved.
-6. **Cross-page widget references in `removePage`** — `applyBulkUpdate`'s still-referenced case
-   _is_ tested (`applyMutation.test.ts:1079-1124`) but the equivalent `removePage` scenario is
-   not — the test asymmetry exactly mirrors the code asymmetry (finding 1.5).
-7. **`addWidget` re-delivery after a cross-page move** (finding 1.7) — the idempotency test
-   re-delivers into an unchanged state only.
-
-Explicitly **low-value to test** (don't bother): cross-process `createWidgetId` collision odds
-(unobservable, probabilistic), `detectAnomaliesIQR` with `NaN` inputs (degrades to
-"no outliers", acceptable), the file-private `median` helper (already covered indirectly and
-documented as such), and `mutationLabel` formatting beyond the existing pins.
+`{ type: 'updateWidget', args: { widgetId: 'w1', changes: { id: 'w2' } } }` passes
+`parseStateMutation` and produces `state.widgets.w1` whose `.id` is `'w2'`. Every id-keyed
+invariant now splits: cross-filters emitted by the widget carry `sourceWidgetId: 'w2'`
+(read from `widget.id`), but `removeWidget('w1')` — keyed by the map key — prunes filters for
+`'w1'` only, leaving a permanent orphaned cross-filter with no clearing affordance; span lookups
+and layout rows likewise disagree about which id the widget answers to. Similarly,
+`changes: { config: "garbage" }` (a string passes — only `args.config` is `isRecord`-checked,
+not `changes.config`) persists through `serializeDoc` a widget whose config is a string, and
+`changes: { title: 42 }` a numeric title — both violating `StudioWidget` forever. None of these
+is producible by the in-process callers or by `executeToolOnState` (its `update_widget` builds
+`changes` from `String(...)` coercions only, verified at `executeToolOnState.ts:366-372`) — this
+is precisely the malformed-server / compromised-transport class the parser exists to stop.
+
+**Fix:** in the `updateWidget` validator, reject `changes` carrying an own `id` key, require
+`changes.title`/`changes.subtitle`/`changes.sourceId`/`changes.kind` to be strings when present
+and `changes.config` to be a record when present (reusing `hasUnsafeOwnKeys` on it); mirror the
+`id` exclusion in the reducer's merge loop (`key !== 'id'`) as the defense-in-depth copy for
+server-built mutations, matching the pattern `unsetFields` already follows.
+
+## Tier 2: Design smells / maintainability risks
+
+### 2.1 `STUDIO_CHART_TYPES`'s completeness is NOT compile-enforced, contrary to its own comment (and `ARCHITECTURE.md`)
+
+- `packages/x-studio-schema/src/widgetTypeGuards.ts:76-99`
+
+The comment claims "dropping one here fails this `satisfies`". It does not: the annotation
+`readonly StudioChartType[]` and the clause
+`satisfies readonly (keyof StudioChartConfigByType)[]` both only check that every _element_ is a
+valid chart type — a 15-entry list missing `'gauge'` type-checks clean. Every _other_ per-type
+artifact is genuinely fail-closed (`CHART_TYPE_CONFIG_KEYS` and `x-studio`'s `CHART_TYPE_DEFS` /
+`chartTypeRegistry` are `Record<StudioChartType, …>`; `StudioChartConfigByType` has the
+`AssertChartTypesCovered` error-tuple lock), so when a new chart type is added, this list is the
+one artifact the compiler will _not_ force to follow — and it gates everything:
+`isStudioChartType` returning `false` makes `parseStateMutation` reject every `addWidget` for
+the new type ("must be one of the known chart types", `parseStateMutation.ts:168-171`) and makes
+the middleware hard-error every `add_widget`/`update_widget`
+(`executeToolOnState.ts:142-145`). There is also no runtime test pinning the list's length
+(`widgetTypeGuards.ts` has no test file).
+
+**Fix:** derive the literal element types (`as const`) and add the same error-tuple assertion the
+file's siblings use: `type AssertAllChartTypesListed = Exclude<StudioChartType,
+(typeof STUDIO_CHART_TYPES)[number]> extends never ? true : […]`. Correct the comment and the
+matching `ARCHITECTURE.md` claim.
+
+### 2.2 `applyBulkUpdate` is the one handler that skips the reducer's own prototype-hygiene conventions on id-keyed writes
+
+- `packages/x-studio-schema/src/applyMutation.ts:798-801` (`nextWidgets[widget.id] = widget` —
+  bare bracket assignment) and `:802-806` (`const existing = nextWidgets[update.widgetId]` —
+  truthy prototype-chain lookup, not `Object.hasOwn`)
+
+Every other handler religiously uses `Object.hasOwn` for existence checks and `isSafePatchKey`
+for rebuilt-record keys, and the `UNSAFE_KEYS` comment (`applyMutation.ts:53-62`) frames those
+guards as "the defense-in-depth copy for mutations the server constructs WITHOUT the parser".
+`applyBulkUpdate`'s widget-delta loops are the exception. Both live paths are currently shielded
+— the wire path because `parseStateMutation` `isSafeId`-checks `addedWidgets[].id` and
+`updatedWidgets[].widgetId`, and the server path because `executeToolOnState` mints added-widget
+ids itself via `createWidgetId()` and gates updates on `liveWidgetIds` membership
+(own-keys only, `executeToolOnState.ts:723, 790-795`) — so this is not currently exploitable.
+But the shield lives two modules away: a future server tool that accepts a caller-supplied
+widget id into `applyBulkUpdate` would find `nextWidgets['__proto__'] = widget` silently
+re-prototyping the record (the widget vanishes from `Object.hasOwn` lookups) and
+`nextWidgets['constructor']` resolving to `Object` as a truthy "existing widget".
+
+**Fix:** apply `isSafePatchKey(widget.id)` / `Object.hasOwn(nextWidgets, update.widgetId)` in
+the two loops, matching the file's own documented convention.
+
+### 2.3 The `changes.config` wholesale-replace channel is a live lost-update footgun — and the middleware's `set_widget_forecast` trips it
+
+- `packages/x-studio-schema/src/applyMutation.ts:386-404` (`changes.config` replaces the widget's
+  config wholesale, documented as "matches the historical client dispatch order")
+- `packages/x-studio-ai-middleware/src/executeToolOnState.ts:969-972` (verified producer:
+  `changes: { config: { ...widget.config, forecast } }`)
+
+`updateWidget` offers two config channels with opposite merge semantics: `args.config` is a
+key-by-key patch merged onto the _receiver's live_ config, while `changes.config` replaces the
+whole bag with the _producer's snapshot_. The `applyBulkUpdate` redesign (documented at
+`mutationTypes.ts:136-151`) exists precisely to kill snapshot-replacement lost updates — yet
+`set_widget_forecast` sends the server's turn-time config snapshot through `changes.config`, so
+any config key the user edits client-side while the agentic turn is running (a title-font tweak,
+a sort change) is reverted the moment the forecast mutation applies. (`update_widget` has a
+milder variant: it sends the _merged_ snapshot through the `args.config` patch channel, which
+overwrites concurrently-edited keys with snapshot values but at least preserves concurrently-
+added keys.)
+
+**Fix:** change `set_widget_forecast` to send `config: { forecast: … }` as a patch; then either
+deprecate `changes.config` (no remaining producer needs wholesale replace — the sanctioned clear
+affordance is `unsetConfigKeys`) or document it as reserved for full-replace semantics that no
+SSE producer should use.
+
+### 2.4 Retention-across-chartType-switch vs. the stateless full-widget wire check: any future producer that round-trips a _stored_ widget through `addWidget` will be rejected
+
+- `packages/x-studio-schema/src/parseStateMutation.ts:158-176` (chart-family check on full
+  widgets), `packages/x-studio-schema/src/widgetTypes.ts:715-722` (the retention invariant),
+  pinned by `statePersistence.test.ts:419-450`
+
+The retention invariant is real and correctly implemented everywhere today: the reducer's merge
+semantics never strip cross-type keys, no schema migration strips them, `serializeDoc`
+round-trips them byte-for-byte, and both write-side guards deliberately validate only the
+incoming _patch_, never the stored config (`StudioController.ts:925-935`,
+`executeToolOnState.ts:348-359` — both verified to resolve the effective type from the patch's
+own `chartType` first, falling back to the widget's current type). But this means a _stored_
+chart config legitimately fails `validateChartConfigKeysForType` for its own `chartType` — e.g.
+a gauge retaining a bar-era `xField`. `validateWidget` applies exactly that check to every full
+widget crossing the SSE boundary (`addWidget`, `applyBulkUpdate.addedWidgets`). Today no
+producer round-trips a stored widget through those variants (verified: both middleware paths
+build added widgets fresh via `buildWidgetFromArgs`), so nothing breaks — but the first
+"duplicate this widget via the AI", "move widget across dashboards", or "recreate from
+`get_dashboard_state` output" feature that ships a stored widget verbatim through `addWidget`
+will have valid, user-authored dashboards rejected at the client boundary with
+"config carries key(s) not valid for a '…' chart".
+
+**Fix:** document the constraint at `validateWidget` ("full-widget variants may only carry
+freshly-built configs; a round-tripped stored config must be stripped to its effective family's
+keys first"), and/or provide a `stripForeignFamilyKeys(config)` helper in
+`configKeyValidation.ts` so a future producer has a sanctioned way to do it.
+
+## Tier 3: Minor / cosmetic
+
+### 3.1 `serializeDoc`'s comment misstates how cross-filters interact with undo
+
+- `packages/x-studio-schema/src/statePersistence.ts:310-317` vs
+  `packages/x-studio/src/store/StudioController.ts:215-216` and
+  `packages/x-studio-schema/src/stateTypes.ts:170-176`
+
+The comment says cross-filter _and_ interactive entries are "carried forward across undo/redo by
+`StudioController.carryTransientDocState` rather than being part of the undoable history".
+Verified against the controller: `carryTransientDocState` carries **interactive entries only**;
+cross-filters are deliberately NOT carried because they are undoable by design ("they
+time-travel") — which is also what `stateTypes.ts` says. The stripping _behavior_ (both scopes
+stripped at persistence) is correct and test-pinned; only the rationale sentence is wrong.
+**Fix:** reword to "cross-filters are undoable but session-scoped; interactive entries are
+carried across undo/redo — both are stripped at the persistence boundary."
+
+### 3.2 The deprecated `seriesType` alias survives on the type and is normalized only at the load boundary
+
+- `packages/x-studio-schema/src/widgetTypes.ts:76-84`, `factories.ts:149-157`,
+  `statePersistence.ts:383`
+
+`deserializeState` now normalizes persisted `ySeries` (fixing the old review's 2.3), but a live
+widget written with `seriesType` via `updateWidget`/AI keeps the alias until the next reload, so
+readers still must call `normalizeChartSeries` defensively (verified they do:
+`StudioMixedChart.tsx:67,108`). The alias is a permanent tax on every future consumer.
+**Fix:** normalize in the reducer's `updateWidget`/`addWidget` config paths too, or schedule a
+migration + type removal.
+
+### 3.3 "Zero runtime dependencies" is true, but the `@mui/x-chat-headless` _type_ dependency is undeclared for one consumer
+
+- `packages/x-studio-schema/src/chatTypes.ts:8`, `package.json:19-21` (devDependency only)
+
+The import is type-only (no runtime cost), but the package ships raw TS source
+(`main: ./src/index.ts`), so consumers type-check it. `x-studio-ai-middleware` declares
+`@mui/x-chat-headless`; `x-studio` does **not** (it declares `@mui/x-chat` — verified in its
+`package.json:33-56`) and resolves the types only via pnpm workspace transitivity. Harmless
+while unpublished; would break a strict-`node_modules` consumer. **Fix:** declare it as a real
+(or peer) dependency of the schema package, or inline a minimal structural `ChatMessage`.
+
+### 3.4 `chartTypeRegistry`'s sankey descriptor honors a `yAggregation` the sankey family cannot carry
+
+- `packages/x-studio/src/internals/chartTypeRegistry.ts:219-226` vs
+  `packages/x-studio-schema/src/widgetTypes.ts:521-548` (no `yAggregation` on sankey — correct
+  per the renderer, which always sums via `aggregateSankey`)
+
+A sankey widget retaining `yAggregation: 'avg'` from a previous chart type gets **avg**
+pre-aggregation on the DB push-down path but **sum** on the client in-memory path — the same
+widget shows different numbers depending on data-source mode. The schema's family assignment is
+right (sankey sums by design); the leftover read is in the consumer. **Fix:** drop the
+`yAggregation` read in `sankeyDescriptor.buildAggregationSpecs` (hardcode `'sum'`).
+
+### 3.5 Stripped-to-empty config patches still commit a fresh widget object
+
+- `packages/x-studio-schema/src/applyMutation.ts:367-383`
+
+An `updateWidget` whose `config` is `{}` (e.g. the controller guard stripped every key — the 1.1
+scenario) still rebuilds `config` and the widget, so the "same reference on no-op" contract is
+technically kept only for unknown ids: an effect-free patch pushes an undo entry and a
+`updateWidget:` log line. **Fix:** short-circuit when the config loop made no change (mirror the
+`changedConfig` flag the `unsetConfigKeys` branch already uses).

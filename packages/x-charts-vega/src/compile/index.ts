@@ -61,7 +61,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     return { unit: { ...unit, encoding }, rows };
   });
 
-  const axes = resolveAxes(prepared, gaps);
+  const axes = resolveAxes(prepared, gaps, normalized.resolve);
 
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();

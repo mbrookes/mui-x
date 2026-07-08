@@ -115,7 +115,18 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     });
   }
 
-  const hasLegend = series.some((entry) => (entry as { label?: unknown }).label !== undefined);
+  // Pie series carry their labels per-slice (`data[i].label`) rather than on
+  // the series object, so both locations must count toward showing a legend.
+  const hasLegend = series.some((entry) => {
+    if ((entry as { label?: unknown }).label !== undefined) {
+      return true;
+    }
+    if (entry.type === 'pie') {
+      const data = (entry as { data?: ReadonlyArray<{ label?: unknown }> }).data;
+      return data?.some((item) => item.label !== undefined) ?? false;
+    }
+    return false;
+  });
 
   return {
     chartKind: isPolar ? 'polar' : 'cartesian',

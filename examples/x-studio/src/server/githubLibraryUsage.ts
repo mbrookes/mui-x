@@ -114,24 +114,41 @@ async function fetchCombinationCount(pkgA: string, pkgB: string, token: string):
   throw new Error(`GitHub search failed for "${pkgA}" + "${pkgB}": exhausted retries`);
 }
 
+export interface LibraryUsageMatrixResult {
+  rows: Record<string, unknown>[];
+  /**
+   * How many cells fell back to `repoCount: 0` because their search request
+   * failed (as opposed to genuinely returning zero results). Callers that
+   * persist this data (see server/index.ts's weekly capture) should treat a
+   * fully-failed run (`failedCount === rows.length`) as no data at all —
+   * without this, a bad/rate-limited token still produces a full set of rows
+   * (all zero) rather than an empty array, so a naive `rows.length === 0`
+   * check does NOT catch "every cell failed".
+   */
+  failedCount: number;
+}
+
 /**
  * Builds the component-library × data-grid-library adoption matrix, one
- * GitHub code search per cell. Returns [] (without throwing) when no token
- * is configured. Individual failed cells fall back to a count of 0 rather
- * than aborting the whole matrix.
+ * GitHub code search per cell. Returns { rows: [], failedCount: 0 } (without
+ * throwing) when no token is configured. Individual failed cells fall back
+ * to a count of 0 rather than aborting the whole matrix — see
+ * `LibraryUsageMatrixResult.failedCount` for how to tell a real zero from a
+ * failure once every cell is done.
  */
 export async function fetchLibraryUsageMatrix(
   token: string | undefined,
-): Promise<Record<string, unknown>[]> {
+): Promise<LibraryUsageMatrixResult> {
   if (!token) {
     warn(
       '[github-library-usage] no GITHUB_SEARCH_TOKEN configured — returning an empty matrix. ' +
         'GitHub code search requires authentication.',
     );
-    return [];
+    return { rows: [], failedCount: 0 };
   }
 
   const rows: Record<string, unknown>[] = [];
+  let failedCount = 0;
   let isFirstRequest = true;
   for (const componentLib of COMPONENT_LIBRARIES) {
     for (const gridLib of DATA_GRID_LIBRARIES) {
@@ -145,6 +162,7 @@ export async function fetchLibraryUsageMatrix(
         // eslint-disable-next-line no-await-in-loop
         repoCount = await fetchCombinationCount(componentLib.pkg, gridLib.pkg, token);
       } catch (err) {
+        failedCount += 1;
         warn('[github-library-usage]', err);
       }
       rows.push({
@@ -155,5 +173,5 @@ export async function fetchLibraryUsageMatrix(
       });
     }
   }
-  return rows;
+  return { rows, failedCount };
 }

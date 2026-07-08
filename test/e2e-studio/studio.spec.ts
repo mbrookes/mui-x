@@ -4,14 +4,16 @@
  * The app is a single-page dashboard whose 100%-stacked bar chart plots, for
  * every component library, the relative share of each data grid library
  * among non-fork GitHub repos that declare both as dependencies (see
- * `examples/x-studio/src/connectors/githubLibraryUsageSource.ts`). Because
- * the underlying data comes from a live, rate-limited, token-gated
+ * `examples/x-studio/src/connectors/githubLibraryUsageSource.ts`), plus a
+ * second "Adoption Over Time" panel (a date-slider filter scrubbing a matching
+ * chart bound to weekly-captured history — see `src/server/snapshotStore.ts`).
+ * Because the underlying data comes from a live, rate-limited, token-gated
  * third-party API (GitHub code search) proxied through this app's own API
  * server, this suite only asserts the app shell and widgets render
  * correctly — it does not assert on actual GitHub search results, which
  * would make CI flaky and require a secret. Without GITHUB_SEARCH_TOKEN
- * configured on the API server, the connector returns an empty row set and
- * the chart renders its empty state; the assertions below hold either way.
+ * configured on the API server, the connectors return empty row sets and
+ * both charts render their empty state; the assertions below hold either way.
  *
  * The dashboard has a single page, so the app toolbar shows the dashboard
  * title as plain text rather than a page-tab bar (AppToolbar only renders
@@ -30,7 +32,9 @@ function widgetCard(page: Page, widgetTitle: string) {
 }
 
 test.describe('Smoke: Library Adoption page loads', () => {
-  test('renders the intro and chart widgets without JS errors', async ({ page }) => {
+  test('renders the intro, chart, and history-scrubber widgets without JS errors', async ({
+    page,
+  }) => {
     const jsErrors: string[] = [];
     page.on('pageerror', (err) => jsErrors.push(err.message));
 
@@ -42,6 +46,15 @@ test.describe('Smoke: Library Adoption page loads', () => {
 
     const chartCard = widgetCard(page, 'Repositories using both libraries');
     await expect(chartCard).toBeVisible();
+
+    const historyIntroCard = widgetCard(page, 'Adoption Over Time');
+    await expect(historyIntroCard).toBeVisible();
+
+    const weekFilterCard = widgetCard(page, 'Week');
+    await expect(weekFilterCard).toBeVisible();
+
+    const historyChartCard = widgetCard(page, 'Repositories using both libraries (by week)');
+    await expect(historyChartCard).toBeVisible();
 
     expect(jsErrors).toHaveLength(0);
   });

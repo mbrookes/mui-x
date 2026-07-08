@@ -688,7 +688,7 @@ export interface StudioChartConfigByType {
  * Fail-closed compile-time assertion that EVERY `StudioChartType` literal has an
  * entry in `StudioChartConfigByType`. Resolves to `true` when the map is complete;
  * otherwise to a descriptive error tuple naming the uncovered chart types, which
- * makes the `_CHART_TYPES_COVERED` line below fail to compile. Adding a chart type
+ * makes the `CHART_TYPES_COVERED` line below fail to compile. Adding a chart type
  * to `StudioChartType` without a `StudioChartConfigByType` entry is a build error.
  */
 type AssertChartTypesCovered =
@@ -698,8 +698,8 @@ type AssertChartTypesCovered =
         'StudioChartConfigByType is missing chart types:',
         Exclude<StudioChartType, keyof StudioChartConfigByType>,
       ];
-const _CHART_TYPES_COVERED: AssertChartTypesCovered = true;
-void _CHART_TYPES_COVERED;
+const CHART_TYPES_COVERED: AssertChartTypesCovered = true;
+void CHART_TYPES_COVERED;
 
 /** The precise family config shape for a chart of type `T`. */
 export type StudioChartConfigOfType<T extends StudioChartType> = StudioChartConfigByType[T];

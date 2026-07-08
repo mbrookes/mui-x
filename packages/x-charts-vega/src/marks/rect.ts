@@ -155,7 +155,9 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
     colorDef.type === fieldType
       ? encoding
       : { ...encoding, [channelKey as string]: { ...colorDef, type: fieldType } };
-  const color = resolveColor(patchedEncoding, rows, gaps, path);
+  // colorMapConsumed: the colorMap goes straight onto the heatmap's zAxis,
+  // so the "only some series types honor colorMap" caveat does not apply.
+  const color = resolveColor(patchedEncoding, rows, gaps, path, { colorMapConsumed: true });
 
   const data: HeatmapValueType[] = [];
   const xField = ctx.x.field;

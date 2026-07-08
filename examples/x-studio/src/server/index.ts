@@ -83,8 +83,10 @@ async function main(): Promise<void> {
   let inFlight: Promise<Record<string, unknown>[]> | null = null;
 
   // GET /api/github-library-usage — the component-library × data-grid-library adoption
-  // matrix. Cached in memory for a day (shared across every visitor) since it costs 16
-  // rate-limited GitHub searches to compute.
+  // matrix. Cached in memory for a day (shared across every visitor) since it costs one
+  // rate-limited GitHub search per (component library × data grid library) cell to compute
+  // (COMPONENT_LIBRARIES.length * DATA_GRID_LIBRARIES.length requests — see
+  // githubLibraryUsage.ts).
   app.get('/api/github-library-usage', async (_req: Request, res: Response): Promise<void> => {
     try {
       if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {

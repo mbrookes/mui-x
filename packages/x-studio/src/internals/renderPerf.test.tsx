@@ -20,7 +20,12 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../test/studioContextMock';
-import type { CreateDefaultStudioStateOverrides, StudioDataSource, StudioState } from '../models';
+import type {
+  CreateDefaultStudioStateOverrides,
+  StudioDataSource,
+  StudioState,
+  StudioWidgetOf,
+} from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
 import { studioRequestCache } from './StudioRequestCache';
@@ -223,7 +228,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
+        <StudioKpiWidget widget={widget as StudioWidgetOf<'kpi'>} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 
@@ -250,7 +255,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
+        <StudioKpiWidget widget={widget as StudioWidgetOf<'kpi'>} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 
@@ -267,7 +272,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
+        <StudioKpiWidget widget={widget as StudioWidgetOf<'kpi'>} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 

@@ -96,6 +96,8 @@ function createState(overrides: StateOverrides = {}): StudioState {
 }
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  // Legacy shape (`type`/`pageId` rather than `kind`) kept as-is for this test;
+  // cast through `unknown` since it no longer overlaps the discriminated union.
   return {
     id: 'w1',
     type: 'kpi',
@@ -103,7 +105,7 @@ function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
     title: 'Widget',
     pageId: 'page-1',
     ...overrides,
-  } as StudioWidget;
+  } as unknown as StudioWidget;
 }
 
 function makeDataSource(rows: Row[], overrides: Partial<StudioDataSource> = {}): StudioDataSource {

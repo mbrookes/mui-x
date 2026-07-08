@@ -19,6 +19,7 @@ import {
   type SerializedStudioSnapshot,
   type MigrationResult,
   type OptionalWidgetField,
+  validateConfigKeysForKind,
 } from '@mui/x-studio-schema';
 
 import {
@@ -880,6 +881,37 @@ export class StudioController {
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
   ) => {
+    // Write-side kind guard: strip any config key that isn't valid for THIS
+    // widget's kind before committing (e.g. a Chart-only key patched onto a Grid
+    // widget). TypeScript can't enforce the per-kind config shape on this generic
+    // patch at runtime, so this is the runtime backstop. Matching the controller's
+    // guard-and-continue style (never throw on bad input): warn in dev and drop
+    // the offending keys rather than persisting a wrong-kind key.
+    const existingWidget = this.store.state.doc.widgets[widgetId];
+    let effectiveConfig = config;
+    if (existingWidget) {
+      const invalidKeys = validateConfigKeysForKind(
+        existingWidget.kind,
+        config as Record<string, unknown>,
+      );
+      if (invalidKeys.length > 0) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `MUI X Studio: Ignoring config key(s) not valid for a '${existingWidget.kind}' ` +
+              `widget (id '${widgetId}'): ${invalidKeys.join(', ')}. ` +
+              'These keys belong to a different widget kind and were dropped from the update.',
+          );
+        }
+        const stripped: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(config)) {
+          if (!invalidKeys.includes(key)) {
+            stripped[key] = value;
+          }
+        }
+        effectiveConfig = stripped as Partial<import('../models').StudioWidgetConfig>;
+      }
+    }
+
     // Delegate the config-patch merge (delete-on-`undefined` semantics) to the
     // shared reducer's `updateWidget` handler, whose `config` branch already
     // implements the identical delete-on-`undefined` behaviour. Live-data title
@@ -887,7 +919,10 @@ export class StudioController {
     // layered on afterwards via `transform`. Per D1 this now uses the reducer's
     // default `updateWidget:${widgetId}` log label (was `updateWidgetConfig:...`).
     this.commitMutation(
-      { type: 'updateWidget', args: { widgetId, config: config as StudioWidget['config'] } },
+      {
+        type: 'updateWidget',
+        args: { widgetId, config: effectiveConfig as StudioWidget['config'] },
+      },
       {
         transform: (next) => {
           const updated = next.doc.widgets[widgetId];

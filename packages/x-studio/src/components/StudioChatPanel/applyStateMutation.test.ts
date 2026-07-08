@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyStateMutation } from './applyStateMutation';
 import { StudioController } from '../../store/StudioController';
-import type { StudioWidget } from '../../models';
+import type { StudioWidget, StudioWidgetConfig } from '../../models';
 
 // These tests exercise the real `StudioController` (no mocks) so they verify the
 // full path: applyStateMutation → controller.applyExternalMutation → the shared
@@ -133,7 +133,9 @@ describe('applyStateMutation: updateWidget', () => {
       },
       controller,
     );
-    expect(controller.getState().doc.widgets['widget-1'].config.chartType).toBe('line');
+    expect(
+      (controller.getState().doc.widgets['widget-1'].config as StudioWidgetConfig).chartType,
+    ).toBe('line');
   });
 });
 

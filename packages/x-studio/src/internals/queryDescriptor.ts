@@ -4,6 +4,7 @@ import type {
   StudioFilterState,
   StudioQueryDescriptor,
   StudioWidget,
+  StudioWidgetConfig,
 } from '../models';
 import { selectFiltersForWidget } from './filterScoping';
 import { isJoinFieldExpression } from '../utils/expressionEvaluator';
@@ -190,8 +191,15 @@ export function buildQueryDescriptor(
     expressionFields,
     widget.sourceId,
   );
-  const groupBy = widget.config?.xField ?? widget.config?.gridGroupByField;
-  const xGroupBy = widget.config?.xGroupBy;
+  // This query descriptor is built for BOTH chart and grid widgets: a chart
+  // groups by its `xField`, a grid by its `gridGroupByField`. Rather than
+  // branch on `widget.kind` (the descriptor's shape is identical either way,
+  // only which key supplies the grouping differs), read both keys through the
+  // flat cross-kind `StudioWidgetConfig` patch type — the irrelevant key is
+  // simply absent on the other kind's config and coalesces away.
+  const config = widget.config as StudioWidgetConfig;
+  const groupBy = config?.xField ?? config?.gridGroupByField;
+  const xGroupBy = config?.xGroupBy;
   const aggregations = buildAggregations(widget, expressionFields);
 
   // Compute a stable cache key from query shape (no widgetId) so widgets with

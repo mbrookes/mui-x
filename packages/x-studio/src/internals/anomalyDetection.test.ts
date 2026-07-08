@@ -5,7 +5,7 @@ import {
   detectAnomaliesZScore,
   detectChartDataAnomalies,
 } from './anomalyDetection';
-import type { StudioWidget } from '../models';
+import type { StudioWidget, StudioWidgetKind } from '../models';
 
 // ── detectAnomaliesIQR ────────────────────────────────────────────────────────
 
@@ -197,15 +197,23 @@ describe('detectChartDataAnomalies', () => {
 
 // ── canDetectAnomalies ────────────────────────────────────────────────────────
 
-function makeWidget(
-  overrides: Partial<StudioWidget> & { kind: StudioWidget['kind'] },
-): StudioWidget {
+// Test helper that deliberately builds cross-kind configs (e.g. a chart-only
+// `xGroupBy` on a non-chart widget, to assert `canDetectAnomalies` rejects it),
+// so `config` is intentionally the loose `Record<string, unknown>` rather than a
+// per-kind config type.
+function makeWidget(overrides: {
+  kind: StudioWidgetKind;
+  id?: string;
+  title?: string;
+  sourceId?: string;
+  config?: Record<string, unknown>;
+}): StudioWidget {
   return {
     id: 'w1',
     title: 'Widget',
     config: {},
     ...overrides,
-  } as StudioWidget;
+  } as unknown as StudioWidget;
 }
 
 describe('canDetectAnomalies', () => {

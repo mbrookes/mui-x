@@ -1,4 +1,5 @@
 import { createSelectorMemoized } from '@mui/x-internals/store';
+import { isWidgetOfKind } from '../models';
 import type {
   StudioDoc,
   StudioExpressionField,
@@ -534,7 +535,7 @@ export function makeSelectWidgetSliderFilter(
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
     const w = state.doc.widgets[widgetId];
-    if (w?.kind !== 'filter' || w?.config?.filterWidgetType !== 'slider') {
+    if (!w || !isWidgetOfKind(w, 'filter') || w.config?.filterWidgetType !== 'slider') {
       return null;
     }
     return (

@@ -39,6 +39,7 @@ import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
+import { isWidgetOfKind } from '../../models';
 import type { StudioPageTheme } from '../../models';
 import type { StudioChartAnnotation } from '../../models/widgetTypes';
 import type { StudioGridWidgetProps } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -450,7 +451,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Forecast is only rendered for line/area charts (see StudioChartWidget), so hide the
   // forecast insight action for every other widget kind / chart type.
   const supportsForecast =
-    isChart && (widget.config.chartType === 'line' || widget.config.chartType === 'area');
+    isWidgetOfKind(widget, 'chart') &&
+    (widget.config.chartType === 'line' || widget.config.chartType === 'area');
   // "Active" (outline border + persistent toolbar) is an edit-mode concept only. In view
   // mode a widget is never activated, even if it carries a stale selection from edit mode.
   const isActive = isSelected && mode === 'edit';
@@ -549,7 +551,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
           onAiRefresh={
-            widget.kind === 'text' && widget.config.textAiEnabled && (mode === 'edit' || hovered)
+            isWidgetOfKind(widget, 'text') &&
+            widget.config.textAiEnabled &&
+            (mode === 'edit' || hovered)
               ? () => textAiRefreshRef.current?.()
               : undefined
           }
@@ -594,7 +598,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     ...(widget.config?.titleFontSize && {
                       fontSize: widget.config.titleFontSize,
                     }),
-                    ...(widget.kind === 'text' && {
+                    ...(isWidgetOfKind(widget, 'text') && {
                       flexGrow: 1,
                       ...(widget.config.textTitleColor && {
                         color: widget.config.textTitleColor,

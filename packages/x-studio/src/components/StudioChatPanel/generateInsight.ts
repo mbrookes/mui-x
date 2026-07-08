@@ -1,6 +1,6 @@
 import type { StudioKpiAggregation } from '../../models/baseTypes';
 import type { StudioState, StudioFilterState } from '../../models/stateTypes';
-import type { StudioWidget } from '../../models/widgetTypes';
+import type { StudioWidget, StudioWidgetConfig } from '../../models/widgetTypes';
 import type { StudioDataSource } from '../../models/dataTypes';
 import { createStudioPipeline, type StudioPipelineState } from '../../internals/StudioPipeline';
 import {
@@ -230,7 +230,10 @@ function buildKpiWidgetSummary(
   dateFilter: StudioFilterState | undefined,
   currentRange: { start: Date; end: Date } | null,
 ): string {
-  const cfg = widget.config;
+  // Read config through the flat cross-kind `StudioWidgetConfig` patch type:
+  // these summary builders are dispatched generically by kind and are not
+  // statically narrowed to a single-kind widget at their call sites.
+  const cfg: StudioWidgetConfig = widget.config;
   const valueField: string | undefined = cfg.kpiValueField;
   const agg: string = cfg.kpiAggregation ?? (valueField ? 'sum' : 'count');
 
@@ -311,7 +314,10 @@ function buildChartWidgetSummary(
   state: StudioState,
   maxRows: number,
 ): string {
-  const cfg = widget.config;
+  // Read config through the flat cross-kind `StudioWidgetConfig` patch type:
+  // these summary builders are dispatched generically by kind and are not
+  // statically narrowed to a single-kind widget at their call sites.
+  const cfg: StudioWidgetConfig = widget.config;
   const xField: string | undefined = cfg.xField;
   if (!xField) {
     return '';
@@ -483,7 +489,10 @@ function buildMapWidgetSummary(
   filteredRows: Record<string, unknown>[],
   maxRows: number,
 ): string {
-  const cfg = widget.config;
+  // Read config through the flat cross-kind `StudioWidgetConfig` patch type:
+  // these summary builders are dispatched generically by kind and are not
+  // statically narrowed to a single-kind widget at their call sites.
+  const cfg: StudioWidgetConfig = widget.config;
   const countryField: string | undefined = cfg.mapCountryField;
   const valueField: string | undefined = cfg.mapValueField;
   const agg: string = cfg.mapAggregation ?? 'sum';
@@ -608,7 +617,10 @@ export function buildWidgetDataSummary(
   }
 
   // Raw-row path: grid, pivot, and chart fallbacks
-  const cfg = widget.config;
+  // Read config through the flat cross-kind `StudioWidgetConfig` patch type:
+  // these summary builders are dispatched generically by kind and are not
+  // statically narrowed to a single-kind widget at their call sites.
+  const cfg: StudioWidgetConfig = widget.config;
   let fieldIds: string[] = [];
   let xFieldId: string | undefined;
 

@@ -25,12 +25,18 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
+import type { StudioWidgetConfig } from '../../models';
 import { GridConditionalFormatSection } from './GridConditionalFormatSection';
 
 export function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
+  // This panel renders controls for several widget kinds and reads their config
+  // keys behind per-kind `widget?.kind === …` branches. Because the widget union
+  // includes a custom-kind member (which defeats automatic discriminated
+  // narrowing), read config through the flat cross-kind `StudioWidgetConfig`.
+  const config = widget?.config as StudioWidgetConfig | undefined;
   const dataSources = useStudioSelector(selectDataSources);
   const allFilters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
@@ -116,7 +122,7 @@ export function FormatPanel(props: { widgetId: string }) {
     widget?.kind === 'kpi' ||
     widget?.kind === 'grid' ||
     widget?.kind === 'map' ||
-    (widget?.kind === 'chart' && widget?.config?.chartType === 'heatmap');
+    (widget?.kind === 'chart' && config?.chartType === 'heatmap');
 
   return (
     <Stack spacing={2}>
@@ -214,7 +220,7 @@ export function FormatPanel(props: { widgetId: string }) {
           control={
             <Switch
               size="small"
-              checked={widget.config.kpiCompact ?? true}
+              checked={config?.kpiCompact ?? true}
               onChange={(event) =>
                 controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
               }
@@ -230,7 +236,7 @@ export function FormatPanel(props: { widgetId: string }) {
             type="number"
             size="small"
             fullWidth
-            value={widget.config.gridHeight ?? 400}
+            value={config?.gridHeight ?? 400}
             slotProps={{ htmlInput: { min: 200, step: 50 } }}
             onChange={(event) => {
               const parsed = parseInt(event.target.value, 10);
@@ -244,8 +250,8 @@ export function FormatPanel(props: { widgetId: string }) {
       )}
       {widget?.kind === 'map' &&
         (() => {
-          const mapLegendPosition = (widget.config.mapLegendPosition ?? 'bottom') as string;
-          const mapLegendAlign = (widget.config.mapLegendAlign ?? 'center') as string;
+          const mapLegendPosition = (config?.mapLegendPosition ?? 'bottom') as string;
+          const mapLegendAlign = (config?.mapLegendAlign ?? 'center') as string;
           const isVerticalLegend = mapLegendPosition === 'left' || mapLegendPosition === 'right';
           return (
             <React.Fragment>
@@ -302,10 +308,10 @@ export function FormatPanel(props: { widgetId: string }) {
           );
         })()}
       {widget?.kind === 'chart' &&
-        widget?.config?.chartType === 'heatmap' &&
+        config?.chartType === 'heatmap' &&
         (() => {
-          const heatLegendPosition = (widget.config.heatLegendPosition ?? 'bottom') as string;
-          const heatLegendAlign = (widget.config.heatLegendAlign ?? 'center') as string;
+          const heatLegendPosition = (config?.heatLegendPosition ?? 'bottom') as string;
+          const heatLegendAlign = (config?.heatLegendAlign ?? 'center') as string;
           const isVerticalLegend = heatLegendPosition === 'left' || heatLegendPosition === 'right';
           return (
             <React.Fragment>

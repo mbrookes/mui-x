@@ -7,8 +7,10 @@ import type {
   StudioGridColumn,
   StudioKpiAggregation,
   StudioWidget,
+  StudioWidgetConfig,
   StudioWidgetKind,
 } from '../models';
+import { isWidgetOfKind } from '../models';
 import { isRelativeDateValue } from './filterUtils';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
@@ -99,7 +101,7 @@ function columnFieldIds(columns: StudioGridColumn[] | undefined): string[] {
 
 /** Returns a small (16px) icon representing the specific sub-type of a widget. */
 export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.ReactNode {
-  if (widget.kind === 'chart') {
+  if (isWidgetOfKind(widget, 'chart')) {
     const chartType = widget.config.chartType ?? 'bar';
     const horizontal = widget.config.barLayout === 'horizontal';
     switch (chartType) {
@@ -131,7 +133,7 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
         return <BarGroupedIcon size={size} />;
     }
   }
-  if (widget.kind === 'filter') {
+  if (isWidgetOfKind(widget, 'filter')) {
     const filterType = widget.config.filterWidgetType ?? 'multi-select';
     switch (filterType) {
       case 'toggle':
@@ -341,7 +343,10 @@ export function inferWidgetTitles(
   localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): { title: string; subtitle: string } {
   const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
-  const config = widget.config;
+  // This builder branches on `widget.kind` but reads a single pre-extracted
+  // `config` local across every case, so it operates across kinds by design —
+  // read it through the flat cross-kind `StudioWidgetConfig` patch type.
+  const config: StudioWidgetConfig = widget.config;
 
   // Pre-build a Map for O(1) field lookups on the primary source (avoids O(F) per field)
   const primaryFieldMap = new Map(source?.fields?.map((f) => [f.id, f.label]) ?? []);
@@ -491,8 +496,11 @@ export function buildCsvContent(
   dataSource: StudioDataSource,
   rows: Record<string, unknown>[],
 ): string {
-  const visibleColumns = widget.config.columns?.length
-    ? columnFieldIds(widget.config.columns)
+  // CSV export is a grid concern, but the param is typed as the broad
+  // `StudioWidget`; read `columns` through the flat cross-kind config type.
+  const config = widget.config as StudioWidgetConfig;
+  const visibleColumns = config.columns?.length
+    ? columnFieldIds(config.columns)
     : dataSource.fields.map((f) => f.id);
 
   const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));

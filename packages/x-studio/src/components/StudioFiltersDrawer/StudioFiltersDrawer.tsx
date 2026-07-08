@@ -38,6 +38,7 @@ import {
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
+import { isWidgetOfKind } from '../../models';
 import type { StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
@@ -131,9 +132,11 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   // Chart rank filter context — xField dimension and yField measure label
   const chartXField =
-    selectedWidget?.kind === 'chart' ? (selectedWidget.config.xField ?? undefined) : undefined;
+    selectedWidget && isWidgetOfKind(selectedWidget, 'chart')
+      ? (selectedWidget.config.xField ?? undefined)
+      : undefined;
   const chartYFieldId =
-    selectedWidget?.kind === 'chart'
+    selectedWidget && isWidgetOfKind(selectedWidget, 'chart')
       ? (selectedWidget.config.ySeries?.[0]?.fieldId ?? selectedWidget.config.yField ?? undefined)
       : undefined;
   const chartYFieldLabel = React.useMemo(() => {
@@ -146,7 +149,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   // Derive available series for the rank-by selector (multi-series charts only)
   const chartAvailableSeries = React.useMemo(() => {
-    if (selectedWidget?.kind !== 'chart' || !selectedWidget.sourceId) {
+    if (!selectedWidget || !isWidgetOfKind(selectedWidget, 'chart') || !selectedWidget.sourceId) {
       return undefined;
     }
     const source = dataSources[selectedWidget.sourceId];

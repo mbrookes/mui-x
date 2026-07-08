@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyMutation } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
-import type { StudioFilterState, StudioWidget } from '../models';
+import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../models';
 import { resolveDateRangePreset } from '../internals/filterUtils';
 import { GRID_COLS, MIN_SPAN } from '../components/StudioCanvas/canvasGridConstants';
 
@@ -395,13 +395,16 @@ describe('StudioController.removeWidget — interactive filter cleanup', () => {
 // ─── StudioController — widget CRUD ──────────────────────────────────────────
 
 function makeWidget(id: string, overrides: Partial<StudioWidget> = {}): StudioWidget {
+  // `...overrides` (a `Partial<StudioWidget>`) broadens `kind`/`config` beyond a
+  // single discriminated union member, so cast through `unknown` — this generic
+  // test factory intentionally accepts any kind + config combination.
   return {
     id,
     kind: 'kpi',
     title: 'Test Widget',
     config: { kpiAggregation: 'sum' },
     ...overrides,
-  };
+  } as unknown as StudioWidget;
 }
 
 describe('StudioController.addWidget', () => {
@@ -567,8 +570,44 @@ describe('StudioController.updateWidgetConfig', () => {
 
     controller.updateWidgetConfig('text1', { textTitleColor: undefined });
 
-    expect(controller.getState().doc.widgets.text1.config.textTitleColor).toBeUndefined();
+    expect(
+      (controller.getState().doc.widgets.text1.config as StudioWidgetConfig).textTitleColor,
+    ).toBeUndefined();
     expect('textTitleColor' in controller.getState().doc.widgets.text1.config).toBe(false);
+  });
+
+  it('strips cross-kind config keys (and warns) instead of persisting them', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          grid1: {
+            id: 'grid1',
+            kind: 'grid',
+            title: 'Table',
+            config: { gridHeight: 300 },
+          },
+        },
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // `chartType` is a chart-only key; `gridSortField` is a legitimate grid key.
+    controller.updateWidgetConfig('grid1', {
+      chartType: 'line',
+      gridSortField: 'name',
+    } as StudioWidgetConfig);
+
+    const config = controller.getState().doc.widgets.grid1.config as StudioWidgetConfig;
+    // The valid grid key is applied...
+    expect(config.gridSortField).toBe('name');
+    // ...and the cross-kind chart key is dropped, never persisted.
+    expect('chartType' in config).toBe(false);
+    // ...with a dev warning naming the widget, kind, and offending key.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('chartType');
+    expect(warnSpy.mock.calls[0][0]).toContain('grid1');
+
+    warnSpy.mockRestore();
   });
 });
 

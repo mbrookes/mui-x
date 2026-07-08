@@ -1,4 +1,5 @@
 import { detectAnomaliesIQR } from '@mui/x-studio-schema';
+import { isWidgetOfKind } from '../models';
 import type { StudioWidget } from '../models';
 import type { StudioChartAnnotation } from '../models/widgetTypes';
 // Tukey IQR detection now lives in the shared `@mui/x-studio-schema` package
@@ -65,7 +66,7 @@ export const SUPPORTED_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', '
  * Requires a bar or line chart with temporal x-axis grouping (`xGroupBy`).
  */
 export function canDetectAnomalies(widget: StudioWidget): boolean {
-  if (widget.kind !== 'chart') {
+  if (!isWidgetOfKind(widget, 'chart')) {
     return false;
   }
   if (!widget.config.xGroupBy) {

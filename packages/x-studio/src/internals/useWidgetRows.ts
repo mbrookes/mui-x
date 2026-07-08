@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioDataSource, StudioWidget } from '../models';
+import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../models';
+import { isWidgetOfKind } from '../models';
 import {
   useStudioSelector,
   selectFilters,
@@ -265,7 +266,9 @@ export function useWidgetRows(
   );
 
   const crossFilterMode =
-    globalCrossFilterMode ?? widget.config?.crossFilterMode ?? 'cross-highlight';
+    globalCrossFilterMode ??
+    (widget.config as StudioWidgetConfig)?.crossFilterMode ??
+    'cross-highlight';
 
   // Ghost overlay should only render when:
   // 1. The widget is in 'cross-highlight' mode (default)
@@ -421,15 +424,18 @@ export function useWidgetRows(
   // For grid widgets that have columns referencing many-to-one related sources,
   // join field values from those sources onto the primary rows by FK lookup.
   // Columns from sources without in-memory rows (async sources) are skipped.
+  // Grid-column cross-source enrichment reads `columns` regardless of the widget's
+  // kind (a non-grid widget simply has no `columns`), so read it through the flat
+  // cross-kind `StudioWidgetConfig` patch type.
+  const gridColumns = (widget.config as StudioWidgetConfig)?.columns;
   const crossSourceColumns = React.useMemo(
-    () =>
-      (widget.config?.columns ?? []).filter((c) => c.sourceId && c.sourceId !== widget.sourceId),
-    [widget.config?.columns, widget.sourceId],
+    () => (gridColumns ?? []).filter((c) => c.sourceId && c.sourceId !== widget.sourceId),
+    [gridColumns, widget.sourceId],
   );
 
   // For map widgets, collect cross-source field refs from mapCountryField / mapValueField.
   const mapCrossSourceFields = React.useMemo(() => {
-    if (widget.kind !== 'map') {
+    if (!isWidgetOfKind(widget, 'map')) {
       return [];
     }
     const refs = [];

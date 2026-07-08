@@ -21,6 +21,7 @@ import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
+import { isWidgetOfKind } from '../../models';
 import type { StudioMode } from '../../models/baseTypes';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 import {
@@ -37,7 +38,7 @@ const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 
 /** Return the minimum resize column span for a widget based on its kind and config. */
 export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
-  if (widget?.kind === 'kpi' && !widget.config.kpiSparkline) {
+  if (widget && isWidgetOfKind(widget, 'kpi') && !widget.config.kpiSparkline) {
     return KPI_NO_SPARKLINE_MIN_SPAN;
   }
   return MIN_SPAN;

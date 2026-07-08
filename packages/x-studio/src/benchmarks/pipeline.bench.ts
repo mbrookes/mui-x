@@ -325,6 +325,8 @@ layerBench('L5c aggregateMultipleSeries', ({ dataSources }) => {
 // ── A1: buildQueryDescriptor ──────────────────────────────────────────────────
 
 function makeKpiWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  // Legacy shape (`type`/`pageId` rather than `kind`) kept as-is for this bench;
+  // cast through `unknown` since it no longer overlaps the discriminated union.
   return {
     id: 'w-bench',
     type: 'kpi',
@@ -332,7 +334,7 @@ function makeKpiWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
     title: 'Bench Widget',
     pageId: 'page-1',
     ...overrides,
-  } as StudioWidget;
+  } as unknown as StudioWidget;
 }
 
 function makePageFilter(id: string): StudioFilterState {

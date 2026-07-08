@@ -110,4 +110,56 @@ describe('handleCreateWidget', () => {
       /Widget creation failed: 400/,
     );
   });
+
+  // Review finding 3.5: the LLM's JSON is syntactically valid but may still be
+  // shaped wrong (missing/mistyped fields) — that must be rejected with a clear,
+  // actionable error rather than propagating an unvalidated object.
+  describe('shape validation of the parsed config', () => {
+    it('rejects a response that is valid JSON but not an object (e.g. a bare array)', async () => {
+      stubFetch(JSON.stringify(['chart', 'Revenue']));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
+        /MUI X Studio:.*not a JSON object/i,
+      );
+    });
+
+    it('rejects a response missing "kind"', async () => {
+      stubFetch(JSON.stringify({ title: 'Revenue by Region' }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(/MUI X Studio:.*"kind"/);
+    });
+
+    it('rejects a response with a non-string "kind"', async () => {
+      stubFetch(JSON.stringify({ kind: 42, title: 'Revenue by Region' }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(/MUI X Studio:.*"kind"/);
+    });
+
+    it('rejects a response missing "title"', async () => {
+      stubFetch(JSON.stringify({ kind: 'chart' }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(/MUI X Studio:.*"title"/);
+    });
+
+    it('rejects a response with a non-string "sourceId"', async () => {
+      stubFetch(JSON.stringify({ kind: 'chart', title: 't', sourceId: 123 }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
+        /MUI X Studio:.*"sourceId"/,
+      );
+    });
+
+    it('rejects a response with a non-object "config" (e.g. a string)', async () => {
+      stubFetch(JSON.stringify({ kind: 'chart', title: 't', config: 'bar chart please' }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(/MUI X Studio:.*"config"/);
+    });
+
+    it('rejects a response with an array "config"', async () => {
+      stubFetch(JSON.stringify({ kind: 'chart', title: 't', config: ['x', 'y'] }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(/MUI X Studio:.*"config"/);
+    });
+
+    it('still accepts a minimal well-formed response with only kind + title', async () => {
+      stubFetch(JSON.stringify({ kind: 'text', title: 'A note' }));
+      await expect(handleCreateWidget(request, OPTIONS)).resolves.toEqual({
+        kind: 'text',
+        title: 'A note',
+      });
+    });
+  });
 });

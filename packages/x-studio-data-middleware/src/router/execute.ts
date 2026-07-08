@@ -88,6 +88,27 @@ export async function executeForTier(
   // 'db' tier: DB push-down aggregation using explicit AggregationSpec[]
   const query = buildSecureQuery(db, claims, descriptor, options, queryPlan);
 
+  // A descriptor with NO aggregations can still reach the 'db' tier: a plain
+  // (non-aggregation) query whose preflight COUNT(*) exceeds `serverMemoryTier`
+  // is routed here by `tierFromRowCount`. The GROUP-BY/aggregate-push-down logic
+  // below assumes aggregations exist — with none it would GROUP BY every
+  // projected column (silently de-duplicating rows) or emit an unbounded
+  // `SELECT *` when there are no columns either, both of which change the row
+  // shape vs. what the client/server tiers return for the same descriptor.
+  // Fall back to the SAME plain select/orderBy/limit shape those tiers produce.
+  if (queryPlan.aggregations.length === 0) {
+    if (queryPlan.columns.length > 0) {
+      query.select(queryPlan.columns.map(projectColumn));
+    }
+    for (const ob of queryPlan.orderBy) {
+      query.orderBy(orderColumnOf(ob), ob.direction);
+    }
+    if (queryPlan.limit) {
+      query.limit(queryPlan.limit);
+    }
+    return query as Promise<Record<string, unknown>[]>;
+  }
+
   // Pure-measure columns are those whose aggregation alias equals the source
   // column (e.g. SUM(total) AS total). They must not appear in GROUP BY —
   // only in the aggregation clause. Dimension columns (date, category, …)

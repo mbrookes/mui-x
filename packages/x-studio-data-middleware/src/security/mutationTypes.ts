@@ -156,9 +156,18 @@ export interface HandleBatchQueryOptions {
   /**
    * Per-table column allowlist (Phase 2 — SECURITY INVARIANT #2).
    *
-   * When provided, all column references in `descriptor.columns`,
-   * `descriptor.filters[].column`, and `descriptor.orderBy[].column`
-   * are validated against the permitted list for the relevant table.
+   * When provided, `validateDescriptorColumns` validates every column reference
+   * in the descriptor against the permitted list for the relevant table:
+   * `descriptor.columns`, `descriptor.filters[].column`, `descriptor.orderBy[].column`,
+   * `descriptor.aggregations[].column`, and BOTH sides of every `descriptor.joins[].on`
+   * pair (the left side against the primary table, the right side against the joined
+   * table). The `join.on` check is a genuine security control — a join condition is an
+   * attacker-controlled channel — so it is constrained to allowlisted columns just like
+   * filters and projections.
+   *
+   * (An ORDER BY target that names a declared aggregation alias is exempt — it is not
+   * a physical column and never appears in a host's allowlist; its underlying column is
+   * still validated via `aggregations[].column`.)
    *
    * Qualified column names (`table.column`) are split and validated
    * against the allowlist for the named table.

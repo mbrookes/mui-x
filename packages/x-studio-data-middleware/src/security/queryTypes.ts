@@ -99,7 +99,14 @@ export interface BatchWidgetDescriptor {
    * Optional JOIN descriptors for multi-table queries.
    *
    * All joined table names must appear in `HandleBatchQueryOptions.schemaAllowlist`.
-   * Security predicates are applied to the primary table only.
+   *
+   * Security predicates are applied to the primary table AND, by default, to every
+   * joined table: a joined table inherits the primary table's resolved security
+   * columns (tenant / region / department) via `resolveJoinSecurityColumns`, so an
+   * unregistered join is scoped rather than fanning out unscoped. A genuinely
+   * shared/lookup table with no tenant column opts out explicitly with the
+   * `securityColumns.perTable[table] = null` sentinel; only then is it joined
+   * unscoped.
    */
   joins?: JoinDescriptor[];
 }

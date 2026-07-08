@@ -844,6 +844,40 @@ describe('INSERT region/department scope validation', () => {
     ).not.toThrow();
   });
 
+  // Regression (finding 3.3): a deployment whose region column is TEXT-typed sends
+  // a string region value (`"5"`). The old strict `Array.prototype.includes`
+  // comparison never matched `"5"` against numeric `regionIds` (`[5]`) and rejected
+  // a legitimate scoped write. Both sides are now normalized with `String(...)`.
+  it('allows an insert whose string region_id matches a numeric caller region', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: '5' },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('still rejects an insert whose string region_id is outside the caller regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: '6' },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/outside the caller's permitted regions/);
+  });
+
   it('rejects an insert whose department is outside the caller department', () => {
     const descriptor: MutationDescriptor = {
       id: 'm1',

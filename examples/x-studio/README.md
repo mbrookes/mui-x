@@ -1,28 +1,39 @@
 # x-studio example
 
-A dashboard with a single 100%-stacked bar chart plotting, for every UI
-component library, the relative share of each data grid library among
-non-fork GitHub repositories that declare both as dependencies — e.g. how
-many repos pairing `@mui/material` use `@mui/x-data-grid` vs. `ag-grid-react`.
-See `src/connectors/githubLibraryUsageSource.ts` for the full list of
-libraries compared and how the GitHub code-search query is built.
+A dashboard with a 100%-stacked bar chart plotting, for every UI component
+library, the relative share of each data grid library among non-fork GitHub
+repositories that declare both as dependencies — e.g. how many repos pairing
+`@mui/material` use `@mui/x-data-grid` vs. `ag-grid-react`. See
+`src/connectors/githubLibraryUsageSource.ts` for the full list of libraries
+compared and how the GitHub code-search query is built.
+
+A second "Adoption Over Time" section captures that same matrix once per
+week and lets you scrub through the captured history with a date-slider
+filter, rebuilding the chart for whatever week (or range of weeks) is
+selected.
 
 ## Architecture
 
 - **Client** (`src/`) — a Vite/React app built on `@mui/x-studio`. It has no
   embedded credentials: `src/connectors/githubLibraryUsageSource.ts` reads
-  the adoption matrix from `GET /api/github-library-usage` on this app's own
-  API server, resolved relative to the current origin.
+  the current adoption matrix from `GET /api/github-library-usage`, and the
+  full weekly history (for the scrubber) from
+  `GET /api/github-library-usage/history` — both on this app's own API
+  server, resolved relative to the current origin.
 - **Server** (`src/server/`) — a small Express app that:
   - proxies GitHub's code-search API using a server-side
     `GITHUB_SEARCH_TOKEN`, so the token never ships to the browser (GitHub
     code search requires authentication — baking a personal access token
     into the client bundle via a `VITE_`-prefixed env var would expose it to
     anyone who loads the page);
-  - caches the computed matrix in memory for 24h, since building it costs one
+  - captures one snapshot of the matrix per ISO week (building it costs one
     rate-limited GitHub search per (component library × data grid library)
     cell — see `COMPONENT_LIBRARIES`/`DATA_GRID_LIBRARIES` in
-    `src/server/githubLibraryUsage.ts` for the current lists;
+    `src/server/githubLibraryUsage.ts`) and persists it via
+    `src/server/snapshotStore.ts`. A background check every 6h captures the
+    new week's snapshot once one is due; a run that produces zero rows (no
+    token, or every search failed) is never persisted, so a transient
+    failure can't overwrite a real week with false zeros;
   - serves the built static client (`dist/`) when present, so a single
     process/service can host both — see [Deploying to Railway](#deploying-to-railway).
 
@@ -32,7 +43,7 @@ libraries compared and how the GitHub code-search query is built.
 # Client (Vite dev server, port 3004)
 pnpm --filter x-studio-example dev
 
-# API server (port 3006) — required for the chart to show real data
+# API server (port 3006) — required for the charts to show real data
 cp .env.example .env.local   # then set GITHUB_SEARCH_TOKEN
 pnpm --filter x-studio-example server
 ```
@@ -40,9 +51,13 @@ pnpm --filter x-studio-example server
 `vite.config.ts` proxies `/api` requests from the dev server to
 `http://localhost:3006`, so the client's relative `fetch('/api/...')` calls
 work in dev without any client-side base-URL configuration. Without
-`GITHUB_SEARCH_TOKEN` set (or without the server running at all), the chart
+`GITHUB_SEARCH_TOKEN` set (or without the server running at all), each chart
 renders its "No data to display" empty state rather than erroring — see
 `src/connectors/githubLibraryUsageSource.ts`.
+
+Weekly snapshots are written to `./data/library-usage-history.json` by
+default (gitignored) — delete that file to reset local history, or set
+`SNAPSHOT_STORE_PATH` to point elsewhere.
 
 ## Deploying to Railway
 
@@ -55,6 +70,13 @@ same origin. Configure on the Railway service:
   service's own (same-origin requests, including the co-hosted production
   client, are always allowed regardless of this list — see
   `src/server/index.ts`).
+- **`SNAPSHOT_STORE_PATH` + a Railway Volume** — required for weekly history to
+  actually accumulate. Railway's default filesystem is ephemeral: it's wiped
+  on every redeploy/restart, so without a persistent volume attached, the
+  "Adoption Over Time" section resets to a single week forever, no matter how
+  long the service has been running. Attach a Volume to the service (Railway
+  dashboard → service → Volumes) mounted at, say, `/data`, then set
+  `SNAPSHOT_STORE_PATH=/data/library-usage-history.json`.
 
 Lessons carried over from deploying `examples/x-studio-survey` to Railway:
 

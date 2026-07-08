@@ -46,3 +46,6 @@ AGENTS.local.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# x-studio example: local weekly-snapshot store (see examples/x-studio/src/server/snapshotStore.ts)
+/examples/x-studio/data/

@@ -83,3 +83,90 @@ export function createGithubLibraryUsageAdapter(): StudioDataSourceAdapter {
     },
   };
 }
+
+// ── Weekly history (scrubber) ───────────────────────────────────────────────
+
+export const GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID = 'source-github-library-usage-history';
+
+/**
+ * Same shape as `GITHUB_LIBRARY_USAGE_SOURCE` plus a `weekOf` date field, so a
+ * date-slider filter widget on this source can scrub through the captured
+ * weekly snapshots — see server/index.ts's GET /api/github-library-usage/history
+ * and server/snapshotStore.ts for how those snapshots are captured and stored.
+ */
+export const GITHUB_LIBRARY_USAGE_HISTORY_SOURCE: StudioDataSource = {
+  id: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
+  label: 'GitHub Library Usage (History)',
+  fields: [
+    { id: 'id', label: 'ID', type: 'string', hidden: true },
+    { id: 'componentLibrary', label: 'Component Library', type: 'string' },
+    { id: 'dataGridLibrary', label: 'Data Grid Library', type: 'string' },
+    { id: 'repoCount', label: 'Repositories', type: 'number' },
+    { id: 'weekOf', label: 'Week', type: 'date' },
+  ],
+};
+
+interface LibraryUsageSnapshot {
+  weekOf: string;
+  fetchedAt: number;
+  rows: Record<string, unknown>[];
+}
+
+let cachedHistoryRows: Record<string, unknown>[] | null = null;
+let historyInFlight: Promise<Record<string, unknown>[]> | null = null;
+
+/**
+ * Fetches every captured weekly snapshot and flattens them into one row set
+ * with a `weekOf` on each row (row ids are prefixed with the week so they
+ * stay unique across snapshots — the server's per-cell id alone repeats every
+ * week). Returns [] (without throwing) on failure.
+ */
+export async function prefetchGithubLibraryUsageHistory(): Promise<Record<string, unknown>[]> {
+  if (cachedHistoryRows !== null) {
+    return cachedHistoryRows;
+  }
+  if (historyInFlight) {
+    return historyInFlight;
+  }
+
+  historyInFlight = (async () => {
+    try {
+      const res = await fetch('/api/github-library-usage/history');
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+      const data = (await res.json()) as { snapshots: LibraryUsageSnapshot[] };
+      cachedHistoryRows = data.snapshots.flatMap((snapshot) =>
+        snapshot.rows.map((row) => ({
+          ...row,
+          id: `${snapshot.weekOf}__${row.id}`,
+          weekOf: snapshot.weekOf,
+        })),
+      );
+      return cachedHistoryRows;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[x-studio] GitHub library usage history connector: could not reach ' +
+          '/api/github-library-usage/history — is the API server running? (pnpm server)',
+        err,
+      );
+      return [];
+    }
+  })();
+
+  try {
+    return await historyInFlight;
+  } finally {
+    historyInFlight = null;
+  }
+}
+
+/** Returns a StudioDataSourceAdapter backed by the flattened weekly-history rows above. */
+export function createGithubLibraryUsageHistoryAdapter(): StudioDataSourceAdapter {
+  return {
+    async getRows() {
+      return { rows: await prefetchGithubLibraryUsageHistory() };
+    },
+  };
+}

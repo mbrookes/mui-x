@@ -32,19 +32,33 @@ import { AppLocaleProvider } from './locales/AppLocaleContext';
 import {
   GITHUB_LIBRARY_USAGE_SOURCE,
   GITHUB_LIBRARY_USAGE_SOURCE_ID,
+  GITHUB_LIBRARY_USAGE_HISTORY_SOURCE,
+  GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
   createGithubLibraryUsageAdapter,
+  createGithubLibraryUsageHistoryAdapter,
   prefetchGithubLibraryUsage,
+  prefetchGithubLibraryUsageHistory,
 } from './connectors/githubLibraryUsageSource';
 
 const PAGE_ID = 'page-library-usage';
 const INTRO_WIDGET_ID = 'widget-text-intro';
 const CHART_WIDGET_ID = 'widget-chart-library-usage';
+const HISTORY_INTRO_WIDGET_ID = 'widget-text-history';
+const WEEK_FILTER_WIDGET_ID = 'widget-filter-week';
+const HISTORY_CHART_WIDGET_ID = 'widget-chart-library-usage-history';
 
 /**
  * A single page whose 100%-stacked bar chart plots, for every component
  * library, the relative share of each data grid library among non-fork
  * GitHub repos that declare both as dependencies — see
  * `connectors/githubLibraryUsageSource.ts` for how the values are computed.
+ *
+ * Below it, a second "Adoption Over Time" section reads the same matrix
+ * captured weekly (see server/snapshotStore.ts) and lets the user scrub
+ * through history with a date-slider filter. Unfiltered, that chart sums
+ * every captured week — it's presented as its own historical/exploratory
+ * section for that reason, rather than replacing the always-current chart
+ * above, whose default view stays exactly "the latest snapshot".
  */
 const INITIAL_STATE: Partial<StudioState> = {
   doc: {
@@ -58,7 +72,13 @@ const INITIAL_STATE: Partial<StudioState> = {
       [PAGE_ID]: {
         id: PAGE_ID,
         title: 'Library Adoption',
-        widgetRows: [[INTRO_WIDGET_ID], [CHART_WIDGET_ID]],
+        widgetRows: [
+          [INTRO_WIDGET_ID],
+          [CHART_WIDGET_ID],
+          [HISTORY_INTRO_WIDGET_ID],
+          [WEEK_FILTER_WIDGET_ID],
+          [HISTORY_CHART_WIDGET_ID],
+        ],
       },
     },
     widgets: {
@@ -87,6 +107,44 @@ const INITIAL_STATE: Partial<StudioState> = {
           yField: 'repoCount',
         },
       },
+      [HISTORY_INTRO_WIDGET_ID]: {
+        id: HISTORY_INTRO_WIDGET_ID,
+        kind: 'text',
+        title: 'Adoption Over Time',
+        titleMode: 'manual',
+        sourceId: undefined,
+        config: {
+          textTitleFontSize: 24,
+          textTitleAlign: 'center',
+          textSubtitle:
+            'One snapshot is captured per week. Drag the slider to scrub to a specific ' +
+            'week — unfiltered, this chart sums every week captured so far.',
+        },
+      },
+      [WEEK_FILTER_WIDGET_ID]: {
+        id: WEEK_FILTER_WIDGET_ID,
+        kind: 'filter',
+        title: 'Week',
+        titleMode: 'manual',
+        sourceId: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
+        config: {
+          filterWidgetType: 'slider',
+          filterWidgetField: 'weekOf',
+        },
+      },
+      [HISTORY_CHART_WIDGET_ID]: {
+        id: HISTORY_CHART_WIDGET_ID,
+        kind: 'chart',
+        title: 'Repositories using both libraries (by week)',
+        titleMode: 'manual',
+        sourceId: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
+        config: {
+          chartType: 'bar-100',
+          xField: 'componentLibrary',
+          seriesField: 'dataGridLibrary',
+          yField: 'repoCount',
+        },
+      },
     },
     filters: [],
     relationships: [],
@@ -95,6 +153,7 @@ const INITIAL_STATE: Partial<StudioState> = {
   runtime: {
     dataSources: {
       [GITHUB_LIBRARY_USAGE_SOURCE_ID]: GITHUB_LIBRARY_USAGE_SOURCE,
+      [GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID]: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE,
     },
   },
   session: {
@@ -290,10 +349,10 @@ export default function App() {
     };
   }, []);
 
-  // Wire the GitHub library-usage connector unconditionally — it always talks
-  // to this app's own /api/github-library-usage endpoint regardless of any
+  // Wire the GitHub library-usage connectors unconditionally — they always talk
+  // to this app's own /api/github-library-usage* endpoints regardless of any
   // data-source mode. Pre-fetch rows so the data drawer shows the correct
-  // count and preview, and so the chart has a synchronous fallback on cold
+  // count and preview, and so each chart has a synchronous fallback on cold
   // cache (no empty flash).
   React.useEffect(() => {
     studioRef.current?.setDataSourceAdapter(
@@ -303,6 +362,16 @@ export default function App() {
     prefetchGithubLibraryUsage().then((rows) => {
       if (rows.length > 0) {
         studioRef.current?.setDataSourceRows(GITHUB_LIBRARY_USAGE_SOURCE_ID, rows);
+      }
+    });
+
+    studioRef.current?.setDataSourceAdapter(
+      GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
+      createGithubLibraryUsageHistoryAdapter(),
+    );
+    prefetchGithubLibraryUsageHistory().then((rows) => {
+      if (rows.length > 0) {
+        studioRef.current?.setDataSourceRows(GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID, rows);
       }
     });
   }, []);

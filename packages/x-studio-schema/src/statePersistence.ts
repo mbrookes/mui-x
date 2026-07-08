@@ -2,6 +2,7 @@ import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } f
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
+import type { StudioWidgetConfig } from './widgetTypes';
 import type { StudioAIState } from './aiTypes';
 
 // `CURRENT_SCHEMA_VERSION` is defined in `stateTypes.ts` (the single source of truth —
@@ -357,9 +358,12 @@ export function deserializeState(
           // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
           // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
           // `config` only when one is present; otherwise return the widget untouched
-          // (keeping reference stability for the common case).
-          const columns = widget.config?.columns;
-          const ySeries = widget.config?.ySeries;
+          // (keeping reference stability for the common case). This runs across kinds
+          // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
+          // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
+          const config = widget.config as StudioWidgetConfig;
+          const columns = config?.columns;
+          const ySeries = config?.ySeries;
           if (!columns && !ySeries) {
             return [id, widget];
           }

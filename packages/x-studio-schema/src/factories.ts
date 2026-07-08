@@ -9,8 +9,8 @@ import type { BuiltinStudioWidgetKind, StudioWidgetKind } from './baseTypes';
 import type {
   StudioChartSeries,
   StudioGridColumn,
-  StudioWidget,
-  StudioWidgetConfig,
+  StudioWidgetOf,
+  StudioWidgetConfigForKind,
 } from './widgetTypes';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
@@ -69,10 +69,9 @@ export function createMutationEnvelope<T extends StateMutation>(mutation: T): Mu
  * without a default here is a compile error (fail-closed) rather than silently
  * falling through to another kind's branch.
  */
-const BUILTIN_WIDGET_DEFAULTS: Record<
-  BuiltinStudioWidgetKind,
-  () => { title: string; config: StudioWidgetConfig }
-> = {
+const BUILTIN_WIDGET_DEFAULTS: {
+  [K in BuiltinStudioWidgetKind]: () => { title: string; config: StudioWidgetConfigForKind<K> };
+} = {
   text: () => ({ title: 'Text block', config: { textSubtitle: '', textBody: '' } }),
   grid: () => ({ title: '', config: { columns: [] } }),
   chart: () => ({ title: '', config: { chartType: 'bar' } }),
@@ -83,14 +82,18 @@ const BUILTIN_WIDGET_DEFAULTS: Record<
 };
 
 /**
- * Creates a default `StudioWidget` for the given kind, with sensible
- * empty config. Used by `executeToolOnState` when the `add_widget` tool
- * is called without a full config.
+ * Creates a default widget for the given kind, with sensible empty config. Used
+ * by `executeToolOnState` when the `add_widget` tool is called without a full
+ * config.
+ *
+ * Generic over the kind `K`, so `createDefaultWidget('grid')` returns a
+ * `StudioWidgetOf<'grid'>` whose `config` is already narrowed to the grid config
+ * shape — callers get the precise per-kind type without a manual narrow.
  */
-export function createDefaultWidget(
-  kind: StudioWidgetKind,
+export function createDefaultWidget<K extends StudioWidgetKind>(
+  kind: K,
   overrides?: { title?: string; customConfig?: Record<string, unknown> },
-): StudioWidget {
+): StudioWidgetOf<K> {
   const id = createWidgetId();
 
   // `Object.hasOwn` (not `kind in BUILTIN_WIDGET_DEFAULTS`) so an untrusted kind
@@ -101,6 +104,11 @@ export function createDefaultWidget(
   // that crashes on the first `widget.config.*` access downstream). The table
   // stays a `Record<BuiltinStudioWidgetKind, …>` so the per-kind exhaustiveness
   // check is preserved; only the membership test is hardened.
+  //
+  // The `as StudioWidgetOf<K>` casts below are unavoidable: `K` is an
+  // unresolved generic, so TS cannot evaluate the `StudioWidgetConfigForKind<K>`
+  // conditional to see that each branch's concrete config matches it. The
+  // runtime dispatch on `kind` is exactly what makes the concrete shape correct.
   if (!Object.hasOwn(BUILTIN_WIDGET_DEFAULTS, kind)) {
     // Custom widget kind
     return {
@@ -108,7 +116,7 @@ export function createDefaultWidget(
       kind,
       title: overrides?.title ?? kind,
       config: { customConfig: overrides?.customConfig ?? {} },
-    };
+    } as StudioWidgetOf<K>;
   }
 
   const { title, config } = BUILTIN_WIDGET_DEFAULTS[kind as BuiltinStudioWidgetKind]();
@@ -117,7 +125,7 @@ export function createDefaultWidget(
     kind,
     title: overrides?.title ?? title,
     config,
-  };
+  } as StudioWidgetOf<K>;
 }
 
 /**

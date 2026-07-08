@@ -1,6 +1,7 @@
 import type {
   StudioFilterWidgetType,
   StudioWidgetKind,
+  BuiltinStudioWidgetKind,
   StudioGridSummaryAggregation,
   StudioBarLayout,
   StudioCrossFilterMode,
@@ -675,9 +676,44 @@ export interface StudioWidgetConfig
     Partial<StudioPivotConfig>,
     Partial<StudioMapConfig> {}
 
-export interface StudioWidget {
+/**
+ * Maps each built-in widget kind to its OWN config interface (the shared
+ * `StudioSharedWidgetConfig` slice is added separately by
+ * `StudioWidgetConfigForKind`, so it is intentionally not repeated here). This
+ * is the single source of truth wiring a `widget.kind` discriminant to the
+ * precise config shape valid for that kind.
+ */
+export interface StudioWidgetConfigByKind {
+  grid: StudioGridConfig;
+  chart: StudioChartConfig;
+  kpi: StudioKpiConfig;
+  text: StudioTextConfig;
+  filter: StudioFilterWidgetConfig;
+  pivot: StudioPivotConfig;
+  map: StudioMapConfig;
+}
+
+/**
+ * The precise config shape for a widget of kind `K`: the shared config chrome
+ * plus that kind's own config interface. For an unknown / consumer-defined
+ * custom kind (a `K` that is not one of the built-in kinds), only the shared
+ * config plus `customConfig` is allowed — a custom widget has no built-in
+ * per-kind config surface.
+ */
+export type StudioWidgetConfigForKind<K extends StudioWidgetKind> = StudioSharedWidgetConfig &
+  (K extends keyof StudioWidgetConfigByKind
+    ? StudioWidgetConfigByKind[K]
+    : { customConfig?: Record<string, unknown> });
+
+/**
+ * A widget of a single, statically-known kind `K`. Its `config` is narrowed to
+ * exactly `StudioWidgetConfigForKind<K>`, so a Chart-only config key no longer
+ * type-checks on a Grid widget. The non-`config` fields are identical for every
+ * kind (this is the discriminated-union member shape).
+ */
+export interface StudioWidgetOf<K extends StudioWidgetKind> {
   id: string;
-  kind: StudioWidgetKind;
+  kind: K;
   title: string;
   /** 'auto' = recompute from config on every change (default). 'manual' = user-set title. */
   titleMode?: 'auto' | 'manual';
@@ -685,8 +721,23 @@ export interface StudioWidget {
   /** 'auto' = recompute from config on every change (default). 'manual' = user-set subtitle. */
   subtitleMode?: 'auto' | 'manual';
   sourceId?: string;
-  config: StudioWidgetConfig;
+  config: StudioWidgetConfigForKind<K>;
 }
+
+/**
+ * A Studio widget: a discriminated union over the built-in kinds (each with its
+ * kind-specific `config`), plus a catch-all member for consumer-defined custom
+ * kinds. Narrowing on `widget.kind` (e.g. `if (widget.kind === 'chart')`)
+ * refines `widget.config` to that kind's precise config shape.
+ *
+ * Code that must operate on a widget's config BEFORE its kind is known, or
+ * across kinds by design (the reducer, `StudioController.updateWidgetConfig`,
+ * the AI tool-argument builder, cross-kind registries), uses the flat
+ * `StudioWidgetConfig` patch type instead.
+ */
+export type StudioWidget =
+  | { [K in BuiltinStudioWidgetKind]: StudioWidgetOf<K> }[BuiltinStudioWidgetKind]
+  | StudioWidgetOf<string & {}>;
 
 export interface StudioPageTheme {
   /** Canvas background colour (CSS colour string). Default: theme grey. */

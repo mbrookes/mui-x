@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '@mui/x-studio-schema';
 import { applyDocMutation, applyMutation, mutationLabel } from './applyMutation';
 import type { StudioDoc, StudioState } from './stateTypes';
-import type { StudioWidget } from './widgetTypes';
+import type { StudioWidgetOf } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 
-const chartWidget = (id: string, title = 'W'): StudioWidget => ({
+// Annotated as the precise `StudioWidgetOf<'chart'>` (not the `StudioWidget`
+// union) so the `kind: 'chart'` discriminant survives object spreads at call
+// sites — a `{ ...chartWidget(id), config: { chartType: 'line' } }` fixture then
+// still narrows to the chart member instead of collapsing to the whole union.
+const chartWidget = (id: string, title = 'W'): StudioWidgetOf<'chart'> => ({
   id,
   kind: 'chart',
   title,
@@ -510,7 +514,7 @@ describe('applyMutation', () => {
     it('an unset always wins over a same-mutation set of the same key (unsets run last)', () => {
       const state = makeDoc({
         widgets: {
-          w1: { id: 'w1', kind: 'grid', title: 'T', sourceId: 'old', config: { xField: 'a' } },
+          w1: { id: 'w1', kind: 'chart', title: 'T', sourceId: 'old', config: { xField: 'a' } },
         },
       });
       const next = applyDocMutation(state, {
@@ -1491,7 +1495,7 @@ describe('applyMutation', () => {
 // the reducer, so they must come out the other side as the SAME object references.
 // This makes the compile-time access boundary observable at runtime.
 describe('applyMutation wrapper — reducer cannot touch session/runtime', () => {
-  const chart = (id: string): StudioWidget => ({
+  const chart = (id: string): StudioWidgetOf<'chart'> => ({
     id,
     kind: 'chart',
     title: 'W',

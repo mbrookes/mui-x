@@ -431,7 +431,9 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
     const value = Number(args[0]);
     return Number.isNaN(value) ? null : value;
   },
-  toString: (args) => stringify(args[0]),
+  // Explicit parameter type: the `toString` key's contextual type gets
+  // captured by Object.prototype.toString instead of the Record signature.
+  toString: (args: unknown[]) => stringify(args[0]),
   year: (args) => toDate(args[0])?.getFullYear() ?? null,
   month: (args) => toDate(args[0])?.getMonth() ?? null,
   date: (args) => toDate(args[0])?.getDate() ?? null,

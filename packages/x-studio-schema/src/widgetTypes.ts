@@ -547,8 +547,15 @@ export interface StudioSankeyChartConfig extends StudioChartConfigBase {
   sankeyShowValues?: boolean;
 }
 
-/** Pie/donut family (`pie` / `donut`) — both rendered by `renderPieDonut`. */
-export interface StudioPieFamilyChartConfig extends StudioChartConfigBase {
+/**
+ * Pie/donut family (`pie` / `donut`) — both rendered by `renderPieDonut`.
+ *
+ * Extends `StudioChartSortConfig` and carries `xGroupBy` because the sort and
+ * date-group-by keys are read one layer ABOVE `renderPieDonut`, in the shared
+ * `useChartWidgetData` aggregation that builds the pie/donut `chartData` — the
+ * compose drawer's Sort and Group-by controls write them for pie/donut too.
+ */
+export interface StudioPieFamilyChartConfig extends StudioChartConfigBase, StudioChartSortConfig {
   /** Chart sub-type. */
   chartType: 'pie' | 'donut';
   /** Slice (category) field. */
@@ -564,6 +571,11 @@ export interface StudioPieFamilyChartConfig extends StudioChartConfigBase {
   ySeries?: StudioChartSeries[];
   /** Group/series field used to split into multiple concentric rings. */
   seriesField?: string;
+  /**
+   * Granularity to truncate a date/datetime slice field (`xField`) before grouping.
+   * Read by the shared `useChartWidgetData` aggregation that feeds `renderPieDonut`.
+   */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
    * Label shown on each arc.
    * - 'value': the formatted numeric value

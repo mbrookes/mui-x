@@ -74,12 +74,16 @@ export function isChartConfigOfType<T extends StudioChartType>(
 }
 
 /**
- * Every `StudioChartType` literal, derived-checked against `StudioChartConfigByType`'s
- * keys (via `satisfies`) so this list cannot drift from the union — adding a chart
- * type without a `StudioChartConfigByType` entry is already a compile error there,
- * and dropping one here fails this `satisfies`.
+ * Every `StudioChartType` literal. The `as const` preserves the literal element
+ * types so `(typeof STUDIO_CHART_TYPES)[number]` is the exact union of listed types;
+ * the `satisfies readonly (keyof StudioChartConfigByType)[]` clause checks each
+ * element is a VALID chart type (no stray entry). Element-validity alone does NOT
+ * enforce COMPLETENESS — a list missing `'gauge'` still satisfies it — so the
+ * `AssertAllChartTypesListed` error-tuple lock below (the same pattern as
+ * `widgetTypes.ts`'s `AssertChartTypesCovered`) fails the build if any
+ * `StudioChartType` literal is absent from this list.
  */
-export const STUDIO_CHART_TYPES: readonly StudioChartType[] = [
+export const STUDIO_CHART_TYPES = [
   'bar',
   'bar-stacked',
   'bar-100',
@@ -96,7 +100,25 @@ export const STUDIO_CHART_TYPES: readonly StudioChartType[] = [
   'donut',
   'scatter',
   'gauge',
-] satisfies readonly (keyof StudioChartConfigByType)[];
+] as const satisfies readonly (keyof StudioChartConfigByType)[];
+
+/**
+ * Fail-closed compile-time assertion that EVERY `StudioChartType` literal appears in
+ * `STUDIO_CHART_TYPES`. Resolves to `true` when the list is complete; otherwise to a
+ * descriptive error tuple naming the missing chart types, which makes the
+ * `ALL_CHART_TYPES_LISTED` binding below fail to compile. This is what actually
+ * fail-closes the list — `isStudioChartType` gates every `addWidget`/`add_widget`
+ * boundary, so a new chart type missing here would be silently rejected everywhere.
+ */
+type AssertAllChartTypesListed =
+  Exclude<StudioChartType, (typeof STUDIO_CHART_TYPES)[number]> extends never
+    ? true
+    : [
+        'STUDIO_CHART_TYPES is missing:',
+        Exclude<StudioChartType, (typeof STUDIO_CHART_TYPES)[number]>,
+      ];
+const ALL_CHART_TYPES_LISTED: AssertAllChartTypesListed = true;
+void ALL_CHART_TYPES_LISTED;
 
 /** Runtime membership test for the closed `StudioChartType` union. */
 export function isStudioChartType(value: string): value is StudioChartType {

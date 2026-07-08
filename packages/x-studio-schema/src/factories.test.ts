@@ -4,6 +4,9 @@ import {
   createDefaultStudioState,
   createWidgetId,
   createMutationId,
+  createPageId,
+  createPresetId,
+  createFilterId,
   createMutationEnvelope,
   normalizeChartSeries,
 } from './factories';
@@ -120,6 +123,39 @@ describe('createMutationId', () => {
 
   it('produces ids with the `mut-` prefix', () => {
     expect(createMutationId()).toMatch(/^mut-/);
+  });
+});
+
+describe('createPageId', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const ids = Array.from({ length: 1000 }, () => createPageId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids with the `page-` prefix', () => {
+    expect(createPageId()).toMatch(/^page-/);
+  });
+});
+
+describe('createPresetId', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const ids = Array.from({ length: 1000 }, () => createPresetId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids with the `preset-` prefix', () => {
+    expect(createPresetId()).toMatch(/^preset-/);
+  });
+});
+
+describe('createFilterId', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const ids = Array.from({ length: 1000 }, () => createFilterId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids with the `filter-` prefix', () => {
+    expect(createFilterId()).toMatch(/^filter-/);
   });
 });
 

@@ -16,8 +16,9 @@
  * only the persisted state-shape transformation.
  */
 import type { StudioState, StudioDoc, StudioFilterState } from './stateTypes';
-import type { StudioWidget } from './widgetTypes';
+import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
+import { normalizeChartSeries } from './factories';
 
 /**
  * Widget column-span unit system, and the single source of truth for it.
@@ -63,6 +64,31 @@ function clampSpan(span: number): number {
 const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
 function isSafePatchKey(key: string): boolean {
   return !UNSAFE_KEYS.has(key);
+}
+
+/**
+ * Normalizes the deprecated `seriesType` alias to the canonical `type` on a config's
+ * `ySeries`, so the alias never survives a LIVE write (`updateWidget`/`addWidget`) —
+ * `deserializeState` normalizes only at the load boundary, so without this a widget
+ * written with `seriesType` would keep the alias until the next reload. Reference-
+ * stable: returns the SAME config when there is no `ySeries` or every entry is
+ * already canonical, so the reducer's no-op detection is preserved. Runs across kinds
+ * by design (only chart configs carry `ySeries`), reading the flat config shape.
+ */
+function normalizeConfigChartSeries<C extends object>(config: C): C {
+  const ySeries = (config as { ySeries?: unknown }).ySeries;
+  if (!Array.isArray(ySeries)) {
+    return config;
+  }
+  let changed = false;
+  const nextSeries = (ySeries as StudioChartSeries[]).map((series) => {
+    const normalized = normalizeChartSeries(series);
+    if (normalized !== series) {
+      changed = true;
+    }
+    return normalized;
+  });
+  return changed ? ({ ...config, ySeries: nextSeries } as C) : config;
 }
 
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed
@@ -332,14 +358,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (Object.hasOwn(state.widgets, widget.id)) {
         return state;
       }
+      // Normalize the deprecated `seriesType` alias to canonical `type` on write, so
+      // the alias never survives a live add (it is otherwise only normalized at the
+      // load boundary in `deserializeState`). Reference-stable when already canonical.
+      const normalizedConfig = normalizeConfigChartSeries(widget.config);
+      const normalizedWidget =
+        normalizedConfig === widget.config
+          ? widget
+          : ({ ...widget, config: normalizedConfig } as StudioWidget);
       return {
         ...state,
-        widgets: { ...state.widgets, [widget.id]: widget },
+        widgets: { ...state.widgets, [normalizedWidget.id]: normalizedWidget },
         pages: {
           ...state.pages,
           [pageId]: {
             ...page,
-            widgetRows: [...(page.widgetRows ?? []), [widget.id]],
+            widgetRows: [...(page.widgetRows ?? []), [normalizedWidget.id]],
           },
         },
       };
@@ -365,8 +399,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
       if (config !== undefined) {
+        // Normalize the deprecated `seriesType` alias on the incoming patch's
+        // `ySeries` to canonical `type`, so the alias never survives a live write
+        // (it is otherwise only normalized at the load boundary in
+        // `deserializeState`). Scoped to the patch — a pre-existing alias the patch
+        // doesn't touch is left as-is so a no-op patch stays a no-op.
+        const patch = normalizeConfigChartSeries(config);
         const nextConfig = { ...existing.config } as Record<string, unknown>;
-        for (const [key, value] of Object.entries(config)) {
+        // Track whether any key actually changed (a deletion of a PRESENT key, or a
+        // value that differs from the existing one). A patch that changes nothing
+        // (`{}`, or every key re-set to its current value) must NOT re-wrap the
+        // widget — otherwise `commitDocPatch`'s reference-equality no-op guard on the
+        // client would push a spurious undo entry. Mirrors the `changedConfig` flag
+        // the `unsetConfigKeys` branch below uses.
+        let changedConfig = false;
+        for (const [key, value] of Object.entries(patch)) {
           // Skip prototype-polluting keys: `nextConfig['__proto__'] = value` would
           // rewrite the record's prototype rather than add an own key. `nextConfig`
           // is retained as the widget's config, so this is the live pollution vector
@@ -375,12 +422,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             continue;
           }
           if (value === undefined) {
-            delete nextConfig[key];
-          } else {
+            if (Object.hasOwn(nextConfig, key)) {
+              delete nextConfig[key];
+              changedConfig = true;
+            }
+          } else if (!Object.hasOwn(nextConfig, key) || nextConfig[key] !== value) {
             nextConfig[key] = value;
+            changedConfig = true;
           }
         }
-        updated = { ...updated, config: nextConfig as StudioWidget['config'] };
+        if (changedConfig) {
+          updated = { ...updated, config: nextConfig as StudioWidget['config'] };
+        }
       }
       // `changes` is a shallow merge onto the widget (may itself carry a full
       // `config` object, which replaces the partial-merge result above — this
@@ -394,7 +447,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         for (const [key, value] of Object.entries(changes)) {
           // Skip unsafe keys (defense-in-depth; the spread below copies own props
           // only, so this is a latent rather than live vector) and `undefined` values.
-          if (isSafePatchKey(key) && value !== undefined) {
+          // Also skip `id`: it is the `state.widgets` map key, so a `changes.id` would
+          // desync `widget.id` from its key (splitting every id-keyed invariant). The
+          // wire boundary (`parseStateMutation`) rejects a `changes.id` too — this is
+          // the defense-in-depth copy for a server-built mutation bypassing the parser,
+          // mirroring the `unsetFields` `id` denylist.
+          if (key !== 'id' && isSafePatchKey(key) && value !== undefined) {
             definedChanges[key] = value;
           }
         }
@@ -446,6 +504,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         if (changedWidget) {
           updated = nextWidget as unknown as StudioWidget;
         }
+      }
+      // Reference-equality no-op: if no branch above changed the widget (an empty or
+      // identical-value config patch, an unset of absent keys, …), return the SAME
+      // state reference so `commitDocPatch`'s no-op guard skips pushing an undo entry.
+      if (updated === existing) {
+        return state;
       }
       return {
         ...state,
@@ -797,15 +861,30 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // the primitive returns `state.widgets` by reference on a no-op removal.
       const nextWidgets = { ...prunedWidgets };
       for (const widget of addedWidgets ?? []) {
-        nextWidgets[widget.id] = widget;
-      }
-      for (const update of updatedWidgets ?? []) {
-        const existing = nextWidgets[update.widgetId];
-        // Skip patches for widgets that no longer exist (e.g. removed out from under
-        // the update by a concurrent edit) rather than resurrecting a partial widget.
-        if (!existing) {
+        // `isSafePatchKey` before the bracket assignment (matching every other handler
+        // and the `UNSAFE_KEYS` convention): `nextWidgets['__proto__'] = widget` would
+        // re-prototype the record rather than add an own key. The wire path is already
+        // shielded by `parseStateMutation`'s `isSafeId` check on `addedWidgets[].id`;
+        // this is the defense-in-depth copy for a server-built mutation bypassing it.
+        if (!isSafePatchKey(widget.id)) {
           continue;
         }
+        // Normalize the deprecated `seriesType` alias on write (reference-stable when
+        // already canonical), so a bulk-added widget matches the load-boundary shape.
+        const normalizedConfig = normalizeConfigChartSeries(widget.config);
+        nextWidgets[widget.id] =
+          normalizedConfig === widget.config
+            ? widget
+            : ({ ...widget, config: normalizedConfig } as StudioWidget);
+      }
+      for (const update of updatedWidgets ?? []) {
+        // `Object.hasOwn` existence check (not truthy `nextWidgets[update.widgetId]`)
+        // so an untrusted `widgetId` like `'constructor'` resolves to "no such widget"
+        // instead of the `Object` prototype member (a truthy phantom "existing widget").
+        if (!Object.hasOwn(nextWidgets, update.widgetId)) {
+          continue;
+        }
+        const existing = nextWidgets[update.widgetId];
         nextWidgets[update.widgetId] = {
           ...existing,
           ...(update.title !== undefined ? { title: update.title } : {}),

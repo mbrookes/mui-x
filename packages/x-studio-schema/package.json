@@ -16,7 +16,7 @@
     "build": "echo 'build not yet implemented'",
     "test:unit": "vitest --config vitest.config.node.mts"
   },
-  "devDependencies": {
+  "dependencies": {
     "@mui/x-chat-headless": "workspace:*"
   }
 }

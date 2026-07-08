@@ -60,6 +60,23 @@ describe('applyMutation', () => {
     expect(next.pages['page-2'].widgetRows.flat()).toContain('w1');
   });
 
+  it('addWidget normalizes a live `seriesType`-carrying config to canonical `type` (3.2)', () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'W',
+      config: { chartType: 'mixed', ySeries: [{ fieldId: 'revenue', seriesType: 'line' }] },
+    };
+    const next = applyDocMutation(twoPageState('page-1'), {
+      type: 'addWidget',
+      args: { widget, pageId: 'page-1' },
+    });
+    const series = (next.widgets.w1.config as { ySeries: Array<Record<string, unknown>> })
+      .ySeries[0];
+    expect(series.type).toBe('line');
+    expect('seriesType' in series).toBe(false);
+  });
+
   it('addWidget is idempotent: re-delivering the same event does not add a duplicate row', () => {
     const mutation = {
       type: 'addWidget' as const,
@@ -420,6 +437,70 @@ describe('applyMutation', () => {
       });
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
       expect('xGroupBy' in next.widgets.w1.config).toBe(false);
+    });
+
+    it('drops an `id` key in `changes` even from a raw (parser-bypassing) mutation (1.2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      // A server-built mutation bypassing `parseStateMutation` must not be able to
+      // desync `widget.id` from its `state.widgets` map key.
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { id: 'w2', title: 'Renamed' } as never },
+      });
+      // The map key still holds w1, whose `.id` is unchanged; the title change applied.
+      expect(next.widgets.w1.id).toBe('w1');
+      expect(next.widgets.w1.title).toBe('Renamed');
+      expect(next.widgets.w2).toBeUndefined();
+    });
+
+    it('normalizes a live `seriesType`-carrying config to canonical `type` immediately (3.2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'mixed' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: {
+          widgetId: 'w1',
+          config: { ySeries: [{ fieldId: 'revenue', seriesType: 'line' }] },
+        },
+      });
+      const series = (next.widgets.w1.config as { ySeries: Array<Record<string, unknown>> })
+        .ySeries[0];
+      expect(series.type).toBe('line');
+      expect('seriesType' in series).toBe(false);
+    });
+
+    it('an identical-value config patch returns the SAME state reference (no undo step) (3.5)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      // Re-setting every key to its current value changes nothing.
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: 'bar', xField: 'a' } },
+      });
+      expect(next).toBe(state);
+    });
+
+    it('an all-stripped-to-{} config patch returns the SAME state reference (no undo step) (3.5)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: {} },
+      });
+      expect(next).toBe(state);
     });
 
     it('skips an undefined-valued key in `changes` so it cannot void a required field', () => {
@@ -1331,6 +1412,56 @@ describe('applyMutation', () => {
       expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
       // old2 itself also survives in the global widgets record (never truly removed).
       expect(next.widgets.old2).toEqual(chartWidget('old2'));
+    });
+
+    // 2.2: applyBulkUpdate must follow the file's own prototype-hygiene convention
+    // (isSafePatchKey on inserts, Object.hasOwn on existence checks) for a
+    // server-built mutation that bypasses `parseStateMutation`'s isSafeId check.
+    it('an added widget with a __proto__ id does not re-prototype nextWidgets', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('__proto__'), chartWidget('good')],
+          updatedWidgets: [],
+          widgetRows: [['good']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      // The record's prototype is intact (the unsafe insert was skipped, not applied).
+      expect(Object.getPrototypeOf(next.widgets)).toBe(Object.prototype);
+      expect(Object.hasOwn(next.widgets, 'good')).toBe(true);
+      // No own `__proto__` widget entry was created.
+      expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
+    });
+
+    it('an update for a `constructor` widget id is a clean no-op, not a phantom-existing write', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['good']] } },
+        widgets: { good: chartWidget('good') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          // `nextWidgets['constructor']` would resolve to `Object` (truthy) under the old
+          // bracket lookup; `Object.hasOwn` treats it as "no such widget".
+          updatedWidgets: [{ widgetId: 'constructor', title: 'Hacked' }],
+          widgetRows: [['good']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(Object.getPrototypeOf(next.widgets)).toBe(Object.prototype);
+      expect(Object.hasOwn(next.widgets, 'constructor')).toBe(false);
+      expect(next.widgets.good).toEqual(chartWidget('good'));
     });
   });
 

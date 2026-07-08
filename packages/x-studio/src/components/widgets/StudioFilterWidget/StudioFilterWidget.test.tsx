@@ -1,7 +1,12 @@
 import * as React from 'react';
 import { createRenderer, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import type { StudioWidget, StudioWidgetConfig, StudioDataSource } from '../../../models';
+import type {
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+  StudioWidgetOf,
+  StudioDataSource,
+} from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioFilterWidget } from './StudioFilterWidget';
 
@@ -20,13 +25,13 @@ const DATA_SOURCE: StudioDataSource = {
   ],
 };
 
-function filterWidget(config: Partial<StudioWidgetConfig>): StudioWidget {
+function filterWidget(config: Partial<StudioWidgetConfig>): StudioWidgetOf<'filter'> {
   return {
     id: 'w1',
     kind: 'filter',
     title: 'Filter',
     sourceId: 'orders',
-    config: config as StudioWidgetConfig,
+    config: config as StudioWidgetConfigForKind<'filter'>,
   };
 }
 

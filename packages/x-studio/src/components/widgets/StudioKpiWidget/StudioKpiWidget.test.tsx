@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   StudioDataSource,
   StudioState,
-  StudioWidget,
+  StudioWidgetOf,
   StudioExpressionField,
   StudioRelationship,
   StudioFilterState,
@@ -114,7 +114,7 @@ function createState(overrides?: StateOverrides): StudioState {
 
 const { render } = createRenderer();
 
-function renderKpi(widget: StudioWidget, dataSource: StudioDataSource) {
+function renderKpi(widget: StudioWidgetOf<'kpi'>, dataSource: StudioDataSource) {
   return render(
     <ThemeProvider theme={createTheme()}>
       <StudioKpiWidget
@@ -209,14 +209,14 @@ const revenueMeasure: StudioExpressionField = {
   expression: { id: 'amount', aggregation: 'sum' },
 } as unknown as StudioExpressionField;
 
-function makeWidget(config: Record<string, unknown>, sourceId: string): StudioWidget {
+function makeWidget(config: Record<string, unknown>, sourceId: string): StudioWidgetOf<'kpi'> {
   return {
     id: 'kpi-1',
     kind: 'kpi',
     title: 'KPI',
     sourceId,
     config,
-  } as unknown as StudioWidget;
+  } as unknown as StudioWidgetOf<'kpi'>;
 }
 
 describe('<StudioKpiWidget /> fixed-period trend correctness', () => {

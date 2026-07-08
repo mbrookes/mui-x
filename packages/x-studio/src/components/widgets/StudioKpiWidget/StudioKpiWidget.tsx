@@ -5,7 +5,9 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type {
   StudioDataSource,
-  StudioWidget,
+  StudioWidgetOf,
+  StudioWidgetConfigForKind,
+  StudioWidgetConfig,
   StudioFilterState,
   StudioKpiAggregation,
   StudioExpressionField,
@@ -65,7 +67,7 @@ export interface StudioKpiWidgetSlotProps {
 }
 
 export interface StudioKpiWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'kpi'>;
   dataSource?: StudioDataSource;
   /** ID of the page this widget belongs to. Used to scope page-level filters correctly. */
   pageId: string;
@@ -133,7 +135,7 @@ function computePeriodValue(
   return computeAggregate(periodRows, valueField, aggregation);
 }
 
-type KpiConfig = StudioWidget['config'];
+type KpiConfig = StudioWidgetConfigForKind<'kpi'>;
 
 /**
  * Fixed-period trend: derive rolling current/previous windows from today, window the
@@ -197,7 +199,7 @@ function computeFixedPeriodTrend(
  */
 function computeFilterBasedTrend(params: {
   config: KpiConfig;
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource;
   filters: StudioFilterState[];
   currentValue: number;
@@ -474,7 +476,7 @@ function useKpiValue(params: {
  */
 function useKpiSparkline(params: {
   config: KpiConfig;
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
   filters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
@@ -604,7 +606,7 @@ function useKpiSparkline(params: {
  */
 function useKpiTrend(params: {
   config: KpiConfig;
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
   filters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
@@ -743,10 +745,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // from summary cards; 'cross-filter' opts in to context-sensitivity.
   // 'cross-highlight' is not applicable to KPIs (no visual row representation), but treat
   // it as 'cross-filter' for backward compatibility with any saved dashboard configs.
+  const crossFilterModeRaw = (config as StudioWidgetConfig).crossFilterMode;
   const crossFilterMode =
-    config.crossFilterMode === 'cross-highlight'
-      ? 'cross-filter'
-      : (config.crossFilterMode ?? 'none');
+    crossFilterModeRaw === 'cross-highlight' ? 'cross-filter' : (crossFilterModeRaw ?? 'none');
 
   // Current-period rows via the shared pipeline hook.
   // When crossFilterMode is 'none' (default) we deliberately use filteredRowsNoCross so

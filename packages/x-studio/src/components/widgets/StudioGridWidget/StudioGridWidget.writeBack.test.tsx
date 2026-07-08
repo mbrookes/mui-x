@@ -6,7 +6,7 @@ import type {
   ClientMutationResult,
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
-  StudioWidget,
+  StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
@@ -55,7 +55,7 @@ function makeSource(submitMutation: ReturnType<typeof vi.fn>): StudioDataSource 
   };
 }
 
-function makeWidget(): StudioWidget {
+function makeWidget(): StudioWidgetOf<'grid'> {
   return {
     id: 'grid-1',
     kind: 'grid',

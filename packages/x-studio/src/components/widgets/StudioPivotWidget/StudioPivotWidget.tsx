@@ -4,12 +4,12 @@ import { Box, Skeleton, Typography } from '@mui/material';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useStudioLocaleText } from '../../../context';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
-import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import { PivotTable } from './PivotTable';
 import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
 
 export interface StudioPivotWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'pivot'>;
   dataSource?: StudioDataSource;
   /** ID of the page this widget belongs to. Used to scope page-level filters correctly. */
   pageId: string;

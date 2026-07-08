@@ -2,13 +2,13 @@
 import * as React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
-import type { StudioWidget } from '../../../models';
+import type { StudioWidgetOf } from '../../../models';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
 import { resolveTextFontFamily } from '../../../internals/textFontFamily';
 
 export interface StudioTextWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'text'>;
   /** Ref that receives the AI refresh function when AI mode is active. */
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }
@@ -19,7 +19,7 @@ function TextWidgetAIContent({
   widget,
   aiRefreshRef,
 }: {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'text'>;
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const { markdown, loading, error, refresh } = useTextWidgetAI(

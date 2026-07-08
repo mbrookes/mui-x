@@ -21,6 +21,7 @@ import {
 } from '../../context';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import type { StudioWidgetConfig } from '../../models';
 
 interface PivotSetupPanelProps {
   widgetId: string;
@@ -33,7 +34,12 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
-  const config = widget?.config ?? {};
+  // NOTE: This panel is intentionally still typed against the flat, cross-kind
+  // `StudioWidgetConfig` (all keys optional). Its migration onto the precise
+  // per-kind `StudioWidgetConfigForKind<'pivot'>` is owned by a separate unit;
+  // the cast below only keeps it compiling under the new discriminated
+  // `StudioWidget` union without doing that migration here.
+  const config = (widget?.config ?? {}) as StudioWidgetConfig;
 
   const aggFn = config.pivotAggregation ?? 'sum';
   const showTotals = config.pivotShowTotals ?? true;

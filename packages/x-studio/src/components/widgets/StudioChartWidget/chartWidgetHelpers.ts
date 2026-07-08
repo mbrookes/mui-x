@@ -14,7 +14,7 @@ import type {
   StudioDataSource,
   StudioExpressionField,
   StudioNumberFormat,
-  StudioWidget,
+  StudioWidgetConfigForKind,
 } from '../../../models';
 
 /** A temporal-gap-densified aggregation — gap-filled positions carry `null` values. */
@@ -260,7 +260,7 @@ export function densifyBarLabels(labels: (string | number)[]) {
 
 export function createLineXAxisConfig(
   labels: (string | number)[],
-  xGroupBy: StudioWidget['config']['xGroupBy'],
+  xGroupBy: StudioWidgetConfigForKind<'chart'>['xGroupBy'],
   formatLabel: (label: string | number) => string,
   axisId?: string,
 ) {

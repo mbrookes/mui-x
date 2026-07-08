@@ -1,13 +1,22 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioWidget, StudioWidgetConfig } from '../../../models';
+import type {
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+  StudioWidgetOf,
+} from '../../../models';
 import { StudioTextWidget } from './StudioTextWidget';
 
 const { render } = createRenderer();
 
-function makeWidget(config: Partial<StudioWidgetConfig>): StudioWidget {
-  return { id: 't1', kind: 'text', title: 'Text', config: config as StudioWidgetConfig };
+function makeWidget(config: Partial<StudioWidgetConfig>): StudioWidgetOf<'text'> {
+  return {
+    id: 't1',
+    kind: 'text',
+    title: 'Text',
+    config: config as StudioWidgetConfigForKind<'text'>,
+  };
 }
 
 describe('StudioTextWidget', () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioFilterState, StudioQueryDescriptor, StudioWidget } from '../../../models';
+import type { StudioFilterState, StudioQueryDescriptor, StudioWidgetOf } from '../../../models';
 import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
 import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
 import { buildQueryDescriptor } from '../../../internals/queryDescriptor';
@@ -34,7 +34,10 @@ export interface BlendedSeriesRows {
  * descriptor. The single output consumed by the caller is `foreignRowsBySource`,
  * which the blended aggregation aligns against the primary series.
  */
-export function useBlendedSeriesRows(widget: StudioWidget, pageId: string): BlendedSeriesRows {
+export function useBlendedSeriesRows(
+  widget: StudioWidgetOf<'chart'>,
+  pageId: string,
+): BlendedSeriesRows {
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
 
@@ -159,7 +162,7 @@ export function useBlendedSeriesRows(widget: StudioWidget, pageId: string): Blen
       const seriesForSource = (blendSeries ?? []).filter(
         (s) => s.sourceId === spec.sid && s.fieldId,
       );
-      const syntheticWidget: StudioWidget = {
+      const syntheticWidget: StudioWidgetOf<'chart'> = {
         id: `${widget.id}::blend::${spec.sid}`,
         kind: 'chart',
         title: '',

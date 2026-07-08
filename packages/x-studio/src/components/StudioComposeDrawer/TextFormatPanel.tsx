@@ -6,14 +6,14 @@ import {
   selectWidgets,
   useStudioLocaleText,
 } from '../../context';
-import type { StudioWidgetConfig } from '../../models';
+import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 import { TextSectionFormat } from './TextSectionFormat';
 
 export function TextFormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
-  const config = widget?.config;
+  const config = widget?.config as StudioWidgetConfigForKind<'text'> | undefined;
   const localeText = useStudioLocaleText();
 
   if (!config) {

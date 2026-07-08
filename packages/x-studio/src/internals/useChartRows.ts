@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioWidget } from '../models';
+import type { StudioWidgetOf } from '../models';
 import {
   useStudioSelector,
   selectDataSources,
@@ -30,7 +30,7 @@ type Row = Record<string, unknown>;
  */
 export function useChartRows(
   filteredRows: Row[],
-  widget: StudioWidget,
+  widget: StudioWidgetOf<'chart'>,
   activeYFields: string[],
   chartSupport: ChartSupportResult,
 ): Row[] {

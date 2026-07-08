@@ -28,7 +28,12 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import type { StudioGridColumn, StudioGridSummaryAggregation } from '../../models';
+import type {
+  StudioGridColumn,
+  StudioGridSummaryAggregation,
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+} from '../../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -88,6 +93,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
     max: localeText.aggFnMax,
   };
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget` comes from a broad selector, so its `config` is the cross-kind union.
+  // Narrow to the grid config shape for reading grid-specific keys.
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'grid'>;
 
   // configColumns: the current StudioGridColumn[] from widget config, or default all-primary-fields
   const primaryFields = React.useMemo(
@@ -95,11 +103,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
     [source],
   );
   const configColumns: StudioGridColumn[] = React.useMemo(() => {
-    if (widget?.config?.columns?.length) {
-      return widget.config.columns;
+    if (config.columns?.length) {
+      return config.columns;
     }
     return primaryFields.map((f) => ({ fieldId: f.id }));
-  }, [widget?.config?.columns, primaryFields]);
+  }, [config.columns, primaryFields]);
 
   // All selectable fields: primary source + many-to-one reachable related sources +
   // calculated columns (non-measure expression fields).
@@ -203,14 +211,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
   }, [addableFields]);
 
   // For cross-filter, group-by, and sort pickers: only primary source fields
-  const crossFilterField = widget?.config?.crossFilterField ?? '';
+  const crossFilterField = config.crossFilterField ?? '';
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
-    widget?.config?.gridSummaryFields ?? {};
-  const groupByField = widget?.config?.gridGroupByField ?? '';
+    config.gridSummaryFields ?? {};
+  const groupByField = config.gridGroupByField ?? '';
   const groupAggregations: Record<string, StudioGridSummaryAggregation> =
-    widget?.config?.gridAggregations ?? {};
-  const sortField = widget?.config?.gridSortField ?? '';
-  const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
+    config.gridAggregations ?? {};
+  const sortField = config.gridSortField ?? '';
+  const sortDirection = config.gridSortDirection ?? 'asc';
 
   const availableSources = React.useMemo(
     () => Object.values(dataSources).filter((s) => !s.hidden),
@@ -687,7 +695,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
             dividerMb={0}
             modes={['cross-highlight', 'cross-filter', 'none']}
             defaultMode="cross-highlight"
-            value={widget.config?.crossFilterMode}
+            // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
+            value={(config as StudioWidgetConfig).crossFilterMode}
           />
         </React.Fragment>
       )}

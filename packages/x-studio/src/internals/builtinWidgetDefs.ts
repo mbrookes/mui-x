@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box } from '@mui/material';
 import type { StudioCustomWidgetDef, StudioCustomWidgetSetupPanelProps } from '../models';
 import type { BuiltinStudioWidgetKind } from '../models/baseTypes';
+import type { StudioWidgetOf } from '../models';
 import {
   useStudioUIConfig,
   type StudioWidgetDef,
@@ -45,8 +46,11 @@ const MAP_WIDGET_DEFAULT_HEIGHT = 400;
 // ── Render wrappers ──────────────────────────────────────────────────────────
 
 function GridWidgetRender(props: StudioWidgetRenderProps) {
+  // The registry only ever invokes this wrapper for the `grid` kind, so the
+  // widget is a grid widget — narrow `props.widget` (typed as the whole
+  // `StudioWidget` union) to the precise per-kind type at this dispatch boundary.
   return React.createElement(StudioGridWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'grid'>,
     dataSource: props.dataSource,
     pageId: props.pageId,
     ...(props.extraProps as Partial<
@@ -57,7 +61,7 @@ function GridWidgetRender(props: StudioWidgetRenderProps) {
 
 function ChartWidgetRender(props: StudioWidgetRenderProps) {
   const content = React.createElement(StudioChartWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'chart'>,
     dataSource: props.dataSource,
     pageId: props.pageId,
     height: props.height ?? CHART_MIN_HEIGHT,
@@ -79,7 +83,7 @@ function ChartWidgetRender(props: StudioWidgetRenderProps) {
 
 function KpiWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioKpiWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'kpi'>,
     dataSource: props.dataSource,
     pageId: props.pageId,
     ...(props.extraProps as Partial<
@@ -90,7 +94,7 @@ function KpiWidgetRender(props: StudioWidgetRenderProps) {
 
 function TextWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioTextWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'text'>,
     aiRefreshRef: props.aiRefreshRef,
     ...(props.extraProps as Partial<Omit<StudioTextWidgetProps, 'widget' | 'aiRefreshRef'>>),
   });
@@ -98,7 +102,7 @@ function TextWidgetRender(props: StudioWidgetRenderProps) {
 
 function FilterWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioFilterWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'filter'>,
     dataSource: props.dataSource,
     ...(props.extraProps as Partial<Omit<StudioFilterWidgetProps, 'widget' | 'dataSource'>>),
   });
@@ -106,7 +110,7 @@ function FilterWidgetRender(props: StudioWidgetRenderProps) {
 
 function PivotWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioPivotWidget, {
-    widget: props.widget,
+    widget: props.widget as StudioWidgetOf<'pivot'>,
     dataSource: props.dataSource,
     pageId: props.pageId,
     exportRef: props.exportRef,
@@ -119,7 +123,7 @@ function MapWidgetRender(props: StudioWidgetRenderProps) {
     { sx: { height: MAP_WIDGET_DEFAULT_HEIGHT } },
     props.dataSource
       ? React.createElement(StudioMapWidget, {
-          widget: props.widget,
+          widget: props.widget as StudioWidgetOf<'map'>,
           dataSource: props.dataSource,
           pageId: props.pageId,
         })
@@ -167,7 +171,7 @@ export const BUILTIN_WIDGET_DEFS = {
     capabilities: {
       export: 'csv',
       widgetFilters: true,
-      skeletonHeight: (widget) => widget.config.gridHeight ?? 400,
+      skeletonHeight: (widget) => (widget as StudioWidgetOf<'grid'>).config.gridHeight ?? 400,
     },
   },
   chart: {

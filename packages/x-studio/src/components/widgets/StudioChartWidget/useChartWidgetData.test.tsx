@@ -20,7 +20,8 @@ import type {
   StudioRelationship,
   StudioExpressionField,
   StudioState,
-  StudioWidget,
+  StudioWidgetConfigForKind,
+  StudioWidgetOf,
 } from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
@@ -131,7 +132,7 @@ const productsSource: StudioDataSource = {
   ],
 };
 
-function blendedWidget(): StudioWidget {
+function blendedWidget(): StudioWidgetOf<'chart'> {
   return {
     id: 'chart-blend',
     kind: 'chart',
@@ -227,7 +228,7 @@ describe('useChartWidgetData — cross-source blending', () => {
         { id: 'c4', department: 'Engineering' },
       ],
     };
-    const countWidget: StudioWidget = {
+    const countWidget: StudioWidgetOf<'chart'> = {
       id: 'chart-count',
       kind: 'chart',
       title: 'Contacts by Department',
@@ -516,7 +517,7 @@ function crossFilterOnRegion(value: string): StudioFilterState {
   } as StudioFilterState;
 }
 
-function singleSeriesWidget(): StudioWidget {
+function singleSeriesWidget(): StudioWidgetOf<'chart'> {
   return {
     id: 'chart-single',
     kind: 'chart',
@@ -526,7 +527,7 @@ function singleSeriesWidget(): StudioWidget {
   };
 }
 
-function multiYWidget(): StudioWidget {
+function multiYWidget(): StudioWidgetOf<'chart'> {
   return {
     id: 'chart-multi',
     kind: 'chart',
@@ -559,7 +560,7 @@ const salesSource: StudioDataSource = {
   ],
 };
 
-function seriesFieldWidget(): StudioWidget {
+function seriesFieldWidget(): StudioWidgetOf<'chart'> {
   return {
     id: 'chart-series',
     kind: 'chart',
@@ -924,7 +925,9 @@ const scatterSource: StudioDataSource = {
   ],
 };
 
-function scatterWidget(overrides: Partial<StudioWidget['config']> = {}): StudioWidget {
+function scatterWidget(
+  overrides: Partial<StudioWidgetConfigForKind<'chart'>> = {},
+): StudioWidgetOf<'chart'> {
   return {
     id: 'chart-scatter',
     kind: 'chart',

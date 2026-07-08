@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Box, Button, IconButton, MenuItem, Select, Stack, TextField } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import type { StudioConditionalFormat } from '../../models';
+import type { StudioConditionalFormat, StudioWidgetConfigForKind } from '../../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -64,8 +64,8 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
     return null;
   }
 
-  const conditionalFormats: StudioConditionalFormat[] =
-    widget?.config?.gridConditionalFormats ?? [];
+  const gridConfig = widget?.config as StudioWidgetConfigForKind<'grid'> | undefined;
+  const conditionalFormats: StudioConditionalFormat[] = gridConfig?.gridConditionalFormats ?? [];
 
   return (
     <SetupSection title={localeText.gridSetupConditionalFormattingTitle}>

@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import dayjs from 'dayjs';
-import type { StudioWidget, StudioDataSource } from '../../../models';
+import type { StudioWidgetOf, StudioDataSource } from '../../../models';
 import {
   useStudioController,
   useStudioLocaleText,
@@ -49,7 +49,7 @@ export interface StudioFilterWidgetSlotProps {
 }
 
 export interface StudioFilterWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'filter'>;
   dataSource?: StudioDataSource;
   slots?: StudioFilterWidgetSlots;
   slotProps?: StudioFilterWidgetSlotProps;

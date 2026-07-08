@@ -16,7 +16,7 @@ import {
   selectDataSources,
   useStudioLocaleText,
 } from '../../context';
-import type { StudioFilterWidgetType } from '../../models';
+import type { StudioFilterWidgetType, StudioWidgetConfigForKind } from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
 export function FilterSetupPanel(props: { widgetId: string }) {
@@ -26,7 +26,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const localeText = useStudioLocaleText();
 
-  const config = widget?.config ?? {};
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'filter'>;
   const filterWidgetTypes: { value: StudioFilterWidgetType; label: string; description: string }[] =
     [
       {

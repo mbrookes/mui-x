@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
-  StudioWidget,
+  StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioGridWidget } from './StudioGridWidget';
@@ -43,7 +43,7 @@ function makeIdLessSource(): StudioDataSource {
   };
 }
 
-function makeWidget(): StudioWidget {
+function makeWidget(): StudioWidgetOf<'grid'> {
   return {
     id: 'grid-1',
     kind: 'grid',

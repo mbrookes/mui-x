@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme, useColorScheme } from '@mui/material';
-import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import {
   aggregateBlendedSeries,
   aggregateByField,
@@ -32,7 +32,7 @@ import { useChartRows } from '../../../internals/useChartRows';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(
-  widget: StudioWidget,
+  widget: StudioWidgetOf<'chart'>,
   dataSource: StudioDataSource | undefined,
   pageId: string,
 ) {

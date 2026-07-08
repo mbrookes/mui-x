@@ -34,7 +34,7 @@ import { fieldsForCapability } from '../../../utils/fieldCapabilities';
 import { analyzeChartSupport, getChartSupportMessage } from '../../../internals/chartAggregation';
 import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../../internals/fieldCatalog';
-import type { StudioChartType, StudioBarLayout } from '../../../models';
+import type { StudioChartType, StudioBarLayout, StudioWidgetConfigForKind } from '../../../models';
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
 import { CrossFilterModeSection } from '../CrossFilterModeSection';
@@ -77,7 +77,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [dataSources, expressionFields],
   );
 
-  const config = widget?.config ?? {};
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'chart'>;
   const widgetSourceId = widget?.sourceId;
 
   // selectedXField is used to conditionally show the Group By control below

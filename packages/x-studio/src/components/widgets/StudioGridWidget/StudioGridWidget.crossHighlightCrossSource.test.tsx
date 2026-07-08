@@ -5,7 +5,7 @@ import type {
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
   StudioRelationship,
-  StudioWidget,
+  StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioGridWidget } from './StudioGridWidget';
@@ -73,7 +73,7 @@ function makeCustomersSource(): StudioDataSource {
   };
 }
 
-function makeWidget(): StudioWidget {
+function makeWidget(): StudioWidgetOf<'grid'> {
   return {
     id: 'grid-1',
     kind: 'grid',

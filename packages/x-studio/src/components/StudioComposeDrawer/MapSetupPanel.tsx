@@ -21,7 +21,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
-import type { StudioCrossFilterMode } from '../../models';
+import type { StudioCrossFilterMode, StudioWidgetConfig } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { SetupSection } from './SetupSection';
@@ -38,7 +38,12 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const allGeographies = useStudioGeographies();
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
-  const config = widget?.config ?? {};
+  // NOTE: This panel is intentionally still typed against the flat, cross-kind
+  // `StudioWidgetConfig` (all keys optional). Its migration onto the precise
+  // per-kind `StudioWidgetConfigForKind<'map'>` is owned by a separate unit; the
+  // cast below only keeps it compiling under the new discriminated `StudioWidget`
+  // union without doing that migration here.
+  const config = (widget?.config ?? {}) as StudioWidgetConfig;
 
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';

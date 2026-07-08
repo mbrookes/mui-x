@@ -3,7 +3,12 @@ import { createRenderer, act, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import type {
+  StudioDataSource,
+  StudioState,
+  StudioWidgetConfigForKind,
+  StudioWidgetOf,
+} from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -76,7 +81,7 @@ vi.mock('../../../context', async (importOriginal) => ({
 const { render } = createRenderer();
 
 function renderChart(
-  widget: StudioWidget,
+  widget: StudioWidgetOf<'chart'>,
   dataSource: StudioDataSource,
   localeText?: Partial<StudioLocaleText>,
 ) {
@@ -186,7 +191,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-1',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -263,7 +268,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-related-xfield',
       kind: 'chart',
       title: 'Top Customers by Revenue',
@@ -338,7 +343,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-segment-split',
       kind: 'chart',
       title: 'Revenue by Segment',
@@ -419,7 +424,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-line-segment-split',
       kind: 'chart',
       title: 'Revenue by Segment',
@@ -500,7 +505,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-expr-line-segment-split',
       kind: 'chart',
       title: 'Quarterly Revenue by Segment',
@@ -598,7 +603,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-expr-donut-segment',
       kind: 'chart',
       title: 'Revenue by Segment',
@@ -681,7 +686,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-bar-100',
       kind: 'chart',
       title: 'Revenue Mix',
@@ -743,7 +748,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-horizontal-multi-y',
       kind: 'chart',
       title: 'Revenue Mix',
@@ -793,7 +798,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-split-bar-100',
       kind: 'chart',
       title: 'Revenue Mix by Category',
@@ -857,7 +862,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-horizontal-split',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -905,7 +910,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-highlight',
       kind: 'chart',
       title: 'Revenue Mix',
@@ -955,7 +960,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-pie-highlight',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -1006,7 +1011,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-pie-toggle',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -1066,7 +1071,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-line-highlight',
       kind: 'chart',
       title: 'Revenue Trend',
@@ -1115,7 +1120,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-scatter',
       kind: 'chart',
       title: 'Revenue vs Profit',
@@ -1162,7 +1167,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-2',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -1209,7 +1214,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-split-area-100',
       kind: 'chart',
       title: 'Revenue Mix Trend',
@@ -1282,12 +1287,12 @@ describe('<StudioChartWidget />', () => {
       rows: [{ id: '1', total: 10 }],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-no-xfield',
       kind: 'chart',
       title: 'Unconfigured Chart',
       sourceId: 'orders',
-      config: { chartType: 'bar' } as StudioWidget['config'],
+      config: { chartType: 'bar' } as StudioWidgetConfigForKind<'chart'>,
     };
 
     mockState = createState({
@@ -1312,7 +1317,7 @@ describe('<StudioChartWidget />', () => {
       rows: [],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-scatter-empty',
       kind: 'chart',
       title: 'Empty Scatter',
@@ -1345,7 +1350,7 @@ describe('<StudioChartWidget />', () => {
       rows: [],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-bar-empty',
       kind: 'chart',
       title: 'Empty Bar',
@@ -1381,7 +1386,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-no-filter',
       kind: 'chart',
       title: 'Revenue Trend',
@@ -1426,7 +1431,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-stale-highlight',
       kind: 'chart',
       title: 'Revenue by Category',
@@ -1469,7 +1474,7 @@ describe('<StudioChartWidget />', () => {
       view.rerender(
         <ThemeProvider theme={createTheme()}>
           <StudioChartWidget
-            widget={mockState.doc.widgets[widget.id]}
+            widget={mockState.doc.widgets[widget.id] as StudioWidgetOf<'chart'>}
             dataSource={dataSource}
             pageId="page-1"
           />
@@ -1498,7 +1503,7 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    const widget: StudioWidget = {
+    const widget: StudioWidgetOf<'chart'> = {
       id: 'chart-4',
       kind: 'chart',
       title: 'Revenue Trend',
@@ -1605,7 +1610,7 @@ describe('<StudioChartWidget />', () => {
     ];
 
     it('Revenue by Category (ORDER_ITEMS bar): renders a BarChart with ghost+filtered data when both cross-filters active', () => {
-      const widget: StudioWidget = {
+      const widget: StudioWidgetOf<'chart'> = {
         id: 'widget-chart-category',
         kind: 'chart',
         title: 'Revenue by Category',
@@ -1652,7 +1657,7 @@ describe('<StudioChartWidget />', () => {
     // must equal the active color plus the alpha suffix — a palette-independent invariant that
     // fails on the pre-fix code (where ghost.color === active.color at full opacity).
     it('Revenue by Category (line): renders the single-series line ghost at faded opacity', () => {
-      const widget: StudioWidget = {
+      const widget: StudioWidgetOf<'chart'> = {
         id: 'widget-chart-category',
         kind: 'chart',
         title: 'Revenue Trend',
@@ -1689,7 +1694,7 @@ describe('<StudioChartWidget />', () => {
     });
 
     it('Revenue by Category (area): renders the single-series area ghost at faded opacity', () => {
-      const widget: StudioWidget = {
+      const widget: StudioWidgetOf<'chart'> = {
         id: 'widget-chart-category',
         kind: 'chart',
         title: 'Revenue Trend',
@@ -1726,7 +1731,7 @@ describe('<StudioChartWidget />', () => {
     });
 
     it('Revenue by Country (ORDERS pie): renders a PieChart with cross-filter overlay when both cross-filters active', () => {
-      const widget: StudioWidget = {
+      const widget: StudioWidgetOf<'chart'> = {
         id: 'widget-chart-country',
         kind: 'chart',
         title: 'Revenue by Country',
@@ -1784,7 +1789,7 @@ describe('<StudioChartWidget />', () => {
     it('Quarterly Revenue by Category (ORDER_ITEMS bar-stacked): receives only the category native filter', () => {
       // This widget EMITS the date cross-filter (sourceWidgetId='widget-chart-quarterly'),
       // so it receives category=Supplies as a native filter.
-      const widget: StudioWidget = {
+      const widget: StudioWidgetOf<'chart'> = {
         id: 'widget-chart-quarterly',
         kind: 'chart',
         title: 'Quarterly Revenue by Category',
@@ -1872,7 +1877,7 @@ describe('<StudioChartWidget />', () => {
     function makeBarWidget(
       id: string,
       crossFilterMode?: 'cross-highlight' | 'cross-filter' | 'none',
-    ): StudioWidget {
+    ): StudioWidgetOf<'chart'> {
       return {
         id,
         kind: 'chart',
@@ -2007,7 +2012,9 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    function makeSankeyWidget(config: Partial<StudioWidget['config']> = {}): StudioWidget {
+    function makeSankeyWidget(
+      config: Partial<StudioWidgetConfigForKind<'chart'>> = {},
+    ): StudioWidgetOf<'chart'> {
       return {
         id: 'sankey-1',
         kind: 'chart',
@@ -2109,7 +2116,7 @@ describe('<StudioChartWidget />', () => {
     // instead of the shared "chart not configured" / "no data" guards.
     function makeUnconfiguredWidget(
       chartType: 'heatmap' | 'funnel' | 'sankey' | 'gantt',
-    ): StudioWidget {
+    ): StudioWidgetOf<'chart'> {
       return {
         id: `${chartType}-hint`,
         kind: 'chart',

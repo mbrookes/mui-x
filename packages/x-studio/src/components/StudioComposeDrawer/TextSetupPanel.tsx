@@ -8,17 +8,19 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
+import type { StudioWidgetConfigForKind } from '../../models';
 
 export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
+  const config = widget?.config as StudioWidgetConfigForKind<'text'> | undefined;
   const localeText = useStudioLocaleText();
   const { aiConfig } = useStudioUIConfig();
   const [form, setForm] = React.useState({
     title: widget?.title ?? '',
-    subtitle: widget?.config.textSubtitle ?? '',
-    body: widget?.config.textBody ?? '',
+    subtitle: config?.textSubtitle ?? '',
+    body: config?.textBody ?? '',
   });
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- text fields are buffered locally; reset when widget/page changes
@@ -26,12 +28,12 @@ export function TextSetupPanel(props: { widgetId: string }) {
     // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered; saved on blur
     setForm({
       title: widget?.title ?? '',
-      subtitle: widget?.config.textSubtitle ?? '',
-      body: widget?.config.textBody ?? '',
+      subtitle: config?.textSubtitle ?? '',
+      body: config?.textBody ?? '',
     });
-  }, [widget?.title, widget?.config.textSubtitle, widget?.config.textBody, widgetId]);
+  }, [widget?.title, config?.textSubtitle, config?.textBody, widgetId]);
 
-  const aiEnabled = widget?.config.textAiEnabled ?? false;
+  const aiEnabled = config?.textAiEnabled ?? false;
 
   const handleTitleBlur = () => {
     if (form.title !== widget?.title) {

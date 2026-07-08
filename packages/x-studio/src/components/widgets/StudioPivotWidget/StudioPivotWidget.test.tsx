@@ -1,7 +1,12 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../../models';
+import type {
+  StudioDataSource,
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+  StudioWidgetOf,
+} from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { StudioPivotWidget } from './StudioPivotWidget';
 
@@ -25,13 +30,13 @@ function source(rows = ROWS): StudioDataSource {
   };
 }
 
-function pivotWidget(config: Partial<StudioWidgetConfig>): StudioWidget {
+function pivotWidget(config: Partial<StudioWidgetConfig>): StudioWidgetOf<'pivot'> {
   return {
     id: 'w1',
     kind: 'pivot',
     title: 'Pivot',
     sourceId: 'sales',
-    config: config as StudioWidgetConfig,
+    config: config as StudioWidgetConfigForKind<'pivot'>,
   };
 }
 

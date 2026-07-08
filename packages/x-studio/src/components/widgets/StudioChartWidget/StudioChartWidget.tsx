@@ -10,7 +10,7 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
-import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import type { StudioChartType } from '../../../models/baseTypes';
 import {
   formatPeriodLabel,
@@ -64,7 +64,7 @@ export interface StudioChartWidgetSlotProps {
 }
 
 export interface StudioChartWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'chart'>;
   dataSource?: StudioDataSource;
   /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
   pageId: string;

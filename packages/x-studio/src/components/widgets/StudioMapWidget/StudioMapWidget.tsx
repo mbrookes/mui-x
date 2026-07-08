@@ -6,7 +6,7 @@ import { GeoDataPlot } from '@mui/x-charts-premium/Map';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
 import { ContinuousColorLegend } from '@mui/x-charts/ChartsLegend';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
-import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import {
   useStudioController,
   useStudioLocaleText,
@@ -27,7 +27,7 @@ import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface StudioMapWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'map'>;
   dataSource: StudioDataSource;
   /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
   pageId: string;

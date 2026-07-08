@@ -26,7 +26,12 @@ import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
-import type { StudioKpiAggregation, StudioDateRangePreset } from '../../models';
+import type {
+  StudioKpiAggregation,
+  StudioDateRangePreset,
+  StudioWidgetConfigForKind,
+  StudioWidgetConfig,
+} from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { CrossFilterModeSection } from './CrossFilterModeSection';
 import { CollapsibleFeatureSection } from './CollapsibleFeatureSection';
@@ -64,7 +69,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
-  const config = widget?.config ?? {};
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'kpi'>;
   const aggregations = getKpiAggregations(localeText);
 
   // Source picker options. The value-field select also anchors the source as a side
@@ -446,7 +451,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         description={localeText.kpiSetupInteractionsDescription}
         modes={['cross-filter', 'none']}
         defaultMode="none"
-        value={config.crossFilterMode}
+        value={(config as StudioWidgetConfig).crossFilterMode}
       />
     </Stack>
   );

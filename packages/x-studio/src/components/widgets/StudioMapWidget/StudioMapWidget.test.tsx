@@ -3,7 +3,7 @@ import { createRenderer, act } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioState, StudioWidget, StudioWidgetOf } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -197,7 +197,11 @@ function createState(overrides?: StateOverrides): StudioState {
 async function renderMap(widget: StudioWidget) {
   const view = render(
     <ThemeProvider theme={createTheme()}>
-      <StudioMapWidget widget={widget} dataSource={dataSource} pageId="page-1" />
+      <StudioMapWidget
+        widget={widget as StudioWidgetOf<'map'>}
+        dataSource={dataSource}
+        pageId="page-1"
+      />
     </ThemeProvider>,
   );
   // Flush the async geography loader so the plot renders.

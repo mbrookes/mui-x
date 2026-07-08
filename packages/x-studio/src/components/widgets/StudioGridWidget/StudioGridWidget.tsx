@@ -11,7 +11,12 @@ import {
   type GridValidRowModel,
 } from '@mui/x-data-grid-premium';
 
-import type { StudioConditionalFormat, StudioDataSource, StudioWidget } from '../../../models';
+import type {
+  StudioConditionalFormat,
+  StudioDataSource,
+  StudioWidgetConfig,
+  StudioWidgetOf,
+} from '../../../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -88,7 +93,7 @@ function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown
 }
 
 export interface StudioGridWidgetProps {
-  widget: StudioWidget;
+  widget: StudioWidgetOf<'grid'>;
   dataSource?: StudioDataSource;
   /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
   pageId: string;
@@ -190,7 +195,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     errorMessage,
   } = useWidgetRows(widget, dataSource, pageId);
 
-  const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
+  // `crossFilterMode` is a cross-kind key (declared on the chart config but honored
+  // by grids too), so it is read via the flat cross-kind `StudioWidgetConfig`.
+  const crossFilterMode =
+    (widget.config as StudioWidgetConfig).crossFilterMode ?? 'cross-highlight';
 
   // In cross-highlight mode, show all baseline rows (hard-filtered by page/widget/interactive)
   // and dim the non-matching ones. In cross-filter or none mode, use the appropriate row set.

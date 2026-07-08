@@ -778,7 +778,8 @@ describe('buildStudioMcpServer — context for MCP clients', () => {
       params: { name: 'get_recent_changes', arguments: {} },
       method: CALL_TOOL,
     })) as any;
-    const { output } = JSON.parse(result.content[0].text);
+    // The read-only tool returns the log directly (no `{ output }` envelope).
+    const output = JSON.parse(result.content[0].text);
     expect(output).toHaveLength(2);
     expect(output[0].label).toBe('setDashboardTitle');
     expect(output[1].label).toMatch(/^addPage:/);
@@ -986,7 +987,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
       params: { name: 'get_recent_changes', arguments: {} },
       method: CALL_TOOL,
     })) as any;
-    const { output } = JSON.parse(changes.content[0].text);
+    const output = JSON.parse(changes.content[0].text);
     expect(output).toHaveLength(0);
   });
 
@@ -1228,7 +1229,7 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
       method: CALL_TOOL,
     })) as any;
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(result.content[0].text).output).toEqual([]);
+    expect(JSON.parse(result.content[0].text)).toEqual([]);
   });
 
   it('2.2 — get_dashboard_state now walks the policy chokepoint (deny-all blocks it)', async () => {

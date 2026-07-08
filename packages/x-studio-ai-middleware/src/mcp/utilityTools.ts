@@ -25,7 +25,10 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
 
   return {
     // ── get_recent_changes — session-scoped mutation log ────────────────
-    get_recent_changes: () => jsonResult({ output: recentChanges }),
+    // Return the log directly, matching the direct-return shape of the other
+    // read-only dispatch-table tools (e.g. `describe_data_source`); only the
+    // mutation-committing tool uses the `{ output, mutation }` envelope.
+    get_recent_changes: () => jsonResult(recentChanges),
 
     // ── render_chart — pure SVG chart rendering ───────────────────────────
     render_chart: (args) => {

@@ -69,7 +69,59 @@ const DEFAULT_COLORS = [
 
 const FONT_FAMILY = 'system-ui, -apple-system, sans-serif';
 
+/** Default canvas dimensions, used when `width`/`height` are absent or invalid. */
+const DEFAULT_WIDTH = 600;
+const DEFAULT_HEIGHT = 400;
+/** Upper bound for a sane canvas dimension; anything larger falls back to the default. */
+const MAX_DIMENSION = 10000;
+/** Strict hex-color pattern matching the `DEFAULT_COLORS` format (#rgb … #rrggbbaa). */
+const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Coerce a caller-supplied dimension to a finite, positive, in-range number,
+ * falling back to `fallback` otherwise. `width`/`height` are interpolated raw
+ * into SVG attribute positions, so an unvalidated value is both a rendering
+ * hazard and a markup-injection vector.
+ */
+function sanitizeDimension(value: number | undefined, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_DIMENSION) {
+    return fallback;
+  }
+  return n;
+}
+
+/**
+ * Validate each palette entry against a strict hex pattern, replacing any entry
+ * that does not match with the corresponding `DEFAULT_COLORS` value. Colors are
+ * interpolated verbatim into SVG `fill`/`stroke` attributes, so a malformed
+ * entry could break out of the attribute and inject markup (e.g. a `<script>`).
+ * Bad entries are replaced individually so a partially-valid palette still works.
+ */
+function sanitizeColors(colors: string[] | undefined): string[] | undefined {
+  if (colors === undefined) {
+    return undefined;
+  }
+  return colors.map((c, i) =>
+    typeof c === 'string' && HEX_COLOR.test(c) ? c : DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+  );
+}
+
+/**
+ * Validate/coerce the untrusted, model-supplied portions of the input
+ * (`width`, `height`, `colors`) before any renderer interpolates them into SVG
+ * markup. Text content is handled separately by `esc()`.
+ */
+function sanitizeInput(input: ChartRendererInput): ChartRendererInput {
+  return {
+    ...input,
+    width: sanitizeDimension(input.width, DEFAULT_WIDTH),
+    height: sanitizeDimension(input.height, DEFAULT_HEIGHT),
+    colors: sanitizeColors(input.colors),
+  };
+}
 
 function esc(s: string): string {
   return s
@@ -483,7 +535,9 @@ function renderDonut(input: ChartRendererInput): string {
   // Slices with inner hole
   let angle = 0;
   data.forEach((d, i) => {
-    if (d.value <= 0) {return;}
+    if (d.value <= 0) {
+      return;
+    }
     const slice = (d.value / total) * 360;
     const fill = color(colors, i);
 
@@ -647,7 +701,10 @@ function renderStackedBar(input: ChartRendererInput): string {
  * });
  * ```
  */
-export function renderChartSvg(input: ChartRendererInput): string {
+export function renderChartSvg(rawInput: ChartRendererInput): string {
+  // Validate/coerce the untrusted attribute-position fields (width/height/colors)
+  // at this single choke point so every chart-type renderer is covered by one fix.
+  const input = sanitizeInput(rawInput);
   switch (input.type) {
     case 'bar':
       return renderBar(input);

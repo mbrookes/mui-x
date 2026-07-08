@@ -334,7 +334,8 @@ describe('createDataToolHandlers', () => {
       const handlers = createDataToolHandlers(makeDeps({ recentChanges }));
       const result: any = handlers.get_recent_changes(undefined);
       const parsed = JSON.parse(result.content[0].text);
-      expect(parsed.output).toEqual(recentChanges);
+      // Returned directly, with no `{ output }` envelope.
+      expect(parsed).toEqual(recentChanges);
     });
   });
 });

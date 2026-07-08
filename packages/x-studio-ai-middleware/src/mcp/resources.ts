@@ -45,6 +45,7 @@ export interface ResourceHandlerDeps {
    * conceptually invoke). It resolves to a deny-reason string when the read is
    * NOT authorized, or `null` when it may proceed. When omitted, no gate is
    * applied (used only by unit tests that construct the handlers directly).
+   * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
    */
   authorizeDataAccess?: () => Promise<string | null>;
   /**

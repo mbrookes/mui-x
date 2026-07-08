@@ -4,6 +4,7 @@ packages:
   - test
   - test/*
   - bundle-size
+  - examples/x-charts-vega
 
 catalog:
   '@atlaskit/pragmatic-drag-and-drop': ^1.8.1

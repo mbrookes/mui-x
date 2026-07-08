@@ -1,0 +1,22 @@
+{
+  // Extend the repo base so the example resolves `@mui/x-charts` (and any
+  // other `@mui/x-*` workspace package) exactly like the package's own
+  // typecheck gate — see examples/x-studio/tsconfig.json for the same
+  // rationale. `@mui/x-charts-vega` is not in the base's `paths` map, so it
+  // resolves through the pnpm workspace symlink + its package.json `exports`
+  // field instead (same mechanism a published consumer would use).
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    // The base sets `types: []` (no ambient type auto-inclusion). Unlike
+    // examples/x-studio, this example imports `VegaLiteChart`, which pulls in
+    // the full `@mui/x-charts` component tree (ChartsXAxis, useChartAnimation,
+    // domUtils, ...) — several of those files reference `process.env.NODE_ENV`
+    // directly. Re-add "node" (as packages/x-charts-vega's own tsconfig does)
+    // so `process` resolves instead of erroring as an undefined global.
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

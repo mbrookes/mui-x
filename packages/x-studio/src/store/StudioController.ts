@@ -31,7 +31,6 @@ import {
   type StudioDateRangePreset,
   type StudioDrawer,
   type StudioExpressionField,
-  type StudioFilterPreset,
   type StudioFilterState,
   type StudioMode,
   type StudioPage,
@@ -1121,45 +1120,6 @@ export class StudioController {
   };
 
   /**
-   * Builds one managed date-range `StudioFilterState`. Shared by the three
-   * date-range setters below, which previously re-implemented this custom-vs-preset
-   * value logic near-identically. A `'custom'` preset carries the explicit
-   * `{ from, to }` in `value`; every other preset stores `value: null` and is
-   * resolved fresh at query time by `resolveDateRangePreset` (regardless of scope),
-   * so the stored filter never holds stale absolute dates. Returns `null` when a
-   * `'custom'` preset has neither boundary — the caller then clears instead.
-   */
-  private buildDateRangeFilter(args: {
-    id: string;
-    field: string;
-    fieldType: StudioDataField['type'];
-    sourceId: string;
-    preset: StudioDateRangePreset;
-    scope: StudioFilterState['scope'];
-    customFrom?: string;
-    customTo?: string;
-  }): StudioFilterState | null {
-    let value: { from: string; to: string } | null = null;
-    if (args.preset === 'custom') {
-      if (!args.customFrom && !args.customTo) {
-        return null;
-      }
-      value = { from: args.customFrom ?? '', to: args.customTo ?? '' };
-    }
-    return {
-      id: args.id,
-      dateRangePreset: args.preset,
-      field: args.field,
-      fieldType: args.fieldType,
-      filterSourceId: args.sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: args.scope,
-    };
-  }
-
-  /**
    * Sets or clears the dashboard-level date range filter for a page.
    *
    * - Pass `null` for `preset` (or `fieldId`) to remove the date range filter.
@@ -1169,6 +1129,7 @@ export class StudioController {
    *
    * The filter is stored as a page-level `StudioFilterState` with
    * `scope.kind === 'dashboard-date-range'` so the filters drawer and quick-filter bar can hide it.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setDashboardDateRange = (
     pageId: string,
@@ -1179,29 +1140,18 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+    this.commitDocPatch(
+      docTransforms.setDashboardDateRange(
+        this.store.state.doc,
+        pageId,
+        fieldId,
+        sourceId,
+        fieldType,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilter =
-      preset && fieldId && sourceId
-        ? this.buildDateRangeFilter({
-            id: `dashboard-date-range-${pageId}`,
-            field: fieldId,
-            fieldType: fieldType ?? 'date',
-            sourceId,
-            preset,
-            scope: { kind: 'dashboard-date-range', sourceId, pageId },
-            customFrom,
-            customTo,
-          })
-        : null;
-
-    this.commitDocPatch({
-      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-    });
   };
 
   /**
@@ -1209,6 +1159,7 @@ export class StudioController {
    * Creates one `scope.kind === 'dashboard-date-range'` filter per source so each widget is
    * filtered by its own source's date field — not by a field from another source.
    * Replaces any previously active dashboard date-range filters for the page.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setDashboardDateRangeAll = (
     pageId: string,
@@ -1217,28 +1168,16 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+    this.commitDocPatch(
+      docTransforms.setDashboardDateRangeAll(
+        this.store.state.doc,
+        pageId,
+        fields,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilters = fields
-      .map(({ fieldId, sourceId, fieldType }) =>
-        this.buildDateRangeFilter({
-          id: `dashboard-date-range-${pageId}-${sourceId}`,
-          field: fieldId,
-          fieldType,
-          sourceId,
-          preset,
-          scope: { kind: 'dashboard-date-range', sourceId, pageId },
-          customFrom,
-          customTo,
-        }),
-      )
-      .filter((f): f is StudioFilterState => f !== null);
-
-    this.commitDocPatch({ filters: [...withoutExisting, ...newFilters] });
   };
 
   /**
@@ -1250,6 +1189,7 @@ export class StudioController {
    * The filter is stored as a widget-scoped `StudioFilterState` with
    * `scope.kind === 'widget'` so the filters drawer hides it (it is managed
    * exclusively via the KPI setup panel).
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setWidgetDateRange = (
     widgetId: string,
@@ -1260,28 +1200,18 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
+    this.commitDocPatch(
+      docTransforms.setWidgetDateRange(
+        this.store.state.doc,
+        widgetId,
+        fieldId,
+        sourceId,
+        fieldType,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilter =
-      preset && fieldId && sourceId
-        ? this.buildDateRangeFilter({
-            id: `widget-date-range-${widgetId}`,
-            field: fieldId,
-            fieldType: fieldType ?? 'date',
-            sourceId,
-            preset,
-            scope: { kind: 'widget', widgetId },
-            customFrom,
-            customTo,
-          })
-        : null;
-
-    this.commitDocPatch({
-      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-    });
   };
 
   applyInteractiveFilter = (
@@ -1384,20 +1314,10 @@ export class StudioController {
    * Saves the current page-level filters as a named preset.
    */
   saveFilterPreset = (name: string): string => {
-    const state = this.store.state;
-    const activePageId = state.doc.dashboard.activePageId;
-    // Only save filters for the current active page.
-    const pageFilters = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
-    );
+    // The `Date.now()`-based id is generated here (a controller-owned side effect) so it
+    // can be both threaded into the pure transform and returned to the caller.
     const id = `preset-${Date.now()}`;
-    const preset: StudioFilterPreset = {
-      id,
-      name,
-      filters: pageFilters.map((f: StudioFilterState) => ({ ...f, id: `${id}-${f.id}` })),
-    };
-    this.commitDocPatch({ filterPresets: [...(state.doc.filterPresets ?? []), preset] });
+    this.commitDocPatch(docTransforms.saveFilterPreset(this.store.state.doc, id, name));
     return id;
   };
 
@@ -1420,54 +1340,23 @@ export class StudioController {
    * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
    */
   applyFilterPreset = (presetId: string) => {
-    const state = this.store.state;
-    const preset = (state.doc.filterPresets ?? []).find(
-      (p: StudioFilterPreset) => p.id === presetId,
-    );
-    if (!preset) {
-      return;
-    }
-    const activePageId = state.doc.dashboard.activePageId;
-    this.commitDocPatch({
-      filters: [
-        // Keep all non-page filters, and keep page filters for OTHER pages.
-        ...state.doc.filters.filter(
-          (f: StudioFilterState) =>
-            f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
-        ),
-        // Apply preset filters scoped to the current page.
-        ...preset.filters.map((f: StudioFilterState) => ({
-          ...f,
-          scope: { kind: 'page' as const, pageId: activePageId },
-        })),
-      ],
-    });
+    this.commitDocPatch(docTransforms.applyFilterPreset(this.store.state.doc, presetId));
   };
 
   /**
    * Deletes a saved filter preset by ID.
    */
   deleteFilterPreset = (presetId: string) => {
-    const state = this.store.state;
-    const presets = state.doc.filterPresets ?? [];
-    const next = presets.filter((p: StudioFilterPreset) => p.id !== presetId);
-    this.commitDocPatch({ filterPresets: next.length === presets.length ? presets : next });
+    this.commitDocPatch(docTransforms.deleteFilterPreset(this.store.state.doc, presetId));
   };
 
   /**
    * Renames a saved filter preset.
    */
   renameFilterPreset = (presetId: string, name: string) => {
-    const state = this.store.state;
-    // `mapPreservingIdentity` (1.6): an unknown `presetId` returns the original array
-    // so `commitDocPatch` no-ops it. A matched preset always rebuilds (no deep name
-    // comparison — the unknown-id-only scope the finding calls for).
-    this.commitDocPatch({
-      filterPresets: mapPreservingIdentity(
-        state.doc.filterPresets ?? [],
-        (p: StudioFilterPreset) => (p.id === presetId ? { ...p, name } : p),
-      ),
-    });
+    // The pure transform preserves the original `filterPresets` array reference on an
+    // unknown `presetId` (via `mapPreservingIdentity`), so `commitDocPatch` no-ops it.
+    this.commitDocPatch(docTransforms.renameFilterPreset(this.store.state.doc, presetId, name));
   };
 
   /**

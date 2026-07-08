@@ -72,11 +72,15 @@ function buildSeriesData(
 ): Array<number | null> {
   const data: Array<number | null> = new Array(categoryAxis.categories?.length ?? 0).fill(null);
   const categoryField = categoryAxis.field;
-  if (!categoryField) {
+  if (!categoryField && !categoryAxis.synthetic) {
     return data;
   }
   for (const row of rows) {
-    const index = ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]));
+    // A synthetic axis (aggregate-only bars) has a single implicit category —
+    // every row lands at index 0.
+    const index = categoryField
+      ? ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]))
+      : 0;
     if (index < 0) {
       continue;
     }
@@ -114,11 +118,14 @@ function buildRangedSeriesData(
     null,
   );
   const categoryField = categoryAxis.field;
-  if (!categoryField) {
+  if (!categoryField && !categoryAxis.synthetic) {
     return data;
   }
   for (const row of rows) {
-    const index = ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]));
+    // Synthetic axis (aggregate-only bars): single implicit category, index 0.
+    const index = categoryField
+      ? ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]))
+      : 0;
     if (index < 0) {
       continue;
     }

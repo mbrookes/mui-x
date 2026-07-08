@@ -69,6 +69,12 @@ export interface AxisResolution<Config extends XAxis | YAxis = XAxis | YAxis> {
   channel?: VegaChannelDef;
   /** The dataset column (possibly synthetic, post-transform) backing the axis. */
   field?: string;
+  /**
+   * True for an axis fabricated without any backing channel — currently only
+   * the one-category band axis behind aggregate-only bars. Mark compilers
+   * place every row at index 0 instead of looking a field value up.
+   */
+  synthetic?: boolean;
 }
 
 /** Everything a mark compiler can see. */

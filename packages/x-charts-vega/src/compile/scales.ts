@@ -483,9 +483,34 @@ export function resolveAxes(
     }
   }
 
+  let x = resolveChannelAxis('x', xOccurrences, gaps) as AxisResolution<XAxis> | undefined;
+  let y = resolveChannelAxis('y', yOccurrences, gaps) as AxisResolution<YAxis> | undefined;
+
+  // Vega-Lite renders an aggregate-only bar (a value channel with no category
+  // channel anywhere in the spec) as a single bar over an implicit "all"
+  // category. Synthesize a one-category band axis for that side so the bar
+  // compiler has a domain to align to (marked `synthetic` — it has no backing
+  // data field).
+  const hasBarWith = (channel: 'x' | 'y') =>
+    units.some(({ unit }) => unit.mark.type === 'bar' && isFieldDef(unit.encoding[channel]));
+  if (!x && xOccurrences.length === 0 && hasBarWith('y')) {
+    x = syntheticBandAxis('x') as AxisResolution<XAxis>;
+  }
+  if (!y && yOccurrences.length === 0 && hasBarWith('x')) {
+    y = syntheticBandAxis('y') as AxisResolution<YAxis>;
+  }
+
+  return { x, y, grid };
+}
+
+/** A one-category band axis for aggregate-only bars (implicit "all" category). */
+function syntheticBandAxis(channel: 'x' | 'y'): AxisResolution {
+  const category = '';
   return {
-    x: resolveChannelAxis('x', xOccurrences, gaps) as AxisResolution<XAxis> | undefined,
-    y: resolveChannelAxis('y', yOccurrences, gaps) as AxisResolution<YAxis> | undefined,
-    grid,
+    config: { id: `vega-${channel}`, scaleType: 'band', data: [category] },
+    fieldType: 'nominal',
+    categories: [category],
+    categoryKeys: [categoryKey(category)],
+    synthetic: true,
   };
 }

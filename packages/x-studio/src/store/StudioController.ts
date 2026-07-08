@@ -20,6 +20,8 @@ import {
   type MigrationResult,
   type OptionalWidgetField,
   validateConfigKeysForKind,
+  validateChartConfigKeysForType,
+  resolveChartType,
 } from '@mui/x-studio-schema';
 
 import {
@@ -41,6 +43,7 @@ import {
   type StudioState,
   type StudioWidget,
   type StudioAIRecentMutation,
+  type StudioChartType,
 } from '../models/index';
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
@@ -912,6 +915,44 @@ export class StudioController {
         const stripped: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(config)) {
           if (!invalidKeys.includes(key)) {
+            stripped[key] = value;
+          }
+        }
+        effectiveConfig = stripped as Partial<import('../models').StudioWidgetConfig>;
+      }
+    }
+
+    // Write-side CHART-TYPE guard: a finer-grained layer under the kind guard
+    // above. A key can be a legitimate Chart key (passes the kind guard) yet still
+    // be wrong for THIS chart's type (e.g. `sankeyTargetField` patched onto a
+    // 'gauge' chart). Only the incoming PATCH is checked here, never the widget's
+    // STORED config: a chart widget deliberately retains config keys from a
+    // previously-selected chart type after switching types (bar -> gauge -> bar
+    // keeps `xField`/`ySeries` around) — that's intentional UX, not a bug, so
+    // re-validating stored keys on every unrelated patch would wrongly strip them.
+    // If the patch itself sets `chartType`, it's declaring a type switch, so its
+    // own keys are checked against the NEW type; otherwise fall back to the
+    // widget's CURRENT chart type.
+    if (existingWidget && existingWidget.kind === 'chart') {
+      const patchChartType = (effectiveConfig as { chartType?: StudioChartType }).chartType;
+      const effectiveChartType =
+        patchChartType ??
+        resolveChartType(existingWidget.config as { chartType?: StudioChartType });
+      const invalidChartKeys = validateChartConfigKeysForType(
+        effectiveChartType,
+        effectiveConfig as Record<string, unknown>,
+      );
+      if (invalidChartKeys.length > 0) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `MUI X Studio: Ignoring config key(s) not valid for chart type '${effectiveChartType}' ` +
+              `(widget id '${widgetId}'): ${invalidChartKeys.join(', ')}. ` +
+              'These keys belong to a different chart type and were dropped from the update.',
+          );
+        }
+        const stripped: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(effectiveConfig)) {
+          if (!invalidChartKeys.includes(key)) {
             stripped[key] = value;
           }
         }

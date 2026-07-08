@@ -17,6 +17,26 @@ import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
+ * Neutralizes closing-tag-like sequences in a state-derived string before it is
+ * interpolated into a tagged prompt region (`<dashboard_state>`, `<skill>`,
+ * `<dashboard_context>`, `<server_context>`, …).
+ *
+ * State-derived values — widget titles, field ids/labels/descriptions, distinct
+ * data values, filter values, skill names, schema comments, host notes — are
+ * ultimately attacker-influenceable. Interpolating them raw lets a hostile value
+ * containing e.g. `</dashboard_state>` terminate the data block early and inject
+ * fake instructions into the trusted prompt that follows (a structural
+ * prompt-injection). Escaping the angle brackets makes any such value inert as
+ * markup while keeping it fully human/LLM-readable.
+ *
+ * This is the single choke point for that escaping — apply it to EVERY
+ * state-derived string interpolated into the prompt.
+ */
+export function sanitizeForPrompt(value: unknown): string {
+  return String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
  * Serializes a single data field to a compact AI-readable tag string.
  * Used by describeSource() and by the createWidgetFromDescription payload builder.
  *
@@ -35,33 +55,33 @@ export function serializeFieldForAI(
   },
   distinctValues?: string[],
 ): string {
-  const tags: string[] = [f.type];
+  const tags: string[] = [sanitizeForPrompt(f.type)];
   // format hint: helps LLM choose correct aggregation (sum vs avg)
   if (f.format) {
-    tags.push(f.format);
+    tags.push(sanitizeForPrompt(f.format));
   }
   // capabilities override: only when non-default (e.g. number marked categorical)
   if (f.capabilities && f.capabilities.length > 0) {
-    tags.push(f.capabilities.join('+'));
+    tags.push(sanitizeForPrompt(f.capabilities.join('+')));
   }
   // developer-preferred aggregation function
   if (f.defaultAggregationFn) {
-    tags.push(`default:${f.defaultAggregationFn}`);
+    tags.push(`default:${sanitizeForPrompt(f.defaultAggregationFn)}`);
   }
   // field cardinality from pre-computed distinct values
   if (distinctValues) {
     if (distinctValues.length <= 8) {
-      tags.push(`${distinctValues.length}: ${distinctValues.join('|')}`);
+      tags.push(`${distinctValues.length}: ${distinctValues.map(sanitizeForPrompt).join('|')}`);
     } else if (distinctValues.length <= 30) {
       tags.push(`${distinctValues.length} values`);
     }
     // >30 values: omit (high-cardinality, not useful for chart type selection)
   }
   if (f.label && f.label !== f.id) {
-    tags.push(`label: "${f.label}"`);
+    tags.push(`label: "${sanitizeForPrompt(f.label)}"`);
   }
-  const aiDesc = f.aiDescription ? ` — ${f.aiDescription}` : '';
-  return `${f.id} (${tags.join(', ')})${aiDesc}`;
+  const aiDesc = f.aiDescription ? ` — ${sanitizeForPrompt(f.aiDescription)}` : '';
+  return `${sanitizeForPrompt(f.id)} (${tags.join(', ')})${aiDesc}`;
 }
 
 function describeSource(source: StudioDataSource): string {
@@ -69,18 +89,22 @@ function describeSource(source: StudioDataSource): string {
   const fieldList = visibleFields
     .map((f) => serializeFieldForAI(f, source.fieldDistinctValues?.[f.id]))
     .join(', ');
-  const sourceDesc = source.aiDescription ? `\n  Description: ${source.aiDescription}` : '';
-  return `- ${source.label} [id: ${source.id}]:${sourceDesc} ${visibleFields.length} fields: ${fieldList}`;
+  const sourceDesc = source.aiDescription
+    ? `\n  Description: ${sanitizeForPrompt(source.aiDescription)}`
+    : '';
+  return `- ${sanitizeForPrompt(source.label)} [id: ${sanitizeForPrompt(source.id)}]:${sourceDesc} ${visibleFields.length} fields: ${fieldList}`;
 }
 
 function describeWidget(widget: StudioWidget, sources: Record<string, StudioDataSource>): string {
   const source = widget.sourceId ? sources[widget.sourceId] : undefined;
   const cfg = widget.config;
   const parts: string[] = [
-    `id: ${widget.id}`,
-    `kind: ${widget.kind}`,
-    `title: "${widget.title}"`,
-    source ? `source: "${source.label}" (${source.id})` : 'no source',
+    `id: ${sanitizeForPrompt(widget.id)}`,
+    `kind: ${sanitizeForPrompt(widget.kind)}`,
+    `title: "${sanitizeForPrompt(widget.title)}"`,
+    source
+      ? `source: "${sanitizeForPrompt(source.label)}" (${sanitizeForPrompt(source.id)})`
+      : 'no source',
   ];
 
   if (isWidgetOfKind(widget, 'chart')) {
@@ -94,9 +118,12 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     const cfg = widget.config as StudioChartConfig;
     const chartType = resolveChartType(cfg);
     const allowed = getAllowedChartConfigKeys(chartType);
+    // Gate on `!== undefined` (not truthiness) so a legitimately-falsy-but-set value
+    // (e.g. `gaugeMin: 0`, `barCategoryGapRatio: 0`, `dualYAxis: false`) is still
+    // described to the model instead of being silently dropped.
     const pushField = (key: keyof StudioChartConfig, value: unknown): void => {
-      if (allowed.has(key) && value) {
-        parts.push(`${key}: ${value}`);
+      if (allowed.has(key) && value !== undefined) {
+        parts.push(`${key}: ${sanitizeForPrompt(value)}`);
       }
     };
     parts.push(`chartType: ${chartType}`);
@@ -116,7 +143,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       parts.push(`annotations: ${cfg.annotations.length}`);
     }
     if (allowed.has('forecast') && cfg.forecast?.enabled) {
-      const method = cfg.forecast.method ?? 'linear';
+      const method = sanitizeForPrompt(cfg.forecast.method ?? 'linear');
       const periods = cfg.forecast.periods ?? 3;
       parts.push(`forecast: enabled (${method}, ${periods} periods)`);
     }
@@ -126,22 +153,37 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushField('chartSortDirection', cfg.chartSortDirection);
     if (allowed.has('ySeries') && cfg.ySeries?.length) {
       parts.push(
-        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
+        `ySeries: [${cfg.ySeries
+          .map(
+            (s) => `${sanitizeForPrompt(s.fieldId)}(${sanitizeForPrompt(s.yAggregation ?? 'sum')})`,
+          )
+          .join(', ')}]`,
       );
     }
     pushField('seriesField', cfg.seriesField);
     pushField('scatterColorField', cfg.scatterColorField);
     pushField('scatterSizeField', cfg.scatterSizeField);
+    pushField('scatterMinRadius', cfg.scatterMinRadius);
+    pushField('scatterMaxRadius', cfg.scatterMaxRadius);
+    pushField('heatColorScheme', cfg.heatColorScheme);
+    pushField('heatLegendPosition', cfg.heatLegendPosition);
+    pushField('heatLegendAlign', cfg.heatLegendAlign);
+    pushField('heatSortBy', cfg.heatSortBy);
+    pushField('heatSortDirection', cfg.heatSortDirection);
     pushField('ganttLabelField', cfg.ganttLabelField);
     pushField('ganttStartField', cfg.ganttStartField);
     pushField('ganttEndField', cfg.ganttEndField);
     pushField('ganttColorField', cfg.ganttColorField);
     if (allowed.has('funnelCategoryOrder') && cfg.funnelCategoryOrder?.length) {
-      parts.push(`funnelCategoryOrder: [${cfg.funnelCategoryOrder.join(', ')}]`);
+      parts.push(
+        `funnelCategoryOrder: [${cfg.funnelCategoryOrder.map(sanitizeForPrompt).join(', ')}]`,
+      );
     }
     pushField('funnelReachedField', cfg.funnelReachedField);
     if (allowed.has('funnelStageSequence') && cfg.funnelStageSequence?.length) {
-      parts.push(`funnelStageSequence: [${cfg.funnelStageSequence.join(', ')}]`);
+      parts.push(
+        `funnelStageSequence: [${cfg.funnelStageSequence.map(sanitizeForPrompt).join(', ')}]`,
+      );
     }
     pushField('funnelLabelFormat', cfg.funnelLabelFormat);
     pushField('funnelLabelPlacement', cfg.funnelLabelPlacement);
@@ -160,41 +202,46 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushField('crossFilterMode', cfg.crossFilterMode);
   } else if (isWidgetOfKind(widget, 'kpi')) {
     const cfg = widget.config;
-    if (cfg.kpiValueField) {
-      parts.push(`valueField: ${cfg.kpiValueField}`);
+    // Value fields: gate on `!== undefined` (not truthiness) so a set-but-falsy value survives.
+    if (cfg.kpiValueField !== undefined) {
+      parts.push(`valueField: ${sanitizeForPrompt(cfg.kpiValueField)}`);
     }
-    if (cfg.kpiAggregation) {
-      parts.push(`aggregation: ${cfg.kpiAggregation}`);
+    if (cfg.kpiAggregation !== undefined) {
+      parts.push(`aggregation: ${sanitizeForPrompt(cfg.kpiAggregation)}`);
     }
+    // `kpiSparkline`/`kpiTrend` are enablement flags: truthiness IS the intended gate
+    // (a `false` value means the feature is off and must not be described).
     if (cfg.kpiSparkline) {
       const plotType = cfg.kpiSparklinePlotType ?? 'line';
-      parts.push(`sparkline: ${plotType}`);
+      parts.push(`sparkline: ${sanitizeForPrompt(plotType)}`);
     }
     if ((cfg as any).kpiTrend) {
       const comparison = (cfg as any).kpiTrendComparison ?? 'previous-period';
       const invert = (cfg as any).kpiTrendInvert ? ', invert' : '';
-      parts.push(`trend: ${comparison}${invert}`);
+      parts.push(`trend: ${sanitizeForPrompt(comparison)}${invert}`);
     }
   } else if (isWidgetOfKind(widget, 'grid')) {
     const cfg = widget.config;
     if (cfg.columns?.length) {
-      parts.push(`columns: [${cfg.columns.map((c) => c.fieldId).join(', ')}]`);
+      parts.push(`columns: [${cfg.columns.map((c) => sanitizeForPrompt(c.fieldId)).join(', ')}]`);
     }
-    if ((cfg as any).gridSortField) {
+    if ((cfg as any).gridSortField !== undefined) {
       parts.push(
-        `sortField: ${(cfg as any).gridSortField}(${(cfg as any).gridSortDirection ?? 'asc'})`,
+        `sortField: ${sanitizeForPrompt((cfg as any).gridSortField)}(${sanitizeForPrompt(
+          (cfg as any).gridSortDirection ?? 'asc',
+        )})`,
       );
     }
-    if ((cfg as any).gridGroupByField) {
-      parts.push(`groupBy: ${(cfg as any).gridGroupByField}`);
+    if ((cfg as any).gridGroupByField !== undefined) {
+      parts.push(`groupBy: ${sanitizeForPrompt((cfg as any).gridGroupByField)}`);
     }
   } else if (isWidgetOfKind(widget, 'filter')) {
     const cfg = widget.config;
-    if (cfg.filterWidgetType) {
-      parts.push(`filterType: ${cfg.filterWidgetType}`);
+    if (cfg.filterWidgetType !== undefined) {
+      parts.push(`filterType: ${sanitizeForPrompt(cfg.filterWidgetType)}`);
     }
-    if (cfg.filterWidgetField) {
-      parts.push(`filterField: ${cfg.filterWidgetField}`);
+    if (cfg.filterWidgetField !== undefined) {
+      parts.push(`filterField: ${sanitizeForPrompt(cfg.filterWidgetField)}`);
     }
   } else if (widget.kind === 'pivot') {
     const cfg2 = cfg as {
@@ -204,19 +251,19 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       pivotAggregation?: string;
       pivotShowTotals?: boolean;
     };
-    if (cfg2.pivotRowField) {
-      parts.push(`rowField: ${cfg2.pivotRowField}`);
+    if (cfg2.pivotRowField !== undefined) {
+      parts.push(`rowField: ${sanitizeForPrompt(cfg2.pivotRowField)}`);
     }
-    if (cfg2.pivotColField) {
-      parts.push(`colField: ${cfg2.pivotColField}`);
+    if (cfg2.pivotColField !== undefined) {
+      parts.push(`colField: ${sanitizeForPrompt(cfg2.pivotColField)}`);
     }
-    if (cfg2.pivotValueField) {
-      parts.push(`valueField: ${cfg2.pivotValueField}`);
+    if (cfg2.pivotValueField !== undefined) {
+      parts.push(`valueField: ${sanitizeForPrompt(cfg2.pivotValueField)}`);
     }
-    if (cfg2.pivotAggregation) {
-      parts.push(`aggregation: ${cfg2.pivotAggregation}`);
+    if (cfg2.pivotAggregation !== undefined) {
+      parts.push(`aggregation: ${sanitizeForPrompt(cfg2.pivotAggregation)}`);
     }
-    if (cfg2.pivotShowTotals != null) {
+    if (cfg2.pivotShowTotals !== undefined) {
       parts.push(`showTotals: ${cfg2.pivotShowTotals}`);
     }
   } else if (widget.kind === 'map') {
@@ -226,17 +273,17 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       mapAggregation?: string;
       crossFilterMode?: string;
     };
-    if (cfg2.mapCountryField) {
-      parts.push(`countryField: ${cfg2.mapCountryField}`);
+    if (cfg2.mapCountryField !== undefined) {
+      parts.push(`countryField: ${sanitizeForPrompt(cfg2.mapCountryField)}`);
     }
-    if (cfg2.mapValueField) {
-      parts.push(`valueField: ${cfg2.mapValueField}`);
+    if (cfg2.mapValueField !== undefined) {
+      parts.push(`valueField: ${sanitizeForPrompt(cfg2.mapValueField)}`);
     }
-    if (cfg2.mapAggregation) {
-      parts.push(`aggregation: ${cfg2.mapAggregation}`);
+    if (cfg2.mapAggregation !== undefined) {
+      parts.push(`aggregation: ${sanitizeForPrompt(cfg2.mapAggregation)}`);
     }
-    if (cfg2.crossFilterMode) {
-      parts.push(`crossFilterMode: ${cfg2.crossFilterMode}`);
+    if (cfg2.crossFilterMode !== undefined) {
+      parts.push(`crossFilterMode: ${sanitizeForPrompt(cfg2.crossFilterMode)}`);
     }
   }
 
@@ -286,13 +333,13 @@ You help users configure their dashboard by creating pages, adding widgets, and 
   → update_widget({ widgetId: "<id>", title: "Q1 Sales" })
 
 "Add a bar chart showing revenue by region using the Sales source":
-  → add_widget({ kind: "chart", title: "Revenue by Region", source: "<salesSourceId>", chartType: "bar", xField: "region", yField: "revenue" })
+  → add_widget({ kind: "chart", title: "Revenue by Region", sourceId: "<salesSourceId>", config: { chartType: "bar", xField: "region", yField: "revenue", yAggregation: "sum" } })
 
 "Filter the orders table to completed only":
-  → add_widget_filter({ widgetId: "<id>", field: "status", operator: "equals", value: "completed" })
+  → add_widget_filter({ widgetId: "<id>", field: "status", sourceId: "<ordersSourceId>", operator: "equals", value: "completed" })
 
 "Put the KPI cards on the same row":
-  → set_widget_layout({ widgetRows: [["<kpi1>", "<kpi2>", "<kpi3>"], ["<otherWidget>"]] })
+  → set_widget_layout({ rows: [["<kpi1>", "<kpi2>", "<kpi3>"], ["<otherWidget>"]] })
 
 "Redesign this page — add a title card, a KPI, and a chart":
   → apply_bulk_update({ widgetAdditions: [...], layout: [...] })
@@ -307,11 +354,11 @@ You help users configure their dashboard by creating pages, adding widgets, and 
   → add_page({ title: "Trends" })
 
 ## Common Mistakes — Avoid These
-set_widget_layout CORRECT: widgetRows must list EVERY widget on the page.
+set_widget_layout CORRECT: rows must list EVERY widget on the page.
 set_widget_layout WRONG: omitting any widget — omitted widgets are removed from the layout.
 
-apply_bulk_update layout CORRECT: widgetRows is string[][] — an array of rows, each row an array of widget IDs.
-apply_bulk_update layout WRONG: widgetRows as a flat string[] — this is not valid.
+apply_bulk_update layout CORRECT: layout is string[][] — an array of rows, each row an array of widget IDs.
+apply_bulk_update layout WRONG: layout as a flat string[] — this is not valid.
 
 apply_bulk_update widgetAdditions CORRECT: give each new widget a unique title within the additions array.
 apply_bulk_update widgetAdditions WRONG: two additions with the same title — layout references are resolved by title, so duplicates are ambiguous.
@@ -319,7 +366,7 @@ apply_bulk_update widgetAdditions WRONG: two additions with the same title — l
 update_widget CORRECT: pass only the keys you are changing (partial patch).
 update_widget WRONG: pass a full widget config object — only changed keys belong here.
 
-Filter operator CORRECT: use exact strings: equals, not_equals, contains, does_not_contain, starts_with, ends_with, greater_than, less_than, greater_than_or_equal, less_than_or_equal, between, in, not_in, is_empty, is_not_empty.
+Filter operator CORRECT: use exact strings: equals, not_equals, in, not_in, contains, does_not_contain, starts_with, not_starts_with, ends_with, not_ends_with, is_empty, is_not_empty, greater_than, less_than, greater_than_or_equal, less_than_or_equal, between.
 Filter operator WRONG: free-form strings like "==" or "eq" — these are not valid operators.
 
 ## Filter Widget
@@ -454,8 +501,8 @@ function buildDashboardState(
     `## Current Date`,
     new Date().toISOString().slice(0, 10),
     '',
-    `## Dashboard: "${dashboard.title || '(untitled)'}"`,
-    `Mode: ${mode}`,
+    `## Dashboard: "${sanitizeForPrompt(dashboard.title || '(untitled)')}"`,
+    `Mode: ${sanitizeForPrompt(mode)}`,
     '',
   ];
 
@@ -468,7 +515,7 @@ function buildDashboardState(
       const isActive = page.id === dashboard.activePageId;
       const widgetCount = (page.widgetRows ?? []).flat().length;
       lines.push(
-        `- ${page.title} [id: ${page.id}]${isActive ? ' (active)' : ''} — ${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
+        `- ${sanitizeForPrompt(page.title)} [id: ${sanitizeForPrompt(page.id)}]${isActive ? ' (active)' : ''} — ${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
       );
     }
     lines.push('');
@@ -477,9 +524,13 @@ function buildDashboardState(
   // Widgets on active page
   if (activePage) {
     if (activeWidgets.length === 0) {
-      lines.push(`## Active page: "${activePage.title}"\nNo widgets on this page yet.`);
+      lines.push(
+        `## Active page: "${sanitizeForPrompt(activePage.title)}"\nNo widgets on this page yet.`,
+      );
     } else {
-      lines.push(`## Widgets on "${activePage.title}" (${activeWidgets.length})`);
+      lines.push(
+        `## Widgets on "${sanitizeForPrompt(activePage.title)}" (${activeWidgets.length})`,
+      );
       for (const widget of activeWidgets) {
         lines.push(describeWidget(widget, dataSources));
       }
@@ -499,7 +550,9 @@ function buildDashboardState(
             const w = widgets[id];
             const span = widgetColSpans[id];
             const spanSuffix = span != null ? `, ${span}col` : '';
-            return w ? `${id} ("${w.title}", ${w.kind}${spanSuffix})` : id;
+            return w
+              ? `${sanitizeForPrompt(id)} ("${sanitizeForPrompt(w.title)}", ${sanitizeForPrompt(w.kind)}${spanSuffix})`
+              : sanitizeForPrompt(id);
           })
           .join(', ');
         lines.push(`Row ${i + 1}: ${rowDesc}`);
@@ -518,9 +571,10 @@ function buildDashboardState(
         '## Active Filters (use remove_page_filter or remove_widget_filter with the filter id to remove)',
       );
       for (const f of activeFilters) {
-        const scopeLabel = f.scope.kind === 'widget' ? `widget:${f.scope.widgetId}` : 'page';
+        const scopeLabel =
+          f.scope.kind === 'widget' ? `widget:${sanitizeForPrompt(f.scope.widgetId)}` : 'page';
         lines.push(
-          `  - [id: ${f.id}] scope:${scopeLabel} — ${f.field} ${f.operator} ${JSON.stringify(f.value)}`,
+          `  - [id: ${sanitizeForPrompt(f.id)}] scope:${scopeLabel} — ${sanitizeForPrompt(f.field)} ${sanitizeForPrompt(f.operator)} ${sanitizeForPrompt(JSON.stringify(f.value))}`,
         );
       }
       lines.push('');
@@ -533,9 +587,14 @@ function buildDashboardState(
     lines.push(`## Other Pages (${otherPages.length})`);
     for (const page of otherPages) {
       const ids = (page.widgetRows ?? []).flat();
-      const titles = ids.map((id) => widgets[id]?.title).filter((t): t is string => Boolean(t));
+      const titles = ids
+        .map((id) => widgets[id]?.title)
+        .filter((t): t is string => Boolean(t))
+        .map(sanitizeForPrompt);
       const widgetSummary = titles.length > 0 ? titles.join(', ') : '(no widgets)';
-      lines.push(`- ${page.title} [id: ${page.id}]: ${widgetSummary}`);
+      lines.push(
+        `- ${sanitizeForPrompt(page.title)} [id: ${sanitizeForPrompt(page.id)}]: ${widgetSummary}`,
+      );
     }
     lines.push(
       "Use list_pages for structured access or summarise_page(pageId) to see a page's data without switching to it.",
@@ -565,10 +624,10 @@ function buildDashboardState(
       const needsSource = cw.requiresDataSource !== false ? ' (requires sourceId)' : '';
       const configKeys =
         cw.defaultConfig && Object.keys(cw.defaultConfig).length > 0
-          ? ` Config keys: ${Object.keys(cw.defaultConfig).join(', ')}.`
+          ? ` Config keys: ${Object.keys(cw.defaultConfig).map(sanitizeForPrompt).join(', ')}.`
           : '';
       lines.push(
-        `- ${cw.kind}: ${cw.label}${cw.description ? ` — ${cw.description}` : ''}${needsSource}.${configKeys}`,
+        `- ${sanitizeForPrompt(cw.kind)}: ${sanitizeForPrompt(cw.label)}${cw.description ? ` — ${sanitizeForPrompt(cw.description)}` : ''}${needsSource}.${configKeys}`,
       );
     }
   }
@@ -610,7 +669,7 @@ function buildDashboardState(
       lines.push('');
       lines.push('## Per-widget focus');
       lines.push(
-        `The user is asking about widget "${focused.title}" (id: ${focusedWidgetId}, kind: ${focused.kind}).`,
+        `The user is asking about widget "${sanitizeForPrompt(focused.title)}" (id: ${sanitizeForPrompt(focusedWidgetId)}, kind: ${sanitizeForPrompt(focused.kind)}).`,
       );
       lines.push('Focus your assistance on this specific widget.');
       lines.push(
@@ -629,7 +688,10 @@ function buildSkillSection(skills?: SerializableSkill[]): string {
     return '';
   }
   const fragments = skills
-    .map((s) => `<skill name="${s.name}" mode="${s.mode}">\n${s.promptFragment}\n</skill>`)
+    .map(
+      (s) =>
+        `<skill name="${sanitizeForPrompt(s.name)}" mode="${sanitizeForPrompt(s.mode)}">\n${s.promptFragment}\n</skill>`,
+    )
     .join('\n\n');
   return `\n\n## Skills\n\nThe following skills are enabled. Use each skill when its trigger conditions match.\nDo not invent tool names beyond those listed here plus the built-in tools.\n\n${fragments}`;
 }
@@ -686,8 +748,8 @@ function buildRichContextBlock(
     if (richContext.fieldStats && Object.keys(richContext.fieldStats).length > 0) {
       const lines = Object.entries(richContext.fieldStats).map(([key, s]) =>
         s.min !== undefined || s.max !== undefined
-          ? `  - ${key}: min=${s.min}, max=${s.max}, mean=${s.mean} (n=${s.sampledRows})`
-          : `  - ${key}: ${s.distinctCount} distinct (n=${s.sampledRows})`,
+          ? `  - ${sanitizeForPrompt(key)}: min=${s.min}, max=${s.max}, mean=${s.mean} (n=${s.sampledRows})`
+          : `  - ${sanitizeForPrompt(key)}: ${s.distinctCount} distinct (n=${s.sampledRows})`,
       );
       inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
     }
@@ -699,18 +761,21 @@ function buildRichContextBlock(
             `  Row ${i + 1}: ${row
               .map(
                 (w) =>
-                  `${w.title || w.widgetId} [${w.kind}${w.chartType ? `:${w.chartType}` : ''}${
-                    w.colSpan ? `, span ${w.colSpan}` : ''
-                  }]`,
+                  `${sanitizeForPrompt(w.title || w.widgetId)} [${sanitizeForPrompt(w.kind)}${
+                    w.chartType ? `:${sanitizeForPrompt(w.chartType)}` : ''
+                  }${w.colSpan ? `, span ${w.colSpan}` : ''}]`,
               )
               .join(', ')}`,
         )
         .join('\n');
-      const layout = [`Active page \`${pageId}\` layout:\n${rowLines}`];
+      const layout = [`Active page \`${sanitizeForPrompt(pageId)}\` layout:\n${rowLines}`];
       if (crossFilters.length > 0) {
         layout.push(
           `Cross-filter graph:\n${crossFilters
-            .map((c) => `  - ${c.sourceWidgetId} filters by \`${c.field}\` (${c.scope})`)
+            .map(
+              (c) =>
+                `  - ${sanitizeForPrompt(c.sourceWidgetId)} filters by \`${sanitizeForPrompt(c.field)}\` (${sanitizeForPrompt(c.scope)})`,
+            )
             .join('\n')}`,
         );
       }
@@ -719,13 +784,15 @@ function buildRichContextBlock(
     if (richContext.recentMutations && richContext.recentMutations.length > 0) {
       inner.push(
         `Recent user changes (oldest first):\n${richContext.recentMutations
-          .map((m) => `  - ${m.label}`)
+          .map((m) => `  - ${sanitizeForPrompt(m.label)}`)
           .join('\n')}`,
       );
     }
     if (richContext.omitted && richContext.omitted.length > 0) {
       inner.push(
-        `Note: context omitted to fit the token budget: ${richContext.omitted.join(', ')}.`,
+        `Note: context omitted to fit the token budget: ${richContext.omitted
+          .map(sanitizeForPrompt)
+          .join(', ')}.`,
       );
     }
     if (inner.length > 0) {
@@ -738,21 +805,21 @@ function buildRichContextBlock(
     if (enrichedContext.rowCounts && Object.keys(enrichedContext.rowCounts).length > 0) {
       const lines = Object.entries(enrichedContext.rowCounts).map(([field, counts]) => {
         const pairs = Object.entries(counts)
-          .map(([value, count]) => `${value}=${count}`)
+          .map(([value, count]) => `${sanitizeForPrompt(value)}=${count}`)
           .join(', ');
-        return `  - ${field}: ${pairs}`;
+        return `  - ${sanitizeForPrompt(field)}: ${pairs}`;
       });
       inner.push(`Row counts per dimension value:\n${lines.join('\n')}`);
     }
     if (enrichedContext.schemaComments && Object.keys(enrichedContext.schemaComments).length > 0) {
       inner.push(
         `Schema comments:\n${Object.entries(enrichedContext.schemaComments)
-          .map(([k, v]) => `  - ${k}: ${v}`)
+          .map(([k, v]) => `  - ${sanitizeForPrompt(k)}: ${sanitizeForPrompt(v)}`)
           .join('\n')}`,
       );
     }
     if (enrichedContext.notes) {
-      inner.push(enrichedContext.notes);
+      inner.push(sanitizeForPrompt(enrichedContext.notes));
     }
     if (inner.length > 0) {
       blocks.push(`<server_context>\n${inner.join('\n\n')}\n</server_context>`);

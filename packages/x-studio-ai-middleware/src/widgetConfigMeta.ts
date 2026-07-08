@@ -28,7 +28,7 @@ export const WIDGET_KIND_DESCRIPTIONS = {
  * When adding a new config field to `StudioWidgetConfig`, add its AI-facing
  * documentation here (and in the JSDoc on the TypeScript interface).
  */
-const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
+export const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
   chart: [
     'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|bar-100|area-stacked|area-100|heatmap|funnel|gantt|gauge|mixed), xField, yField, yAggregation (sum|count|avg|min|max — use "count" when yField is a string/boolean; default "sum"), seriesField;',
     '  barLayout: "horizontal" — use for >5 categories, long names, or ranking charts; do NOT use for time-series;',
@@ -41,7 +41,6 @@ const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
     '  heatLegendAlign: "start"|"center"|"end" — heatmap legend cross-axis alignment (default "center");',
     '  heatSortBy: "x-axis"|"y-axis"|"natural" — which heatmap axis labels to sort; heatSortDirection: "asc"|"desc";',
     '  crossFilterMode: "cross-highlight"|"cross-filter"|"none" — how widget responds to cross-filter events (default: "cross-highlight");',
-    '  crossFilterField: field ID to emit when a bar/point is clicked (default: xField);',
     '  yField2: second numeric field for a secondary scatter axis or additional bar series;',
     'heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation, heatColorScheme, heatLegendPosition, heatLegendAlign, heatSortBy, heatSortDirection;',
     'funnel: xField (stages in display order), yField (value), yAggregation (use "count" when yField is string); optional: funnelReachedField + funnelStageSequence for cumulative "reached stage" mode;',
@@ -50,7 +49,7 @@ const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
     'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation, sourceId}), dualYAxis (boolean) — set a per-series sourceId to overlay a metric from a different source onto the shared categorical xField (the join key must exist with the same id in every source used);',
   ],
   kpi: [
-    'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMin, kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),',
+    'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),',
     '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better);',
   ],
   grid: [
@@ -100,10 +99,10 @@ export const CHART_TYPE_DOCS: string[] = [
   'heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation. Optional: heatColorScheme ("primary"|"success"|"warning"|"error"), heatLegendPosition ("bottom"|"top"|"left"|"right"|"hidden"), heatLegendAlign ("start"|"center"|"end").',
   'funnel: xField (stages in display order), yField, yAggregation (use "count" for string yField). Optional: funnelReachedField + funnelStageSequence for cumulative mode.',
   'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date). Optional: ganttColorField.',
-  'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No xField.',
+  'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No x-axis.',
   'mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation, sourceId}). Optional: dualYAxis (boolean). Set a per-series sourceId to overlay a metric from another source — xField must be a categorical field present (same id) in every source used.',
 ];
 
 /** Appended after `CHART_TYPE_DOCS` in the Chart Types section. */
 export const KPI_SPARKLINE_DOC =
-  'KPI sparkline plotType: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).';
+  'KPI sparkline kpiSparklinePlotType: line, bar, gauge (kpiSparklineGaugeMax).';

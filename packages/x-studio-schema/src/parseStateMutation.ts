@@ -27,6 +27,7 @@
  */
 import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
+import { validateConfigKeysForKind } from './configKeyValidation';
 
 export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
@@ -137,6 +138,21 @@ function validateWidget(widget: unknown, path: string): string | null {
   }
   if (!isRecord(widget.config)) {
     return `${path}.config must be an object`;
+  }
+  // Fail-closed per-kind config-key check (matches this file's other validators,
+  // which are all fail-closed on untrusted wire input): a widget carrying a
+  // config key that belongs to a DIFFERENT widget kind (e.g. a Chart-only key on
+  // a Grid widget) is rejected. Custom/unknown kinds are unrestricted (the
+  // validator returns no invalid keys for them). This is the wire-boundary
+  // counterpart to `StudioController.updateWidgetConfig`'s in-process guard; it
+  // applies wherever a full widget with a known `kind` crosses the boundary
+  // (`addWidget`, `applyBulkUpdate.addedWidgets`). Note: an `updateWidget`
+  // mutation carries only a config PATCH with no `kind`, so it cannot be
+  // kind-validated here — that path is covered in-process by the controller and,
+  // for the AI tool boundary, by Stage 3's middleware validation.
+  const invalidConfigKeys = validateConfigKeysForKind(widget.kind, widget.config);
+  if (invalidConfigKeys.length > 0) {
+    return `${path}.config carries key(s) not valid for a '${widget.kind}' widget: ${invalidConfigKeys.join(', ')}`;
   }
   return null;
 }

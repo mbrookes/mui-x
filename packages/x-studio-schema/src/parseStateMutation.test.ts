@@ -309,6 +309,57 @@ describe('parseStateMutation — malformed per-variant args', () => {
   });
 });
 
+describe('parseStateMutation — per-kind config-key validation (fail-closed)', () => {
+  it('rejects an addWidget whose config carries a cross-kind key', () => {
+    // `chartType` is a chart-only key; on a grid widget it must be rejected.
+    const result = parseStateMutation({
+      type: 'addWidget',
+      args: { widget: { id: 'w', kind: 'grid', title: 'T', config: { chartType: 'bar' } } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('chartType');
+      expect(result.error).toContain('grid');
+    }
+  });
+
+  it('rejects an applyBulkUpdate whose addedWidget config carries a cross-kind key', () => {
+    const result = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: {
+        ...validBulkArgs(),
+        addedWidgets: [{ id: 'w', kind: 'kpi', title: 'T', config: { columns: [] } }],
+      },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts an addWidget with a valid per-kind config', () => {
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'grid', title: 'T', config: { gridHeight: 300 } } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts a custom-kind widget carrying arbitrary config keys (no restriction)', () => {
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w',
+            kind: 'acme-weather',
+            title: 'T',
+            config: { anything: 1, foo: 'bar' },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+});
+
 describe('parseStateMutation — id hygiene (prototype-injection defense)', () => {
   const unsafeIds = ['__proto__', 'constructor', 'prototype'];
 

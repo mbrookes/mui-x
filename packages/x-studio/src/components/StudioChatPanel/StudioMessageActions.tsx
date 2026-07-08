@@ -19,7 +19,7 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
   messageId,
 }: StudioMessageActionsProps) {
   const message = useMessage(messageId);
-  const { messages, sendMessage, isStreaming } = useChat();
+  const { regenerate, isStreaming } = useChat();
   const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
 
@@ -47,14 +47,14 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
   };
 
   const handleRetry = () => {
-    // Find the last user message preceding this assistant message and resend it.
-    const idx = messages.findIndex((m) => m.id === messageId);
-    const lastUser = [...messages.slice(0, idx === -1 ? messages.length : idx)]
-      .reverse()
-      .find((m) => m.role === 'user');
-    if (lastUser) {
-      sendMessage({ parts: lastUser.parts });
-    }
+    // Regenerate the assistant reply in place. `regenerate(messageId)` resolves the
+    // anchoring user message, REMOVES this stale assistant run, then requests a fresh
+    // reply (via `adapter.regenerate`, falling back to re-sending the anchor user
+    // message through the send pipeline). Re-sending the user message via
+    // `sendMessage` instead would append a duplicate user turn + a second answer,
+    // letting the thread accumulate duplicate questions rather than replacing the
+    // failed answer.
+    regenerate(messageId);
   };
 
   return (

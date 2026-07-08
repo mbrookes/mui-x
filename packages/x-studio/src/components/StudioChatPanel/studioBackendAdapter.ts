@@ -162,12 +162,22 @@ export function createBackendChatAdapter(
     defaultConfig: w.defaultConfig,
   }));
 
-  // Active response body reader — cancelled by stop() for immediate abort cleanup.
-  let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  // Response-body readers of every in-flight `sendMessage` stream, cancelled by
+  // stop() for immediate abort cleanup. This is a Set — not a single shared
+  // variable — because the panel can switch threads mid-stream (the
+  // `StreamThreadPin` machinery), so multiple streams can overlap. With one shared
+  // variable, the first stream's cleanup (`activeReader = null`) would drop a later
+  // stream's still-live reader, making `stop()` a no-op for it. Each request adds
+  // its own reader and removes only that reader when it settles, so `stop()` always
+  // cancels exactly the readers that are still live.
+  const activeReaders = new Set<ReadableStreamDefaultReader<Uint8Array>>();
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
       const msgId = createMessageId();
+      // This request's own reader, captured so cleanup removes only it (never a
+      // concurrent request's reader) from the shared `activeReaders` set.
+      let requestReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
       const textPartId = `text-0`;
       const reasoningId = `r-thinking`;
       let textStarted = false;
@@ -429,7 +439,8 @@ export function createBackendChatAdapter(
           try {
             await parseSSEStream(response, processEvent, {
               onReader: (reader) => {
-                activeReader = reader;
+                requestReader = reader;
+                activeReaders.add(reader);
               },
             });
           } catch (err) {
@@ -440,7 +451,10 @@ export function createBackendChatAdapter(
               errorStream(err);
             }
           } finally {
-            activeReader = null;
+            if (requestReader) {
+              activeReaders.delete(requestReader);
+              requestReader = null;
+            }
             // The SSE stream ended (server closed the connection, proxy timeout, etc.)
             // without ever emitting a `finish`/`error` event and without the abort or
             // HTTP-error paths above having settled the stream either. Close it now so
@@ -453,11 +467,15 @@ export function createBackendChatAdapter(
     },
 
     stop() {
-      // Cancel the active response body reader so the browser releases the connection.
-      // ChatBox has already aborted the fetch signal before calling stop(), so this
-      // is a best-effort cleanup to free resources immediately.
-      activeReader?.cancel().catch(() => {});
-      activeReader = null;
+      // Cancel every in-flight response body reader so the browser releases the
+      // connections. ChatBox has already aborted the fetch signal before calling
+      // stop(), so this is a best-effort cleanup to free resources immediately.
+      // Cancelling per-reader (rather than a single shared reader) means overlapping
+      // streams from mid-stream thread switches are all stopped correctly.
+      for (const reader of activeReaders) {
+        reader.cancel().catch(() => {});
+      }
+      activeReaders.clear();
     },
 
     async addToolApprovalResponse({

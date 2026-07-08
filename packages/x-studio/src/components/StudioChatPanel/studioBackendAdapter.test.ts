@@ -574,6 +574,82 @@ describe('createBackendChatAdapter: stop()', () => {
   });
 });
 
+describe('createBackendChatAdapter: overlapping streams stop()', () => {
+  it('still cancels a live stream after an earlier overlapping stream finished (regression: 2.9)', async () => {
+    // The panel can switch threads mid-stream, so two sendMessage streams can be
+    // in flight at once. When the "done" stream completes, its cleanup must remove
+    // only its OWN reader — not the still-live stream's — so a later stop() can
+    // still cancel the live one. With a single shared reader variable, the done
+    // stream's `finally` nulled the live stream's reader and stop() became a no-op.
+    const liveCancelSpy = vi.fn().mockResolvedValue(undefined);
+
+    // Route each request by its message text so ordering/timing of the two
+    // concurrent start() calls does not affect which body each stream gets.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as {
+          messages: { parts: { text: string }[] }[];
+        };
+        const text = body.messages[0]?.parts[0]?.text;
+        if (text === 'live') {
+          // Still-live stream: its reader never resolves.
+          return Promise.resolve({
+            ok: true,
+            body: {
+              getReader: () => ({
+                read: vi.fn().mockImplementation(() => new Promise(() => {})),
+                cancel: liveCancelSpy,
+                releaseLock: vi.fn(),
+              }),
+            },
+          });
+        }
+        // "done" stream: completes with a finish event so its finally() runs.
+        const sse = makeSseBody([{ type: 'finish', finishReason: 'stop' }]);
+        return Promise.resolve({
+          ok: true,
+          body: new ReadableStream({
+            start(ctrl) {
+              ctrl.enqueue(sse);
+              ctrl.close();
+            },
+          }),
+        });
+      }),
+    );
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+
+    // Start the live stream and begin reading so its start() runs and registers
+    // its reader before anything else happens.
+    const liveStream = await adapter.sendMessage(makeSendInput([makeUserMessage('live')]));
+    liveStream
+      .getReader()
+      .read()
+      .catch(() => {});
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+
+    // Now run an overlapping stream to completion. Its cleanup must not disturb the
+    // live stream's registered reader.
+    const doneStream = await adapter.sendMessage(makeSendInput([makeUserMessage('done')]));
+    await collectChunks(doneStream);
+
+    // stop() must still reach the live stream's reader.
+    adapter.stop?.();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+
+    expect(liveCancelSpy).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('createBackendChatAdapter: abort signal', () => {
   it('emits abort chunk when the fetch is aborted via signal', async () => {
     const ac = new AbortController();

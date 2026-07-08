@@ -112,6 +112,127 @@ describe('createWidgetFromDescription', () => {
   });
 });
 
+// ── Server config validation / stripping (regression: 2.8) ───────────────────
+
+describe('createWidgetFromDescription: server config validation', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function getCommittedConfig(controller: StudioController): Record<string, unknown> {
+    const widgetArg = (controller.addWidget as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      config: Record<string, unknown>;
+    };
+    return widgetArg.config;
+  }
+
+  it('strips keys not valid for the widget kind', async () => {
+    // `chartType` is a Chart-only key; returned for a Grid widget it must be dropped.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'grid',
+            sourceId: 'src1',
+            config: { gridHeight: 400, chartType: 'bar', xField: 'month' },
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('grid of revenue', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const config = getCommittedConfig(controller);
+    expect(config.gridHeight).toBe(400);
+    expect(config).not.toHaveProperty('chartType');
+    expect(config).not.toHaveProperty('xField');
+  });
+
+  it('strips chart keys not valid for the resolved chart type', async () => {
+    // `sankeyTargetField` is a Sankey-only key; on a bar chart it must be dropped
+    // while legitimate bar keys (xField/yField) survive.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'chart',
+            sourceId: 'src1',
+            config: {
+              chartType: 'bar',
+              xField: 'month',
+              yField: 'revenue',
+              sankeyTargetField: 'x',
+            },
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('bar chart', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const config = getCommittedConfig(controller);
+    expect(config.chartType).toBe('bar');
+    expect(config.xField).toBe('month');
+    expect(config.yField).toBe('revenue');
+    expect(config).not.toHaveProperty('sankeyTargetField');
+  });
+
+  it('drops an unknown chartType and falls back to the factory default', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'chart',
+            sourceId: 'src1',
+            config: { chartType: 'evil-injected-type', xField: 'month' },
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('chart', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const config = getCommittedConfig(controller);
+    // Bogus chartType removed; factory default ('bar') retained from base config.
+    expect(config.chartType).toBe('bar');
+    // xField is valid for the bar family, so it survives.
+    expect(config.xField).toBe('month');
+  });
+
+  it('ignores a non-object config from the server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'chart',
+            sourceId: 'src1',
+            config: 'not-an-object',
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('chart', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const config = getCommittedConfig(controller);
+    // Falls back to the factory default config only — no spread of string chars.
+    expect(config.chartType).toBe('bar');
+    expect(config).not.toHaveProperty('0');
+  });
+});
+
 // ── Each built-in chart / widget kind ────────────────────────────────────────
 
 const WIDGET_KINDS = [

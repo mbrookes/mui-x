@@ -555,6 +555,11 @@ export interface StudioPieFamilyChartConfig extends StudioChartConfigBase {
   xField?: string;
   /** Value field (single). Prefer over `ySeries`. */
   yField?: string;
+  /**
+   * How to aggregate the slice values. Defaults to 'sum'; the compose drawer sets
+   * this to `'count'` for a field-less pie/donut (a per-category row tally).
+   */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /** Value series (preferred over yField when present). */
   ySeries?: StudioChartSeries[];
   /** Group/series field used to split into multiple concentric rings. */
@@ -593,6 +598,11 @@ export interface StudioScatterChartConfig extends StudioChartConfigBase {
   xField?: string;
   /** Y-axis numeric field. */
   yField?: string;
+  /**
+   * Y-field series mirror. The scatter setup panel writes `yField` and a
+   * single-entry `ySeries` together; auto-title derivation reads `ySeries[0]`.
+   */
+  ySeries?: StudioChartSeries[];
   /** Secondary Y field for the scatter Y axis. */
   yField2?: string;
   /** Categorical field used to split points into colour-coded series. */

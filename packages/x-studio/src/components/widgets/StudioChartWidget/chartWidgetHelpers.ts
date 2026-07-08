@@ -10,11 +10,11 @@ import type {
   MultiYSeriesData,
 } from '../../../internals/chartAggregation';
 import type {
+  StudioChartConfig,
   StudioDataField,
   StudioDataSource,
   StudioExpressionField,
   StudioNumberFormat,
-  StudioWidgetConfigForKind,
 } from '../../../models';
 
 /** A temporal-gap-densified aggregation — gap-filled positions carry `null` values. */
@@ -260,7 +260,7 @@ export function densifyBarLabels(labels: (string | number)[]) {
 
 export function createLineXAxisConfig(
   labels: (string | number)[],
-  xGroupBy: StudioWidgetConfigForKind<'chart'>['xGroupBy'],
+  xGroupBy: StudioChartConfig['xGroupBy'],
   formatLabel: (label: string | number) => string,
   axisId?: string,
 ) {

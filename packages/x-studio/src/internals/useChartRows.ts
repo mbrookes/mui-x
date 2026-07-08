@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioWidgetOf } from '../models';
+import type { StudioChartConfig, StudioWidgetOf } from '../models';
 import {
   useStudioSelector,
   selectDataSources,
@@ -37,7 +37,8 @@ export function useChartRows(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
-  const { config } = widget;
+  // Flat-widen: reads xField/seriesField across chart families.
+  const config: StudioChartConfig = widget.config;
 
   return React.useMemo((): Row[] => {
     if (!chartSupport.supported) {

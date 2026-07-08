@@ -11,7 +11,7 @@
  * there's no need to render the JSX to observe the memoization.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { StudioDataSource, StudioWidgetConfig } from '../../../models';
+import type { StudioChartType, StudioDataSource, StudioWidgetConfig } from '../../../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
 
 const {
@@ -64,10 +64,14 @@ const dataSource: StudioDataSource = {
   rows: [],
 };
 
-function makeCtx(
+// Generic over the chart type so `CHART_TYPE_DEFS.<type>.render(makeCtx(...))`
+// infers `T` from the (now family-narrow) `render` parameter. The flat test config
+// is cast to the family shape via `unknown` — the fields the render reads are all
+// present, and these tests only assert aggregation memoization, not config typing.
+function makeCtx<T extends StudioChartType = StudioChartType>(
   config: StudioWidgetConfig,
   filteredRows: Record<string, unknown>[],
-): ChartRenderContext {
+): ChartRenderContext<T> {
   return {
     config,
     dataSource,
@@ -96,7 +100,7 @@ function makeCtx(
     allScatterSeries: null,
     shouldShowGhost: false,
 
-    formatLabel: (label) => String(label),
+    formatLabel: (label: string | number) => String(label),
     resolvedChartColors: [],
     getSeriesColor: () => undefined,
     preserveXFieldBaseline: false,
@@ -111,7 +115,7 @@ function makeCtx(
     onAxisHoverChange: () => {},
     onItemClick: () => {},
     annotationChildren: null,
-  };
+  } as unknown as ChartRenderContext<T>;
 }
 
 beforeEach(() => {

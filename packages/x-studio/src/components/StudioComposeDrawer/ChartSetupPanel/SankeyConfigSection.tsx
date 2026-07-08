@@ -10,12 +10,12 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
 export interface SankeyConfigSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'sankey'>;
   categoryFields: DataSourceFieldEntry[];
   numericFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the value-field picker. */

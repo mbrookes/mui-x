@@ -10,11 +10,11 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 
 export interface PieArcLabelsSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'pie'>;
 }
 
 /** Pie / donut chart setup: arc label content (none/value/percent) and minimum-angle threshold. */

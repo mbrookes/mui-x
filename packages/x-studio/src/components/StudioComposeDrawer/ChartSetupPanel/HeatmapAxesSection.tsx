@@ -10,12 +10,12 @@ import {
   ToggleButtonGroup,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
 export interface HeatmapAxesSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'heatmap'>;
   /**
    * Row-axis field candidates. Restricted to the widget's primary source so
    * `aggregateHeatmap()` can resolve values directly from the row objects.

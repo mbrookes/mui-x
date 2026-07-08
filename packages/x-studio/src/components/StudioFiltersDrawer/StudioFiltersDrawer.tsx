@@ -39,7 +39,7 @@ import {
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
 import { isWidgetOfKind } from '../../models';
-import type { StudioFilterState } from '../../models';
+import type { StudioChartConfig, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
 import { FilterSection, WidgetFilterSection } from './FilterSection';
@@ -130,15 +130,14 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     return fieldOptions.filter((o) => reachable.has(o.sourceId));
   }, [fieldOptions, selectedWidget?.sourceId, relationships]);
 
-  // Chart rank filter context — xField dimension and yField measure label
-  const chartXField =
+  // Chart rank filter context — xField dimension and yField measure label. Read
+  // through the flat cross-family config type since these keys span chart families.
+  const chartConfig =
     selectedWidget && isWidgetOfKind(selectedWidget, 'chart')
-      ? (selectedWidget.config.xField ?? undefined)
+      ? (selectedWidget.config as StudioChartConfig)
       : undefined;
-  const chartYFieldId =
-    selectedWidget && isWidgetOfKind(selectedWidget, 'chart')
-      ? (selectedWidget.config.ySeries?.[0]?.fieldId ?? selectedWidget.config.yField ?? undefined)
-      : undefined;
+  const chartXField = chartConfig?.xField ?? undefined;
+  const chartYFieldId = chartConfig?.ySeries?.[0]?.fieldId ?? chartConfig?.yField ?? undefined;
   const chartYFieldLabel = React.useMemo(() => {
     if (!chartYFieldId || !selectedWidget?.sourceId) {
       return undefined;
@@ -156,10 +155,9 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     if (!source) {
       return undefined;
     }
+    const seriesConfig = selectedWidget.config as StudioChartConfig;
     const yFields =
-      selectedWidget.config.ySeries && selectedWidget.config.ySeries.length > 1
-        ? selectedWidget.config.ySeries
-        : null;
+      seriesConfig.ySeries && seriesConfig.ySeries.length > 1 ? seriesConfig.ySeries : null;
     if (!yFields) {
       return undefined;
     }

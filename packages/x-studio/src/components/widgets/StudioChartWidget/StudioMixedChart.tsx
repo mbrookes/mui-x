@@ -12,11 +12,11 @@ import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
 import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
 import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
 import { normalizeChartSeries } from '@mui/x-studio-schema';
-import type { StudioDataSource, StudioWidgetConfigForKind } from '../../../models';
+import type { StudioChartConfig, StudioDataSource } from '../../../models';
 import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 import { makeValueFormatter } from './chartWidgetHelpers';
 
-type YSeriesConfig = NonNullable<StudioWidgetConfigForKind<'chart'>['ySeries']>[number];
+type YSeriesConfig = NonNullable<StudioChartConfig['ySeries']>[number];
 
 interface StudioMixedChartProps {
   /** Aggregated multi-series data (one entry per configured y-series). */

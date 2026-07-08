@@ -7,6 +7,7 @@ import {
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
+import type { StudioWidget } from './widgetTypes';
 
 // A minimal but STRUCTURALLY COMPLETE serialized doc (all four required top-level
 // fields), for tests exercising migration success paths now that `migrateState`
@@ -423,7 +424,17 @@ describe('serializeState / deserializeState roundtrip', () => {
     const state = createDefaultStudioState({
       doc: {
         widgets: {
-          c1: { id: 'c1', kind: 'chart', title: 'W', config: { ...retainedConfig } },
+          // A gauge config retaining a bar-era `xField` is intentionally NOT expressible
+          // as a typed literal — the `StudioChartWidgetConfig` discriminated union forbids
+          // a foreign-family key on a gauge. It is nonetheless a legitimate RUNTIME state
+          // (merge-not-replace on chartType switch); that persistence round-trips it
+          // byte-for-byte is exactly what this test pins, hence the deliberate cast.
+          c1: {
+            id: 'c1',
+            kind: 'chart',
+            title: 'W',
+            config: { ...retainedConfig },
+          } as unknown as StudioWidget,
         },
       },
     });

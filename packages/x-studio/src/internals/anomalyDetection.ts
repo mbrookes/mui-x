@@ -1,6 +1,6 @@
 import { detectAnomaliesIQR } from '@mui/x-studio-schema';
 import { isWidgetOfKind } from '../models';
-import type { StudioWidget } from '../models';
+import type { StudioChartConfig, StudioWidget } from '../models';
 import type { StudioChartAnnotation } from '../models/widgetTypes';
 // Tukey IQR detection now lives in the shared `@mui/x-studio-schema` package
 // (previously duplicated here and, byte-for-byte, in the AI middleware's mcp.ts).
@@ -69,10 +69,12 @@ export function canDetectAnomalies(widget: StudioWidget): boolean {
   if (!isWidgetOfKind(widget, 'chart')) {
     return false;
   }
-  if (!widget.config.xGroupBy) {
+  // Anomaly detection spans bar/line families; read across them via the flat type.
+  const config = widget.config as StudioChartConfig;
+  if (!config.xGroupBy) {
     return false;
   }
-  return SUPPORTED_CHART_TYPES.has(widget.config.chartType ?? 'bar');
+  return SUPPORTED_CHART_TYPES.has(config.chartType ?? 'bar');
 }
 
 /**

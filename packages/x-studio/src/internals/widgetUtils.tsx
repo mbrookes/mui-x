@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import type {
   StudioDataSource,
+  StudioChartConfig,
   StudioDateRangePreset,
   StudioFilterState,
   StudioGridColumn,
@@ -102,8 +103,11 @@ function columnFieldIds(columns: StudioGridColumn[] | undefined): string[] {
 /** Returns a small (16px) icon representing the specific sub-type of a widget. */
 export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.ReactNode {
   if (isWidgetOfKind(widget, 'chart')) {
-    const chartType = widget.config.chartType ?? 'bar';
-    const horizontal = widget.config.barLayout === 'horizontal';
+    // Reads `barLayout` (a bar-family key) alongside `chartType`, so widen to the
+    // flat cross-family config type rather than narrowing to one chart family.
+    const config = widget.config as StudioChartConfig;
+    const chartType = config.chartType ?? 'bar';
+    const horizontal = config.barLayout === 'horizontal';
     switch (chartType) {
       case 'bar':
         return horizontal ? <BarHorizontalIcon size={size} /> : <BarGroupedIcon size={size} />;

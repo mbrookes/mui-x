@@ -3,11 +3,7 @@ import * as React from 'react';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import type {
-  StudioDataSource,
-  StudioExpressionField,
-  StudioWidgetConfigForKind,
-} from '../../../models';
+import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
 import type { StudioWidgetForecast } from '../../../models/widgetTypes';
 import type {
   AggregatedData,
@@ -56,7 +52,7 @@ export interface StudioLineAreaChartProps {
   /** Computed (expression) fields — the second half of `resolveFieldDef`. */
   expressionFields: StudioExpressionField[];
   /** Period grouping for the x-axis (drives the temporal axis config). */
-  xGroupBy: StudioWidgetConfigForKind<'chart'>['xGroupBy'];
+  xGroupBy: StudioChartConfig['xGroupBy'];
   /** Format a raw category label for display (applies period labels when x is grouped). */
   formatLabel: (label: string | number) => string;
   /** Forecast config for the single-series line/area paths (null/undefined disables). */

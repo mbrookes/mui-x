@@ -3,7 +3,7 @@ import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import type { StudioDataSource, StudioState, StudioWidgetOf } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -121,7 +121,7 @@ function createState(overrides?: StateOverrides): StudioState {
   };
 }
 
-const donut: StudioWidget = {
+const donut: StudioWidgetOf<'chart'> = {
   id: 'q-donut',
   kind: 'chart',
   title: 'Composition',

@@ -4,6 +4,7 @@ import { applyAggregateTransform } from './aggregate';
 import { applyBinTransform } from './bin';
 import { applyCalculateTransform } from './calculate';
 import { applyFilterTransform } from './filter';
+import { applyLookupTransform } from './lookup';
 import { applyTimeUnitTransform } from './timeUnit';
 import { applyEncodingTransforms } from './encoding';
 
@@ -28,7 +29,6 @@ const KNOWN_UNSUPPORTED_TRANSFORMS: Record<string, string> = {
   quantile: 'Quantile transforms (per-group quantile curves) are not supported.',
   sample: 'Sample transforms (random row sampling) are not supported.',
   stack: 'Explicit `stack` transforms are not supported; use a stacked mark/encoding instead.',
-  lookup: 'Lookup transforms (joining in a secondary dataset) are not supported.',
   impute: 'Impute transforms (synthesizing missing data points) are not supported.',
   flatten: 'Flatten transforms (expanding array-valued fields into rows) are not supported.',
 };
@@ -56,6 +56,8 @@ export function applyTransforms(
       current = applyBinTransform(current, transform as never, gaps, transformPath);
     } else if ('timeUnit' in transform) {
       current = applyTimeUnitTransform(current, transform as never, gaps, transformPath);
+    } else if ('lookup' in transform) {
+      current = applyLookupTransform(current, transform as never, gaps, transformPath);
     } else if ('fold' in transform) {
       const fold = transform as { fold: string[]; as?: [string, string] };
       const [keyAs, valueAs] = fold.as ?? ['key', 'value'];

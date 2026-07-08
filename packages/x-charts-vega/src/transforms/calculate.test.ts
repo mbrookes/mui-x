@@ -1,6 +1,5 @@
 import { createGapCollector } from '../gaps';
-import { applyCalculateTransform } from './calculate';
-import { compileExpression, isTruthy, UnsupportedExpressionError } from './calculate';
+import { applyCalculateTransform , compileExpression, isTruthy, UnsupportedExpressionError } from './calculate';
 
 describe('calculate.ts / compileExpression', () => {
   it('reads datum field access via dot and bracket notation', () => {

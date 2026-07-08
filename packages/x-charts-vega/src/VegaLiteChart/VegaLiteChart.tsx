@@ -34,6 +34,7 @@ export interface VegaLiteChartProps {
   /**
    * Called (on mount and when the spec changes) with every Vega-Lite feature
    * of the spec that could not be fully translated to x-charts components.
+   * @param {TranslationGap[]} gaps The features that were dropped, approximated, or ignored.
    */
   onGaps?: (gaps: TranslationGap[]) => void;
   /** Extra children rendered inside the chart surface (composition escape hatch). */
@@ -67,8 +68,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     onGaps?.(compiled.gaps);
     if (process.env.NODE_ENV !== 'production' && compiled.gaps.length > 0 && !onGaps) {
       console.warn(
-        `MUI X Charts Vega: ${compiled.gaps.length} spec feature(s) could not be fully translated:\n` +
-          compiled.gaps.map((gap) => `- [${gap.severity}] ${gap.code}: ${gap.message}`).join('\n'),
+        `MUI X Charts Vega: ${compiled.gaps.length} spec feature(s) could not be fully translated:\n${compiled.gaps
+          .map((gap) => `- [${gap.severity}] ${gap.code}: ${gap.message}`)
+          .join('\n')}`,
       );
     }
   }, [compiled.gaps, onGaps]);

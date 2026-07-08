@@ -56,9 +56,16 @@ export interface UnitContext {
   /**
    * Returns the index of a row's x (or y) value within the axis categories,
    * or -1 when the axis is not categorical or the value is absent.
+   * @param {AxisResolution | undefined} axis The axis whose category domain to search.
+   * @param {unknown} value The row's raw value for that axis.
+   * @returns {number} The index into `categories`, or -1.
    */
   categoryIndex: (axis: AxisResolution | undefined, value: unknown) => number;
-  /** Stable serialization of a domain value for grouping/joining. */
+  /**
+   * Stable serialization of a domain value for grouping/joining.
+   * @param {unknown} value The domain value to serialize.
+   * @returns {string} A collision-safe string key.
+   */
   categoryKey: (value: unknown) => string;
 }
 

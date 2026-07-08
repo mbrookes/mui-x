@@ -1,8 +1,8 @@
 import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
 import type { XAxis, YAxis } from '@mui/x-charts/models';
-import type { DatasetRow } from '../types';
-import type { VegaLiteSpec } from '../types';
-import { createGapCollector, type TranslationGap } from '../gaps';
+import type { DatasetRow , VegaLiteSpec } from '../types';
+import { createGapCollector  } from '../gaps';
+import type {TranslationGap} from '../gaps';
 import { normalizeSpec } from '../normalize';
 import { applyTransforms, applyEncodingTransforms } from '../transforms';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';

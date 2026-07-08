@@ -159,7 +159,7 @@ export function applyEncodingTransforms(
   const groupFields: string[] = [];
   for (const channel of GROUPING_CHANNELS) {
     const def = workingEncoding[channel];
-    const defs = Array.isArray(def) ? def : def ? [def] : [];
+    const defs = Array.isArray(def) ? def : [def];
     for (const channelDef of defs) {
       if (
         isFieldDef(channelDef) &&

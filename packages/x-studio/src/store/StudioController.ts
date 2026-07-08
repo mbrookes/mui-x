@@ -46,6 +46,8 @@ import {
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
+import { hasConflictingRankFilter } from '../internals/rankFilterScope';
+import * as docTransforms from './docTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
 // `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
@@ -1058,66 +1060,21 @@ export class StudioController {
     });
   };
 
-  /**
-   * Resolves the page a rank-eligible filter applies to, for the per-page
-   * rank-uniqueness guard (1.7):
-   *  - `page` scope → its explicit `pageId`, or `null` for a legacy pageId-less page
-   *    filter (which applies on EVERY page, so it must conflict everywhere).
-   *  - `widget` scope → the id of the page whose `widgetRows` contain the widget, or
-   *    `null` when the widget is not placed on any page.
-   *  - other scope kinds are never rank filters and are excluded by the caller.
-   */
-  private resolveRankFilterPageId = (filter: StudioFilterState, doc: StudioDoc): string | null => {
-    const { scope } = filter;
-    if (scope.kind === 'page') {
-      return scope.pageId ?? null;
-    }
-    if (scope.kind === 'widget') {
-      for (const page of Object.values(doc.pages)) {
-        if ((page.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
-          return page.id;
-        }
-      }
-      return null;
-    }
-    return null;
-  };
-
-  /**
-   * True when another rank filter already occupies `target`'s page context (1.7).
-   * Rank uniqueness is per-page — a rank filter on page-1 does not block one on
-   * page-2 — because page filters gate on `pageId === activePageId` and widget rank
-   * filters are per-widget. A `null` resolved page (a pageId-less page filter, applied
-   * everywhere) conflicts with — and is conflicted by — any other rank filter.
-   */
-  private hasConflictingRankFilter = (
-    filterId: string,
-    target: StudioFilterState,
-    doc: StudioDoc,
-  ): boolean => {
-    const targetPageId = this.resolveRankFilterPageId(target, doc);
-    return doc.filters.some((filter: StudioFilterState) => {
-      if (
-        filter.id === filterId ||
-        filter.scope.kind === 'cross-filter' ||
-        filter.filterMode !== 'rank'
-      ) {
-        return false;
-      }
-      const otherPageId = this.resolveRankFilterPageId(filter, doc);
-      return targetPageId === null || otherPageId === null || otherPageId === targetPageId;
-    });
-  };
-
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
     const switchingToRank =
       !!target && changes.filterMode === 'rank' && target.filterMode !== 'rank';
     // Per-page rank guard scoped to the target's page context, not dashboard-wide.
+    // Shared with the filters-drawer rows via `../internals/rankFilterScope`.
     const rejectRankChange =
       switchingToRank &&
-      this.hasConflictingRankFilter(filterId, { ...target, ...changes }, state.doc);
+      hasConflictingRankFilter(
+        filterId,
+        { ...target, ...changes },
+        state.doc.filters,
+        state.doc.pages,
+      );
 
     // `mapPreservingIdentity` (1.6): an unknown `filterId` (no match) or a rejected
     // rank change (returns `filter` unchanged) yields the ORIGINAL array, so

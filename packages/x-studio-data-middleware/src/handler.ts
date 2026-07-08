@@ -84,7 +84,7 @@ export async function handleBatchQuery(
   // instead of fresh at every enforcement site, and `policy.digest` folds the
   // resolved policy into the cache key so differently-scoped nodes never share
   // cache entries (Gap B).
-  const policy = compileSecurityPolicy({ tenancy, securityColumns });
+  const policy = compileSecurityPolicy({ tenancy, securityColumns, columnAllowlist });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =

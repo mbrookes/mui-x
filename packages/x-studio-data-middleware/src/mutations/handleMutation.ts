@@ -51,13 +51,15 @@ export async function handleMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<BatchMutationResponse> {
-  const { schemaAllowlist, tenancy, securityColumns } = options;
+  const { schemaAllowlist, tenancy, securityColumns, columnAllowlist } = options;
 
   // ── Compile the row-level-security policy ONCE for the whole batch ─────────
   // The single compiled object is threaded into every mutation builder in place
   // of the raw `(tenancy, securityColumns)` pair, so the resolution chain runs
-  // once here instead of fresh at each of the four builder call sites.
-  const policy = compileSecurityPolicy({ tenancy, securityColumns });
+  // once here instead of fresh at each of the four builder call sites. The
+  // `columnAllowlist` is folded into `policy.digest` so tightening column
+  // visibility invalidates cache entries computed under a looser allowlist.
+  const policy = compileSecurityPolicy({ tenancy, securityColumns, columnAllowlist });
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
   assertTablesAllowed(

@@ -12,6 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { compileSecurityPolicy, type SecurityPolicyOptions } from '../compileSecurityPolicy';
+import { generateCacheKey } from '../cacheKey';
+import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../types';
 import { resolveJoinSecurityColumns, resolvePrimarySecurityColumns } from '../../shared/predicates';
 
 const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
@@ -164,5 +166,90 @@ describe('compileSecurityPolicy — multi-tenant per-table overrides', () => {
       securityColumns: { perTable: { country_codes: null } },
     });
     expect(policy.forJoinedTable('country_codes')).toBeUndefined();
+  });
+});
+
+/**
+ * `columnAllowlist` folding into the policy digest (U-CacheKey).
+ *
+ * Before this change, `computePolicyDigest` ignored `columnAllowlist`, so the
+ * server-side cache key was IDENTICAL before and after a host tightened which
+ * columns a client may see — meaning results cached under a looser (or bypassed)
+ * allowlist could be served stale after the host locked column visibility down.
+ * Folding the (canonicalized) allowlist into the digest closes that window: a
+ * tightened allowlist now lands in a different digest → different cache key.
+ */
+describe('compileSecurityPolicy — columnAllowlist digest folding', () => {
+  const CLAIMS: JwtSecurityClaims = { tenantId: 'acme', userId: 'user-1', roleIds: ['viewer'] };
+  const DESCRIPTOR: BatchWidgetDescriptor = { id: 'w1', table: 'orders' };
+  const SECRET = 'column-allowlist-digest-test-secret';
+
+  it('(a) different allowlists produce different digests AND different cache keys', () => {
+    const loose = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      columnAllowlist: { orders: ['id', 'status', 'secret_notes'] },
+    });
+    const tightened = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      columnAllowlist: { orders: ['id', 'status'] },
+    });
+
+    expect(loose.digest).not.toBe(tightened.digest);
+
+    const keyLoose = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, loose.digest);
+    const keyTightened = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, tightened.digest);
+    expect(keyLoose).not.toBe(keyTightened);
+    // Only the securityHash segment moves — tenant + queryHash stay put.
+    expect(keyLoose.split(':')[2]).toBe(keyTightened.split(':')[2]); // tenant
+    expect(keyLoose.split(':')[4]).toBe(keyTightened.split(':')[4]); // queryHash
+    expect(keyLoose.split(':')[3]).not.toBe(keyTightened.split(':')[3]); // securityHash
+  });
+
+  it('(b) deep-equal allowlists differing only in key/array order produce the SAME digest and key', () => {
+    const a = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      columnAllowlist: {
+        orders: ['id', 'status', 'amount'],
+        customers: ['name', 'region'],
+      },
+    });
+    const b = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      // Different table-key insertion order AND different column array order.
+      columnAllowlist: {
+        customers: ['region', 'name'],
+        orders: ['amount', 'id', 'status'],
+      },
+    });
+
+    expect(a.digest).toBe(b.digest);
+    expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, a.digest)).toBe(
+      generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, b.digest),
+    );
+  });
+
+  it('(c) an omitted allowlist is byte-identical to the pre-change digest (backward compatible)', () => {
+    // Omitting columnAllowlist must not change the digest at all: the key is only
+    // present in the hashed input when supplied. A policy with an EXPLICIT
+    // allowlist must differ from one that omits it.
+    const omitted = compileSecurityPolicy({ tenancy: MULTI_TENANT });
+    const omittedAgain = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: undefined,
+      columnAllowlist: undefined,
+    });
+    expect(omitted.digest).toBe(omittedAgain.digest);
+
+    const withAllowlist = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      columnAllowlist: { orders: ['id'] },
+    });
+    expect(withAllowlist.digest).not.toBe(omitted.digest);
+  });
+
+  it('distinguishes an empty allowlist object from an omitted one', () => {
+    const empty = compileSecurityPolicy({ tenancy: MULTI_TENANT, columnAllowlist: {} });
+    const omitted = compileSecurityPolicy({ tenancy: MULTI_TENANT });
+    expect(empty.digest).not.toBe(omitted.digest);
   });
 });

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme, useColorScheme } from '@mui/material';
-import type { StudioDataSource, StudioWidgetOf } from '../../../models';
+import type { StudioChartConfig, StudioDataSource, StudioWidgetOf } from '../../../models';
 import {
   aggregateBlendedSeries,
   aggregateByField,
@@ -36,7 +36,10 @@ export function useChartWidgetData(
   dataSource: StudioDataSource | undefined,
   pageId: string,
 ) {
-  const { config } = widget;
+  // Flat-widen to the generic `StudioChartConfig` patch type: this hook reads keys
+  // spanning several chart families (xField/ySeries/chartSortBy/scatter*), so it
+  // operates across chartTypes by design rather than narrowing to one family.
+  const config: StudioChartConfig = widget.config;
   const xGroupBy = config.xGroupBy;
   const chartSortBy = config.chartSortBy;
   const chartSortDirection = config.chartSortDirection;

@@ -3,11 +3,7 @@ import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import type {
-  StudioDataSource,
-  StudioExpressionField,
-  StudioWidgetConfigForKind,
-} from '../../../models';
+import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
 import type {
   AggregatedData,
   MultiSeriesData,
@@ -41,7 +37,7 @@ export interface StudioBarChartProps {
   chartType: 'bar' | 'bar-stacked' | 'bar-100';
   height: number;
   /** Resolved bar orientation/stacking (from `config.barLayout ?? 'grouped'`). */
-  barLayout: NonNullable<StudioWidgetConfigForKind<'chart'>['barLayout']>;
+  barLayout: NonNullable<StudioChartConfig['barLayout']>;
   /** Filtered single-series aggregation (labels + values). Non-null when the chart is configured. */
   chartData: AggregatedData | null;
   /** Unfiltered single-series aggregation for ghost/cross-highlight; null when not applicable. */
@@ -65,17 +61,17 @@ export interface StudioBarChartProps {
   /** Localised fallback label for the single measure series. */
   defaultSeriesLabel: string;
   /** Minimum px per band row for horizontal bars (expands the container when set). */
-  barMinBandSize: StudioWidgetConfigForKind<'chart'>['barMinBandSize'];
+  barMinBandSize: StudioChartConfig['barMinBandSize'];
   /** Ratio of band width reserved for the gap between categories (band axes only). */
-  barCategoryGapRatio: StudioWidgetConfigForKind<'chart'>['barCategoryGapRatio'];
+  barCategoryGapRatio: StudioChartConfig['barCategoryGapRatio'];
   /** Axis tick label font size (px) — applied only in the horizontal single-series layout. */
-  axisTickFontSize: StudioWidgetConfigForKind<'chart'>['axisTickFontSize'];
+  axisTickFontSize: StudioChartConfig['axisTickFontSize'];
   /** Group all but the top-N categories into an "Other" bar (single-series only). */
-  barMaxCategories: StudioWidgetConfigForKind<'chart'>['barMaxCategories'];
+  barMaxCategories: StudioChartConfig['barMaxCategories'];
   /** Max characters per band-label line before word-wrapping (0/undefined disables). */
-  barBandLabelWrap: StudioWidgetConfigForKind<'chart'>['barBandLabelWrap'];
+  barBandLabelWrap: StudioChartConfig['barBandLabelWrap'];
   /** Max wrapped band-label lines before ellipsis. @default 2 */
-  wrapBandLabelMaxLines: StudioWidgetConfigForKind<'chart'>['wrapBandLabelMaxLines'];
+  wrapBandLabelMaxLines: StudioChartConfig['wrapBandLabelMaxLines'];
   /** Explicit chart colours (page palette override). */
   chartColors?: string[];
   /** Stable colour for a split-by series name, based on its position in the unfiltered set. */

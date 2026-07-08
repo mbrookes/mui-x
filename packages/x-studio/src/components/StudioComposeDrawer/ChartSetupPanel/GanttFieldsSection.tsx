@@ -2,12 +2,12 @@
 import * as React from 'react';
 import { Stack } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
 export interface GanttFieldsSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'gantt'>;
   allFields: DataSourceFieldEntry[];
   dateFields: DataSourceFieldEntry[];
   categoryFields: DataSourceFieldEntry[];

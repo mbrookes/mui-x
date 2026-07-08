@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getAllowedConfigKeys, validateConfigKeysForKind } from './configKeyValidation';
+import {
+  getAllowedChartConfigKeys,
+  getAllowedConfigKeys,
+  validateChartConfigKeysForType,
+  validateConfigKeysForKind,
+} from './configKeyValidation';
 
 describe('getAllowedConfigKeys', () => {
   it('includes the shared config keys plus the kind-specific keys for a built-in kind', () => {
@@ -69,5 +74,113 @@ describe('validateConfigKeysForKind', () => {
 
   it('accepts an empty config for any kind', () => {
     expect(validateConfigKeysForKind('map', {})).toEqual([]);
+  });
+});
+
+describe('getAllowedChartConfigKeys', () => {
+  it('includes the shared base/sort keys plus the family-specific keys', () => {
+    const barKeys = getAllowedChartConfigKeys('bar');
+    // Shared base key.
+    expect(barKeys.has('crossFilterMode')).toBe(true);
+    // Shared sort keys (bar family supports axis sorting).
+    expect(barKeys.has('chartSortBy')).toBe(true);
+    expect(barKeys.has('chartSortDirection')).toBe(true);
+    // Bar's own keys.
+    expect(barKeys.has('barLayout')).toBe(true);
+    expect(barKeys.has('xField')).toBe(true);
+    // Another family's keys are NOT allowed.
+    expect(barKeys.has('sankeyTargetField')).toBe(false);
+    expect(barKeys.has('gaugeMin')).toBe(false);
+  });
+
+  it('maps every bar-family alias to the same allowed set', () => {
+    const bar = [...getAllowedChartConfigKeys('bar')].sort();
+    expect([...getAllowedChartConfigKeys('bar-stacked')].sort()).toEqual(bar);
+    expect([...getAllowedChartConfigKeys('bar-100')].sort()).toEqual(bar);
+  });
+
+  it('restricts the gauge family to its own small key set', () => {
+    const gaugeKeys = getAllowedChartConfigKeys('gauge');
+    expect(gaugeKeys.has('yField')).toBe(true);
+    expect(gaugeKeys.has('yAggregation')).toBe(true);
+    expect(gaugeKeys.has('gaugeMin')).toBe(true);
+    expect(gaugeKeys.has('gaugeMax')).toBe(true);
+    // Cartesian / cross-family keys are not part of a gauge.
+    expect(gaugeKeys.has('xField')).toBe(false);
+    expect(gaugeKeys.has('sankeyTargetField')).toBe(false);
+    expect(gaugeKeys.has('chartSortBy')).toBe(false);
+  });
+});
+
+describe('validateChartConfigKeysForType', () => {
+  it('rejects a cross-family key (sankeyTargetField on a gauge)', () => {
+    expect(
+      validateChartConfigKeysForType('gauge', { chartType: 'gauge', sankeyTargetField: 'to' }),
+    ).toEqual(['sankeyTargetField']);
+  });
+
+  it('treats an empty config (no chartType) as a valid bar config', () => {
+    // The bar family discriminant is optional; `{}` resolves to a bar config, so
+    // the empty config carries no invalid keys for the bar chart type.
+    expect(validateChartConfigKeysForType('bar', {})).toEqual([]);
+  });
+
+  it('accepts each family carrying its own keys', () => {
+    expect(
+      validateChartConfigKeysForType('line', {
+        chartType: 'line',
+        xField: 'day',
+        forecast: { enabled: true },
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('mixed', { chartType: 'mixed', dualYAxis: true }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('heatmap', {
+        chartType: 'heatmap',
+        heatYField: 'row',
+        heatColorScheme: 'primary',
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('funnel', {
+        chartType: 'funnel',
+        funnelVariant: 'filled',
+        chartSortBy: 'value',
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('gantt', {
+        chartType: 'gantt',
+        ganttLabelField: 'task',
+        ganttStartField: 's',
+        ganttEndField: 'e',
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('sankey', {
+        chartType: 'sankey',
+        sankeyTargetField: 'to',
+        sankeyShowValues: true,
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('pie', { chartType: 'pie', pieArcLabel: 'percent' }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('scatter', {
+        chartType: 'scatter',
+        scatterColorField: 'cat',
+        scatterSizeField: 'n',
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects forecast on a family that does not support it (bar)', () => {
+    // forecast belongs only to the line/area family.
+    expect(
+      validateChartConfigKeysForType('bar', { chartType: 'bar', forecast: { enabled: true } }),
+    ).toEqual(['forecast']);
   });
 });

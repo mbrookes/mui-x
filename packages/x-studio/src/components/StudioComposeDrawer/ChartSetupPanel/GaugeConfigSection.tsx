@@ -3,12 +3,12 @@ import * as React from 'react';
 import { FormControl, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import { fieldsForCapability } from '../../../utils/fieldCapabilities';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
 export interface GaugeConfigSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'gauge'>;
   /** Every visible physical + expression field (gauge is not source-anchored, unlike other chart types). */
   allFields: DataSourceFieldEntry[];
   /** The widget's current source id, used to detect a cross-source field pick. */

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { createDefaultStudioState, createWidgetId, isWidgetOfKind } from './models/studioTypes';
-import type { StudioState } from './models/studioTypes';
+import type { StudioChartConfig, StudioState } from './models/studioTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1093,8 +1093,8 @@ describe('executeToolOnState: set_widget_forecast', () => {
     if (!isWidgetOfKind(updatedWidget1, 'chart')) {
       throw new Error('expected widget-1 to remain a chart widget');
     }
-    expect(updatedWidget1.config.forecast?.enabled).toBe(true);
-    expect(updatedWidget1.config.forecast?.periods).toBe(6);
+    expect((updatedWidget1.config as StudioChartConfig).forecast?.enabled).toBe(true);
+    expect((updatedWidget1.config as StudioChartConfig).forecast?.periods).toBe(6);
     expect(result.mutation?.type).toBe('updateWidget');
   });
 
@@ -1125,7 +1125,7 @@ describe('executeToolOnState: set_widget_forecast', () => {
     if (!isWidgetOfKind(updatedWidget1, 'chart')) {
       throw new Error('expected widget-1 to remain a chart widget');
     }
-    expect(updatedWidget1.config.forecast?.enabled).toBe(false);
+    expect((updatedWidget1.config as StudioChartConfig).forecast?.enabled).toBe(false);
   });
 
   it('enables forecast with confidence bands', () => {
@@ -1152,7 +1152,7 @@ describe('executeToolOnState: set_widget_forecast', () => {
     if (!isWidgetOfKind(updatedWidget1, 'chart')) {
       throw new Error('expected widget-1 to remain a chart widget');
     }
-    expect(updatedWidget1.config.forecast?.showConfidenceBands).toBe(true);
+    expect((updatedWidget1.config as StudioChartConfig).forecast?.showConfidenceBands).toBe(true);
   });
 });
 

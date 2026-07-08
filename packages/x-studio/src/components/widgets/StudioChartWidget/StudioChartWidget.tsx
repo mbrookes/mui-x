@@ -10,7 +10,7 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
-import type { StudioDataSource, StudioWidgetOf } from '../../../models';
+import type { StudioChartConfig, StudioDataSource, StudioWidgetOf } from '../../../models';
 import type { StudioChartType } from '../../../models/baseTypes';
 import {
   formatPeriodLabel,
@@ -30,7 +30,7 @@ import {
 } from '../../../context';
 import { useChartWidgetData } from './useChartWidgetData';
 import { CHART_TYPE_DEFS } from './chartTypeDefs';
-import type { ChartRenderContext } from './chartTypeDefs';
+import type { ChartRenderContext, ChartTypeDef } from './chartTypeDefs';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
@@ -109,7 +109,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     slotProps,
   } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
-  const { config } = widget;
+  // Flat-widen to the generic `StudioChartConfig` patch type: this component reads
+  // keys spanning several chart families (xField/barLayout/seriesField/annotations/…)
+  // before it dispatches to a single family renderer, so it works across chartTypes
+  // by design. The render context below is built from the raw `widget.config` union
+  // instead (see the dispatch note) — the two are the same object at runtime.
+  const config: StudioChartConfig = widget.config;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
@@ -462,7 +467,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     ],
   );
 
-  const chartType = (config.chartType ?? 'bar') as StudioChartType;
+  const chartType = config.chartType ?? 'bar';
   const barLayout = config.barLayout ?? 'grouped';
 
   // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
@@ -664,7 +669,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   const renderContext: ChartRenderContext = {
-    config,
+    // Built with the raw `widget.config` union (not the flat `config` alias above),
+    // whose type equals `ChartRenderContext<StudioChartType>['config']` exactly, so
+    // no cast is needed here — the single dispatch cast below handles the narrowing.
+    config: widget.config,
     dataSource,
     dataSources,
     widgetSourceId: widget.sourceId,
@@ -708,5 +716,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     annotationChildren,
   };
 
-  return chartTypeDef.render(renderContext);
+  // ONE documented cast: `chartTypeDef` is a dynamically-indexed lookup
+  // (`CHART_TYPE_DEFS[chartType]`), so TS types it as the UNION of every family's
+  // `ChartTypeDef<…>` and cannot correlate the runtime key with the matching
+  // renderer's generic parameter (the "correlated union" limitation). Widening it to
+  // `ChartTypeDef<StudioChartType>` lets us call `.render` with the full-union
+  // `renderContext`. This is a contained TS-inference gap, not a soundness hole: the
+  // resolved `chartType` and `renderContext.config.chartType` are the same value.
+  return (chartTypeDef as ChartTypeDef<StudioChartType>).render(renderContext);
 });

@@ -27,7 +27,8 @@
  */
 import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
-import { validateConfigKeysForKind } from './configKeyValidation';
+import { validateChartConfigKeysForType, validateConfigKeysForKind } from './configKeyValidation';
+import { isStudioChartType } from './widgetTypeGuards';
 
 export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
@@ -153,6 +154,25 @@ function validateWidget(widget: unknown, path: string): string | null {
   const invalidConfigKeys = validateConfigKeysForKind(widget.kind, widget.config);
   if (invalidConfigKeys.length > 0) {
     return `${path}.config carries key(s) not valid for a '${widget.kind}' widget: ${invalidConfigKeys.join(', ')}`;
+  }
+  // Second, finer-grained fail-closed check for chart widgets: a chart config
+  // carrying a key that belongs to a DIFFERENT chart family (e.g. `sankeyTargetField`
+  // on a `gauge` chart) is rejected. This is STATELESS — it can only resolve the
+  // family when the incoming config carries an explicit `chartType`, since it has no
+  // access to the existing widget to resolve an omitted discriminant. A missing
+  // `chartType` is therefore left to the in-process path
+  // (`executeToolOnState.ts`, wired in a later unit) that CAN read the current
+  // widget's chartType; here we simply skip the chart-family check when it is
+  // absent (the kind-level check above already ran). An explicit `chartType` that is
+  // not a real `StudioChartType` is itself rejected — there are no custom chart types.
+  if (widget.kind === 'chart' && widget.config.chartType !== undefined) {
+    if (!isString(widget.config.chartType) || !isStudioChartType(widget.config.chartType)) {
+      return `${path}.config.chartType must be one of the known chart types`;
+    }
+    const invalidChartKeys = validateChartConfigKeysForType(widget.config.chartType, widget.config);
+    if (invalidChartKeys.length > 0) {
+      return `${path}.config carries key(s) not valid for a '${widget.config.chartType}' chart: ${invalidChartKeys.join(', ')}`;
+    }
   }
   return null;
 }

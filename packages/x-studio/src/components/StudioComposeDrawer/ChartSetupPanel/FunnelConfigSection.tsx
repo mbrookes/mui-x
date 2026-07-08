@@ -12,12 +12,12 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
 export interface FunnelConfigSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  config: StudioChartConfigOfType<'funnel'>;
   numericFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the single value-field picker. */
   firstYSeriesFieldId?: string;

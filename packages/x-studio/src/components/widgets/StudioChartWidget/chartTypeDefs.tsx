@@ -10,13 +10,14 @@ import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/
 import { Box, Typography } from '@mui/material';
 
 import type {
+  StudioChartConfig,
+  StudioChartConfigOfType,
   StudioDataField,
   StudioDataSource,
   StudioExpressionField,
-  StudioWidgetConfig,
+  StudioSharedWidgetConfig,
 } from '../../../models';
 import type { StudioChartType, StudioBarLayout } from '../../../models/baseTypes';
-import type { StudioWidgetForecast } from '../../../models/widgetTypes';
 import type {
   AggregatedData,
   MultiSeriesData,
@@ -72,8 +73,15 @@ export interface ChartDispatchSlotProps {
  * Fields are exactly what the pre-registry if-chain computed once in the orchestrator
  * and threaded into each branch — nothing is included "just in case".
  */
-export interface ChartRenderContext {
-  config: StudioWidgetConfig;
+export interface ChartRenderContext<T extends StudioChartType = StudioChartType> {
+  /**
+   * Narrowed to the family config for `T`, so each `render*` reads only the keys its
+   * chart family actually owns (no per-renderer `as` casts). The default `T`
+   * (`StudioChartType`) resolves this to the full `StudioChartWidgetConfig` union —
+   * the shape `StudioChartWidget` builds the single context with, before the one
+   * documented dispatch cast narrows it to the looked-up type.
+   */
+  config: StudioSharedWidgetConfig & StudioChartConfigOfType<T>;
   dataSource?: StudioDataSource;
   /** All data sources, keyed by id — only the (cross-source) mixed chart needs this. */
   dataSources: Record<string, StudioDataSource>;
@@ -84,7 +92,7 @@ export interface ChartRenderContext {
   slotProps?: ChartDispatchSlotProps;
   chartHeight: number;
   filteredRows: Record<string, unknown>[];
-  xGroupBy: StudioWidgetConfig['xGroupBy'];
+  xGroupBy: StudioChartConfig['xGroupBy'];
   /** Resolved bar orientation/stacking (`config.barLayout ?? 'grouped'`). */
   barLayout: StudioBarLayout;
   /** Whether the (mixed) chart blends independently-aggregated cross-source series. */
@@ -126,14 +134,18 @@ export interface ChartRenderContext {
 }
 
 /** Descriptor for a single `StudioChartType`'s guard-order behavior and rendering. */
-export interface ChartTypeDef {
+export interface ChartTypeDef<T extends StudioChartType = StudioChartType> {
   /** Whether the shared "chart not configured" guard requires `config.xField`. */
   needsXField: boolean;
   /** Whether the shared chart-support (`analyzeChartSupport`) guard applies to this type. */
   runsSupportGuard: boolean;
   /** Whether the shared "no rows after filtering" guard applies to this type. */
   runsNoDataGuard: boolean;
-  render: (ctx: ChartRenderContext) => React.ReactElement;
+  // Declared as a METHOD (not an arrow property) so its `ctx` parameter is checked
+  // bivariantly: this lets a family-narrow renderer (e.g. `renderBar`, typed for
+  // `ChartRenderContext<'bar' | …>`) satisfy `Record<StudioChartType, ChartTypeDef>`
+  // in `CHART_TYPE_DEFS` below, which a contravariant arrow property would reject.
+  render(ctx: ChartRenderContext<T>): React.ReactElement;
 }
 
 /** A centered hint message shown in place of the chart (unconfigured / unsupported state). */
@@ -160,9 +172,9 @@ function EmptyChartBox({ height }: { height: number }) {
 
 // ── bar / bar-stacked / bar-100 ───────────────────────────────────────────────
 
-function renderBar(ctx: ChartRenderContext): React.ReactElement {
+function renderBar(ctx: ChartRenderContext<'bar' | 'bar-stacked' | 'bar-100'>): React.ReactElement {
   const { config, chartHeight, multiYData, chartData } = ctx;
-  const chartType = (config.chartType ?? 'bar') as 'bar' | 'bar-stacked' | 'bar-100';
+  const chartType = config.chartType ?? 'bar';
 
   // `chartData` is null whenever `activeYFields.length > 1` (multi-Y bars use `multiYData`
   // instead), so a multi-Y bar must be reachable even when `chartData` is null/empty — this
@@ -220,9 +232,9 @@ function renderBar(ctx: ChartRenderContext): React.ReactElement {
 
 // ── pie / donut ────────────────────────────────────────────────────────────────
 
-function renderPieDonut(ctx: ChartRenderContext): React.ReactElement {
+function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactElement {
   const { config, chartData, chartHeight } = ctx;
-  const chartType = (config.chartType ?? 'pie') as 'pie' | 'donut';
+  const chartType = config.chartType;
 
   if (!chartData || chartData.labels.length === 0) {
     return <EmptyChartBox height={chartHeight} />;
@@ -272,9 +284,11 @@ function renderPieDonut(ctx: ChartRenderContext): React.ReactElement {
 
 // ── line / area / area-stacked / area-100 ────────────────────────────────────────
 
-function renderLineArea(ctx: ChartRenderContext): React.ReactElement {
+function renderLineArea(
+  ctx: ChartRenderContext<'line' | 'area' | 'area-stacked' | 'area-100'>,
+): React.ReactElement {
   const { config, chartData, chartHeight } = ctx;
-  const chartType = (config.chartType ?? 'line') as 'line' | 'area' | 'area-stacked' | 'area-100';
+  const chartType = config.chartType;
 
   if (!chartData || chartData.labels.length === 0) {
     return <EmptyChartBox height={chartHeight} />;
@@ -295,7 +309,7 @@ function renderLineArea(ctx: ChartRenderContext): React.ReactElement {
       expressionFields={ctx.expressionFields}
       xGroupBy={ctx.xGroupBy}
       formatLabel={ctx.formatLabel}
-      forecast={config.forecast as StudioWidgetForecast | undefined}
+      forecast={config.forecast}
       forecastSeriesLabel={ctx.localeText.chartForecastSeriesLabel}
       defaultSeriesLabel={ctx.localeText.chartDefaultSeriesLabel}
       chartColors={ctx.chartColors}
@@ -322,7 +336,7 @@ function renderLineArea(ctx: ChartRenderContext): React.ReactElement {
 
 // ── scatter ───────────────────────────────────────────────────────────────────
 
-function renderScatter(ctx: ChartRenderContext): React.ReactElement {
+function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
   const { config } = ctx;
   const xAxisLabel =
     resolveFieldDef(config.xField, ctx.dataSource, ctx.expressionFields)?.label ?? config.xField;
@@ -354,7 +368,7 @@ function renderScatter(ctx: ChartRenderContext): React.ReactElement {
 
 // ── mixed ─────────────────────────────────────────────────────────────────────
 
-function renderMixed(ctx: ChartRenderContext): React.ReactElement {
+function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
   const { multiYData, chartHeight, config } = ctx;
 
   if (!multiYData || multiYData.labels.length === 0) {
@@ -385,7 +399,7 @@ function renderMixed(ctx: ChartRenderContext): React.ReactElement {
 
 // ── heatmap ───────────────────────────────────────────────────────────────────
 
-function renderHeatmap(ctx: ChartRenderContext): React.ReactElement {
+function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   const { config, dataSource, expressionFields, filteredRows, xGroupBy, chartHeight } = ctx;
   const heatXField = config.xField ?? '';
   const heatYField = config.heatYField ?? '';
@@ -402,7 +416,7 @@ function renderHeatmap(ctx: ChartRenderContext): React.ReactElement {
   const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
   const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
   const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
-  const heatAggregation = (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
+  const heatAggregation = config.yAggregation ?? 'sum';
   const heatData = cachedCompute(
     filteredRows,
     JSON.stringify([
@@ -451,7 +465,7 @@ function renderHeatmap(ctx: ChartRenderContext): React.ReactElement {
 
 // ── funnel ────────────────────────────────────────────────────────────────────
 
-function renderFunnel(ctx: ChartRenderContext): React.ReactElement {
+function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   const { config, dataSource, filteredRows, chartHeight } = ctx;
   const funnelXField = config.xField ?? '';
   const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -549,7 +563,7 @@ function renderFunnel(ctx: ChartRenderContext): React.ReactElement {
 
 // ── sankey ────────────────────────────────────────────────────────────────────
 
-function renderSankey(ctx: ChartRenderContext): React.ReactElement {
+function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
   const { config, dataSource, filteredRows, chartHeight } = ctx;
   const sankeySourceField = config.xField ?? '';
   const sankeyTargetField = config.sankeyTargetField ?? '';
@@ -587,7 +601,7 @@ function renderSankey(ctx: ChartRenderContext): React.ReactElement {
 
 // ── gantt ─────────────────────────────────────────────────────────────────────
 
-function renderGantt(ctx: ChartRenderContext): React.ReactElement {
+function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
   const { config, filteredRows, chartHeight } = ctx;
   const labelField = config.ganttLabelField ?? '';
   const startField = config.ganttStartField ?? '';
@@ -613,7 +627,7 @@ function renderGantt(ctx: ChartRenderContext): React.ReactElement {
 
 // ── gauge ─────────────────────────────────────────────────────────────────────
 
-function renderGauge(ctx: ChartRenderContext): React.ReactElement {
+function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   const { config, filteredRows, chartHeight } = ctx;
   const gaugeValueField = config.yField;
 

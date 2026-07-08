@@ -1,7 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioFilterState, StudioQueryDescriptor, StudioWidgetOf } from '../../../models';
+import type {
+  StudioChartConfig,
+  StudioFilterState,
+  StudioQueryDescriptor,
+  StudioWidgetOf,
+} from '../../../models';
 import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
 import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
 import { buildQueryDescriptor } from '../../../internals/queryDescriptor';
@@ -38,7 +43,8 @@ export function useBlendedSeriesRows(
   widget: StudioWidgetOf<'chart'>,
   pageId: string,
 ): BlendedSeriesRows {
-  const { config } = widget;
+  // Flat-widen: reads xField/ySeries/xGroupBy/chartType across chart families.
+  const config: StudioChartConfig = widget.config;
   const xGroupBy = config.xGroupBy;
 
   // ── Cross-source blending (mixed charts) ──────────────────────────────────

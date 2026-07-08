@@ -1,11 +1,12 @@
 import type {
+  StudioChartConfig,
   StudioCustomWidgetDef,
   StudioDataSource,
   StudioState,
   StudioWidget,
   StudioFilterState,
 } from './models/studioTypes';
-import { isWidgetOfKind } from './models/studioTypes';
+import { getAllowedChartConfigKeys, isWidgetOfKind, resolveChartType } from './models/studioTypes';
 import type {
   SerializableSkill,
   StudioAIRichContext,
@@ -83,63 +84,43 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
   ];
 
   if (isWidgetOfKind(widget, 'chart')) {
-    const cfg = widget.config;
-    if (cfg.chartType) {
-      parts.push(`chartType: ${cfg.chartType}`);
-    }
-    if (cfg.xField) {
-      parts.push(`xField: ${cfg.xField}`);
-    }
-    if (cfg.heatYField) {
-      parts.push(`heatYField: ${cfg.heatYField}`);
-    }
-    if (cfg.yField) {
-      parts.push(`yField: ${cfg.yField}`);
-    }
-    if (cfg.yAggregation) {
-      parts.push(`yAggregation: ${cfg.yAggregation}`);
-    }
-    if (cfg.barLayout) {
-      parts.push(`barLayout: ${cfg.barLayout}`);
-    }
-    if (cfg.xGroupBy) {
-      parts.push(`xGroupBy: ${cfg.xGroupBy}`);
-    }
-    if (cfg.chartSortBy) {
-      parts.push(`chartSortBy: ${cfg.chartSortBy}`);
-    }
-    if (cfg.chartSortDirection) {
-      parts.push(`chartSortDirection: ${cfg.chartSortDirection}`);
-    }
-    if (cfg.ySeries?.length) {
+    // Read through the flat `StudioChartConfig` patch view, then gate EVERY field on
+    // whether the RESOLVED chart type's family actually owns it (via the schema's
+    // `getAllowedChartConfigKeys`, the single source of truth). This fixes a real
+    // correctness bug as well as the compile break: because `update_widget` merges
+    // config patches, a widget switched e.g. sankey → gauge still carries the stale
+    // `sankeyTargetField`/`xField`; the previous unconditional reads would describe
+    // those irrelevant keys to the model as if they applied to the current gauge.
+    const cfg = widget.config as StudioChartConfig;
+    const chartType = resolveChartType(cfg);
+    const allowed = getAllowedChartConfigKeys(chartType);
+    const pushField = (key: keyof StudioChartConfig, value: unknown): void => {
+      if (allowed.has(key) && value) {
+        parts.push(`${key}: ${value}`);
+      }
+    };
+    parts.push(`chartType: ${chartType}`);
+    pushField('xField', cfg.xField);
+    pushField('heatYField', cfg.heatYField);
+    pushField('yField', cfg.yField);
+    pushField('yAggregation', cfg.yAggregation);
+    pushField('barLayout', cfg.barLayout);
+    pushField('xGroupBy', cfg.xGroupBy);
+    pushField('chartSortBy', cfg.chartSortBy);
+    pushField('chartSortDirection', cfg.chartSortDirection);
+    if (allowed.has('ySeries') && cfg.ySeries?.length) {
       parts.push(
         `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
       );
     }
-    if (cfg.seriesField) {
-      parts.push(`seriesField: ${cfg.seriesField}`);
-    }
-    if (cfg.scatterColorField) {
-      parts.push(`scatterColorField: ${cfg.scatterColorField}`);
-    }
-    if (cfg.scatterSizeField) {
-      parts.push(`scatterSizeField: ${cfg.scatterSizeField}`);
-    }
-    if (cfg.ganttLabelField) {
-      parts.push(`ganttLabelField: ${cfg.ganttLabelField}`);
-    }
-    if (cfg.ganttStartField) {
-      parts.push(`ganttStartField: ${cfg.ganttStartField}`);
-    }
-    if (cfg.ganttEndField) {
-      parts.push(`ganttEndField: ${cfg.ganttEndField}`);
-    }
-    if (cfg.ganttColorField) {
-      parts.push(`ganttColorField: ${cfg.ganttColorField}`);
-    }
-    if (cfg.crossFilterMode) {
-      parts.push(`crossFilterMode: ${cfg.crossFilterMode}`);
-    }
+    pushField('seriesField', cfg.seriesField);
+    pushField('scatterColorField', cfg.scatterColorField);
+    pushField('scatterSizeField', cfg.scatterSizeField);
+    pushField('ganttLabelField', cfg.ganttLabelField);
+    pushField('ganttStartField', cfg.ganttStartField);
+    pushField('ganttEndField', cfg.ganttEndField);
+    pushField('ganttColorField', cfg.ganttColorField);
+    pushField('crossFilterMode', cfg.crossFilterMode);
   } else if (isWidgetOfKind(widget, 'kpi')) {
     const cfg = widget.config;
     if (cfg.kpiValueField) {

@@ -7,6 +7,7 @@ import {
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
+import type { StudioWidget } from './widgetTypes';
 
 // A minimal but STRUCTURALLY COMPLETE serialized doc (all four required top-level
 // fields), for tests exercising migration success paths now that `migrateState`
@@ -413,6 +414,39 @@ describe('serializeState / deserializeState roundtrip', () => {
         (f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter',
       ),
     ).toHaveLength(0);
+  });
+
+  it('retains chart config keys left over from a previously-selected chartType', () => {
+    // A widget switched bar → gauge keeps `xField` in its stored config (deliberate
+    // merge-not-replace UX; no migration strips it). That retention must survive
+    // persistence byte-for-byte, not just live state.
+    const retainedConfig = { chartType: 'gauge', xField: 'leftover-from-bar', gaugeMax: 200 };
+    const state = createDefaultStudioState({
+      doc: {
+        widgets: {
+          // A gauge config retaining a bar-era `xField` is intentionally NOT expressible
+          // as a typed literal — the `StudioChartWidgetConfig` discriminated union forbids
+          // a foreign-family key on a gauge. It is nonetheless a legitimate RUNTIME state
+          // (merge-not-replace on chartType switch); that persistence round-trips it
+          // byte-for-byte is exactly what this test pins, hence the deliberate cast.
+          c1: {
+            id: 'c1',
+            kind: 'chart',
+            title: 'W',
+            config: { ...retainedConfig },
+          } as unknown as StudioWidget,
+        },
+      },
+    });
+    const json = JSON.stringify(serializeState(state));
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
+    expect(restored).not.toBeNull();
+    expect(restored!.doc.widgets.c1.config).toEqual(retainedConfig);
+    // And the leftover key specifically survives — it is not stripped on the way out.
+    expect((restored!.doc.widgets.c1.config as { xField?: string }).xField).toBe(
+      'leftover-from-bar',
+    );
   });
 
   it('migrateState returns failure for invalid JSON', () => {

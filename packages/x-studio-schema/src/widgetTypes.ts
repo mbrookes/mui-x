@@ -186,16 +186,72 @@ export interface StudioGridConfig {
   crossFilterField?: string;
 }
 
+// ── Chart widget configuration ──────────────────────────────────────────────────
+//
+// Unlike the flat `StudioChartConfig` below (kept as the generic/patch type),
+// `StudioChartWidgetConfig` is a genuine discriminated union over `chartType`.
+// `StudioChartType` is a CLOSED union — there is no consumer-extensible custom
+// chart type (per AGENTS.md, custom charts are custom WIDGETS, never new chart
+// types) — so a bare `config.chartType === 'gauge'` check narrows natively, no
+// runtime guard required at each `===` site. The per-family interfaces group the
+// keys each chart sub-shape actually reads (verified against `chartTypeDefs.tsx`
+// and `chartTypeRegistry.ts`), so e.g. a `gauge` config can no longer statically
+// carry `sankeyTargetField`.
+
+/** Keys shared by EVERY chart sub-shape, regardless of `chartType`. */
+export interface StudioChartConfigBase {
+  /**
+   * How this chart widget responds to incoming cross-filters from other widgets.
+   * See {@link StudioCrossFilterMode} for details.
+   * @default 'cross-highlight'
+   */
+  crossFilterMode?: StudioCrossFilterMode;
+}
+
 /**
- * Chart widget configuration.
- *
- * Covers every chart sub-shape (bar / line / area / mixed / heatmap / gantt /
- * funnel / sankey / pie / donut / scatter / gauge). Sub-shape-specific keys are
- * grouped by prefix; which keys are relevant depends on `chartType`.
+ * Category/value sort keys shared by the cartesian families that support axis
+ * sorting (bar, line/area, mixed). Funnel supports `chartSortBy` only (no
+ * direction) and declares it directly; heatmap uses its own `heatSortBy`/
+ * `heatSortDirection` pair instead.
  */
-export interface StudioChartConfig {
-  /** Chart sub-type. Determines which other config keys are relevant. @default 'bar' */
-  chartType?: StudioChartType;
+export interface StudioChartSortConfig {
+  /**
+   * How to sort chart x-axis categories.
+   * - 'category': sort labels alphabetically / numerically (default).
+   * - 'value': sort by the aggregated y-value.
+   * - 'natural': preserve data insertion order (no explicit sort).
+   */
+  chartSortBy?: 'category' | 'value' | 'natural';
+  /** Sort direction for chartSortBy. @default 'asc' */
+  chartSortDirection?: 'asc' | 'desc';
+}
+
+/**
+ * Bar family (`bar` / `bar-stacked` / `bar-100`) — all three rendered by
+ * `renderBar` in `chartTypeDefs.tsx`.
+ *
+ * The discriminant is OPTIONAL on this family only: an absent `chartType` means
+ * `'bar'` (encoding the runtime default `config.chartType ?? 'bar'`), which makes
+ * the empty config `{}` a valid bar config — relied on by the
+ * `chart-type-picker-empty` screenshot seed.
+ */
+export interface StudioBarFamilyChartConfig extends StudioChartConfigBase, StudioChartSortConfig {
+  /** Chart sub-type. Absent means `'bar'`. @default 'bar' */
+  chartType?: 'bar' | 'bar-stacked' | 'bar-100';
+  /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
+  xField?: string;
+  /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
+  yField?: string;
+  /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /** Multiple Y-axis series (preferred over yField when present) */
+  ySeries?: StudioChartSeries[];
+  /** Secondary Y field for grouped/stacked charts */
+  yField2?: string;
+  /** Group/series field for grouped or stacked bar charts */
+  seriesField?: string;
+  /** Granularity to truncate the x-axis date/datetime field before grouping. */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** Bar orientation. `'horizontal'` — prefer for >5 categories, long labels, or ranking lists. */
   barLayout?: StudioBarLayout;
   /**
@@ -226,10 +282,26 @@ export interface StudioChartConfig {
    */
   barMaxCategories?: number;
   /**
-   * Font size in px for axis tick labels across all chart types.
+   * Font size in px for axis tick labels.
    * When undefined, the chart inherits the default theme font size.
    */
   axisTickFontSize?: number;
+  /**
+   * Reference lines drawn on the chart.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
+   */
+  annotations?: StudioChartAnnotation[];
+}
+
+/**
+ * Line/area family (`line` / `area` / `area-stacked` / `area-100`) — all four
+ * rendered by `renderLineArea` in `chartTypeDefs.tsx`. This is the ONLY family
+ * that supports `forecast`.
+ */
+export interface StudioLineAreaFamilyChartConfig
+  extends StudioChartConfigBase, StudioChartSortConfig {
+  /** Chart sub-type. */
+  chartType: 'line' | 'area' | 'area-stacked' | 'area-100';
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
@@ -238,32 +310,49 @@ export interface StudioChartConfig {
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /** Multiple Y-axis series (preferred over yField when present) */
   ySeries?: StudioChartSeries[];
-  /** Secondary Y field for grouped/stacked charts or scatter Y axis */
+  /** Secondary Y field for grouped/stacked charts */
   yField2?: string;
-  /** Group/series field for grouped or stacked bar charts */
+  /** Group/series field for grouped or stacked charts */
   seriesField?: string;
   /** Granularity to truncate the x-axis date/datetime field before grouping. */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
-   * How to sort chart x-axis categories.
-   * - 'category': sort labels alphabetically / numerically (default).
-   * - 'value': sort by the aggregated y-value.
-   * - 'natural': preserve data insertion order (no explicit sort).
+   * Font size in px for axis tick labels.
+   * When undefined, the chart inherits the default theme font size.
    */
-  chartSortBy?: 'category' | 'value' | 'natural';
-  /** Sort direction for chartSortBy. @default 'asc' */
-  chartSortDirection?: 'asc' | 'desc';
-  /** Scatter chart: categorical field used to split points into colour-coded series. */
-  scatterColorField?: string;
+  axisTickFontSize?: number;
   /**
-   * Scatter chart: numeric field to use as per-point bubble size.
-   * When set, renders as a bubble chart with variable marker radii (sqrt-scaled).
+   * Reference lines drawn on the chart.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
    */
-  scatterSizeField?: string;
-  /** Bubble chart: minimum marker radius in pixels. @default 4 */
-  scatterMinRadius?: number;
-  /** Bubble chart: maximum marker radius in pixels. @default 40 */
-  scatterMaxRadius?: number;
+  annotations?: StudioChartAnnotation[];
+  /**
+   * Forecast/trend configuration for line and area charts.
+   * When enabled, a linear extrapolation is rendered beyond the last data point
+   * as a dashed line, optionally with a shaded confidence band.
+   * Only supported with a single y-field.
+   */
+  forecast?: StudioWidgetForecast;
+}
+
+/** Mixed (bar + line) chart — rendered by `renderMixed`. Supports a dual Y axis. */
+export interface StudioMixedChartConfig extends StudioChartConfigBase, StudioChartSortConfig {
+  /** Chart sub-type. */
+  chartType: 'mixed';
+  /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
+  xField?: string;
+  /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
+  yField?: string;
+  /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /** Multiple Y-axis series (preferred over yField when present) */
+  ySeries?: StudioChartSeries[];
+  /** Secondary Y field for grouped/stacked charts */
+  yField2?: string;
+  /** Group/series field for grouped or stacked charts */
+  seriesField?: string;
+  /** Granularity to truncate the x-axis date/datetime field before grouping. */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
    * Mixed chart (bar + line): when `true`, bar series use the left Y axis and line series
    * use an independent right Y axis. Useful when bar and line series have different scales
@@ -272,17 +361,43 @@ export interface StudioChartConfig {
    */
   dualYAxis?: boolean;
   /**
-   * Heatmap chart: the field used as the row (Y) axis. `xField` is the column axis,
-   * `yField` is the colour-intensity value.
+   * Font size in px for axis tick labels.
+   * When undefined, the chart inherits the default theme font size.
+   */
+  axisTickFontSize?: number;
+  /**
+   * Reference lines drawn on the chart.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
+   */
+  annotations?: StudioChartAnnotation[];
+}
+
+/** Heatmap chart — rendered by `renderHeatmap`. */
+export interface StudioHeatmapChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'heatmap';
+  /** Column (X) axis field. */
+  xField?: string;
+  /**
+   * The field used as the row (Y) axis. `xField` is the column axis,
+   * `yField` / `ySeries[0]` is the colour-intensity value.
    */
   heatYField?: string;
+  /** Colour-intensity value field (single). Prefer over `ySeries`. */
+  yField?: string;
+  /** Colour-intensity value series; `ySeries[0].fieldId` is used as the value field fallback. */
+  ySeries?: StudioChartSeries[];
+  /** How to aggregate the colour-intensity value. @default 'sum' */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /** Granularity to truncate the x-axis date/datetime field before grouping. */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
-   * Heatmap chart: colour scheme for the intensity scale.
+   * Colour scheme for the intensity scale.
    * @default 'primary'
    */
   heatColorScheme?: 'primary' | 'success' | 'warning' | 'error';
   /**
-   * Heatmap chart: position of the continuous-colour legend.
+   * Position of the continuous-colour legend.
    * - `'bottom'` (default) — gradient bar below the chart
    * - `'top'` — gradient bar above the chart
    * - `'left'` — vertical gradient bar to the left
@@ -291,48 +406,56 @@ export interface StudioChartConfig {
    * @default 'bottom'
    */
   heatLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
-  /** Heatmap chart: alignment of the legend along its cross axis. @default 'center' */
+  /** Alignment of the legend along its cross axis. @default 'center' */
   heatLegendAlign?: 'start' | 'center' | 'end';
   /**
-   * Heatmap chart: which axis's labels to sort.
+   * Which axis's labels to sort.
    * - `'x-axis'`: sort column-axis labels alphabetically / numerically.
    * - `'y-axis'`: sort row-axis labels alphabetically / numerically.
    * - `'natural'`: preserve data insertion order (no explicit sort).
    * @default undefined (x-axis sorted ascending, y-axis in insertion order)
    */
   heatSortBy?: 'x-axis' | 'y-axis' | 'natural';
-  /** Heatmap chart: sort direction for heatSortBy. @default 'asc' */
+  /** Sort direction for heatSortBy. @default 'asc' */
   heatSortDirection?: 'asc' | 'desc';
   /**
-   * Gantt / timeline chart: field providing the row label (Y axis).
+   * Font size in px for axis tick labels.
+   * When undefined, the chart inherits the default theme font size.
    */
-  ganttLabelField?: string;
+  axisTickFontSize?: number;
+}
+
+/** Funnel chart — rendered by `renderFunnel`. */
+export interface StudioFunnelChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'funnel';
+  /** Stage (category) field. */
+  xField?: string;
+  /** Value field (single). Prefer over `ySeries`. */
+  yField?: string;
+  /** Value series; `ySeries[0].fieldId` is used as the value field fallback. */
+  ySeries?: StudioChartSeries[];
+  /** How to aggregate the funnel stage value. Defaults to 'sum'. */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /**
-   * Gantt / timeline chart: date or datetime field marking the start of each bar.
+   * How to sort funnel stages (category / value / natural). Funnel has no sort
+   * DIRECTION — `buildFunnelStages` reads only `chartSortBy`.
    */
-  ganttStartField?: string;
-  /**
-   * Gantt / timeline chart: date or datetime field marking the end of each bar.
-   */
-  ganttEndField?: string;
-  /**
-   * Gantt / timeline chart: optional categorical field used to colour-code bars.
-   */
-  ganttColorField?: string;
+  chartSortBy?: 'category' | 'value' | 'natural';
   // NOTE: funnelConversionBar, funnelExitStage, exitLabel, exitValue were
   // removed in June 2026 when the custom funnel was replaced with
   // @mui/x-charts-pro FunnelChart. The conversion-bar overlay mode was dropped
   // by design (x-charts-pro renders its own funnel shape). No schema migration
   // is needed — x-studio state is not published.
   /**
-   * Funnel chart: explicit category order for funnel stages.
+   * Explicit category order for funnel stages.
    * Stages are displayed in the given order (top to bottom); any stages not
    * listed appear at the end sorted by value descending.
    * When omitted the funnel is sorted by value descending (widest first).
    */
   funnelCategoryOrder?: string[];
   /**
-   * Funnel chart: opt into **cumulative "reached stage"** counts. When set, the
+   * Opt into **cumulative "reached stage"** counts. When set, the
    * funnel counts deals whose numeric reached-depth (this field) is at or beyond
    * each stage, which is monotonically non-increasing by construction (never
    * > 100%). The snapshot count (`stage === label`) is kept for a
@@ -341,13 +464,13 @@ export interface StudioChartConfig {
    */
   funnelReachedField?: string;
   /**
-   * Funnel chart: the ordered sequential stage labels for the cumulative mode
+   * The ordered sequential stage labels for the cumulative mode
    * (must exclude any terminal exit stage such as `Closed Lost`). Required
    * together with `funnelReachedField`.
    */
   funnelStageSequence?: string[];
   /**
-   * Funnel chart: how section labels display their values.
+   * How section labels display their values.
    * - `'value'`: the raw aggregated value (default)
    * - `'percent'`: each section as a percentage of the total
    * - `'conversion'`: each section as a percentage of the largest section —
@@ -356,7 +479,7 @@ export interface StudioChartConfig {
    */
   funnelLabelFormat?: 'value' | 'percent' | 'conversion';
   /**
-   * Funnel chart: where section labels are placed.
+   * Where section labels are placed.
    * - `'inside'`: label inside the section body (default)
    * - `'outside-start'`: for vertical layout — to the left
    * - `'outside-end'`: for vertical layout — to the right; recommended with `'conversion'`
@@ -364,85 +487,255 @@ export interface StudioChartConfig {
    */
   funnelLabelPlacement?: 'inside' | 'outside-start' | 'outside-end';
   /**
-   * Funnel chart: gap in pixels between funnel sections.
+   * Gap in pixels between funnel sections.
    * @default 0
    */
   funnelGap?: number;
   /**
-   * Funnel chart: shape/curve interpolation style for the sections.
+   * Shape/curve interpolation style for the sections.
    * @default 'linear'
    */
   funnelCurve?: 'linear' | 'bump' | 'step' | 'pyramid';
   /**
-   * Funnel chart: visual style for sections.
+   * Visual style for sections.
    * `'outlined'` uses a border with translucent fill; `'filled'` uses a solid fill.
    * @default 'filled'
    */
   funnelVariant?: 'filled' | 'outlined';
+}
+
+/** Gantt / timeline chart — rendered by `renderGantt`. Uses no cartesian fields. */
+export interface StudioGanttChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'gantt';
+  /** Field providing the row label (Y axis). */
+  ganttLabelField?: string;
+  /** Date or datetime field marking the start of each bar. */
+  ganttStartField?: string;
+  /** Date or datetime field marking the end of each bar. */
+  ganttEndField?: string;
+  /** Optional categorical field used to colour-code bars. */
+  ganttColorField?: string;
+}
+
+/** Sankey diagram — rendered by `renderSankey`. */
+export interface StudioSankeyChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'sankey';
+  /** Source ("from") node field. */
+  xField?: string;
+  /** Link weight value field (single). Prefer over `ySeries`. */
+  yField?: string;
+  /** Link weight value series; `ySeries[0].fieldId` is used as the value field fallback. */
+  ySeries?: StudioChartSeries[];
   /**
-   * Sankey chart: target ("to") node field. The source ("from") node uses `xField`
+   * Target ("to") node field. The source ("from") node uses `xField`
    * and the link weight uses `yField`. Links are summed per unique source→target pair.
    */
   sankeyTargetField?: string;
   /**
-   * Sankey chart: where each link draws its colour from.
+   * Where each link draws its colour from.
    * - 'source': colour links by their source node (default)
    * - 'target': colour links by their target node
    * @default 'source'
    */
   sankeyLinkColor?: 'source' | 'target';
   /**
-   * Sankey chart: render the aggregated value as a label on each link.
+   * Render the aggregated value as a label on each link.
    * @default false
    */
   sankeyShowValues?: boolean;
+}
+
+/** Pie/donut family (`pie` / `donut`) — both rendered by `renderPieDonut`. */
+export interface StudioPieFamilyChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'pie' | 'donut';
+  /** Slice (category) field. */
+  xField?: string;
+  /** Value field (single). Prefer over `ySeries`. */
+  yField?: string;
   /**
-   * Pie/donut chart: label shown on each arc.
+   * How to aggregate the slice values. Defaults to 'sum'; the compose drawer sets
+   * this to `'count'` for a field-less pie/donut (a per-category row tally).
+   */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /** Value series (preferred over yField when present). */
+  ySeries?: StudioChartSeries[];
+  /** Group/series field used to split into multiple concentric rings. */
+  seriesField?: string;
+  /**
+   * Label shown on each arc.
    * - 'value': the formatted numeric value
    * - 'percent': percentage of the total (per ring for multi-ring charts)
    * - 'none': no arc labels (default)
    */
   pieArcLabel?: 'value' | 'percent' | 'none';
   /**
-   * Pie/donut chart: minimum arc angle in degrees required to show an arc label.
+   * Minimum arc angle in degrees required to show an arc label.
    * Slices smaller than this will not be labelled. @default 20
    */
   pieArcLabelMinAngle?: number;
   /**
-   * Pie/donut chart: maximum number of slices to show before grouping the remainder
+   * Maximum number of slices to show before grouping the remainder
    * into an "Other" slice. @default undefined (no grouping)
    */
   pieMaxSlices?: number;
   /**
-   * Pie/donut chart: place the legend below the chart and render percentages alongside
+   * Place the legend below the chart and render percentages alongside
    * labels. When false (default) the built-in MUI X Charts legend is used, which
    * appears to the right of the chart.
    * @default false
    */
   pieLegendBelow?: boolean;
+}
+
+/** Scatter / bubble chart — rendered by `renderScatter`. Renders RAW rows (no aggregation). */
+export interface StudioScatterChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'scatter';
+  /** X-axis numeric field. */
+  xField?: string;
+  /** Y-axis numeric field. */
+  yField?: string;
+  /**
+   * Y-field series mirror. The scatter setup panel writes `yField` and a
+   * single-entry `ySeries` together; auto-title derivation reads `ySeries[0]`.
+   */
+  ySeries?: StudioChartSeries[];
+  /** Secondary Y field for the scatter Y axis. */
+  yField2?: string;
+  /** Categorical field used to split points into colour-coded series. */
+  scatterColorField?: string;
+  /**
+   * Numeric field to use as per-point bubble size.
+   * When set, renders as a bubble chart with variable marker radii (sqrt-scaled).
+   */
+  scatterSizeField?: string;
+  /** Bubble chart: minimum marker radius in pixels. @default 4 */
+  scatterMinRadius?: number;
+  /** Bubble chart: maximum marker radius in pixels. @default 40 */
+  scatterMaxRadius?: number;
+  /**
+   * Font size in px for axis tick labels.
+   * When undefined, the chart inherits the default theme font size.
+   */
+  axisTickFontSize?: number;
+  /**
+   * Reference lines drawn on the chart.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
+   */
+  annotations?: StudioChartAnnotation[];
+}
+
+/** Gauge chart — rendered by `renderGauge`. */
+export interface StudioGaugeChartConfig extends StudioChartConfigBase {
+  /** Chart sub-type. */
+  chartType: 'gauge';
+  /** Value field whose aggregate drives the gauge needle. */
+  yField?: string;
+  /** How to aggregate the gauge value. @default 'sum' */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
   gaugeMax?: number;
-  /**
-   * How this chart widget responds to incoming cross-filters from other widgets.
-   * See {@link StudioCrossFilterMode} for details.
-   * @default 'cross-highlight'
-   */
-  crossFilterMode?: StudioCrossFilterMode;
-  /**
-   * Reference lines drawn on chart widgets.
-   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
-   * Not supported for pie / donut / gauge chart types.
-   */
-  annotations?: StudioChartAnnotation[];
-  /**
-   * Forecast/trend configuration for line and area charts.
-   * When enabled, a linear extrapolation is rendered beyond the last data point
-   * as a dashed line, optionally with a shaded confidence band.
-   * Only supported for `chartType: 'line' | 'area'` with a single y-field.
-   */
-  forecast?: StudioWidgetForecast;
+}
+
+/**
+ * Discriminated union of every chart sub-shape, keyed by `chartType`. Because
+ * `StudioChartType` is closed, a bare `config.chartType === 'gauge'` narrows this
+ * union natively (no runtime guard needed). This is the type of a chart widget's
+ * `config` (`StudioWidgetConfigByKind.chart`).
+ */
+export type StudioChartWidgetConfig =
+  | StudioBarFamilyChartConfig
+  | StudioLineAreaFamilyChartConfig
+  | StudioMixedChartConfig
+  | StudioHeatmapChartConfig
+  | StudioFunnelChartConfig
+  | StudioGanttChartConfig
+  | StudioSankeyChartConfig
+  | StudioPieFamilyChartConfig
+  | StudioScatterChartConfig
+  | StudioGaugeChartConfig;
+
+/**
+ * Maps each `StudioChartType` literal to the family config interface that governs
+ * it. The single source of truth wiring a `chartType` discriminant to its precise
+ * config shape (the chart-level analogue of `StudioWidgetConfigByKind`).
+ */
+export interface StudioChartConfigByType {
+  bar: StudioBarFamilyChartConfig;
+  'bar-stacked': StudioBarFamilyChartConfig;
+  'bar-100': StudioBarFamilyChartConfig;
+  line: StudioLineAreaFamilyChartConfig;
+  area: StudioLineAreaFamilyChartConfig;
+  'area-stacked': StudioLineAreaFamilyChartConfig;
+  'area-100': StudioLineAreaFamilyChartConfig;
+  mixed: StudioMixedChartConfig;
+  heatmap: StudioHeatmapChartConfig;
+  funnel: StudioFunnelChartConfig;
+  gantt: StudioGanttChartConfig;
+  sankey: StudioSankeyChartConfig;
+  pie: StudioPieFamilyChartConfig;
+  donut: StudioPieFamilyChartConfig;
+  scatter: StudioScatterChartConfig;
+  gauge: StudioGaugeChartConfig;
+}
+
+/**
+ * Fail-closed compile-time assertion that EVERY `StudioChartType` literal has an
+ * entry in `StudioChartConfigByType`. Resolves to `true` when the map is complete;
+ * otherwise to a descriptive error tuple naming the uncovered chart types, which
+ * makes the `_CHART_TYPES_COVERED` line below fail to compile. Adding a chart type
+ * to `StudioChartType` without a `StudioChartConfigByType` entry is a build error.
+ */
+type AssertChartTypesCovered =
+  Exclude<StudioChartType, keyof StudioChartConfigByType> extends never
+    ? true
+    : [
+        'StudioChartConfigByType is missing chart types:',
+        Exclude<StudioChartType, keyof StudioChartConfigByType>,
+      ];
+const _CHART_TYPES_COVERED: AssertChartTypesCovered = true;
+void _CHART_TYPES_COVERED;
+
+/** The precise family config shape for a chart of type `T`. */
+export type StudioChartConfigOfType<T extends StudioChartType> = StudioChartConfigByType[T];
+
+/**
+ * Flat, all-optional chart config bag — the deliberate GENERIC / PATCH type, kept
+ * (like the widget-kind migration's flat `StudioWidgetConfig`) for code that
+ * operates across chart types by design: the reducer, `updateWidgetConfig`, the AI
+ * tool-argument builder, the cross-type query-descriptor registry, and the compose
+ * drawer's shared top controls. It is RECOMPOSED from the family interfaces (via
+ * `Partial<Omit<…, 'chartType'>>`) so it can never structurally drift from them.
+ *
+ * IMPORTANT — key retention across chartType switches: a widget's STORED config
+ * legitimately keeps keys authored under a previously-selected chartType (e.g.
+ * switching bar → gauge → bar preserves `xField` / `ySeries`). This is deliberate
+ * UX driven by `applyMutation`'s merge (patch, not replace) semantics — it is why
+ * no schema migration strips these keys. Consequently, readers of the NARROW
+ * `StudioChartWidgetConfig` union must always gate on `chartType` rather than
+ * assuming the absence of another family's keys; a stray `sankeyTargetField` on a
+ * config whose `chartType` is now `'gauge'` is expected, not corrupt.
+ */
+export interface StudioChartConfig
+  extends
+    StudioChartConfigBase,
+    Partial<Omit<StudioBarFamilyChartConfig, 'chartType'>>,
+    Partial<Omit<StudioLineAreaFamilyChartConfig, 'chartType'>>,
+    Partial<Omit<StudioMixedChartConfig, 'chartType'>>,
+    Partial<Omit<StudioHeatmapChartConfig, 'chartType'>>,
+    Partial<Omit<StudioFunnelChartConfig, 'chartType'>>,
+    Partial<Omit<StudioGanttChartConfig, 'chartType'>>,
+    Partial<Omit<StudioSankeyChartConfig, 'chartType'>>,
+    Partial<Omit<StudioPieFamilyChartConfig, 'chartType'>>,
+    Partial<Omit<StudioScatterChartConfig, 'chartType'>>,
+    Partial<Omit<StudioGaugeChartConfig, 'chartType'>> {
+  /** Chart sub-type. Determines which other config keys are relevant. @default 'bar' */
+  chartType?: StudioChartType;
 }
 
 /** KPI widget configuration (headline metric + optional sparkline & trend badge). */
@@ -685,7 +978,7 @@ export interface StudioWidgetConfig
  */
 export interface StudioWidgetConfigByKind {
   grid: StudioGridConfig;
-  chart: StudioChartConfig;
+  chart: StudioChartWidgetConfig;
   kpi: StudioKpiConfig;
   text: StudioTextConfig;
   filter: StudioFilterWidgetConfig;

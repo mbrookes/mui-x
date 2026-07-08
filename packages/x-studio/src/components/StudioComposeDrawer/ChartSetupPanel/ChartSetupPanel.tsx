@@ -34,7 +34,12 @@ import { fieldsForCapability } from '../../../utils/fieldCapabilities';
 import { analyzeChartSupport, getChartSupportMessage } from '../../../internals/chartAggregation';
 import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../../internals/fieldCatalog';
-import type { StudioChartType, StudioBarLayout, StudioWidgetConfigForKind } from '../../../models';
+import type {
+  StudioChartType,
+  StudioBarLayout,
+  StudioChartConfig,
+  StudioChartWidgetConfig,
+} from '../../../models';
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
 import { CrossFilterModeSection } from '../CrossFilterModeSection';
@@ -77,7 +82,17 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [dataSources, expressionFields],
   );
 
-  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'chart'>;
+  // The shared top controls span several chart families (xField / xGroupBy / sort /
+  // ySeries / seriesField / dualYAxis / annotations / crossFilterMode), so they read
+  // through the flat `StudioChartConfig` patch type. `chartConfig` is the SAME object
+  // viewed as the closed `StudioChartWidgetConfig` union — a bare
+  // `chartConfig.chartType === 'x'` check narrows it natively to the matching family,
+  // which is how each per-type section below is handed its precise family config with
+  // no guard and no per-call cast. (`{}` is a valid bar-family config since that
+  // family's discriminant is optional, so the `?? {}` fallback type-checks too.)
+  const rawConfig = widget?.config ?? {};
+  const config = rawConfig as StudioChartConfig;
+  const chartConfig = rawConfig as StudioChartWidgetConfig;
   const widgetSourceId = widget?.sourceId;
 
   // selectedXField is used to conditionally show the Group By control below
@@ -385,10 +400,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       <Divider />
 
       {/* Gauge chart setup */}
-      {isGauge && (
+      {chartConfig.chartType === 'gauge' && (
         <GaugeConfigSection
           widgetId={widgetId}
-          config={config}
+          config={chartConfig}
           allFields={allFields}
           widgetSourceId={widgetSourceId}
         />
@@ -524,10 +539,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
 
           {/* Scatter: single Y field + optional color-by */}
-          {isScatter && (
+          {chartConfig.chartType === 'scatter' && (
             <ScatterConfigSection
               widgetId={widgetId}
-              config={config}
+              config={chartConfig}
               numericFields={numericFields}
               categoryFields={categoryFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
@@ -535,20 +550,20 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
 
           {/* Funnel: single value/measure field + visual options */}
-          {isFunnel && (
+          {chartConfig.chartType === 'funnel' && (
             <FunnelConfigSection
               widgetId={widgetId}
-              config={config}
+              config={chartConfig}
               numericFields={numericFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
             />
           )}
 
           {/* Heatmap: row axis field + colour-value measure */}
-          {isHeatmap && (
+          {chartConfig.chartType === 'heatmap' && (
             <HeatmapAxesSection
               widgetId={widgetId}
-              config={config}
+              config={chartConfig}
               heatYFields={heatYFields}
               numericFields={numericFields}
               allFields={allFields}
@@ -557,10 +572,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
 
           {/* Sankey: target node field + value measure + link options */}
-          {isSankey && (
+          {chartConfig.chartType === 'sankey' && (
             <SankeyConfigSection
               widgetId={widgetId}
-              config={config}
+              config={chartConfig}
               categoryFields={categoryFields}
               numericFields={numericFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
@@ -758,15 +773,17 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             </div>
           )}
           {/* Pie / donut: arc label options */}
-          {isPieOrDonut && <PieArcLabelsSection widgetId={widgetId} config={config} />}
+          {(chartConfig.chartType === 'pie' || chartConfig.chartType === 'donut') && (
+            <PieArcLabelsSection widgetId={widgetId} config={chartConfig} />
+          )}
         </Stack>
       )}
 
       {/* Gantt / timeline chart fields */}
-      {isGantt && (
+      {chartConfig.chartType === 'gantt' && (
         <GanttFieldsSection
           widgetId={widgetId}
-          config={config}
+          config={chartConfig}
           allFields={allFields}
           dateFields={dateFields}
           categoryFields={categoryFields}

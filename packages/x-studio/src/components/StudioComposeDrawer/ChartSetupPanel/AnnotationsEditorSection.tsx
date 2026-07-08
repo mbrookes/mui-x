@@ -14,7 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioChartAnnotation, StudioWidgetConfig } from '../../../models';
+import type { StudioChartAnnotation } from '../../../models';
 
 function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
@@ -22,7 +22,10 @@ function generateAnnotationId() {
 
 export interface AnnotationsEditorSectionProps {
   widgetId: string;
-  config: StudioWidgetConfig;
+  // Annotations are shared by exactly the bar / line-area / mixed / scatter families,
+  // so this section takes a minimal STRUCTURAL prop rather than one family's config —
+  // the flat `StudioChartConfig` the parent passes satisfies it.
+  config: { annotations?: StudioChartAnnotation[] };
 }
 
 /** Reference-line (annotation) editor: add/edit/remove Y or X reference lines. */

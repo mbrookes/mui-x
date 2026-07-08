@@ -40,9 +40,8 @@ export interface CrossFilterModeSectionProps {
 
 /**
  * Shared "Interactions" setup-panel section: a three-(or two-)way cross-filter-mode
- * toggle, previously hand-rolled independently in `ChartSetupPanel`, `GridSetupPanel`,
- * and `KpiSetupPanel` (finding 2.3 — a fourth copy still lives, unmigrated, in
- * `MapSetupPanel`, which is out of scope for this round).
+ * toggle, used by `ChartSetupPanel`, `GridSetupPanel`, `KpiSetupPanel`, and
+ * `MapSetupPanel` — previously hand-rolled independently in each.
  *
  * Normalizes the displayed value so a legacy-persisted `'cross-highlight'` value renders
  * as `'cross-filter'` selected on panels that don't offer "Highlight" (generalizing the

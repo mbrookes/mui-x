@@ -40,6 +40,13 @@ const mockState = {
         ],
         rows: [],
       },
+      // Second source used by the "changing the data source" test below.
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'name', label: 'Name', type: 'string' }],
+        rows: [],
+      },
     },
   },
 };
@@ -120,6 +127,45 @@ describe('GridSetupPanel', () => {
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
       crossFilterMode: 'cross-filter',
     });
+  });
+
+  it('preserves non-field config keys when the data source changes (finding 3.6)', async () => {
+    controller.updateWidget.mockClear();
+    const previousWidget = mockState.doc.widgets['widget-1'];
+
+    try {
+      // Field-bound keys (columns, gridSortField, gridGroupByField, …) reference
+      // the OLD source's fields and must be cleared on a source change, but
+      // grid-level display settings independent of field selection — here
+      // gridSortDirection and gridHeight — must survive it.
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: {
+          columns: [{ fieldId: 'id' }, { fieldId: 'total' }],
+          gridSortField: 'total',
+          gridSortDirection: 'desc',
+          gridGroupByField: 'category',
+          gridHeight: 500,
+        } as StudioWidgetConfig,
+      };
+
+      const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+
+      await user.click(screen.getByLabelText('Data source'));
+      const customersOption = await screen.findByRole('option', { name: 'Customers' });
+      await user.click(customersOption);
+
+      expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
+        sourceId: 'customers',
+        config: {
+          gridSortDirection: 'desc',
+          gridHeight: 500,
+          columns: [],
+        },
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+    }
   });
 
   it('hides the columns section and shows a helper alert when no source is selected', () => {

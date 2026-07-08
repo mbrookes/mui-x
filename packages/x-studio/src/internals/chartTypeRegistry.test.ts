@@ -149,6 +149,20 @@ describe('collectFields — heatmap', () => {
     );
     expect(fields).toEqual(expect.arrayContaining(['month', 'value', 'product']));
   });
+
+  it('falls back to ySeries[0] for the intensity value when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('heatmap');
+    const fields = desc.collectFields(
+      {
+        chartType: 'heatmap',
+        xField: 'month',
+        heatYField: 'product',
+        ySeries: [{ fieldId: 'revenue' }],
+      },
+      SOURCE_A,
+    );
+    expect(fields).toContain('revenue');
+  });
 });
 
 // ── collectFields: funnel ─────────────────────────────────────────────────────
@@ -185,6 +199,15 @@ describe('collectFields — funnel', () => {
     );
     expect(fields).not.toContain('reached_depth');
     expect(fields).not.toContain(undefined);
+  });
+
+  it('falls back to ySeries[0] for the value field when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('funnel');
+    const fields = desc.collectFields(
+      { chartType: 'funnel', xField: 'stage', ySeries: [{ fieldId: 'count' }] },
+      SOURCE_A,
+    );
+    expect(fields).toContain('count');
   });
 });
 
@@ -236,6 +259,20 @@ describe('collectFields — sankey', () => {
       SOURCE_A,
     );
     expect(fields).toEqual(expect.arrayContaining(['from_stage', 'deal_value', 'to_stage']));
+  });
+
+  it('falls back to ySeries[0] for the link weight when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('sankey');
+    const fields = desc.collectFields(
+      {
+        chartType: 'sankey',
+        xField: 'from_stage',
+        sankeyTargetField: 'to_stage',
+        ySeries: [{ fieldId: 'deal_value' }],
+      },
+      SOURCE_A,
+    );
+    expect(fields).toContain('deal_value');
   });
 });
 
@@ -344,7 +381,19 @@ describe('collectFields — unknown chartType (fallback)', () => {
 // ── buildAggregationSpecs: chart types ───────────────────────────────────────
 
 describe('buildAggregationSpecs — bar / line / area family', () => {
-  const types = ['bar', 'bar-stacked', 'bar-100', 'line', 'area', 'area-stacked', 'area-100', 'mixed', 'pie', 'donut', 'gauge'] as const;
+  const types = [
+    'bar',
+    'bar-stacked',
+    'bar-100',
+    'line',
+    'area',
+    'area-stacked',
+    'area-100',
+    'mixed',
+    'pie',
+    'donut',
+    'gauge',
+  ] as const;
 
   types.forEach((chartType) => {
     it(`${chartType}: builds yField aggregation`, () => {
@@ -434,6 +483,16 @@ describe('buildAggregationSpecs — funnel', () => {
     );
     expect(aggs).toEqual([expect.objectContaining({ field: 'count', fn: 'count' as AggFn })]);
   });
+
+  it('falls back to ySeries[0] when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('funnel');
+    const aggs = desc.buildAggregationSpecs(
+      { chartType: 'funnel', xField: 'stage', ySeries: [{ fieldId: 'count' }] },
+      noExpr,
+      SOURCE_A,
+    );
+    expect(aggs).toEqual([expect.objectContaining({ field: 'count', fn: 'sum' as AggFn })]);
+  });
 });
 
 describe('buildAggregationSpecs — sankey', () => {
@@ -446,6 +505,42 @@ describe('buildAggregationSpecs — sankey', () => {
     );
     expect(aggs).toEqual([expect.objectContaining({ field: 'value', fn: 'sum' as AggFn })]);
   });
+
+  it('falls back to ySeries[0] for the link weight when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('sankey');
+    const aggs = desc.buildAggregationSpecs(
+      {
+        chartType: 'sankey',
+        xField: 'from',
+        sankeyTargetField: 'to',
+        ySeries: [{ fieldId: 'value' }],
+      },
+      noExpr,
+      SOURCE_A,
+    );
+    expect(aggs).toEqual([expect.objectContaining({ field: 'value', fn: 'sum' as AggFn })]);
+  });
+
+  it('always aggregates the link weight as "sum", ignoring any yAggregation (finding 3.4 — sankey has no yAggregation concept)', () => {
+    const desc = chartDesc('sankey');
+    const aggs = desc.buildAggregationSpecs(
+      {
+        chartType: 'sankey',
+        xField: 'from',
+        yField: 'value',
+        sankeyTargetField: 'to',
+        // `StudioSankeyChartConfig` has no `yAggregation` key, but `StudioWidgetConfig`
+        // (the flat cross-kind patch type these descriptors operate on) still allows
+        // it — simulating a stray value left over from a previously-selected chart
+        // type (bar -> sankey keeps `yAggregation` around per the flat-config
+        // retention behaviour documented on `StudioChartConfig`).
+        yAggregation: 'avg',
+      },
+      noExpr,
+      SOURCE_A,
+    );
+    expect(aggs).toEqual([expect.objectContaining({ field: 'value', fn: 'sum' as AggFn })]);
+  });
 });
 
 describe('buildAggregationSpecs — heatmap', () => {
@@ -453,6 +548,21 @@ describe('buildAggregationSpecs — heatmap', () => {
     const desc = chartDesc('heatmap');
     const aggs = desc.buildAggregationSpecs(
       { chartType: 'heatmap', xField: 'month', yField: 'intensity', heatYField: 'product' },
+      noExpr,
+      SOURCE_A,
+    );
+    expect(aggs).toEqual([expect.objectContaining({ field: 'intensity', fn: 'sum' as AggFn })]);
+  });
+
+  it('falls back to ySeries[0] for the intensity value when yField is unset (finding 3.5)', () => {
+    const desc = chartDesc('heatmap');
+    const aggs = desc.buildAggregationSpecs(
+      {
+        chartType: 'heatmap',
+        xField: 'month',
+        heatYField: 'product',
+        ySeries: [{ fieldId: 'intensity' }],
+      },
       noExpr,
       SOURCE_A,
     );
@@ -487,11 +597,7 @@ describe('buildAggregationSpecs — kpi', () => {
 describe('buildAggregationSpecs — grid', () => {
   it('returns empty when gridGroupByField is not set', () => {
     const desc = getDescriptor('grid', {});
-    const aggs = desc.buildAggregationSpecs(
-      { columns: [{ fieldId: 'amount' }] },
-      noExpr,
-      SOURCE_A,
-    );
+    const aggs = desc.buildAggregationSpecs({ columns: [{ fieldId: 'amount' }] }, noExpr, SOURCE_A);
     expect(aggs).toEqual([]);
   });
 
@@ -553,7 +659,12 @@ describe('buildAggregationSpecs — pivot', () => {
   it('builds pivotValueField aggregation', () => {
     const desc = getDescriptor('pivot', {});
     const aggs = desc.buildAggregationSpecs(
-      { pivotRowField: 'region', pivotColField: 'quarter', pivotValueField: 'revenue', pivotAggregation: 'sum' },
+      {
+        pivotRowField: 'region',
+        pivotColField: 'quarter',
+        pivotValueField: 'revenue',
+        pivotAggregation: 'sum',
+      },
       noExpr,
       SOURCE_A,
     );
@@ -562,11 +673,7 @@ describe('buildAggregationSpecs — pivot', () => {
 
   it('defaults pivotAggregation to sum', () => {
     const desc = getDescriptor('pivot', {});
-    const aggs = desc.buildAggregationSpecs(
-      { pivotValueField: 'revenue' },
-      noExpr,
-      SOURCE_A,
-    );
+    const aggs = desc.buildAggregationSpecs({ pivotValueField: 'revenue' }, noExpr, SOURCE_A);
     expect(aggs[0]?.fn).toBe('sum');
   });
 });

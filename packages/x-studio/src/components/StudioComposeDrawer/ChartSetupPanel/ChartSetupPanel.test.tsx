@@ -543,4 +543,53 @@ describe('ChartSetupPanel', () => {
       crossFilterMode: 'none',
     });
   });
+
+  // Schema review finding 1.1's UI half: funnel has no sort DIRECTION concept
+  // (`StudioFunnelChartConfig` declares `chartSortBy` only — buildFunnelStages
+  // never reads `chartSortDirection`), so the direction toggle must be hidden
+  // for funnel while the "Sort by" control itself stays visible.
+  describe('sort direction control', () => {
+    it('shows the sort direction toggle for a bar chart', () => {
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // "Sort by" label renders twice via the notched outline (see the sankey test above).
+      expect(screen.getAllByText('Sort by').length).toBeGreaterThan(0);
+      expect(screen.getByRole('group', { name: 'Sort direction' })).toBeVisible();
+    });
+
+    it('hides the sort direction toggle for a funnel chart, but keeps "Sort by"', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            { id: 'stage', label: 'Stage', type: 'string' },
+            { id: 'count', label: 'Count', type: 'number' },
+          ],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: {
+            chartType: 'funnel',
+            xField: 'stage',
+            yField: 'count',
+          },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.getAllByText('Sort by').length).toBeGreaterThan(0);
+        expect(screen.queryByRole('group', { name: 'Sort direction' })).toBeNull();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+  });
 });

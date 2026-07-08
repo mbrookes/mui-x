@@ -61,6 +61,42 @@ const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
 ];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
 
+/**
+ * Grid config keys that reference specific field IDs from the widget's data
+ * source. These are the only keys that should be cleared when the source
+ * changes — the old field IDs no longer resolve against the new source, so
+ * keeping them around would leave the widget referencing fields that don't
+ * exist. Grid-level display settings that are independent of which fields are
+ * selected (e.g. `gridSortDirection`, `gridHeight`) are NOT in this list and
+ * must survive a source change (finding 3.6).
+ */
+const FIELD_BOUND_GRID_CONFIG_KEYS = [
+  'columns',
+  'gridGroupByField',
+  'gridAggregations',
+  'gridSortField',
+  'crossFilterField',
+  'gridSummaryFields',
+  'gridPkField',
+  'gridConditionalFormats',
+] as const;
+
+/**
+ * Returns `config` with every field-bound grid key removed (`columns` reset
+ * to `[]`) so it can safely be applied after the widget's data source changes,
+ * while every other (non-field-bound) config key is preserved untouched.
+ */
+function clearFieldBoundGridConfig(
+  config: StudioWidgetConfigForKind<'grid'> | undefined,
+): StudioWidgetConfigForKind<'grid'> {
+  const next: Record<string, unknown> = { ...config };
+  for (const key of FIELD_BOUND_GRID_CONFIG_KEYS) {
+    delete next[key];
+  }
+  next.columns = [];
+  return next as StudioWidgetConfigForKind<'grid'>;
+}
+
 /** A selectable field entry with its source context */
 interface SelectableField {
   fieldId: string;
@@ -252,7 +288,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const handleSourceChange = (_: React.SyntheticEvent, selected: { id: string } | null) => {
     controller.updateWidget(widgetId, {
       sourceId: selected?.id ?? undefined,
-      config: { columns: [] },
+      config: clearFieldBoundGridConfig(config),
     });
   };
 
@@ -262,7 +298,10 @@ export function GridSetupPanel(props: { widgetId: string }) {
     );
     if (tableSourceMode === 'implicit' && next.length === 0) {
       // Reset source when the last column is removed so the user can switch sources
-      controller.updateWidget(widgetId, { sourceId: undefined, config: { columns: [] } });
+      controller.updateWidget(widgetId, {
+        sourceId: undefined,
+        config: clearFieldBoundGridConfig(config),
+      });
     } else {
       controller.updateWidgetConfig(widgetId, { columns: next });
     }

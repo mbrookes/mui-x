@@ -121,14 +121,9 @@ export function useStudioUIConfig(): StudioUIConfig {
 /** Returns the custom widget definitions indexed by kind for O(1) lookup. */
 export function useCustomWidgetMap(): CustomWidgetMap {
   const { customWidgets } = useStudioUIConfig();
-  // Serialize the identifying keys so the memo only recomputes when the set of
-  // registered widget kinds actually changes (a simple-expression dep keeps both
-  // exhaustive-deps and use-memo happy without disabling them).
-  const widgetKindsKey = JSON.stringify(customWidgets?.map((d) => d.kind));
   return React.useMemo(
     () => new Map((customWidgets ?? []).map((d) => [d.kind, d])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgetKindsKey is a deep-equality proxy for customWidgets
-    [widgetKindsKey],
+    [customWidgets],
   );
 }
 

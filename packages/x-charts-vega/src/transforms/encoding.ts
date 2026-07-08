@@ -214,12 +214,18 @@ export function applyEncodingTransforms(
 
   const nextEncoding: VegaEncoding = { ...workingEncoding };
   for (const { channel, def, as } of aggregateChannels) {
+    // The rewrite strips the `aggregate` marker and renames `field` to the
+    // synthetic column, so scales.ts's aggregate-aware title derivation can
+    // never fire downstream — derive the "MEAN of v"-style title here instead
+    // (matching axisTitle's format) unless the spec set one explicitly.
+    const op = String(def.aggregate).toUpperCase();
+    const derivedTitle = def.field ? `${op} of ${def.field}` : 'Count of Records';
     nextEncoding[channel] = {
       ...def,
       field: as,
       aggregate: undefined,
       type: def.type ?? 'quantitative',
-      title: def.title ?? undefined,
+      title: def.title ?? derivedTitle,
     };
   }
 

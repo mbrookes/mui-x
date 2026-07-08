@@ -1,7 +1,7 @@
 import type { CurveType } from '@mui/x-charts/models';
 import type { CompiledSeries, CompiledUnit, PlotKind, UnitContext } from '../compile/context';
 import { resolveColor } from '../compile/color';
-import { toNumber } from '../compile/fieldTypes';
+import { toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaFieldDef } from '../types';
 import { isFieldDef } from '../types';
 
@@ -310,7 +310,11 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const series: CompiledSeries[] = groups.map((group) => {
     const data: Array<number | null> = new Array(categories.length).fill(null);
     for (const row of rowsByGroup.get(group.key) ?? []) {
-      const idx = ctx.categoryIndex(x, row[xField]);
+      // Temporal axis categories are Date objects (see scales.ts), so the raw
+      // row value (often an ISO string) must be coerced before the lookup —
+      // same as point.ts's resolveAxisValue.
+      const rawX = x.fieldType === 'temporal' ? toDate(row[xField]) : row[xField];
+      const idx = ctx.categoryIndex(x, rawX);
       if (idx === -1) {
         continue;
       }

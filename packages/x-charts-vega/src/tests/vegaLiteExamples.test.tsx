@@ -117,25 +117,12 @@ describe('Vega-Lite golden examples', () => {
       expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B']);
       const series = compiled.series[0] as BarSeries;
       expect(series.data).to.deep.equal([3, 10]);
-      // See the BUG regression below: the axis label is the internal
-      // synthetic column name, not a human "MEAN of v" title.
-      expect(compiled.yAxis?.config.label).to.equal('__mean_v');
     });
 
-    // BUG: `axisTitle` in compile/scales.ts has an explicit branch that
-    // prefixes the aggregate op ("MEAN of v", "COUNT of Records", etc., see
-    // scales.ts lines ~81-89) — but it can never fire for an encoding-level
-    // `aggregate`, because `applyEncodingTransforms` (transforms/encoding.ts)
-    // always strips `aggregate` and rewrites `field` to a synthetic column
-    // name (e.g. "__mean_v") *before* axis resolution runs, and also resets
-    // `title` to `def.title ?? undefined` (dropping any inherited title).
-    // scales.ts's axisTitle then sees a plain field def named "__mean_v"
-    // with no `aggregate` marker, so it falls through to using the raw
-    // (synthetic, underscore-prefixed) field name as the axis title instead
-    // of a human-readable aggregate label. This contradicts this package's
-    // own GAPS.md, which documents axis titles as "auto-derived from field
-    // name (e.g. 'COUNT of Sales')".
-    it.skip('BUG: encoding-level aggregate (e.g. y: {field, aggregate: "mean"}) never produces a "MEAN of v"-style axis title; it shows the raw synthetic column name instead', () => {
+    // The encoding rewrite strips `aggregate` and renames the field to a
+    // synthetic column before axis resolution, so the human-readable title
+    // must be derived during the rewrite (transforms/encoding.ts).
+    it('derives a "MEAN of v"-style axis title for encoding-level aggregates', () => {
       const compiled = compileSpec(spec);
       expect(compiled.yAxis?.config.label).to.equal('MEAN of v');
     });
@@ -356,22 +343,10 @@ describe('Vega-Lite golden examples', () => {
     });
   });
 
-  // BUG: `compileLineAreaMark` (marks/lineArea.ts) indexes each row's x value
-  // straight into `ctx.categoryIndex(x, row[xField])` without first coercing
-  // it to a `Date` for a temporal axis. `resolveChannelAxis` (compile/scales.ts)
-  // builds the temporal axis's `categoryKeys` from `Date` objects (via
-  // `toDate(raw)`), whose `categoryKey()` serializes as `"d:<timestamp>"`; the
-  // *raw* string value's `categoryKey()` serializes as `"string:2020-01-01"`.
-  // These never match, so `categoryIndex` returns -1 for every row and every
-  // line/area series compiles with an all-null `data` array — the line
-  // silently renders nothing, with no gap reported beyond the
-  // `scale:temporal-point-approximation` *partial* gap for the axis itself
-  // (which reads as "approximated", not "completely broken"). `marks/point.ts`'s
-  // `resolveAxisValue` shows the fix is already known elsewhere in this
-  // codebase: it explicitly calls `toDate(raw)` for a temporal axis before
-  // resolving position/index — `lineArea.ts` needs the same coercion but does
-  // not have it.
-  it.skip('BUG: a line/area mark against a temporal x axis compiles with all-null series data (the line renders nothing)', () => {
+  // Regression: temporal axis categories are Date objects, so lineArea.ts
+  // must coerce raw row values (ISO strings) with toDate before the category
+  // lookup — without it every temporal line compiled to all-null data.
+  it('compiles a line mark against a temporal x axis with date-coerced category alignment', () => {
     const compiled = compileSpec({
       data: {
         values: [
@@ -633,14 +608,13 @@ describe('Vega-Lite golden examples', () => {
   // of rendering a single "Total" bar the way Vega-Lite would (an implicit
   // "all" category). Skipped rather than asserting the empty-series result
   // as if it were correct.
-  it.skip('BUG: aggregate-only bar chart with no positional category channel renders nothing instead of a single total bar', () => {
-    const compiled = compileSpec({
-      data: { values: [{ v: 1 }, { v: 2 }, { v: 3 }] },
-      mark: 'bar',
-      encoding: {
-        y: { aggregate: 'count', type: 'quantitative' },
-      },
-    });
-    expect(compiled.series).to.have.length(1);
-  });
+  // Repro (currently drops the layer with a `mark:bar-missing-axes` gap):
+  //   compileSpec({
+  //     data: { values: [{ v: 1 }, { v: 2 }, { v: 3 }] },
+  //     mark: 'bar',
+  //     encoding: { y: { aggregate: 'count', type: 'quantitative' } },
+  //   }) // expected: one single-bar series over an implicit "all" category
+  it.todo(
+    'BUG: aggregate-only bar chart with no positional category channel renders nothing instead of a single total bar',
+  );
 });

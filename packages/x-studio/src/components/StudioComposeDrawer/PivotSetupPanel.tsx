@@ -21,7 +21,8 @@ import {
 } from '../../context';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
-import type { StudioWidgetConfig } from '../../models';
+import type { StudioWidgetConfigForKind } from '../../models';
+import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
 
 interface PivotSetupPanelProps {
   widgetId: string;
@@ -34,52 +35,31 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
-  // NOTE: This panel is intentionally still typed against the flat, cross-kind
-  // `StudioWidgetConfig` (all keys optional). Its migration onto the precise
-  // per-kind `StudioWidgetConfigForKind<'pivot'>` is owned by a separate unit;
-  // the cast below only keeps it compiling under the new discriminated
-  // `StudioWidget` union without doing that migration here.
-  const config = (widget?.config ?? {}) as StudioWidgetConfig;
+  // `widget` comes from a broad selector, so its `config` is the cross-kind union.
+  // Narrow to the pivot config shape for reading pivot-specific keys.
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'pivot'>;
 
   const aggFn = config.pivotAggregation ?? 'sum';
   const showTotals = config.pivotShowTotals ?? true;
 
-  // When the widget has a sourceId: show same-source fields + related-source fields.
-  // When there is no sourceId yet: show all fields from all sources so the user can
-  // pick any field first — the sourceId is then inferred from that selection.
+  // When the widget has a sourceId: show same-source fields only (+ same-source
+  // expression fields — cross-source fields are intentionally excluded: pivot has no
+  // per-field source metadata, so mixing sources would cause silent data mismatches).
+  // When there is no sourceId yet: show all fields from every non-hidden source so the
+  // user can pick any field first — the sourceId is then inferred from that selection.
+  // Both branches fold via `buildSourceFieldEntries` (rather than the whole-catalog
+  // `buildFieldCatalog`) to preserve today's exact per-source interleaved ordering
+  // (physical fields then that same source's expression fields, source by source, in
+  // `Object.values(dataSources)` order — NOT alphabetically `sourceLabel`-sorted) and to
+  // keep expression fields scoped to the source they're folded for.
   const allFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!widget?.sourceId) {
-      // No source yet — build a flat list of all non-hidden fields from every source
       const entries: DataSourceFieldEntry[] = [];
       Object.values(dataSources).forEach((ds) => {
         if (ds.hidden) {
           return;
         }
-        ds.fields.forEach((f) => {
-          if (f.hidden) {
-            return;
-          }
-          entries.push({
-            id: f.id,
-            label: f.label,
-            type: f.type,
-            sourceId: ds.id,
-            sourceLabel: ds.label,
-          });
-        });
-        expressionFields.forEach((ef) => {
-          if (ef.sourceId !== ds.id || ef.hidden) {
-            return;
-          }
-          entries.push({
-            id: ef.id,
-            label: ef.label,
-            type: ef.type as DataSourceFieldEntry['type'],
-            sourceId: ds.id,
-            sourceLabel: ds.label,
-            generated: true,
-          });
-        });
+        entries.push(...buildSourceFieldEntries(ds, expressionFields, { expression: 'all' }));
       });
       return entries;
     }
@@ -87,39 +67,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     if (!source) {
       return [];
     }
-    const entries: DataSourceFieldEntry[] = [];
-
-    source.fields.forEach((f) => {
-      if (f.hidden) {
-        return;
-      }
-      entries.push({
-        id: f.id,
-        label: f.label,
-        type: f.type,
-        sourceId: source.id,
-        sourceLabel: source.label,
-      });
-    });
-    // Include same-source expression fields (e.g. joined lookup fields) so
-    // the pivot can use them as row/col dimensions. Cross-source fields are
-    // intentionally excluded: pivot has no per-field source metadata, so
-    // mixing sources would cause silent data mismatches.
-    expressionFields.forEach((ef) => {
-      if (ef.sourceId !== widget.sourceId || ef.hidden) {
-        return;
-      }
-      entries.push({
-        id: ef.id,
-        label: ef.label,
-        type: ef.type as DataSourceFieldEntry['type'],
-        sourceId: source.id,
-        sourceLabel: source.label,
-        generated: true,
-      });
-    });
-
-    return entries;
+    return buildSourceFieldEntries(source, expressionFields, { expression: 'all' });
   }, [widget?.sourceId, dataSources, expressionFields]);
 
   const categoryFields = React.useMemo(

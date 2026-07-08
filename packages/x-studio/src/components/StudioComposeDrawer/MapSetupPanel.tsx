@@ -9,8 +9,6 @@ import {
   Select,
   Stack,
   Switch,
-  ToggleButton,
-  ToggleButtonGroup,
 } from '@mui/material';
 import {
   useStudioController,
@@ -21,10 +19,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
-import type { StudioCrossFilterMode, StudioWidgetConfig } from '../../models';
+import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
-import { SetupSection } from './SetupSection';
+import { CrossFilterModeSection } from './CrossFilterModeSection';
 
 interface MapSetupPanelProps {
   widgetId: string;
@@ -38,19 +36,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const allGeographies = useStudioGeographies();
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
-  // NOTE: This panel is intentionally still typed against the flat, cross-kind
-  // `StudioWidgetConfig` (all keys optional). Its migration onto the precise
-  // per-kind `StudioWidgetConfigForKind<'map'>` is owned by a separate unit; the
-  // cast below only keeps it compiling under the new discriminated `StudioWidget`
-  // union without doing that migration here.
-  const config = (widget?.config ?? {}) as StudioWidgetConfig;
+  // `widget` comes from a broad selector, so its `config` is the cross-kind union.
+  // Narrow to the map config shape for reading map-specific keys.
+  const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'map'>;
 
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
   const legendZeroMin = config.mapLegendZeroMin ?? false;
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
-  const crossFilterMode = config.crossFilterMode ?? 'cross-highlight';
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
@@ -273,29 +267,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         label={localeText.mapSetupClickableLabel}
       />
 
-      <SetupSection
+      <CrossFilterModeSection
+        widgetId={widgetId}
         title={localeText.mapSetupInteractionsTitle}
         description={localeText.mapSetupInteractionsDescription}
-      >
-        <ToggleButtonGroup
-          value={(crossFilterMode !== 'none' ? 'cross-filter' : 'none') as StudioCrossFilterMode}
-          exclusive
-          onChange={(_e, value: StudioCrossFilterMode | null) => {
-            if (value) {
-              update({ crossFilterMode: value });
-            }
-          }}
-          size="small"
-          fullWidth
-        >
-          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeFilter}
-          </ToggleButton>
-          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-            {localeText.crossFilterModeNone}
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </SetupSection>
+        modes={['cross-highlight', 'cross-filter', 'none']}
+        defaultMode="cross-highlight"
+        // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
+        value={(config as StudioWidgetConfig).crossFilterMode}
+      />
     </Stack>
   );
 }

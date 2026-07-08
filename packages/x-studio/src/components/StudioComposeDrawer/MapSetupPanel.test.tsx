@@ -172,4 +172,43 @@ describe('MapSetupPanel', () => {
       config: { mapCountryField: 'country', mapCountrySourceId: undefined },
     });
   });
+
+  // Pinning tests for the migration onto the shared CrossFilterModeSection (previously
+  // a hand-rolled two-way ToggleButtonGroup with no Highlight option, and a deselect
+  // no-op bug — see the regression test below).
+  it('renders all three interaction buttons, including Highlight', () => {
+    render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Highlight' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'None' })).toBeVisible();
+  });
+
+  it('defaults to Highlight selected when no crossFilterMode is stored', () => {
+    render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Highlight', pressed: true })).toBeVisible();
+  });
+
+  it('regression: deselecting the active toggle commits the default mode (cross-highlight), not a no-op', async () => {
+    // Under the old hand-rolled ToggleButtonGroup, `onChange` only called `update(...)`
+    // `if (value)`, so clicking the already-selected button (which reports `null` on
+    // deselect) silently did nothing. The shared CrossFilterModeSection always commits
+    // `defaultMode` on deselect, matching Chart/Grid/Kpi.
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      config: { ...mockState.doc.widgets['widget-1'].config, crossFilterMode: 'cross-filter' },
+    };
+    controller.updateWidgetConfig.mockClear();
+
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Filter' }));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      crossFilterMode: 'cross-highlight',
+    });
+  });
 });

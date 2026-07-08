@@ -1,6 +1,6 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioWidgetConfig } from '../../models';
+import type { StudioDataSource, StudioExpressionField, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -29,7 +29,7 @@ const mockState = {
       },
     },
     relationships: [],
-    expressionFields: [],
+    expressionFields: [] as StudioExpressionField[],
   },
   runtime: {
     dataSources: {
@@ -49,7 +49,7 @@ const mockState = {
         fields: [{ id: 'segment', label: 'Segment', type: 'string' }],
         rows: [],
       },
-    },
+    } as Record<string, StudioDataSource>,
   },
 };
 
@@ -149,6 +149,170 @@ describe('PivotSetupPanel', () => {
     expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
       sourceId: 'customers',
       config: { pivotRowField: 'segment' },
+    });
+  });
+
+  // Pinning tests for the migration onto the shared `fieldCatalog.ts` helpers
+  // (`buildSourceFieldEntries`) — this is a pure dedup, so these lock in today's
+  // exact behavior, including two asymmetries and one ordering quirk that must
+  // survive the refactor unchanged.
+  describe('field-fold behavior (pinning fieldCatalog.ts migration)', () => {
+    it('excludes fields from a hidden source, and hidden fields from a visible source, when there is no source yet', async () => {
+      mockState.doc.widgets['widget-1'] = {
+        id: 'widget-1',
+        kind: 'pivot',
+        sourceId: undefined,
+        config: {} as StudioWidgetConfig,
+      };
+      mockState.runtime.dataSources = {
+        ...mockState.runtime.dataSources,
+        orders: {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            ...mockState.runtime.dataSources.orders.fields,
+            { id: 'hiddenField', label: 'HiddenField', type: 'string', hidden: true },
+          ],
+        },
+        secret: {
+          id: 'secret',
+          label: 'Secret',
+          hidden: true,
+          fields: [{ id: 'secretField', label: 'SecretField', type: 'string' }],
+          rows: [],
+        },
+      };
+
+      try {
+        const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+        const rowInput = screen.getByLabelText('Row field', { exact: false });
+        await user.click(rowInput);
+
+        expect(screen.queryByRole('option', { name: /HiddenField$/ })).toBeNull();
+        expect(screen.queryByRole('option', { name: /SecretField$/ })).toBeNull();
+        // Sanity: a non-hidden field from a non-hidden source is still offered.
+        expect(await screen.findByRole('option', { name: /Category$/ })).toBeVisible();
+      } finally {
+        delete (mockState.runtime.dataSources as Record<string, unknown>).secret;
+        mockState.runtime.dataSources.orders.fields =
+          mockState.runtime.dataSources.orders.fields.filter((f) => f.id !== 'hiddenField');
+      }
+    });
+
+    it('includes an expression field regardless of measure status when there is no source yet', async () => {
+      mockState.doc.widgets['widget-1'] = {
+        id: 'widget-1',
+        kind: 'pivot',
+        sourceId: undefined,
+        config: {} as StudioWidgetConfig,
+      };
+      const measureField: StudioExpressionField = {
+        id: 'measureField',
+        label: 'MeasureField',
+        sourceId: 'orders',
+        type: 'number',
+        isMeasure: true,
+        expression: { type: 'number', value: 1 },
+      };
+      mockState.doc.expressionFields = [measureField];
+
+      try {
+        const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+        const valueInput = screen.getByLabelText('Value field', { exact: false });
+        await user.click(valueInput);
+
+        expect(await screen.findByRole('option', { name: /MeasureField$/ })).toBeVisible();
+      } finally {
+        mockState.doc.expressionFields = [];
+      }
+    });
+
+    it('includes a same-source expression field when a source is set, even if it is a measure', async () => {
+      const sameSourceMeasure: StudioExpressionField = {
+        id: 'sameSourceMeasure',
+        label: 'SameSourceMeasure',
+        sourceId: 'orders',
+        type: 'number',
+        isMeasure: true,
+        expression: { type: 'number', value: 1 },
+      };
+      mockState.doc.expressionFields = [sameSourceMeasure];
+
+      try {
+        const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+        const valueInput = screen.getByLabelText('Value field', { exact: false });
+        await user.click(valueInput);
+        // Same-source measure expression field is offered (no measure exclusion for pivot).
+        expect(await screen.findByRole('option', { name: /SameSourceMeasure$/ })).toBeVisible();
+      } finally {
+        mockState.doc.expressionFields = [];
+      }
+    });
+
+    it('excludes a cross-source expression field when a source is set, even though buildFieldCatalog would otherwise surface it', async () => {
+      const otherSourceField: StudioExpressionField = {
+        id: 'otherSourceField',
+        label: 'OtherSourceField',
+        sourceId: 'customers',
+        type: 'string',
+        isMeasure: false,
+        expression: { type: 'string', value: 'x' },
+      };
+      mockState.doc.expressionFields = [otherSourceField];
+
+      try {
+        const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+        const rowInput = screen.getByLabelText('Row field', { exact: false });
+        await user.click(rowInput);
+        // Cross-source expression field is excluded even though it's a category type —
+        // pivot has no per-field source metadata, so mixing sources would silently
+        // mismatch data.
+        expect(screen.queryByRole('option', { name: /OtherSourceField$/ })).toBeNull();
+      } finally {
+        mockState.doc.expressionFields = [];
+      }
+    });
+
+    it('orders fields by Object.values(dataSources) insertion order, not alphabetically by source label', async () => {
+      // "Zeta" sorts after "Orders" alphabetically, but is inserted first — the fold must
+      // preserve insertion order (buildFieldCatalog's default `sort: true` would flip this).
+      mockState.doc.widgets['widget-1'] = {
+        id: 'widget-1',
+        kind: 'pivot',
+        sourceId: undefined,
+        config: {} as StudioWidgetConfig,
+      };
+      mockState.runtime.dataSources = {
+        zeta: {
+          id: 'zeta',
+          label: 'Zeta',
+          fields: [{ id: 'zetaField', label: 'ZetaField', type: 'string' }],
+          rows: [],
+        },
+        ...mockState.runtime.dataSources,
+      };
+
+      try {
+        const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+        const rowInput = screen.getByLabelText('Row field', { exact: false });
+        await user.click(rowInput);
+
+        const options = await screen.findAllByRole('option');
+        const firstFieldOptionIndex = options.findIndex((opt) =>
+          /ZetaField$/.test(opt.textContent ?? ''),
+        );
+        const secondFieldOptionIndex = options.findIndex((opt) =>
+          /Category$/.test(opt.textContent ?? ''),
+        );
+        expect(firstFieldOptionIndex).toBeGreaterThanOrEqual(0);
+        expect(secondFieldOptionIndex).toBeGreaterThan(firstFieldOptionIndex);
+      } finally {
+        delete (mockState.runtime.dataSources as Record<string, unknown>).zeta;
+      }
     });
   });
 });

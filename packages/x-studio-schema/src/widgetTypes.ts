@@ -73,15 +73,20 @@ export interface StudioChartSeries {
   /** Optional display label for this series in legends and tooltips. */
   label?: string;
   /**
-   * Series render type for mixed charts.
+   * Series render type for mixed charts (canonical spelling).
    * - `'bar'` (default): renders as a bar/column
    * - `'line'`: renders as a line (with optional markers)
    *
-   * Only used when `chartType === 'mixed'`.
+   * Only used when `chartType === 'mixed'`. `normalizeChartSeries` rewrites the
+   * deprecated `seriesType` alias onto this field on read/write, so consumers can
+   * always read `type` alone; when both are present `type` wins.
+   */
+  type?: 'bar' | 'line';
+  /**
+   * @deprecated Use {@link type} instead. Legacy alias for the render type;
+   * normalized to `type` by `normalizeChartSeries` on every load and live write.
    */
   seriesType?: 'bar' | 'line';
-  /** Alias for `seriesType` — preferred spelling in config objects. */
-  type?: 'bar' | 'line';
   /** Aggregation function applied to this series. @default 'sum' */
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /**

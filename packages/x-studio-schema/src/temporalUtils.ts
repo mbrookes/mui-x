@@ -38,8 +38,15 @@ function toUtcYMD(value: unknown): { y: number; m: number; day: number } | null 
       const y = Number(value.slice(0, 4));
       const m = Number(value.slice(5, 7)) - 1;
       const day = Number(value.slice(8, 10));
-      // Range-check the sliced components so a malformed date (`2024-13-40`) falls
-      // through to `new Date(...)`, where it becomes `Invalid Date` → `null`.
+      // Coarse range-check on the sliced components: a clearly out-of-range month
+      // (`2024-13-…`) or day (`2024-…-40`) falls through to `new Date(...)`, where it
+      // becomes `Invalid Date` → `null`. This is deliberately a bounds check, NOT a
+      // calendar-validity check: a per-month-invalid but in-range day (e.g. `2024-06-31`,
+      // or `2024-02-30`) is accepted here as-is and NOT reconciled the way `new Date`
+      // would overflow it into the next month. Likewise a non-offset garbage tail after
+      // the date (`2024-06-01Tgarbage`) is ignored — only the leading `YYYY-MM-DD` is
+      // read. Callers pass canonical values in practice, so this keeps the hot path
+      // allocation-free; the fallback below covers everything this check rejects.
       if (!Number.isNaN(y) && m >= 0 && m <= 11 && day >= 1 && day <= 31) {
         return { y, m, day };
       }

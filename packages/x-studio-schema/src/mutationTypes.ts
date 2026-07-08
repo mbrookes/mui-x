@@ -132,23 +132,23 @@ export type StateMutation =
   | { type: 'setActivePage'; args: { pageId: string } }
   | { type: 'addFilter'; args: { filter: StudioFilterState } }
   | { type: 'removeFilter'; args: { filterId: string } }
+  /**
+   * Lost-update-safe delta shape. Rather than carrying a snapshot of the
+   * ENTIRE `widgets` record (which wholesale-replaced `state.widgets` and
+   * silently reverted any widget the user edited on ANY page between the
+   * agentic turn's start snapshot and this mutation applying), this mutation
+   * carries only the specific widgets to remove/add/update. The reducer
+   * applies these deltas on top of the receiver's CURRENT `state.widgets`, so
+   * widgets not named here — including ones concurrently edited while the turn
+   * was running — are preserved, and a delete only drops the named ids
+   * (which the producer restricts to widgets on `activePageId`).
+   *
+   * `widgetRows`/`widgetColSpans` still replace the layout of `activePageId`
+   * only (never any other page), matching `setWidgetLayout`'s per-page scope.
+   */
   | {
       type: 'applyBulkUpdate';
       args: {
-        /**
-         * Lost-update-safe delta shape. Rather than carrying a snapshot of the
-         * ENTIRE `widgets` record (which wholesale-replaced `state.widgets` and
-         * silently reverted any widget the user edited on ANY page between the
-         * agentic turn's start snapshot and this mutation applying), this mutation
-         * carries only the specific widgets to remove/add/update. The reducer
-         * applies these deltas on top of the receiver's CURRENT `state.widgets`, so
-         * widgets not named here — including ones concurrently edited while the turn
-         * was running — are preserved, and a delete only drops the named ids
-         * (which the producer restricts to widgets on `activePageId`).
-         *
-         * `widgetRows`/`widgetColSpans` still replace the layout of `activePageId`
-         * only (never any other page), matching `setWidgetLayout`'s per-page scope.
-         */
         /** Widget IDs to delete. Producer only lists ids that live on `activePageId`. */
         removedWidgetIds: string[];
         /** Fully-built new widget objects to insert. */

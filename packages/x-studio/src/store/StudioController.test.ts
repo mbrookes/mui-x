@@ -2026,6 +2026,7 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
     expect(controller.canUndo()).toBe(false);
   }
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('updateFilter with an unknown id is a no-op', () => {
     const controller = new StudioController({ doc: { filters: [makeFilter({ id: 'f1' })] } });
     assertNoOp(controller, () => controller.updateFilter('does-not-exist', { value: 'x' }));
@@ -2059,11 +2060,13 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
     expect(controller.getRecentMutations()).toEqual(logBefore);
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('toggleFilter with an unknown id is a no-op', () => {
     const controller = new StudioController({ doc: { filters: [makeFilter({ id: 'f1' })] } });
     assertNoOp(controller, () => controller.toggleFilter('does-not-exist'));
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('updateRelationship / removeRelationship with an unknown id are no-ops', () => {
     const controller = new StudioController({ doc: { relationships: [relationship('r1')] } });
     assertNoOp(controller, () => {
@@ -2072,6 +2075,7 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
     });
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('deleteFilterPreset / renameFilterPreset with an unknown id are no-ops', () => {
     const controller = new StudioController({
       doc: { filterPresets: [{ id: 'p1', name: 'Preset', filters: [] }] },
@@ -2082,6 +2086,7 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
     });
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('removeExpressionField with an unknown id is a no-op', () => {
     const controller = new StudioController({ doc: { expressionFields: [expressionField] } });
     assertNoOp(controller, () => controller.removeExpressionField('nope'));

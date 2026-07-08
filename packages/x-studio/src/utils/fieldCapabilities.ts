@@ -1,5 +1,5 @@
-import type { StudioDataField } from '../models';
 import type { FieldCapability } from '@mui/x-studio-schema';
+import type { StudioDataField } from '../models';
 
 // `FieldCapability` is owned by `@mui/x-studio-schema` (`dataTypes`, re-exported from
 // the schema index). Import and re-export it here so existing `./fieldCapabilities`

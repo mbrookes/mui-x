@@ -454,20 +454,24 @@ describe('useChartWidgetData — cross-source blending', () => {
 
     // First render performs the cold fetch, populating studioRequestCache on resolve.
     const widget = blendedWidget();
-    const first = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+    const { result: firstResult, unmount: unmountFirst } = renderHook(() =>
+      useChartWidgetData(widget, ordersSource, 'page-1'),
+    );
     await waitFor(() => {
-      const stock = first.result.current.multiYData?.series.find((s) => s.fieldId === 'stock');
-      const ent = first.result.current.multiYData?.labels.indexOf('Electronics') ?? -1;
+      const stock = firstResult.current.multiYData?.series.find((s) => s.fieldId === 'stock');
+      const ent = firstResult.current.multiYData?.labels.indexOf('Electronics') ?? -1;
       expect(stock?.values[ent]).toBe(12);
     });
     expect(getRows).toHaveBeenCalledTimes(1);
-    first.unmount();
+    unmountFirst();
 
     // Second render must hit the warm cache (same descriptor cacheKey) — no second getRows.
-    const second = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
+    const { result: secondResult } = renderHook(() =>
+      useChartWidgetData(widget, ordersSource, 'page-1'),
+    );
     await waitFor(() => {
-      const stock = second.result.current.multiYData?.series.find((s) => s.fieldId === 'stock');
-      const ent = second.result.current.multiYData?.labels.indexOf('Electronics') ?? -1;
+      const stock = secondResult.current.multiYData?.series.find((s) => s.fieldId === 'stock');
+      const ent = secondResult.current.multiYData?.labels.indexOf('Electronics') ?? -1;
       expect(stock?.values[ent]).toBe(12);
     });
     expect(getRows).toHaveBeenCalledTimes(1);

@@ -348,23 +348,21 @@ describe('resolveSource', () => {
     const stateBox = { current: makeState() };
     const result = resolveSource(stateBox, 'not-a-real-source');
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.isError).toBe(true);
-      const message = JSON.parse((result.error.content[0] as { text: string }).text).error;
-      expect(message).toMatch(/Unknown data source: "not-a-real-source"/);
-      expect(message).toMatch(/get_dashboard_state/);
-      expect(message).toMatch(/studio:\/\/dashboard\/state/);
-    }
+    const errorResult = result as Extract<typeof result, { ok: false }>;
+    expect(errorResult.error.isError).toBe(true);
+    const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
+    expect(message).toMatch(/Unknown data source: "not-a-real-source"/);
+    expect(message).toMatch(/get_dashboard_state/);
+    expect(message).toMatch(/studio:\/\/dashboard\/state/);
   });
 
   it('returns an ok:true result with the resolved source and tableName for a known sourceId', () => {
     const stateBox = { current: makeState() };
     const result = resolveSource(stateBox, 'source-orders');
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.tableName).toBe('orders');
-      expect(result.source.id).toBe('source-orders');
-    }
+    const okResult = result as Extract<typeof result, { ok: true }>;
+    expect(okResult.tableName).toBe('orders');
+    expect(okResult.source.id).toBe('source-orders');
   });
 
   it('treats a registered source with no tableName as unknown', () => {

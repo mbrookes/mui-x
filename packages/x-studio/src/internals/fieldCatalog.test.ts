@@ -36,21 +36,21 @@ describe('buildSourceFieldEntries', () => {
       ],
     });
     const entries = buildSourceFieldEntries(source, []);
-    expect(entries.map((e) => e.id)).toEqual(['id']);
+    expect(entries.map((entry) => entry.id)).toEqual(['id']);
   });
 
   it('skips hidden expression fields', () => {
     const source = makeSource();
     const ef = makeExpressionField({ hidden: true });
     const entries = buildSourceFieldEntries(source, [ef]);
-    expect(entries.some((e) => e.id === 'ef1')).toBe(false);
+    expect(entries.some((entry) => entry.id === 'ef1')).toBe(false);
   });
 
   it('emits an expression entry shaped with type defaulted to number and generated: true', () => {
     const source = makeSource();
     const ef = makeExpressionField({ type: undefined });
     const entries = buildSourceFieldEntries(source, [ef]);
-    const entry = entries.find((e) => e.id === 'ef1');
+    const entry = entries.find((entry) => entry.id === 'ef1');
     expect(entry).toMatchObject({
       id: 'ef1',
       label: 'Margin',
@@ -68,7 +68,7 @@ describe('buildSourceFieldEntries', () => {
     const entries = buildSourceFieldEntries(source, [measure, column], {
       expression: 'non-measure',
     });
-    expect(entries.map((e) => e.id)).toEqual(['id', 'total', 'ef-column']);
+    expect(entries.map((entry) => entry.id)).toEqual(['id', 'total', 'ef-column']);
   });
 
   it('excludes all expression fields when policy is none', () => {
@@ -76,14 +76,14 @@ describe('buildSourceFieldEntries', () => {
     const entries = buildSourceFieldEntries(source, [makeExpressionField()], {
       expression: 'none',
     });
-    expect(entries.some((e) => e.id === 'ef1')).toBe(false);
+    expect(entries.some((entry) => entry.id === 'ef1')).toBe(false);
   });
 
   it('only includes expression fields belonging to the given source', () => {
     const source = makeSource();
     const other = makeExpressionField({ id: 'ef-other', sourceId: 'customers' });
     const entries = buildSourceFieldEntries(source, [other]);
-    expect(entries.some((e) => e.id === 'ef-other')).toBe(false);
+    expect(entries.some((entry) => entry.id === 'ef-other')).toBe(false);
   });
 });
 
@@ -108,7 +108,7 @@ describe('buildFieldCatalog', () => {
       }),
     };
     const entries = buildFieldCatalog(withHiddenField, []);
-    expect(entries.map((e) => e.id).sort()).toEqual(['id']);
+    expect(entries.map((entry) => entry.id).sort()).toEqual(['id']);
   });
 
   it('includes hidden sources and hidden fields when includeHidden: true', () => {
@@ -127,14 +127,14 @@ describe('buildFieldCatalog', () => {
       }),
     };
     const entries = buildFieldCatalog(dataSources, [], { includeHidden: true, sort: false });
-    expect(entries.map((e) => e.id).sort()).toEqual(['id', 'secret', 'x']);
+    expect(entries.map((entry) => entry.id).sort()).toEqual(['id', 'secret', 'x']);
   });
 
   it('falls back to the raw sourceId as sourceLabel for an orphaned expression field', () => {
     const dataSources: Record<string, StudioDataSource> = { orders: makeSource() };
     const orphan = makeExpressionField({ id: 'ef-orphan', sourceId: 'does-not-exist' });
     const entries = buildFieldCatalog(dataSources, [orphan]);
-    const entry = entries.find((e) => e.id === 'ef-orphan');
+    const entry = entries.find((entry) => entry.id === 'ef-orphan');
     expect(entry?.sourceLabel).toBe('does-not-exist');
   });
 
@@ -142,7 +142,7 @@ describe('buildFieldCatalog', () => {
     const dataSources: Record<string, StudioDataSource> = { orders: makeSource() };
     const measure = makeExpressionField({ id: 'ef-measure', isMeasure: true });
     const entries = buildFieldCatalog(dataSources, [measure], { expression: 'non-measure' });
-    expect(entries.some((e) => e.id === 'ef-measure')).toBe(false);
+    expect(entries.some((entry) => entry.id === 'ef-measure')).toBe(false);
   });
 
   it('sorts by sourceLabel using localeCompare', () => {
@@ -159,7 +159,7 @@ describe('buildFieldCatalog', () => {
       }),
     };
     const entries = buildFieldCatalog(dataSources, []);
-    expect(entries.map((e) => e.sourceLabel)).toEqual(['Alpha Source', 'Zed Source']);
+    expect(entries.map((entry) => entry.sourceLabel)).toEqual(['Alpha Source', 'Zed Source']);
   });
 
   it('does not sort when sort: false', () => {

@@ -163,15 +163,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       );
     }
     return fields;
-  }, [
-    tableSourceMode,
-    widget?.sourceId,
-    source,
-    primaryFields,
-    relationships,
-    dataSources,
-    expressionFields,
-  ]);
+  }, [tableSourceMode, widget?.sourceId, source, relationships, dataSources, expressionFields]);
 
   // Lookup map: composite key → SelectableField
   const fieldLookup = React.useMemo(() => {

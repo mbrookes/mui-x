@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, waitFor } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type {
   ClientMutationDescriptor,
@@ -92,7 +92,7 @@ async function setup(submitMutation: ReturnType<typeof vi.fn>) {
     runtime: { dataSources: { src: source } },
   };
   const { controller, wrapper } = createStudioHarness({ initialState });
-  const utils = render(
+  const { container, ...utils } = render(
     <StudioGridWidget
       widget={widget}
       dataSource={source}
@@ -117,11 +117,9 @@ async function setup(submitMutation: ReturnType<typeof vi.fn>) {
   );
 
   // Wait for the async adapter fetch (`getRows`) to resolve and rows to render.
-  await waitFor(() => {
-    expect(utils.container.querySelector('[data-id="r1"] [data-field="label"]')).not.toBe(null);
-  });
+  await screen.findByText('Old');
 
-  return { controller, source, widget, ...utils };
+  return { controller, source, widget, container, ...utils };
 }
 
 describe('StudioGridWidget — write-back (processRowUpdate) error handling', () => {
@@ -167,7 +165,7 @@ describe('StudioGridWidget — write-back (processRowUpdate) error handling', ()
     editCell(container, 'r1', 'label', 'New');
 
     await waitFor(() => {
-      const alert = container.querySelector('[role="alert"]');
+      const alert = screen.queryByRole('alert');
       expect(alert).not.toBe(null);
       expect(alert!.textContent).toContain('Server rejected the update');
     });
@@ -184,7 +182,7 @@ describe('StudioGridWidget — write-back (processRowUpdate) error handling', ()
     editCell(container, 'r1', 'label', 'New');
 
     await waitFor(() => {
-      const alert = container.querySelector('[role="alert"]');
+      const alert = screen.queryByRole('alert');
       expect(alert).not.toBe(null);
       expect(alert!.textContent).toContain('Network unreachable');
     });
@@ -213,12 +211,12 @@ describe('StudioGridWidget — write-back (processRowUpdate) error handling', ()
 
     editCell(container, 'r1', 'label', 'Bad');
     await waitFor(() => {
-      expect(container.querySelector('[role="alert"]')).not.toBe(null);
+      expect(screen.queryByRole('alert')).not.toBe(null);
     });
 
     editCell(container, 'r1', 'label', 'Good');
     await waitFor(() => {
-      expect(container.querySelector('[role="alert"]')).toBe(null);
+      expect(screen.queryByRole('alert')).toBe(null);
     });
   });
 });

@@ -292,8 +292,7 @@ export function StudioBarChart({
     // Build per-series filtered values (aligned to all-data labels) for ghost context
     const multiYBarContext =
       shouldShowGhost && allBarMultiYData
-        ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-          buildGhostBarContext(
+        ? buildGhostBarContext(
             allBarMultiYData.labels,
             barMultiYData.labels,
             allBarMultiYData.series.map((allSeries, i) => ({
@@ -441,8 +440,7 @@ export function StudioBarChart({
     // Build per-series filtered values for ghost context
     const sfBarContext =
       shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
-        ? // eslint-disable-next-line react/jsx-no-constructed-context-values
-          buildGhostBarContext(
+        ? buildGhostBarContext(
             allBarSeriesFieldData.labels,
             barSeriesFieldData.labels,
             allBarSeriesFieldData.seriesNames.map((name) => ({

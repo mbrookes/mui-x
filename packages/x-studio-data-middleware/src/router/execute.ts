@@ -104,24 +104,41 @@ export async function executeForTier(
 
   for (const agg of queryPlan.aggregations) {
     const col = qualify(agg.physical);
+    // Knex's object/alias-map form (`{ [alias]: column }`) routes both the
+    // column and the alias through Knex's own identifier-wrapping (the same
+    // escaping `??` bindings use elsewhere in this package), rather than
+    // building an "col as alias" fragment via template-string interpolation.
+    // Not currently exploitable (agg.alias is charset-restricted by
+    // `validateAggregationAliases`, and `col` is either allowlisted or
+    // Knex-escaped either way), but this keeps the aggregate clause on the same
+    // binding-based footing as the rest of the query-building code (finding 2.2).
     switch (agg.func) {
       case 'sum':
-        query.sum(`${col} as ${agg.alias}`);
+        query.sum({ [agg.alias]: col });
         break;
       case 'avg':
-        query.avg(`${col} as ${agg.alias}`);
+        query.avg({ [agg.alias]: col });
         break;
       case 'count':
-        query.count(`${col} as ${agg.alias}`);
+        query.count({ [agg.alias]: col });
         break;
       case 'min':
-        query.min(`${col} as ${agg.alias}`);
+        query.min({ [agg.alias]: col });
         break;
       case 'max':
-        query.max(`${col} as ${agg.alias}`);
+        query.max({ [agg.alias]: col });
         break;
       default:
-        break;
+        // `agg.func` is client-JSON-sourced and its TS type ('sum'|'avg'|'count'|
+        // 'min'|'max') is not a runtime guarantee. Reject fail-closed rather than
+        // silently omitting the aggregation from the query — a dropped measure
+        // column would otherwise surface as a confusing, silently-incomplete
+        // result instead of a clear error (finding 2.4).
+        throw new Error(
+          `MUI X Studio Server: Aggregation function "${agg.func}" is not supported. ` +
+            `Supported aggregation functions are: sum, avg, count, min, max. ` +
+            `Check the widget descriptor's "aggregations" entries for a typo or unsupported function.`,
+        );
     }
   }
 

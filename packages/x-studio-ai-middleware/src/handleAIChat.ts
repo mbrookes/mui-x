@@ -230,6 +230,24 @@ export interface StudioAIHandlerOptions {
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
   /**
+   * What to do when a tool's policy decision is `require-approval` but no
+   * `approvalPending` channel is configured (or wired) to pause on.
+   *
+   * Forwarded to the agentic loop's `approvalFallback` option:
+   * - `'deny'` (**default**) — refuse the call with an actionable error so the model
+   *   can recover. This closes the previous fail-open behavior where destructive tools
+   *   ran unapproved whenever a host forgot to wire `approvalPending`.
+   * - `'allow'` — auto-approve and proceed (the historical behavior), additionally
+   *   firing `onToolError` with a warning that a require-approval decision was
+   *   auto-approved.
+   *
+   * BREAKING: an integration that relied on destructive tools running without any
+   * `approvalPending` map must now either wire one or set this to `'allow'`.
+   *
+   * @default 'deny'
+   */
+  approvalFallback?: 'allow' | 'deny';
+  /**
    * How long (ms) to wait for a pending tool approval before giving up.
    *
    * Forwarded to the agentic loop. When an approval is neither granted nor denied
@@ -395,6 +413,7 @@ export function handleAIChat(
             rateLimit: options.rateLimit,
             toolPolicy: options.toolPolicy,
             approvalPending: options.approvalPending,
+            approvalFallback: options.approvalFallback,
             approvalTimeoutMs: options.approvalTimeoutMs,
             pageSnapshot,
             richContext,

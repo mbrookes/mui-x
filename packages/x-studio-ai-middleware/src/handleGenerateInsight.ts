@@ -92,6 +92,68 @@ export interface CreateWidgetResponse {
 }
 
 /**
+ * Validate the shape of a `CreateWidgetResponse` parsed from the LLM's raw JSON
+ * output. `JSON.parse` only guarantees syntactically valid JSON — it says nothing
+ * about whether the LLM actually returned the fields callers depend on. Without
+ * this check, a response missing `kind`/`title` (or with the wrong types) would
+ * propagate as a bogus widget definition into `applyMutation`/the reducer,
+ * crashing or silently creating a broken widget far from this call site.
+ *
+ * Throws a descriptive `MUI X Studio:` error rather than returning a falsy/partial
+ * value, so callers get a clear signal at the point the bad data was produced.
+ */
+function assertValidCreateWidgetResponse(value: unknown): asserts value is CreateWidgetResponse {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation response was not a JSON object. ' +
+        'This prevents the client from building a widget from the model output. ' +
+        'Check that the LLM endpoint/model is returning the requested ' +
+        '{"kind","title","sourceId","config"} JSON shape.',
+    );
+  }
+
+  const candidate = value as Record<string, unknown>;
+
+  if (typeof candidate.kind !== 'string' || candidate.kind.trim() === '') {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation response is missing a valid "kind" string. ' +
+        'This prevents the client from knowing which widget type to render. ' +
+        'Ensure the model responds with one of the supported widget kinds ' +
+        '(chart, kpi, grid, filter, pivot, map, text, or a registered custom kind).',
+    );
+  }
+
+  if (typeof candidate.title !== 'string' || candidate.title.trim() === '') {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation response is missing a valid "title" string. ' +
+        'This prevents the client from labeling the new widget. ' +
+        'Ensure the model always includes a non-empty "title" in its JSON response.',
+    );
+  }
+
+  if (candidate.sourceId !== undefined && typeof candidate.sourceId !== 'string') {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation response has a non-string "sourceId". ' +
+        'This prevents the client from linking the widget to a data source. ' +
+        'Ensure the model returns "sourceId" as a plain string data-source id, or omits it.',
+    );
+  }
+
+  if (
+    candidate.config !== undefined &&
+    (typeof candidate.config !== 'object' ||
+      candidate.config === null ||
+      Array.isArray(candidate.config))
+  ) {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation response has a non-object "config". ' +
+        "This prevents the client from applying the widget's type-specific settings. " +
+        'Ensure the model returns "config" as a JSON object matching the widget kind\'s schema, or omits it.',
+    );
+  }
+}
+
+/**
  * Ask the LLM to create a widget from a natural-language description.
  * Returns a plain JSON object (not SSE) with `kind`, `title`, `sourceId`, `config`.
  */
@@ -145,9 +207,13 @@ export async function handleCreateWidget(
     choices: Array<{ message: { content: string } }>;
   };
 
+  let parsed: unknown;
   try {
-    return JSON.parse(data.choices[0].message.content) as CreateWidgetResponse;
+    parsed = JSON.parse(data.choices[0].message.content);
   } catch {
     throw new Error('AI returned invalid widget configuration.');
   }
+
+  assertValidCreateWidgetResponse(parsed);
+  return parsed;
 }

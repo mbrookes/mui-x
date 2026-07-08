@@ -212,6 +212,53 @@ describe('createDefaultToolPolicy', () => {
     });
     expect(decision.action).toBe('require-approval');
   });
+
+  // Review finding 2.6: `set_widget_layout` is NOT in `DESTRUCTIVE_TOOLS` (it's merely
+  // `idempotent`), so the name-based half of the default policy alone would `allow` a
+  // layout change that silently orphans a widget. The default policy must compose in
+  // the effects-aware orphan check so this case is still gated.
+  it('requires approval for an orphaning set_widget_layout even though it is not a DESTRUCTIVE_TOOLS member', async () => {
+    expect(DESTRUCTIVE_TOOLS.has('set_widget_layout')).toBe(false);
+
+    const policy = createDefaultToolPolicy();
+    const state = makeTwoWidgetState();
+    const orphan = executeToolOnState('set_widget_layout', { rows: [['w1']] }, state);
+    expect(orphan.mutation).toBeDefined();
+
+    const decision = await policy({
+      transport: 'chat',
+      toolName: 'set_widget_layout',
+      input: { rows: [['w1']] },
+      state,
+      proposed: {
+        mutation: orphan.mutation!,
+        nextState: orphan.nextState,
+        effects: computeToolEffects(state, orphan.mutation!, orphan.nextState),
+      },
+      usage: EMPTY_USAGE(),
+    });
+    expect(decision.action).toBe('require-approval');
+  });
+
+  it('still allows a benign set_widget_layout reorder under the default policy', async () => {
+    const policy = createDefaultToolPolicy();
+    const state = makeTwoWidgetState();
+    const reorder = executeToolOnState('set_widget_layout', { rows: [['w2', 'w1']] }, state);
+
+    const decision = await policy({
+      transport: 'chat',
+      toolName: 'set_widget_layout',
+      input: { rows: [['w2', 'w1']] },
+      state,
+      proposed: {
+        mutation: reorder.mutation!,
+        nextState: reorder.nextState,
+        effects: computeToolEffects(state, reorder.mutation!, reorder.nextState),
+      },
+      usage: EMPTY_USAGE(),
+    });
+    expect(decision.action).toBe('allow');
+  });
 });
 
 // ── createEffectsAwareToolPolicy ────────────────────────────────────────────

@@ -192,14 +192,29 @@ export function computeToolEffects(
 
 /**
  * The default policy: `require-approval` iff `ctx.toolName` is in `approvalTools`
- * (defaulting to `DESTRUCTIVE_TOOLS`), else `allow`. Reproduces the chat loop's
- * historical `TOOLS_REQUIRING_APPROVAL` behavior byte-for-byte.
+ * (defaulting to `DESTRUCTIVE_TOOLS`), reproducing the chat loop's historical
+ * `TOOLS_REQUIRING_APPROVAL` behavior byte-for-byte — COMPOSED with the
+ * effects-aware orphan/removal check (`createEffectsAwareToolPolicy()`) so a tool
+ * that isn't itself classified `destructive` (e.g. `set_widget_layout`, which is
+ * merely `idempotent`) still requires approval when its ACTUAL structural effect
+ * removes or orphans a widget/page/filter. Without this composition, a
+ * non-destructive-named tool could drop a widget from every page's layout with
+ * zero approval, silently orphaning it.
  */
 export function createDefaultToolPolicy(
   approvalTools: ReadonlySet<string> = DESTRUCTIVE_TOOLS,
 ): ToolPolicy {
-  return (ctx) =>
-    approvalTools.has(ctx.toolName) ? { action: 'require-approval' } : { action: 'allow' };
+  // Composed by hand (rather than via `Policy.all`, which is declared further down
+  // this file and would trip `no-use-before-define`) — equivalent to
+  // `Policy.all(nameCheck, effectsAware)` since `createEffectsAwareToolPolicy` never
+  // returns `deny`, so evaluation order can't change the outcome.
+  const effectsAware = createEffectsAwareToolPolicy();
+  return async (ctx) => {
+    if (approvalTools.has(ctx.toolName)) {
+      return { action: 'require-approval' };
+    }
+    return effectsAware(ctx);
+  };
 }
 
 /**
@@ -209,8 +224,11 @@ export function createDefaultToolPolicy(
  * approval when more than that many widgets are updated by a single call.
  *
  * This deliberately does NOT wrap `createDefaultToolPolicy` — keeping it clean and
- * independent lets callers compose the two if they want (e.g. approve when EITHER
- * says so).
+ * independent lets callers compose the two (e.g. approve when EITHER says so).
+ * `createDefaultToolPolicy` itself now composes this policy in (via `Policy.all`)
+ * so the default gating catches structural orphan/removal effects even for tools
+ * not classified `destructive`; call this standalone only if you want the
+ * effects-only half in isolation (e.g. inside a fully custom policy).
  */
 export function createEffectsAwareToolPolicy(options?: {
   updatedWidgetThreshold?: number;

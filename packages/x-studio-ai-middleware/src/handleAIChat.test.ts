@@ -93,6 +93,25 @@ function makeBody(overrides: Partial<StudioAIRequest> = {}): StudioAIRequest {
   } as unknown as StudioAIRequest;
 }
 
+/** A dashboard state with a single widget, so `remove_widget` produces a real mutation. */
+function seedWidgetState() {
+  const state = createDefaultStudioState();
+  const activePageId = state.doc.dashboard.activePageId;
+  return {
+    ...state,
+    doc: {
+      ...state.doc,
+      widgets: {
+        w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+      },
+      pages: {
+        ...state.doc.pages,
+        [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+      },
+    },
+  };
+}
+
 describe('handleAIChat', () => {
   beforeEach(() => {
     vi.spyOn(global, 'fetch');
@@ -290,6 +309,53 @@ describe('handleAIChat', () => {
       process.removeListener('unhandledRejection', handler);
     }
     expect(rejections).toHaveLength(0);
+  });
+
+  // ── approvalFallback threading (review finding 2.7) ─────────────────────────
+  //
+  // `runAgenticLoop` has always supported `approvalFallback`, but until now
+  // `StudioAIHandlerOptions` (handleAIChat's public entry point) neither declared
+  // nor forwarded it, so it was unreachable from the actual public API. These
+  // tests drive the option through `handleAIChat` end-to-end and assert an
+  // OBSERVABLE difference (whether the mutation is applied) rather than just
+  // that a value was passed along.
+
+  it('defaults to denying a require-approval tool with no approvalPending wired (fail-closed)', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = parseEvents(
+      await readAll(
+        handleAIChat(
+          makeBody({ dashboardState: seedWidgetState() } as Partial<StudioAIRequest>),
+          OPTIONS,
+        ),
+      ),
+    );
+
+    expect(events.some((event) => event.type === 'state-mutation')).toBe(false);
+    expect(events.at(-1)?.type).toBe('finish');
+  });
+
+  it("threads approvalFallback: 'allow' through to the agentic loop, auto-approving the tool", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = parseEvents(
+      await readAll(
+        handleAIChat(makeBody({ dashboardState: seedWidgetState() } as Partial<StudioAIRequest>), {
+          ...OPTIONS,
+          approvalFallback: 'allow',
+        }),
+      ),
+    );
+
+    // Same tool call, same missing approvalPending — only `approvalFallback` differs,
+    // and now the mutation actually commits, proving the option reached the loop.
+    expect(events.some((event) => event.type === 'state-mutation')).toBe(true);
+    expect(events.at(-1)?.type).toBe('finish');
   });
 });
 

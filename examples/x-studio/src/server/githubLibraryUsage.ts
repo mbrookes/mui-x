@@ -2,9 +2,16 @@
  * Server-side GitHub code-search matrix builder.
  *
  * Runs one GitHub code search per (component library, data grid library)
- * pair to count non-fork repos whose package.json declares both, e.g.:
+ * pair to count repos whose package.json declares both, e.g.:
  *
- *   "@mui/material" "@mui/x-data-grid" filename:package.json fork:false
+ *   "@mui/material" "@mui/x-data-grid" filename:package.json
+ *
+ * No `fork:` qualifier is needed — GitHub's code search already excludes
+ * forks by default (`fork:true` is the only documented value, used to
+ * *include* forks; there's no supported `fork:false`). An earlier version
+ * of this query added `fork:false` explicitly and got a 422 from the API
+ * for it — forks are excluded either way, so it was both redundant and
+ * broken.
  *
  * This lives on the server (not the client) because GitHub code search
  * requires an authenticated request, and a personal access token must never
@@ -46,9 +53,9 @@ function sleep(ms: number) {
   });
 }
 
-/** Counts non-fork repos whose package.json mentions both `pkgA` and `pkgB`. */
+/** Counts (non-fork, by GitHub's default) repos whose package.json mentions both `pkgA` and `pkgB`. */
 async function fetchCombinationCount(pkgA: string, pkgB: string, token: string): Promise<number> {
-  const query = `"${pkgA}" "${pkgB}" filename:package.json fork:false`;
+  const query = `"${pkgA}" "${pkgB}" filename:package.json`;
   const url = `${GITHUB_SEARCH_ENDPOINT}?q=${encodeURIComponent(query)}&per_page=1`;
   const res = await fetch(url, {
     headers: {
@@ -58,7 +65,11 @@ async function fetchCombinationCount(pkgA: string, pkgB: string, token: string):
     },
   });
   if (!res.ok) {
-    throw new Error(`GitHub search failed for "${pkgA}" + "${pkgB}": HTTP ${res.status}`);
+    // Include the response body — GitHub's error payload (e.g. a 422 validation
+    // message naming the bad qualifier) is the only way to diagnose failures
+    // that a bare status code doesn't explain.
+    const body = await res.text().catch(() => '');
+    throw new Error(`GitHub search failed for "${pkgA}" + "${pkgB}": HTTP ${res.status} ${body}`);
   }
   const data = (await res.json()) as { total_count: number };
   return data.total_count;

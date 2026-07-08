@@ -1,0 +1,353 @@
+/**
+ * A pragmatic subset of the Vega-Lite specification grammar.
+ *
+ * These types intentionally model only the portion of Vega-Lite that this
+ * wrapper attempts to translate to `@mui/x-charts`. Anything outside this
+ * subset is still accepted at runtime (extra keys are ignored) and surfaced
+ * through the gap-reporting mechanism instead of failing hard.
+ *
+ * Reference: https://vega.github.io/vega-lite/docs/spec.html
+ */
+
+export type DatasetRow = Record<string, unknown>;
+
+export type VegaFieldType = 'quantitative' | 'temporal' | 'ordinal' | 'nominal' | 'geojson';
+
+export type VegaAggregateOp =
+  | 'count'
+  | 'valid'
+  | 'missing'
+  | 'distinct'
+  | 'sum'
+  | 'product'
+  | 'mean'
+  | 'average'
+  | 'variance'
+  | 'variancep'
+  | 'stdev'
+  | 'stdevp'
+  | 'stderr'
+  | 'median'
+  | 'q1'
+  | 'q3'
+  | 'ci0'
+  | 'ci1'
+  | 'min'
+  | 'max'
+  | 'argmin'
+  | 'argmax';
+
+export type VegaTimeUnit =
+  | 'year'
+  | 'quarter'
+  | 'month'
+  | 'week'
+  | 'day'
+  | 'date'
+  | 'dayofyear'
+  | 'hours'
+  | 'minutes'
+  | 'seconds'
+  | 'milliseconds'
+  | 'yearquarter'
+  | 'yearmonth'
+  | 'yearmonthdate'
+  | 'yearweek'
+  | 'monthdate'
+  | 'hoursminutes'
+  | 'hoursminutesseconds'
+  | (string & {});
+
+export interface VegaBinParams {
+  maxbins?: number;
+  step?: number;
+  extent?: [number, number];
+  nice?: boolean;
+  [key: string]: unknown;
+}
+
+export interface VegaScale {
+  type?:
+    | 'linear'
+    | 'log'
+    | 'pow'
+    | 'sqrt'
+    | 'symlog'
+    | 'time'
+    | 'utc'
+    | 'ordinal'
+    | 'band'
+    | 'point'
+    | (string & {});
+  domain?: unknown[] | { unionWith?: unknown[] };
+  range?: unknown[] | string;
+  scheme?: string | { name?: string; count?: number };
+  zero?: boolean;
+  nice?: boolean | number;
+  reverse?: boolean;
+  padding?: number;
+  paddingInner?: number;
+  paddingOuter?: number;
+  base?: number;
+  exponent?: number;
+  constant?: number;
+  [key: string]: unknown;
+}
+
+export interface VegaAxis {
+  title?: string | null;
+  labels?: boolean;
+  ticks?: boolean;
+  grid?: boolean;
+  orient?: 'top' | 'bottom' | 'left' | 'right';
+  format?: string;
+  tickCount?: number;
+  values?: unknown[];
+  labelAngle?: number;
+  domain?: boolean;
+  [key: string]: unknown;
+}
+
+export interface VegaLegend {
+  title?: string | null;
+  orient?: string;
+  [key: string]: unknown;
+}
+
+export type VegaSort =
+  | 'ascending'
+  | 'descending'
+  | null
+  | unknown[]
+  | { field?: string; op?: VegaAggregateOp; order?: 'ascending' | 'descending' }
+  | (string & {});
+
+export interface VegaFieldDef {
+  field?: string;
+  type?: VegaFieldType;
+  aggregate?: VegaAggregateOp | { argmax?: string; argmin?: string };
+  bin?: boolean | VegaBinParams | 'binned';
+  timeUnit?: VegaTimeUnit;
+  title?: string | null;
+  scale?: VegaScale | null;
+  axis?: VegaAxis | null;
+  legend?: VegaLegend | null;
+  sort?: VegaSort;
+  stack?: 'zero' | 'normalize' | 'center' | null | boolean;
+  format?: string;
+  bandPosition?: number;
+  impute?: unknown;
+  condition?: unknown;
+  [key: string]: unknown;
+}
+
+export interface VegaValueDef {
+  value: string | number | boolean | null;
+  condition?: unknown;
+  [key: string]: unknown;
+}
+
+export interface VegaDatumDef {
+  datum: string | number | boolean;
+  type?: VegaFieldType;
+  [key: string]: unknown;
+}
+
+export type VegaChannelDef = VegaFieldDef | VegaValueDef | VegaDatumDef;
+
+export function isFieldDef(def: VegaChannelDef | undefined): def is VegaFieldDef {
+  return (
+    !!def &&
+    ((def as VegaFieldDef).field !== undefined ||
+      (def as VegaFieldDef).aggregate !== undefined ||
+      (def as VegaFieldDef).timeUnit !== undefined ||
+      (def as VegaFieldDef).bin !== undefined)
+  );
+}
+
+export function isValueDef(def: VegaChannelDef | undefined): def is VegaValueDef {
+  return !!def && (def as VegaValueDef).value !== undefined;
+}
+
+export function isDatumDef(def: VegaChannelDef | undefined): def is VegaDatumDef {
+  return !!def && (def as VegaDatumDef).datum !== undefined;
+}
+
+export interface VegaEncoding {
+  x?: VegaChannelDef;
+  y?: VegaChannelDef;
+  x2?: VegaChannelDef;
+  y2?: VegaChannelDef;
+  xOffset?: VegaChannelDef;
+  yOffset?: VegaChannelDef;
+  color?: VegaChannelDef;
+  fill?: VegaChannelDef;
+  stroke?: VegaChannelDef;
+  opacity?: VegaChannelDef;
+  size?: VegaChannelDef;
+  shape?: VegaChannelDef;
+  angle?: VegaChannelDef;
+  theta?: VegaChannelDef;
+  theta2?: VegaChannelDef;
+  radius?: VegaChannelDef;
+  radius2?: VegaChannelDef;
+  detail?: VegaChannelDef | VegaChannelDef[];
+  order?: VegaChannelDef;
+  text?: VegaChannelDef;
+  tooltip?: VegaChannelDef | VegaChannelDef[] | null;
+  href?: VegaChannelDef;
+  key?: VegaChannelDef;
+  facet?: VegaChannelDef;
+  row?: VegaChannelDef;
+  column?: VegaChannelDef;
+  [key: string]: unknown;
+}
+
+export type VegaMarkType =
+  | 'arc'
+  | 'area'
+  | 'bar'
+  | 'boxplot'
+  | 'circle'
+  | 'errorband'
+  | 'errorbar'
+  | 'geoshape'
+  | 'image'
+  | 'line'
+  | 'point'
+  | 'rect'
+  | 'rule'
+  | 'square'
+  | 'text'
+  | 'tick'
+  | 'trail'
+  | (string & {});
+
+export interface VegaMarkDef {
+  type: VegaMarkType;
+  point?: boolean | Record<string, unknown> | 'transparent';
+  line?: boolean | Record<string, unknown>;
+  interpolate?:
+    | 'linear'
+    | 'monotone'
+    | 'natural'
+    | 'step'
+    | 'step-before'
+    | 'step-after'
+    | 'basis'
+    | 'cardinal'
+    | 'catmull-rom'
+    | 'bundle'
+    | (string & {});
+  color?: string;
+  fill?: string;
+  stroke?: string;
+  opacity?: number;
+  fillOpacity?: number;
+  strokeOpacity?: number;
+  strokeWidth?: number;
+  strokeDash?: number[];
+  size?: number;
+  filled?: boolean;
+  innerRadius?: number;
+  outerRadius?: number;
+  padAngle?: number;
+  cornerRadius?: number;
+  orient?: 'horizontal' | 'vertical';
+  tooltip?: boolean | null | Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export type VegaMark = VegaMarkType | VegaMarkDef;
+
+/** Top-level `transform` array entries. Discriminated by the key present. */
+export interface VegaAggregateTransform {
+  aggregate: Array<{ op: VegaAggregateOp; field?: string; as: string }>;
+  groupby?: string[];
+}
+export interface VegaBinTransform {
+  bin: boolean | VegaBinParams;
+  field: string;
+  as: string | [string, string];
+}
+export interface VegaCalculateTransform {
+  calculate: string;
+  as: string;
+}
+export interface VegaFilterTransform {
+  filter: unknown;
+}
+export interface VegaTimeUnitTransform {
+  timeUnit: VegaTimeUnit;
+  field: string;
+  as: string;
+}
+export interface VegaFoldTransform {
+  fold: string[];
+  as?: [string, string];
+}
+export type VegaTransform =
+  | VegaAggregateTransform
+  | VegaBinTransform
+  | VegaCalculateTransform
+  | VegaFilterTransform
+  | VegaTimeUnitTransform
+  | VegaFoldTransform
+  | Record<string, unknown>;
+
+export interface VegaData {
+  values?: readonly DatasetRow[] | string;
+  name?: string;
+  url?: string;
+  format?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface VegaUnitSpec {
+  data?: VegaData | null;
+  mark: VegaMark;
+  encoding?: VegaEncoding;
+  transform?: VegaTransform[];
+  title?: string | Record<string, unknown>;
+  name?: string;
+  width?: number | 'container' | Record<string, unknown>;
+  height?: number | 'container' | Record<string, unknown>;
+  params?: unknown[];
+  projection?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface VegaLayerSpec {
+  data?: VegaData | null;
+  layer: Array<VegaUnitSpec | VegaLayerSpec>;
+  encoding?: VegaEncoding;
+  transform?: VegaTransform[];
+  resolve?: {
+    scale?: Partial<Record<'x' | 'y' | 'color' | 'size' | 'shape' | 'theta', 'shared' | 'independent'>>;
+    axis?: Record<string, unknown>;
+    legend?: Record<string, unknown>;
+  };
+  title?: string | Record<string, unknown>;
+  width?: number | 'container' | Record<string, unknown>;
+  height?: number | 'container' | Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * The accepted top-level spec. Facet/concat/repeat compositions are typed
+ * loosely — they are detected at normalization time and reported as gaps.
+ */
+export type VegaLiteSpec = (VegaUnitSpec | VegaLayerSpec) & {
+  $schema?: string;
+  config?: Record<string, unknown>;
+  datasets?: Record<string, readonly DatasetRow[]>;
+  background?: string;
+  padding?: unknown;
+  autosize?: unknown;
+  hconcat?: unknown[];
+  vconcat?: unknown[];
+  concat?: unknown[];
+  repeat?: unknown;
+  facet?: unknown;
+  spec?: unknown;
+};

@@ -335,6 +335,71 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     expect(result.ok).toBe(false);
   });
 
+  it('rejects an addWidget chart whose explicit chartType conflicts with a cross-family key', () => {
+    // `sankeyTargetField` is a sankey-only key; on a gauge chart it must be rejected.
+    const result = parseStateMutation({
+      type: 'addWidget',
+      args: {
+        widget: {
+          id: 'w',
+          kind: 'chart',
+          title: 'T',
+          config: { chartType: 'gauge', sankeyTargetField: 'to' },
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected parseStateMutation to reject a cross-family chart config key');
+    }
+    expect(result.error).toContain('sankeyTargetField');
+    expect(result.error).toContain('gauge');
+  });
+
+  it('rejects an addWidget chart whose explicit chartType is not a known chart type', () => {
+    const result = parseStateMutation({
+      type: 'addWidget',
+      args: {
+        widget: { id: 'w', kind: 'chart', title: 'T', config: { chartType: 'nope' } },
+      },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts an addWidget chart with an explicit chartType and only its own family keys', () => {
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w',
+            kind: 'chart',
+            title: 'T',
+            config: { chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'v' },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts an addWidget chart with NO chartType (omitted discriminant is left to the stateful path)', () => {
+    // A chart config with an omitted chartType cannot be family-validated statelessly
+    // (no access to the existing widget), so the chart-family check is skipped here.
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w',
+            kind: 'chart',
+            title: 'T',
+            config: { xField: 'a', barLayout: 'grouped' },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
   it('accepts an addWidget with a valid per-kind config', () => {
     expect(
       parseStateMutation({

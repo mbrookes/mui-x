@@ -21,9 +21,19 @@
  * gains or loses a key without this list following, so the lists can't silently
  * drift from the interfaces they mirror.
  */
-import type { BuiltinStudioWidgetKind, StudioWidgetKind } from './baseTypes';
+import type { BuiltinStudioWidgetKind, StudioChartType, StudioWidgetKind } from './baseTypes';
 import type {
+  StudioBarFamilyChartConfig,
   StudioChartConfig,
+  StudioFunnelChartConfig,
+  StudioGaugeChartConfig,
+  StudioGanttChartConfig,
+  StudioHeatmapChartConfig,
+  StudioLineAreaFamilyChartConfig,
+  StudioMixedChartConfig,
+  StudioPieFamilyChartConfig,
+  StudioSankeyChartConfig,
+  StudioScatterChartConfig,
   StudioFilterWidgetConfig,
   StudioGridConfig,
   StudioKpiConfig,
@@ -71,15 +81,21 @@ const GRID_CONFIG_KEYS = [
 const GRID_KEYS_COVERED: AssertKeysCovered<StudioGridConfig, typeof GRID_CONFIG_KEYS> = true;
 void GRID_KEYS_COVERED;
 
-const CHART_CONFIG_KEYS = [
+// ── Per-chartType config-key layer ──────────────────────────────────────────────
+//
+// One key tuple + `AssertKeysCovered` compile-lock per CHART FAMILY (the 10
+// `StudioChart*Config` interfaces), each tuple listing its family's COMPLETE key
+// set INCLUDING the shared `crossFilterMode` (base) and `chartSortBy`/
+// `chartSortDirection` (sort) keys it inherits — so `getAllowedChartConfigKeys`
+// can return the tuple verbatim with no separate base/sort union. Families sharing
+// a config interface (bar/bar-stacked/bar-100 → one tuple; line/area/area-stacked/
+// area-100 → one; pie/donut → one) reuse the same tuple in the chartType map below.
+
+const BAR_FAMILY_CHART_KEYS = [
+  'crossFilterMode',
+  'chartSortBy',
+  'chartSortDirection',
   'chartType',
-  'barLayout',
-  'barBandLabelWrap',
-  'wrapBandLabelMaxLines',
-  'barCategoryGapRatio',
-  'barMinBandSize',
-  'barMaxCategories',
-  'axisTickFontSize',
   'xField',
   'yField',
   'yAggregation',
@@ -87,23 +103,90 @@ const CHART_CONFIG_KEYS = [
   'yField2',
   'seriesField',
   'xGroupBy',
+  'barLayout',
+  'barBandLabelWrap',
+  'wrapBandLabelMaxLines',
+  'barCategoryGapRatio',
+  'barMinBandSize',
+  'barMaxCategories',
+  'axisTickFontSize',
+  'annotations',
+] as const satisfies readonly (keyof StudioBarFamilyChartConfig)[];
+const BAR_FAMILY_KEYS_COVERED: AssertKeysCovered<
+  StudioBarFamilyChartConfig,
+  typeof BAR_FAMILY_CHART_KEYS
+> = true;
+void BAR_FAMILY_KEYS_COVERED;
+
+const LINE_AREA_FAMILY_CHART_KEYS = [
+  'crossFilterMode',
   'chartSortBy',
   'chartSortDirection',
-  'scatterColorField',
-  'scatterSizeField',
-  'scatterMinRadius',
-  'scatterMaxRadius',
+  'chartType',
+  'xField',
+  'yField',
+  'yAggregation',
+  'ySeries',
+  'yField2',
+  'seriesField',
+  'xGroupBy',
+  'axisTickFontSize',
+  'annotations',
+  'forecast',
+] as const satisfies readonly (keyof StudioLineAreaFamilyChartConfig)[];
+const LINE_AREA_FAMILY_KEYS_COVERED: AssertKeysCovered<
+  StudioLineAreaFamilyChartConfig,
+  typeof LINE_AREA_FAMILY_CHART_KEYS
+> = true;
+void LINE_AREA_FAMILY_KEYS_COVERED;
+
+const MIXED_CHART_KEYS = [
+  'crossFilterMode',
+  'chartSortBy',
+  'chartSortDirection',
+  'chartType',
+  'xField',
+  'yField',
+  'yAggregation',
+  'ySeries',
+  'yField2',
+  'seriesField',
+  'xGroupBy',
   'dualYAxis',
+  'axisTickFontSize',
+  'annotations',
+] as const satisfies readonly (keyof StudioMixedChartConfig)[];
+const MIXED_KEYS_COVERED: AssertKeysCovered<StudioMixedChartConfig, typeof MIXED_CHART_KEYS> = true;
+void MIXED_KEYS_COVERED;
+
+const HEATMAP_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'xField',
   'heatYField',
+  'yField',
+  'ySeries',
+  'yAggregation',
+  'xGroupBy',
   'heatColorScheme',
   'heatLegendPosition',
   'heatLegendAlign',
   'heatSortBy',
   'heatSortDirection',
-  'ganttLabelField',
-  'ganttStartField',
-  'ganttEndField',
-  'ganttColorField',
+  'axisTickFontSize',
+] as const satisfies readonly (keyof StudioHeatmapChartConfig)[];
+const HEATMAP_KEYS_COVERED: AssertKeysCovered<StudioHeatmapChartConfig, typeof HEATMAP_CHART_KEYS> =
+  true;
+void HEATMAP_KEYS_COVERED;
+
+const FUNNEL_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'xField',
+  'yField',
+  'ySeries',
+  'yAggregation',
+  'chartSortBy',
   'funnelCategoryOrder',
   'funnelReachedField',
   'funnelStageSequence',
@@ -112,18 +195,126 @@ const CHART_CONFIG_KEYS = [
   'funnelGap',
   'funnelCurve',
   'funnelVariant',
+] as const satisfies readonly (keyof StudioFunnelChartConfig)[];
+const FUNNEL_KEYS_COVERED: AssertKeysCovered<StudioFunnelChartConfig, typeof FUNNEL_CHART_KEYS> =
+  true;
+void FUNNEL_KEYS_COVERED;
+
+const GANTT_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'ganttLabelField',
+  'ganttStartField',
+  'ganttEndField',
+  'ganttColorField',
+] as const satisfies readonly (keyof StudioGanttChartConfig)[];
+const GANTT_KEYS_COVERED: AssertKeysCovered<StudioGanttChartConfig, typeof GANTT_CHART_KEYS> = true;
+void GANTT_KEYS_COVERED;
+
+const SANKEY_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'xField',
+  'yField',
+  'ySeries',
   'sankeyTargetField',
   'sankeyLinkColor',
   'sankeyShowValues',
+] as const satisfies readonly (keyof StudioSankeyChartConfig)[];
+const SANKEY_KEYS_COVERED: AssertKeysCovered<StudioSankeyChartConfig, typeof SANKEY_CHART_KEYS> =
+  true;
+void SANKEY_KEYS_COVERED;
+
+const PIE_FAMILY_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'xField',
+  'yField',
+  'ySeries',
+  'seriesField',
   'pieArcLabel',
   'pieArcLabelMinAngle',
   'pieMaxSlices',
   'pieLegendBelow',
+] as const satisfies readonly (keyof StudioPieFamilyChartConfig)[];
+const PIE_FAMILY_KEYS_COVERED: AssertKeysCovered<
+  StudioPieFamilyChartConfig,
+  typeof PIE_FAMILY_CHART_KEYS
+> = true;
+void PIE_FAMILY_KEYS_COVERED;
+
+const SCATTER_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'xField',
+  'yField',
+  'yField2',
+  'scatterColorField',
+  'scatterSizeField',
+  'scatterMinRadius',
+  'scatterMaxRadius',
+  'axisTickFontSize',
+  'annotations',
+] as const satisfies readonly (keyof StudioScatterChartConfig)[];
+const SCATTER_KEYS_COVERED: AssertKeysCovered<StudioScatterChartConfig, typeof SCATTER_CHART_KEYS> =
+  true;
+void SCATTER_KEYS_COVERED;
+
+const GAUGE_CHART_KEYS = [
+  'crossFilterMode',
+  'chartType',
+  'yField',
+  'yAggregation',
   'gaugeMin',
   'gaugeMax',
-  'crossFilterMode',
-  'annotations',
-  'forecast',
+] as const satisfies readonly (keyof StudioGaugeChartConfig)[];
+const GAUGE_KEYS_COVERED: AssertKeysCovered<StudioGaugeChartConfig, typeof GAUGE_CHART_KEYS> = true;
+void GAUGE_KEYS_COVERED;
+
+/**
+ * Own config keys per `StudioChartType`, typed as `Record<StudioChartType, …>` so
+ * adding a chart type without an entry is a compile error (fail-closed). Families
+ * that share a config interface point at the same tuple. Each tuple already
+ * includes the shared base/sort keys (see the block comment above).
+ */
+const CHART_TYPE_CONFIG_KEYS: Record<StudioChartType, readonly string[]> = {
+  bar: BAR_FAMILY_CHART_KEYS,
+  'bar-stacked': BAR_FAMILY_CHART_KEYS,
+  'bar-100': BAR_FAMILY_CHART_KEYS,
+  line: LINE_AREA_FAMILY_CHART_KEYS,
+  area: LINE_AREA_FAMILY_CHART_KEYS,
+  'area-stacked': LINE_AREA_FAMILY_CHART_KEYS,
+  'area-100': LINE_AREA_FAMILY_CHART_KEYS,
+  mixed: MIXED_CHART_KEYS,
+  heatmap: HEATMAP_CHART_KEYS,
+  funnel: FUNNEL_CHART_KEYS,
+  gantt: GANTT_CHART_KEYS,
+  sankey: SANKEY_CHART_KEYS,
+  pie: PIE_FAMILY_CHART_KEYS,
+  donut: PIE_FAMILY_CHART_KEYS,
+  scatter: SCATTER_CHART_KEYS,
+  gauge: GAUGE_CHART_KEYS,
+};
+
+/**
+ * The kind-level chart allow-list (consumed by `BUILTIN_OWN_CONFIG_KEYS.chart`),
+ * DERIVED as the union of every per-chartType tuple so the two levels can't drift.
+ * Duplicate keys across families are harmless — `getAllowedConfigKeys` builds a
+ * `Set`. The literal tuple (not a `Set`) preserves the exact key union so the
+ * `AssertKeysCovered` below still fails closed against the recomposed flat
+ * `StudioChartConfig` if a family gains/loses a key.
+ */
+const CHART_CONFIG_KEYS = [
+  ...BAR_FAMILY_CHART_KEYS,
+  ...LINE_AREA_FAMILY_CHART_KEYS,
+  ...MIXED_CHART_KEYS,
+  ...HEATMAP_CHART_KEYS,
+  ...FUNNEL_CHART_KEYS,
+  ...GANTT_CHART_KEYS,
+  ...SANKEY_CHART_KEYS,
+  ...PIE_FAMILY_CHART_KEYS,
+  ...SCATTER_CHART_KEYS,
+  ...GAUGE_CHART_KEYS,
 ] as const satisfies readonly (keyof StudioChartConfig)[];
 const CHART_KEYS_COVERED: AssertKeysCovered<StudioChartConfig, typeof CHART_CONFIG_KEYS> = true;
 void CHART_KEYS_COVERED;
@@ -261,5 +452,44 @@ export function validateConfigKeysForKind(
   if (allowed === null) {
     return [];
   }
+  return Object.keys(config).filter((key) => !allowed.has(key));
+}
+
+// ── Chart-type validators ─────────────────────────────────────────────────────
+//
+// Asymmetry vs. the kind-level validator above: an unrecognized widget KIND is a
+// real, supported case (consumer-defined custom widgets), so `getAllowedConfigKeys`
+// returns `null` = "no restriction". There are NO custom CHART types —
+// `StudioChartType` is a closed union — so there is no "anything goes" chart type.
+// `getAllowedChartConfigKeys` is therefore TOTAL over `StudioChartType` and never
+// returns `null`. Callers holding an untrusted string must gate it with
+// `isStudioChartType` first and treat a non-member as a HARD ERROR, rather than
+// passing it here and expecting a permissive pass-through.
+
+/**
+ * The set of config keys allowed on a chart of the given `chartType`: its family's
+ * full key set (already including the shared base/sort keys — see
+ * `CHART_TYPE_CONFIG_KEYS`). Total over `StudioChartType`; there is no custom /
+ * unrestricted chart type.
+ */
+export function getAllowedChartConfigKeys(chartType: StudioChartType): Set<string> {
+  return new Set<string>(CHART_TYPE_CONFIG_KEYS[chartType]);
+}
+
+/**
+ * Returns the keys present in `config` that are NOT valid for the given
+ * `chartType`. An empty array means the config is valid for that chart type. Like
+ * `validateConfigKeysForKind`, this is a shallow key-PRESENCE check only.
+ *
+ * The caller is responsible for having validated `chartType` (e.g. via
+ * `isStudioChartType`) — passing a string that is not a real `StudioChartType`
+ * yields an empty allow-list and thus flags every key, which is the intended
+ * fail-closed behavior for an unknown chart type (there is no permissive mode).
+ */
+export function validateChartConfigKeysForType(
+  chartType: StudioChartType,
+  config: Record<string, unknown>,
+): string[] {
+  const allowed = getAllowedChartConfigKeys(chartType);
   return Object.keys(config).filter((key) => !allowed.has(key));
 }

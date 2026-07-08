@@ -46,8 +46,19 @@ export {
 } from './applyMutation';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
-export { getAllowedConfigKeys, validateConfigKeysForKind } from './configKeyValidation';
-export { isWidgetOfKind } from './widgetTypeGuards';
+export {
+  getAllowedConfigKeys,
+  validateConfigKeysForKind,
+  getAllowedChartConfigKeys,
+  validateChartConfigKeysForType,
+} from './configKeyValidation';
+export {
+  isWidgetOfKind,
+  resolveChartType,
+  isChartConfigOfType,
+  isStudioChartType,
+  STUDIO_CHART_TYPES,
+} from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
 // `CURRENT_SCHEMA_VERSION` is re-exported via `stateTypes.ts` above (its source
 // of truth); omit it here to avoid a duplicate export of the same binding.

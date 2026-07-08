@@ -415,6 +415,29 @@ describe('serializeState / deserializeState roundtrip', () => {
     ).toHaveLength(0);
   });
 
+  it('retains chart config keys left over from a previously-selected chartType', () => {
+    // A widget switched bar → gauge keeps `xField` in its stored config (deliberate
+    // merge-not-replace UX; no migration strips it). That retention must survive
+    // persistence byte-for-byte, not just live state.
+    const retainedConfig = { chartType: 'gauge', xField: 'leftover-from-bar', gaugeMax: 200 };
+    const state = createDefaultStudioState({
+      doc: {
+        widgets: {
+          c1: { id: 'c1', kind: 'chart', title: 'W', config: { ...retainedConfig } },
+        },
+      },
+    });
+    const json = JSON.stringify(serializeState(state));
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
+    expect(restored).not.toBeNull();
+    expect(restored!.doc.widgets.c1.config).toEqual(retainedConfig);
+    // And the leftover key specifically survives — it is not stripped on the way out.
+    expect((restored!.doc.widgets.c1.config as { xField?: string }).xField).toBe(
+      'leftover-from-bar',
+    );
+  });
+
   it('migrateState returns failure for invalid JSON', () => {
     let parsed: unknown;
     try {

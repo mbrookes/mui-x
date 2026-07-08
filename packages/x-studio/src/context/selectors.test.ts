@@ -429,3 +429,29 @@ describe('makeSelectWidgetActiveCrossFilter', () => {
     expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
   });
 });
+
+describe('cross-filter selectors agree on the `disabled` flag (2.5)', () => {
+  // Both selectors answer the same question ("the active cross-filter emitted by this
+  // widget on this page") and must share the `!disabled` predicate so they cannot diverge.
+  const disabledCrossFilter = filter({
+    id: 'c',
+    disabled: true,
+    scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+  });
+
+  it('both selectors treat a disabled cross-filter as inactive', () => {
+    const s = state({ widgets: { w1: widget('w1', 'chart') }, filters: [disabledCrossFilter] });
+    expect(makeSelectActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
+    expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
+  });
+
+  it('both selectors return an enabled cross-filter', () => {
+    const enabledCrossFilter = filter({
+      id: 'c',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
+    const s = state({ widgets: { w1: widget('w1', 'chart') }, filters: [enabledCrossFilter] });
+    expect(makeSelectActiveCrossFilter('w1', 'page-1')(s)).toBe(enabledCrossFilter);
+    expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBe(enabledCrossFilter);
+  });
+});

@@ -88,7 +88,8 @@ export function StudioDateRangeBar() {
   // the same preset, so the first match is sufficient.
   const activePreset: StudioDateRangePreset | 'all_time' = React.useMemo(() => {
     const f = (filters as StudioFilterState[]).find(
-      (filter) => filter.scope.kind === 'dashboard-date-range' && filter.scope.pageId === activePageId,
+      (filter) =>
+        filter.scope.kind === 'dashboard-date-range' && filter.scope.pageId === activePageId,
     );
     return f?.dateRangePreset ?? 'all_time';
   }, [filters, activePageId]);
@@ -102,11 +103,23 @@ export function StudioDateRangeBar() {
     const coveredSourceIds = new Set(
       (filters as StudioFilterState[])
         .filter((f) => f.scope?.kind === 'dashboard-date-range' && f.scope.pageId === activePageId)
-        .map((f) => (f.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId),
+        .map(
+          (f) => (f.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId,
+        ),
     );
     const missing = sourceDateFields.filter(({ sourceId }) => !coveredSourceIds.has(sourceId));
     if (missing.length > 0) {
-      controller.setDashboardDateRangeAll(activePageId, sourceDateFields, activePreset);
+      // System-initiated normalization (expanding persisted single-source coverage to newly
+      // injected sources), not an authored edit — commit non-undoably so it neither pushes an
+      // undo entry on mount nor clears the redo stack when it re-fires after an undo.
+      controller.setDashboardDateRangeAll(
+        activePageId,
+        sourceDateFields,
+        activePreset,
+        undefined,
+        undefined,
+        { undoable: false },
+      );
     }
   }, [activePageId, activePreset, controller, filters, sourceDateFields]);
 

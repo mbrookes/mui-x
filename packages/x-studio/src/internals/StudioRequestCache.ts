@@ -19,10 +19,18 @@ interface CacheEntry {
  * - `invalidateSource(sourceId)` clears all entries whose cacheKey starts with
  *   `"${sourceId}:"` — called when a source is updated via `upsertDataSource`.
  */
+interface InflightEntry {
+  promise: Promise<StudioQueryResult>;
+  /** The sourceId this request belongs to. */
+  sourceId: string;
+  /** The source's generation captured when the request went in-flight. */
+  generation: number;
+}
+
 export class StudioRequestCache {
   private readonly cache = new Map<string, CacheEntry>();
 
-  private readonly inflight = new Map<string, Promise<StudioQueryResult>>();
+  private readonly inflight = new Map<string, InflightEntry>();
 
   /** Reverse index: sourceId → set of cacheKeys with that sourceId prefix. */
   private readonly sourceIndex = new Map<string, Set<string>>();
@@ -90,14 +98,31 @@ export class StudioRequestCache {
     keys.add(cacheKey);
   }
 
-  /** Returns true if there is an in-flight request for this cacheKey. */
+  /**
+   * Returns true if there is a still-valid in-flight request for this cacheKey.
+   * An in-flight request whose source was invalidated after it started (its captured
+   * generation no longer matches the source's current generation) is treated as absent,
+   * so callers arriving after invalidation start a fresh request instead of joining it.
+   */
   isInflight(cacheKey: string): boolean {
-    return this.inflight.has(cacheKey);
+    return this.getInflight(cacheKey) !== undefined;
   }
 
-  /** Returns the in-flight promise for this cacheKey, or undefined. */
+  /**
+   * Returns the in-flight promise for this cacheKey, or undefined. Returns undefined for a
+   * request that was invalidated mid-flight (its source's generation has advanced since the
+   * request started) so post-invalidation callers do not join a now-stale request; the
+   * request itself keeps running and any caller already awaiting its promise is unaffected.
+   */
   getInflight(cacheKey: string): Promise<StudioQueryResult> | undefined {
-    return this.inflight.get(cacheKey);
+    const entry = this.inflight.get(cacheKey);
+    if (!entry) {
+      return undefined;
+    }
+    if (this.getGeneration(entry.sourceId) !== entry.generation) {
+      return undefined;
+    }
+    return entry.promise;
   }
 
   /**
@@ -109,22 +134,37 @@ export class StudioRequestCache {
     promise: Promise<StudioQueryResult>,
     sourceId?: string,
   ): Promise<StudioQueryResult> {
-    this.inflight.set(cacheKey, promise);
     // Capture the source's generation at request-start time. If `invalidateSource`
     // runs before this resolves, the generation will have advanced and we must NOT
     // cache the (now stale) result — otherwise an unchanged descriptor would get a
-    // cache HIT on it. The awaiting caller still receives this one result.
+    // cache HIT on it. The generation is also stored on the in-flight entry so that a
+    // post-invalidation caller sees this request as absent (via `getInflight`) and starts
+    // a fresh fetch rather than joining it. The awaiting caller still receives this result.
     const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
     const generationAtStart = this.getGeneration(resolvedSourceId);
+    this.inflight.set(cacheKey, {
+      promise,
+      sourceId: resolvedSourceId,
+      generation: generationAtStart,
+    });
+    // Only clear the in-flight slot if it still holds THIS promise. After an
+    // invalidation a fresh request can register under the same cacheKey while this
+    // (now-stale) one is still running; that newer entry must not be deleted when the
+    // stale promise settles.
+    const clearIfCurrent = () => {
+      if (this.inflight.get(cacheKey)?.promise === promise) {
+        this.inflight.delete(cacheKey);
+      }
+    };
     promise.then(
       (result) => {
         if (this.getGeneration(resolvedSourceId) === generationAtStart) {
           this.set(cacheKey, result, resolvedSourceId);
         }
-        this.inflight.delete(cacheKey);
+        clearIfCurrent();
       },
       () => {
-        this.inflight.delete(cacheKey);
+        clearIfCurrent();
       },
     );
     return promise;
@@ -144,9 +184,12 @@ export class StudioRequestCache {
       this.sourceIndex.delete(sourceId);
     }
     // Bump the generation so any request that is currently in-flight for this source
-    // will detect (on resolve) that it was invalidated mid-flight and skip writing its
-    // now-stale result back into the cache. The next descriptor evaluation then misses
-    // the cache and triggers a genuine re-fetch.
+    // (a) detects on resolve that it was invalidated mid-flight and skips writing its
+    // now-stale result back into the cache, and (b) is treated as absent by `getInflight`
+    // for any caller arriving AFTER invalidation, so that caller starts a fresh request
+    // rather than joining the stale in-flight one. Callers already awaiting the in-flight
+    // promise before invalidation hold the reference directly and are unaffected. The next
+    // descriptor evaluation then misses the cache and triggers a genuine re-fetch.
     this.sourceGeneration.set(sourceId, this.getGeneration(sourceId) + 1);
   }
 

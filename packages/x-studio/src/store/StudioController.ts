@@ -1227,6 +1227,7 @@ export class StudioController {
     preset: StudioDateRangePreset,
     customFrom?: string,
     customTo?: string,
+    options?: { undoable?: boolean },
   ) => {
     this.commitDocPatch(
       docTransforms.setDashboardDateRangeAll(
@@ -1237,6 +1238,7 @@ export class StudioController {
         customFrom,
         customTo,
       ),
+      options,
     );
   };
 

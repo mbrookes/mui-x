@@ -2247,6 +2247,50 @@ describe('StudioController — commit*Patch routing (2.3)', () => {
   });
 });
 
+describe('StudioController.setDashboardDateRangeAll — undoable option (1.7)', () => {
+  const fields = [{ fieldId: 'date', sourceId: 'orders', fieldType: 'date' as const }];
+
+  it('is undoable by default (a user-authored preset change)', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+    expect(controller.canUndo()).toBe(false);
+
+    controller.setDashboardDateRangeAll(pageId, fields, 'last_3_months');
+
+    expect(controller.canUndo()).toBe(true);
+  });
+
+  it('does NOT push an undo entry (or clear redo) when committed with { undoable: false }', () => {
+    // Regression (1.7): the date-range reconciliation effect commits this system-initiated
+    // normalization non-undoably, so it must not trap undo on mount nor wipe the redo stack
+    // when it re-fires after an undo.
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+
+    // Establish some undo/redo history from a genuine authored edit.
+    controller.setDashboardTitle('First');
+    controller.undo();
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    // The system reconciliation fires: it must neither push an undo entry nor clear redo.
+    controller.setDashboardDateRangeAll(pageId, fields, 'last_3_months', undefined, undefined, {
+      undoable: false,
+    });
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+    // The reconciliation still applied to the doc.
+    expect(
+      controller
+        .getState()
+        .doc.filters.some(
+          (f) => f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId,
+        ),
+    ).toBe(true);
+  });
+});
+
 // ─── Step B (1.6): identity-preserving no-op writers ─────────────────────────
 // Each writer, called with an unknown/rejected target, must be a clean no-op:
 // same state reference, no undo entry, no mutation-log line. A single anchor

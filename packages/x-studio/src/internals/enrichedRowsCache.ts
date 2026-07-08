@@ -1,15 +1,6 @@
-import {
-  enrichRowsWithExpressions,
-  isFieldExpression,
-  isFunctionExpression,
-  isJoinFieldExpression,
-} from '../utils/expressionEvaluator';
-import type {
-  StudioDataSource,
-  StudioExpression,
-  StudioExpressionField,
-  StudioRelationship,
-} from '../models';
+import { enrichRowsWithExpressions, isJoinFieldExpression } from '../utils/expressionEvaluator';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import { collectExpressionRefs } from './expressionRefs';
 
 type Row = Record<string, unknown>;
 
@@ -93,26 +84,6 @@ function isEntryValid(
 // ─── Expression dependency expansion ─────────────────────────────────────────
 
 /**
- * Walks a StudioExpression tree and collects all field IDs referenced
- * (excluding join-field references which are native, not expression, fields).
- */
-function collectExpressionFieldRefs(expr: StudioExpression): string[] {
-  const refs: string[] = [];
-  function walk(node: StudioExpression): void {
-    if (isFieldExpression(node)) {
-      refs.push(node.id);
-    } else if (isFunctionExpression(node)) {
-      for (const input of node.inputs) {
-        walk(input);
-      }
-    }
-    // JoinFieldExpression, ValueExpression → no expression-field refs
-  }
-  walk(expr);
-  return refs;
-}
-
-/**
  * Given a set of requested field IDs and the full list of expression fields for a source,
  * returns the subset of expression fields that are needed — including transitive
  * dependencies (expression A references expression B → B is included too).
@@ -134,7 +105,7 @@ function expandWithDependencies(
       return;
     }
     included.add(id);
-    for (const refId of collectExpressionFieldRefs(field.expression)) {
+    for (const refId of collectExpressionRefs(field.expression)) {
       includeTransitively(refId);
     }
   }

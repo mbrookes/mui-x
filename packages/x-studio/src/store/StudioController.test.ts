@@ -677,6 +677,103 @@ describe('StudioController.updateWidgetConfig', () => {
 
     warnSpy.mockRestore();
   });
+
+  it('preserves pie/donut sort + grouping keys through a config round-trip (schema fix flows through the controller)', () => {
+    // Regression: the pie family accepts `chartSortBy`/`chartSortDirection`/`xGroupBy`
+    // (they are inherited sort/group keys). The schema/validator fix must flow through
+    // the controller's write-side kind + chart-type guards untouched — none of these
+    // keys should be stripped for a 'pie' (or 'donut') widget.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          pie1: { id: 'pie1', kind: 'chart', title: 'Pie', config: { chartType: 'pie' } },
+          donut1: { id: 'donut1', kind: 'chart', title: 'Donut', config: { chartType: 'donut' } },
+        },
+      },
+    });
+
+    controller.updateWidgetConfig('pie1', {
+      chartSortBy: 'value',
+      chartSortDirection: 'desc',
+      xGroupBy: 'month',
+    } as StudioWidgetConfig);
+    controller.updateWidgetConfig('donut1', {
+      chartSortBy: 'category',
+      chartSortDirection: 'asc',
+      xGroupBy: 'quarter',
+    } as StudioWidgetConfig);
+
+    const pie = controller.getState().doc.widgets.pie1.config as StudioWidgetConfig;
+    expect(pie.chartSortBy).toBe('value');
+    expect(pie.chartSortDirection).toBe('desc');
+    expect(pie.xGroupBy).toBe('month');
+    const donut = controller.getState().doc.widgets.donut1.config as StudioWidgetConfig;
+    expect(donut.chartSortBy).toBe('category');
+    expect(donut.chartSortDirection).toBe('asc');
+    expect(donut.xGroupBy).toBe('quarter');
+    // No key was flagged as invalid, so no strip-and-warn fired.
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when a config key is cleared with an explicit undefined value (validators skip undefined)', () => {
+    // Regression: clearing `barLayout` while switching a bar chart to a line chart
+    // sends `{ chartType: 'line', barLayout: undefined }`. `barLayout` is not a valid
+    // key for a line chart, but because its value is `undefined` (a delete, not a set)
+    // the validators skip it — the controller must NOT warn-and-strip it as invalid.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            title: 'Chart',
+            config: { chartType: 'bar', barLayout: 'stacked' },
+          },
+        },
+      },
+    });
+
+    controller.updateWidgetConfig('chart1', {
+      chartType: 'line',
+      barLayout: undefined,
+    } as StudioWidgetConfig);
+
+    const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+    expect(config.chartType).toBe('line');
+    // The undefined-valued key is deleted (never persisted)...
+    expect('barLayout' in config).toBe(false);
+    // ...and crucially no dev warning fired for it.
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not push an undo entry for a no-op config patch (fully-stripped or same-value)', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          grid1: { id: 'grid1', kind: 'grid', title: 'Table', config: { gridHeight: 300 } },
+        },
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(controller.canUndo()).toBe(false);
+
+    // (a) A patch whose only key is stripped by validation (chart-only key on a grid)
+    // leaves the doc unchanged → no undo entry.
+    controller.updateWidgetConfig('grid1', { chartType: 'line' } as StudioWidgetConfig);
+    expect(controller.canUndo()).toBe(false);
+
+    // (b) Setting a key to its CURRENT value is a reference-preserving no-op → no undo entry.
+    controller.updateWidgetConfig('grid1', { gridHeight: 300 } as StudioWidgetConfig);
+    expect(controller.canUndo()).toBe(false);
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('StudioController.updateWidget', () => {
@@ -1804,6 +1901,65 @@ describe('StudioController.removeWidget — cross-filter and col-span cleanup', 
 });
 
 // ─── StudioController.removePage — delegation to the shared reducer ─────────
+
+describe('StudioController undo/redo activePageId carry (1.2)', () => {
+  it('undo of addPage does not leave activePageId dangling at the removed page', () => {
+    const controller = new StudioController();
+    const firstPageId = controller.getState().doc.dashboard.activePageId;
+
+    // addPage creates and activates the new page.
+    const newPageId = controller.addPage('Second');
+    expect(controller.getState().doc.dashboard.activePageId).toBe(newPageId);
+
+    // Undo removes the page the user was viewing. activePageId must not remain
+    // pointing at the now-deleted page — it falls back to the first existing page.
+    controller.undo();
+    const doc = controller.getState().doc;
+    expect(doc.pages[newPageId]).toBeUndefined();
+    expect(Object.hasOwn(doc.pages, doc.dashboard.activePageId)).toBe(true);
+    expect(doc.dashboard.activePageId).toBe(firstPageId);
+  });
+
+  it('redo of removePage does not leave activePageId dangling at the removed page', () => {
+    const controller = new StudioController();
+    const firstPageId = controller.getState().doc.dashboard.activePageId;
+    const secondPageId = controller.addPage('Second');
+
+    // View the first page, then remove the (non-active) second page.
+    controller.setActivePage(firstPageId);
+    controller.removePage(secondPageId);
+    expect(controller.getState().doc.dashboard.activePageId).toBe(firstPageId);
+
+    // Undo restores the second page; navigate onto it (non-undoable, keeps the
+    // redo stack intact) so the current selection points at the page redo will drop.
+    controller.undo();
+    expect(controller.getState().doc.pages[secondPageId]).toBeTruthy();
+    controller.setActivePage(secondPageId);
+    expect(controller.getState().doc.dashboard.activePageId).toBe(secondPageId);
+
+    // Redo re-removes the second page. The carried activePageId (secondPageId) is
+    // gone from the restored doc, so it must fall back to an existing page.
+    controller.redo();
+    const doc = controller.getState().doc;
+    expect(doc.pages[secondPageId]).toBeUndefined();
+    expect(Object.hasOwn(doc.pages, doc.dashboard.activePageId)).toBe(true);
+    expect(doc.dashboard.activePageId).toBe(firstPageId);
+  });
+
+  it('carries a still-valid activePageId forward unchanged across an unrelated undo', () => {
+    const controller = new StudioController();
+    const secondPageId = controller.addPage('Second');
+
+    // An unrelated, undoable edit while viewing the second page.
+    controller.setDashboardTitle('Edited');
+    controller.setActivePage(secondPageId);
+
+    // Undo of the title edit must not jump the user off the (still-existing) page.
+    controller.undo();
+    expect(controller.getState().doc.dashboard.activePageId).toBe(secondPageId);
+    expect(controller.getState().doc.dashboard.title).not.toBe('Edited');
+  });
+});
 
 describe('StudioController.removePage', () => {
   it('removes the page, its widgets, and reassigns the active page', () => {

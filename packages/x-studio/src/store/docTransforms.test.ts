@@ -203,4 +203,31 @@ describe('docTransforms preset family', () => {
     const noop = docTransforms.renameFilterPreset(doc, 'nope', 'x');
     expect(noop.filterPresets).toBe(doc.filterPresets);
   });
+
+  it('deleteFilterPreset does not manufacture a filterPresets array when the doc had none (3.2)', () => {
+    // A doc that never carried a `filterPresets` key must come back byte-for-byte the
+    // same reference — no phantom `filterPresets: []` that would look like a real edit
+    // to `commitDocPatch` and push a spurious undo entry.
+    const doc = makeDoc();
+    expect(doc.filterPresets).toBeUndefined();
+    const next = docTransforms.deleteFilterPreset(doc, 'preset-1');
+    expect(next).toBe(doc);
+    expect(next.filterPresets).toBeUndefined();
+  });
+
+  it('renameFilterPreset does not manufacture a filterPresets array when the doc had none (3.2)', () => {
+    const doc = makeDoc();
+    expect(doc.filterPresets).toBeUndefined();
+    const next = docTransforms.renameFilterPreset(doc, 'preset-1', 'x');
+    expect(next).toBe(doc);
+    expect(next.filterPresets).toBeUndefined();
+  });
+
+  it('deleteFilterPreset returns the same doc reference on an unknown id (no phantom commit)', () => {
+    const preset: StudioFilterPreset = { id: 'preset-1', name: 'p', filters: [] };
+    const doc = makeDoc({ filterPresets: [preset] });
+    // Unknown id → the whole doc reference is preserved (not just the array), so the
+    // controller's reference-equality no-op guard skips it entirely.
+    expect(docTransforms.deleteFilterPreset(doc, 'nope')).toBe(doc);
+  });
 });

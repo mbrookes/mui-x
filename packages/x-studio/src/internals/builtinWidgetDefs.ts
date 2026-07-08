@@ -278,16 +278,21 @@ function toWidgetDef(def: StudioCustomWidgetDef): StudioWidgetDef {
  */
 export function useWidgetDefMap(): ReadonlyMap<string, StudioWidgetDef> {
   const { customWidgets } = useStudioUIConfig();
-  // Serialize the identifying keys so the memo only recomputes when the set of
-  // registered widget kinds actually changes (a simple-expression dep keeps both
-  // exhaustive-deps and use-memo happy without disabling them).
-  const widgetKindsKey = JSON.stringify(customWidgets?.map((d) => d.kind));
+  // Depend on `customWidgets` itself (not a derived key). A prior version keyed
+  // this memo on `JSON.stringify(customWidgets?.map(d => d.kind))` — a proxy that
+  // only tracked the SET of registered kind strings. That went stale whenever a
+  // consumer updated a custom widget def's actual content (swapped `component`,
+  // changed `capabilities`, etc.) without adding/removing a kind: the kind list
+  // was unchanged, so the memo never recomputed and callers kept reading the old
+  // def. Keying on the array reference directly recomputes whenever the caller
+  // passes a new `customWidgets` value, which is the correct signal for content
+  // changes (a consumer that mutates a def in place without producing a new
+  // array reference is already outside React's change-detection contract).
   return React.useMemo(() => {
     const map = new Map<string, StudioWidgetDef>(Object.entries(BUILTIN_WIDGET_DEFS));
     for (const def of customWidgets ?? []) {
       map.set(def.kind, toWidgetDef(def));
     }
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgetKindsKey is a deep-equality proxy for customWidgets
-  }, [widgetKindsKey]);
+  }, [customWidgets]);
 }

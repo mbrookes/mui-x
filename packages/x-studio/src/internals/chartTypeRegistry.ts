@@ -143,20 +143,26 @@ const scatterDescriptor: ChartTypeDescriptor = {
 
 /**
  * Heatmap: x-axis (column) + y-axis row field + value (intensity) field.
+ *
+ * `yField ?? ySeries?.[0]?.fieldId` mirrors the same fallback used by
+ * `renderHeatmap` (`chartTypeDefs.tsx`) and documented on
+ * `StudioHeatmapChartConfig.ySeries` — the value field may be authored via
+ * either key, so the query-side field collection must agree with rendering.
  */
 const heatmapDescriptor: ChartTypeDescriptor = {
   collectFields(config) {
     const fields = new Set<string>();
     addField(fields, config.xField);
-    addField(fields, config.yField); // intensity / colour value
+    addField(fields, config.yField ?? config.ySeries?.[0]?.fieldId); // intensity / colour value
     addField(fields, config.heatYField); // row axis
     return [...fields].filter(Boolean);
   },
   buildAggregationSpecs(config, isExpr) {
     const aggs: AggSpec[] = [];
-    if (config.yField && !isExpr(config.yField)) {
+    const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
+    if (yField && !isExpr(yField)) {
       const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
-      aggs.push({ field: config.yField, fn, alias: config.yField });
+      aggs.push({ field: yField, fn, alias: yField });
     }
     return aggs;
   },
@@ -166,21 +172,26 @@ const heatmapDescriptor: ChartTypeDescriptor = {
  * Funnel: category (xField) + value (yField) + optional cumulative-reached field.
  * The `funnelReachedField` regression fix (commit 07d66182) ensures that field
  * is always included in the SELECT when set.
+ *
+ * `yField ?? ySeries?.[0]?.fieldId` mirrors the same fallback used by
+ * `renderFunnel` (`chartTypeDefs.tsx`) and documented on
+ * `StudioFunnelChartConfig.ySeries`.
  */
 const funnelDescriptor: ChartTypeDescriptor = {
   collectFields(config) {
     const fields = new Set<string>();
     addField(fields, config.xField);
-    addField(fields, config.yField);
+    addField(fields, config.yField ?? config.ySeries?.[0]?.fieldId);
     // Regression fix (commit 07d66182): always include funnelReachedField.
     addField(fields, config.funnelReachedField);
     return [...fields].filter(Boolean);
   },
   buildAggregationSpecs(config, isExpr) {
     const aggs: AggSpec[] = [];
-    if (config.yField && !isExpr(config.yField)) {
+    const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
+    if (yField && !isExpr(yField)) {
       const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
-      aggs.push({ field: config.yField, fn, alias: config.yField });
+      aggs.push({ field: yField, fn, alias: yField });
     }
     return aggs;
   },
@@ -207,20 +218,28 @@ const ganttDescriptor: ChartTypeDescriptor = {
 
 /**
  * Sankey diagram: source (xField) + target + link weight (yField).
+ *
+ * `yField ?? ySeries?.[0]?.fieldId` mirrors the same fallback used by
+ * `renderSankey` (`chartTypeDefs.tsx`) and documented on
+ * `StudioSankeyChartConfig.ySeries`.
+ *
+ * Sankey has no `yAggregation` concept — a link's weight is always the SUM of
+ * its underlying rows (there is no "average link weight" or "count of links");
+ * unlike the xy/heatmap/funnel families, it must not read `config.yAggregation`.
  */
 const sankeyDescriptor: ChartTypeDescriptor = {
   collectFields(config) {
     const fields = new Set<string>();
     addField(fields, config.xField);
-    addField(fields, config.yField);
+    addField(fields, config.yField ?? config.ySeries?.[0]?.fieldId);
     addField(fields, config.sankeyTargetField);
     return [...fields].filter(Boolean);
   },
   buildAggregationSpecs(config, isExpr) {
     const aggs: AggSpec[] = [];
-    if (config.yField && !isExpr(config.yField)) {
-      const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
-      aggs.push({ field: config.yField, fn, alias: config.yField });
+    const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
+    if (yField && !isExpr(yField)) {
+      aggs.push({ field: yField, fn: 'sum', alias: yField });
     }
     return aggs;
   },

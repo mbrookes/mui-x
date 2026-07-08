@@ -504,7 +504,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
                 </Select>
               </FormControl>
-              {(config.chartSortBy ?? 'category') !== 'natural' && (
+              {/* Sort direction — funnel has no sort DIRECTION concept (only chartSortBy);
+                  StudioFunnelChartConfig deliberately omits chartSortDirection, so the
+                  toggle is hidden for funnel rather than writing a key the funnel
+                  aggregation never reads. */}
+              {!isFunnel && (config.chartSortBy ?? 'category') !== 'natural' && (
                 <ToggleButtonGroup
                   value={config.chartSortDirection ?? 'asc'}
                   exclusive

@@ -203,12 +203,16 @@ export class StudioController {
    *    pruning (an interactive filter from a widget the swap removed has no home). This
    *    is replacement, not a merge: a redo that re-applies the same interactive filter
    *    must not stack a duplicate.
-   *  - `dashboard`: overlay `globalCrossFilterMode` / `crossFilterAllPages`.
+   *  - `dashboard`: overlay `globalCrossFilterMode` / `crossFilterAllPages` /
+   *    `activePageId`.
    *
-   * `activePageId` and `cross-filter` entries are deliberately NOT carried — cross-filters
-   * are undoable by design (they time-travel), and active-page navigation is out of scope.
-   * Returns `incomingDoc` unchanged when nothing needs carrying (identity preservation),
-   * so a transient-free history restores a byte-for-byte deep-equal doc.
+   * `activePageId` is carried for the same reason as the cross-filter toggles: navigating
+   * to another page is non-undoable (`setActivePage` commits with `undoable: false`), so a
+   * Ctrl+Z on an unrelated edit must not silently jump the user back to the page they were
+   * on when that edit was snapshotted. `cross-filter` entries are deliberately NOT carried —
+   * cross-filters are undoable by design (they time-travel). Returns `incomingDoc` unchanged
+   * when nothing needs carrying (identity preservation), so a transient-free history restores
+   * a byte-for-byte deep-equal doc.
    */
   private carryTransientDocState = (currentDoc: StudioDoc, incomingDoc: StudioDoc): StudioDoc => {
     const carriedInteractive = currentDoc.filters.filter(
@@ -230,12 +234,14 @@ export class StudioController {
 
     const dashboardChanged =
       incomingDoc.dashboard.globalCrossFilterMode !== currentDoc.dashboard.globalCrossFilterMode ||
-      incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages;
+      incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages ||
+      incomingDoc.dashboard.activePageId !== currentDoc.dashboard.activePageId;
     const nextDashboard = dashboardChanged
       ? {
           ...incomingDoc.dashboard,
           globalCrossFilterMode: currentDoc.dashboard.globalCrossFilterMode,
           crossFilterAllPages: currentDoc.dashboard.crossFilterAllPages,
+          activePageId: currentDoc.dashboard.activePageId,
         }
       : incomingDoc.dashboard;
 

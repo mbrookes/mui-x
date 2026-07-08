@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { buildWidgetDataSummary, numericStats } from './generateInsight';
 import { createDefaultStudioState } from '../../models';
-import type { StudioState, StudioDataSource, StudioWidget, StudioFilterState } from '../../models';
+import type {
+  StudioState,
+  StudioDataSource,
+  StudioWidget,
+  StudioFilterState,
+  StudioWidgetConfig,
+} from '../../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -412,6 +418,124 @@ describe('buildWidgetDataSummary', () => {
       // Plain stride alone would miss cat7; the anomaly merge guarantees it is present.
       expect(lines[0]).toBe('Data sample (5 of 12 rows (including anomaly points)):');
       expect(result).toContain('cat7,7');
+    });
+  });
+
+  // ─── Cross-filter mode opt-in ──────────────────────────────────────────────
+  //
+  // Regression coverage: `resolveWidgetRows` only honours a widget's cross-filter mode
+  // when the caller opts in via its `options` argument — omitting it silently keeps the
+  // (incorrect) pre-opt-in default of always including cross-filters. `buildWidgetDataSummary`
+  // used to call it with no options at all (both for the main filtered-rows pass and for the
+  // KPI previous-period comparison pass), so a widget configured with `crossFilterMode: 'none'`
+  // would still have cross-filtered-out rows silently included in its AI insight summary.
+  describe('cross-filter mode opt-in', () => {
+    it('main filtered-rows pass: excludes cross-filtered rows only when the widget opts in via crossFilterMode "none"', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 200 },
+      ];
+      const source = makeSource({ fields, rows });
+      const crossFilter: StudioFilterState = {
+        id: 'cf1',
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      };
+      const state = makeState({ dataSources: { orders: source }, filters: [crossFilter] });
+
+      const defaultModeWidget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'region' }, { fieldId: 'amount' }] },
+      });
+      const noneModeWidget = makeWidget({
+        kind: 'grid',
+        config: {
+          columns: [{ fieldId: 'region' }, { fieldId: 'amount' }],
+          crossFilterMode: 'none',
+        } as StudioWidgetConfig,
+      });
+
+      // Default (cross-highlight) mode: the cross-filter applies, so only the EU row survives.
+      expect(buildWidgetDataSummary(defaultModeWidget, state)).toBe(
+        [
+          'Data sample (1 row):',
+          'Stats: Amount: min=100, max=100, mean=100, median=100',
+          'Region,Amount',
+          'EU,100',
+        ].join('\n'),
+      );
+
+      // Opted out via crossFilterMode: 'none': the cross-filter is excluded, both rows survive.
+      expect(buildWidgetDataSummary(noneModeWidget, state)).toBe(
+        [
+          'Data sample (2 rows):',
+          'Stats: Amount: min=100, max=200, mean=150, median=150',
+          'Region,Amount',
+          'EU,100',
+          'US,200',
+        ].join('\n'),
+      );
+    });
+
+    it('KPI previous-period pass: excludes cross-filtered rows only when the widget opts in via crossFilterMode "none"', () => {
+      const fields = [
+        { id: 'orderDate', label: 'Order Date', type: 'date' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+        { id: 'region', label: 'Region', type: 'string' as const },
+      ];
+      // Current-period row matches the cross-filter (region: 'EU'), so it is included
+      // regardless of crossFilterMode — this isolates the assertion to the previous-period pass.
+      // Previous-period row does NOT match the cross-filter (region: 'US').
+      const rows = [
+        { orderDate: '2024-02-10', amount: 100, region: 'EU' },
+        { orderDate: '2024-01-15', amount: 50, region: 'US' },
+      ];
+      const source = makeSource({ fields, rows });
+      const dateFilter: StudioFilterState = {
+        id: 'f-date',
+        field: 'orderDate',
+        fieldType: 'date',
+        operator: 'between',
+        value: { from: '2024-02-01', to: '2024-02-29' },
+        scope: { kind: 'page' },
+      };
+      const crossFilter: StudioFilterState = {
+        id: 'cf1',
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      };
+      const state = makeState({
+        dataSources: { orders: source },
+        filters: [dateFilter, crossFilter],
+      });
+
+      const kpiConfig = { kpiValueField: 'amount', kpiAggregation: 'sum' as const, kpiTrend: true };
+
+      const defaultModeWidget = makeWidget({ kind: 'kpi', config: kpiConfig });
+      const noneModeWidget = makeWidget({
+        kind: 'kpi',
+        config: { ...kpiConfig, crossFilterMode: 'none' } as StudioWidgetConfig,
+      });
+
+      // Default (cross-highlight) mode: the cross-filter excludes the US previous-period row,
+      // so the previous-period aggregate is 0 (no rows) and no Trend line is emitted.
+      const defaultResult = buildWidgetDataSummary(defaultModeWidget, state);
+      expect(defaultResult).toMatch(/Previous period \([^)]+\): 0$/m);
+      expect(defaultResult).not.toContain('Trend:');
+
+      // Opted out via crossFilterMode: 'none': the US previous-period row is included,
+      // so the previous-period aggregate reflects it.
+      const noneResult = buildWidgetDataSummary(noneModeWidget, state);
+      expect(noneResult).toMatch(/Previous period \([^)]+\): 50/);
+      expect(noneResult).toContain('Trend:');
     });
   });
 

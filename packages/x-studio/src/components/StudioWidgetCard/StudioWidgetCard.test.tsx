@@ -1,14 +1,21 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
+  StudioDataSource,
   StudioFilterState,
   StudioState,
   StudioWidget,
   StudioWidgetConfig,
 } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
+import { exportGridToCsv } from '../../internals/widgetUtils';
 import { StudioWidgetCard } from './StudioWidgetCard';
+
+vi.mock('../../internals/widgetUtils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
+  return { ...actual, exportGridToCsv: vi.fn() };
+});
 
 const { render } = createRenderer();
 
@@ -29,6 +36,7 @@ function setup(
     onUnconfiguredClick?: (id: string) => void;
     mode?: StudioState['session']['mode'];
     filters?: StudioFilterState[];
+    dataSources?: Record<string, StudioDataSource>;
   } = {},
 ) {
   const w = options.widget ?? widget();
@@ -42,6 +50,7 @@ function setup(
         ...(options.mode ? { mode: options.mode } : {}),
         ...(options.shell ? { shell: options.shell as StudioState['session']['shell'] } : {}),
       },
+      ...(options.dataSources ? { runtime: { dataSources: options.dataSources } } : {}),
     },
   });
   const setSelectedSpy = vi.spyOn(controller, 'setSelectedWidget');
@@ -165,5 +174,66 @@ describe('StudioWidgetCard', () => {
     });
     expect(screen.getByText(/order_date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
     expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+  });
+
+  // Regression coverage: `resolveWidgetRows` only honours a widget's cross-filter mode
+  // when the caller opts in via its `options` argument — omitting it silently keeps the
+  // (incorrect) pre-opt-in default of always including cross-filters. The CSV-export path
+  // used to call it with no options at all, so a grid configured with
+  // `crossFilterMode: 'none'` would still export cross-filtered-out rows.
+  describe('CSV export respects the widget cross-filter mode', () => {
+    const source: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      rows: [{ status: 'active' }, { status: 'inactive' }],
+    };
+    const crossFilter: StudioFilterState = {
+      id: 'cf1',
+      field: 'status',
+      operator: 'equals',
+      value: 'active',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+    };
+
+    beforeEach(() => {
+      vi.mocked(exportGridToCsv).mockClear();
+    });
+
+    function clickExport() {
+      fireEvent.click(screen.getByLabelText('Download as CSV'));
+    }
+
+    it('excludes cross-filtered rows when the widget opts out via crossFilterMode: "none"', () => {
+      setup({
+        widget: widget({
+          kind: 'grid',
+          sourceId: 's1',
+          config: { crossFilterMode: 'none' } as StudioWidgetConfig,
+        }),
+        dataSources: { s1: source },
+        filters: [crossFilter],
+      });
+      clickExport();
+      expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+      const rows = vi.mocked(exportGridToCsv).mock.calls[0][2];
+      expect(rows).toEqual([{ status: 'active' }, { status: 'inactive' }]);
+    });
+
+    it('includes cross-filtered rows for a widget using the default cross-highlight mode', () => {
+      setup({
+        widget: widget({
+          kind: 'grid',
+          sourceId: 's1',
+          config: {} as StudioWidgetConfig,
+        }),
+        dataSources: { s1: source },
+        filters: [crossFilter],
+      });
+      clickExport();
+      expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+      const rows = vi.mocked(exportGridToCsv).mock.calls[0][2];
+      expect(rows).toEqual([{ status: 'active' }]);
+    });
   });
 });

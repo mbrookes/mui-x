@@ -124,6 +124,10 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
     if (!rawRows || rawRows.length === 0) {
       continue; // adapter-backed sources have no local rows
     }
+    // No `options` here (intentional, not an oversight): this loop computes dashboard-wide
+    // field stats across every data source using a synthetic, non-widget id — there is no
+    // single real widget (and thus no per-widget `config.crossFilterMode`) to derive a
+    // cross-filter mode from, so it keeps the default (pre-opt-in) cross-filter behavior.
     const filtered = pipeline.resolveWidgetRows(
       SYNTHETIC_WIDGET_ID,
       source.id,

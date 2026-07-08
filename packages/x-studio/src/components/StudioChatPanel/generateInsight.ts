@@ -282,6 +282,7 @@ function buildKpiWidgetSummary(
         widget.sourceId as string,
         source.rows as Record<string, unknown>[],
         state.doc.dashboard.activePageId,
+        { widgetCrossFilterMode: cfg.crossFilterMode },
       );
       const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
       const label = comparisonMode === 'year-over-year' ? 'YoY' : 'vs previous period';
@@ -586,6 +587,9 @@ export function buildWidgetDataSummary(
     widget.sourceId,
     rawRows,
     state.doc.dashboard.activePageId,
+    // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type
+    // (this dispatcher runs before the widget's kind-specific `cfg` is narrowed below).
+    { widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode },
   );
 
   const maxRows = options.maxRows ?? MAX_DATA_ROWS;

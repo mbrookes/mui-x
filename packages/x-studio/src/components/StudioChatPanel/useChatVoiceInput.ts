@@ -45,7 +45,16 @@ export function useChatVoiceInput(): UseChatVoiceInputResult {
     }
   }, [isListening, composerValue, startVoice, stopVoice, resetTranscript]);
 
-  // Keep composer value in sync with live transcript.
+  // Keep the composer value in sync with the live transcript while listening.
+  // This runs on every transcript change during a session, so by the time voice
+  // ends — whether the browser auto-ends it (silence timeout, `onend`) or the user
+  // stops it (mic toggle, typing) — the composer already holds the latest combined
+  // value. There is deliberately no second "sync once more on stop" effect: it used
+  // to fire on EVERY true→false transition and rebuild the composer from the stale,
+  // never-reset `transcript` + `voiceBaseTextRef`, clobbering text the user had just
+  // typed (typing-while-listening) or dropping the pre-voice base text (mic off).
+  // Stale transcript can't leak into a later session because `handleToggleVoice`
+  // calls `resetTranscript()` before starting a new one.
   React.useEffect(() => {
     if (!isListening) {
       return;
@@ -55,17 +64,6 @@ export function useChatVoiceInput(): UseChatVoiceInputResult {
       : transcript;
     setComposerValue(combined);
   }, [isListening, transcript]);
-
-  // When voice ends (not initiated by the user), sync the final value once more.
-  React.useEffect(() => {
-    if (!isListening && transcript) {
-      const combined = voiceBaseTextRef.current
-        ? `${voiceBaseTextRef.current} ${transcript}`
-        : transcript;
-      setComposerValue(combined);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening]);
 
   const handleComposerValueChange = React.useCallback(
     (value: string) => {

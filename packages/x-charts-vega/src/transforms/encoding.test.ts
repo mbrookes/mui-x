@@ -1,3 +1,7 @@
+/* eslint-disable no-underscore-dangle */
+// The inline-transform synthetic column names are intentionally
+// dunder-prefixed (`__bin_*`, `__timeUnit_*`, `__sum_*`) to avoid colliding
+// with user data fields.
 import { createGapCollector } from '../gaps';
 import { applyEncodingTransforms } from './encoding';
 

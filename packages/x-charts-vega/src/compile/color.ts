@@ -155,8 +155,11 @@ function hexToRgb(hex: string): [number, number, number] {
           .map((c) => c + c)
           .join('')
       : clean;
-  const int = parseInt(full, 16);
-  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ];
 }
 
 function rgbToHex([r, g, b]: [number, number, number]): string {

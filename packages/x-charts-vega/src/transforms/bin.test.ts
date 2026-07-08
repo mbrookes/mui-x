@@ -1,3 +1,6 @@
+/* eslint-disable no-underscore-dangle */
+// The inline-bin synthetic column names are intentionally dunder-prefixed
+// (`__bin_<field>`) to avoid colliding with user data fields.
 import { createGapCollector } from '../gaps';
 import { applyBinTransform, applyInlineBin, binOf, computeNiceBinning } from './bin';
 
@@ -88,7 +91,7 @@ describe('binOf', () => {
 });
 
 describe('applyBinTransform (top-level)', () => {
-  it('writes bin start/end to `as`/`${as}_end` for a plain string `as`', () => {
+  it('writes bin start/end to the `as` column and its `_end` sibling for a plain string `as`', () => {
     const gaps = createGapCollector();
     const rows = [{ v: 3 }, { v: 15 }, { v: 49 }];
     const result = applyBinTransform(

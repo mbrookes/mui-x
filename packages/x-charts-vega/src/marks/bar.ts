@@ -1,16 +1,23 @@
 import type { BarSeriesType, StackOffsetType } from '@mui/x-charts/models';
+// `rangeBar` is an @mui/x-charts-premium series type (renders a watermark
+// without a license key, exactly like the rest of this wrapper's Premium
+// marks — see `packages/x-charts-premium/src/models/seriesType/rangeBar.ts`).
+import type { RangeBarSeriesType } from '@mui/x-charts-premium/models';
 import type { AxisResolution, CompiledUnit, UnitContext } from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaChannelDef } from '../types';
-import { isFieldDef } from '../types';
+import { isDatumDef, isFieldDef, isValueDef } from '../types';
 
 /*
  * OWNERSHIP: the "bar mark" work unit owns this file.
  *
- * Translates the `bar` mark to x-charts `type: 'bar'` series. See the module
- * doc comments below for the supported grammar subset; anything outside it
- * degrades to a `TranslationGap` instead of throwing.
+ * Translates the `bar` mark to x-charts `type: 'bar'` series, and — when the
+ * primary positional value channel (y for vertical bars, x for horizontal
+ * bars) is paired with its `2` twin (y2/x2) — to `type: 'rangeBar'` series
+ * (`@mui/x-charts-premium`) instead. See the module doc comments below for
+ * the supported grammar subset; anything outside it degrades to a
+ * `TranslationGap` instead of throwing.
  */
 
 function fieldOf(def: VegaChannelDef | undefined): string | undefined {
@@ -73,6 +80,49 @@ function buildSeriesData(
   return data;
 }
 
+/** The twin (`x2`/`y2`) endpoint of a ranged bar: either a data field or a constant (datum def). */
+interface RangeTwin {
+  field?: string;
+  constant?: number;
+}
+
+/**
+ * Builds a category-aligned `[start, end]` data array for one group of rows.
+ * Sibling of `buildSeriesData` for `rangeBar` series: `startField` is the
+ * primary value channel's field, `twin` is the resolved `2`-channel endpoint.
+ * Unlike regular bars, duplicate rows landing on the same category are not
+ * summed (a range has no meaningful sum) — the last row wins. A cell is left
+ * `null` when either endpoint cannot be resolved to a number.
+ */
+function buildRangedSeriesData(
+  ctx: UnitContext,
+  rows: readonly DatasetRow[],
+  categoryAxis: AxisResolution,
+  startField: string,
+  twin: RangeTwin,
+): Array<[number, number] | null> {
+  const data: Array<[number, number] | null> = new Array(categoryAxis.categories?.length ?? 0).fill(
+    null,
+  );
+  const categoryField = categoryAxis.field;
+  if (!categoryField) {
+    return data;
+  }
+  for (const row of rows) {
+    const index = ctx.categoryIndex(categoryAxis, row[categoryField]);
+    if (index < 0) {
+      continue;
+    }
+    const start = toNumber(row[startField]);
+    const end = twin.field !== undefined ? toNumber(row[twin.field]) : (twin.constant ?? null);
+    if (start === null || end === null) {
+      continue;
+    }
+    data[index] = [start, end];
+  }
+  return data;
+}
+
 interface RowGroup {
   value: unknown;
   rows: DatasetRow[];
@@ -124,18 +174,6 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const mark = unit.mark;
 
-  (['x2', 'y2'] as const).forEach((channel) => {
-    if (encoding[channel]) {
-      gaps.add({
-        code: 'mark:bar-ranged',
-        message:
-          'Ranged bars (x2/y2, spanning between two values instead of from a baseline) have no equivalent bar series in x-charts; the range span is dropped. The rangeBar chart in @mui/x-charts-premium covers this.',
-        severity: 'unsupported',
-        path: `${unit.path}.encoding.${channel}`,
-      });
-    }
-  });
-
   if (mark.cornerRadius !== undefined) {
     gaps.add({
       code: 'mark:bar-corner-radius',
@@ -180,21 +218,94 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [] };
   }
 
+  // Ranged-bar detection: pairing the primary value channel (y for vertical
+  // bars, x for horizontal bars) with its `2` twin turns this into a
+  // `rangeBar` series (@mui/x-charts-premium) instead of a plain `bar`.
+  const primaryTwinChannel = horizontal ? 'x2' : 'y2';
+  const secondaryTwinChannel = horizontal ? 'y2' : 'x2';
+  const primaryTwinDef = encoding[primaryTwinChannel];
+  const secondaryTwinDef = encoding[secondaryTwinChannel];
+
+  let rangeTwin: RangeTwin | undefined;
+  if (primaryTwinDef !== undefined && secondaryTwinDef !== undefined) {
+    // Both x2 and y2 are present: a rangeBar series can only span one
+    // dimension, so it's ambiguous which channel should provide the range.
+    // Fall back to a regular (non-ranged) bar, same as before this channel
+    // was supported at all.
+    (['x2', 'y2'] as const).forEach((channel) => {
+      gaps.add({
+        code: 'mark:bar-ranged',
+        message:
+          'Both x2 and y2 are present on this bar mark; x-charts rangeBar series can only span one axis, so it is ambiguous which channel should provide the range. Rendered as a regular (non-ranged) bar instead.',
+        severity: 'unsupported',
+        path: `${unit.path}.encoding.${channel}`,
+      });
+    });
+  } else if (isValueDef(primaryTwinDef)) {
+    // A value def is a constant in *pixel* space (e.g. a fixed screen X/Y),
+    // not data space, so there is no scale to invert it through into a
+    // rangeBar data value — unlike a datum def, which is already data-space.
+    gaps.add({
+      code: 'mark:bar-ranged-value',
+      message: `\`${primaryTwinChannel}\` is a value def (a constant pixel-space value) rather than a field or datum def; x-charts rangeBar data is data-space and a pixel-space value cannot be inverted back into it, so the range span is dropped.`,
+      severity: 'partial',
+      path: `${unit.path}.encoding.${primaryTwinChannel}`,
+    });
+  } else if (isDatumDef(primaryTwinDef)) {
+    const constant = toNumber(primaryTwinDef.datum);
+    if (constant !== null) {
+      rangeTwin = { constant };
+    } else {
+      gaps.add({
+        code: 'mark:bar-ranged-datum-invalid',
+        message: `\`${primaryTwinChannel}\`'s datum def (${JSON.stringify(primaryTwinDef.datum)}) does not coerce to a finite number, so it cannot provide a rangeBar range endpoint; the range span is dropped.`,
+        severity: 'unsupported',
+        path: `${unit.path}.encoding.${primaryTwinChannel}`,
+      });
+    }
+  } else if (isFieldDef(primaryTwinDef) && primaryTwinDef.field) {
+    rangeTwin = { field: primaryTwinDef.field };
+  } else if (secondaryTwinDef !== undefined) {
+    // Only the "wrong" twin is present (e.g. a vertical bar — categorical x +
+    // quantitative y — with a lone x2, instead of the y2 that would pair
+    // with y). There's no positional channel for it to range against, so it
+    // is dropped, same as an unsupported channel would have been before
+    // rangeBar existed.
+    gaps.add({
+      code: 'mark:bar-ranged-mismatched-axis',
+      message: `\`${secondaryTwinChannel}\` is present without a matching primary value channel on its axis (only \`${horizontal ? 'y' : 'x'}\`/\`${primaryTwinChannel}\` can form a rangeBar range for this bar's orientation); it has no x-charts equivalent and was dropped.`,
+      severity: 'unsupported',
+      path: `${unit.path}.encoding.${secondaryTwinChannel}`,
+    });
+  }
+
   const color = resolveColor(encoding, rows, gaps, unit.path);
   const staticColor = color.staticColor ?? mark.color ?? mark.fill;
 
-  const series: BarSeriesType[] = [];
+  const series: Array<BarSeriesType | RangeBarSeriesType> = [];
 
   if (!color.splitField) {
-    const data = buildSeriesData(ctx, rows, categoryAxis, valueField);
-    series.push(
-      omitUndefined({
-        type: 'bar',
-        data,
-        layout: horizontal ? ('horizontal' as const) : undefined,
-        color: staticColor,
-      }),
-    );
+    if (rangeTwin) {
+      const data = buildRangedSeriesData(ctx, rows, categoryAxis, valueField, rangeTwin);
+      series.push(
+        omitUndefined({
+          type: 'rangeBar',
+          data,
+          layout: horizontal ? ('horizontal' as const) : undefined,
+          color: staticColor,
+        }),
+      );
+    } else {
+      const data = buildSeriesData(ctx, rows, categoryAxis, valueField);
+      series.push(
+        omitUndefined({
+          type: 'bar',
+          data,
+          layout: horizontal ? ('horizontal' as const) : undefined,
+          color: staticColor,
+        }),
+      );
+    }
   } else {
     const offsetChannelDef = horizontal ? encoding.yOffset : encoding.xOffset;
     const offsetField = fieldOf(offsetChannelDef);
@@ -210,10 +321,11 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
 
     const stackSetting = isFieldDef(valueChannelDef) ? valueChannelDef.stack : undefined;
     const explicitlyUnstacked = stackSetting === null || stackSetting === false;
+    const wouldStack = !grouped && !explicitlyUnstacked;
 
     let stackId: string | undefined;
     let stackOffset: StackOffsetType | undefined;
-    if (!grouped && !explicitlyUnstacked) {
+    if (wouldStack && !rangeTwin) {
       // Scoped by unit path so two independent bar layers sharing the same
       // (globally-resolved) axis don't accidentally stack into each other.
       stackId = `vega-stack:${unit.path}`;
@@ -224,28 +336,56 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
       } else {
         stackOffset = 'none';
       }
+    } else if (wouldStack && rangeTwin) {
+      // RangeBarSeriesType has no stack/stackOffset props — ranges have no
+      // meaningful "stacked on top of" semantics — so a stack that would
+      // have applied to a regular bar is simply dropped here.
+      gaps.add({
+        code: 'mark:bar-ranged-stack',
+        message:
+          'Stacking was requested for a color-split ranged bar (via the default Vega-Lite stack behavior or an explicit `stack`), but x-charts rangeBar series have no stacking concept; each range is drawn independently.',
+        severity: 'ignored',
+        path: `${unit.path}.encoding.${horizontal ? 'x' : 'y'}`,
+      });
     }
 
     const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
     groups.forEach((group, groupIndex) => {
-      const data = buildSeriesData(ctx, group.rows, categoryAxis, valueField);
-      series.push(
-        omitUndefined({
-          type: 'bar',
-          id: `${unit.path}:${color.splitField}:${ctx.categoryKey(group.value)}`,
-          label: String(group.value),
-          data,
-          layout: horizontal ? ('horizontal' as const) : undefined,
-          stack: stackId,
-          stackOffset,
-          color: color.range?.[groupIndex] ?? staticColor,
-        }),
-      );
+      const id = `${unit.path}:${color.splitField}:${ctx.categoryKey(group.value)}`;
+      const label = String(group.value);
+      const groupColor = color.range?.[groupIndex] ?? staticColor;
+      if (rangeTwin) {
+        const data = buildRangedSeriesData(ctx, group.rows, categoryAxis, valueField, rangeTwin);
+        series.push(
+          omitUndefined({
+            type: 'rangeBar',
+            id,
+            label,
+            data,
+            layout: horizontal ? ('horizontal' as const) : undefined,
+            color: groupColor,
+          }),
+        );
+      } else {
+        const data = buildSeriesData(ctx, group.rows, categoryAxis, valueField);
+        series.push(
+          omitUndefined({
+            type: 'bar',
+            id,
+            label,
+            data,
+            layout: horizontal ? ('horizontal' as const) : undefined,
+            stack: stackId,
+            stackOffset,
+            color: groupColor,
+          }),
+        );
+      }
     });
   }
 
   return {
     series,
-    plots: ['bar'],
+    plots: [rangeTwin ? 'rangeBar' : 'bar'],
   };
 }

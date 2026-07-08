@@ -39,7 +39,7 @@ export const COMPONENT_LIBRARIES: LibraryDef[] = [
   // still depend on individual `@radix-ui/react-*` primitive packages instead, which this
   // query won't match. Treat Radix's numbers as an undercount relative to the others.
   { id: 'radix-ui', label: 'Radix UI', pkg: 'radix-ui' },
-  { id: 'base-ui', label: 'Base UI', pkg: '@base-ui-components/react' },
+  { id: 'base-ui', label: 'Base UI', pkg: '@base-ui/react' },
 ];
 
 export const DATA_GRID_LIBRARIES: LibraryDef[] = [

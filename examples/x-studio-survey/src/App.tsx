@@ -24,6 +24,7 @@ import { loadSurveyWorkbooks, type LoadedSurvey } from './surveyData';
 import { SURVEY_DASHBOARD, SURVEY_SECTIONS } from './config/surveyReport';
 import { dividerWidgetDef } from './components/DividerWidget';
 import { rankHeatmapWidgetDef } from './components/SurveyRankHeatmap';
+import { yoyComparisonWidgetDef } from './components/SurveyYoyComparison';
 import {
   statePersistenceEnabled,
   loadSession,
@@ -31,7 +32,7 @@ import {
   fetchServerStatus,
 } from './connectors/statePersistence';
 
-const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef];
+const CUSTOM_WIDGETS = [dividerWidgetDef, rankHeatmapWidgetDef, yoyComparisonWidgetDef];
 
 // Below this viewport width the side nav starts collapsed and overlays the canvas when opened,
 // instead of pushing the report content (which would squeeze the charts off-screen).

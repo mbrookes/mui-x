@@ -7,6 +7,7 @@
  */
 import type { StudioPage, StudioPageTheme, StudioState, StudioWidget } from '@mui/x-studio';
 import { FIELDS, SURVEY_2025_SOURCE_ID } from '../surveyData';
+import { YOY_PAIRS } from './yoyPairs';
 
 const SRC = SURVEY_2025_SOURCE_ID;
 const TOTAL_RESPONDENTS = 2057;
@@ -588,6 +589,38 @@ for (const meta of QUESTIONS) {
   widgets[`${id}-divider`] = qDividerWidget(meta.n);
 }
 
+function yoyWidget(pairId: string): StudioWidget {
+  const pair = YOY_PAIRS.find((p) => p.id === pairId);
+  if (!pair) {
+    throw /* minify-error-disabled */ new Error(`MUI X: Unknown YOY_PAIRS id "${pairId}"`);
+  }
+  return {
+    id: `yoy-${pair.id}`,
+    kind: 'survey-yoy-comparison',
+    title: `2023 vs 2025 · ${pair.title}`,
+    titleMode: 'manual',
+    subtitle: 'Year-over-year comparison',
+    subtitleMode: 'manual',
+    sourceId: SRC,
+    config: {
+      titleFontSize: 14,
+      customConfig: { pairId: pair.id },
+    },
+  };
+}
+
+// Which question number each year-over-year comparison widget follows, per page — keeps the
+// comparison directly under the single-year chart it relates to instead of a separate section.
+const YOY_EXTRA_AFTER: Record<string, Record<number, string[][]>> = {
+  'page-muix': { 8: [[`yoy-plan`]] },
+  'page-about': { 42: [[`yoy-heardAbout`]], 49: [[`yoy-companyDevs`]] },
+};
+
+for (const pair of YOY_PAIRS) {
+  const widget = yoyWidget(pair.id);
+  widgets[widget.id] = widget;
+}
+
 /** Returns [text-row, chart-row] for a question number. Ranking questions flagged for a
  * heatmap get a single full-width heatmap row instead of the bar + donut pair. */
 function qRows(n: number): string[][] {
@@ -603,9 +636,14 @@ function qDividerRow(n: number): string[][] {
   return [[`${qId(n)}-divider`]];
 }
 
-/** Interleaves divider rows between a list of question numbers. */
-function withDividers(...ns: number[]): string[][] {
-  return ns.flatMap((n, i) => (i === 0 ? qRows(n) : [...qDividerRow(n), ...qRows(n)]));
+/** Interleaves divider rows between a list of question numbers. `extraAfter[n]` rows (if any) are
+ * appended directly after question n's own rows, before the next question's divider — used to
+ * slot a year-over-year comparison widget right under its related single-year question. */
+function withDividers(ns: number[], extraAfter: Record<number, string[][]> = {}): string[][] {
+  return ns.flatMap((n, i) => {
+    const rows = i === 0 ? qRows(n) : [...qDividerRow(n), ...qRows(n)];
+    return [...rows, ...(extraAfter[n] ?? [])];
+  });
 }
 
 /** Ordered sections (one per page) and the question numbers each contains. Drives both the
@@ -639,7 +677,7 @@ const pages: Record<string, StudioPage> = Object.fromEntries(
       id: s.pageId,
       title: s.title,
       theme: PAGE_THEME,
-      widgetRows: withDividers(...s.questionNumbers),
+      widgetRows: withDividers(s.questionNumbers, YOY_EXTRA_AFTER[s.pageId]),
     },
   ]),
 );

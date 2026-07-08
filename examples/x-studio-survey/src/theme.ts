@@ -1,8 +1,10 @@
 import { createTheme } from '@mui/material/styles';
 import type {} from '@mui/x-charts/themeAugmentation';
 
-// Palette that works in both light and dark mode (avoid very dark values that vanish on dark cards)
-const PIE_PALETTE = [
+// Palette that works in both light and dark mode (avoid very dark values that vanish on dark cards).
+// Exported so other multi-series charts (e.g. custom widgets) can match the donut charts'
+// categorical color assignment instead of inventing a second palette.
+export const PIE_PALETTE = [
   'var(--mui-palette-primary-main)',
   '#b45309',
   '#1e3a8a',

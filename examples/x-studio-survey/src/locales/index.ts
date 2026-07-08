@@ -117,6 +117,11 @@ export interface AppLocaleText {
   heatmapToggleLegend: string;
   heatmapMeanRankTooltip: (mean: string) => string;
   heatmapCellTooltip: (count: number, category: string, rank: number) => string;
+  // Year-over-year comparison custom widget
+  yoyNoData: string;
+  yoySettingsTitle: string;
+  yoyQuestionLabel: string;
+  yoyRespondentCount: (n2023: number, n2025: number) => string;
 }
 
 const enAppLocaleText: AppLocaleText = {
@@ -213,6 +218,11 @@ const enAppLocaleText: AppLocaleText = {
   heatmapMeanRankTooltip: (mean) => `Mean rank ${mean}`,
   heatmapCellTooltip: (count, category, rank) =>
     `${count} respondent${count === 1 ? '' : 's'} ranked “${category}” #${rank}`,
+  yoyNoData: 'No comparable 2023/2025 data for this question.',
+  yoySettingsTitle: 'Year-over-year comparison',
+  yoyQuestionLabel: 'Question',
+  yoyRespondentCount: (n2023, n2025) =>
+    `n (2023) = ${n2023.toLocaleString()} · n (2025) = ${n2025.toLocaleString()}`,
 };
 
 const ptBrAppLocaleText: AppLocaleText = {
@@ -313,6 +323,11 @@ const ptBrAppLocaleText: AppLocaleText = {
     `${count} respondente${count === 1 ? '' : 's'} ${
       count === 1 ? 'classificou' : 'classificaram'
     } “${category}” em #${rank}`,
+  yoyNoData: 'Nenhum dado comparável entre 2023 e 2025 para esta pergunta.',
+  yoySettingsTitle: 'Comparação ano a ano',
+  yoyQuestionLabel: 'Pergunta',
+  yoyRespondentCount: (n2023, n2025) =>
+    `n (2023) = ${n2023.toLocaleString()} · n (2025) = ${n2025.toLocaleString()}`,
 };
 
 export interface LocaleBundle {

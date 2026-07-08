@@ -21,6 +21,9 @@ export const SURVEY_2023_URL = `${import.meta.env.BASE_URL}data/survey2023.xlsx`
 /** The primary 2025 responses sheet — the source every report widget reads from. */
 export const SURVEY_2025_SOURCE_ID = 'survey-2025-sheet1';
 
+/** The 2023 responses sheet — read directly (by source id) only by year-over-year widgets. */
+export const SURVEY_2023_SOURCE_ID = 'survey-2023-data';
+
 /**
  * Field ids derived by slugifying each question's column header from the Excel export.
  * Q41 (email) is intentionally omitted.

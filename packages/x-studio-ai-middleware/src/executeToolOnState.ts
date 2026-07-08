@@ -11,6 +11,8 @@
 import {
   applyMutation,
   createDefaultWidget,
+  createFilterId,
+  createPageId,
   isStudioChartType,
   isWidgetOfKind,
   STUDIO_CHART_TYPES,
@@ -150,6 +152,50 @@ function invalidChartConfigKeyError(
 }
 
 /**
+ * Runtime allow-list of valid `StudioFilterOperator` values, kept EXHAUSTIVE against
+ * the schema union via the `satisfies Record<StudioFilterOperator, true>` annotation:
+ * adding an operator to `StudioFilterOperator` in `@mui/x-studio-schema` without
+ * listing it here is a compile error, so this gate can never silently drift stale.
+ * The schema package exports the operator TYPE but no runtime list, so this derived
+ * constant is the executor's authoritative source of truth — every filter-creating
+ * tool validates the untrusted, model-supplied operator against it rather than
+ * casting a bogus string straight onto a `StudioFilterState`.
+ */
+const VALID_FILTER_OPERATORS = {
+  equals: true,
+  not_equals: true,
+  in: true,
+  not_in: true,
+  contains: true,
+  does_not_contain: true,
+  starts_with: true,
+  not_starts_with: true,
+  ends_with: true,
+  not_ends_with: true,
+  is_empty: true,
+  is_not_empty: true,
+  greater_than: true,
+  less_than: true,
+  greater_than_or_equal: true,
+  less_than_or_equal: true,
+  between: true,
+} satisfies Record<StudioFilterOperator, true>;
+
+/**
+ * Validates a model-supplied filter operator string against `VALID_FILTER_OPERATORS`.
+ * Returns a human-readable error naming the valid operators when the value is not a
+ * known operator, or `undefined` when it is valid. Shared by `add_page_filter` and
+ * `add_widget_filter` so the wording (and the allow-list) stays identical.
+ */
+function invalidFilterOperatorError(operator: string): string | undefined {
+  return Object.hasOwn(VALID_FILTER_OPERATORS, operator)
+    ? undefined
+    : `invalid filter operator '${operator}'. Valid operators: ${Object.keys(
+        VALID_FILTER_OPERATORS,
+      ).join(', ')}.`;
+}
+
+/**
  * Builds a `StudioWidget` from AI-tool arguments, layering config in one canonical
  * order — factory defaults → custom-widget `defaultConfig` → model-supplied config —
  * and minting the id through the shared `createDefaultWidget` (its
@@ -274,7 +320,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const title = String(args.title ?? 'New Page');
-      const id = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const id = createPageId();
       const mutation: StateMutation = { type: 'addPage', args: { id, title } };
       return {
         output: JSON.stringify({ success: true, pageId: id, title }),
@@ -502,6 +548,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
+      // Existence check BEFORE touching layout: without it a nonexistent id falls
+      // through to the `[widgetId]` fallback below and emits a `setWidgetColSpan`
+      // for a phantom widget (a silent no-op on apply). Reject with a clear error
+      // so the model can correct the id instead of assuming the width was set.
+      if (!state.doc.widgets[widgetId]) {
+        return {
+          output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
+          nextState: state,
+        };
+      }
       const activePageId = state.doc.dashboard.activePageId;
       const activePage = state.doc.pages[activePageId];
       if (!activePage) {
@@ -583,10 +639,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     plan: (args, { state }) => {
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
-      const operator = String(args.operator ?? 'equals') as StudioFilterOperator;
+      const operatorRaw = String(args.operator ?? 'equals');
+      const operatorError = invalidFilterOperatorError(operatorRaw);
+      if (operatorError) {
+        return { output: JSON.stringify({ error: operatorError }), nextState: state };
+      }
+      const operator = operatorRaw as StudioFilterOperator;
       const value = args.value;
       const fieldType = args.fieldType as StudioDataField['type'] | undefined;
-      const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const filterId = createFilterId();
       const filter: StudioFilterState = {
         id: filterId,
         field,
@@ -615,10 +676,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const widgetId = String(args.widgetId ?? '');
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
-      const operator = String(args.operator ?? 'equals') as StudioFilterOperator;
+      const operatorRaw = String(args.operator ?? 'equals');
+      const operatorError = invalidFilterOperatorError(operatorRaw);
+      if (operatorError) {
+        return { output: JSON.stringify({ error: operatorError }), nextState: state };
+      }
+      const operator = operatorRaw as StudioFilterOperator;
       const value = args.value;
       const fieldType = args.fieldType as StudioDataField['type'] | undefined;
-      const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const filterId = createFilterId();
       const filter: StudioFilterState = {
         id: filterId,
         field,
@@ -741,12 +807,33 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       // 2. Additions
       const addedTitleToId: Record<string, string> = {};
-      // Kind (and, for chart widgets, chartType) of each widget added THIS batch,
-      // keyed by id — so the updates loop below can resolve the kind/chartType of
-      // a same-batch addition (not yet present in `state.doc.widgets`) for its own
-      // config-key validation.
+      // Kind of each widget added THIS batch, keyed by id — so the updates loop below
+      // can resolve the kind of a same-batch addition (not yet present in
+      // `state.doc.widgets`) for its own config-key validation.
       const addedWidgetKinds: Record<string, string> = {};
-      const addedWidgetChartTypes: Record<string, string | undefined> = {};
+      // Running (NOT snapshot) map of every chart widget's CURRENT chartType, keyed by
+      // id. Seeded lazily with existing chart widgets and eagerly with same-batch chart
+      // additions, then UPDATED after each accepted update that changes a widget's
+      // chartType — so a later update in the SAME batch validates its config keys
+      // against the chartType an earlier update in this batch just set, not the
+      // pre-batch value. Without this, changing a widget's chartType and then setting a
+      // key valid only for the NEW type in one bulk call would be falsely rejected
+      // (and the reverse — a key valid only for the OLD type — falsely accepted).
+      const currentChartTypes = new Map<string, string | undefined>();
+      const resolveChartTypeForUpdate = (
+        wid: string,
+        existingWidget: StudioWidget | undefined,
+      ): string | undefined => {
+        if (currentChartTypes.has(wid)) {
+          return currentChartTypes.get(wid);
+        }
+        const seed =
+          existingWidget && isWidgetOfKind(existingWidget, 'chart')
+            ? existingWidget.config.chartType
+            : undefined;
+        currentChartTypes.set(wid, seed);
+        return seed;
+      };
       const additions =
         (args.widgetAdditions as
           | Array<{
@@ -767,8 +854,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         liveWidgetIds.add(widget.id);
         addedTitleToId[widget.title] = widget.id;
         addedWidgetKinds[widget.id] = widget.kind;
-        if (widget.kind === 'chart' && isWidgetOfKind(widget, 'chart')) {
-          addedWidgetChartTypes[widget.id] = widget.config.chartType;
+        if (isWidgetOfKind(widget, 'chart')) {
+          currentChartTypes.set(widget.id, widget.config.chartType);
         }
         widgetRows.push([widget.id]);
         applied.added += 1;
@@ -804,12 +891,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             continue;
           }
           if (kind === 'chart') {
-            // Mirror the kind resolution above: fall back to a same-batch
-            // addition's chartType when the widget isn't in `state.doc.widgets` yet.
-            const existingChartType =
-              existingWidget && isWidgetOfKind(existingWidget, 'chart')
-                ? existingWidget.config.chartType
-                : addedWidgetChartTypes[wid];
+            // Resolve against the RUNNING chartType map (seeded from existing state
+            // and same-batch additions, updated after each accepted same-batch
+            // chartType change) — never a pre-batch snapshot — so a chartType changed
+            // earlier in this same batch is honored here.
+            const existingChartType = resolveChartTypeForUpdate(wid, existingWidget);
             const chartError = invalidChartConfigKeyError(
               update.config as Record<string, unknown>,
               existingChartType,
@@ -817,6 +903,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             if (chartError) {
               skipped.push(`update ${wid}: ${chartError}`);
               continue;
+            }
+            // Accepted: if this update sets a new chartType, record it so later
+            // same-batch updates targeting this widget validate against it.
+            if (Object.hasOwn(update.config as Record<string, unknown>, 'chartType')) {
+              currentChartTypes.set(
+                wid,
+                (update.config as Record<string, unknown>).chartType as string | undefined,
+              );
             }
           }
         }
@@ -830,12 +924,47 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
 
       // 4. Layout
-      const rawLayout = args.layout as string[][] | undefined;
-      if (rawLayout && Array.isArray(rawLayout)) {
-        widgetRows = rawLayout
-          .map((row) => row.map((ref) => addedTitleToId[ref] ?? ref))
-          .filter((row) => row.length > 0);
-        applied.layout = true;
+      // Validate the layout with the SAME rigor as the single-widget `set_widget_layout`
+      // handler (shape + membership), rather than trusting the model's array verbatim:
+      // (a) SHAPE — an array of rows, each an array of strings; a flat `["w1","w2"]`
+      //     would corrupt `widgetRows` and make every downstream `row.map`/`row.filter`
+      //     throw. (b) MEMBERSHIP — after mapping added-widget TITLE refs to their minted
+      //     ids, every id must resolve to a widget that is live after this batch's
+      //     removals/additions (`liveWidgetIds`); an unknown id would persist as a
+      //     phantom layout entry (blank card) or reference a widget removed earlier in
+      //     this same batch. On any failure the layout op is skipped with a clear
+      //     message (the rest of the bulk update still applies) — never applied partially
+      //     and never thrown.
+      const rawLayout = args.layout;
+      if (rawLayout !== undefined) {
+        if (
+          !Array.isArray(rawLayout) ||
+          !rawLayout.every(
+            (row) => Array.isArray(row) && row.every((ref) => typeof ref === 'string'),
+          )
+        ) {
+          skipped.push(
+            'layout: must be an array of rows, where each row is an array of widget-ID ' +
+              '(or added-widget-title) strings (e.g. [["w1","w2"],["w3"]]).',
+          );
+        } else {
+          const mappedRows = (rawLayout as string[][])
+            .map((row) => row.map((ref) => addedTitleToId[ref] ?? ref))
+            .filter((row) => row.length > 0);
+          const unknownLayoutIds = [...new Set(mappedRows.flat())].filter(
+            (id) => !liveWidgetIds.has(id),
+          );
+          if (unknownLayoutIds.length > 0) {
+            skipped.push(
+              `layout: unknown or removed widget IDs: ${unknownLayoutIds.join(', ')}. ` +
+                'Reference only widgets that exist after this update (added-widget titles ' +
+                'are resolved to their new IDs).',
+            );
+          } else {
+            widgetRows = mappedRows;
+            applied.layout = true;
+          }
+        }
       }
 
       // 5. Column spans
@@ -966,9 +1095,20 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           }
         : { enabled: false };
 
+      // Emit a PARTIAL config patch carrying only `forecast` (via the top-level `config`
+      // arg, which the reducer shallow-merges onto the LIVE widget config) rather than
+      // a `changes.config` object — `changes.config` replaces the config WHOLESALE, so
+      // it would discard every other config key (title styling, colors, series, other
+      // chart settings) the widget already had, and would also clobber a concurrent
+      // edit to a different config key made while this turn was running. Merging just
+      // the forecast delta preserves them.
       const mutation: StateMutation = {
         type: 'updateWidget',
-        args: { widgetId, changes: { config: { ...widget.config, forecast: forecastConfig } } },
+        args: {
+          widgetId,
+          changes: {},
+          config: { forecast: forecastConfig } as StudioWidget['config'],
+        },
       };
       return {
         output: JSON.stringify({ success: true, widgetId, forecast: forecastConfig }),

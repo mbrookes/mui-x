@@ -202,7 +202,13 @@ export function useBlendedSeriesRows(
       }
       let promise = studioRequestCache.getInflight(descriptor.cacheKey);
       if (!promise) {
-        promise = studioRequestCache.addInflight(descriptor.cacheKey, adapter.getRows(descriptor));
+        // Pass descriptor.sourceId explicitly so the generation guard / reverse index use
+        // the true source even if it contains a ':' (rather than the cacheKey parse).
+        promise = studioRequestCache.addInflight(
+          descriptor.cacheKey,
+          adapter.getRows(descriptor),
+          descriptor.sourceId,
+        );
       }
       promise.then(
         (result) => {

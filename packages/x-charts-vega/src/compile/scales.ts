@@ -439,24 +439,25 @@ export function resolveAxes(
         grid.horizontal = true;
       }
     }
-    // Range channels (x2/y2) describe interval marks (ranged bars/areas/rules)
-    // that x-charts has no positional primitive for; the second endpoint is
-    // dropped and only the primary x/y is drawn.
-    if (unit.encoding.x2) {
+    // Range channels (x2/y2) describe interval marks. Bar marks translate
+    // them to Premium rangeBar series and rule marks report their own
+    // segment gaps — only the remaining marks drop the second endpoint here.
+    const handlesRangeChannels = unit.mark.type === 'bar' || unit.mark.type === 'rule';
+    if (unit.encoding.x2 && !handlesRangeChannels) {
       gaps.add({
         code: 'channel:x2',
         message:
-          'The `x2` channel (interval / ranged marks) has no x-charts equivalent; ' +
+          'The `x2` channel (interval / ranged marks) has no x-charts equivalent for this mark; ' +
           'only the primary `x` endpoint is used.',
         severity: 'unsupported',
         path: `${unit.path}.encoding.x2`,
       });
     }
-    if (unit.encoding.y2) {
+    if (unit.encoding.y2 && !handlesRangeChannels) {
       gaps.add({
         code: 'channel:y2',
         message:
-          'The `y2` channel (interval / ranged marks) has no x-charts equivalent; ' +
+          'The `y2` channel (interval / ranged marks) has no x-charts equivalent for this mark; ' +
           'only the primary `y` endpoint is used.',
         severity: 'unsupported',
         path: `${unit.path}.encoding.y2`,

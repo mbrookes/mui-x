@@ -1,16 +1,18 @@
 import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
 import type { XAxis, YAxis } from '@mui/x-charts/models';
-import type { DatasetRow , VegaLiteSpec } from '../types';
-import { createGapCollector  } from '../gaps';
-import type {TranslationGap} from '../gaps';
+import type { DatasetRow, VegaLiteSpec } from '../types';
+import { createGapCollector } from '../gaps';
+import type { TranslationGap } from '../gaps';
 import { normalizeSpec } from '../normalize';
 import { applyTransforms, applyEncodingTransforms } from '../transforms';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';
 import { resolveAxes } from './scales';
 import type {
   AxisResolution,
+  CompiledGeo,
   CompiledReferenceLine,
   CompiledSeries,
+  CompiledZAxis,
   PlotKind,
   UnitContext,
 } from './context';
@@ -24,11 +26,15 @@ export interface CompileOptions {
 }
 
 export interface CompiledChart {
-  /** 'polar' when the spec resolves to pie/arc rendering. */
-  chartKind: 'cartesian' | 'polar';
+  /** 'polar' for pie/arc rendering, 'geo' for geoshape/map rendering. */
+  chartKind: 'cartesian' | 'polar' | 'geo';
   series: CompiledSeries[];
   xAxis?: AxisResolution<XAxis>;
   yAxis?: AxisResolution<YAxis>;
+  /** z (color) axes (heatmap cell coloring). */
+  zAxis?: CompiledZAxis[];
+  /** Geo provider config, set when chartKind is 'geo'. */
+  geo?: CompiledGeo;
   plots: PlotKind[];
   referenceLines: CompiledReferenceLine[];
   grid: { vertical?: boolean; horizontal?: boolean };
@@ -66,6 +72,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
+  const zAxis: CompiledZAxis[] = [];
+  let geo: CompiledGeo | undefined;
 
   for (const { unit, rows } of prepared) {
     const compiler = markRegistry[unit.mark.type];
@@ -95,24 +103,48 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     series.push(...compiled.series);
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));
+    zAxis.push(...(compiled.zAxis ?? []));
+    if (compiled.geo) {
+      if (geo) {
+        gaps.add({
+          code: 'composition:multiple-geo-layers',
+          message:
+            "Multiple geoshape layers each carry their own geo data; only the first layer's geoData/projection is used for the map.",
+          severity: 'partial',
+          path: unit.path,
+        });
+      } else {
+        geo = compiled.geo;
+      }
+    }
   }
 
-  // Assign palette colors to series that didn't get an explicit color.
+  // Assign palette colors to series that didn't get an explicit color. Pie
+  // slices color themselves per-datum; heatmap cells are colored by the
+  // zAxis colorMap and have no series-level color at all.
   series.forEach((entry, index) => {
-    if (entry.color === undefined && entry.type !== 'pie') {
-      (entry as { color?: string }).color = palette[index % palette.length];
+    if (entry.type === 'pie' || entry.type === 'heatmap') {
+      return;
+    }
+    const colorable = entry as { color?: string };
+    if (colorable.color === undefined) {
+      colorable.color = palette[index % palette.length];
     }
   });
 
-  const isPolar = plots.has('pie');
-  if (isPolar && plots.size > 1) {
-    gaps.add({
-      code: 'composition:mixed-polar-cartesian',
-      message:
-        'Pie/arc layers cannot be combined with cartesian layers in one chart; only the pie is rendered.',
-      severity: 'partial',
-      path: '$',
-    });
+  const isGeo = geo !== undefined;
+  const isPolar = !isGeo && plots.has('pie');
+  const exclusiveKinds: PlotKind[] = ['geoBase', 'mapShape', 'pie'];
+  if ((isPolar || isGeo) && plots.size > (isGeo ? 2 : 1)) {
+    const kind = isGeo ? 'geo/map' : 'pie/arc';
+    if (Array.from(plots).some((plot) => !exclusiveKinds.includes(plot))) {
+      gaps.add({
+        code: `composition:mixed-${isGeo ? 'geo' : 'polar'}-cartesian`,
+        message: `${kind} layers cannot be combined with cartesian layers in one chart; only the ${kind} layers are rendered.`,
+        severity: 'partial',
+        path: '$',
+      });
+    }
   }
 
   // Pie series carry their labels per-slice (`data[i].label`) rather than on
@@ -128,11 +160,24 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     return false;
   });
 
+  let chartKind: CompiledChart['chartKind'] = 'cartesian';
+  let outSeries = series;
+  if (isGeo) {
+    chartKind = 'geo';
+    outSeries = series.filter((entry) => entry.type === 'mapShape');
+  } else if (isPolar) {
+    chartKind = 'polar';
+    outSeries = series.filter((entry) => entry.type === 'pie');
+  }
+  const isCartesian = chartKind === 'cartesian';
+
   return {
-    chartKind: isPolar ? 'polar' : 'cartesian',
-    series: isPolar ? series.filter((entry) => entry.type === 'pie') : series,
-    xAxis: isPolar ? undefined : axes.x,
-    yAxis: isPolar ? undefined : axes.y,
+    chartKind,
+    series: outSeries,
+    xAxis: isCartesian ? axes.x : undefined,
+    yAxis: isCartesian ? axes.y : undefined,
+    zAxis: zAxis.length > 0 ? zAxis : undefined,
+    geo,
     plots: Array.from(plots),
     referenceLines,
     grid: axes.grid,

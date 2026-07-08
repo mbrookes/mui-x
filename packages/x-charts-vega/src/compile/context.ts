@@ -1,14 +1,31 @@
 import type { ChartsContainerProps } from '@mui/x-charts/ChartsContainer';
 import type { XAxis, YAxis } from '@mui/x-charts/models';
+// Type-only barrel import: applies the Pro/Premium module augmentation so
+// `CompiledSeries` includes heatmap/rangeBar/mapShape series types.
+import type {} from '@mui/x-charts-premium';
 import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldType } from '../types';
 import type { GapCollector } from '../gaps';
 import type { NormalizedUnit } from '../normalize';
 
-/** A series object accepted by `ChartsContainer`'s `series` prop. */
+/** A series object accepted by `ChartsContainer`'s `series` prop (incl. Premium types via augmentation). */
 export type CompiledSeries = NonNullable<ChartsContainerProps['series']>[number];
 
+/** A z (color) axis config accepted by the container's `zAxis` prop. */
+export type CompiledZAxis = NonNullable<ChartsContainerProps['zAxis']>[number];
+
 /** Plot subcomponents the shell knows how to render. */
-export type PlotKind = 'bar' | 'line' | 'area' | 'marks' | 'scatter' | 'pie' | 'lineHighlight';
+export type PlotKind =
+  | 'bar'
+  | 'line'
+  | 'area'
+  | 'marks'
+  | 'scatter'
+  | 'pie'
+  | 'lineHighlight'
+  | 'heatmap'
+  | 'rangeBar'
+  | 'geoBase'
+  | 'mapShape';
 
 export interface CompiledReferenceLine {
   axis: 'x' | 'y';
@@ -17,11 +34,23 @@ export interface CompiledReferenceLine {
   lineStyle?: React.CSSProperties;
 }
 
+/** Geo rendering request (geoshape marks) — switches the shell to the geo provider. */
+export interface CompiledGeo {
+  /** A GeoJSON FeatureCollection for the base map / shape lookup. */
+  geoData: unknown;
+  /** A d3 named projection (e.g. 'naturalEarth1') or projection config. */
+  projection?: string | Record<string, unknown>;
+}
+
 /** What a mark compiler hands back for one normalized unit (layer). */
 export interface CompiledUnit {
   series: CompiledSeries[];
   plots: PlotKind[];
   referenceLines?: CompiledReferenceLine[];
+  /** z (color) axes contributed by the layer (heatmap cells). */
+  zAxis?: CompiledZAxis[];
+  /** Present when the layer requires geographic rendering ('geoshape'). */
+  geo?: CompiledGeo;
 }
 
 /**

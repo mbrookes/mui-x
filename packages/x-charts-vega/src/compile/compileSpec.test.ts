@@ -53,14 +53,14 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(layerAccounted(1)).to.equal(true);
   });
 
-  it('reports unsupported marks with a tier hint instead of throwing', () => {
+  it('reports unsupported marks with a hint instead of throwing', () => {
     const compiled = compileSpec({
       data: { values: [{ a: 1 }] },
-      mark: 'geoshape',
+      mark: 'boxplot',
     });
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:geoshape');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot');
     expect(gap?.severity).to.equal('unsupported');
-    expect(gap?.message).to.contain('x-charts-premium');
+    expect(gap?.message).to.contain('no x-charts equivalent');
     expect(compiled.series).to.have.length(0);
   });
 

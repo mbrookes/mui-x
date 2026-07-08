@@ -746,10 +746,17 @@ function buildRichContextBlock(
   if (richContext) {
     const inner: string[] = [];
     if (richContext.fieldStats && Object.keys(richContext.fieldStats).length > 0) {
+      // The stat values are typed `number`, but `richContext` is client-supplied, so a
+      // hand-crafted request body could smuggle a `</dashboard_context>…` string into a
+      // `number`-typed field. Route every value through `sanitizeForPrompt(String(v))` —
+      // the same choke point applied to every other state-derived string — so invariant
+      // 13 stays literally true (defense-in-depth; `String(undefined)` still renders
+      // `"undefined"`, matching the prior raw interpolation).
+      const stat = (value: number | undefined): string => sanitizeForPrompt(String(value));
       const lines = Object.entries(richContext.fieldStats).map(([key, s]) =>
         s.min !== undefined || s.max !== undefined
-          ? `  - ${sanitizeForPrompt(key)}: min=${s.min}, max=${s.max}, mean=${s.mean} (n=${s.sampledRows})`
-          : `  - ${sanitizeForPrompt(key)}: ${s.distinctCount} distinct (n=${s.sampledRows})`,
+          ? `  - ${sanitizeForPrompt(key)}: min=${stat(s.min)}, max=${stat(s.max)}, mean=${stat(s.mean)} (n=${stat(s.sampledRows)})`
+          : `  - ${sanitizeForPrompt(key)}: ${stat(s.distinctCount)} distinct (n=${stat(s.sampledRows)})`,
       );
       inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
     }

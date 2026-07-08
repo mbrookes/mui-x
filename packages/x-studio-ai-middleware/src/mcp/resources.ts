@@ -16,7 +16,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { buildAISystemPrompt, serializeFieldForAI } from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
-import { projectDataSourceMetadata } from '../executeToolOnState';
+import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
 import type { StudioMcpData, StudioMcpLogger, StudioMcpOptions, StudioStateBox } from './types';
@@ -176,19 +176,16 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // raw `StudioState`. A host's state box can carry live `rows` (and a
       // non-serializable `adapter`) on `runtime.dataSources`; dumping them verbatim
       // is an exfiltration / token-bomb path with no `data`-config opt-in and no
-      // cap (finding 2.2). This mirrors the `get_dashboard_state` TOOL's output
-      // contract exactly (`executeToolOnState.ts`): `{ doc, dataSources }` with each
-      // source projected through `projectDataSourceMetadata` (strips `rows`/`adapter`,
-      // caps `fieldDistinctValues`).
-      const dataSources: Record<string, unknown> = {};
-      for (const [id, source] of Object.entries(stateBox.current.runtime.dataSources)) {
-        dataSources[id] = projectDataSourceMetadata(source);
-      }
+      // cap (finding 2.2). `doc.ai` chat transcripts are likewise reduced to per-thread
+      // metadata (finding 1.1). This calls the SAME `projectStateForAI` helper the
+      // `get_dashboard_state` TOOL uses, so the `{ doc, dataSources }` redaction contract
+      // (rows/adapter stripped, distinct values capped, `doc.ai` transcripts removed)
+      // lives in exactly one place and the two read surfaces cannot drift.
       return {
         contents: [
           {
             uri,
-            text: JSON.stringify({ doc: stateBox.current.doc, dataSources }, null, 2),
+            text: JSON.stringify(projectStateForAI(stateBox.current), null, 2),
             mimeType: 'application/json',
           },
         ],

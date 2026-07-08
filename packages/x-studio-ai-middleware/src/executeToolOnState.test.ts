@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
-import { createDefaultStudioState } from './models/studioTypes';
+import { createDefaultStudioState, isWidgetOfKind } from './models/studioTypes';
 import type { StudioState } from './models/studioTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -792,6 +792,9 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(addedIds).toHaveLength(1);
     const added = result.nextState.doc.widgets[addedIds[0]];
     expect(added.id).toMatch(/^widget-/);
+    if (!isWidgetOfKind(added, 'chart')) {
+      throw new Error('expected added widget to be a chart widget');
+    }
     // Factory default (chartType) is overlaid by the model-supplied config.
     expect(added.config.chartType).toBe('line');
   });
@@ -961,6 +964,7 @@ describe('executeToolOnState: set_widget_forecast', () => {
         widgets: {
           'widget-1': {
             ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
             config: { chartType: 'line' as const },
           },
         },
@@ -972,8 +976,12 @@ describe('executeToolOnState: set_widget_forecast', () => {
       lineState,
     );
     expect(parseOutput(result.output).success).toBe(true);
-    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.enabled).toBe(true);
-    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.periods).toBe(6);
+    const updatedWidget1 = result.nextState.doc.widgets['widget-1'];
+    if (!isWidgetOfKind(updatedWidget1, 'chart')) {
+      throw new Error('expected widget-1 to remain a chart widget');
+    }
+    expect(updatedWidget1.config.forecast?.enabled).toBe(true);
+    expect(updatedWidget1.config.forecast?.periods).toBe(6);
     expect(result.mutation?.type).toBe('updateWidget');
   });
 
@@ -986,6 +994,7 @@ describe('executeToolOnState: set_widget_forecast', () => {
         widgets: {
           'widget-1': {
             ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
             config: {
               chartType: 'line' as const,
               forecast: { enabled: true, periods: 3 },
@@ -999,7 +1008,11 @@ describe('executeToolOnState: set_widget_forecast', () => {
       { widgetId: 'widget-1', enabled: false },
       lineState,
     );
-    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.enabled).toBe(false);
+    const updatedWidget1 = result.nextState.doc.widgets['widget-1'];
+    if (!isWidgetOfKind(updatedWidget1, 'chart')) {
+      throw new Error('expected widget-1 to remain a chart widget');
+    }
+    expect(updatedWidget1.config.forecast?.enabled).toBe(false);
   });
 
   it('enables forecast with confidence bands', () => {
@@ -1011,6 +1024,7 @@ describe('executeToolOnState: set_widget_forecast', () => {
         widgets: {
           'widget-1': {
             ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
             config: { chartType: 'area' as const },
           },
         },
@@ -1021,9 +1035,11 @@ describe('executeToolOnState: set_widget_forecast', () => {
       { widgetId: 'widget-1', enabled: true, showConfidenceBands: true },
       areaState,
     );
-    expect(result.nextState.doc.widgets['widget-1'].config.forecast?.showConfidenceBands).toBe(
-      true,
-    );
+    const updatedWidget1 = result.nextState.doc.widgets['widget-1'];
+    if (!isWidgetOfKind(updatedWidget1, 'chart')) {
+      throw new Error('expected widget-1 to remain a chart widget');
+    }
+    expect(updatedWidget1.config.forecast?.showConfidenceBands).toBe(true);
   });
 });
 

@@ -7,7 +7,7 @@
  * that no other handler in this module depends on.
  */
 
-import { detectAnomaliesIQR, truncateToPeriod } from '@mui/x-studio-schema';
+import { detectAnomaliesIQR, truncateToPeriod, isWidgetOfKind } from '@mui/x-studio-schema';
 import { withTimeout, type ToolHandler } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
 
@@ -87,7 +87,7 @@ export function createSummarisePageHandler(deps: {
 
         try {
           const isTimeSeries =
-            widget.kind === 'chart' &&
+            isWidgetOfKind(widget, 'chart') &&
             Boolean(widget.config.xGroupBy) &&
             ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
 
@@ -141,13 +141,15 @@ export function createSummarisePageHandler(deps: {
 
           // Time-series aggregation: GROUP BY query for anomaly detection and charting.
           // Skip blended charts — the y-field belongs to a different source's table.
-          const isBlended = (widget.config.ySeries ?? []).some(
-            (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
-          );
+          const isBlended =
+            isWidgetOfKind(widget, 'chart') &&
+            (widget.config.ySeries ?? []).some(
+              (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
+            );
           let tsLabels: string[] | null = null;
           let tsValues: number[] | null = null;
 
-          if (isTimeSeries && !isBlended) {
+          if (isTimeSeries && !isBlended && isWidgetOfKind(widget, 'chart')) {
             const xField = widget.config.xField;
             const yField =
               widget.config.yField ?? (widget.config.ySeries?.[0]?.fieldId as string | undefined);

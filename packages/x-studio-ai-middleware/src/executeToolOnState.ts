@@ -8,7 +8,7 @@
  * - `nextState`— the updated state after the tool ran (used to carry state forward
  *                across multiple tool calls in a single agentic loop turn)
  */
-import { applyMutation, createDefaultWidget } from '@mui/x-studio-schema';
+import { applyMutation, createDefaultWidget, isWidgetOfKind } from '@mui/x-studio-schema';
 import type { OptionalWidgetField } from '@mui/x-studio-schema';
 import type {
   StudioState,
@@ -796,6 +796,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (!widget) {
         return {
           output: JSON.stringify({ error: `Widget '${widgetId}' not found.` }),
+          nextState: state,
+        };
+      }
+      if (!isWidgetOfKind(widget, 'chart')) {
+        return {
+          output: JSON.stringify({
+            error: `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has kind '${widget.kind}'.`,
+          }),
           nextState: state,
         };
       }

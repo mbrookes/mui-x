@@ -167,6 +167,49 @@ describe('StudioRequestCache', () => {
     expect(cache.get(cacheKey)).toBe(RESULT_A);
   });
 
+  it('a caller arriving AFTER invalidation does not join the stale in-flight request', async () => {
+    // Regression (2.3): invalidateSource used to leave the in-flight promise in place, so a
+    // widget whose effect re-ran after invalidation would find the stale promise via
+    // getInflight, join it, and render pre-invalidation rows with no follow-up fetch. After
+    // invalidation the in-flight request must read as absent so a fresh fetch is started.
+    const cacheKey = 'source-orders:key-1';
+    let resolveStale!: (r: StudioQueryResult) => void;
+    const stalePromise = new Promise<StudioQueryResult>((res) => {
+      resolveStale = res;
+    });
+    cache.addInflight(cacheKey, stalePromise, 'source-orders');
+    expect(cache.isInflight(cacheKey)).toBe(true);
+    expect(cache.getInflight(cacheKey)).toBe(stalePromise);
+
+    cache.invalidateSource('source-orders');
+
+    // The stale request is still running, but new callers must not join it.
+    expect(cache.isInflight(cacheKey)).toBe(false);
+    expect(cache.getInflight(cacheKey)).toBeUndefined();
+
+    // A caller arriving now starts a genuinely fresh request.
+    let resolveFresh!: (r: StudioQueryResult) => void;
+    const freshPromise = new Promise<StudioQueryResult>((res) => {
+      resolveFresh = res;
+    });
+    const joined = cache.getInflight(cacheKey);
+    expect(joined).toBeUndefined();
+    cache.addInflight(cacheKey, freshPromise, 'source-orders');
+    expect(cache.getInflight(cacheKey)).toBe(freshPromise);
+
+    // Both settle: the stale result must NOT be cached; the fresh result must be, and the
+    // stale request settling must not evict the fresh in-flight entry.
+    resolveStale(RESULT_A);
+    await stalePromise;
+    expect(cache.getInflight(cacheKey)).toBe(freshPromise);
+
+    resolveFresh(RESULT_B);
+    await freshPromise;
+
+    // The rendered value is the fresh result, never the stale one.
+    expect(cache.get(cacheKey)).toBe(RESULT_B);
+  });
+
   it('invalidateSource does not affect sources with a similar prefix', () => {
     cache.set('source-order:key-1', RESULT_A);
     cache.set('source-orders:key-1', RESULT_B);

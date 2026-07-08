@@ -396,15 +396,24 @@ export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
  * );
  * const activeCrossFilter = useStudioSelector(sel);
  */
+/**
+ * Shared predicate for "this filter is an active cross-filter emitted by `widgetId` on
+ * `pageId`". Both `makeSelectActiveCrossFilter` and `makeSelectWidgetActiveCrossFilter`
+ * route through this so they can never diverge on the `disabled` flag (a `disabled`
+ * cross-filter is never active for either selector).
+ */
+function isActiveCrossFilter(f: StudioFilterState, widgetId: string, pageId: string): boolean {
+  return (
+    f.scope.kind === 'cross-filter' &&
+    f.scope.sourceWidgetId === widgetId &&
+    f.scope.pageId === pageId &&
+    !f.disabled
+  );
+}
+
 export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
   return (state: StudioState): StudioFilterState | null =>
-    state.doc.filters.find(
-      (f) =>
-        f.scope.kind === 'cross-filter' &&
-        f.scope.sourceWidgetId === widgetId &&
-        f.scope.pageId === pageId &&
-        !f.disabled,
-    ) ?? null;
+    state.doc.filters.find((f) => isActiveCrossFilter(f, widgetId, pageId)) ?? null;
 }
 
 /**
@@ -563,13 +572,6 @@ export function makeSelectWidgetActiveCrossFilter(
     if (w?.kind !== 'chart' && w?.kind !== 'grid') {
       return null;
     }
-    return (
-      state.doc.filters.find(
-        (f) =>
-          f.scope.kind === 'cross-filter' &&
-          f.scope.sourceWidgetId === widgetId &&
-          f.scope.pageId === pageId,
-      ) ?? null
-    );
+    return state.doc.filters.find((f) => isActiveCrossFilter(f, widgetId, pageId)) ?? null;
   };
 }

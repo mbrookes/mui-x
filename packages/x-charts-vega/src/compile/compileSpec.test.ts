@@ -64,6 +64,48 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(compiled.series).to.have.length(0);
   });
 
+  it('converts TopoJSON data (format.type topojson + feature) into a geo FeatureCollection', () => {
+    const topology = {
+      type: 'Topology',
+      objects: {
+        islands: {
+          type: 'GeometryCollection',
+          geometries: [{ type: 'Polygon', arcs: [[0]], properties: { name: 'A', v: 7 } }],
+        },
+      },
+      arcs: [
+        [
+          [0, 0],
+          [0, 1],
+          [1, 1],
+          [1, 0],
+          [0, 0],
+        ],
+      ],
+    };
+    const compiled = compileSpec({
+      data: { values: topology, format: { type: 'topojson', feature: 'islands' } },
+      mark: 'geoshape',
+    } as unknown as VegaLiteSpec);
+    expect(compiled.chartKind).to.equal('geo');
+    expect(compiled.gaps.filter((gap) => gap.code.startsWith('data:topojson'))).to.have.length(0);
+    const geoData = compiled.geo?.geoData as { features?: unknown[] };
+    expect(geoData?.features).to.have.length(1);
+  });
+
+  it('reports a gap naming the available objects for a missing topojson feature', () => {
+    const compiled = compileSpec({
+      data: {
+        values: { type: 'Topology', objects: { counties: {} }, arcs: [] },
+        format: { type: 'topojson', feature: 'nope' },
+      },
+      mark: 'geoshape',
+    } as unknown as VegaLiteSpec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'data:topojson-feature');
+    expect(gap?.severity).to.equal('unsupported');
+    expect(gap?.message).to.contain('counties');
+  });
+
   it('reports facet/concat compositions as gaps', () => {
     const compiled = compileSpec({
       hconcat: [{ mark: 'bar' }],

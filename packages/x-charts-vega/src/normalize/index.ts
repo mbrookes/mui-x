@@ -8,6 +8,7 @@ import type {
   VegaTransform,
   VegaUnitSpec,
 } from '../types';
+import { feature as topojsonFeature } from 'topojson-client';
 import type { GapCollector } from '../gaps';
 
 export interface NormalizedUnit {
@@ -40,6 +41,59 @@ export interface NormalizeOptions {
   datasets?: Record<string, readonly DatasetRow[]>;
 }
 
+/**
+ * Converts a TopoJSON payload (`data.format.type: 'topojson'`) into GeoJSON
+ * rows: the named `format.feature` object becomes a single FeatureCollection
+ * row, which the geoshape mark compiler already understands.
+ */
+function resolveTopojsonRows(
+  data: VegaData,
+  gaps: GapCollector,
+  path: string,
+): readonly DatasetRow[] | undefined {
+  const topology = data.values;
+  if (
+    topology == null ||
+    typeof topology !== 'object' ||
+    Array.isArray(topology) ||
+    (topology as { type?: unknown }).type !== 'Topology'
+  ) {
+    gaps.add({
+      code: 'data:topojson-invalid',
+      message:
+        'The `format.type: "topojson"` payload in `data.values` is not a TopoJSON Topology object; the data was ignored.',
+      severity: 'unsupported',
+      path: `${path}.data.values`,
+    });
+    return undefined;
+  }
+  if (data.format?.mesh !== undefined) {
+    gaps.add({
+      code: 'data:topojson-mesh',
+      message:
+        'TopoJSON `format.mesh` extraction (boundary meshes) is not supported; use `format.feature` to extract polygons instead.',
+      severity: 'unsupported',
+      path: `${path}.data.format.mesh`,
+    });
+    return undefined;
+  }
+  const featureName = data.format?.feature;
+  const objects = (topology as { objects?: Record<string, unknown> }).objects ?? {};
+  if (typeof featureName !== 'string' || objects[featureName] === undefined) {
+    gaps.add({
+      code: 'data:topojson-feature',
+      message:
+        `TopoJSON data needs \`format.feature\` naming one of the topology's objects ` +
+        `(available: ${Object.keys(objects).join(', ') || 'none'}).`,
+      severity: 'unsupported',
+      path: `${path}.data.format.feature`,
+    });
+    return undefined;
+  }
+  const collection = topojsonFeature(topology as never, featureName as never);
+  return [collection as unknown as DatasetRow];
+}
+
 function resolveRows(
   data: VegaData | null | undefined,
   inherited: readonly DatasetRow[],
@@ -49,6 +103,9 @@ function resolveRows(
 ): readonly DatasetRow[] {
   if (data == null) {
     return inherited;
+  }
+  if (data.format?.type === 'topojson' && data.values !== undefined) {
+    return resolveTopojsonRows(data, gaps, path) ?? inherited;
   }
   if (Array.isArray(data.values)) {
     return data.values as readonly DatasetRow[];
@@ -62,6 +119,10 @@ function resolveRows(
       path: `${path}.data.values`,
     });
     return inherited;
+  }
+  if (data.values !== undefined && typeof data.values === 'object') {
+    // A single object payload (e.g. a GeoJSON FeatureCollection) is one row.
+    return [data.values as DatasetRow];
   }
   if (data.name !== undefined) {
     const named = datasets[data.name];

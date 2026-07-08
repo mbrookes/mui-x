@@ -207,6 +207,7 @@ function resolveContinuousColorMap(
   rows: readonly DatasetRow[],
   gaps: GapCollector,
   path: string,
+  options?: ResolveColorOptions,
 ): ContinuousColorMapConfig | PiecewiseColorMapConfig | undefined {
   const { field } = fieldDef;
   const isTemporal = fieldDef.type === 'temporal';
@@ -248,14 +249,19 @@ function resolveContinuousColorMap(
     }
   }
 
-  gaps.add({
-    code: binned ? 'encoding:color-binned' : 'encoding:color-continuous',
-    message: binned
-      ? "Binned quantitative color fields map to a piecewise axis `colorMap`, but only some x-charts series types honor axis `colorMap` — marks that don't consume it fall back to a single series color."
-      : "Continuous color encodings map to a continuous axis `colorMap` computed from the data extent, but only some x-charts series types honor axis `colorMap` — marks that don't consume it fall back to a single series color.",
-    severity: 'partial',
-    path: `${path}.encoding.color`,
-  });
+  // Callers that actually wire the colorMap into an axis (heatmaps, maps)
+  // suppress this caveat — the approximation warning only applies to marks
+  // that fall back to a single series color.
+  if (!options?.colorMapConsumed) {
+    gaps.add({
+      code: binned ? 'encoding:color-binned' : 'encoding:color-continuous',
+      message: binned
+        ? "Binned quantitative color fields map to a piecewise axis `colorMap`, but only some x-charts series types honor axis `colorMap` — marks that don't consume it fall back to a single series color."
+        : "Continuous color encodings map to a continuous axis `colorMap` computed from the data extent, but only some x-charts series types honor axis `colorMap` — marks that don't consume it fall back to a single series color.",
+      severity: 'partial',
+      path: `${path}.encoding.color`,
+    });
+  }
 
   if (
     min === undefined ||
@@ -288,11 +294,21 @@ function resolveContinuousColorMap(
   };
 }
 
+export interface ResolveColorOptions {
+  /**
+   * Set by callers that feed the returned `colorMap` into a real color axis
+   * (heatmap zAxis, map color axis): suppresses the "only some series types
+   * honor colorMap" partial gap, which would be misleading there.
+   */
+  colorMapConsumed?: boolean;
+}
+
 export function resolveColor(
   encoding: VegaEncoding,
   rows: readonly DatasetRow[],
   gaps: GapCollector,
   path: string,
+  options?: ResolveColorOptions,
 ): ColorResolution {
   // fill vs stroke: `color` always wins; between `fill` and `stroke` the
   // former wins (see the `??` chain below) — record the loser as ignored.
@@ -353,7 +369,7 @@ export function resolveColor(
     const fieldDef = def as VegaFieldDef;
     const { type } = fieldDef;
     if (type === 'quantitative' || type === 'temporal') {
-      const colorMap = resolveContinuousColorMap(fieldDef, rows, gaps, path);
+      const colorMap = resolveContinuousColorMap(fieldDef, rows, gaps, path, options);
       return { hasLegend: false, colorMap };
     }
 

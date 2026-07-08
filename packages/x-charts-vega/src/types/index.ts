@@ -296,10 +296,14 @@ export type VegaTransform =
   | Record<string, unknown>;
 
 export interface VegaData {
-  values?: readonly DatasetRow[] | string;
+  /**
+   * Inline rows, a raw CSV/TSV payload string, or a single object payload
+   * (e.g. a TopoJSON topology when `format.type` is `'topojson'`).
+   */
+  values?: readonly DatasetRow[] | string | DatasetRow;
   name?: string;
   url?: string;
-  format?: Record<string, unknown>;
+  format?: { type?: string; feature?: string; mesh?: string; [key: string]: unknown };
   [key: string]: unknown;
 }
 
@@ -323,7 +327,9 @@ export interface VegaLayerSpec {
   encoding?: VegaEncoding;
   transform?: VegaTransform[];
   resolve?: {
-    scale?: Partial<Record<'x' | 'y' | 'color' | 'size' | 'shape' | 'theta', 'shared' | 'independent'>>;
+    scale?: Partial<
+      Record<'x' | 'y' | 'color' | 'size' | 'shape' | 'theta', 'shared' | 'independent'>
+    >;
     axis?: Record<string, unknown>;
     legend?: Record<string, unknown>;
   };

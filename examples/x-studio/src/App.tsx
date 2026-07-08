@@ -38,12 +38,13 @@ import {
 
 const PAGE_ID = 'page-library-usage';
 const INTRO_WIDGET_ID = 'widget-text-intro';
-const HEATMAP_WIDGET_ID = 'widget-heatmap-library-usage';
+const CHART_WIDGET_ID = 'widget-chart-library-usage';
 
 /**
- * A single page whose heatmap plots, for every (component library, data grid
- * library) pair, how many non-fork GitHub repos declare both as dependencies
- * — see `connectors/githubLibraryUsageSource.ts` for how the cells are computed.
+ * A single page whose 100%-stacked bar chart plots, for every component
+ * library, the relative share of each data grid library among non-fork
+ * GitHub repos that declare both as dependencies — see
+ * `connectors/githubLibraryUsageSource.ts` for how the values are computed.
  */
 const INITIAL_STATE: Partial<StudioState> = {
   doc: {
@@ -57,7 +58,7 @@ const INITIAL_STATE: Partial<StudioState> = {
       [PAGE_ID]: {
         id: PAGE_ID,
         title: 'Library Adoption',
-        widgetRows: [[INTRO_WIDGET_ID], [HEATMAP_WIDGET_ID]],
+        widgetRows: [[INTRO_WIDGET_ID], [CHART_WIDGET_ID]],
       },
     },
     widgets: {
@@ -73,19 +74,17 @@ const INITIAL_STATE: Partial<StudioState> = {
           textSubtitle: 'Non-fork GitHub repos whose package.json combines each pair of libraries',
         },
       },
-      [HEATMAP_WIDGET_ID]: {
-        id: HEATMAP_WIDGET_ID,
+      [CHART_WIDGET_ID]: {
+        id: CHART_WIDGET_ID,
         kind: 'chart',
         title: 'Repositories using both libraries',
         titleMode: 'manual',
         sourceId: GITHUB_LIBRARY_USAGE_SOURCE_ID,
         config: {
-          chartType: 'heatmap',
+          chartType: 'bar-100',
           xField: 'componentLibrary',
-          heatYField: 'dataGridLibrary',
+          seriesField: 'dataGridLibrary',
           yField: 'repoCount',
-          yAggregation: 'sum',
-          heatColorScheme: 'primary',
         },
       },
     },
@@ -294,7 +293,7 @@ export default function App() {
   // Wire the GitHub library-usage connector unconditionally — it always talks
   // to this app's own /api/github-library-usage endpoint regardless of any
   // data-source mode. Pre-fetch rows so the data drawer shows the correct
-  // count and preview, and so the heatmap has a synchronous fallback on cold
+  // count and preview, and so the chart has a synchronous fallback on cold
   // cache (no empty flash).
   React.useEffect(() => {
     studioRef.current?.setDataSourceAdapter(

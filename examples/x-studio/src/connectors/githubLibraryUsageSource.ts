@@ -1,6 +1,6 @@
 /**
  * Client connector for the "component library × data grid library" adoption
- * heatmap.
+ * chart.
  *
  * Reads GET /api/github-library-usage from this app's own API server (see
  * src/server/index.ts + src/server/githubLibraryUsage.ts), which proxies
@@ -14,7 +14,7 @@
  * proxies `/api` to the separately-running `pnpm server` process.
  *
  * Without the API server running, or when it has no GITHUB_SEARCH_TOKEN configured,
- * the endpoint returns an empty row set and the heatmap shows its "no data"
+ * the endpoint returns an empty row set and the chart shows its "no data"
  * state rather than erroring.
  */
 import type { StudioDataSource, StudioDataSourceAdapter } from '@mui/x-studio';

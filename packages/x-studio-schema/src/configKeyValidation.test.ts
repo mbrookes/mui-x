@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   getAllowedChartConfigKeys,
   getAllowedConfigKeys,
+  stripForeignFamilyKeys,
   validateChartConfigKeysForType,
   validateConfigKeysForKind,
 } from './configKeyValidation';
+import { STUDIO_CHART_TYPES } from './widgetTypeGuards';
 
 describe('getAllowedConfigKeys', () => {
   it('includes the shared config keys plus the kind-specific keys for a built-in kind', () => {
@@ -182,5 +184,77 @@ describe('validateChartConfigKeysForType', () => {
     expect(
       validateChartConfigKeysForType('bar', { chartType: 'bar', forecast: { enabled: true } }),
     ).toEqual(['forecast']);
+  });
+
+  it('accepts sort/group-by keys on the pie/donut family (schema review 1.1)', () => {
+    // Regression: the pie/donut family previously omitted these keys, so the
+    // write-side guard silently discarded user Sort/Group-by edits on pie & donut.
+    expect(
+      validateChartConfigKeysForType('pie', {
+        chartType: 'pie',
+        chartSortBy: 'value',
+        chartSortDirection: 'desc',
+        xGroupBy: 'month',
+      }),
+    ).toEqual([]);
+    expect(
+      validateChartConfigKeysForType('donut', {
+        chartType: 'donut',
+        chartSortBy: 'category',
+        chartSortDirection: 'asc',
+        xGroupBy: 'quarter',
+      }),
+    ).toEqual([]);
+  });
+
+  it('ignores keys whose value is `undefined` (a chart-type switch clears, never corrupts)', () => {
+    // Switching chart types sends `{ chartType: 'line', barLayout: undefined }` — the
+    // `barLayout: undefined` can only DELETE the stale key on merge, so it must not be
+    // flagged as invalid for the line family.
+    expect(
+      validateChartConfigKeysForType('line', { chartType: 'line', barLayout: undefined }),
+    ).toEqual([]);
+  });
+});
+
+describe('validateConfigKeysForKind — undefined-valued keys', () => {
+  it('ignores a key set to `undefined` even if it is invalid for the kind', () => {
+    // A grid config carrying a chart-only key SET TO UNDEFINED only clears it on
+    // merge, so it must not be flagged.
+    expect(validateConfigKeysForKind('grid', { columns: [], chartType: undefined })).toEqual([]);
+    // ...but a real (defined) wrong-kind value is still flagged.
+    expect(validateConfigKeysForKind('grid', { columns: [], chartType: 'bar' })).toEqual([
+      'chartType',
+    ]);
+  });
+});
+
+describe('stripForeignFamilyKeys', () => {
+  it("strips a gauge config's leftover bar-era xField when given chartType 'gauge'", () => {
+    const stored = { chartType: 'gauge', yField: 'revenue', gaugeMax: 200, xField: 'region' };
+    expect(stripForeignFamilyKeys(stored, 'gauge')).toEqual({
+      chartType: 'gauge',
+      yField: 'revenue',
+      gaugeMax: 200,
+    });
+  });
+
+  it('is a value-preserving copy for a config already valid for the chart type', () => {
+    const clean = { chartType: 'bar', xField: 'region', yField: 'revenue', chartSortBy: 'value' };
+    const result = stripForeignFamilyKeys(clean, 'bar');
+    expect(result).toEqual(clean);
+    // Returns a copy, never the same reference.
+    expect(result).not.toBe(clean);
+  });
+});
+
+describe('STUDIO_CHART_TYPES completeness (proxy pin for the compile-time lock)', () => {
+  it('lists exactly the 16 StudioChartType literals', () => {
+    // Runtime proxy for the `AssertAllChartTypesListed` error-tuple lock: if a chart
+    // type is added to `StudioChartType` without a `STUDIO_CHART_TYPES` entry, the
+    // build fails at the assertion — this pin makes the expected count observable.
+    expect(STUDIO_CHART_TYPES.length).toBe(16);
+    // No duplicate entries.
+    expect(new Set(STUDIO_CHART_TYPES).size).toBe(STUDIO_CHART_TYPES.length);
   });
 });

@@ -311,10 +311,12 @@ export function migrateState(state: unknown): MigrationResult {
  * interactive-scoped filter entries: it spreads every doc field (so a newly-added
  * `StudioDoc` field is carried automatically — no hand-picked field list to forget it
  * from), stripping the cross-filter- and interactive-scoped filters and normalizing the
- * empties-are-omitted fields. Both scope kinds are transient/session-only — they're
- * carried forward across undo/redo by `StudioController.carryTransientDocState` rather
- * than being part of the undoable history — so persisting them to disk would be
- * inconsistent with how they're treated everywhere else.
+ * empties-are-omitted fields. The two scope kinds have DIFFERENT undo semantics but are
+ * both session-scoped and both stripped here: cross-filters are undoable but
+ * session-scoped (they time-travel with the doc, so `StudioController` does NOT carry
+ * them across undo/redo); interactive entries are carried across undo/redo by
+ * `StudioController.carryTransientDocState`. Either way, neither belongs in on-disk
+ * state, so both are stripped at this persistence boundary.
  */
 export function serializeDoc(doc: StudioDoc): SerializedStudioState {
   const { filters, ...rest } = doc;

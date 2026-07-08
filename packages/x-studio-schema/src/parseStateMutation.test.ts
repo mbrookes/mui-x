@@ -302,6 +302,28 @@ describe('parseStateMutation — malformed per-variant args', () => {
         },
       },
     },
+    // Schema review 1.2: `updateWidget.args.changes` is a wholesale widget merge that
+    // was previously unvalidated beyond `isRecord` + unsafe-key check.
+    {
+      label: 'updateWidget changes carries an id (would desync widget from its map key)',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { id: 'w2' } } },
+    },
+    {
+      label: 'updateWidget changes.title is a non-string',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { title: 42 } } },
+    },
+    {
+      label: 'updateWidget changes.config is a non-record (string)',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { config: 'garbage' } } },
+    },
+    {
+      label: 'updateWidget changes.kind is a non-string',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { kind: 7 } } },
+    },
+    {
+      label: 'updateWidget changes.sourceId is a non-string',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { sourceId: {} } } },
+    },
   ];
 
   it.each(cases)('rejects $label', ({ value }) => {

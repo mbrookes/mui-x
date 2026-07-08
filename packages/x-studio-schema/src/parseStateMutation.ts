@@ -123,6 +123,19 @@ function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
  * is deliberately NOT deep-validated: its many per-kind shapes are a leaf payload
  * the reducer never keys/iterates on, and deep-validating them here would drift on
  * every widget-config change for no safety gain.
+ *
+ * CONSTRAINT — full-widget variants may only carry FRESHLY-BUILT configs. The
+ * chart-family check below is STATELESS (it resolves the family from the incoming
+ * config's own `chartType`, with no access to any stored widget). A round-tripped
+ * STORED chart config legitimately retains keys authored under a previously-selected
+ * chartType (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
+ * `widgetTypes.ts`), so it would be rejected here for carrying another family's key
+ * (e.g. a gauge keeping a bar-era `xField`). Today no producer round-trips a stored
+ * widget through `addWidget`/`applyBulkUpdate.addedWidgets` (both middleware paths
+ * build widgets fresh), so nothing breaks. A future producer that DOES ship a stored
+ * widget verbatim must first strip its config to its effective family's keys via
+ * `stripForeignFamilyKeys` (`configKeyValidation.ts`), or the valid, user-authored
+ * config will fail this check.
  */
 function validateWidget(widget: unknown, path: string): string | null {
   if (!isRecord(widget)) {
@@ -277,6 +290,36 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       }
       if (hasUnsafeOwnKeys(args.changes)) {
         return "updateWidget.args.changes must not carry a '__proto__'/'constructor'/'prototype' key";
+      }
+      // `changes` is a wholesale widget merge, so its per-field types must be
+      // checked (unlike the `config` patch, whose per-kind interior stays a leaf).
+      // `id` is also the `state.widgets` map key: an own `id` in `changes` would
+      // desync `widget.id` from its key (splitting every id-keyed invariant —
+      // cross-filters, span lookups, layout rows), so it is rejected outright. The
+      // compile-time `Partial<Omit<StudioWidget, 'id'>>` gets its runtime
+      // counterpart here.
+      if (Object.hasOwn(args.changes, 'id')) {
+        return 'updateWidget.args.changes must not carry an id (it would desync the widget from its map key)';
+      }
+      if (!isOptionalString(args.changes.title)) {
+        return 'updateWidget.args.changes.title must be a string when present';
+      }
+      if (!isOptionalString(args.changes.subtitle)) {
+        return 'updateWidget.args.changes.subtitle must be a string when present';
+      }
+      if (!isOptionalString(args.changes.sourceId)) {
+        return 'updateWidget.args.changes.sourceId must be a string when present';
+      }
+      if (!isOptionalString(args.changes.kind)) {
+        return 'updateWidget.args.changes.kind must be a string when present';
+      }
+      if (args.changes.config !== undefined) {
+        if (!isRecord(args.changes.config)) {
+          return 'updateWidget.args.changes.config must be an object when present';
+        }
+        if (hasUnsafeOwnKeys(args.changes.config)) {
+          return "updateWidget.args.changes.config must not carry a '__proto__'/'constructor'/'prototype' key";
+        }
       }
     }
     if (args.config !== undefined) {

@@ -29,6 +29,9 @@ export {
   createDefaultWidget,
   createWidgetId,
   createMutationId,
+  createPageId,
+  createPresetId,
+  createFilterId,
   createMutationEnvelope,
   normalizeGridColumn,
   normalizeChartSeries,
@@ -51,6 +54,7 @@ export {
   validateConfigKeysForKind,
   getAllowedChartConfigKeys,
   validateChartConfigKeysForType,
+  stripForeignFamilyKeys,
 } from './configKeyValidation';
 export {
   isWidgetOfKind,

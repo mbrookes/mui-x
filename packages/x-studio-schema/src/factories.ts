@@ -48,6 +48,44 @@ export function createMutationId(): string {
 }
 
 /**
+ * Mints a collision-resistant page ID. Same scheme as {@link createWidgetId}
+ * (timestamp + per-process counter + random suffix) — see that function's doc
+ * comment for the collision-avoidance rationale. A page id becomes a `state.pages`
+ * map key, so millisecond-resolution collisions (two pages added in the same
+ * millisecond) would silently overwrite a page; the counter + random suffix rule
+ * that out.
+ */
+let pageIdSequence = 0;
+export function createPageId(): string {
+  pageIdSequence += 1;
+  return `page-${Date.now()}-${pageIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Mints a collision-resistant filter-preset ID. Same scheme as
+ * {@link createWidgetId} (timestamp + per-process counter + random suffix) — see
+ * that function's doc comment for the collision-avoidance rationale.
+ */
+let presetIdSequence = 0;
+export function createPresetId(): string {
+  presetIdSequence += 1;
+  return `preset-${Date.now()}-${presetIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Mints a collision-resistant filter ID. Same scheme as {@link createWidgetId}
+ * (timestamp + per-process counter + random suffix) — see that function's doc
+ * comment for the collision-avoidance rationale. `addFilter` is idempotent on the
+ * filter's `id`, so a millisecond-resolution collision would make a genuinely-new
+ * filter be dropped as a "re-delivery"; the counter + random suffix rule that out.
+ */
+let filterIdSequence = 0;
+export function createFilterId(): string {
+  filterIdSequence += 1;
+  return `filter-${Date.now()}-${filterIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
  * Wraps a `StateMutation` in its wire-transport {@link MutationEnvelope}: a
  * fresh `id` (via {@link createMutationId}) and the current time as `at`. The
  * ONE place a `state-mutation` SSE event's envelope is constructed, so every

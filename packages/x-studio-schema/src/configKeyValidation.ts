@@ -227,12 +227,15 @@ void SANKEY_KEYS_COVERED;
 
 const PIE_FAMILY_CHART_KEYS = [
   'crossFilterMode',
+  'chartSortBy',
+  'chartSortDirection',
   'chartType',
   'xField',
   'yField',
   'yAggregation',
   'ySeries',
   'seriesField',
+  'xGroupBy',
   'pieArcLabel',
   'pieArcLabelMinAngle',
   'pieMaxSlices',
@@ -445,6 +448,12 @@ export function getAllowedConfigKeys(kind: StudioWidgetKind): Set<string> | null
  * This is a key-PRESENCE check only — it does not validate value types or deeper
  * semantics, matching the shallow, shape-only validation style of every other
  * validator in `parseStateMutation.ts`.
+ *
+ * Keys whose value is `undefined` are skipped: an `undefined` value can only ever
+ * DELETE a key when the config is merged (never persist a wrong-family value), so
+ * flagging it produces false positives — e.g. switching chart types sends
+ * `{ chartType: 'line', barLayout: undefined }`, and `barLayout: undefined` merely
+ * clears the stale key rather than corrupting the config.
  */
 export function validateConfigKeysForKind(
   kind: StudioWidgetKind,
@@ -454,7 +463,7 @@ export function validateConfigKeysForKind(
   if (allowed === null) {
     return [];
   }
-  return Object.keys(config).filter((key) => !allowed.has(key));
+  return Object.keys(config).filter((key) => config[key] !== undefined && !allowed.has(key));
 }
 
 // ── Chart-type validators ─────────────────────────────────────────────────────
@@ -487,11 +496,45 @@ export function getAllowedChartConfigKeys(chartType: StudioChartType): Set<strin
  * `isStudioChartType`) — passing a string that is not a real `StudioChartType`
  * yields an empty allow-list and thus flags every key, which is the intended
  * fail-closed behavior for an unknown chart type (there is no permissive mode).
+ *
+ * Keys whose value is `undefined` are skipped (same rationale as
+ * `validateConfigKeysForKind`): an `undefined` value can only DELETE a key on
+ * merge, never persist a wrong-family value, so flagging it is a false positive.
  */
 export function validateChartConfigKeysForType(
   chartType: StudioChartType,
   config: Record<string, unknown>,
 ): string[] {
   const allowed = getAllowedChartConfigKeys(chartType);
-  return Object.keys(config).filter((key) => !allowed.has(key));
+  return Object.keys(config).filter((key) => config[key] !== undefined && !allowed.has(key));
+}
+
+/**
+ * Returns a copy of `config` retaining ONLY the keys valid for `chartType`'s
+ * effective family (per {@link getAllowedChartConfigKeys}); any key belonging to a
+ * different chart family is dropped.
+ *
+ * WHY THIS EXISTS (future-use — no current call site): the write-side full-widget
+ * wire check (`parseStateMutation.ts`'s `validateWidget`) is STATELESS and rejects
+ * any full widget whose config carries a key outside its `chartType`'s family. A
+ * STORED chart config legitimately retains keys authored under a previously-selected
+ * chartType (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
+ * `widgetTypes.ts`), so a future producer that round-trips a stored widget through
+ * `addWidget`/`applyBulkUpdate.addedWidgets` must strip it to its effective family's
+ * keys FIRST via this helper, or the valid, user-authored config is rejected at the
+ * boundary. This is the sanctioned way to do that strip. Shallow, key-presence-based,
+ * mirroring the validators above.
+ */
+export function stripForeignFamilyKeys(
+  config: Record<string, unknown>,
+  chartType: StudioChartType,
+): Record<string, unknown> {
+  const allowed = getAllowedChartConfigKeys(chartType);
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(config)) {
+    if (allowed.has(key)) {
+      next[key] = config[key];
+    }
+  }
+  return next;
 }

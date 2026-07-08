@@ -24,6 +24,8 @@
   "dependencies": {
     "@babel/runtime": "catalog:",
     "@mui/x-charts": "workspace:*",
+    "@mui/x-charts-premium": "workspace:*",
+    "@mui/x-charts-pro": "workspace:*",
     "@mui/x-internals": "workspace:*"
   },
   "peerDependencies": {

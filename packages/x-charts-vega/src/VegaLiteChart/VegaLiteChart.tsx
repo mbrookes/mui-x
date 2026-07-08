@@ -1,6 +1,5 @@
 'use client';
 import * as React from 'react';
-import { ChartsDataProvider } from '@mui/x-charts/ChartsDataProvider';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
 import { ChartsWrapper } from '@mui/x-charts/ChartsWrapper';
 import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
@@ -14,6 +13,11 @@ import { BarPlot } from '@mui/x-charts/BarChart';
 import { AreaPlot, LineHighlightPlot, LinePlot, MarkPlot } from '@mui/x-charts/LineChart';
 import { ScatterPlot } from '@mui/x-charts/ScatterChart';
 import { PiePlot } from '@mui/x-charts/PieChart';
+import { HeatmapPlot } from '@mui/x-charts-pro/Heatmap';
+import { ChartsDataProviderPremium } from '@mui/x-charts-premium/ChartsDataProviderPremium';
+import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
+import { RangeBarPlot } from '@mui/x-charts-premium/BarChartPremium';
+import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import type { DatasetRow, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
@@ -45,10 +49,13 @@ export interface VegaLiteChartProps {
  * Renders a Vega-Lite specification with `@mui/x-charts` subcomponents.
  *
  * This is a best-effort translator: the supported grammar subset renders
- * natively (bar/line/area/point/arc marks, positional + color encodings,
- * aggregation, stacking, layering); everything else degrades gracefully and
- * is reported through `onGaps` (and a dev-mode console warning) rather than
- * throwing. See GAPS.md for the full support matrix.
+ * natively (bar/line/area/point/arc/rect/rule/geoshape marks, positional +
+ * color encodings, aggregation, stacking, layering); everything else degrades
+ * gracefully and is reported through `onGaps` (and a dev-mode console
+ * warning) rather than throwing. Marks covered only by the commercial tiers
+ * (rect heatmaps, ranged bars, geoshape maps) render through
+ * `@mui/x-charts-premium` — without a license key they show a watermark.
+ * See GAPS.md for the full support matrix.
  */
 export function VegaLiteChart(props: VegaLiteChartProps) {
   const { spec, data, datasets, width, height, colors, onGaps, children } = props;
@@ -77,14 +84,39 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
 
   const resolvedWidth = width ?? compiled.width;
   const resolvedHeight = height ?? compiled.height;
+
+  if (compiled.chartKind === 'geo') {
+    return (
+      <ChartsGeoDataProviderPremium
+        geoData={compiled.geo?.geoData as never}
+        projection={compiled.geo?.projection as never}
+        series={compiled.series as never}
+        colors={compiled.colors.slice()}
+        width={resolvedWidth}
+        height={resolvedHeight}
+      >
+        <ChartsWrapper>
+          {compiled.hasLegend && <ChartsLegend />}
+          <ChartsSurface title={compiled.title}>
+            {compiled.plots.includes('geoBase') && <GeoDataPlot />}
+            {compiled.plots.includes('mapShape') && <MapShapePlot />}
+            {children}
+          </ChartsSurface>
+          <ChartsTooltip trigger="item" />
+        </ChartsWrapper>
+      </ChartsGeoDataProviderPremium>
+    );
+  }
+
   const xAxis = compiled.xAxis ? [compiled.xAxis.config] : undefined;
   const yAxis = compiled.yAxis ? [compiled.yAxis.config] : undefined;
 
   return (
-    <ChartsDataProvider
+    <ChartsDataProviderPremium
       series={compiled.series}
       xAxis={xAxis}
       yAxis={yAxis}
+      zAxis={compiled.zAxis}
       colors={compiled.colors.slice()}
       width={resolvedWidth}
       height={resolvedHeight}
@@ -98,7 +130,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
               horizontal={compiled.grid.horizontal ?? false}
             />
           )}
+          {compiled.plots.includes('heatmap') && <HeatmapPlot />}
           {compiled.plots.includes('bar') && <BarPlot />}
+          {compiled.plots.includes('rangeBar') && <RangeBarPlot />}
           {compiled.plots.includes('area') && <AreaPlot />}
           {compiled.plots.includes('line') && <LinePlot />}
           {compiled.plots.includes('scatter') && <ScatterPlot />}
@@ -127,8 +161,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           )}
           {children}
         </ChartsSurface>
-        <ChartsTooltip />
+        {/* Heatmap cells have no axis-tooltip payload — use the item trigger. */}
+        <ChartsTooltip trigger={compiled.plots.includes('heatmap') ? 'item' : undefined} />
       </ChartsWrapper>
-    </ChartsDataProvider>
+    </ChartsDataProviderPremium>
   );
 }

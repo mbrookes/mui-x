@@ -223,7 +223,7 @@ describe('compileBarMark', () => {
     expect(series.map((entry) => entry.color)).to.deep.equal(['#111111', '#222222']);
   });
 
-  it('reports an unsupported gap for ranged bars (x2/y2) but still renders the base bar', () => {
+  it('compiles a ranged bar (y + y2) to a rangeBar series instead of a bar', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ category: 'A', amount: 1, amount2: 5 }] },
       mark: 'bar',
@@ -235,9 +235,13 @@ describe('compileBarMark', () => {
     };
     const compiled = compileSpec(spec);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-ranged');
-    expect(gap?.severity).to.equal('unsupported');
-    expect(gap?.path).to.equal('$.encoding.y2');
+    expect(gap).to.equal(undefined);
+    expect(compiled.plots).to.include('rangeBar');
+    expect(compiled.plots).not.to.include('bar');
     expect(compiled.series).to.have.length(1);
+    const series = compiled.series[0] as { type: string; data: unknown[] };
+    expect(series.type).to.equal('rangeBar');
+    expect(series.data).to.deep.equal([[1, 5]]);
   });
 
   it('reports a gap for both x2 and y2 when both are present on the same unit', () => {
@@ -256,6 +260,10 @@ describe('compileBarMark', () => {
       .filter((entry) => entry.code === 'mark:bar-ranged')
       .map((entry) => entry.path);
     expect(rangedGapPaths).to.deep.equal(['$.encoding.x2', '$.encoding.y2']);
+    // Ambiguous (both x2 and y2) falls back to a regular, non-ranged bar.
+    expect(compiled.plots).to.include('bar');
+    expect(compiled.plots).not.to.include('rangeBar');
+    expect((compiled.series[0] as { type: string }).type).to.equal('bar');
   });
 
   it('scopes the stack id per layer so two independent bar layers do not stack together', () => {

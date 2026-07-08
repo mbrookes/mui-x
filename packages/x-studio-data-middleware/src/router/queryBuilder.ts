@@ -145,12 +145,20 @@ function applyHaving(query: any, h: HavingPredicate): void {
     gte: '>=',
     lte: '<=',
   };
-  const op = opMap[h.operator];
-  if (!op) {
+  // Gate on an OWN-property check BEFORE the lookup. `h.operator` is client JSON
+  // whose TS type is not a runtime guarantee, and `opMap` inherits from
+  // `Object.prototype`, so a `!op` falsiness guard alone is bypassable: an
+  // operator naming an inherited member (`"toString"`, `"constructor"`,
+  // `"valueOf"`, …) resolves to a truthy inherited function and defeats the guard,
+  // string-coercing a native-function source into the raw `havingRaw` fragment.
+  // `hasOwnProperty` restricts the lookup to the five real, own operator keys —
+  // the same fail-closed allowlist posture as `SAFE_OPERATORS` on the filter path.
+  if (!Object.prototype.hasOwnProperty.call(opMap, h.operator)) {
     throw new Error(
       `MUI X Studio Server: Unsupported HAVING operator "${h.operator}". Allowed: eq, gt, lt, gte, lte.`,
     );
   }
+  const op = opMap[h.operator];
   // havingRaw with ?? binding for the alias identifier, ? for the value
   query.havingRaw(`?? ${op} ?`, [h.alias, h.value]);
 }

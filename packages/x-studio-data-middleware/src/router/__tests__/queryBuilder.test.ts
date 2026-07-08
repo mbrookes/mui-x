@@ -33,6 +33,7 @@ function createRecordingDb() {
     'orderBy',
     'limit',
     'groupBy',
+    'havingRaw',
   ];
   for (const method of chainMethods) {
     builder[method] = (...args: unknown[]) => {
@@ -624,6 +625,51 @@ describe('buildSecureQuery', () => {
       // No predicate of any kind is emitted against the opted-out shared table.
       expect(calls.some((c) => String(c.args[0]).startsWith('country_codes.'))).toBe(false);
     });
+  });
+
+  describe('HAVING operator allowlist', () => {
+    // A valid descriptor that reaches `applyHaving`: a declared aggregation plus a
+    // HAVING predicate referencing its alias.
+    const havingDescriptor = (operator: unknown) =>
+      descriptor({
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        // Cast: the wire value is client JSON, whose runtime type is not the
+        // declared `'eq' | 'gt' | ...` — that is exactly what the guard defends.
+        having: [{ alias: 'total', operator: operator as any, value: 1 }],
+      });
+
+    it.each(['eq', 'gt', 'lt', 'gte', 'lte'] as const)(
+      'emits a parameterized havingRaw for the supported operator "%s"',
+      (operator) => {
+        const { db, calls } = createRecordingDb();
+        buildSecureQuery(db, BASE_CLAIMS, havingDescriptor(operator), {
+          tenancy: SINGLE_TENANT,
+        });
+        const havingCall = calls.find((c) => c.method === 'havingRaw');
+        expect(havingCall).toBeDefined();
+        expect(havingCall!.args[1]).toEqual(['total', 1]);
+      },
+    );
+
+    // Regression: `opMap` is a plain object literal that inherits from
+    // `Object.prototype`, so a `!op` falsiness guard alone let an operator naming
+    // an inherited member (`"toString"`, `"constructor"`, …) resolve to a truthy
+    // inherited function and reach `havingRaw` as a stringified native function.
+    // The own-property gate must reject these with the same "Unsupported HAVING
+    // operator" error, never interpolating the inherited value.
+    it.each(['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'rejects the prototype-inherited operator "%s" (allowlist bypass guard)',
+      (operator) => {
+        const { db, calls } = createRecordingDb();
+        expect(() =>
+          buildSecureQuery(db, BASE_CLAIMS, havingDescriptor(operator), {
+            tenancy: SINGLE_TENANT,
+          }),
+        ).toThrow(/Unsupported HAVING operator/);
+        // The inherited value never reached the raw SQL fragment.
+        expect(calls.some((c) => c.method === 'havingRaw')).toBe(false);
+      },
+    );
   });
 
   it('queries the descriptor table and returns the builder', () => {

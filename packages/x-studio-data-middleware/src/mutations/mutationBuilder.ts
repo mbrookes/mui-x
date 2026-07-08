@@ -109,8 +109,15 @@ function validateSecurityColumnValues(
     claims.regionIds !== undefined &&
     Object.prototype.hasOwnProperty.call(values, cols.region)
   ) {
-    const region = values[cols.region] as number;
-    if (!claims.regionIds.includes(region)) {
+    const region = values[cols.region];
+    // Compare as strings on both sides. `claims.regionIds` is typed `number[]`,
+    // but a deployment whose region column is TEXT-typed sends a string region
+    // value; a strict `Array.prototype.includes` (SameValueZero) comparison would
+    // then never match `"5"` against `[5]` and reject a legitimate scoped write
+    // with a confusing "outside the caller's permitted regions" error. Normalizing
+    // both sides keeps this direction fail-closed (a value not in the permitted set
+    // still throws) while tolerating a numeric/string type mismatch.
+    if (!claims.regionIds.some((id) => String(id) === String(region))) {
       throw new Error(
         `MUI X Studio Server: Column "${cols.region}" value "${String(region)}" is outside the caller's permitted regions. ` +
           `A mutation cannot write a row into a region the caller cannot access. ` +

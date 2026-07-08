@@ -1,217 +1,226 @@
-# Architecture / Tech-Debt Review — `@mui/x-studio-data-middleware`
+# Architecture / tech-debt review — `@mui/x-studio-data-middleware`
 
-Independent review of `packages/x-studio-data-middleware/src`, verified against current source
-(not `ARCHITECTURE.md`, which is treated as a possibly-stale map). Every finding cites
-file:line and describes a concrete failure scenario.
+Independent review of `packages/x-studio-data-middleware/src/` (all 45 files read in full),
+covering the current working tree. Line numbers refer to the current working tree.
 
-Two sanity-checks requested up front, both verified against the real code:
+This package changed substantially since the previous review: the SELECT-\* allowlist bypass,
+the qualified-`values`-key mutation bypass, and the missing ORDER-BY-direction validation
+(old findings 1.1/1.2/1.3) are all now **fixed** — `synthesizeProjectionFromAllowlist`,
+`rejectQualifiedValueKeys`, and `validateOrderByDirections` respectively, each with dedicated
+tests. Tenancy is now a required, fail-closed decision (`TenancyConfig`), `security/types.ts`
+is a thin re-export facade over `authTypes`/`queryTypes`/`mutationTypes`, `columnAllowlist` is
+folded into the policy digest, and alias resolution is consolidated into a single
+`ValidatedQueryPlan`. The old review's findings were re-derived from scratch and are **not**
+carried forward except where still true.
 
-- **"`buildSecureQuery`/`executeForTier`/`runPreflight` never call `resolveAlias`."** HOLDS.
-  A grep for `resolveAlias` across `router/*.ts` finds only doc-comment mentions — the only
-  runtime callers are `shared/columnValidation.ts` and `security/validateQueryPlan.ts`. The
-  three enforcement functions read pre-resolved `ColumnRef`s off the plan. No stray direct call.
-- **"Every mutation builder threads the SAME `CompiledSecurityPolicy`."** HOLDS.
-  `handleMutation` (`mutations/handleMutation.ts:60`) compiles one `policy` and passes that exact
-  object to `validateMutation` and all three builders (`:101, :111, :123, :128`).
-  `validateMutation` and each builder call `resolvePrimaryCols(table, policy)` on the identical
-  object, so no two builders in a batch can resolve security columns inconsistently.
+**Security sanity-check.** Under direct inspection the three core invariants hold:
+
+- **Tenancy isolation is fail-closed.** `handleBatchQuery`/`handleMutation` both call
+  `compileSecurityPolicy({ tenancy, ... })` once at the top (`handler.ts:87`,
+  `handleMutation.ts:62`), before any query is built. `tenancy` is a required field; a runtime
+  caller that omits it makes `compileSecurityPolicy` read `tenancy.mode` on `undefined` and throw,
+  rejecting the whole request — there is no code path that resolves to an unscoped, all-tenant
+  query by omission. `single-tenant` is the _only_ way to get no tenant predicate, and it must be
+  declared explicitly; `single-tenant` + a `perTable[t].tenant` override is a contradiction that
+  throws (`compileSecurityPolicy.ts:160-173`). The tenant predicate is applied first, before user
+  filters, on the primary table and (by default, fail-closed inheritance) every joined table
+  (`queryBuilder.ts:106-116`, `predicates.ts:128-162`); on writes the tenant column is stamped on
+  INSERT and stripped from UPDATE `values` and appended to the WHERE unconditionally
+  (`mutationBuilder.ts:202-289`). The internal query/execute functions that skip validation are
+  **not** part of the public surface — `index.ts` exports only `handleBatchQuery`,
+  `handleMutation`, `generateCacheKey`, `extractSecurityClaims` and the cache providers — so the
+  no-throw direct-caller paths (`toValidatedQueryPlan`/`toCompiledSecurityPolicy` on a raw
+  descriptor) are reachable only from tests, not from client input.
+- **Column-allowlist enforcement is complete over every reference that reaches SQL.**
+  `validateDescriptorColumns` (`columnValidation.ts:105-152`) checks projection columns, filter
+  predicates, ORDER BY, aggregation targets, and **both sides** of every `join.on` pair — each
+  after `resolveAlias`, and each against the table it will actually execute against (the join
+  right-side against `join.table`, not the primary). `synthesizeProjectionFromAllowlist`
+  (`validateQueryPlan.ts:204-226`) closes the no-columns `SELECT *` hole fail-closed. HAVING can
+  only name an aggregation alias (`validateHavingAliases`), and aggregation aliases are
+  charset-restricted (`validateAggregationAliases`) since they are string-interpolated. A
+  `columnAliases` entry can only relabel a column the caller could already reach, because both
+  validation and execution resolve through the _same_ `resolveAlias` and the executor reads
+  pre-resolved `ColumnRef`s off the plan (verified: no `resolveAlias` call exists anywhere under
+  `router/`). One real defect exists in this area, but it is fail-_closed_ (over-rejection, not a
+  leak) — see finding 1.1.
+- **Cache-key / policy-digest correctness holds.** The key is
+  `studio:v1:<tenantId>:<securityHash>:<queryHash>` (`cacheKey.ts:112`), where `securityHash` is an
+  HMAC over `{tenantId, regionIds(sorted), department, policyDigest}` and `policyDigest` folds
+  `tenancy`, `securityColumns`, **and** `columnAllowlist` (`compileSecurityPolicy.ts:105-114`).
+  Two tenants cannot collide (tenantId is both a literal key segment and inside the HMAC); two
+  requests differing only in `columnAllowlist`, tenancy scope, or security columns get different
+  keys (traced through `compileSecurityPolicy.test.ts` and `cacheKeyPolicyDigest.test.ts`, which
+  pin exactly this). The single canonical serializer (`canonicalize.ts`) feeds both the cache hash
+  and the digest, so they cannot drift. A missing HMAC secret throws (fail-closed). Cache reads are
+  never served across a policy/tenant boundary because the key encodes all of them.
+
+Net: the security-critical machinery is genuinely hardened and well-tested. The findings below are
+one real correctness bug (fail-closed, so not a leak, but it breaks a normal feature combination),
+a few maintainability/defense-in-depth observations, and minor/cosmetic items.
 
 ---
 
 ## Tier 1: Correctness & Security
 
-### 1.1 — Column allowlist is fully bypassed when `columns` is empty/omitted (`SELECT *`) — HIGH
+### 1.1 An ORDER BY on an aggregation alias is falsely rejected whenever a `columnAllowlist` is configured
 
-**Files:** `router/execute.ts:69-74`; enabled by `security/types.ts:170` (`columns?` optional) and
-`shared/columnValidation.ts:105-152` (only validates _referenced_ columns).
+- `shared/columnValidation.ts:123-125` (the `orderBy` loop in `validateDescriptorColumns`)
+- consumed by `security/validateQueryPlan.ts:319-321`
+- contrast with the _correct_ handling in `security/validateQueryPlan.ts:262-275` (`buildPlan`)
 
-`executeForTier` only adds a projection when `queryPlan.columns.length > 0`. When a widget omits
-`columns` (or sends `columns: []`), no `.select()` is ever called, so Knex emits `SELECT *` and
-returns **every physical column of the table (and every joined table)** — including columns the
-host deliberately kept out of `columnAllowlist`.
+`validateDescriptorColumns` validates every `orderBy[].column` against the column allowlist as if it
+were a physical column:
 
-Failure scenario: host configures `columnAllowlist: { employees: ['id', 'name', 'department'] }`
-to hide `salary`/`ssn`. A client POSTs `{ id: 'w', table: 'employees' }` with no `columns`.
-`validateQueryPlan` finds nothing to validate (no columns/filters/orderBy referenced), passes, and
-the client tier returns raw rows with all columns, `salary`/`ssn` included. The result is then
-cached. The allowlist — whose stated purpose (`types.ts:437` "SECURITY INVARIANT #2") is to stop
-column probing — provides zero projection protection in its most common bypass.
+```ts
+for (const ob of descriptor.orderBy ?? []) {
+  check(ob.column, 'orderBy'); // -> checkColumnAgainstAllowlist, throws if not allowlisted
+}
+```
 
-Fix sketch: when a `columnAllowlist` is configured, a widget with no explicit projection must
-resolve to the allowlisted column set for its table(s) (i.e. synthesize the projection from the
-allowlist, or reject an empty projection under an allowlist) rather than falling through to
-`SELECT *`.
+But an ORDER BY target is frequently an **aggregation alias**, not a physical column — e.g. "top
+regions by `total_revenue`". The plan _builder_ correctly distinguishes the two cases
+(`buildPlan` at `validateQueryPlan.ts:262-275` checks `aggAliasSet.has(ob.column)` and keeps an
+aggregation alias as `aggAlias`, resolving only true physical columns). The _validator_ has no such
+exclusion, and it runs first (`validateQueryPlan.ts:319-321`, before `buildPlan`), so it throws on
+the alias before the builder ever sees it. A host allowlists _physical_ columns, never the client's
+freely-chosen aggregation aliases, so the alias is essentially never present in the allowlist.
 
-### 1.2 — Qualified `values` keys bypass tenant/region/department scope validation on mutations — HIGH
+I confirmed this empirically by running `validateQueryPlan` on
+`{ columns:['region'], aggregations:[{column:'amount',func:'sum',alias:'total_revenue'}],
+orderBy:[{column:'total_revenue',direction:'desc'}] }` with `columnAllowlist { sales:['region','amount'] }`:
+it throws `Column "total_revenue" on table "sales" is not in the column allowlist (orderBy)`.
 
-**Files:** `mutations/mutationBuilder.ts:63-106` (`validateSecurityColumnValues`) vs.
-`:154-158` (`writableColumns` check) and `:177-185` (`buildInsertMutation`).
+**Failure scenario:** not a cross-tenant leak — it is fail-_closed_ (a legitimate query is
+rejected). A dashboard widget doing "sum amount by region, ordered by the sum, descending" — the
+single most common aggregation shape — returns `{ rows: [], error: 'Column "total_revenue" ... not
+in the column allowlist (orderBy)' }` for **every** deployment that turns on `columnAllowlist`.
+Because column-level security is exactly the posture a security-conscious host enables, the bug
+preferentially breaks the hardened deployments. It is entirely untested: the aggregation+ORDER BY
+tests (`handler.test.ts:980-1124`) never pass a `columnAllowlist`, and the HAVING tests that _do_
+pass one (`handler.test.ts:1156-1347`) never combine it with an ORDER BY on the alias — so the gap
+sits precisely between two test clusters.
 
-`validateSecurityColumnValues` detects the tenant/region/department columns by **exact key match**
-(`Object.prototype.hasOwnProperty.call(values, cols.tenant)` where `cols.tenant` is the _unqualified_
-name, e.g. `tenant_id`). The `writableColumns` check on the very next lines uses
-`checkColumnAgainstAllowlist`, which **splits on the first dot** and validates `table.column`
-against the named table. These two validators disagree about what a column key is.
-
-Failure scenario (region bypass): caller has `regionIds: [5]`,
-`writableColumns: { orders: ['*'] }` (or a list that includes `region_id`). Client sends
-`insert` with `values: { 'orders.region_id': 6 }`.
-
-- `validateSecurityColumnValues` looks for key `'region_id'`, finds only `'orders.region_id'`,
-  so the "region outside caller scope" check is **skipped** — the row is stamped into region 6.
-- `checkColumnAgainstAllowlist('orders.region_id', …)` splits to `orders`/`region_id` and passes.
-
-The same trick bypasses the tenant-column-set rejection (`:68`): a client can send
-`values: { 'orders.tenant_id': 'other-tenant' }`; the exact-key guard misses it, and
-`buildInsertMutation` then separately sets the _unqualified_ `values['tenant_id']`, leaving the
-client's dotted key in the insert payload as well (behavior then depends on how Knex renders a
-dotted insert key — at best an error, at worst two tenant writes). The region/department path has
-no compensating stamp, so region/department scope is genuinely defeated when `writableColumns`
-permits the column.
-
-Fix sketch: normalize `values` keys (strip/resolve the qualifier to the target table) **before**
-`validateSecurityColumnValues` runs, so the scope check and the writable-columns check agree on the
-column identity; or reject qualified keys in `values` outright (a mutation always targets one table).
-
-### 1.3 — `orderBy.direction` is never runtime-validated — MEDIUM
-
-**Files:** `router/execute.ts:80, :134`; type at `security/types.ts:252-255`.
-
-`ob.direction` is forwarded straight into `query.orderBy(col, ob.direction)`. Its TypeScript type is
-`'asc' | 'desc'`, but the value originates from client JSON and is never checked at runtime — unlike
-`agg.alias` (regex-guarded in `validateAggregationAliases`) and filter operators (`SAFE_OPERATORS`),
-both of which the package validates _precisely because_ "types are not runtime guarantees" (see
-invariant 4 in `ARCHITECTURE.md`). Safety here rests entirely on the host's Knex version sanitizing
-the direction token; the package itself applies no defense-in-depth for the one order-by token it
-hands Knex. This is the same drift class the codebase otherwise guards obsessively.
-
-Fix sketch: add a two-value allowlist check (`asc`/`desc`, case-insensitive) in `validateQueryPlan`
-(or when building `PlanOrderBy`) and reject anything else, mirroring the `SAFE_OPERATORS` pattern.
-
-### 1.4 — Public `securityColumns` JSDoc documents the OLD fail-OPEN join behavior — MEDIUM (doc, security-relevant)
-
-**File:** `security/types.ts:477-479` (also shipped in `.d.ts` to consumers).
-
-> "Joined tables without a `perTable` entry carrying a `tenant` column are treated as shared and
-> receive no predicate."
-
-This is the pre-hardening (fail-open) contract and directly contradicts the _current_ code:
-`resolveJoinSecurityColumns` (`shared/predicates.ts:89-107`) now **inherits** the primary table's
-security columns for an unregistered join (fail-closed) and only returns `undefined` for the explicit
-`perTable[table] = null` opt-out. A host operator reading this JSDoc would believe an unregistered
-joined table joins unscoped — the exact cross-tenant fan-out the hardening closed — and might design
-their schema/config around a guarantee the code no longer makes (or, worse, a maintainer might "fix"
-the code back to match the doc). The correct, fail-closed description already exists a few lines up
-at `types.ts:74-83`, so the two blocks in the same file disagree.
-
-Fix sketch: rewrite `:477-479` to match `resolveJoinSecurityColumns` (default inheritance =
-fail-closed; `null` = opt-out).
-
-### 1.5 — Demo JWT verifier ignores the JWT `alg` header — LOW (documented demo)
-
-**File:** `security/extractSecurityClaims.ts:60-74`.
-
-The verifier never inspects the header's `alg` field; it unconditionally recomputes HS256 and
-compares. Because it _always_ uses HS256 regardless of what the token claims, the classic
-`alg:none`/algorithm-confusion attacks do not actually succeed here (a forged `alg:none` token still
-fails the HMAC compare). So this is not currently exploitable, and the file is explicitly labeled a
-"demonstration implementation" to be replaced in production. Flagged only so the reviewer notes the
-missing `alg` pin should NOT be copied into any real replacement. No code change required in this
-package beyond the existing "replace me" guidance.
+**Fix:** in the `orderBy` loop of `validateDescriptorColumns`, skip any `ob.column` that matches a
+declared aggregation alias (mirror `buildPlan`'s `aggAliasSet.has(...)` check), validating only
+targets that are not aggregation aliases. This keeps physical ORDER BY columns fail-closed while
+letting a legitimate alias through — and the executor already handles the alias correctly, so no
+downstream change is needed. Add a `handler.test.ts` case combining `columnAllowlist` +
+`aggregations` + `orderBy` on the alias to pin it.
 
 ---
 
-## Tier 2: Structural Duplication
+## Tier 2: Design smells / maintainability risks
 
-### 2.1 — `sortedStringify` duplicated verbatim in two files — LOW/MEDIUM
+### 2.1 Validation errors reject the whole batch; execution errors are isolated per-widget
 
-**Files:** `security/cacheKey.ts:87-98` and `security/compileSecurityPolicy.ts:72-83`.
+- `handler.ts:112-114` (synchronous `validateQueryPlan` map, outside the per-widget try/catch)
+- `handler.ts:155-230` (per-widget try/catch swallows execution errors into `result.error`)
 
-The same recursive, key-sorting canonical serializer is copy-pasted into both modules (identical
-logic). Both feed security-critical hashes — the cache-key security hash and the policy digest.
-If one copy is "improved" (e.g. to handle `undefined` vs. missing keys, or `Date`/`bigint`) and the
-other is not, the digest and the cache key could canonicalize the same input differently. Since both
-already live under `security/`, this should be one shared helper (e.g. `security/canonicalize.ts`).
-Not a live bug today, but it is the precise "two independent copies free to drift" pattern the
-package elsewhere treats as a defect.
+`assertTablesAllowed`, `compileSecurityPolicy` and the per-widget `validateQueryPlan` all run
+_before_ `Promise.all`, outside `processWidget`'s try/catch, so any validation throw rejects the
+entire `handleBatchQuery` promise. A DB error during execution, by contrast, is caught and returned
+as a single widget's `error` field while siblings succeed. The asymmetry is deliberate and
+documented (`handler.ts:110-111`), and defensible as "malformed request = reject the batch". But the
+consequence is that **one** client widget with, say, a bad ORDER BY direction, an unlisted column,
+or — per finding 1.1 — an ORDER BY on an aggregation alias, takes down every other widget's result
+in the same batch. For a dashboard that batches many independent widgets, a single malformed (or
+1.1-tripping) widget blanks the whole page rather than showing an error on just that tile. Worth
+reconsidering whether descriptor-validation failures should also be per-widget-isolated (returned as
+that widget's `error`) so the blast radius matches the execution path. This is a design decision,
+not a defect — flagged so the tradeoff is explicit.
 
-### 2.2 — No other significant read/write duplication
+### 2.2 Aggregate expressions are built by string interpolation, not bindings — the one spot that departs from the package's `??`/`.where()` discipline
 
-Security-column resolution, predicate building, alias resolution, table-allowlist assertion, and the
-column-allowlist check are all genuinely centralized (`shared/predicates.ts`,
-`shared/columnValidation.ts`, `shared/assertTablesAllowed.ts`, `compileSecurityPolicy`,
-`validateQueryPlan`) and consumed by both paths. The two Redis providers already share
-`cache/redisCompat.ts`. Nothing else worth flagging here.
+- `router/execute.ts:107-126` (`query.sum(\`${col} as ${agg.alias}\`)`, and `avg`/`count`/`min`/`max`)
 
----
+Everywhere else, identifiers reach Knex through `.where(col, op, val)`, `.select([...])`,
+`.on(l,'=',r)` or the `??` identifier binding — Knex escapes them. The aggregate clause is the lone
+exception: it concatenates `col` (= `qualify(agg.physical)`) and `agg.alias` into a template string
+and hands the result to `query.sum(...)`. This is **not** currently exploitable: `agg.alias` is
+charset-restricted to `[A-Za-z0-9_]` (`validateAggregationAliases`), Knex's aggregate helpers
+still identifier-escape the parsed `col`, and when a `columnAllowlist` is configured `agg.physical`
+is a host-declared allowlisted column. The residual risk is that when no `columnAllowlist` is set
+(the documented opt-in gap), `col` is a raw client column name whose safety rests entirely on Knex's
+internal parsing of the `"x as y"` aggregate string — a thinner guarantee than the explicit bindings
+used elsewhere, and one that a Knex version change could quietly weaken. Consider using Knex's
+object/`??` form for the aggregate column+alias to match the rest of the package's defense-in-depth
+posture. Low urgency; noted because it is the single interpolation-built identifier in an otherwise
+binding-disciplined codebase.
 
-## Tier 3: God-Files / Cohesion
+### 2.3 Fail-closed region/department inheritance onto joined tables is correct but operationally sharp
 
-### 3.1 — `security/types.ts` (515 lines) mixes every wire + option type behind heavy prose JSDoc — LOW
+- `shared/predicates.ts:89-107` (`resolveJoinSecurityColumns` inherits _region_ and _department_, not just tenant)
 
-**File:** `security/types.ts`.
+The fail-closed default that a joined table inherits the primary's _tenant_ column closes a real
+cross-tenant fan-out and is a good call. But the same resolver also inherits the primary's `region`
+(`region_id`) and `department` column names onto every unregistered joined table, and
+`applySecurityPredicates` will emit `whereIn('joined.region_id', ...)` / `where('joined.department',
+...)` whenever the caller's claims carry those dimensions. A joined table that has a tenant column
+but _no_ `region_id`/`department` column then produces a "no such column" SQL error — surfacing as
+that widget's `error`, i.e. fail-closed, but as an opaque DB error rather than a clear config
+message. The escape hatch (`perTable[t] = null`, or per-column overrides) exists and is documented,
+but hosts must remember to configure it for every region/department-unscoped join. Consider either
+inheriting only the tenant column by default (region/department are more schema-specific), or
+detecting the missing-column case and raising a config-oriented error. Deliberate tradeoff, not a
+bug — flagged for operability.
 
-It carries read wire types, mutation wire types, both handler option interfaces, the tenancy/security
-config types, and multi-paragraph security essays inline. It is _cohesive_ (all are type
-declarations) but it is the one file where a maintainer must scroll past unrelated concerns to find
-a given type, and — per 1.4 — it is where a stale security paragraph hid. A light split
-(`readTypes.ts` / `mutationTypes.ts` / `securityConfigTypes.ts`, re-exported from `types.ts`) would
-localize each concern. Low priority; not blocking.
+### 2.4 `unknown` aggregation `func` is silently dropped rather than rejected
 
-### 3.2 — Otherwise cohesion is good
+- `router/execute.ts:105-126` (the `switch (agg.func)` has a `default: break`)
 
-Source modules are small and single-purpose (`preflight.ts` = COUNT only, `execute.ts` = projection,
-`queryBuilder.ts` = predicates/joins, `tierDecision.ts` = routing). No god-file in the runtime path.
-`handler.test.ts` is 1410 lines but that is a test file and is sectioned by `describe` blocks.
-
----
-
-## Tier 4: Testing Gaps
-
-### 4.1 — No test that a configured `columnAllowlist` restricts projection when `columns` is empty — HIGH
-
-Directly tied to finding 1.1. The suite has "global aggregation (no columns)" (`handler.test.ts:939`)
-but nothing asserting that a **non-aggregation** widget with an allowlist and no `columns` is
-prevented from returning non-allowlisted columns. Because the behavior is currently `SELECT *`, a
-test encoding the _intended_ guarantee would fail today and pin the fix. This is exploitable-if-
-untested behavior with no coverage.
-
-### 4.2 — No test for qualified `values` keys on mutations — HIGH
-
-Directly tied to finding 1.2. `mutationBuilder.test.ts` covers qualified **WHERE** columns
-(`:259`) but there is no case sending a qualified key inside `values` (e.g. `'orders.region_id'` or
-`'orders.tenant_id'`). The tenant/region/department scope checks in `validateSecurityColumnValues`
-are therefore never exercised against a qualified key, which is exactly where they fail open.
-
-### 4.3 — `orderBy.direction` has no adversarial test — MEDIUM
-
-Tied to 1.3. `preflight.test.ts` exercises ORDER BY column _qualification_ but no test feeds a
-non-`asc`/`desc` direction to assert it is rejected (there is nothing to reject today).
-
-### 4.4 — No end-to-end handler test for `tenancy: multi-tenant` + join + `perTable` opt-out/override — MEDIUM
-
-`queryBuilder.test.ts:560-627` covers joined-table scoping (default inheritance, configured tenant
-column, `perTable[table] = null` opt-out) at the `buildSecureQuery` unit level, and
-`compileSecurityPolicy.test.ts` covers resolution parity. But there is no `handleBatchQuery`-level
-test combining multi-tenant tenancy + a real JOIN + a `perTable` override (or `null` opt-out) that
-asserts the _joined_ table's tenant predicate (or its deliberate absence) end-to-end through the
-cache-key/preflight/execute pipeline. That is the specific combination the prompt calls out, and it
-is only covered piecewise, not as an integrated path.
-
-### 4.5 — Digest determinism is tested, but not "config that resolves identically yet serializes differently" — LOW
-
-`cacheKeyPolicyDigest.test.ts` pins order-independence and default-digest behavior. It does not pin
-the (benign) case where two syntactically different but semantically identical configs
-(e.g. `perTable` absent vs. `perTable: {}`) produce different digests. This only costs a cache miss,
-never a leak, so it is low priority — noted for completeness, not as a required test.
+`agg.func` is typed `'sum'|'avg'|'count'|'min'|'max'` but originates from client JSON and is never
+runtime-validated (unlike `agg.alias`, filter operators, and ORDER BY direction, which all are). An
+out-of-set `func` falls through the `switch` default and the aggregation is silently omitted — the
+query still runs, returning a GROUP BY with a missing measure column, which the client may
+misinterpret. Not a security issue (nothing unsafe reaches SQL), but inconsistent with the package's
+otherwise-thorough "types are not runtime guarantees" validation and produces a confusing silent
+result instead of a clean rejection. Add `func` to the fail-closed validators.
 
 ---
 
-## Summary
+## Tier 3: Minor / cosmetic
 
-The package's centralization work (single alias resolver, compiled policy threaded once, shared
-predicate/allowlist helpers) is real and the two requested invariants both hold. The two most
-serious remaining gaps are **fail-open by omission**: an empty projection escapes the column
-allowlist via `SELECT *` (1.1), and qualified `values` keys slip past the mutation scope checks
-because two validators disagree on what a column key is (1.2). Both are untested (4.1, 4.2). A stale
-public JSDoc block (1.4) still advertises the pre-hardening fail-open join contract.
+### 3.1 Stale test comment claims the cache key does not fold in `columnAllowlist`
+
+- `src/__tests__/handler.test.ts:250-252`
+
+The comment reads "the cache key does not fold in `columnAllowlist` (pre-existing gap), so identical
+descriptors across these sibling tests would otherwise share one entry." That gap is closed:
+`compileSecurityPolicy` folds `columnAllowlist` into `policy.digest` (`compileSecurityPolicy.ts:105-114`)
+and the handler threads `policy.digest` into `generateCacheKey` (`handler.ts:152`). The test still
+passes (it uses a fresh `cacheProvider` anyway), but the comment now misdescribes the code and
+should be corrected to avoid misleading a future reader into thinking the fold does not happen.
+
+### 3.2 `extractPrefix` comment is off-by-one in its description
+
+- `src/cache/LRUCacheProvider.ts:176-188`
+
+The comment says "Find the 4th colon (index after `studio:v1:<tenantId>:`)" but the loop returns on
+`colons === 3`, which is correct (`studio:v1:acme:` contains three colons). The code is right; the
+"4th colon" wording is confusing and should read "3rd colon".
+
+### 3.3 `db: any` throughout the query/mutation path
+
+- `handler.ts:139`, `mutationBuilder.ts:66`/`144`, `router/*.ts`, both `Handle*Options.db`
+
+Knex is typed as `any` to avoid a hard import-time dependency (documented, and Knex is only a peer
+dependency). Reasonable, but it means the whole query-construction surface is unchecked against the
+real Knex builder types — a signature drift (e.g. a renamed `.havingRaw`/`.whereLike`) would only
+surface at runtime. A single internal `type KnexQueryBuilder` alias (even a hand-written structural
+subset of the methods actually used) applied at the boundaries would recover most of the safety
+without adding a dependency. Very low priority.
+
+### 3.4 Cohesion is otherwise good — what was checked
+
+`shared/` genuinely centralizes the security-critical logic consumed by both read and write paths
+(`predicates.ts`, `columnValidation.ts`, `assertTablesAllowed.ts`); `compileSecurityPolicy` and
+`validateQueryPlan` are each threaded once and re-used; the two Redis providers share
+`redisCompat.ts`; `canonicalize.ts` is the single serializer behind both hashes. `router/` is
+cleanly split (`preflight.ts` = COUNT only, `execute.ts` = projection/aggregation, `queryBuilder.ts`
+= predicates/joins, `tierDecision.ts` = routing). No god-file in the runtime path; the largest file
+is `handler.test.ts` (1516 lines), which is a test file sectioned by `describe` blocks. The
+`security/types.ts` facade split called out in the brief is clean — `types.ts` is a 22-line
+re-export shim over `authTypes`/`queryTypes`/`mutationTypes`, and no stale pre-hardening JSDoc
+survives the split (the old review's finding 1.4 is resolved: `authTypes.ts:66-96` and
+`mutationTypes.ts:176-208` both describe the current fail-closed inheritance).

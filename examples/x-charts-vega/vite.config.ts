@@ -17,12 +17,45 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/x-charts-vega/src'),
       },
       {
+        find: /^@mui\/x-charts-premium\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-charts-premium/src/$1'),
+      },
+      {
+        find: '@mui/x-charts-premium',
+        replacement: path.resolve(__dirname, '../../packages/x-charts-premium/src'),
+      },
+      {
+        find: /^@mui\/x-charts-pro\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-charts-pro/src/$1'),
+      },
+      {
+        find: '@mui/x-charts-pro',
+        replacement: path.resolve(__dirname, '../../packages/x-charts-pro/src'),
+      },
+      {
         find: /^@mui\/x-charts\/(.+)$/,
         replacement: path.resolve(__dirname, '../../packages/x-charts/src/$1'),
       },
       {
         find: '@mui/x-charts',
         replacement: path.resolve(__dirname, '../../packages/x-charts/src'),
+      },
+      // x-charts-pro/-premium import the license package from source too.
+      {
+        find: /^@mui\/x-license\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-license/src/$1'),
+      },
+      {
+        find: '@mui/x-license',
+        replacement: path.resolve(__dirname, '../../packages/x-license/src'),
+      },
+      {
+        find: /^@mui\/x-telemetry\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-telemetry/src/$1'),
+      },
+      {
+        find: '@mui/x-telemetry',
+        replacement: path.resolve(__dirname, '../../packages/x-telemetry/src'),
       },
       {
         find: '@mui/x-internals',

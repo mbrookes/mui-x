@@ -244,6 +244,18 @@ describe('executeToolOnState: add_page', () => {
     expect(result.nextState.doc.pages[pageId]).toBeDefined();
     expect(result.nextState.doc.dashboard.activePageId).toBe(pageId);
   });
+
+  it('mints the page id via the shared createPageId factory (page- prefix)', () => {
+    // Ids are minted through `@mui/x-studio-schema`'s `createPageId()` — a stable,
+    // collision-resistant factory — not an ad-hoc `Date.now()` string. Two pages
+    // added in the same millisecond must still get distinct ids.
+    const state = makeState();
+    const a = parseOutput(executeToolOnState('add_page', { title: 'A' }, state).output);
+    const b = parseOutput(executeToolOnState('add_page', { title: 'B' }, state).output);
+    expect(a.pageId as string).toMatch(/^page-/);
+    expect(b.pageId as string).toMatch(/^page-/);
+    expect(a.pageId).not.toBe(b.pageId);
+  });
 });
 
 describe('executeToolOnState: rename_page', () => {
@@ -675,6 +687,20 @@ describe('executeToolOnState: set_widget_width', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(orphanState);
   });
+
+  it('returns a clear error for a nonexistent widget id (no phantom col-span)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'no-such-widget', columns: 12 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/not found/i);
+    // Must NOT fall through to the `[widgetId]` fallback and emit a phantom mutation.
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
 });
 
 // ── Filters ───────────────────────────────────────────────────────────────────
@@ -714,6 +740,75 @@ describe('executeToolOnState: add_page_filter', () => {
     );
     expect(result.nextState.doc.filters?.length).toBe(before + 1);
   });
+
+  it('mints the filter id via the shared createFilterId factory (filter- prefix)', () => {
+    const state = makeState();
+    const a = parseOutput(
+      executeToolOnState(
+        'add_page_filter',
+        { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 1 },
+        state,
+      ).output,
+    );
+    const b = parseOutput(
+      executeToolOnState(
+        'add_page_filter',
+        { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 2 },
+        state,
+      ).output,
+    );
+    expect(a.filterId as string).toMatch(/^filter-/);
+    expect(a.filterId).not.toBe(b.filterId);
+  });
+
+  it('rejects an unknown filter operator with a clear error naming valid operators', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_page_filter',
+      // "eq" is a plausible-but-wrong operator the model might invent.
+      { field: 'revenue', sourceId: 'src1', operator: 'eq', value: 1 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/invalid filter operator/i);
+    expect(out.error as string).toContain('equals');
+    // Nothing committed to state on a rejected operator.
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('accepts every valid StudioFilterOperator', () => {
+    const state = makeState();
+    const operators = [
+      'equals',
+      'not_equals',
+      'in',
+      'not_in',
+      'contains',
+      'does_not_contain',
+      'starts_with',
+      'not_starts_with',
+      'ends_with',
+      'not_ends_with',
+      'is_empty',
+      'is_not_empty',
+      'greater_than',
+      'less_than',
+      'greater_than_or_equal',
+      'less_than_or_equal',
+      'between',
+    ];
+    for (const operator of operators) {
+      const out = parseOutput(
+        executeToolOnState(
+          'add_page_filter',
+          { field: 'revenue', sourceId: 'src1', operator, value: 1 },
+          state,
+        ).output,
+      );
+      expect(out.success, `operator ${operator} should be accepted`).toBe(true);
+    }
+  });
 });
 
 describe('executeToolOnState: add_widget_filter', () => {
@@ -731,6 +826,19 @@ describe('executeToolOnState: add_widget_filter', () => {
     };
     expect(mut.args.filter.scope.kind).toBe('widget');
     expect(mut.args.filter.scope.widgetId).toBe('widget-1');
+  });
+
+  it('rejects an unknown filter operator with a clear error', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget_filter',
+      { widgetId: 'widget-1', field: 'revenue', sourceId: 'src1', operator: '==', value: 1 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/invalid filter operator/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
   });
 });
 
@@ -1039,6 +1147,136 @@ describe('executeToolOnState: apply_bulk_update', () => {
       vi.restoreAllMocks();
     }
   });
+
+  it('validates a same-batch update against the chartType an EARLIER same-batch update set (no false reject)', () => {
+    // widget-1 starts as a 'bar' chart. In ONE bulk call: first change it to 'sankey',
+    // then set `sankeyTargetField` (valid only for 'sankey'). The second update must be
+    // accepted — it validates against the chartType the first update set in this same
+    // batch, not the pre-batch 'bar' snapshot (which would falsely reject it).
+    const state = makeState(); // widget-1: kind 'chart', chartType 'bar'
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetUpdates: [
+          { widgetId: 'widget-1', config: { chartType: 'sankey' } },
+          { widgetId: 'widget-1', config: { sankeyTargetField: 'region' } },
+        ],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { updated: number };
+    expect(applied.updated).toBe(2);
+    expect(out.skipped).toBeUndefined();
+    // Both deltas landed: the widget is now a sankey chart carrying the sankey key.
+    const finalConfig = result.nextState.doc.widgets['widget-1'].config as Record<string, unknown>;
+    expect(finalConfig.chartType).toBe('sankey');
+    expect(finalConfig.sankeyTargetField).toBe('region');
+  });
+
+  it('validates a same-batch update against the NEW chartType, preventing a false accept', () => {
+    // Reverse of the false-reject case: widget-1 starts as a 'sankey' chart. In ONE
+    // bulk call, first change it to 'gauge', then set `sankeyTargetField` (valid for
+    // sankey, NOT for gauge). The second update must be SKIPPED — validated against
+    // the 'gauge' set earlier in this batch, not the stale pre-batch 'sankey' (which
+    // would falsely accept a now-invalid key onto a gauge chart).
+    const base = makeState();
+    const sankeyState: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        widgets: {
+          'widget-1': {
+            ...base.doc.widgets['widget-1'],
+            kind: 'chart' as const,
+            config: { chartType: 'sankey' as const },
+          },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetUpdates: [
+          { widgetId: 'widget-1', config: { chartType: 'gauge' } },
+          { widgetId: 'widget-1', config: { sankeyTargetField: 'region' } },
+        ],
+      },
+      sankeyState,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { updated: number };
+    // Only the chartType change is accepted; the sankey-only key is rejected.
+    expect(applied.updated).toBe(1);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/sankeyTargetField/)]),
+    );
+    const finalConfig = result.nextState.doc.widgets['widget-1'].config as Record<string, unknown>;
+    expect(finalConfig.chartType).toBe('gauge');
+    expect(finalConfig).not.toHaveProperty('sankeyTargetField');
+  });
+
+  it('rejects an update targeting a widget removed earlier in the same batch (no crash, clear skip)', () => {
+    const state = makeState(); // widget-1 on the active page
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetRemovals: ['widget-1'],
+        widgetUpdates: [{ widgetId: 'widget-1', title: 'Renamed after removal' }],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { removed: number; updated: number };
+    expect(applied.removed).toBe(1);
+    expect(applied.updated).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/update widget-1: not found/)]),
+    );
+    // The widget is gone and no phantom update was emitted for it.
+    expect(result.nextState.doc.widgets['widget-1']).toBeUndefined();
+    const args = (result.mutation as { args: { updatedWidgets: unknown[] } }).args;
+    expect(args.updatedWidgets).toEqual([]);
+  });
+
+  it('validates the bulk layout the same way set_widget_layout does: a flat (mis-shaped) array is skipped', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      // A flat array of ids instead of an array-of-rows — the exact shape mistake the
+      // single-widget set_widget_layout handler rejects. It must be caught here too.
+      { layout: ['widget-1'] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { layout: boolean };
+    expect(applied.layout).toBe(false);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/layout: must be an array of rows/)]),
+    );
+    // The active page's original layout is untouched.
+    expect(result.nextState.doc.pages['page-1'].widgetRows).toEqual([['widget-1']]);
+  });
+
+  it('skips a bulk layout that references an unknown/removed widget id', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetRemovals: ['widget-1'],
+        // References widget-1, which this same batch just removed → unknown after removal.
+        layout: [['widget-1']],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { layout: boolean; removed: number };
+    expect(applied.removed).toBe(1);
+    expect(applied.layout).toBe(false);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/layout: unknown or removed widget IDs/)]),
+    );
+  });
 });
 
 // ── rename_thread ─────────────────────────────────────────────────────────────
@@ -1281,6 +1519,55 @@ describe('executeToolOnState: set_widget_forecast', () => {
       throw new Error('expected widget-1 to remain a chart widget');
     }
     expect((updatedWidget1.config as StudioChartConfig).forecast?.showConfidenceBands).toBe(true);
+  });
+
+  it('merges the forecast delta, preserving pre-existing unrelated config keys', () => {
+    // A line widget with several unrelated config keys already set. Enabling the
+    // forecast must MERGE just the forecast field, not wholesale-replace the config
+    // (which would drop title/color/series settings the widget already had).
+    const baseState = makeState();
+    const richState = {
+      ...baseState,
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
+            config: {
+              chartType: 'line' as const,
+              xField: 'month',
+              yField: 'revenue',
+              yAggregation: 'sum' as const,
+              crossFilterMode: 'cross-filter' as const,
+            },
+          },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: true, periods: 4 },
+      richState,
+    );
+    expect(parseOutput(result.output).success).toBe(true);
+    const config = result.nextState.doc.widgets['widget-1'].config as Record<string, unknown>;
+    // Forecast applied…
+    expect((config.forecast as { enabled: boolean }).enabled).toBe(true);
+    // …and every pre-existing key survived (this is the wholesale-replace regression).
+    expect(config.chartType).toBe('line');
+    expect(config.xField).toBe('month');
+    expect(config.yField).toBe('revenue');
+    expect(config.yAggregation).toBe('sum');
+    expect(config.crossFilterMode).toBe('cross-filter');
+    // The mutation carries a partial `config` patch (merge path), not a `changes.config`
+    // wholesale replacement.
+    const mut = result.mutation as {
+      args: { config?: Record<string, unknown>; changes?: Record<string, unknown> };
+    };
+    expect(mut.args.config).toBeDefined();
+    expect(mut.args.config && Object.keys(mut.args.config)).toEqual(['forecast']);
+    expect(mut.args.changes?.config).toBeUndefined();
   });
 });
 

@@ -590,31 +590,36 @@ describe('Vega-Lite golden examples', () => {
     });
   });
 
-  // --- Known-bug regression placeholders -------------------------------
-  // Intentionally skipped: these document real, reproducible gaps between
-  // Vega-Lite semantics and this wrapper's current output. Do not "fix" by
-  // loosening the assertion — either the implementation changes, or the
-  // skip (and its BUG comment) stays.
+  // 17. Aggregate-only bar (implicit "all" category) -----------------------
+  describe('aggregate-only bar chart', () => {
+    // Vega-Lite renders a bar spec with a value channel but no category
+    // channel as one bar totaling the whole dataset. scales.ts synthesizes a
+    // one-category band axis for that side; the bar compiler places every
+    // row at index 0.
+    it('renders a single total bar over a synthetic one-category band axis', () => {
+      const compiled = compileSpec({
+        data: { values: [{ v: 1 }, { v: 2 }, { v: 3 }] },
+        mark: 'bar',
+        encoding: { y: { aggregate: 'count', type: 'quantitative' } },
+      });
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
+      expect(compiled.xAxis?.categories).to.have.length(1);
+      expect(compiled.xAxis?.synthetic).to.equal(true);
+      const series = compiled.series[0] as BarSeries;
+      expect(series.data).to.deep.equal([3]);
+      expect(compiled.gaps.map((gap) => gap.code)).to.not.include('mark:bar-missing-axes');
+    });
 
-  // BUG: a `count` aggregate with NO groupby field at all (bare
-  // `{aggregate: 'count'}` on y, no x/color/detail grouping field) should
-  // collapse the whole dataset to a single total, matching Vega-Lite. The
-  // encoding-level aggregate pass in transforms/encoding.ts computes
-  // `groupFields` from GROUPING_CHANNELS, which is empty here, so all rows
-  // fall into one group and the aggregate does compute the right total in
-  // isolation — however, with no positional x channel at all the bar mark
-  // compiler has no categorical axis to plot the resulting single bar
-  // against and drops the layer with a `mark:bar-missing-axes` gap instead
-  // of rendering a single "Total" bar the way Vega-Lite would (an implicit
-  // "all" category). Skipped rather than asserting the empty-series result
-  // as if it were correct.
-  // Repro (currently drops the layer with a `mark:bar-missing-axes` gap):
-  //   compileSpec({
-  //     data: { values: [{ v: 1 }, { v: 2 }, { v: 3 }] },
-  //     mark: 'bar',
-  //     encoding: { y: { aggregate: 'count', type: 'quantitative' } },
-  //   }) // expected: one single-bar series over an implicit "all" category
-  it.todo(
-    'BUG: aggregate-only bar chart with no positional category channel renders nothing instead of a single total bar',
-  );
+    it('transposes: an aggregate-only x channel renders one horizontal bar', () => {
+      const compiled = compileSpec({
+        data: { values: [{ v: 4 }, { v: 6 }] },
+        mark: 'bar',
+        encoding: { x: { field: 'v', aggregate: 'sum', type: 'quantitative' } },
+      });
+      expect(compiled.yAxis?.synthetic).to.equal(true);
+      const series = compiled.series[0] as BarSeries;
+      expect(series.layout).to.equal('horizontal');
+      expect(series.data).to.deep.equal([10]);
+    });
+  });
 });

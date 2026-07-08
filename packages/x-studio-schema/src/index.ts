@@ -47,6 +47,7 @@ export {
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
 export { getAllowedConfigKeys, validateConfigKeysForKind } from './configKeyValidation';
+export { isWidgetOfKind } from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
 export {
   CURRENT_SCHEMA_VERSION,

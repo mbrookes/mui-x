@@ -37,6 +37,17 @@ export interface SecurityPolicyOptions {
   tenancy: TenancyConfig;
   /** Optional region/department + per-table row-level-security column overrides. */
   securityColumns?: SecurityColumnsConfig;
+  /**
+   * Per-table column allowlist (table name → allowed columns), mirroring
+   * `HandleBatchQueryOptions.columnAllowlist` / `HandleMutationOptions.columnAllowlist`.
+   *
+   * Folded into `digest` so that tightening the allowlist (which columns a client
+   * may see) produces a DIFFERENT cache key: previously-cached results computed
+   * under a looser allowlist can no longer be served stale after the host locks
+   * down column visibility. Omitting it is fully backward compatible — the digest
+   * is byte-identical to one computed before this field existed.
+   */
+  columnAllowlist?: Record<string, string[]>;
 }
 
 /**
@@ -67,15 +78,37 @@ export interface CompiledSecurityPolicy {
 }
 
 /**
+ * Canonicalize a column allowlist for hashing: sort the column list within each
+ * table so the digest never depends on array element order. Table-name keys are
+ * sorted by `sortedStringify` itself, so only the arrays need normalizing here.
+ */
+function canonicalizeColumnAllowlist(
+  columnAllowlist: Record<string, string[]>,
+): Record<string, string[]> {
+  const canonical: Record<string, string[]> = {};
+  for (const table of Object.keys(columnAllowlist)) {
+    canonical[table] = [...columnAllowlist[table]].sort();
+  }
+  return canonical;
+}
+
+/**
  * Compute the stable digest of a policy's resolved inputs.
  *
  * Builds the `{ tenancy, securityColumns }` pair from the options so the digest
- * reflects both the tenancy posture and the row-level-security column config.
+ * reflects both the tenancy posture and the row-level-security column config, and
+ * — when supplied — the `columnAllowlist` so tightening column visibility yields a
+ * different cache key. The `columnAllowlist` key is only present in the hashed
+ * input when supplied, so an omitted allowlist stays byte-identical to a digest
+ * computed before the allowlist was folded in (backward compatible).
  */
 function computePolicyDigest(opts: SecurityPolicyOptions): string {
   const canonical = sortedStringify({
     tenancy: opts.tenancy,
     securityColumns: opts.securityColumns,
+    ...(opts.columnAllowlist !== undefined && {
+      columnAllowlist: canonicalizeColumnAllowlist(opts.columnAllowlist),
+    }),
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }

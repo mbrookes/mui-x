@@ -446,6 +446,25 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
       }).ok,
     ).toBe(true);
   });
+
+  it('accepts an addWidget chart whose config.ySeries carries a null entry (config interior is a leaf) (1.1)', () => {
+    // The parser deliberately does NOT deep-validate the config interior, so a
+    // `ySeries: [null]` passes the wire gate. The reducer's series normalization must
+    // therefore be total over such junk (see `normalizeChartSeries`) rather than throw.
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w',
+            kind: 'chart',
+            title: 'T',
+            config: { chartType: 'mixed', ySeries: [null] },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
 });
 
 describe('parseStateMutation — id hygiene (prototype-injection defense)', () => {

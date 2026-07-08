@@ -86,6 +86,13 @@ describe('createDefaultWidget', () => {
     expect(widget.config).toEqual({ customConfig: { units: 'metric' } });
   });
 
+  it('a built-in kind also honors overrides.customConfig, merging it into the default config (3.4)', () => {
+    // Regression: the built-in branch dropped `overrides.customConfig` silently; it is
+    // a valid key on the shared widget config for every kind, so it must be threaded in.
+    const widget = createDefaultWidget('grid', { customConfig: { density: 'compact' } });
+    expect(widget.config).toEqual({ columns: [], customConfig: { density: 'compact' } });
+  });
+
   it('overrides.title is respected for both built-in and custom kinds', () => {
     expect(createDefaultWidget('grid', { title: 'My Grid' }).title).toBe('My Grid');
     expect(createDefaultWidget('acme-weather', { title: 'My Widget' }).title).toBe('My Widget');
@@ -202,6 +209,16 @@ describe('normalizeChartSeries', () => {
   it('leaves a series carrying neither spelling unchanged (same reference)', () => {
     const series = { fieldId: 'revenue' };
     expect(normalizeChartSeries(series)).toBe(series);
+  });
+
+  it('is total over junk input: null / non-object entries are returned unchanged, not thrown on (1.1)', () => {
+    // A malformed `ySeries` entry (e.g. `[null]` from a wire payload whose config
+    // interior the parser leaves as an unvalidated leaf) reaches this normalizer via
+    // the reducer. Reading `.type` off `null` used to throw a TypeError mid-apply.
+    expect(normalizeChartSeries(null as never)).toBeNull();
+    expect(normalizeChartSeries(undefined as never)).toBeUndefined();
+    expect(normalizeChartSeries(42 as never)).toBe(42);
+    expect(normalizeChartSeries('bar' as never)).toBe('bar');
   });
 });
 

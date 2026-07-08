@@ -19,6 +19,7 @@ import type { StudioState, StudioDoc, StudioFilterState } from './stateTypes';
 import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
+import { isSafeKey } from './unsafeKeys';
 
 /**
  * Widget column-span unit system, and the single source of truth for it.
@@ -52,18 +53,70 @@ function clampSpan(span: number): number {
 }
 
 /**
- * Object keys that must never be written through a bracket assignment or copied into
- * a rebuilt record: `record['__proto__'] = v` invokes the inherited `__proto__`
- * setter (prototype pollution), and `'constructor'`/`'prototype'` are the sibling
- * escape hatches. Guarded wherever the reducer rebuilds a record key-by-key from
- * untrusted input (`updateWidget`'s `config`/`changes` loops, `applyBulkUpdate`'s
- * span rebuild). The wire boundary (`parseStateMutation`) rejects these too — this is
- * the defense-in-depth copy for mutations the server constructs WITHOUT the parser
- * (`executeToolOnState` builds them straight from LLM tool arguments).
+ * Local name for the shared {@link isSafeKey} guard (`unsafeKeys.ts`): rejects the
+ * prototype-polluting `__proto__`/`constructor`/`prototype` keys. Guarded wherever the
+ * reducer rebuilds a record key-by-key from untrusted input (`updateWidget`'s
+ * `config`/`changes` loops, `applyBulkUpdate`'s span rebuild and widget inserts). The
+ * wire boundary (`parseStateMutation`) rejects these too — this is the defense-in-depth
+ * copy for mutations the server constructs WITHOUT the parser (`executeToolOnState`
+ * builds them straight from LLM tool arguments).
  */
-const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
-function isSafePatchKey(key: string): boolean {
-  return !UNSAFE_KEYS.has(key);
+const isSafePatchKey = isSafeKey;
+
+/**
+ * Value-equality for two `widgetRows` matrices. Used by the layout handlers to honor
+ * the reducer's reference-equality no-op contract: rebuilding a page with rows that
+ * are element-for-element identical to the current ones must return the SAME doc so
+ * `commitDocPatch`'s no-op guard skips a spurious undo entry.
+ */
+function rowsEqual(a: string[][], b: string[][]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    const rowA = a[i];
+    const rowB = b[i];
+    if (rowA.length !== rowB.length) {
+      return false;
+    }
+    for (let j = 0; j < rowA.length; j += 1) {
+      if (rowA[j] !== rowB[j]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Value-equality for two `widgetColSpans` records (either may be `undefined`).
+ * `enforceLayoutColSpans` and the `setWidgetColSpan` rebuild both mint a fresh object
+ * even when the contents are unchanged, so the layout handlers compare by value (not
+ * reference) to detect a no-op and preserve the same-doc contract.
+ */
+function spansEqual(
+  a: Record<string, number> | undefined,
+  b: Record<string, number> | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  const keysA = Object.keys(a);
+  if (keysA.length !== Object.keys(b).length) {
+    return false;
+  }
+  for (const key of keysA) {
+    if (!Object.hasOwn(b, key) || a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -325,6 +378,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setDashboardTitle: {
     apply: (state, args) => {
+      // Reference-equality no-op: re-writing the identical title returns the SAME doc
+      // so `commitDocPatch`'s no-op guard skips a spurious undo entry.
+      if (state.dashboard.title === args.title) {
+        return state;
+      }
       return {
         ...state,
         dashboard: { ...state.dashboard, title: args.title },
@@ -455,6 +513,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           if (key !== 'id' && isSafePatchKey(key) && value !== undefined) {
             definedChanges[key] = value;
           }
+        }
+        // Normalize the deprecated `seriesType` alias on a wholesale `changes.config`
+        // replacement, so the alias never survives a live update (matching the `config`
+        // patch branch above and `addWidget`/`applyBulkUpdate`); otherwise it would
+        // linger until the next load boundary. Reference-stable when already canonical.
+        if (definedChanges.config !== null && typeof definedChanges.config === 'object') {
+          definedChanges.config = normalizeConfigChartSeries(
+            definedChanges.config as Record<string, unknown>,
+          );
         }
         if (Object.keys(definedChanges).length > 0) {
           updated = { ...updated, ...(definedChanges as Partial<StudioWidget>) };
@@ -603,21 +670,38 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       const targetPage = state.pages[targetPageId];
+      // Drop row entries that name a widget id absent from `state.widgets` (and any row
+      // left empty as a result): unlike `updateWidget`/`removeWidget`, this handler
+      // previously installed `args.rows` verbatim, so a phantom-widget id would leave
+      // the page rendering a widget that does not exist. Mirrors the trust boundary the
+      // rest of this file applies to producer-supplied ids.
+      const currentRows = targetPage.widgetRows ?? [];
+      const sanitizedRows = args.rows
+        .map((row) => row.filter((id) => Object.hasOwn(state.widgets, id)))
+        .filter((row) => row.length > 0);
       // Replacing a page's rows verbatim can leave the col-spans invalid: a row
       // collapsed to a sole occupant keeps its stale multi-widget span, and a row
       // merged from two widgets can sum past `GRID_COLS`. `enforceLayoutColSpans` (the
       // sole implementation of these invariants) reconciles them, diffing the old rows
       // against the new ones.
       const nextSpans = enforceLayoutColSpans(
-        targetPage.widgetRows ?? [],
-        args.rows,
+        currentRows,
+        sanitizedRows,
         targetPage.widgetColSpans,
       );
+      // Reference-equality no-op: identical rows and unchanged spans return the SAME doc
+      // so `commitDocPatch`'s no-op guard skips a spurious undo entry.
+      if (
+        rowsEqual(currentRows, sanitizedRows) &&
+        spansEqual(nextSpans, targetPage.widgetColSpans)
+      ) {
+        return state;
+      }
       return {
         ...state,
         pages: {
           ...state.pages,
-          [targetPageId]: { ...targetPage, widgetRows: args.rows, widgetColSpans: nextSpans },
+          [targetPageId]: { ...targetPage, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
         },
       };
     },
@@ -633,6 +717,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `Object.hasOwn` guard (not truthy `state.pages[targetPageId]`) so an
       // untrusted `pageId` can't resolve to a prototype member.
       if (!Object.hasOwn(state.pages, targetPageId)) {
+        return state;
+      }
+      // Unknown-widget guard (mirrors `updateWidget`/`removeWidget`): a span write for a
+      // widget id that exists nowhere in `state.widgets` would otherwise persist an
+      // orphan `widgetColSpans` entry (dead weight that serializes) — no-op instead.
+      if (!Object.hasOwn(state.widgets, widgetId)) {
         return state;
       }
       const targetPage = state.pages[targetPageId];
@@ -680,13 +770,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
       }
 
+      const finalSpans = Object.keys(newSpans).length > 0 ? newSpans : undefined;
+      // Reference-equality no-op: re-writing the identical span (or clearing a widget
+      // that has no span entry) leaves the spans unchanged by value, so return the SAME
+      // doc and skip a spurious undo entry.
+      if (spansEqual(finalSpans, targetPage.widgetColSpans)) {
+        return state;
+      }
       return {
         ...state,
         pages: {
           ...state.pages,
           [targetPageId]: {
             ...targetPage,
-            widgetColSpans: Object.keys(newSpans).length > 0 ? newSpans : undefined,
+            widgetColSpans: finalSpans,
           },
         },
       };
@@ -702,6 +799,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       const page = state.pages[pageId];
+      // Reference-equality no-op: writing the identical title returns the SAME doc so
+      // `commitDocPatch`'s no-op guard skips a spurious undo entry.
+      if (page.title === title) {
+        return state;
+      }
       return {
         ...state,
         pages: { ...state.pages, [pageId]: { ...page, title } },
@@ -774,6 +876,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      // Reference-equality no-op: activating the already-active page returns the SAME
+      // doc (mirrors `addPage`'s same-page handling) so `commitDocPatch`'s no-op guard
+      // skips a spurious undo entry.
+      if (state.dashboard.activePageId === pageId) {
+        return state;
+      }
       return {
         ...state,
         dashboard: { ...state.dashboard, activePageId: pageId },
@@ -838,10 +946,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const normalizedActiveSpans = enforceLayoutColSpans([], widgetRows, clampedSpans);
 
-      const layoutPages: StudioDoc['pages'] = {
-        ...state.pages,
-        [activePageId]: { ...page, widgetRows, widgetColSpans: normalizedActiveSpans },
-      };
+      // Reference-equality no-op tracking: only rebuild the active page when its rows or
+      // spans actually changed (by value), so a re-delivered bulk carrying the current
+      // layout doesn't churn the page reference and push a spurious undo entry.
+      const layoutChanged =
+        !rowsEqual(page.widgetRows ?? [], widgetRows) ||
+        !spansEqual(normalizedActiveSpans, page.widgetColSpans);
+      const layoutPages: StudioDoc['pages'] = layoutChanged
+        ? {
+            ...state.pages,
+            [activePageId]: { ...page, widgetRows, widgetColSpans: normalizedActiveSpans },
+          }
+        : state.pages;
 
       // Remove every genuinely-gone widget via the shared primitive: a widget named in
       // `removedWidgetIds` is only truly removed if it doesn't still appear on some
@@ -859,6 +975,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // snapshot — so any widget the user concurrently created or edited (on this page
       // or any other) while the agentic turn was running survives. Copy first, because
       // the primitive returns `state.widgets` by reference on a no-op removal.
+      // `widgetsChanged` tracks whether the record actually diverged from `state.widgets`
+      // (a removal, an accepted add, or an applied update), so a bulk that touches no
+      // widget can return the SAME doc (reference-equality no-op contract).
+      let widgetsChanged = prunedWidgets !== state.widgets;
       const nextWidgets = { ...prunedWidgets };
       for (const widget of addedWidgets ?? []) {
         // `isSafePatchKey` before the bracket assignment (matching every other handler
@@ -869,6 +989,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         if (!isSafePatchKey(widget.id)) {
           continue;
         }
+        // Idempotent add: existence anywhere in `nextWidgets` means this widget was
+        // already applied, so a re-delivery (an SSE at-least-once retry, or an AI retry
+        // re-issuing the same bulk envelope) must be a no-op — mirrors `addWidget`'s
+        // guard. Overwriting would revert a concurrent user edit to a widget this bulk
+        // originally added. `Object.hasOwn` (not truthy access) so an untrusted id can't
+        // match a prototype member.
+        if (Object.hasOwn(nextWidgets, widget.id)) {
+          continue;
+        }
         // Normalize the deprecated `seriesType` alias on write (reference-stable when
         // already canonical), so a bulk-added widget matches the load-boundary shape.
         const normalizedConfig = normalizeConfigChartSeries(widget.config);
@@ -876,6 +1005,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           normalizedConfig === widget.config
             ? widget
             : ({ ...widget, config: normalizedConfig } as StudioWidget);
+        widgetsChanged = true;
       }
       for (const update of updatedWidgets ?? []) {
         // `Object.hasOwn` existence check (not truthy `nextWidgets[update.widgetId]`)
@@ -890,16 +1020,32 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           ...(update.title !== undefined ? { title: update.title } : {}),
           ...(update.sourceId !== undefined ? { sourceId: update.sourceId } : {}),
           // `config` is a shallow-merge patch onto the LIVE widget's config, so a
-          // concurrent edit to a different config key is preserved.
+          // concurrent edit to a different config key is preserved. Normalize the merged
+          // config's `ySeries` so the deprecated `seriesType` alias never survives a live
+          // bulk update (matching `updateWidget`/`addWidget`, so the alias is not left to
+          // be normalized only at the next load boundary).
           ...(update.config
-            ? { config: { ...existing.config, ...update.config } as StudioWidget['config'] }
+            ? {
+                config: normalizeConfigChartSeries({
+                  ...existing.config,
+                  ...update.config,
+                }) as StudioWidget['config'],
+              }
             : {}),
         };
+        widgetsChanged = true;
+      }
+
+      // Reference-equality no-op: a bulk that removed nothing, added/updated no widget,
+      // and left the active-page layout unchanged returns the SAME doc so
+      // `commitDocPatch`'s no-op guard skips a spurious undo entry.
+      if (!widgetsChanged && nextPages === state.pages && nextFilters === state.filters) {
+        return state;
       }
 
       return {
         ...state,
-        widgets: nextWidgets,
+        widgets: widgetsChanged ? nextWidgets : state.widgets,
         pages: nextPages,
         filters: nextFilters,
       };
@@ -923,9 +1069,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `updatedAt` is stamped once by the producer (server-side) and carried in
       // the mutation, so the server-computed and client-applied results agree.
       // The reducer must never call `new Date()` itself (would be non-deterministic).
-      const updatedThreads = (state.ai.threads ?? []).map((t) =>
-        t.id === targetThreadId ? { ...t, name: args.name, updatedAt: args.updatedAt } : t,
-      );
+      // Reference-equality no-op: a `targetThreadId` matching no thread (the unknown-id
+      // case the contract names), or a matched thread whose name+timestamp are already
+      // identical, returns the SAME doc so `commitDocPatch`'s no-op guard skips a
+      // spurious undo entry.
+      let changed = false;
+      const updatedThreads = (state.ai.threads ?? []).map((t) => {
+        if (t.id !== targetThreadId || (t.name === args.name && t.updatedAt === args.updatedAt)) {
+          return t;
+        }
+        changed = true;
+        return { ...t, name: args.name, updatedAt: args.updatedAt };
+      });
+      if (!changed) {
+        return state;
+      }
       return {
         ...state,
         ai: { ...state.ai, threads: updatedThreads },

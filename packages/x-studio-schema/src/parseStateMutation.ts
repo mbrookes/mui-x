@@ -29,6 +29,7 @@ import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
 import { validateChartConfigKeysForType, validateConfigKeysForKind } from './configKeyValidation';
 import { isStudioChartType } from './widgetTypeGuards';
+import { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 
 export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
@@ -65,12 +66,7 @@ function isOptionalString(value: unknown): value is string | undefined {
  * (widget ids, `updatedWidgets[].widgetId`, `addPage.id`, `activePageId`, etc.).
  */
 function isSafeId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value !== '__proto__' &&
-    value !== 'constructor' &&
-    value !== 'prototype'
-  );
+  return typeof value === 'string' && isSafeKey(value);
 }
 
 /** A real `string[]` — `Array.isArray` first, so the string `"abc"` (which is
@@ -95,12 +91,6 @@ function isFiniteNumber(value: unknown): value is number {
 function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
   return isRecord(value) && Object.values(value).every((v) => isFiniteNumber(v));
 }
-
-/**
- * Object keys that are unsafe to copy into a record the reducer rebuilds via bracket
- * assignment (`record[key] = value`) — mirrors `applyMutation.ts`'s `UNSAFE_KEYS`.
- */
-const UNSAFE_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype']);
 
 /**
  * True when `record` carries one of the prototype-polluting keys as an OWN property.

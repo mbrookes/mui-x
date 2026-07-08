@@ -158,11 +158,19 @@ export function createDefaultWidget<K extends StudioWidgetKind>(
   }
 
   const { title, config } = BUILTIN_WIDGET_DEFAULTS[kind as BuiltinStudioWidgetKind]();
+  // Thread `overrides.customConfig` into the built-in config too (the custom-kind
+  // branch above already honors it). `customConfig` is a key on the shared widget
+  // config for every kind, so a caller passing `createDefaultWidget('grid', {
+  // customConfig })` gets it merged rather than silently dropped.
+  const mergedConfig =
+    overrides?.customConfig !== undefined
+      ? { ...config, customConfig: overrides.customConfig }
+      : config;
   return {
     id,
     kind,
     title: overrides?.title ?? title,
-    config,
+    config: mergedConfig,
   } as StudioWidgetOf<K>;
 }
 
@@ -185,6 +193,14 @@ export function normalizeGridColumn(col: string | StudioGridColumn): StudioGridC
  * when reading persisted state (same pattern as `normalizeGridColumn`).
  */
 export function normalizeChartSeries(series: StudioChartSeries): StudioChartSeries {
+  // Total over junk input: a `ySeries` entry that is `null` or a non-object (e.g. a
+  // malformed wire payload — `parseStateMutation` leaves the config interior as an
+  // unvalidated leaf, so `{ ySeries: [null] }` reaches here) must not crash the
+  // reducer on the `.type` read. Return it unchanged so the caller keeps its
+  // reference-stable no-op behaviour and `applyMutation` never throws mid-apply.
+  if (series === null || typeof series !== 'object') {
+    return series;
+  }
   const resolvedType = series.type ?? series.seriesType;
   if (series.seriesType === undefined && series.type === resolvedType) {
     // Already canonical (no alias present); avoid churning object identity.
@@ -277,8 +293,6 @@ export function createDefaultStudioState(
           ...baseSession.shell.openDrawers,
           ...sessionOverrides?.shell?.openDrawers,
         },
-        selectedFieldId: sessionOverrides?.shell?.selectedFieldId ?? null,
-        selectedSourceId: sessionOverrides?.shell?.selectedSourceId ?? null,
       },
     },
     runtime: {

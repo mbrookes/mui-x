@@ -8,7 +8,12 @@
  * - `nextState`— the updated state after the tool ran (used to carry state forward
  *                across multiple tool calls in a single agentic loop turn)
  */
-import { applyMutation, createDefaultWidget, isWidgetOfKind } from '@mui/x-studio-schema';
+import {
+  applyMutation,
+  createDefaultWidget,
+  isWidgetOfKind,
+  validateConfigKeysForKind,
+} from '@mui/x-studio-schema';
 import type { OptionalWidgetField } from '@mui/x-studio-schema';
 import type {
   StudioState,
@@ -100,21 +105,48 @@ export interface ExternalToolImpl {
 }
 
 /**
+ * Validates `config`'s keys against the given widget `kind` (via the shared
+ * `validateConfigKeysForKind` runtime guard) and, if any key doesn't belong to
+ * that kind, returns a human-readable error string naming the offending keys.
+ * Returns `undefined` when the config is valid (or the kind is unrestricted).
+ * Shared by every AI-tool call site that writes untrusted, model-supplied
+ * `config` onto a widget of a known kind (`buildWidgetFromArgs`, `update_widget`,
+ * `apply_bulk_update`'s updates loop) so the error wording stays consistent.
+ */
+function invalidConfigKeyError(kind: string, config: Record<string, unknown>): string | undefined {
+  const invalidKeys = validateConfigKeysForKind(kind, config);
+  return invalidKeys.length > 0
+    ? `config carries key(s) not valid for a '${kind}' widget: ${invalidKeys.join(', ')}`
+    : undefined;
+}
+
+/**
  * Builds a `StudioWidget` from AI-tool arguments, layering config in one canonical
  * order — factory defaults → custom-widget `defaultConfig` → model-supplied config —
  * and minting the id through the shared `createDefaultWidget` (its
  * `createWidgetId` scheme is collision-resistant). Used by both `add_widget` and
  * `apply_bulk_update`'s additions so the two paths cannot drift (they were
  * previously character-for-character duplicates, including a hand-copied id scheme).
+ *
+ * Validates only the untrusted `args.config` (not the merged config) against the
+ * widget's `kind`: the factory defaults and any `customDef.defaultConfig` are
+ * trusted-valid by construction, so validating the merge would just re-check
+ * already-safe keys. Returns `{ error }` (no widget built) when the AI-supplied
+ * config carries a key that belongs to a different widget kind — fail-closed, so
+ * an invalid cross-kind key can never be committed to state.
  */
 function buildWidgetFromArgs(
   args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
   customWidgets?: StudioCustomWidgetDef[],
-): StudioWidget {
+): { widget: StudioWidget } | { error: string } {
   const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
   const title = String(args.title ?? '');
   const sourceId = args.sourceId ? String(args.sourceId) : undefined;
   const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+  const error = invalidConfigKeyError(kind, aiConfig as Record<string, unknown>);
+  if (error) {
+    return { error };
+  }
   const customDef = customWidgets?.find((d) => d.kind === kind);
   const base = createDefaultWidget(kind);
   const config = {
@@ -123,10 +155,12 @@ function buildWidgetFromArgs(
     ...aiConfig,
   } as StudioWidget['config'];
   return {
-    ...base,
-    title,
-    sourceId: sourceId ?? base.sourceId,
-    config,
+    widget: {
+      ...base,
+      title,
+      sourceId: sourceId ?? base.sourceId,
+      config,
+    },
   };
 }
 
@@ -243,7 +277,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
 
-      const widget = buildWidgetFromArgs(args, customWidgets);
+      const built = buildWidgetFromArgs(args, customWidgets);
+      if ('error' in built) {
+        return { output: JSON.stringify({ error: built.error }), nextState: state };
+      }
+      const { widget } = built;
       const mutation: StateMutation = { type: 'addWidget', args: { widget, pageId } };
       return {
         output: JSON.stringify({ success: true, widgetId: widget.id, title: widget.title }),
@@ -263,6 +301,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
           nextState: state,
         };
+      }
+
+      if (args.config !== undefined) {
+        const error = invalidConfigKeyError(widget.kind, args.config as Record<string, unknown>);
+        if (error) {
+          return { output: JSON.stringify({ error }), nextState: state };
+        }
       }
 
       const changes: Partial<Omit<StudioWidget, 'id'>> = {};
@@ -643,6 +688,10 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       // 2. Additions
       const addedTitleToId: Record<string, string> = {};
+      // Kind of each widget added THIS batch, keyed by id — so the updates loop
+      // below can resolve the kind of a same-batch addition (not yet present in
+      // `state.doc.widgets`) for its own config-key validation.
+      const addedWidgetKinds: Record<string, string> = {};
       const additions =
         (args.widgetAdditions as
           | Array<{
@@ -653,10 +702,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             }>
           | undefined) ?? [];
       for (const addition of additions) {
-        const widget = buildWidgetFromArgs(addition, customWidgets);
+        const built = buildWidgetFromArgs(addition, customWidgets);
+        if ('error' in built) {
+          skipped.push(`add "${addition.title}": ${built.error}`);
+          continue;
+        }
+        const { widget } = built;
         addedWidgets.push(widget);
         liveWidgetIds.add(widget.id);
         addedTitleToId[widget.title] = widget.id;
+        addedWidgetKinds[widget.id] = widget.kind;
         widgetRows.push([widget.id]);
         applied.added += 1;
       }
@@ -679,6 +734,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         if (!liveWidgetIds.has(wid)) {
           skipped.push(`update ${wid}: not found`);
           continue;
+        }
+        if (update.config) {
+          // Resolve the target's kind from either the CURRENT state or a widget
+          // added earlier in this same batch (not yet in `state.doc.widgets`).
+          const kind = state.doc.widgets[wid]?.kind ?? addedWidgetKinds[wid];
+          const error = invalidConfigKeyError(kind, update.config as Record<string, unknown>);
+          if (error) {
+            skipped.push(`update ${wid}: ${error}`);
+            continue;
+          }
         }
         updatedWidgets.push({
           widgetId: wid,

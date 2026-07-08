@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
-import { createDefaultStudioState, isWidgetOfKind } from './models/studioTypes';
+import { createDefaultStudioState, createWidgetId, isWidgetOfKind } from './models/studioTypes';
 import type { StudioState } from './models/studioTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -400,6 +400,21 @@ describe('executeToolOnState: add_widget', () => {
     const flatRows = activePage.widgetRows.flat();
     expect(flatRows).toContain(widgetId);
   });
+
+  it('rejects a config key that does not belong to the requested kind (no mutation)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'grid', title: 'T', config: { chartType: 'bar' } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/chartType/);
+    expect(out.error).toMatch(/grid/);
+    expect(out.mutation).toBeUndefined();
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
 });
 
 describe('executeToolOnState: update_widget', () => {
@@ -483,6 +498,20 @@ describe('executeToolOnState: update_widget', () => {
     expect(
       (result.mutation as { args: Record<string, unknown> }).args.unsetConfigKeys,
     ).toBeUndefined();
+  });
+
+  it('rejects a config key that does not belong to the widget kind (no mutation)', () => {
+    const state = makeState(); // widget-1 is kind 'chart'
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', config: { gridHeight: 400 } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/gridHeight/);
+    expect(out.error).toMatch(/chart/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
   });
 });
 
@@ -797,6 +826,90 @@ describe('executeToolOnState: apply_bulk_update', () => {
     }
     // Factory default (chartType) is overlaid by the model-supplied config.
     expect(added.config.chartType).toBe('line');
+  });
+
+  it('skips an addition with a cross-kind config key but applies a valid one alongside it', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetAdditions: [
+          { kind: 'grid', title: 'Bad Grid', config: { chartType: 'bar' } },
+          { kind: 'chart', title: 'Good Chart', config: { chartType: 'line' } },
+        ],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { added: number };
+    expect(applied.added).toBe(1);
+    expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/chartType/)]));
+    const addedIds = Object.keys(result.nextState.doc.widgets).filter((id) => id !== 'widget-1');
+    expect(addedIds).toHaveLength(1);
+    expect(result.nextState.doc.widgets[addedIds[0]].title).toBe('Good Chart');
+  });
+
+  it('skips an update with a cross-kind config key and leaves the widget unchanged', () => {
+    const state = makeState(); // widget-1 is kind 'chart'
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', config: { gridHeight: 400 } }] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { updated: number };
+    expect(applied.updated).toBe(0);
+    expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/gridHeight/)]));
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
+
+  it('resolves the kind of a same-batch addition when validating a same-batch update', () => {
+    // The widget id minted for the addition isn't known until `buildWidgetFromArgs`
+    // runs INSIDE `apply_bulk_update`, so to target it with a `widgetUpdates` entry
+    // in the very same call, the id is predicted ahead of time: `Math.random`/`Date.now`
+    // are pinned, a throwaway `createWidgetId()` "probe" call reveals the current
+    // per-process sequence counter, and the next id (sequence + 1 — the one the
+    // addition below will mint) is computed from the exact same format.
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
+    try {
+      const probeId = createWidgetId();
+      const [, timestamp, sequenceBase36, randomSuffix] = probeId.split('-');
+      const predictedSequence = (parseInt(sequenceBase36, 36) + 1).toString(36);
+      const predictedId = `widget-${timestamp}-${predictedSequence}-${randomSuffix}`;
+
+      const state = makeState();
+      const result = executeToolOnState(
+        'apply_bulk_update',
+        {
+          widgetAdditions: [{ kind: 'grid', title: 'New Grid' }],
+          widgetUpdates: [{ widgetId: predictedId, config: { chartType: 'bar' } }],
+        },
+        state,
+      );
+
+      // Sanity check: the prediction actually landed — the addition minted exactly
+      // the id we predicted, as a grid widget.
+      expect(result.nextState.doc.widgets[predictedId]).toBeDefined();
+      expect(result.nextState.doc.widgets[predictedId].kind).toBe('grid');
+
+      const out = parseOutput(result.output);
+      const applied = out.applied as { added: number; updated: number };
+      expect(applied.added).toBe(1);
+      // The update against that SAME (same-batch, not-yet-in-`state.doc.widgets`)
+      // widget, carrying a chart-only key, must be skipped — proving the kind was
+      // resolved from the same-batch addition (not misreported as "not found", and
+      // not silently accepted as valid).
+      expect(applied.updated).toBe(0);
+      expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/chartType/)]));
+      expect(out.skipped).not.toEqual(expect.arrayContaining([expect.stringMatching(/not found/)]));
+      // The addition's config is unaffected by the skipped update.
+      expect(result.nextState.doc.widgets[predictedId].config).not.toHaveProperty('chartType');
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 });
 

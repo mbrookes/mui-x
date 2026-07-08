@@ -539,16 +539,16 @@ describe('scales & axes', () => {
       expect(gaps.list().some((g) => g.code === 'resolve:independent-scale')).to.equal(false);
     });
 
-    it('records an unsupported gap for x2/y2 channels', () => {
+    it('records an unsupported gap for x2/y2 channels on marks without range support', () => {
       const gaps = createGapCollector();
-      const rows = [{ a: 1, b: 2, c: 'A' }];
+      const rows = [{ a: 1, b: 2, c: 5 }];
       const units = [
         makeUnit(
-          'bar',
+          'point',
           {
             x: { field: 'a', type: 'quantitative' },
             x2: { field: 'b' },
-            y: { field: 'c', type: 'nominal' },
+            y: { field: 'c', type: 'quantitative' },
           },
           rows,
         ),
@@ -556,6 +556,24 @@ describe('scales & axes', () => {
       resolveAxes(units, gaps);
       const gap = gaps.list().find((g) => g.code === 'channel:x2');
       expect(gap?.severity).to.equal('unsupported');
+    });
+
+    it('does not double-report x2/y2 for marks that translate ranges themselves (bar/rule)', () => {
+      const gaps = createGapCollector();
+      const rows = [{ a: 1, b: 2, c: 'A' }];
+      const units = [
+        makeUnit(
+          'bar',
+          {
+            x: { field: 'c', type: 'nominal' },
+            y: { field: 'a', type: 'quantitative' },
+            y2: { field: 'b' },
+          },
+          rows,
+        ),
+      ];
+      resolveAxes(units, gaps);
+      expect(gaps.list().find((g) => g.code === 'channel:y2')).to.equal(undefined);
     });
   });
 

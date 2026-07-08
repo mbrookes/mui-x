@@ -6,9 +6,11 @@ import {
   useStudioController,
   useStudioSelector,
   selectFilters,
+  selectPages,
   useStudioLocaleText,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
+import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {
   getOperators,
@@ -76,13 +78,12 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const fieldValues = useFieldValues(filter.field, fieldType, parentFilters);
   const fieldLabel = currentField?.label ?? filter.field;
   const filters = useStudioSelector(selectFilters);
-  const hasAnotherRankFilter = filters.some(
-    (candidate) =>
-      candidate.id !== filter.id &&
-      candidate.scope.kind !== 'cross-filter' &&
-      candidate.filterMode === 'rank',
-  );
-  const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
+  const pages = useStudioSelector(selectPages);
+  // Per-page rank-uniqueness: mirror EXACTLY what `StudioController.updateFilter` allows
+  // (a rank filter on another page is permitted), instead of the old dashboard-wide scan
+  // that disabled rank mode more aggressively than the controller actually rejects it.
+  const disableRankMode =
+    filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
 
   const handleFilterChange = (changes: Partial<StudioFilterState>) => {
     controller.updateFilter(filter.id, changes);

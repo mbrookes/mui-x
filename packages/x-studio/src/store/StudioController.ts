@@ -31,7 +31,6 @@ import {
   type StudioDateRangePreset,
   type StudioDrawer,
   type StudioExpressionField,
-  type StudioFilterPreset,
   type StudioFilterState,
   type StudioMode,
   type StudioPage,
@@ -46,6 +45,8 @@ import {
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
+import { hasConflictingRankFilter } from '../internals/rankFilterScope';
+import * as docTransforms from './docTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
 // `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
@@ -202,12 +203,16 @@ export class StudioController {
    *    pruning (an interactive filter from a widget the swap removed has no home). This
    *    is replacement, not a merge: a redo that re-applies the same interactive filter
    *    must not stack a duplicate.
-   *  - `dashboard`: overlay `globalCrossFilterMode` / `crossFilterAllPages`.
+   *  - `dashboard`: overlay `globalCrossFilterMode` / `crossFilterAllPages` /
+   *    `activePageId`.
    *
-   * `activePageId` and `cross-filter` entries are deliberately NOT carried — cross-filters
-   * are undoable by design (they time-travel), and active-page navigation is out of scope.
-   * Returns `incomingDoc` unchanged when nothing needs carrying (identity preservation),
-   * so a transient-free history restores a byte-for-byte deep-equal doc.
+   * `activePageId` is carried for the same reason as the cross-filter toggles: navigating
+   * to another page is non-undoable (`setActivePage` commits with `undoable: false`), so a
+   * Ctrl+Z on an unrelated edit must not silently jump the user back to the page they were
+   * on when that edit was snapshotted. `cross-filter` entries are deliberately NOT carried —
+   * cross-filters are undoable by design (they time-travel). Returns `incomingDoc` unchanged
+   * when nothing needs carrying (identity preservation), so a transient-free history restores
+   * a byte-for-byte deep-equal doc.
    */
   private carryTransientDocState = (currentDoc: StudioDoc, incomingDoc: StudioDoc): StudioDoc => {
     const carriedInteractive = currentDoc.filters.filter(
@@ -229,12 +234,14 @@ export class StudioController {
 
     const dashboardChanged =
       incomingDoc.dashboard.globalCrossFilterMode !== currentDoc.dashboard.globalCrossFilterMode ||
-      incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages;
+      incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages ||
+      incomingDoc.dashboard.activePageId !== currentDoc.dashboard.activePageId;
     const nextDashboard = dashboardChanged
       ? {
           ...incomingDoc.dashboard,
           globalCrossFilterMode: currentDoc.dashboard.globalCrossFilterMode,
           crossFilterAllPages: currentDoc.dashboard.crossFilterAllPages,
+          activePageId: currentDoc.dashboard.activePageId,
         }
       : incomingDoc.dashboard;
 
@@ -1058,66 +1065,21 @@ export class StudioController {
     });
   };
 
-  /**
-   * Resolves the page a rank-eligible filter applies to, for the per-page
-   * rank-uniqueness guard (1.7):
-   *  - `page` scope → its explicit `pageId`, or `null` for a legacy pageId-less page
-   *    filter (which applies on EVERY page, so it must conflict everywhere).
-   *  - `widget` scope → the id of the page whose `widgetRows` contain the widget, or
-   *    `null` when the widget is not placed on any page.
-   *  - other scope kinds are never rank filters and are excluded by the caller.
-   */
-  private resolveRankFilterPageId = (filter: StudioFilterState, doc: StudioDoc): string | null => {
-    const { scope } = filter;
-    if (scope.kind === 'page') {
-      return scope.pageId ?? null;
-    }
-    if (scope.kind === 'widget') {
-      for (const page of Object.values(doc.pages)) {
-        if ((page.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
-          return page.id;
-        }
-      }
-      return null;
-    }
-    return null;
-  };
-
-  /**
-   * True when another rank filter already occupies `target`'s page context (1.7).
-   * Rank uniqueness is per-page — a rank filter on page-1 does not block one on
-   * page-2 — because page filters gate on `pageId === activePageId` and widget rank
-   * filters are per-widget. A `null` resolved page (a pageId-less page filter, applied
-   * everywhere) conflicts with — and is conflicted by — any other rank filter.
-   */
-  private hasConflictingRankFilter = (
-    filterId: string,
-    target: StudioFilterState,
-    doc: StudioDoc,
-  ): boolean => {
-    const targetPageId = this.resolveRankFilterPageId(target, doc);
-    return doc.filters.some((filter: StudioFilterState) => {
-      if (
-        filter.id === filterId ||
-        filter.scope.kind === 'cross-filter' ||
-        filter.filterMode !== 'rank'
-      ) {
-        return false;
-      }
-      const otherPageId = this.resolveRankFilterPageId(filter, doc);
-      return targetPageId === null || otherPageId === null || otherPageId === targetPageId;
-    });
-  };
-
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
     const switchingToRank =
       !!target && changes.filterMode === 'rank' && target.filterMode !== 'rank';
     // Per-page rank guard scoped to the target's page context, not dashboard-wide.
+    // Shared with the filters-drawer rows via `../internals/rankFilterScope`.
     const rejectRankChange =
       switchingToRank &&
-      this.hasConflictingRankFilter(filterId, { ...target, ...changes }, state.doc);
+      hasConflictingRankFilter(
+        filterId,
+        { ...target, ...changes },
+        state.doc.filters,
+        state.doc.pages,
+      );
 
     // `mapPreservingIdentity` (1.6): an unknown `filterId` (no match) or a rejected
     // rank change (returns `filter` unchanged) yields the ORIGINAL array, so
@@ -1164,45 +1126,6 @@ export class StudioController {
   };
 
   /**
-   * Builds one managed date-range `StudioFilterState`. Shared by the three
-   * date-range setters below, which previously re-implemented this custom-vs-preset
-   * value logic near-identically. A `'custom'` preset carries the explicit
-   * `{ from, to }` in `value`; every other preset stores `value: null` and is
-   * resolved fresh at query time by `resolveDateRangePreset` (regardless of scope),
-   * so the stored filter never holds stale absolute dates. Returns `null` when a
-   * `'custom'` preset has neither boundary — the caller then clears instead.
-   */
-  private buildDateRangeFilter(args: {
-    id: string;
-    field: string;
-    fieldType: StudioDataField['type'];
-    sourceId: string;
-    preset: StudioDateRangePreset;
-    scope: StudioFilterState['scope'];
-    customFrom?: string;
-    customTo?: string;
-  }): StudioFilterState | null {
-    let value: { from: string; to: string } | null = null;
-    if (args.preset === 'custom') {
-      if (!args.customFrom && !args.customTo) {
-        return null;
-      }
-      value = { from: args.customFrom ?? '', to: args.customTo ?? '' };
-    }
-    return {
-      id: args.id,
-      dateRangePreset: args.preset,
-      field: args.field,
-      fieldType: args.fieldType,
-      filterSourceId: args.sourceId,
-      filterMode: 'condition',
-      operator: 'between',
-      value,
-      scope: args.scope,
-    };
-  }
-
-  /**
    * Sets or clears the dashboard-level date range filter for a page.
    *
    * - Pass `null` for `preset` (or `fieldId`) to remove the date range filter.
@@ -1212,6 +1135,7 @@ export class StudioController {
    *
    * The filter is stored as a page-level `StudioFilterState` with
    * `scope.kind === 'dashboard-date-range'` so the filters drawer and quick-filter bar can hide it.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setDashboardDateRange = (
     pageId: string,
@@ -1222,29 +1146,18 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+    this.commitDocPatch(
+      docTransforms.setDashboardDateRange(
+        this.store.state.doc,
+        pageId,
+        fieldId,
+        sourceId,
+        fieldType,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilter =
-      preset && fieldId && sourceId
-        ? this.buildDateRangeFilter({
-            id: `dashboard-date-range-${pageId}`,
-            field: fieldId,
-            fieldType: fieldType ?? 'date',
-            sourceId,
-            preset,
-            scope: { kind: 'dashboard-date-range', sourceId, pageId },
-            customFrom,
-            customTo,
-          })
-        : null;
-
-    this.commitDocPatch({
-      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-    });
   };
 
   /**
@@ -1252,6 +1165,7 @@ export class StudioController {
    * Creates one `scope.kind === 'dashboard-date-range'` filter per source so each widget is
    * filtered by its own source's date field — not by a field from another source.
    * Replaces any previously active dashboard date-range filters for the page.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setDashboardDateRangeAll = (
     pageId: string,
@@ -1260,28 +1174,16 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
+    this.commitDocPatch(
+      docTransforms.setDashboardDateRangeAll(
+        this.store.state.doc,
+        pageId,
+        fields,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilters = fields
-      .map(({ fieldId, sourceId, fieldType }) =>
-        this.buildDateRangeFilter({
-          id: `dashboard-date-range-${pageId}-${sourceId}`,
-          field: fieldId,
-          fieldType,
-          sourceId,
-          preset,
-          scope: { kind: 'dashboard-date-range', sourceId, pageId },
-          customFrom,
-          customTo,
-        }),
-      )
-      .filter((f): f is StudioFilterState => f !== null);
-
-    this.commitDocPatch({ filters: [...withoutExisting, ...newFilters] });
   };
 
   /**
@@ -1293,6 +1195,7 @@ export class StudioController {
    * The filter is stored as a widget-scoped `StudioFilterState` with
    * `scope.kind === 'widget'` so the filters drawer hides it (it is managed
    * exclusively via the KPI setup panel).
+   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
    */
   setWidgetDateRange = (
     widgetId: string,
@@ -1303,28 +1206,18 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    const state = this.store.state;
-    const withoutExisting = state.doc.filters.filter(
-      (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
+    this.commitDocPatch(
+      docTransforms.setWidgetDateRange(
+        this.store.state.doc,
+        widgetId,
+        fieldId,
+        sourceId,
+        fieldType,
+        preset,
+        customFrom,
+        customTo,
+      ),
     );
-
-    const newFilter =
-      preset && fieldId && sourceId
-        ? this.buildDateRangeFilter({
-            id: `widget-date-range-${widgetId}`,
-            field: fieldId,
-            fieldType: fieldType ?? 'date',
-            sourceId,
-            preset,
-            scope: { kind: 'widget', widgetId },
-            customFrom,
-            customTo,
-          })
-        : null;
-
-    this.commitDocPatch({
-      filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-    });
   };
 
   applyInteractiveFilter = (
@@ -1427,20 +1320,10 @@ export class StudioController {
    * Saves the current page-level filters as a named preset.
    */
   saveFilterPreset = (name: string): string => {
-    const state = this.store.state;
-    const activePageId = state.doc.dashboard.activePageId;
-    // Only save filters for the current active page.
-    const pageFilters = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
-    );
+    // The `Date.now()`-based id is generated here (a controller-owned side effect) so it
+    // can be both threaded into the pure transform and returned to the caller.
     const id = `preset-${Date.now()}`;
-    const preset: StudioFilterPreset = {
-      id,
-      name,
-      filters: pageFilters.map((f: StudioFilterState) => ({ ...f, id: `${id}-${f.id}` })),
-    };
-    this.commitDocPatch({ filterPresets: [...(state.doc.filterPresets ?? []), preset] });
+    this.commitDocPatch(docTransforms.saveFilterPreset(this.store.state.doc, id, name));
     return id;
   };
 
@@ -1463,54 +1346,23 @@ export class StudioController {
    * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
    */
   applyFilterPreset = (presetId: string) => {
-    const state = this.store.state;
-    const preset = (state.doc.filterPresets ?? []).find(
-      (p: StudioFilterPreset) => p.id === presetId,
-    );
-    if (!preset) {
-      return;
-    }
-    const activePageId = state.doc.dashboard.activePageId;
-    this.commitDocPatch({
-      filters: [
-        // Keep all non-page filters, and keep page filters for OTHER pages.
-        ...state.doc.filters.filter(
-          (f: StudioFilterState) =>
-            f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
-        ),
-        // Apply preset filters scoped to the current page.
-        ...preset.filters.map((f: StudioFilterState) => ({
-          ...f,
-          scope: { kind: 'page' as const, pageId: activePageId },
-        })),
-      ],
-    });
+    this.commitDocPatch(docTransforms.applyFilterPreset(this.store.state.doc, presetId));
   };
 
   /**
    * Deletes a saved filter preset by ID.
    */
   deleteFilterPreset = (presetId: string) => {
-    const state = this.store.state;
-    const presets = state.doc.filterPresets ?? [];
-    const next = presets.filter((p: StudioFilterPreset) => p.id !== presetId);
-    this.commitDocPatch({ filterPresets: next.length === presets.length ? presets : next });
+    this.commitDocPatch(docTransforms.deleteFilterPreset(this.store.state.doc, presetId));
   };
 
   /**
    * Renames a saved filter preset.
    */
   renameFilterPreset = (presetId: string, name: string) => {
-    const state = this.store.state;
-    // `mapPreservingIdentity` (1.6): an unknown `presetId` returns the original array
-    // so `commitDocPatch` no-ops it. A matched preset always rebuilds (no deep name
-    // comparison — the unknown-id-only scope the finding calls for).
-    this.commitDocPatch({
-      filterPresets: mapPreservingIdentity(
-        state.doc.filterPresets ?? [],
-        (p: StudioFilterPreset) => (p.id === presetId ? { ...p, name } : p),
-      ),
-    });
+    // The pure transform preserves the original `filterPresets` array reference on an
+    // unknown `presetId` (via `mapPreservingIdentity`), so `commitDocPatch` no-ops it.
+    this.commitDocPatch(docTransforms.renameFilterPreset(this.store.state.doc, presetId, name));
   };
 
   /**

@@ -2466,6 +2466,47 @@ describe('StudioController — transient doc state across undo/redo (1.1)', () =
     expect(controller.getState().doc.dashboard.crossFilterAllPages).toBe(true);
   });
 
+  it('carries the active page across undo (navigation is not reverted by an unrelated edit)', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    controller.setDashboardTitle('Anchor'); // the only undoable step
+    controller.setActivePage('page-2'); // non-undoable navigation
+
+    controller.undo(); // reverts the title only
+    // Navigation is preserved — undo must not jump the user back to page-1.
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+    expect(controller.getState().doc.dashboard.title).not.toBe('Anchor');
+    // The navigation was not an undo step: nothing left to undo.
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('carries the active page across redo (navigation is not reverted by an unrelated edit)', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    controller.setDashboardTitle('Anchor'); // undoable
+    controller.undo(); // present title reverted; redo holds "Anchor"
+    controller.setActivePage('page-2'); // navigate after the undo
+
+    controller.redo(); // reapplies the title
+    expect(controller.getState().doc.dashboard.title).toBe('Anchor');
+    // Navigation carried forward across the redo, not reset to page-1.
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+  });
+
   it('restores a deep-equal doc on undo when there is no transient state', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));

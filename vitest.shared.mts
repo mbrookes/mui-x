@@ -11,6 +11,7 @@ export const alias = [
   // Generates resolver aliases for all packages and their plans.
   ...[
     { lib: 'x-charts', plans: ['pro', 'premium'] },
+    { lib: 'x-charts-vega' },
     { lib: 'x-chat', plans: ['headless', 'unstyled'] },
     { lib: 'x-date-pickers', plans: ['pro'] },
     { lib: 'x-tree-view', plans: ['pro'] },

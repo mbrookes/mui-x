@@ -10,6 +10,7 @@ packages:
   # errors surface in CI (they are `private` and not `@mui/*`-scoped, so
   # release/build jobs do not sweep them).
   - examples/x-studio*
+  - examples/x-charts-vega
 
 catalog:
   '@atlaskit/pragmatic-drag-and-drop': ^1.8.1

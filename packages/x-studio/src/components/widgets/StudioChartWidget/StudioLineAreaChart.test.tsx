@@ -26,7 +26,7 @@ type SeriesEntry = {
   color?: string;
   stack?: string;
   stackOrder?: string;
-  yAxisKey?: string;
+  yAxisId?: string;
   valueFormatter?: (value: number | null, context: { dataIndex: number }) => string;
 };
 
@@ -338,6 +338,11 @@ describe('StudioLineAreaChart', () => {
     expect(props.yAxis[1].position).toBe('right');
     // Rendered series ids carry the index suffix.
     expect(props.series.map((s) => s.id)).toEqual(['revenue-0', 'cost-1']);
+    // Each series binds to its own axis via `yAxisId` (the real x-charts prop, not the
+    // dead `yAxisKey`), matching the per-axis ids above (finding 1.1).
+    expect(props.yAxis[0].id).toBe('y-0');
+    expect(props.yAxis[1].id).toBe('y-1');
+    expect(props.series.map((s) => s.yAxisId)).toEqual(['y-0', 'y-1']);
   });
 
   it('renders multi-Y ghost series ids suffixed with the field index and -ghost when active', () => {

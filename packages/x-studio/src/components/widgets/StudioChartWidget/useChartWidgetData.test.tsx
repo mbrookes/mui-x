@@ -1001,3 +1001,80 @@ describe('useChartWidgetData — scatter series computation', () => {
     expect(result.current.scatterData).toHaveLength(3);
   });
 });
+
+// ─── per-series yAggregation precedence (finding 1.12) ────────────────────────
+//
+// The single-series (`chartData`) and split-by (`seriesFieldData`) client paths must
+// honour `ySeries[0].yAggregation` with precedence over the widget-level `yAggregation`
+// default, matching the server/adapter push-down precedence in `chartTypeRegistry`.
+
+describe('useChartWidgetData — per-series yAggregation precedence (finding 1.12)', () => {
+  it('single-series chartData honours ySeries[0].yAggregation over config.yAggregation', () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-avg-single',
+      kind: 'chart',
+      title: 'Avg total by category',
+      sourceId: 'revenue',
+      config: {
+        chartType: 'bar',
+        xField: 'category',
+        yField: 'total',
+        yAggregation: 'sum', // widget-level default
+        ySeries: [{ fieldId: 'total', yAggregation: 'avg' }], // per-series wins
+      },
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+    const data = result.current.chartData!;
+    // Electronics has total 100 and 50 → avg 75 (sum would be 150).
+    expect(data.values[data.labels.indexOf('Electronics')]).toBe(75);
+    // Furniture has total 30 and 20 → avg 25 (sum would be 50).
+    expect(data.values[data.labels.indexOf('Furniture')]).toBe(25);
+  });
+
+  it('split-by seriesFieldData honours ySeries[0].yAggregation over config.yAggregation', () => {
+    const splitSource: StudioDataSource = {
+      id: 'split',
+      label: 'Split',
+      fields: [
+        { id: 'month', label: 'Month', type: 'string' },
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'value', label: 'Value', type: 'number' },
+      ],
+      rows: [
+        { id: 'a', month: 'Jan', region: 'EU', value: 10 },
+        { id: 'b', month: 'Jan', region: 'EU', value: 20 }, // Jan/EU has two rows
+        { id: 'c', month: 'Jan', region: 'US', value: 40 },
+      ],
+    };
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-avg-split',
+      kind: 'chart',
+      title: 'Avg value by month/region',
+      sourceId: 'split',
+      config: {
+        chartType: 'line',
+        xField: 'month',
+        seriesField: 'region',
+        yField: 'value',
+        yAggregation: 'sum', // widget-level default
+        ySeries: [{ fieldId: 'value', yAggregation: 'avg' }], // per-series wins
+      },
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { split: splitSource },
+      filters: [],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, splitSource, 'page-1'));
+    const data = result.current.seriesFieldData!;
+    const janIdx = data.labels.indexOf('Jan');
+    // Jan/EU has values 10 and 20 → avg 15 (sum would be 30).
+    expect(data.seriesData.EU[janIdx]).toBe(15);
+    expect(data.seriesData.US[janIdx]).toBe(40);
+  });
+});

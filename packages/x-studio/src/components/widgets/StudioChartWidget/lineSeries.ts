@@ -1,6 +1,11 @@
 import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 import type { StudioChartType, StudioDataField } from '../../../models';
-import { makeValueFormatter } from './chartWidgetHelpers';
+import {
+  computeStackTotals,
+  formatPercentValue,
+  isAreaStacked,
+  makeValueFormatter,
+} from './chartWidgetHelpers';
 
 export function buildMultiYLineSeries(
   multiYData: MultiYSeriesData,
@@ -8,14 +13,12 @@ export function buildMultiYLineSeries(
   fields?: StudioDataField[],
 ) {
   const isArea = chartType !== 'line';
-  const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
+  const isStacked = isAreaStacked(chartType);
   const is100 = chartType === 'area-100';
   const totals100 = is100
-    ? multiYData.labels.map((_, index) =>
-        multiYData.series.reduce<number>(
-          (sum, series) => sum + ((series.values[index] ?? 0) as number),
-          0,
-        ),
+    ? computeStackTotals(
+        multiYData.series.map((series) => series.values),
+        multiYData.labels.length,
       )
     : null;
   const useIndependentAxes = !isStacked && multiYData.series.length > 1;
@@ -36,10 +39,10 @@ export function buildMultiYLineSeries(
       area: isArea,
       connectNulls: true as const,
       stack: isStacked ? 'total' : undefined,
-      yAxisKey: useIndependentAxes ? `y-${index}` : undefined,
+      yAxisId: useIndependentAxes ? `y-${index}` : undefined,
       highlightScope: { highlight: 'item' as const, fade: 'global' as const },
       valueFormatter: is100
-        ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+        ? formatPercentValue
         : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision, {
             compact: false,
             noFormatFallback: 'undefined',

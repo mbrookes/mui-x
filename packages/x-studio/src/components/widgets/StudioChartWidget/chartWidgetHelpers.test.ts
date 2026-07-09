@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   buildGhostBarContext,
   computeControlledHighlight,
+  computeStackTotals,
   crossFilterValueEquals,
   densifyAggregated,
   densifyMultiSeries,
   densifyMultiY,
+  formatPercentAxis,
+  formatPercentValue,
+  isAreaStacked,
+  isBarStacked,
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
@@ -253,5 +258,60 @@ describe('computeControlledHighlight', () => {
       item: null,
       axis: [],
     });
+  });
+});
+
+// ─── shared chart-render helpers (finding 2.4) ────────────────────────────────
+
+describe('computeStackTotals', () => {
+  it('sums each series value at every label index (null → 0)', () => {
+    const totals = computeStackTotals(
+      [
+        [10, null, 20],
+        [30, 5, null],
+      ],
+      3,
+    );
+    expect(totals).toEqual([40, 5, 20]);
+  });
+
+  it('returns all-zero totals for no columns', () => {
+    expect(computeStackTotals([], 2)).toEqual([0, 0]);
+  });
+});
+
+describe('isBarStacked', () => {
+  it('is true for the dedicated stacked / 100% bar types regardless of layout', () => {
+    expect(isBarStacked('bar-stacked', 'grouped')).toBe(true);
+    expect(isBarStacked('bar-100', 'grouped')).toBe(true);
+  });
+
+  it("is true for plain 'bar' only under a 'stacked' layout", () => {
+    expect(isBarStacked('bar', 'stacked')).toBe(true);
+    expect(isBarStacked('bar', 'grouped')).toBe(false);
+    expect(isBarStacked('bar', 'horizontal')).toBe(false);
+  });
+});
+
+describe('isAreaStacked', () => {
+  it('is true only for area-stacked / area-100', () => {
+    expect(isAreaStacked('area-stacked')).toBe(true);
+    expect(isAreaStacked('area-100')).toBe(true);
+    expect(isAreaStacked('area')).toBe(false);
+    expect(isAreaStacked('line')).toBe(false);
+    expect(isAreaStacked(undefined)).toBe(false);
+  });
+});
+
+describe('percent formatters', () => {
+  it('formatPercentValue: one-decimal percent, null → 0%', () => {
+    expect(formatPercentValue(25)).toBe('25.0%');
+    expect(formatPercentValue(12.345)).toBe('12.3%');
+    expect(formatPercentValue(null)).toBe('0%');
+  });
+
+  it('formatPercentAxis: whole-number percent', () => {
+    expect(formatPercentAxis(24.6)).toBe('25%');
+    expect(formatPercentAxis(0)).toBe('0%');
   });
 });

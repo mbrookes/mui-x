@@ -13,9 +13,13 @@ import {
   buildGhostBarContext,
   CHART_LEGEND_SLOT_PROPS,
   computeControlledHighlight,
+  computeStackTotals,
   densifyAggregated,
   densifyMultiSeries,
   densifyMultiY,
+  formatPercentAxis,
+  formatPercentValue,
+  isBarStacked,
   makeAxisClickHandler,
   makeCrossFilterValueFormatter,
   makeValueFormatter,
@@ -246,19 +250,14 @@ export function StudioBarChart({
       shouldShowGhost && allBarMultiYData ? allBarMultiYData : barMultiYData;
     const xAxisData = effectiveMultiYData.labels;
     const selectedDataIndices = getSelectedDataIndices(effectiveMultiYData.labels);
-    const isStacked =
-      chartType === 'bar-stacked' ||
-      chartType === 'bar-100' ||
-      (chartType === 'bar' && barLayout === 'stacked');
+    const isStacked = isBarStacked(chartType, barLayout);
     const is100 = chartType === 'bar-100';
     const useIndependentAxes =
       !isHorizontalBarLayout && !isStacked && effectiveMultiYData.series.length > 1;
     const totals100 = is100
-      ? effectiveMultiYData.labels.map((_, li) =>
-          effectiveMultiYData.series.reduce<number>(
-            (sum, ms) => sum + ((ms.values[li] ?? 0) as number),
-            0,
-          ),
+      ? computeStackTotals(
+          effectiveMultiYData.series.map((ms) => ms.values),
+          effectiveMultiYData.labels.length,
         )
       : null;
     const multiYBarFieldDefs = effectiveMultiYData.series.map((s) =>
@@ -279,7 +278,7 @@ export function StudioBarChart({
           {
             width: 'auto' as const,
             valueFormatter: is100
-              ? (v: number) => `${Math.round(v)}%`
+              ? formatPercentAxis
               : makeValueFormatter(
                   multiYBarFieldDefs[0]?.format,
                   multiYBarFieldDefs[0]?.currencyCode,
@@ -313,7 +312,7 @@ export function StudioBarChart({
           })
         : s.values;
       const baseFormatter = is100
-        ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+        ? formatPercentValue
         : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision);
       const seriesId = `${s.fieldId}-${i}`;
       const valueFormatter =
@@ -325,7 +324,7 @@ export function StudioBarChart({
         data,
         label: fieldDef?.label ?? s.fieldId,
         stack: isStacked ? 'total' : undefined,
-        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+        yAxisId: useIndependentAxes ? `y-${i}` : undefined,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
         valueFormatter,
       };
@@ -347,7 +346,7 @@ export function StudioBarChart({
                     {
                       height: 'auto',
                       valueFormatter: is100
-                        ? (v: number) => `${Math.round(v)}%`
+                        ? formatPercentAxis
                         : makeValueFormatter(
                             multiYBarFieldDefs[0]?.format,
                             multiYBarFieldDefs[0]?.currencyCode,
@@ -422,18 +421,13 @@ export function StudioBarChart({
         : barSeriesFieldData;
     const xAxisData = effectiveSFData.labels;
     const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
-    const isStacked =
-      chartType === 'bar-stacked' ||
-      chartType === 'bar-100' ||
-      (chartType === 'bar' && barLayout === 'stacked');
+    const isStacked = isBarStacked(chartType, barLayout);
     const stackId = isStacked ? 'stack' : undefined;
     const is100 = chartType === 'bar-100';
     const totals100 = is100
-      ? effectiveSFData.labels.map((_, i) =>
-          effectiveSFData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((effectiveSFData.seriesData[name][i] ?? 0) as number),
-            0,
-          ),
+      ? computeStackTotals(
+          effectiveSFData.seriesNames.map((name) => effectiveSFData.seriesData[name]),
+          effectiveSFData.labels.length,
         )
       : null;
 
@@ -453,7 +447,7 @@ export function StudioBarChart({
     const sfFilteredBySeriesId = sfBarContext?.filteredValuesBySeriesId ?? {};
 
     const baseSeriesValueFormatter = is100
-      ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+      ? formatPercentValue
       : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision);
 
     const series = effectiveSFData.seriesNames.map((name) => {
@@ -497,7 +491,7 @@ export function StudioBarChart({
                     {
                       height: 'auto',
                       valueFormatter: is100
-                        ? (v: number) => `${Math.round(v)}%`
+                        ? formatPercentAxis
                         : makeValueFormatter(
                             yFieldDef?.format,
                             yFieldDef?.currencyCode,
@@ -543,7 +537,7 @@ export function StudioBarChart({
                     {
                       width: 'auto' as const,
                       valueFormatter: is100
-                        ? (v: number) => `${Math.round(v)}%`
+                        ? formatPercentAxis
                         : makeValueFormatter(
                             yFieldDef?.format,
                             yFieldDef?.currencyCode,

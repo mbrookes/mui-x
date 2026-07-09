@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioChartConfigOfType } from '../../../models';
 import {
@@ -82,6 +82,9 @@ describe('PieArcLabelsSection min-angle input (finding 2.3)', () => {
     renderPie({});
     const input = screen.getByLabelText('Minimum angle (°)');
     fireEvent.change(input, { target: { value: '30' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {

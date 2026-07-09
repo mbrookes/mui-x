@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioChartConfigOfType } from '../../../models';
 import {
@@ -94,6 +94,9 @@ describe('FunnelConfigSection gap input (finding 2.3)', () => {
     renderFunnel({});
     const input = screen.getByLabelText('Section gap (px)');
     fireEvent.change(input, { target: { value: '4' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { funnelGap: 4 });

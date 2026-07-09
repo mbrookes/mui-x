@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioChartConfigOfType } from '../../../models';
 import {
@@ -103,6 +103,9 @@ describe('ScatterConfigSection radii inputs (finding 2.3)', () => {
     renderScatter({});
     const input = screen.getByLabelText('Max radius');
     fireEvent.change(input, { target: { value: '55' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {

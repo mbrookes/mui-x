@@ -117,7 +117,10 @@ describe('createBatchingAdapter — batching mechanics', () => {
       widgets: Array<{ id: string; table: string; columns: string[] }>;
     };
     expect(body.widgets).toHaveLength(1);
-    expect(body.widgets[0].id).toBe('w1');
+    // The wire id is now `${widgetId}::${cacheKey}` (finding 2.14), not the bare
+    // widgetId, so two descriptors for the same widget with different cacheKeys route
+    // to distinct results instead of silently colliding.
+    expect(body.widgets[0].id).toMatch(/^w1::/);
     expect(body.widgets[0].table).toBe('orders');
     expect(body.widgets[0].columns).toContain('id');
     expect(body.widgets[0].columns).toContain('total');

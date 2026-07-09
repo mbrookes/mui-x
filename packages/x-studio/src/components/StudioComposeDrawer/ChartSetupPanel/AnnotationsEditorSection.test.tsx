@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioChartAnnotation } from '../../../models';
 import {
@@ -118,6 +118,9 @@ describe('AnnotationsEditorSection label input (finding 2.3)', () => {
     renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
     const input = screen.getByLabelText('Label') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Goal' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {

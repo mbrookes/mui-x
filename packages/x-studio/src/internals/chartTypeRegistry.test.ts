@@ -37,6 +37,9 @@ const SOURCE_B = 'source-b';
 // ── collectFields: standard x/y chart types ───────────────────────────────────
 
 describe('collectFields — bar / line / area family', () => {
+  // `gauge` is excluded: its descriptor only ever collects `yField` (finding 2.26 —
+  // see the dedicated `collectFields — gauge` block below), unlike every other type
+  // here which collects xField/seriesField/ySeries too.
   const types = [
     'bar',
     'bar-stacked',
@@ -48,7 +51,6 @@ describe('collectFields — bar / line / area family', () => {
     'mixed',
     'pie',
     'donut',
-    'gauge',
   ] as const;
 
   types.forEach((chartType) => {
@@ -94,6 +96,36 @@ describe('collectFields — bar / line / area family', () => {
       expect(fields).toContain('local_total');
       expect(fields).not.toContain('foreign_stock');
     });
+  });
+});
+
+// ── collectFields: gauge (finding 2.26) ───────────────────────────────────────
+//
+// Gauge has its own descriptor (not `xyDescriptor`): it only ever collects
+// `yField` — it has no x-axis, series, or ySeries concept, unlike the bar/line/
+// area/pie family above.
+
+describe('collectFields — gauge', () => {
+  it('collects only yField', () => {
+    const desc = chartDesc('gauge');
+    const fields = desc.collectFields(
+      { chartType: 'gauge', xField: 'date', yField: 'revenue', seriesField: 'region' },
+      SOURCE_A,
+    );
+    expect(fields).toEqual(['revenue']);
+  });
+
+  it('ignores ySeries entirely', () => {
+    const desc = chartDesc('gauge');
+    const fields = desc.collectFields(
+      {
+        chartType: 'gauge',
+        yField: 'revenue',
+        ySeries: [{ fieldId: 'total', sourceId: SOURCE_A }],
+      },
+      SOURCE_A,
+    );
+    expect(fields).toEqual(['revenue']);
   });
 });
 
@@ -381,6 +413,9 @@ describe('collectFields — unknown chartType (fallback)', () => {
 // ── buildAggregationSpecs: chart types ───────────────────────────────────────
 
 describe('buildAggregationSpecs — bar / line / area family', () => {
+  // `gauge` is excluded: it never emits an aggregation spec at all (finding 2.26 —
+  // see the dedicated `buildAggregationSpecs — gauge` block below), since it always
+  // aggregates client-side and must never be pushed to the server.
   const types = [
     'bar',
     'bar-stacked',
@@ -392,7 +427,6 @@ describe('buildAggregationSpecs — bar / line / area family', () => {
     'mixed',
     'pie',
     'donut',
-    'gauge',
   ] as const;
 
   types.forEach((chartType) => {
@@ -475,6 +509,18 @@ describe('buildAggregationSpecs — bar / line / area family', () => {
       expect(revenueSpecs).toHaveLength(1);
       expect(revenueSpecs[0].fn).toBe('avg');
     });
+  });
+});
+
+describe('buildAggregationSpecs — gauge (finding 2.26)', () => {
+  it('never emits an aggregation spec, even with yField/yAggregation set', () => {
+    const desc = chartDesc('gauge');
+    const aggs = desc.buildAggregationSpecs(
+      { chartType: 'gauge', yField: 'revenue', yAggregation: 'sum' },
+      noExpr,
+      SOURCE_A,
+    );
+    expect(aggs).toEqual([]);
   });
 });
 

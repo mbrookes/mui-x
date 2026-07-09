@@ -46,6 +46,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     'Utilice la pestaña Configurar para elegir el campo de país y el campo de valor.',
   widgetNoData: 'Sin datos',
   widgetLoadError: 'No se pudieron cargar los datos',
+  mapGeographyLoadError: 'No se pudieron cargar los datos del mapa. Inténtelo de nuevo.',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir panel de filtros',

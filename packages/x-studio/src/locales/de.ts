@@ -48,6 +48,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     'Verwenden Sie die Registerkarte „Konfigurieren“, um das Länderfeld und das Wertefeld auszuwählen.',
   widgetNoData: 'Keine Daten',
   widgetLoadError: 'Daten konnten nicht geladen werden',
+  mapGeographyLoadError: 'Kartendaten konnten nicht geladen werden. Bitte versuchen Sie es erneut.',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Filterbereich öffnen',

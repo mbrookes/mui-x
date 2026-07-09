@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioConditionalFormat, StudioWidgetConfig } from '../../models';
 import {
@@ -216,6 +216,9 @@ describe('GridConditionalFormatSection string value input (finding 2.3)', () => 
     fireEvent.change(valueInput, { target: { value: 'Shipped' } });
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
 
+    act(() => {
+      valueInput.focus();
+    });
     fireEvent.keyDown(valueInput, { key: 'Enter' });
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {

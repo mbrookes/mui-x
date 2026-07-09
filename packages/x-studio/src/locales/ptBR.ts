@@ -44,6 +44,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetConfigureMapHint: 'Use a aba Configurar para escolher o campo de país e o campo de valor.',
   widgetNoData: 'Sem dados',
   widgetLoadError: 'Falha ao carregar dados',
+  mapGeographyLoadError: 'Falha ao carregar dados do mapa. Tente novamente.',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir painel de filtros',

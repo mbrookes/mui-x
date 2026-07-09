@@ -157,9 +157,12 @@ describe('computeWidgetForecast', () => {
         expect(Number.isNaN(value as number)).toBe(false);
       }
     }
-    // With zero residual error the bands collapse onto the forecast line.
-    expect(result!.upperBand![3]).toBe(20);
-    expect(result!.forecastSeries[3]).toBe(20);
+    // With zero residual error the bands collapse onto the forecast line. Points
+    // (0,10),(1,20) fit y = 10x + 10 exactly, so with periods:2 the series is
+    // [null, 20 (connection point), 30 (x=2), 40 (x=3)] — index 3 is the SECOND
+    // forecast point, not the connection point.
+    expect(result!.upperBand![3]).toBe(40);
+    expect(result!.forecastSeries[3]).toBe(40);
   });
 
   it('does not produce confidence bands when showConfidenceBands is false', () => {

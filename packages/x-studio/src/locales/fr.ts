@@ -47,6 +47,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     "Utilisez l'onglet Configurer pour choisir le champ de pays et le champ de valeur.",
   widgetNoData: 'Aucune donnée',
   widgetLoadError: 'Échec du chargement des données',
+  mapGeographyLoadError: 'Échec du chargement des données cartographiques. Veuillez réessayer.',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Ouvrir le panneau des filtres',

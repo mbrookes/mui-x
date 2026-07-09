@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import {
@@ -183,6 +183,9 @@ describe('FilterSetupPanel', () => {
 
     const maxInput = screen.getByLabelText('Max') as HTMLInputElement;
     fireEvent.change(maxInput, { target: { value: '200' } });
+    act(() => {
+      maxInput.focus();
+    });
     fireEvent.keyDown(maxInput, { key: 'Enter' });
 
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);

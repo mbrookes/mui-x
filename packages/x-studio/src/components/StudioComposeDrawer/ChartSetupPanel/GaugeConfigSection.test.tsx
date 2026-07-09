@@ -214,7 +214,8 @@ describe('GaugeConfigSection cross-source field pick folds to a single undo step
       />,
     );
 
-    await user.click(screen.getByLabelText('Value field'));
+    // "Value field" is required here, so its label carries a trailing asterisk — match with `exact: false`.
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
     // Name includes the field-type icon's aria-label prefix (e.g. "Number Revenue").
     const revenueOption = await screen.findByRole('option', { name: /Revenue$/ });
     await user.click(revenueOption);

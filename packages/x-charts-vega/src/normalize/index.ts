@@ -160,7 +160,7 @@ function normalizeMark(mark: VegaUnitSpec['mark']): VegaMarkDef {
   return typeof mark === 'string' ? { type: mark } : mark;
 }
 
-function titleText(title: VegaUnitSpec['title']): string | undefined {
+export function titleText(title: VegaUnitSpec['title']): string | undefined {
   if (typeof title === 'string') {
     return title;
   }
@@ -195,9 +195,15 @@ function numericSize(
 
 /**
  * Flattens a (possibly layered) Vega-Lite spec into a list of unit specs with
- * fully-resolved encoding, transforms, and rows. Facet/concat/repeat
- * compositions are rejected here with a gap — the wrapper renders nothing for
- * them rather than guessing.
+ * fully-resolved encoding, transforms, and rows.
+ *
+ * NOTE: view compositions (`facet` / `row`+`column` channels / `hconcat` /
+ * `vconcat` / `concat`) are wrapper-level, not compiler-level. `<VegaLiteChart />`
+ * detects them BEFORE calling `compileSpec` (see `src/facet`) and expands them
+ * into a grid of nested single-view charts. The gaps below therefore only
+ * surface when `compileSpec` is invoked directly on a composite spec (the pure
+ * API path, which renders nothing) — the shell never reaches them. `repeat`
+ * has no wrapper support and is a genuine gap in both paths.
  */
 export function normalizeSpec(
   spec: VegaLiteSpec,
@@ -206,9 +212,13 @@ export function normalizeSpec(
 ): NormalizedSpec {
   for (const composite of ['hconcat', 'vconcat', 'concat', 'repeat', 'facet'] as const) {
     if (spec[composite] !== undefined) {
+      const message =
+        composite === 'repeat'
+          ? '`repeat` view composition has no x-charts equivalent and is not expanded by <VegaLiteChart />. Generate one <VegaLiteChart /> per repeated field yourself.'
+          : `\`${composite}\` view composition is not handled by the pure \`compileSpec\` API; render the spec through <VegaLiteChart />, which expands it into a grid of sub-charts.`;
       gaps.add({
         code: `composition:${composite}`,
-        message: `\`${composite}\` view composition has no x-charts equivalent (one chart per container). Render one <VegaLiteChart /> per sub-view instead.`,
+        message,
         severity: 'unsupported',
         path: composite,
       });
@@ -218,7 +228,7 @@ export function normalizeSpec(
     gaps.add({
       code: 'encoding:facet',
       message:
-        'Facet channels (row/column/facet) are not supported. Split the data and render one chart per facet.',
+        'Facet channels (row/column/facet) are not handled by the pure `compileSpec` API; render the spec through <VegaLiteChart />, which splits the data into one chart per facet.',
       severity: 'unsupported',
       path: 'encoding',
     });

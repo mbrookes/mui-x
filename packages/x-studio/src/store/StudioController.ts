@@ -983,7 +983,23 @@ export class StudioController {
     );
   };
 
-  updateWidget = (widgetId: string, changes: Partial<Omit<StudioWidget, 'id'>>) => {
+  updateWidget = (
+    widgetId: string,
+    changes: Partial<Omit<StudioWidget, 'id'>>,
+    // Finding 1.5: a widget's data-source switch (driven by the setup panels) can
+    // strand widget-scoped filters whose field belongs to the OLD source — those
+    // filters keep matching by `widgetId` (`filterScoping.ts`) but their field no
+    // longer exists on the new source's rows, so the date/`gte`/`between` branches
+    // in `filterUtils.ts` return `false` for EVERY row and the widget silently goes
+    // empty. The setup panel (which alone has the field-catalog/reachability context
+    // to tell which widget filters no longer resolve against the new source) passes
+    // those filter ids here so their removal folds into the SAME undoable commit as
+    // the source/config change — the exact source-switch-folding pattern already used
+    // for `sourceId` + config. A lone Ctrl+Z then reverts the whole gesture at once,
+    // rather than landing on a torn "new source, stale filter" state the UI never
+    // actually rendered (finding 2.2's rationale, extended to widget filters).
+    options?: { removeFilterIds?: string[] },
+  ) => {
     // Delegates to the shared reducer (the last controller mutation method to do
     // so). The historical hand-written version used a `{ ...existing, ...changes }`
     // spread whose only irreplaceable behaviour was letting a caller VOID a
@@ -1019,15 +1035,27 @@ export class StudioController {
     // `updateWidgetConfig`). `label: null` preserves the hand-written method's
     // behaviour of NOT writing a recent-mutation-log line.
     const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
-    this.commitMutation(
-      {
-        type: 'updateWidget',
-        args: {
-          widgetId,
-          changes: definedChanges as Partial<Omit<StudioWidget, 'id'>>,
-          ...(unsetFields.length > 0 ? { unsetFields } : {}),
+    // Fold the widget update and any stale-filter removals into ONE `commitMutations`
+    // batch so the whole source switch is a single undoable step (finding 1.5). A
+    // `removeFilter` for an id that doesn't exist is a clean fold no-op (the reducer
+    // returns the same state), so callers may pass ids without pre-checking. When
+    // `removeFilterIds` is empty this is a one-element batch — byte-identical to the
+    // previous `commitMutation` call (a one-element `.join(' + ')` has no separator).
+    const removeFilterMutations: StateMutation[] = (options?.removeFilterIds ?? []).map(
+      (filterId) => ({ type: 'removeFilter', args: { filterId } }),
+    );
+    this.commitMutations(
+      [
+        {
+          type: 'updateWidget',
+          args: {
+            widgetId,
+            changes: definedChanges as Partial<Omit<StudioWidget, 'id'>>,
+            ...(unsetFields.length > 0 ? { unsetFields } : {}),
+          },
         },
-      },
+        ...removeFilterMutations,
+      ],
       {
         label: null,
         transform: isExplicitTitleChange

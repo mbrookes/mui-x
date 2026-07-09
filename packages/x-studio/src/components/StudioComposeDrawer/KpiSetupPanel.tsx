@@ -36,6 +36,7 @@ import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { CrossFilterModeSection } from './CrossFilterModeSection';
 import { CollapsibleFeatureSection } from './CollapsibleFeatureSection';
 import { KpiSparklineOptions } from './KpiSparklineOptions';
+import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) {
   return {
@@ -265,10 +266,27 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // `updateWidget` commit so the whole gesture is a single undo step (finding
           // 2.2) — a lone Ctrl+Z otherwise lands on a torn state (new source, stale
           // field) the UI never actually rendered.
-          controller.updateWidget(widgetId, {
-            sourceId: nextSourceId,
-            config: { ...config, kpiValueField: '', kpiAggregation: 'count' },
-          });
+          //
+          // The managed date-range filter (and any other widget-scoped filter) still
+          // references the OLD source's field; left in place it would silently exclude
+          // every row of the new source (finding 1.5). Fold the removal of those now-
+          // unresolvable filters into the SAME commit via `removeFilterIds`.
+          controller.updateWidget(
+            widgetId,
+            {
+              sourceId: nextSourceId,
+              config: { ...config, kpiValueField: '', kpiAggregation: 'count' },
+            },
+            {
+              removeFilterIds: collectStaleWidgetFilterIds(
+                allFilters,
+                widgetId,
+                nextSourceId,
+                allFields,
+                relationships,
+              ),
+            },
+          );
         }}
         renderInput={(params) => (
           <TextField
@@ -310,12 +328,26 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // When the picked field belongs to a different source, adopt that source AND
           // write the field/aggregation in ONE `updateWidget` commit so the source-switch
           // gesture collapses to a single undo step (finding 2.2); without a source switch
-          // a plain config patch is already one commit.
+          // a plain config patch is already one commit. Also fold in the removal of any
+          // widget-scoped filter that no longer resolves against the new source (finding
+          // 1.5) so a stale date-range filter can't silently blank the KPI.
           if (fSourceId && fSourceId !== widget?.sourceId) {
-            controller.updateWidget(widgetId, {
-              sourceId: fSourceId,
-              config: { ...config, ...configUpdate },
-            });
+            controller.updateWidget(
+              widgetId,
+              {
+                sourceId: fSourceId,
+                config: { ...config, ...configUpdate },
+              },
+              {
+                removeFilterIds: collectStaleWidgetFilterIds(
+                  allFilters,
+                  widgetId,
+                  fSourceId,
+                  allFields,
+                  relationships,
+                ),
+              },
+            );
           } else {
             controller.updateWidgetConfig(widgetId, configUpdate);
           }

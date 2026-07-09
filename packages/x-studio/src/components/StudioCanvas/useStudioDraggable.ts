@@ -47,13 +47,20 @@ export function useStudioDraggable(params: UseStudioDraggableParameters): void {
   const renderPreviewRef = React.useRef(renderPreview);
   renderPreviewRef.current = renderPreview;
 
+  // Tracks whether a drag is currently in flight (started but not yet dropped) so the
+  // effect cleanup can release drag side effects if the element unmounts — or `canDrag`
+  // flips off (e.g. leaving edit mode) — mid-drag. In that case pragmatic-dnd tears the
+  // draggable down without firing `onDrop`, so anything the caller set up in `onDragStart`
+  // (a `document.body` flag, inline styles, etc.) would otherwise leak permanently.
+  const isDraggingRef = React.useRef(false);
+
   React.useEffect(() => {
     const element = ref.current;
     if (!element || !canDrag) {
       return undefined;
     }
 
-    return draggable({
+    const cleanupDraggable = draggable({
       element,
       // pragmatic types drag data as a record; the discriminated StudioDragItem
       // is read back via `isStudioDragItem` in the drop target.
@@ -79,11 +86,24 @@ export function useStudioDraggable(params: UseStudioDraggableParameters): void {
         });
       },
       onDragStart: () => {
+        isDraggingRef.current = true;
         onDragStartRef.current?.();
       },
       onDrop: () => {
+        isDraggingRef.current = false;
         onDropRef.current?.();
       },
     });
+
+    return () => {
+      cleanupDraggable();
+      // If the draggable is torn down while a drag is still in flight (element unmounted
+      // or `canDrag` turned off mid-drag), pragmatic-dnd won't fire `onDrop`, so run the
+      // drop handler ourselves to release any drag side effects the caller registered.
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        onDropRef.current?.();
+      }
+    };
   }, [ref, canDrag]);
 }

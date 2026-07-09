@@ -353,6 +353,74 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
     expect(trend!.previousValue).toBe(2);
   });
 
+  it('computes a fixed-period trend when the date field lives on a related (cross-source) source (finding 2.8)', () => {
+    // KPI on order_items; BOTH the value (`orders.revenue`) and the fixed-period DATE
+    // field (`orders.orderDate`) live on the parent `orders` source, the date selected
+    // via kpiSparklineSourceId. `orderDate` is NOT a column on the widget's own rows, so
+    // reading it straight off currentRows (the pre-fix behavior) matched no rows and the
+    // trend silently degenerated to null. The fix resolves the date field against the
+    // related source (re-anchoring to the orders grain, bringing revenue along) so both
+    // are present, then reduces without a second grain-anchor pass.
+    const itemsSource = {
+      id: 'order_items',
+      label: 'Order items',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderId', label: 'Order', type: 'string' },
+      ],
+      rows: [],
+    } as unknown as StudioDataSource;
+    const ordersWithDate = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderDate', label: 'Order date', type: 'date' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+      ],
+      rows: [
+        { id: 'O1', orderDate: '2026-07-01', revenue: 300 }, // current window
+        { id: 'O2', orderDate: '2026-05-20', revenue: 200 }, // previous window
+      ],
+    } as unknown as StudioDataSource;
+    const items = [
+      { id: 'oi1', orderId: 'O1' },
+      { id: 'oi2', orderId: 'O1' },
+      { id: 'oi3', orderId: 'O2' },
+      { id: 'oi4', orderId: 'O2' },
+    ];
+    rowsHolder.current = items;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'orderDate',
+        kpiSparklineSourceId: 'orders',
+      },
+      'order_items',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: {
+        order_items: { ...itemsSource, rows: items } as StudioDataSource,
+        orders: ordersWithDate,
+      },
+      relationships: [crossSourceRelationship],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, { ...itemsSource, rows: items } as StudioDataSource);
+
+    const trend = lastTrend();
+    // Pre-fix: null (orderDate absent on order_items rows → no rows matched either window).
+    expect(trend).not.toBeNull();
+    // Current window order (O1 revenue 300) vs previous window order (O2 revenue 200): +50%.
+    expect(trend!.previousValue).toBe(200);
+    expect(trend!.delta).toBeCloseTo(0.5);
+  });
+
   it('computes a filter-based trend for a cross-source value field', () => {
     // useWidgetRows returns the current-window child rows (as the pipeline would after
     // applying the active date filter); the full child set lives on dataSource.rows so
@@ -704,5 +772,88 @@ describe('<StudioKpiWidget /> sparkline on a measure expression field (finding 2
     const sparkline = lastSparkline();
     expect(sparkline?.fieldFormat).toBe('currency');
     expect(sparkline?.fieldCurrencyCode).toBe('EUR');
+  });
+});
+
+// ─── finding 1.10: editing a measure formula must invalidate headline + sparkline ─
+
+describe('<StudioKpiWidget /> measure formula edit busts the cached headline + sparkline (finding 1.10)', () => {
+  beforeEach(() => {
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('recomputes the headline and sparkline when only the measure formula changes (same rows reference)', () => {
+    // The computed-value cache is keyed on (rows reference, string key). Measures are
+    // deliberately excluded from row-identity invalidation, so editing a formula leaves
+    // the rows reference untouched — only a content fingerprint in the cache KEY can bust
+    // the stale entry. Reuse the SAME rows array across both renders so the module-level
+    // WeakMap entry persists; without the fingerprint the second render serves the
+    // pre-edit number for both the headline and the sparkline.
+    const sharedRows = [
+      { id: 'm1', amount: 100, saleDate: '2026-06-01' }, // Jun
+      { id: 'm2', amount: 100, saleDate: '2026-07-01' },
+      { id: 'm3', amount: 300, saleDate: '2026-07-15' }, // Jul
+    ];
+    rowsHolder.current = sharedRows;
+
+    const baseConfig = {
+      kpiValueField: 'measure-x',
+      kpiCompact: false,
+      kpiSparkline: true,
+      kpiSparklineField: 'saleDate',
+      kpiSparklineGranularity: 'month',
+    };
+    const sumMeasure = {
+      id: 'measure-x',
+      label: 'M',
+      sourceId: 'sales',
+      isMeasure: true,
+      type: 'number',
+      expression: { id: 'amount', aggregation: 'sum' },
+    } as unknown as StudioExpressionField;
+
+    const widgetSum = makeWidget(baseConfig, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widgetSum },
+      dataSources: { sales: salesSource },
+      expressionFields: [sumMeasure],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+    const view = renderKpi(widgetSum, salesSource);
+    const sumValue = lastValue();
+    const sumSpark = lastSparkline()?.data;
+    view.unmount();
+
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+
+    // Edit the formula sum → avg (same measure id, same rows reference).
+    const avgMeasure = {
+      ...sumMeasure,
+      expression: { id: 'amount', aggregation: 'avg' },
+    } as unknown as StudioExpressionField;
+    const widgetAvg = makeWidget(baseConfig, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widgetAvg },
+      dataSources: { sales: salesSource },
+      expressionFields: [avgMeasure],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+    renderKpi(widgetAvg, salesSource);
+    const avgValue = lastValue();
+    const avgSpark = lastSparkline()?.data;
+
+    // Headline: sum (500) vs avg (500 / 3 ≈ 166.67) — must differ (pre-fix: identical).
+    expect(sumValue).toBeDefined();
+    expect(avgValue).not.toBe(sumValue);
+    // Sparkline: Jul bucket sum (400) vs avg (200) — must differ (pre-fix: identical).
+    expect(sumSpark).toEqual([100, 400]);
+    expect(avgSpark).toEqual([100, 200]);
+    expect(avgSpark).not.toEqual(sumSpark);
   });
 });

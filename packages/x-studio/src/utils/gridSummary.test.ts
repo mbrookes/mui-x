@@ -141,6 +141,23 @@ describe('computeGridSummary', () => {
     expect(result.flag).toBe('Avg: 0.67');
   });
 
+  // ─── count_distinct: null-excluding, raw-value distinctness (finding 2.23) ─────
+
+  it('count_distinct on a string field excludes null/undefined and counts raw values', () => {
+    const rows = [
+      { id: '1', region: 'US' },
+      { id: '2', region: 'US' },
+      { id: '3', region: 'EU' },
+      { id: '4', region: null },
+      { id: '5' }, // missing key
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [strField('region')], {
+      fields: { region: 'count_distinct' },
+    });
+    // 2 distinct non-null regions (US, EU) — agrees with the KPI and measure paths.
+    expect(result.region).toBe(`${aggregationLabel('count_distinct')} 2`);
+  });
+
   it('avg over an all-null/non-numeric field is omitted, not shown as 0 (finding 2.13)', () => {
     const rows = [
       { id: '1', amount: null },

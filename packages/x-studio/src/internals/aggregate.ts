@@ -96,6 +96,31 @@ export function aggregateNumbers(values: number[], fn: AggregateFn): number {
   }
 }
 
+/**
+ * Count of distinct values, excluding `null`/`undefined` — the standard SQL
+ * `COUNT(DISTINCT)` semantic.
+ *
+ * Distinctness is measured over the RAW cell values (strings, dates, numbers, …),
+ * never the numeric coercion used for `sum`/`avg`/`min`/`max`. Routing a
+ * `count_distinct` through {@link aggregateNumbers} (which sees only the coerced
+ * `number[]`) collapses a distinct count over a string field to `0`, because every
+ * non-numeric string coerces to `null` and is dropped. This helper is the single
+ * source of truth shared by the KPI (`computeAggregate`), grid summary/grouping, and
+ * measure-expression paths so all three return the same number for the same data —
+ * the documented "KPI over a raw field and a measure expression return the same
+ * number" invariant. `null`/`undefined` are a missing value, not a distinct value,
+ * so they never contribute to the count (matching standard SQL and the grid paths).
+ */
+export function countDistinct(values: Iterable<unknown>): number {
+  const seen = new Set<unknown>();
+  for (const value of values) {
+    if (value !== null && value !== undefined) {
+      seen.add(value);
+    }
+  }
+  return seen.size;
+}
+
 /** Streaming accumulator for aggregating values without buffering them. */
 export interface AggregateAccumulator {
   sum: number;

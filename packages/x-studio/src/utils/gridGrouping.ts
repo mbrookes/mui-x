@@ -6,7 +6,7 @@ import type {
 } from '../models';
 import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
-import { coerceAggregateValue } from '../internals/aggregate';
+import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
 
 function aggregateGridValue(
   rows: Record<string, unknown>[],
@@ -18,8 +18,9 @@ function aggregateGridValue(
   }
 
   if (aggregation === 'count_distinct') {
-    const seen = new Set(rows.map((row) => row[fieldId]).filter((v) => v != null));
-    return seen.size;
+    // Shared distinct-count policy (excludes null/undefined) so a grid group-by aggregate
+    // agrees with the KPI and measure-expression paths over the same field (finding 2.23).
+    return countDistinct(rows.map((row) => row[fieldId]));
   }
 
   // Route through the shared null-skip + boolean/numeric-string coercion policy

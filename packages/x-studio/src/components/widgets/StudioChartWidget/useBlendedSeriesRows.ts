@@ -223,7 +223,24 @@ export function useBlendedSeriesRows(
           }
         },
         () => {
-          /* errors leave the series empty; the primary chart still renders */
+          // A failed fetch must not leave a STALE entry serving indefinitely: this
+          // effect re-runs whenever `foreignDescriptors` changes (filters/xField/
+          // xGroupBy), but `asyncForeignRows` previously kept whatever rows the last
+          // *successful* fetch for this `sid` produced. If a refetch triggered by a new
+          // descriptor then failed, the blended series would silently keep rendering
+          // pre-filter/pre-regroup rows forever, with the primary series reflecting the
+          // new filters (finding 2.4). Clear the stale entry so the series renders empty
+          // (via `foreignRowsBySource.get(sid) ?? []`) rather than arbitrarily-stale data.
+          if (live.current) {
+            setAsyncForeignRows((prev) => {
+              if (!prev.has(sid)) {
+                return prev;
+              }
+              const next = new Map(prev);
+              next.delete(sid);
+              return next;
+            });
+          }
         },
       );
     }

@@ -402,6 +402,7 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
       dataSource={ctx.dataSource}
       height={chartHeight}
       skipAnimation={ctx.skipAnimation}
+      formatLabel={ctx.formatLabel}
     >
       {ctx.annotationChildren}
     </StudioMixedChart>

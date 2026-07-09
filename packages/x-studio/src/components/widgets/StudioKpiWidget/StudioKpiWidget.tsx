@@ -47,7 +47,9 @@ import {
   filterRowsByDateRange,
   computeAggregate,
   computeSparklineData,
+  toLocalYmd,
 } from './kpiUtils';
+import { stableStringify } from '../../../internals/stableStringify';
 import { KpiValue, type KpiValueProps } from './KpiValue';
 import { KpiSparkline, type KpiSparklineProps } from './KpiSparkline';
 import { KpiTrend, type KpiTrendResult, type KpiTrendProps } from './KpiTrend';
@@ -293,9 +295,12 @@ function computeFilterBasedTrend(params: {
   const prevDateFilter: StudioFilterState = {
     ...dateFilter,
     operator: 'greater_than_or_equal',
-    value: prevRange.start.toISOString().slice(0, 10),
+    // `computePreviousPeriodRange` computes these boundaries in LOCAL time, so serialize
+    // them via local Y/M/D components. `toISOString().slice(0, 10)` round-trips through
+    // UTC and day-shifts the window for non-UTC viewers (finding 1.12).
+    value: toLocalYmd(prevRange.start),
     operator2: 'less_than_or_equal',
-    value2: prevRange.end.toISOString().slice(0, 10),
+    value2: toLocalYmd(prevRange.end),
     conjunction: 'and',
   };
   const prevFilters = allFilters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f));
@@ -429,7 +434,15 @@ function useKpiValue(params: {
     const measureExprField = expressionFields.find(
       (ef) => ef.id === config.kpiValueField && ef.isMeasure,
     );
-    const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
+    // Fold a content fingerprint of the measure's formula into the cache key. Measures
+    // are deliberately excluded from row-identity cache invalidation (they are never
+    // enriched onto rows), so editing a formula changes `expressionFields` but busts
+    // neither the rows reference nor a key that only carried the measure id — the
+    // headline and trend would keep serving the pre-edit number while the fresh-rows
+    // trend picked up the new formula, producing an inconsistent delta (finding 1.10).
+    const measureKey = measureExprField
+      ? `measure:${measureExprField.id}:${stableStringify(measureExprField.expression)}`
+      : `agg:${aggregation}`;
     if (!dataSource?.rows || (!config.kpiValueField && !isFieldlessCount)) {
       return {
         displayValue: '—',
@@ -611,9 +624,16 @@ function useKpiSparkline(params: {
         );
       }
 
+      // Fold the measure's formula fingerprint into the key for the same reason the
+      // headline/trend keys do (finding 1.10): a measure is excluded from row-identity
+      // invalidation, so editing its formula leaves `sparklineRows` reference-equal —
+      // without the fingerprint the sparkline keeps serving the pre-edit series.
+      const measureFingerprint = measureExprField
+        ? stableStringify(measureExprField.expression)
+        : '';
       kpiSparklineData = cachedCompute(
         sparklineRows,
-        `kpi-sparkline:${config.kpiValueField}:${aggregation}:${granularity}:${config.kpiSparklineCumulative ?? false}:${timeField}`,
+        `kpi-sparkline:${config.kpiValueField}:${aggregation}:${granularity}:${config.kpiSparklineCumulative ?? false}:${timeField}:${measureFingerprint}`,
         () =>
           computeSparklineData(
             sparklineRows,
@@ -743,13 +763,49 @@ function useKpiTrend(params: {
           dataSource.fields.find((f) => f.type === 'date' || f.type === 'datetime')?.id ??
           null;
         if (fixedDateField) {
-          kpiTrend = computeFixedPeriodTrend(
-            currentRows,
-            fixedDateField,
-            config.kpiTrendFixedPeriod!,
-            config.kpiTrendComparison ?? 'previous-period',
-            periodValueParams,
-          );
+          // When the fixed-period date field lives on a related (cross-source) source —
+          // `kpiSparklineSourceId` points at a parent source, so `kpiSparklineField` is
+          // NOT a column on the widget's own rows — resolve the date field against that
+          // source's rows first, mirroring how the sparkline path resolves a cross-source
+          // time field. Reading it straight off `currentRows` yields `undefined` for every
+          // row, so `filterRowsByDateRange` matches nothing and the trend silently
+          // degenerates to null (finding 2.8). `resolveChartRowsForAggregation` re-anchors
+          // to the related source's grain and brings the value field along, so the returned
+          // rows already carry the value natively — they must therefore be reduced WITHOUT
+          // a second grain-anchor pass (isGrainAnchored: false), otherwise
+          // `computePeriodValue` would re-anchor the already-anchored rows and drop the
+          // value back to 0. Measures aggregate their own (widget-source) rows and cannot
+          // be re-anchored this way, so they keep the direct path.
+          const fixedDateSourceId = config.kpiSparklineSourceId;
+          const isCrossSourceDate =
+            !!fixedDateSourceId && fixedDateSourceId !== widget.sourceId && !measureExprField;
+          if (isCrossSourceDate) {
+            const fixedPeriodRows = resolveChartRowsForAggregation(
+              currentRows,
+              widget.sourceId,
+              fixedDateField,
+              config.kpiValueField ? [config.kpiValueField] : [],
+              undefined,
+              dataSources,
+              relationships,
+              expressionFields,
+            );
+            kpiTrend = computeFixedPeriodTrend(
+              fixedPeriodRows,
+              fixedDateField,
+              config.kpiTrendFixedPeriod!,
+              config.kpiTrendComparison ?? 'previous-period',
+              { ...periodValueParams, isGrainAnchored: false },
+            );
+          } else {
+            kpiTrend = computeFixedPeriodTrend(
+              currentRows,
+              fixedDateField,
+              config.kpiTrendFixedPeriod!,
+              config.kpiTrendComparison ?? 'previous-period',
+              periodValueParams,
+            );
+          }
         }
       } else {
         kpiTrend = computeFilterBasedTrend({

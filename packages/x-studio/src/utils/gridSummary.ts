@@ -4,7 +4,7 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type StudioLocaleText,
 } from '../internals/StudioUIConfigContext';
-import { coerceAggregateValue } from '../internals/aggregate';
+import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
 
 interface GridSummaryConfig {
   /** Map of fieldId → aggregation function. Only listed fields get a summary cell. */
@@ -54,11 +54,12 @@ export function computeGridSummary(
       case 'count':
         raw = rows.length;
         break;
-      case 'count_distinct': {
-        const seen = new Set(rows.map((row) => row[fieldId]).filter((v) => v != null));
-        raw = seen.size;
+      case 'count_distinct':
+        // Shared distinct-count policy (excludes null/undefined) so the grid footer
+        // agrees with the KPI and measure-expression paths over the same field
+        // (finding 2.23).
+        raw = countDistinct(rows.map((row) => row[fieldId]));
         break;
-      }
       case 'sum':
         raw = numericValues.reduce((acc, v) => acc + v, 0);
         break;

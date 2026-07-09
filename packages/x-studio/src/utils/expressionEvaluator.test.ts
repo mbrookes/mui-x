@@ -864,6 +864,45 @@ describe('evaluateMeasure', () => {
       computeAggregate(nullableRows, 'price', 'avg'),
     );
   });
+
+  // ─── count_distinct over RAW values, not numeric coercion (finding 2.23) ───────
+
+  it('count_distinct over a string field counts distinct strings (not 0)', () => {
+    // Regression: routing count_distinct through the numeric coercion collapsed every
+    // non-numeric string to null, so the measure returned 0 while the KPI/grid paths
+    // returned the true distinct count. It must now operate on the raw cell values.
+    const stringRows = [{ region: 'US' }, { region: 'US' }, { region: 'EU' }, { region: 'APAC' }];
+    const measure: StudioExpressionField = {
+      id: 'distinctRegions',
+      label: 'Distinct Regions',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('region', 'count_distinct'),
+    };
+    expect(evaluateMeasure(measure, stringRows, noFields)).toBe(3);
+  });
+
+  it('count_distinct excludes null/undefined and matches the KPI path exactly', () => {
+    const rows = [
+      { region: 'US' },
+      { region: 'US' },
+      { region: 'EU' },
+      { region: null },
+      { region: undefined },
+      {},
+    ];
+    const measure: StudioExpressionField = {
+      id: 'distinctRegions',
+      label: 'Distinct Regions',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('region', 'count_distinct'),
+    };
+    expect(evaluateMeasure(measure, rows, noFields)).toBe(2);
+    expect(evaluateMeasure(measure, rows, noFields)).toBe(
+      computeAggregate(rows, 'region', 'count_distinct'),
+    );
+  });
 });
 
 // ─── Type inference ──────────────────────────────────────────────────────────

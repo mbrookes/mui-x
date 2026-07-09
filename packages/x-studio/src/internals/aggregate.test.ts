@@ -3,9 +3,15 @@ import {
   accumulateValue,
   aggregateNumbers,
   coerceAggregateValue,
+  countDistinct,
   createAggregateAccumulator,
   finalizeAccumulator,
 } from './aggregate';
+import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
+import { computeGridSummary } from '../utils/gridSummary';
+import { buildGroupedGridRows } from '../utils/gridGrouping';
+import { evaluateMeasure } from '../utils/expressionEvaluator';
+import type { StudioDataField, StudioExpressionField } from '../models';
 
 describe('coerceAggregateValue', () => {
   it('coerces booleans to 0/1', () => {
@@ -76,6 +82,112 @@ describe('aggregateNumbers', () => {
     expect(() => aggregateNumbers(big, 'min')).not.toThrow();
     expect(aggregateNumbers(big, 'min')).toBe(0);
     expect(aggregateNumbers(big, 'max')).toBe(big.length - 1);
+  });
+});
+
+describe('countDistinct', () => {
+  it('counts distinct raw values including non-numeric strings and dates', () => {
+    expect(countDistinct(['US', 'US', 'EU'])).toBe(2);
+    expect(countDistinct([1, 1, 2, 3])).toBe(3);
+    const d1 = new Date('2024-01-01');
+    // Distinctness is by reference for objects — two separate Date instances are distinct.
+    expect(countDistinct([d1, d1])).toBe(1);
+  });
+
+  it('excludes null and undefined (SQL COUNT(DISTINCT) semantic)', () => {
+    expect(countDistinct(['US', null, 'EU', undefined, 'US'])).toBe(2);
+    expect(countDistinct([null, undefined])).toBe(0);
+    expect(countDistinct([])).toBe(0);
+  });
+
+  it('counts an empty string and 0 as real (non-null) distinct values', () => {
+    expect(countDistinct(['', 'a', ''])).toBe(2);
+    expect(countDistinct([0, 0, 1])).toBe(2);
+  });
+
+  it('accepts any iterable', () => {
+    expect(countDistinct(new Set(['a', 'b', 'a']))).toBe(2);
+  });
+});
+
+// ─── count_distinct invariant across KPI / grid / measure paths (finding 2.23) ──
+//
+// The three call sites historically disagreed: the KPI path counted null/undefined
+// as a distinct value; the grid paths excluded nulls; the measure-expression path
+// coerced values to numbers first, collapsing a distinct count over a string field to
+// 0. All three must now return the SAME number for the same data — the documented
+// "KPI over a raw field and a measure expression return the same number" invariant.
+describe('count_distinct is identical across the KPI, grid, and measure paths', () => {
+  const gridField = (id: string): StudioDataField => ({ id, label: id, type: 'string' });
+
+  /** All four production distinct-count paths over the same rows/field. */
+  function distinctCounts(rows: Record<string, unknown>[], field: string) {
+    // KPI path
+    const kpi = computeAggregate(rows, field, 'count_distinct');
+
+    // Grid group-by path: fold every row into one group and read the aggregate.
+    const grouped = buildGroupedGridRows(
+      rows.map((r) => ({ ...r, __g: 'all' })),
+      '__g',
+      ['__g', field],
+      { [field]: 'count_distinct' },
+      'w',
+    );
+    const grid = grouped[0]?.[field] as number;
+
+    // Grid footer summary path: parse the "Unique: N" formatted string back to a number.
+    const summary = computeGridSummary(rows, [gridField(field)], {
+      fields: { [field]: 'count_distinct' },
+    });
+    const gridSummary = Number((summary[field] ?? '').replace(/[^\d.-]/g, ''));
+
+    // Measure-expression path
+    const measure: StudioExpressionField = {
+      id: 'distinctMeasure',
+      label: 'Distinct',
+      sourceId: 'src',
+      isMeasure: true,
+      expression: { id: field, aggregation: 'count_distinct' },
+    };
+    const measureValue = evaluateMeasure(measure, rows, []);
+
+    return { kpi, grid, gridSummary, measure: measureValue };
+  }
+
+  it('agrees on a string field with duplicates', () => {
+    const rows = [{ region: 'US' }, { region: 'US' }, { region: 'EU' }, { region: 'APAC' }];
+    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'region');
+    expect(kpi).toBe(3);
+    expect(grid).toBe(3);
+    expect(gridSummary).toBe(3);
+    expect(measure).toBe(3);
+  });
+
+  it('agrees when null/undefined/missing values are present (all exclude them)', () => {
+    const rows = [
+      { region: 'US' },
+      { region: 'US' },
+      { region: 'EU' },
+      { region: null },
+      { region: undefined },
+      {}, // missing key → undefined
+    ];
+    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'region');
+    // 2 distinct non-null regions (US, EU) — NOT 3 (the old KPI path counted the null
+    // group) and NOT 0 (the old measure path coerced strings to NaN and dropped them).
+    expect(kpi).toBe(2);
+    expect(grid).toBe(2);
+    expect(gridSummary).toBe(2);
+    expect(measure).toBe(2);
+  });
+
+  it('agrees on a numeric field too', () => {
+    const rows = [{ score: 10 }, { score: 10 }, { score: 20 }, { score: null }];
+    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'score');
+    expect(kpi).toBe(2);
+    expect(grid).toBe(2);
+    expect(gridSummary).toBe(2);
+    expect(measure).toBe(2);
   });
 });
 

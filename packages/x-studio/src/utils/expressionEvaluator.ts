@@ -13,7 +13,7 @@ import type {
   StudioDataSource,
   StudioRelationship,
 } from '../models';
-import { aggregateNumbers, coerceAggregateValue } from '../internals/aggregate';
+import { aggregateNumbers, coerceAggregateValue, countDistinct } from '../internals/aggregate';
 import { normalizeJoinKey } from '../internals/joinKeys';
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
@@ -397,6 +397,16 @@ function evalMeasureExpression(
 
   if (isFieldExpression(expr)) {
     const { aggregation = 'sum' } = expr;
+    if (aggregation === 'count_distinct') {
+      // Distinctness is over the RAW cell values (strings, dates, …), not the numeric
+      // coercion below — coercing first drops every non-numeric value to `null`, so a
+      // `count_distinct` measure over a string field would collapse to 0 while the KPI
+      // and grid paths over the same field return the true distinct count. Route through
+      // the shared `countDistinct` (excludes null/undefined) so all three agree — the
+      // "KPI over a raw field and a measure expression return the same number" invariant
+      // (finding 2.23).
+      return countDistinct(rows.map((r) => r[expr.id]));
+    }
     // Skip null / non-numeric rows BEFORE coercing (mirrors `computeAggregate`). The
     // previous `toNumber`-then-`isNaN` guard was dead code — `toNumber` maps null and
     // unparseable values to 0, so null rows silently entered every aggregate as 0,

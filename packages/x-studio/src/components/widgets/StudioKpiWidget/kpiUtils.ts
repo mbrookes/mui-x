@@ -11,7 +11,11 @@ import type {
 } from '../../../models';
 import { normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
-import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
+import {
+  aggregateNumbers,
+  coerceAggregateValue,
+  countDistinct,
+} from '../../../internals/aggregate';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
 import {
   isRelativeDateValue,
@@ -184,6 +188,24 @@ export function findDateFilter(
 
 // ─── Previous period range ─────────────────────────────────────────────────────
 
+/**
+ * Format a Date as `YYYY-MM-DD` from its LOCAL calendar components.
+ *
+ * Mirrors `internals/temporalUtils`'s `toLocalYmd`, and exists for the same reason:
+ * the previous-period window boundaries are computed in LOCAL time (see
+ * `computePreviousPeriodRange`), so serializing them with `date.toISOString().slice(0, 10)`
+ * round-trips through UTC and day-shifts the boundary for any non-UTC viewer
+ * (backward for UTC+, forward for UTC-). Formatting the local Y/M/D components keeps
+ * the serialized bound on the same calendar day the boundary math produced
+ * (finding 1.12 / the package's documented anti-day-shift policy).
+ */
+export function toLocalYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 type TrendComparison = 'previous-period' | 'previous-calendar-period' | 'year-over-year';
 
 type CalendarPeriod = 'week' | 'month' | 'quarter' | 'year';
@@ -289,8 +311,10 @@ export function computeAggregate(
 
   if (aggregation === 'count_distinct') {
     // Distinctness is over the raw cell values (strings, dates, …), so it must not
-    // route through the numeric coercion below.
-    return new Set(rows.map((row) => row[field])).size;
+    // route through the numeric coercion below. `countDistinct` excludes null/undefined
+    // (SQL COUNT(DISTINCT) semantic) so the KPI, grid, and measure-expression paths all
+    // return the same number for the same field (finding 2.23).
+    return countDistinct(rows.map((row) => row[field]));
   }
 
   // Exclude null/non-numeric values so they don't inflate the denominator for

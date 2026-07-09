@@ -227,6 +227,30 @@ describe('buildGroupedGridRows', () => {
     expect(result[0].total).toBe(null);
   });
 
+  // ─── count_distinct: null-excluding, raw-value distinctness (finding 2.23) ─────
+
+  it('count_distinct over a string field excludes null/undefined and counts raw values', () => {
+    const rows = [
+      { company: 'Alpha', region: 'US' },
+      { company: 'Alpha', region: 'US' },
+      { company: 'Alpha', region: 'EU' },
+      { company: 'Alpha', region: null },
+      { company: 'Alpha', region: undefined },
+      { company: 'Alpha' }, // missing key
+    ];
+
+    const result = buildGroupedGridRows(
+      rows,
+      'company',
+      ['company', 'region'],
+      { region: 'count_distinct' },
+      'widget-1',
+    );
+
+    // 2 distinct non-null regions (US, EU) — matches the KPI and measure paths.
+    expect(result[0].region).toBe(2);
+  });
+
   // ─── `min`/`max` reduce loop instead of argument-spread (finding 2.17) ─────────
 
   it('computes min/max over a large group without a RangeError (argument-spread crash)', () => {

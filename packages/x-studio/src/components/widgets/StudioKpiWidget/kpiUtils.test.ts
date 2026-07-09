@@ -10,6 +10,7 @@ import {
   computeSparklineData,
   formatPeriodShort,
   formatDateRangeLong,
+  toLocalYmd,
 } from './kpiUtils';
 import type { StudioDataSource, StudioExpressionField, StudioFilterState } from '../../../models';
 
@@ -356,6 +357,27 @@ describe('computeAggregate', () => {
     const boolRows = [{ onTime: true }, { onTime: false }, { onTime: true }];
     expect(computeAggregate(boolRows, 'onTime', 'sum')).toBe(2);
   });
+
+  // ─── count_distinct: raw-value distinctness, null-excluding (finding 2.23) ─────
+
+  it('count_distinct counts distinct raw string values', () => {
+    const strRows = [{ region: 'US' }, { region: 'US' }, { region: 'EU' }, { region: 'APAC' }];
+    expect(computeAggregate(strRows, 'region', 'count_distinct')).toBe(3);
+  });
+
+  it('count_distinct excludes null/undefined/missing (SQL COUNT(DISTINCT) semantic)', () => {
+    // Regression: the KPI path previously counted the null group as a distinct value,
+    // returning 3 here and disagreeing with the grid and measure paths (which return 2).
+    const rows = [
+      { region: 'US' },
+      { region: 'US' },
+      { region: 'EU' },
+      { region: null },
+      { region: undefined },
+      {}, // missing key
+    ];
+    expect(computeAggregate(rows, 'region', 'count_distinct')).toBe(2);
+  });
 });
 
 describe('autoGranularity', () => {
@@ -528,5 +550,27 @@ describe('formatDateRangeLong', () => {
     expect(result).toContain('–');
     expect(result).toContain('Mar');
     expect(result).toContain('2026');
+  });
+});
+
+describe('toLocalYmd', () => {
+  it('formats a Date from its LOCAL calendar components', () => {
+    // `new Date(y, m, d)` is a LOCAL-time construction, so toLocalYmd must echo the same
+    // Y/M/D regardless of the machine timezone — this is the whole point of the helper.
+    expect(toLocalYmd(new Date(2024, 0, 15))).toBe('2024-01-15');
+    expect(toLocalYmd(new Date(2026, 11, 1))).toBe('2026-12-01');
+  });
+
+  it('keeps a local-midnight boundary on its local calendar day, unlike toISOString (finding 1.12)', () => {
+    // A local-midnight Date's LOCAL calendar day is 2024-06-10. `toISOString().slice(0,10)`
+    // round-trips through UTC and, for a UTC+ viewer, day-shifts to 2024-06-09 — exactly
+    // the bug the previous-period window serialization had. `toLocalYmd` must always report
+    // the local day.
+    const localMidnight = new Date(2024, 5, 10, 0, 0, 0, 0);
+    expect(toLocalYmd(localMidnight)).toBe('2024-06-10');
+    // Cross-check against the derived local Y/M/D directly (no timezone assumption about
+    // the host): toLocalYmd echoes the components new Date(y, m, d) was built from.
+    const expected = `${localMidnight.getFullYear()}-${String(localMidnight.getMonth() + 1).padStart(2, '0')}-${String(localMidnight.getDate()).padStart(2, '0')}`;
+    expect(toLocalYmd(localMidnight)).toBe(expected);
   });
 });

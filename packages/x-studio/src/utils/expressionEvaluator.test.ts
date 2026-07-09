@@ -293,6 +293,87 @@ describe('field expressions', () => {
     });
     expect(result).toBe(400);
   });
+
+  // Regression test for finding 2.8: a field reference not present in the current
+  // row recursed into evaluating the referenced expression field with no cycle
+  // guard. Two expression fields referencing each other used to blow the call stack
+  // (`RangeError: Maximum call stack size exceeded`). `detectCycles`/
+  // `validateExpressionField` reject this at the controller boundary when fields
+  // are added/updated, but the evaluator itself must also be defensive — e.g. a
+  // persisted doc created before that validation existed, or a host integration
+  // that bypasses the controller, can still hand the evaluator a cyclic graph.
+  it('does not crash on a cyclic pair of expression field references', () => {
+    const fieldA: StudioExpressionField = {
+      id: 'a',
+      label: 'A',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: field('b'),
+    };
+    const fieldB: StudioExpressionField = {
+      id: 'b',
+      label: 'B',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: field('a'),
+    };
+    expect(() =>
+      evaluateExpression(field('a'), {
+        row: {},
+        expressionFields: [fieldA, fieldB],
+        allRows: [],
+      }),
+    ).not.toThrow();
+    expect(
+      evaluateExpression(field('a'), {
+        row: {},
+        expressionFields: [fieldA, fieldB],
+        allRows: [],
+      }),
+    ).toBeNull();
+  });
+
+  it('does not crash on a direct self-referencing expression field', () => {
+    const selfField: StudioExpressionField = {
+      id: 'self',
+      label: 'Self',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: field('self'),
+    };
+    expect(() =>
+      evaluateExpression(field('self'), {
+        row: {},
+        expressionFields: [selfField],
+        allRows: [],
+      }),
+    ).not.toThrow();
+  });
+
+  it('resolves a non-cyclic chain of expression field references normally', () => {
+    // Sanity check that the cycle guard doesn't interfere with legitimate multi-hop
+    // references: a -> b -> c, where only `c` is present on the row.
+    const fieldA: StudioExpressionField = {
+      id: 'a',
+      label: 'A',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: field('b'),
+    };
+    const fieldB: StudioExpressionField = {
+      id: 'b',
+      label: 'B',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: field('c'),
+    };
+    const result = evaluateExpression(field('a'), {
+      row: { c: 42 },
+      expressionFields: [fieldA, fieldB],
+      allRows: [],
+    });
+    expect(result).toBe(42);
+  });
 });
 
 // ─── Row enrichment ──────────────────────────────────────────────────────────

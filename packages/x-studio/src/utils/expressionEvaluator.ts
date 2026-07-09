@@ -55,6 +55,16 @@ export interface EvaluationContext {
    * Built by enrichRowsWithExpressions before the row loop.
    */
   joinIndexes?: Map<string, { sourceField: string; index: Map<unknown, Record<string, unknown>> }>;
+  /**
+   * Internal cycle guard: ids of expression fields currently being resolved via the
+   * field-reference recursion in `evaluateExpression`'s `isFieldExpression` branch.
+   * `detectCycles`/`validateExpressionField` reject cycles at the controller boundary
+   * when fields are added/updated, but a persisted doc created before that validation
+   * existed, or a host integration that bypasses the controller, could still hand the
+   * evaluator a circular reference graph — this guard makes the evaluator itself safe
+   * against that (finding 2.8) instead of relying solely on upstream validation.
+   */
+  resolvingFieldIds?: Set<string>;
 }
 
 // ─── Core evaluator ──────────────────────────────────────────────────────────
@@ -134,10 +144,22 @@ export function evaluateExpression(
     if (val !== undefined) {
       return val as ScalarValue;
     }
-    // Try evaluating a referenced expression field (calculated column only)
+    // Try evaluating a referenced expression field (calculated column only). Guard
+    // against cyclic field references (finding 2.8): if `expr.id` is already being
+    // resolved somewhere up this recursion chain, bail out to the same "unresolvable"
+    // fallback (`null`) used elsewhere in this branch instead of recursing forever.
+    const resolvingFieldIds = context.resolvingFieldIds ?? new Set<string>();
+    if (resolvingFieldIds.has(expr.id)) {
+      return null;
+    }
     const exprField = context.expressionFields.find((ef) => ef.id === expr.id && !ef.isMeasure);
     if (exprField) {
-      return evaluateExpression(exprField.expression, context);
+      const nextResolving = new Set(resolvingFieldIds);
+      nextResolving.add(expr.id);
+      return evaluateExpression(exprField.expression, {
+        ...context,
+        resolvingFieldIds: nextResolving,
+      });
     }
     return null;
   }

@@ -152,6 +152,14 @@ export const StudioDashboard = React.memo(function StudioDashboard({
   // Expose the underlying handle to the caller's ref
   React.useImperativeHandle(ref, () => innerRef.current!, []);
 
+  // Latest `dataAdapters` map, read by the config-swap effect (1.1) so it can re-apply
+  // adapters after a reload without taking `dataAdapters` as an effect dependency (hosts
+  // are steered toward a referentially STABLE map, so a config swap that introduces or
+  // re-adds a source would otherwise never re-register that source's adapter). Kept in a
+  // ref rather than a dep so the config-swap effect's deps can stay `[config]`.
+  const dataAdaptersRef = React.useRef(dataAdapters);
+  dataAdaptersRef.current = dataAdapters;
+
   // Load new config whenever the prop reference changes.
   // We compare by reference (not deep equality) to avoid unnecessary reloads.
   const prevConfigRef = React.useRef<StudioState | null>(null);
@@ -190,6 +198,20 @@ export const StudioDashboard = React.memo(function StudioDashboard({
             if (!nextSourceIds.has(sourceId)) {
               innerRef.current?.removeDataSource(sourceId);
             }
+          }
+        }
+        // Re-apply adapters (1.1): the `dataAdapters` registration effect only runs on
+        // `[dataAdapters]` identity change, so a config swap that INTRODUCES or RE-ADDS a
+        // source (while the host keeps a referentially stable `dataAdapters` map) would
+        // leave that source adapter-less — `setDataSourceAdapter` no-ops when the source
+        // doesn't exist yet, so the mount-time registration never reached it, and the
+        // adapters effect never re-fires. Re-apply the current adapters here now that the
+        // new config's sources exist. `setDataSourceAdapter`'s same-reference guard makes
+        // re-applying an already-registered adapter a clean no-op, so this is idempotent.
+        const currentAdapters = dataAdaptersRef.current;
+        if (currentAdapters) {
+          for (const [sourceId, adapter] of Object.entries(currentAdapters)) {
+            innerRef.current?.setDataSourceAdapter(sourceId, adapter);
           }
         }
       }

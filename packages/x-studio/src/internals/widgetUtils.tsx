@@ -495,6 +495,13 @@ export function inferWidgetTitles(
 /**
  * Build a CSV string for the given widget/source/rows without triggering a download.
  * Exported for testing.
+ *
+ * `rows` must already reflect any cross-source display-column enrichment (see
+ * `internals/crossSourceEnrichment.ts`'s `enrichWithCrossSourceFields`, applied for display by
+ * `useWidgetRows.ts` and mirrored for export by `StudioWidgetCard/widgetExport.ts`'s
+ * `runWidgetExport`) — this function has no knowledge of relationships/data sources and simply
+ * reads `row[col]` for each configured column, so a caller that forgets to enrich will silently
+ * export an empty column for any cross-source field (finding 2.19).
  */
 export function buildCsvContent(
   widget: StudioWidget,

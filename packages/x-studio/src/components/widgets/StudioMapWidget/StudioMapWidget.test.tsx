@@ -24,10 +24,21 @@ vi.mock('./StudioMapShapePlot', () => ({
 }));
 
 // Stub the premium geo provider stack — we only care about the click wiring, not rendering.
+// `geoDataProviderSpy` also captures the `geoData`/`projection` props passed on each render so
+// the geography-race regression test (finding 2.20) can assert which resolved topology ended up
+// paired with which projection.
+const geoDataProviderSpy = vi.fn();
 vi.mock('@mui/x-charts-premium/ChartsGeoDataProviderPremium', () => ({
-  Unstable_ChartsGeoDataProviderPremium: ({ children }: { children?: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
+  Unstable_ChartsGeoDataProviderPremium: ({
+    children,
+    ...props
+  }: {
+    children?: React.ReactNode;
+    [key: string]: unknown;
+  }) => {
+    geoDataProviderSpy(props);
+    return <div>{children}</div>;
+  },
 }));
 vi.mock('@mui/x-charts-premium/Map', () => ({
   GeoDataPlot: () => null,
@@ -92,12 +103,15 @@ const flexGeographyDef = {
 // Mutable so individual tests can swap in a translated locale bundle — a plain `vi.mock`
 // factory value is captured once at hoist time and can't be reassigned per-test.
 let mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+// Mutable for the same reason — the geography-race/retry tests (finding 2.20) swap in
+// custom, externally-controllable loaders per test.
+let mockGeographies: Record<string, unknown> = { world: geographyDef, flex: flexGeographyDef };
 
 vi.mock('../../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../internals/StudioUIConfigContext')>();
   return {
     ...actual,
-    useStudioGeographies: () => ({ world: geographyDef, flex: flexGeographyDef }),
+    useStudioGeographies: () => mockGeographies,
     useStudioLocaleText: () => mockLocaleText,
   };
 });
@@ -543,5 +557,315 @@ describe('<StudioMapWidget /> shared aggregation policy', () => {
     await renderWithConfig({ mapAggregation: 'avg' });
     // Single region → degenerate [0, max] scale, so the extent is "from 0 to 0.5".
     expect(latestLegendAriaLabel()).toContain('to 0.5');
+  });
+});
+
+// Regression coverage for finding 2.21: `normalize` merges mixed country-code encodings
+// ('US', 'USA', 'United States') into one display region, but clicking used to emit
+// `equals <first raw variant>` — a downstream widget's filter would then only match a
+// SUBSET of what the clicked region visibly aggregated. Clicking a merged region must now
+// emit an `in` filter over every raw variant that merged into it.
+describe('<StudioMapWidget /> merged-region cross-filter emission', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    mapShapePlotSpy.mockClear();
+    controller.clearCrossFilter.mockClear();
+    controller.applyCrossFilter.mockClear();
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+  });
+
+  it('emits an `in` filter over every raw variant merged into the clicked region', async () => {
+    // 'US', 'USA', and 'United States' all normalize to the same alpha-2 ('US') region.
+    rows = [
+      { country: 'US', sales: 10 },
+      { country: 'USA', sales: 20 },
+      { country: 'United States', sales: 30 },
+      { country: 'France', sales: 5 },
+    ];
+
+    await renderMap(baseWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, 'US');
+    });
+
+    expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+      'map-1',
+      'country',
+      ['US', 'USA', 'United States'],
+      'sales',
+      'in',
+    );
+    expect(controller.clearCrossFilter).not.toHaveBeenCalled();
+  });
+
+  it('toggles the merged-region filter off when it is already active over all its variants', async () => {
+    rows = [
+      { country: 'US', sales: 10 },
+      { country: 'USA', sales: 20 },
+    ];
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+      filters: [
+        {
+          id: 'cf1',
+          field: 'country',
+          operator: 'in',
+          value: ['US', 'USA'],
+          scope: { kind: 'cross-filter', sourceWidgetId: 'map-1', pageId: 'page-1' },
+        },
+      ],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(baseWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, 'US');
+    });
+
+    expect(controller.clearCrossFilter).toHaveBeenCalledWith('map-1');
+    expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+  });
+
+  it('still emits a plain equals filter (unchanged call shape) when only one raw variant merges', async () => {
+    rows = [{ country: 'United States', sales: 100 }];
+
+    await renderMap(baseWidget);
+    const onShapeClick = getLatestOnShapeClick();
+    act(() => {
+      onShapeClick!(null, 'US');
+    });
+
+    expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+      'map-1',
+      'country',
+      'United States',
+      'sales',
+    );
+  });
+});
+
+// Regression coverage for finding 2.20: `loader().then(setGeography)` had no staleness guard
+// (a stale, superseded response could overwrite a newer one — landing a stale topology under
+// the CURRENT projection) and no error handling (a rejected loader left the widget permanently
+// blank with no way to retry).
+describe('<StudioMapWidget /> geography loader staleness & error recovery', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    geoDataProviderSpy.mockClear();
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockGeographies = { world: geographyDef, flex: flexGeographyDef };
+  });
+
+  function latestGeoDataProps() {
+    return geoDataProviderSpy.mock.calls.at(-1)?.[0] as
+      | { geoData?: unknown; projection?: string }
+      | undefined;
+  }
+
+  it('discards a stale geography response that resolves after a newer request has superseded it', async () => {
+    const worldDeferreds = [Promise.withResolvers<unknown>(), Promise.withResolvers<unknown>()];
+    const usaDeferred = Promise.withResolvers<unknown>();
+    let worldCallCount = 0;
+    const worldGeo1 = { type: 'FeatureCollection', features: [] };
+    const worldGeo2 = { type: 'FeatureCollection', features: [] };
+    const usaGeo = { type: 'FeatureCollection', features: [] };
+
+    mockGeographies = {
+      world: {
+        label: 'World',
+        fieldLabel: 'Country field',
+        fieldHint: '',
+        loader: () => worldDeferreds[worldCallCount++].promise,
+      },
+      usa: {
+        label: 'USA',
+        fieldLabel: 'State field',
+        fieldHint: '',
+        loader: () => usaDeferred.promise,
+      },
+    };
+
+    const worldWidget = baseWidget;
+    const usaWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapGeography: 'usa' },
+    } as StudioWidget;
+
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={worldWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+
+    // Resolve the initial 'world' load so the widget starts fully mounted.
+    await act(async () => {
+      worldDeferreds[0].resolve(worldGeo1);
+      await Promise.resolve();
+    });
+    expect(latestGeoDataProps()?.geoData).toBe(worldGeo1);
+
+    // Toggle to 'usa' (starts a slow load), then immediately back to 'world' (starts a
+    // second, faster load) — mirrors "fast world → usa → world" toggling.
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={usaWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={worldWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+
+    // The second 'world' request resolves first (as it would in practice, being cheap/cached).
+    await act(async () => {
+      worldDeferreds[1].resolve(worldGeo2);
+      await Promise.resolve();
+    });
+    expect(latestGeoDataProps()?.geoData).toBe(worldGeo2);
+    expect(latestGeoDataProps()?.projection).toBe('naturalEarth1');
+
+    // ...then the stale 'usa' request resolves LATE. Without the staleness guard this would
+    // overwrite `geography` with the USA topology while still rendering under the world
+    // projection — the exact race in finding 2.20.
+    await act(async () => {
+      usaDeferred.resolve(usaGeo);
+      await Promise.resolve();
+    });
+    expect(latestGeoDataProps()?.geoData).toBe(worldGeo2);
+    expect(latestGeoDataProps()?.projection).toBe('naturalEarth1');
+  });
+
+  it('shows a visible error state on a rejected loader, and retries on a later request for the same key', async () => {
+    const failingDeferred = Promise.withResolvers<unknown>();
+    const retryGeo = { type: 'FeatureCollection', features: [] };
+    let loadCount = 0;
+    mockGeographies = {
+      world: {
+        label: 'World',
+        fieldLabel: 'Country field',
+        fieldHint: '',
+        loader: () => {
+          loadCount += 1;
+          return loadCount === 1 ? failingDeferred.promise : Promise.resolve(retryGeo);
+        },
+      },
+      usa: {
+        label: 'USA',
+        fieldLabel: 'State field',
+        fieldHint: '',
+        loader: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+      },
+    };
+
+    const worldWidget = baseWidget;
+    const usaWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapGeography: 'usa' },
+    } as StudioWidget;
+
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={worldWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      failingDeferred.reject(new Error('network error'));
+      // Rejections need an extra microtask turn to propagate through the promise chain.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(view.getByRole('alert')).toBeTruthy();
+    expect(loadCount).toBe(1);
+
+    // Switch away and back to the SAME ('world') geography key. This only reloads if the
+    // rejection reset `loadedGeoRef` — otherwise the effect's `loadedGeoRef.current ===
+    // mapGeography` guard would skip the reload forever, leaving the widget blank for good.
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={usaWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={worldWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadCount).toBe(2);
+    expect(latestGeoDataProps()?.geoData).toBe(retryGeo);
   });
 });

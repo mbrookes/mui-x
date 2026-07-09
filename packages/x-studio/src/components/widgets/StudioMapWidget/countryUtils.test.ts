@@ -73,6 +73,29 @@ describe('normalizeToAlpha2', () => {
   it('trims surrounding whitespace before matching', () => {
     expect(normalizeToAlpha2(' Germany ')).toBe('DE');
   });
+
+  // Regression coverage for finding 2.22: these 5 alpha-3 codes and 3 country names were
+  // previously missing even though their alpha-2 equivalents are in `EUROPEAN_ALPHA2_CODES`
+  // (the Europe map's own country list), so a data source encoding these countries as
+  // alpha-3 or by name could not be resolved to a feature on the map at all.
+  it('resolves the alpha-3 codes for small European states previously missing from the lookup', () => {
+    expect(normalizeToAlpha2('MLT')).toBe('MT'); // Malta
+    expect(normalizeToAlpha2('MDA')).toBe('MD'); // Moldova
+    expect(normalizeToAlpha2('MCO')).toBe('MC'); // Monaco
+    expect(normalizeToAlpha2('LIE')).toBe('LI'); // Liechtenstein
+    expect(normalizeToAlpha2('SMR')).toBe('SM'); // San Marino
+  });
+
+  it('resolves country names for small European states previously missing from the lookup', () => {
+    expect(normalizeToAlpha2('Malta')).toBe('MT');
+    expect(normalizeToAlpha2('Andorra')).toBe('AD');
+    expect(normalizeToAlpha2('Kosovo')).toBe('XK');
+  });
+
+  it('does not resolve the dead MDV_ typo key, and MDV itself still resolves correctly', () => {
+    expect(normalizeToAlpha2('MDV_')).toBeNull();
+    expect(normalizeToAlpha2('MDV')).toBe('MV');
+  });
 });
 
 // ─── normalizeToStateAbbr ──────────────────────────────────────────────────

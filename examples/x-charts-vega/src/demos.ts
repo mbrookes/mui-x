@@ -182,30 +182,28 @@ export const spendRows: DatasetRow[] = [
 
 /**
  * Rows for the error-band demo: a monthly revenue series with several samples
- * per month, across the full Jan–Dec year. The per-month mean follows a gentle
- * upward trend plus a deterministic sinusoidal wiggle (so the mean line bends
- * rather than running straight), and the sample spread sets the `stderr` band
- * width.
+ * per month, across the full Jan–Dec year. Each month's mean is hand-picked to
+ * an irregular, gently-rising path (so the line reads like real revenue rather
+ * than a periodic wave), and the sample spread sets the `stderr` band width.
  */
 export const trendRows: DatasetRow[] = (() => {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+  const monthlyMean: Array<[string, number]> = [
+    ['Jan', 3050],
+    ['Feb', 3380],
+    ['Mar', 3260],
+    ['Apr', 3620],
+    ['May', 3480],
+    ['Jun', 3900],
+    ['Jul', 3760],
+    ['Aug', 4180],
+    ['Sep', 3960],
+    ['Oct', 4340],
+    ['Nov', 4210],
+    ['Dec', 4560],
   ];
   const spread = [-300, -120, 20, 140, 300];
   const rows: DatasetRow[] = [];
-  months.forEach((month, mi) => {
-    const base = 3000 + mi * 120 + Math.round(Math.sin(mi * 1.1) * 300);
+  monthlyMean.forEach(([month, base], mi) => {
     spread.forEach((offset, si) => {
       rows.push({ month, revenue: base + offset + ((mi + si) % 3) * 35 });
     });

@@ -1,3 +1,4 @@
+import { feature as topojsonFeature } from 'topojson-client';
 import type {
   DatasetRow,
   VegaData,
@@ -8,7 +9,6 @@ import type {
   VegaTransform,
   VegaUnitSpec,
 } from '../types';
-import { feature as topojsonFeature } from 'topojson-client';
 import type { GapCollector } from '../gaps';
 
 export interface NormalizedUnit {

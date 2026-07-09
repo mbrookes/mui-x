@@ -2,7 +2,11 @@
 import * as React from 'react';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
 import { ChartsWrapper } from '@mui/x-charts/ChartsWrapper';
-import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
+import {
+  ChartsLegend,
+  ContinuousColorLegend,
+  PiecewiseColorLegend,
+} from '@mui/x-charts/ChartsLegend';
 import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
 import { ChartsXAxis } from '@mui/x-charts/ChartsXAxis';
 import { ChartsYAxis } from '@mui/x-charts/ChartsYAxis';
@@ -98,17 +102,36 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
   const resolvedHeight = height ?? compiled.height;
 
   if (compiled.chartKind === 'geo') {
+    // A geoshape choropleth's color axis (set by the mark compiler for a
+    // quantitative/temporal color field, see marks/geoshape.ts) picks the
+    // legend variant that matches its `colorMap`, mirroring
+    // docs/data/charts/map/ColorScaleMapShape.tsx. Nominal choropleths (and
+    // outline maps) have no color axis and fall back to the series legend.
+    const geoColorMap = (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)
+      ?.colorMap;
+    let geoLegend: React.ReactNode;
+    if (geoColorMap?.type === 'piecewise') {
+      geoLegend = <PiecewiseColorLegend axisDirection="z" />;
+    } else if (geoColorMap) {
+      geoLegend = <ContinuousColorLegend axisDirection="z" />;
+    } else {
+      geoLegend = compiled.hasLegend && <ChartsLegend />;
+    }
     return (
       <ChartsGeoDataProviderPremium
         geoData={compiled.geo?.geoData as never}
         projection={compiled.geo?.projection as never}
+        rotate={compiled.geo?.rotate as never}
+        scale={compiled.geo?.scale as never}
+        translate={compiled.geo?.translate as never}
         series={compiled.series as never}
+        zAxis={compiled.zAxis as never}
         colors={compiled.colors.slice()}
         width={resolvedWidth}
         height={resolvedHeight}
       >
         <ChartsWrapper>
-          {compiled.hasLegend && <ChartsLegend />}
+          {geoLegend}
           <ChartsSurface title={compiled.title}>
             {compiled.plots.includes('geoBase') && <GeoDataPlot />}
             {compiled.plots.includes('mapShape') && <MapShapePlot />}

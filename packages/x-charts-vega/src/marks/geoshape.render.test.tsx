@@ -47,7 +47,7 @@ describe('<VegaLiteChart /> geoshape marks', () => {
     expect(paths.length).to.be.greaterThanOrEqual(3);
   });
 
-  it('renders choropleth shapes for a quantitative color field', () => {
+  it('renders choropleth shapes colored from a real color axis for a quantitative color field', () => {
     const spec: VegaLiteSpec = {
       data: { values: features },
       mark: 'geoshape',
@@ -60,8 +60,37 @@ describe('<VegaLiteChart /> geoshape marks', () => {
     // joined feature (the class is emotion-hashed, so match on `data-name`).
     const shapes = container.querySelectorAll('path[data-name]');
     expect(shapes.length).to.equal(3);
-    // Each feature gets a distinct color from the sequential ramp.
+    // Each feature gets a distinct color, now resolved through the axis
+    // color scale (see `getColor.ts`) rather than a per-entry approximation.
     const fills = new Set(Array.from(shapes).map((shape) => shape.getAttribute('fill')));
     expect(fills.size).to.equal(3);
+  });
+
+  it('renders a continuous color legend for a quantitative choropleth', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: features },
+      mark: 'geoshape',
+      encoding: { color: { field: 'properties.rate', type: 'quantitative' } },
+    } as VegaLiteSpec;
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    expect(container.querySelectorAll('.MuiContinuousColorLegend-root')).to.have.length(1);
+    expect(container.querySelectorAll('.MuiPiecewiseColorLegend-root')).to.have.length(0);
+    // The series legend is replaced by the color axis legend.
+    expect(container.querySelectorAll('.MuiChartsLegend-root')).to.have.length(0);
+  });
+
+  it('renders the series legend (not a color axis legend) for a nominal choropleth', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: features },
+      mark: 'geoshape',
+      encoding: { color: { field: 'properties.name', type: 'nominal' } },
+    } as VegaLiteSpec;
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    expect(container.querySelectorAll('.MuiContinuousColorLegend-root')).to.have.length(0);
+    expect(container.querySelectorAll('.MuiPiecewiseColorLegend-root')).to.have.length(0);
   });
 });

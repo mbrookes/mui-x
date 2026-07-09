@@ -1,5 +1,8 @@
 import type { CompiledSeries, CompiledUnit, UnitContext } from '../compile/context';
-import type { VegaChannelDef, VegaTransform } from '../types';
+import type { ContinuousColorMapConfig, PiecewiseColorMapConfig } from '../compile/color';
+import { resolveColor } from '../compile/color';
+import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
+import type { VegaEncoding, VegaFieldDef, VegaTransform } from '../types';
 import { isFieldDef } from '../types';
 
 /*
@@ -30,15 +33,13 @@ const D3_NAMED_PROJECTIONS = new Set<string>([
 ]);
 
 /**
- * Vega-Lite projection config keys that tune the projection geometry. The geo
- * provider does accept `translate`/`rotate`/`scale`, but the wrapper's shell
- * forwards only `geoData` and `projection`, so they are dropped here.
+ * Vega-Lite projection config keys with no `ChartsGeoDataProviderPremium`
+ * equivalent (see `useGeoProjection`'s `UseGeoProjectionParameters`, which
+ * only accepts `translate`/`rotate`/`scale` beyond the projection itself) —
+ * always dropped with an `ignored` gap.
  */
 const PROJECTION_TUNING_KEYS = new Set<string>([
   'center',
-  'rotate',
-  'scale',
-  'translate',
   'parallels',
   'precision',
   'clipAngle',
@@ -168,58 +169,6 @@ function resolveFeatureName(feature: GeoFeature): string | undefined {
   return typeof name === 'string' ? name : undefined;
 }
 
-function clamp01(value: number): number {
-  if (value < 0) {
-    return 0;
-  }
-  if (value > 1) {
-    return 1;
-  }
-  return value;
-}
-
-function parseHexColor(hex: string): [number, number, number] | undefined {
-  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match) {
-    return undefined;
-  }
-  let digits = match[1];
-  if (digits.length === 3) {
-    digits = digits
-      .split('')
-      .map((char) => char + char)
-      .join('');
-  }
-  const int = parseInt(digits, 16);
-  // eslint-disable-next-line no-bitwise
-  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
-}
-
-function toHex(channel: number): string {
-  return Math.round(clamp01(channel / 255) * 255)
-    .toString(16)
-    .padStart(2, '0');
-}
-
-/**
- * Linearly interpolate between two colors, producing a sequential ramp for a
- * quantitative choropleth. Falls back to the target color when parsing fails.
- * @param {string} from The low-end color (hex).
- * @param {string} to The high-end color (hex).
- * @param {number} t The interpolation factor in [0, 1].
- * @returns {string} The interpolated hex color.
- */
-function lerpColor(from: string, to: string, t: number): string {
-  const a = parseHexColor(from);
-  const b = parseHexColor(to);
-  if (!a || !b) {
-    return to;
-  }
-  const factor = clamp01(t);
-  const mix = a.map((channel, index) => channel + (b[index] - channel) * factor);
-  return `#${toHex(mix[0])}${toHex(mix[1])}${toHex(mix[2])}`;
-}
-
 /**
  * Vega-Lite's default projection type. A projection must always be registered
  * for the map to render (the geo plugin returns no path otherwise), so this is
@@ -234,9 +183,7 @@ const DEFAULT_PROJECTION = 'mercator';
  * @returns {string} A d3 named projection (defaults to `mercator`).
  */
 function resolveProjection(ctx: UnitContext): string {
-  // `projection` lives on the Vega-Lite unit spec. Read it defensively — see
-  // SHELL-FIXES: `NormalizedUnit` must carry it through for end-to-end use.
-  const projection = (ctx.unit as { projection?: Record<string, unknown> }).projection;
+  const projection = ctx.unit.projection;
   if (!projection || typeof projection !== 'object') {
     return DEFAULT_PROJECTION;
   }
@@ -269,6 +216,92 @@ function resolveProjection(ctx: UnitContext): string {
   return DEFAULT_PROJECTION;
 }
 
+/** Numeric `[a, b]` tuple guard used for `translate`/2-value `rotate`. */
+function isFiniteNumberPair(value: unknown): value is [number, number] {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))
+  );
+}
+
+/**
+ * Resolve the projection tuning params `ChartsGeoDataProviderPremium` genuinely
+ * accepts (`rotate`/`scale`/`translate` — see `useGeoProjection`'s
+ * `UseGeoProjectionParameters`), validating shapes and recording a gap for
+ * malformed values instead of forwarding garbage into the provider.
+ * @param {UnitContext} ctx The unit context.
+ * @returns {Pick<CompiledUnit['geo'] & {}, 'rotate' | 'scale' | 'translate'>} The forwardable subset.
+ */
+function resolveProjectionTuning(
+  ctx: UnitContext,
+): Pick<NonNullable<CompiledUnit['geo']>, 'rotate' | 'scale' | 'translate'> {
+  const projection = ctx.unit.projection;
+  if (!projection || typeof projection !== 'object') {
+    return {};
+  }
+
+  const tuning: Pick<NonNullable<CompiledUnit['geo']>, 'rotate' | 'scale' | 'translate'> = {};
+  const path = `${ctx.unit.path}.projection`;
+
+  const { rotate } = projection;
+  if (rotate !== undefined) {
+    const isNumberArray =
+      Array.isArray(rotate) &&
+      rotate.every((entry) => typeof entry === 'number' && Number.isFinite(entry));
+    if (isNumberArray && (rotate.length === 2 || rotate.length === 3)) {
+      tuning.rotate = [rotate[0], rotate[1]];
+      if (rotate.length === 3) {
+        ctx.gaps.add({
+          code: 'projection:rotate-roll-dropped',
+          message:
+            'The map provider only accepts a `[longitude, latitude]` rotation; the 3rd "roll" value was dropped.',
+          severity: 'partial',
+          path: `${path}.rotate`,
+        });
+      }
+    } else {
+      ctx.gaps.add({
+        code: 'projection:rotate-invalid',
+        message:
+          '`rotate` must be a `[longitude, latitude]` (or `[longitude, latitude, roll]`) numeric tuple; the malformed value was ignored.',
+        severity: 'ignored',
+        path: `${path}.rotate`,
+      });
+    }
+  }
+
+  const { scale } = projection;
+  if (scale !== undefined) {
+    if (typeof scale === 'number' && Number.isFinite(scale)) {
+      tuning.scale = scale;
+    } else {
+      ctx.gaps.add({
+        code: 'projection:scale-invalid',
+        message: '`scale` must be a finite number; the malformed value was ignored.',
+        severity: 'ignored',
+        path: `${path}.scale`,
+      });
+    }
+  }
+
+  const { translate } = projection;
+  if (translate !== undefined) {
+    if (isFiniteNumberPair(translate)) {
+      tuning.translate = translate;
+    } else {
+      ctx.gaps.add({
+        code: 'projection:translate-invalid',
+        message: '`translate` must be a `[x, y]` numeric tuple; the malformed value was ignored.',
+        severity: 'ignored',
+        path: `${path}.translate`,
+      });
+    }
+  }
+
+  return tuning;
+}
+
 /** Locate a `lookup` transform on the unit, for a precise gap path. */
 function findLookupPath(ctx: UnitContext): string {
   const index = ctx.unit.transform.findIndex(
@@ -278,17 +311,36 @@ function findLookupPath(ctx: UnitContext): string {
   return index >= 0 ? `${ctx.unit.path}.transform[${index}]` : `${ctx.unit.path}.transform`;
 }
 
+interface ChoroplethResult {
+  entries: MapShapeEntry[];
+  /** A real axis `colorMap` for a quantitative/temporal color field (see `resolveColor`). */
+  colorMap?: ContinuousColorMapConfig | PiecewiseColorMapConfig;
+}
+
 /**
  * Build the `mapShape` data entries for a choropleth from the color field read
- * off each feature. Quantitative fields get a sequential color ramp; nominal /
- * ordinal fields get one palette color per distinct value.
+ * off each feature.
+ *
+ * Quantitative/temporal fields resolve a real axis `colorMap` — reusing
+ * `resolveColor` against synthetic flat rows (`{ [field]: resolvedValue }`,
+ * since the real rows are GeoJSON features and `field` may be a dotted
+ * `properties.*` path or a bare name resolved via the properties fallback) and
+ * patching the inferred type into the encoding first, mirroring how
+ * marks/rect.ts calls `resolveColor` for heatmap cells. Entries carry a bare
+ * `colorValue` for the resulting color axis to consume — no more per-entry
+ * lerped color.
+ *
+ * Nominal/ordinal fields have no axis equivalent for a categorical color
+ * scale on this series, so they keep the palette-per-category approximation.
  */
 function buildChoroplethEntries(
+  ctx: UnitContext,
   features: GeoFeature[],
+  channelKey: 'color' | 'fill',
+  channel: VegaFieldDef,
   field: string,
-  fieldType: string | undefined,
   palette: readonly string[],
-): MapShapeEntry[] {
+): ChoroplethResult {
   // Features are joined to series entries by name, so entries must be unique by
   // name — the Premium `mapShape` series processor throws on duplicates. Keep
   // the first occurrence (multiple polygons sharing a name still all render,
@@ -312,39 +364,43 @@ function buildChoroplethEntries(
     });
 
   if (raw.length === 0) {
-    return [];
+    return { entries: [] };
   }
 
-  const isQuantitative = fieldType === 'quantitative' || fieldType === undefined;
-  const numeric = raw
-    .map((entry) => (typeof entry.value === 'number' ? entry.value : Number(entry.value)))
-    .filter((value) => Number.isFinite(value));
-  const treatAsQuantitative = isQuantitative && numeric.length === raw.length;
+  // Synthetic flat rows so `resolveFieldType`/`resolveColor` can read `field`
+  // directly off a plain object, exactly like they do for ordinary datasets.
+  const flatRows = raw.map((entry) => ({ [field]: entry.value }));
+  const fieldType = resolveFieldType(channel, flatRows);
 
-  if (treatAsQuantitative) {
-    const min = Math.min(...numeric);
-    const max = Math.max(...numeric);
-    const span = max - min;
-    // The ramp endpoints must be interpolatable hex; if the palette color isn't
-    // (e.g. an `rgb()`/named color), fall back so the gradient isn't flattened.
-    const high = palette[0] && parseHexColor(palette[0]) ? palette[0] : '#1976d2';
-    const low = lerpColor('#ffffff', high, 0.12);
-    return raw.map((entry) => {
-      const value = Number(entry.value);
-      const t = span === 0 ? 1 : (value - min) / span;
-      return {
-        name: entry.name,
-        value,
-        colorValue: value,
-        color: lerpColor(low, high, t),
-        label: entry.name,
-      };
+  if (fieldType === 'quantitative' || fieldType === 'temporal') {
+    const patchedEncoding: VegaEncoding =
+      channel.type === fieldType
+        ? ctx.encoding
+        : { ...ctx.encoding, [channelKey]: { ...channel, type: fieldType } };
+    // colorMapConsumed: the colorMap goes onto a real color (z) axis via the
+    // geo provider, so the "only some series types honor colorMap" caveat
+    // does not apply here.
+    const { colorMap } = resolveColor(patchedEncoding, flatRows, ctx.gaps, ctx.unit.path, {
+      colorMapConsumed: true,
     });
+
+    const entries: MapShapeEntry[] = raw.map((entry) => {
+      if (fieldType === 'temporal') {
+        return {
+          name: entry.name,
+          colorValue: toDate(entry.value) ?? undefined,
+          label: entry.name,
+        };
+      }
+      const value = toNumber(entry.value) ?? undefined;
+      return { name: entry.name, value, colorValue: value, label: entry.name };
+    });
+    return { entries, colorMap };
   }
 
   // Nominal / ordinal: one palette color per distinct category.
   const colorByCategory = new Map<string, string>();
-  return raw.map((entry) => {
+  const entries = raw.map((entry) => {
     const key = String(entry.value);
     let color = colorByCategory.get(key);
     if (color === undefined) {
@@ -353,16 +409,17 @@ function buildChoroplethEntries(
     }
     return { name: entry.name, colorValue: entry.value, color, label: key };
   });
+  return { entries };
 }
 
 /** Pick the color/fill channel that carries a field encoding, if any. */
 function pickColorChannel(
   ctx: UnitContext,
-): { channel: VegaChannelDef; field: string; type?: string } | undefined {
+): { channelKey: 'color' | 'fill'; channel: VegaFieldDef; field: string } | undefined {
   for (const key of ['color', 'fill'] as const) {
     const channel = ctx.encoding[key];
     if (isFieldDef(channel) && channel.field) {
-      return { channel, field: channel.field, type: channel.type };
+      return { channelKey: key, channel, field: channel.field };
     }
   }
   return undefined;
@@ -394,6 +451,7 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   const geo: CompiledUnit['geo'] = {
     geoData: resolution.geoData,
     projection: resolveProjection(ctx),
+    ...resolveProjectionTuning(ctx),
   };
 
   if (ctx.encoding.shape !== undefined) {
@@ -421,7 +479,14 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: ['geoBase'], geo };
   }
 
-  const entries = buildChoroplethEntries(resolution.features, color.field, color.type, ctx.palette);
+  const { entries, colorMap } = buildChoroplethEntries(
+    ctx,
+    resolution.features,
+    color.channelKey,
+    color.channel,
+    color.field,
+    ctx.palette,
+  );
   if (entries.length === 0) {
     // The color field isn't present on any feature — most likely it lives on
     // separate tabular rows meant to be joined with a `lookup` transform.
@@ -440,5 +505,12 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     label: color.field,
   } as unknown as CompiledSeries;
 
-  return { series: [series], plots: ['geoBase', 'mapShape'], geo };
+  return {
+    series: [series],
+    plots: ['geoBase', 'mapShape'],
+    geo,
+    // A quantitative/temporal color field surfaces a real color axis, keyed
+    // so the shell can pick the matching (continuous vs. piecewise) legend.
+    ...(colorMap ? { zAxis: [{ id: 'vega-geo-color', colorMap }] as CompiledUnit['zAxis'] } : {}),
+  };
 }

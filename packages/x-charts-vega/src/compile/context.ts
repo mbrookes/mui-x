@@ -40,6 +40,17 @@ export interface CompiledGeo {
   geoData: unknown;
   /** A d3 named projection (e.g. 'naturalEarth1') or projection config. */
   projection?: string | Record<string, unknown>;
+  /**
+   * Projection rotation `[longitude, latitude]`, forwarded to
+   * `ChartsGeoDataProviderPremium`'s `rotate` prop (see `useGeoProjection`'s
+   * `UseGeoProjectionParameters.rotate` — the provider only accepts a 2-tuple;
+   * a spec's 3rd "roll" value, if any, is dropped before reaching here).
+   */
+  rotate?: [number, number];
+  /** Projection scale, forwarded to the provider's `scale` prop. */
+  scale?: number;
+  /** Projection translate `[x, y]`, forwarded to the provider's `translate` prop. */
+  translate?: [number, number];
 }
 
 /** What a mark compiler hands back for one normalized unit (layer). */

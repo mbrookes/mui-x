@@ -43,11 +43,17 @@ import type {
  * require a number. This was verified against
  * `packages/x-charts/src/hooks/getValueToPositionMapper.ts` and a render
  * probe: passing the raw category string (nominal/ordinal) or a `Date`
- * instance (temporal — the vendored d3 ordinal scale interns object keys via
- * `Date.prototype.valueOf()`, so distinct `Date` instances with the same
- * timestamp resolve to the same domain slot) as the scatter point's `x`/`y`
- * renders at the correct position. So a single value-resolution path covers
- * quantitative (continuous), and nominal/ordinal/temporal (point-scale,
+ * instance as the scatter point's `x`/`y` renders at the correct position. For
+ * a `Date` this holds on both axis shapes a temporal channel can resolve to
+ * (see scales.ts):
+ * - the continuous `scaleType: 'time'` scale (the default) places the point
+ *   with `scaleTime(date)`, spacing it proportionally to elapsed time;
+ * - the discrete band/point fallback interns the ordinal domain key via
+ *   `Date.prototype.valueOf()`, so distinct `Date` instances with the same
+ *   timestamp resolve to the same domain slot.
+ * `resolveAxisValue` already returns a `Date` for a temporal axis in both
+ * cases, so a single value-resolution path covers quantitative (continuous),
+ * temporal (continuous or point-scale), and nominal/ordinal (point-scale,
  * including strip plots with one categorical channel) axes — no
  * `mark:point-categorical-axis` gap is needed.
  */

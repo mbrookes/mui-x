@@ -315,7 +315,7 @@ describe('compilePointMark', () => {
     expect(series.data).to.have.length(1);
   });
 
-  it('positions points correctly on a temporal (point-scale) x axis using Date values', () => {
+  it('positions points correctly on a temporal (continuous time-scale) x axis using Date values', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [
@@ -330,7 +330,7 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    expect(compiled.xAxis?.config.scaleType).to.equal('point');
+    expect(compiled.xAxis?.config.scaleType).to.equal('time');
     const series = compiled.series[0] as unknown as { data: { x: unknown; y: number }[] };
     expect(series.data).to.have.length(2);
     expect(series.data[0].x).to.be.instanceOf(Date);

@@ -23,6 +23,68 @@ export interface FunnelConfigSectionProps {
   firstYSeriesFieldId?: string;
 }
 
+/**
+ * Section-gap numeric input (architecture review finding 2.3): committing
+ * `Math.max(0, Math.min(32, Number(v)))` on every keystroke made each digit an
+ * undoable commit plus a mutation-log line plus a full pipeline recompute. Buffer
+ * the displayed text locally and only parse/clamp/commit on blur/Enter, mirroring
+ * `GaugeConfigSection.tsx`'s min/max inputs.
+ */
+function FunnelGapInput(props: {
+  value: number;
+  label: string;
+  onCommit: (next: number | undefined) => void;
+}) {
+  const { value, label, onCommit } = props;
+  const [text, setText] = React.useState(String(value));
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gap; resync on external change (undo/redo)
+  React.useEffect(() => {
+    setText(String(value));
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    if (!Number.isNaN(parsed)) {
+      const clamped = Math.max(0, Math.min(32, parsed));
+      if (clamped !== value) {
+        onCommit(clamped || undefined);
+      }
+      setText(String(clamped));
+    } else {
+      setText(String(value));
+    }
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      type="number"
+      label={label}
+      value={text}
+      onChange={(evt) => {
+        setText(evt.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(evt) => {
+        if (evt.key === 'Enter') {
+          commit();
+        }
+      }}
+      slotProps={{ htmlInput: { min: 0, max: 32, step: 1 } }}
+      fullWidth
+    />
+  );
+}
+
 /** Funnel chart setup: value field plus label format/placement, shape, style, and gap. */
 export function FunnelConfigSection({
   widgetId,
@@ -131,17 +193,10 @@ export function FunnelConfigSection({
           </ToggleButton>
         </ToggleButtonGroup>
       </Stack>
-      <TextField
-        size="small"
-        type="number"
-        label={localeText.chartSetupFunnelGapLabel}
+      <FunnelGapInput
         value={config.funnelGap ?? 0}
-        onChange={(evt) => {
-          const v = Math.max(0, Math.min(32, Number(evt.target.value)));
-          controller.updateWidgetConfig(widgetId, { funnelGap: v || undefined });
-        }}
-        slotProps={{ htmlInput: { min: 0, max: 32, step: 1 } }}
-        fullWidth
+        label={localeText.chartSetupFunnelGapLabel}
+        onCommit={(next) => controller.updateWidgetConfig(widgetId, { funnelGap: next })}
       />
     </React.Fragment>
   );

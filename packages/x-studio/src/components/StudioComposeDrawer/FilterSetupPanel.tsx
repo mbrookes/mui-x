@@ -1,4 +1,5 @@
 'use client';
+import * as React from 'react';
 import {
   Alert,
   FormControl,
@@ -22,6 +23,65 @@ import type {
   StudioWidgetConfigForKind,
 } from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+
+/**
+ * Slider min/max/step numeric input (architecture review finding 2.3): parsing and
+ * committing `controller.updateWidgetConfig` on every keystroke made each digit an
+ * undoable commit plus a mutation-log line plus a full pipeline recompute, and made
+ * an in-progress value (e.g. a bare "-") impossible to type. Buffer the displayed
+ * text locally and only parse/commit on blur/Enter, mirroring
+ * `GaugeConfigSection.tsx`'s min/max inputs.
+ */
+function SliderBoundInput(props: {
+  value: number | undefined;
+  label: string;
+  onCommit: (next: number | undefined) => void;
+}) {
+  const { value, label, onCommit } = props;
+  const initialText = value !== undefined ? String(value) : '';
+  const [text, setText] = React.useState(initialText);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed bound; resync on external change (field swap, undo/redo)
+  React.useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    const next = raw === '' ? undefined : Number(raw);
+    const resolved = next !== undefined && Number.isNaN(next) ? value : next;
+    if (resolved !== value) {
+      onCommit(resolved);
+    }
+    setText(resolved !== undefined ? String(resolved) : '');
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      fullWidth
+      label={label}
+      type="number"
+      value={text}
+      onChange={(evt) => {
+        setText(evt.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(evt) => {
+        if (evt.key === 'Enter') {
+          commit();
+        }
+      }}
+    />
+  );
+}
 
 export function FilterSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -163,40 +223,25 @@ export function FilterSetupPanel(props: { widgetId: string }) {
             {localeText.filterSetupSliderRangeHelperText}
           </Typography>
           <Stack spacing={1}>
-            <TextField
-              size="small"
-              fullWidth
+            <SliderBoundInput
+              value={config.filterWidgetMin}
               label={localeText.filterSetupMinLabel}
-              type="number"
-              value={config.filterWidgetMin ?? ''}
-              onChange={(evt) =>
-                controller.updateWidgetConfig(widgetId, {
-                  filterWidgetMin: evt.target.value !== '' ? Number(evt.target.value) : undefined,
-                })
+              onCommit={(next) =>
+                controller.updateWidgetConfig(widgetId, { filterWidgetMin: next })
               }
             />
-            <TextField
-              size="small"
-              fullWidth
+            <SliderBoundInput
+              value={config.filterWidgetMax}
               label={localeText.filterSetupMaxLabel}
-              type="number"
-              value={config.filterWidgetMax ?? ''}
-              onChange={(evt) =>
-                controller.updateWidgetConfig(widgetId, {
-                  filterWidgetMax: evt.target.value !== '' ? Number(evt.target.value) : undefined,
-                })
+              onCommit={(next) =>
+                controller.updateWidgetConfig(widgetId, { filterWidgetMax: next })
               }
             />
-            <TextField
-              size="small"
-              fullWidth
+            <SliderBoundInput
+              value={config.filterWidgetStep}
               label={localeText.filterSetupStepLabel}
-              type="number"
-              value={config.filterWidgetStep ?? ''}
-              onChange={(evt) =>
-                controller.updateWidgetConfig(widgetId, {
-                  filterWidgetStep: evt.target.value !== '' ? Number(evt.target.value) : undefined,
-                })
+              onCommit={(next) =>
+                controller.updateWidgetConfig(widgetId, { filterWidgetStep: next })
               }
             />
           </Stack>

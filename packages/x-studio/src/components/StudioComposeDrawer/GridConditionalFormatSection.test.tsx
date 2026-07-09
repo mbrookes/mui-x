@@ -162,3 +162,72 @@ describe('GridConditionalFormatSection', () => {
     });
   });
 });
+
+// ─── String-value input: buffer-then-commit-on-blur (architecture review 2.3) ───
+//
+// The numeric branch (tested above) was fixed first; the string-value branch (used
+// for a non-numeric field, e.g. "id") was missed and still committed on every
+// keystroke — an undoable commit, a mutation-log line, and a full pipeline
+// recompute per character typed.
+describe('GridConditionalFormatSection string value input (finding 2.3)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      config: {
+        gridConditionalFormats: [makeRule({ fieldId: 'id', value: 'Pending' })],
+      } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('does not commit while typing', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: 'Overdue' } });
+
+    expect(valueInput.value).toBe('Overdue');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('commits the typed string once on blur', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: 'Overdue' } });
+    fireEvent.blur(valueInput);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      gridConditionalFormats: [expect.objectContaining({ value: 'Overdue' })],
+    });
+  });
+
+  it('commits once on Enter, not per keystroke', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: 'S' } });
+    fireEvent.change(valueInput, { target: { value: 'Sh' } });
+    fireEvent.change(valueInput, { target: { value: 'Shipped' } });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(valueInput, { key: 'Enter' });
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      gridConditionalFormats: [expect.objectContaining({ value: 'Shipped' })],
+    });
+  });
+
+  it('does not commit on blur when nothing changed', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value');
+    fireEvent.blur(valueInput);
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

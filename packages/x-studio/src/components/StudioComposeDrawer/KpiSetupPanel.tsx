@@ -148,9 +148,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   // the doc) disagree until the user touches the field. Repair the doc on detect.
   // (The renderer, `StudioKpiWidget`, is outside this fix's scope; write-back is the
   // in-scope option and self-terminates once the value is valid.)
+  //
+  // Finding 2.4: this write-back fires from merely RENDERING the panel, not from a
+  // user gesture, so it must not enter the undo timeline. Left undoable, opening the
+  // panel could push an unauthored undo entry, and undoing past the repair would
+  // re-trigger this effect and commit again — clearing the redo stack every time,
+  // so undo could never get past that point while the panel stayed mounted.
+  // `StudioDateRangeBar.tsx`'s coverage-expansion effect documents and uses the same
+  // `{ undoable: false }` pattern for exactly this hazard.
   React.useEffect(() => {
     if (config.kpiAggregation !== undefined && !storedAggIsValid) {
-      controller.updateWidgetConfig(widgetId, { kpiAggregation: selectedAgg });
+      controller.updateWidgetConfig(widgetId, { kpiAggregation: selectedAgg }, { undoable: false });
     }
   }, [config.kpiAggregation, storedAggIsValid, selectedAgg, controller, widgetId]);
 

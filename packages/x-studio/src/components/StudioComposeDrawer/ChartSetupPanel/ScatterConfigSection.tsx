@@ -5,6 +5,73 @@ import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
+/**
+ * Scatter min/max radius numeric input (architecture review finding 2.3): committing
+ * `Number(v) || 4` (or `|| 40`) on every keystroke made each digit an undoable commit
+ * plus a mutation-log line plus a full pipeline recompute, AND snapped a momentarily
+ * cleared input straight to the fallback default instead of allowing an in-progress
+ * empty state — the exact bug class the buffer-then-commit-on-blur pattern elsewhere
+ * exists to prevent. Buffer the displayed text locally and only parse/commit on
+ * blur/Enter, mirroring `GaugeConfigSection.tsx`'s min/max inputs.
+ */
+function RadiusInput(props: {
+  value: number;
+  label: string;
+  min: number;
+  max: number;
+  onCommit: (next: number) => void;
+}) {
+  const { value, label, min, max, onCommit } = props;
+  const [text, setText] = React.useState(String(value));
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed radius; resync on external change (widget switch, undo/redo)
+  React.useEffect(() => {
+    setText(String(value));
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    if (!Number.isNaN(parsed)) {
+      if (parsed !== value) {
+        onCommit(parsed);
+      }
+      setText(String(parsed));
+    } else {
+      // An unparseable/emptied field reverts to the last committed value rather
+      // than silently snapping to the fallback default mid-edit.
+      setText(String(value));
+    }
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      label={label}
+      type="number"
+      value={text}
+      onChange={(evt) => {
+        setText(evt.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(evt) => {
+        if (evt.key === 'Enter') {
+          commit();
+        }
+      }}
+      slotProps={{ htmlInput: { min, max } }}
+      sx={{ flex: 1, minWidth: 0 }}
+    />
+  );
+}
+
 export interface ScatterConfigSectionProps {
   widgetId: string;
   config: StudioChartConfigOfType<'scatter'>;
@@ -64,31 +131,19 @@ export function ScatterConfigSection({
       />
       {config.scatterSizeField && (
         <Stack direction="row" spacing={1}>
-          <TextField
-            size="small"
-            label={localeText.chartSetupMinRadiusLabel}
-            type="number"
+          <RadiusInput
             value={config.scatterMinRadius ?? 4}
-            onChange={(evt) =>
-              controller.updateWidgetConfig(widgetId, {
-                scatterMinRadius: Number(evt.target.value) || 4,
-              })
-            }
-            slotProps={{ htmlInput: { min: 1, max: 50 } }}
-            sx={{ flex: 1, minWidth: 0 }}
+            label={localeText.chartSetupMinRadiusLabel}
+            min={1}
+            max={50}
+            onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMinRadius: next })}
           />
-          <TextField
-            size="small"
-            label={localeText.chartSetupMaxRadiusLabel}
-            type="number"
+          <RadiusInput
             value={config.scatterMaxRadius ?? 40}
-            onChange={(evt) =>
-              controller.updateWidgetConfig(widgetId, {
-                scatterMaxRadius: Number(evt.target.value) || 40,
-              })
-            }
-            slotProps={{ htmlInput: { min: 1, max: 100 } }}
-            sx={{ flex: 1, minWidth: 0 }}
+            label={localeText.chartSetupMaxRadiusLabel}
+            min={1}
+            max={100}
+            onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMaxRadius: next })}
           />
         </Stack>
       )}

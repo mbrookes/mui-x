@@ -84,9 +84,20 @@ export function GaugeConfigSection({
       <DataSourceFieldSelect
         value={config.yField ?? ''}
         onChange={(fieldId, sourceId) => {
-          controller.updateWidgetConfig(widgetId, { yField: fieldId });
+          const configUpdate = { yField: fieldId };
+          // When the picked field belongs to a different source, adopt that source AND
+          // write the field in ONE `updateWidget` commit so the cross-source field pick
+          // is a single undo step (finding 2.5) — writing them as two separate commits
+          // (`updateWidgetConfig` then `updateWidget`) left a lone Ctrl+Z landing on a
+          // torn `{ old sourceId, new yField }` state the UI never produced. Every
+          // sibling setup panel (Chart/KPI/Filter/Map) already folds this the same way.
           if (sourceId && sourceId !== widgetSourceId) {
-            controller.updateWidget(widgetId, { sourceId });
+            controller.updateWidget(widgetId, {
+              sourceId,
+              config: { ...config, ...configUpdate },
+            });
+          } else {
+            controller.updateWidgetConfig(widgetId, configUpdate);
           }
         }}
         fields={fieldsForCapability(allFields, 'numeric')}

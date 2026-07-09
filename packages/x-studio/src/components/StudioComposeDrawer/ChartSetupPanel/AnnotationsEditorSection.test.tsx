@@ -82,3 +82,53 @@ describe('AnnotationsEditorSection reference-line value input (finding 1.14)', (
     });
   });
 });
+
+// Finding 2.3: the label field was missed by the finding-1.14 buffering pass above —
+// it still committed on every keystroke.
+describe('AnnotationsEditorSection label input (finding 2.3)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('does not commit while typing', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Target' } });
+    expect(input.value).toBe('Target');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('commits the typed label once on blur', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'T' } });
+    fireEvent.change(input, { target: { value: 'Ta' } });
+    fireEvent.change(input, { target: { value: 'Target' } });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      annotations: [expect.objectContaining({ id: 'ann-1', label: 'Target' })],
+    });
+  });
+
+  it('commits once on Enter', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Goal' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      annotations: [expect.objectContaining({ id: 'ann-1', label: 'Goal' })],
+    });
+  });
+
+  it('does not commit on blur when unchanged', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: 'Existing' }]);
+    const input = screen.getByLabelText('Label');
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

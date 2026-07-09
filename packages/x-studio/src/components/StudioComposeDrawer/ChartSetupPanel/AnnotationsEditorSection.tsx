@@ -86,6 +86,56 @@ function AnnotationValueInput(props: {
   );
 }
 
+/**
+ * Reference-line label input (architecture review finding 2.3): the value input
+ * above was buffered first; this label field was missed and still called
+ * `controller.updateWidgetConfig` on every keystroke — each an undoable commit plus
+ * a mutation-log line plus a full pipeline recompute. Buffer the displayed text
+ * locally and only commit on blur/Enter, mirroring `AnnotationValueInput` above.
+ */
+function AnnotationLabelInput(props: {
+  value: string;
+  label: string;
+  onCommit: (next: string) => void;
+}) {
+  const { value, label, onCommit } = props;
+  const [text, setText] = React.useState(value);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed label; resync on external change (undo/redo)
+  React.useEffect(() => {
+    setText(value);
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    onCommit(text);
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      label={label}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ flexGrow: 1, minWidth: 0 }}
+    />
+  );
+}
+
 export interface AnnotationsEditorSectionProps {
   widgetId: string;
   // Annotations are shared by exactly the bar / line-area / mixed / scatter families,
@@ -161,18 +211,16 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
                 });
               }}
             />
-            <TextField
-              size="small"
-              label={localeText.chartSetupReferenceLineLabelLabel}
+            <AnnotationLabelInput
               value={ann.label ?? ''}
-              onChange={(event) => {
+              label={localeText.chartSetupReferenceLineLabelLabel}
+              onCommit={(next) => {
                 controller.updateWidgetConfig(widgetId, {
                   annotations: annotations.map((a) =>
-                    a.id === ann.id ? { ...a, label: event.target.value } : a,
+                    a.id === ann.id ? { ...a, label: next } : a,
                   ),
                 });
               }}
-              sx={{ flexGrow: 1, minWidth: 0 }}
             />
             <Tooltip title={localeText.chartSetupRemoveAnnotation}>
               <IconButton

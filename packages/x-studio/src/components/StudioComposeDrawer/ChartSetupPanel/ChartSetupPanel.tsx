@@ -51,6 +51,7 @@ import { SankeyConfigSection } from './SankeyConfigSection';
 import { GanttFieldsSection } from './GanttFieldsSection';
 import { AnnotationsEditorSection } from './AnnotationsEditorSection';
 import { PieArcLabelsSection } from './PieArcLabelsSection';
+import { SortDirectionToggle } from './SortDirectionToggle';
 
 const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
   a.sourceLabel.localeCompare(b.sourceLabel);
@@ -246,26 +247,27 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
   };
 
-  const handleRemoveSeries = (index: number) => {
-    const next = ySeries.filter((_, i) => i !== index);
-    controller.updateWidgetConfig(widgetId, {
-      ySeries: next,
-      yField: next[0]?.fieldId ?? '',
-    });
-  };
-
-  const handleSeriesFieldChange = (index: number, fieldId: string) => {
-    const next = ySeries.map((s, i) => (i === index ? { ...s, fieldId } : s));
-    // BL-186: clearing the last measure field leaves a fieldless chart, whose only valid
-    // aggregation is a row "count" — force it so the chart keeps rendering a count instead
-    // of going blank. When a field remains, preserve the existing `yAggregation` (a chart may
-    // carry a non-default sum/avg/min/max) rather than wiping it on every field swap.
+  // Shared "commit ySeries + derive yField/yAggregation" transition used by both
+  // handlers below, so the BL-186 fieldless-count re-lock can't be missed by either
+  // (finding 2.4). BL-186: when the resulting series list has no field, the only valid
+  // aggregation is a row "count" — force it so the chart keeps rendering instead of
+  // going blank. When a field remains, preserve the existing `yAggregation` (a chart may
+  // carry a non-default sum/avg/min/max) rather than wiping it on every series change.
+  const commitYSeries = (next: typeof ySeries) => {
     const nextHasField = next.some((s) => s.fieldId);
     controller.updateWidgetConfig(widgetId, {
       ySeries: next,
       yField: next[0]?.fieldId ?? '',
       ...(nextHasField ? {} : { yAggregation: 'count' }),
     });
+  };
+
+  const handleRemoveSeries = (index: number) => {
+    commitYSeries(ySeries.filter((_, i) => i !== index));
+  };
+
+  const handleSeriesFieldChange = (index: number, fieldId: string) => {
+    commitYSeries(ySeries.map((s, i) => (i === index ? { ...s, fieldId } : s)));
   };
 
   const handleSeriesTypeChange = (index: number, seriesType: 'bar' | 'line') => {
@@ -509,35 +511,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   toggle is hidden for funnel rather than writing a key the funnel
                   aggregation never reads. */}
               {!isFunnel && (config.chartSortBy ?? 'category') !== 'natural' && (
-                <ToggleButtonGroup
+                <SortDirectionToggle
                   value={config.chartSortDirection ?? 'asc'}
-                  exclusive
-                  onChange={(_e, val) => {
-                    if (val) {
-                      controller.updateWidgetConfig(widgetId, {
-                        chartSortDirection: val as 'asc' | 'desc',
-                      });
-                    }
-                  }}
-                  size="small"
-                  aria-label={localeText.chartSetupSortDirectionAriaLabel}
-                  sx={{ alignSelf: 'flex-start' }}
-                >
-                  <ToggleButton
-                    value="asc"
-                    aria-label={localeText.sortAscendingAriaLabel}
-                    sx={{ textTransform: 'none' }}
-                  >
-                    {localeText.sortAscendingAriaLabel}
-                  </ToggleButton>
-                  <ToggleButton
-                    value="desc"
-                    aria-label={localeText.sortDescendingAriaLabel}
-                    sx={{ textTransform: 'none' }}
-                  >
-                    {localeText.sortDescendingAriaLabel}
-                  </ToggleButton>
-                </ToggleButtonGroup>
+                  onChange={(val) =>
+                    controller.updateWidgetConfig(widgetId, { chartSortDirection: val })
+                  }
+                />
               )}
             </Stack>
           )}
@@ -647,6 +626,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         <Tooltip title={localeText.chartSetupRemoveSeries}>
                           <IconButton
                             size="small"
+                            aria-label={localeText.chartSetupRemoveSeries}
                             onClick={() => handleRemoveSeries(index)}
                             sx={{ mt: 1 }}
                           >

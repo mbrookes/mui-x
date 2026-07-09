@@ -1,17 +1,10 @@
 'use client';
 import * as React from 'react';
-import {
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Stack,
-  ToggleButton,
-  ToggleButtonGroup,
-} from '@mui/material';
+import { FormControl, InputLabel, MenuItem, Select, Stack } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { SortDirectionToggle } from './SortDirectionToggle';
 
 export interface HeatmapAxesSectionProps {
   widgetId: string;
@@ -121,36 +114,11 @@ export function HeatmapAxesSection({
           </Select>
         </FormControl>
         {(config.heatSortBy === 'x-axis' || config.heatSortBy === 'y-axis') && (
-          <ToggleButtonGroup
+          <SortDirectionToggle
             value={config.heatSortDirection ?? 'asc'}
-            exclusive
             disabled={!heatAxesSet}
-            onChange={(_e, val) => {
-              if (val) {
-                controller.updateWidgetConfig(widgetId, {
-                  heatSortDirection: val as 'asc' | 'desc',
-                });
-              }
-            }}
-            size="small"
-            aria-label={localeText.chartSetupSortDirectionAriaLabel}
-            sx={{ alignSelf: 'flex-start' }}
-          >
-            <ToggleButton
-              value="asc"
-              aria-label={localeText.sortAscendingAriaLabel}
-              sx={{ textTransform: 'none' }}
-            >
-              {localeText.sortAscendingAriaLabel}
-            </ToggleButton>
-            <ToggleButton
-              value="desc"
-              aria-label={localeText.sortDescendingAriaLabel}
-              sx={{ textTransform: 'none' }}
-            >
-              {localeText.sortDescendingAriaLabel}
-            </ToggleButton>
-          </ToggleButtonGroup>
+            onChange={(val) => controller.updateWidgetConfig(widgetId, { heatSortDirection: val })}
+          />
         )}
       </Stack>
     </React.Fragment>

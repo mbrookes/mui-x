@@ -194,4 +194,71 @@ describe('KpiSetupPanel', () => {
       mockState.doc.widgets['widget-1'] = previousWidget;
     }
   });
+
+  // Finding 2.6: the aggregation-options derivation is shared between the render path
+  // and the field `onChange`. A string value field must offer only Count (and the
+  // select is locked), proving the shared derivation is used on render.
+  it('limits the aggregation options to a locked Count for a string value field (finding 2.6)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousFields = mockState.runtime.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [...previousFields, { id: 'status', label: 'Status', type: 'string' }],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { kpiValueField: 'status', kpiAggregation: 'count' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      const combo = screen.getByText('Count', { selector: '[role="combobox"]' });
+      expect(combo).toBeVisible();
+      expect(combo.getAttribute('aria-disabled')).toBe('true');
+      // A valid stored aggregation is left untouched (no write-back).
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousFields,
+      };
+    }
+  });
+
+  // Finding 3.6: when the stored aggregation is invalid for the value field's type,
+  // the panel repairs the doc (write-back) so the widget renderer — which reads the
+  // doc — no longer disagrees with the displayed fallback.
+  it('writes back a valid aggregation when the stored one is invalid for the field type (finding 3.6)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousFields = mockState.runtime.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [...previousFields, { id: 'status', label: 'Status', type: 'string' }],
+      };
+      // 'sum' is invalid for a string field (only Count applies).
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { kpiValueField: 'status', kpiAggregation: 'sum' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        kpiAggregation: 'count',
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousFields,
+      };
+    }
+  });
 });

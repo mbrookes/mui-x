@@ -544,6 +544,98 @@ describe('ChartSetupPanel', () => {
     });
   });
 
+  // Finding 2.4: removing the last field-bearing series must re-apply the BL-186
+  // fieldless-count lock, exactly like `handleSeriesFieldChange` — both now route
+  // through the shared `commitYSeries` helper.
+  it('re-locks aggregation to count when removing the last field-bearing series (finding 2.4)', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'revenue', label: 'Revenue', type: 'number' },
+        ],
+      };
+      // One field-bearing series plus a still-empty one (post "add series"). Removing
+      // the filled series leaves a fieldless chart whose only valid aggregation is count.
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          xField: 'id',
+          ySeries: [{ fieldId: 'total' }, { fieldId: '' }],
+          yField: 'total',
+          yAggregation: 'sum',
+        },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // Remove the first (field-bearing) series → the remaining series is fieldless.
+      const removeButtons = screen.getAllByRole('button', { name: 'Remove series' });
+      await user.click(removeButtons[0]);
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        ySeries: [{ fieldId: '' }],
+        yField: '',
+        yAggregation: 'count',
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
+  // Finding 2.6: the heatmap axes section uses the same extracted SortDirectionToggle
+  // as the chart panel, so the "Sort direction" group must render for a heatmap sorted
+  // by an axis too.
+  it('shows the shared sort direction toggle for a heatmap sorted by an axis (finding 2.6)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'col', label: 'Column', type: 'string' },
+          { id: 'rowAxis', label: 'Row Axis', type: 'string' },
+          { id: 'val', label: 'Value', type: 'number' },
+        ],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'heatmap',
+          xField: 'col',
+          heatYField: 'rowAxis',
+          yField: 'val',
+          ySeries: [{ fieldId: 'val' }],
+          heatSortBy: 'x-axis',
+        },
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByRole('group', { name: 'Sort direction' })).toBeVisible();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
   // Schema review finding 1.1's UI half: funnel has no sort DIRECTION concept
   // (`StudioFunnelChartConfig` declares `chartSortBy` only — buildFunnelStages
   // never reads `chartSortDirection`), so the direction toggle must be hidden

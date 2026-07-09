@@ -1149,6 +1149,29 @@ describe('applyMutation', () => {
       // for a non-widget id, so ghost's span is never rewritten to the rebalanced value.
       expect(next.pages['page-1'].widgetColSpans).toEqual({ ghost: 15, w1: 12 });
     });
+
+    it('no-ops a span write when the widget lives on ANOTHER page than the target (no orphan span) (review 2.3)', () => {
+      // w1 exists and is placed on page-2's rows, but the mutation targets page-1 (an
+      // explicit pageId racing a concurrent move, or a legacy payload applied while the
+      // user is on another page). currentRow is undefined on page-1, so the OLD code
+      // used the wire-supplied rowWidgetIds fallback and wrote w1's span into page-1's
+      // map — a dead entry that serializes. It must instead be a no-op.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w1']] },
+        },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1'], pageId: 'page-1' },
+      });
+      expect(next).toBe(state);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+      expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+    });
   });
 
   describe('addPage', () => {
@@ -1340,6 +1363,58 @@ describe('applyMutation', () => {
         args: { rows: [['w1', 'ghost'], ['ghost']] },
       });
       expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+    });
+
+    it('deduplicates a widget id repeated within a single row (first occurrence wins) (review 2.1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] } },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1', 'w1', 'w2']] },
+      });
+      // The repeated `w1` is collapsed to a single occurrence — the page must never
+      // render the same widget twice (a duplicate React key in StudioCanvas).
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+    });
+
+    it('deduplicates a widget id repeated across rows (first occurrence wins) (review 2.1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] } },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1'], ['w2', 'w1']] },
+      });
+      // The second `w1` is dropped; the row it would have shared keeps only `w2`.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+    });
+
+    it('a within-row duplicate no longer double-counts a span into a false overflow (review 2.1)', () => {
+      // Without de-duplication, `[['w1','w1']]` with `w1: 13` sums to 26 > GRID_COLS in
+      // enforceLayoutColSpans's overflow check and DELETES a valid span. Deduping to
+      // `[['w1']]` first leaves w1 a lone occupant, so its intentional span survives.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1']],
+            widgetColSpans: { w1: 13 },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1', 'w1']] },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 13 });
     });
 
     it('an identical layout returns the SAME state reference (no undo step) (2.1)', () => {
@@ -1998,6 +2073,28 @@ describe('applyMutation', () => {
         .ySeries[0];
       expect(series.type).toBe('line');
       expect('seriesType' in series).toBe(false);
+    });
+
+    it('deduplicates a widget id repeated in widgetRows (first occurrence wins) (review 2.1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          // `w1` appears twice (once per row) — the duplicate must be dropped so the
+          // page never renders the same widget twice.
+          widgetRows: [['w1', 'w2'], ['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
     });
   });
 

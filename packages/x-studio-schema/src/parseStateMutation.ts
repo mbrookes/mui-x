@@ -243,11 +243,17 @@ function validateFilterScope(scope: unknown, path: string): string | null {
 }
 
 /**
- * Shallow validation of a `StudioFilterState` embedded in `addFilter`. `id` must be
- * a safe id and `scope` must be a valid scope; the filter's `value` (and other
- * condition/rank leaf payload) is left unchecked — the reducer appends the filter
- * verbatim and only keys off its `id`, so `value` is a leaf the validator does not
- * need to interpret.
+ * Shallow validation of a `StudioFilterState` embedded in `addFilter`. `id` must be a
+ * safe id, `field`/`operator` must be strings, and `scope` must be a valid scope; the
+ * filter's `value` (and other condition/rank leaf payload) is left unchecked — the
+ * reducer appends the filter verbatim and only keys off its `id`, so `value` is a leaf
+ * the validator does not need to interpret.
+ *
+ * `field`/`operator` ARE read downstream (`mutationLabel` interpolates `filter.field`,
+ * and the client pipeline / data middleware branch on both), so a junk value like
+ * `field: 42` or `operator: {}` would install an active-but-unevaluable filter that
+ * silently renders every widget in scope empty. Mirrors the `titleMode: 42`-class gaps
+ * closed elsewhere in this file — check what other code keys/iterates on.
  */
 function validateFilter(filter: unknown, path: string): string | null {
   if (!isRecord(filter)) {
@@ -255,6 +261,12 @@ function validateFilter(filter: unknown, path: string): string | null {
   }
   if (!isSafeId(filter.id)) {
     return `${path}.id must be a string id and not '__proto__'/'constructor'/'prototype'`;
+  }
+  if (!isString(filter.field)) {
+    return `${path}.field must be a string`;
+  }
+  if (!isString(filter.operator)) {
+    return `${path}.operator must be a string`;
   }
   return validateFilterScope(filter.scope, `${path}.scope`);
 }

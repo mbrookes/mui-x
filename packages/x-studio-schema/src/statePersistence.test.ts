@@ -116,6 +116,22 @@ describe('migrateState', () => {
     expect(result.state).not.toBe(input); // migrated result is a fresh (deep) copy
   });
 
+  // ── non-cloneable input on the migration path (review 3.1) ───────────────────
+  it('returns a failed result (not an uncaught throw) for non-cloneable input on the migration path (review 3.1)', () => {
+    // A live object carrying a function (e.g. a state with an attached
+    // `dataSources.adapter`) is not `structuredClone`-able. On the migration path this
+    // used to throw an uncaught DataCloneError; every other `migrateState` failure mode
+    // returns a failed `MigrationResult`, so this must too.
+    const input = completeSerialized({ adapter: () => 'not cloneable' }); // no schemaVersion → migration path
+    let result!: ReturnType<typeof migrateState>;
+    expect(() => {
+      result = migrateState(input);
+    }).not.toThrow();
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/clone/i);
+  });
+
   // ── missing-migration completeness pin (1.4) ─────────────────────────────────
   it('every version step 0 … CURRENT_SCHEMA_VERSION-1 has a registered migration', () => {
     const registered = new Set(REGISTERED_MIGRATION_VERSIONS);
@@ -430,6 +446,72 @@ describe('deserializeState', () => {
     }).not.toThrow();
     // Left untouched — deep config validation is out of scope for this package.
     expect((state.doc.widgets.g1.config as unknown as { columns: unknown }).columns).toBe('junk');
+  });
+
+  // ── defensive load-time layout normalization (review 3.2) ────────────────────
+  // The reducer maintains layout invariants on every LIVE write, but a corrupted or
+  // hand-edited persisted doc can violate them. `deserializeState` now runs a cheap
+  // normalization sweep (NOT a schema migration — the doc shape is unchanged).
+  const chart = (id: string) => ({ id, kind: 'chart', title: 'C', config: { chartType: 'bar' } });
+
+  it('drops a persisted widgetRows id that has no matching widget (review 3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'ghost'], ['ghost']] },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // The phantom `ghost` id is filtered out and the row it emptied is dropped.
+    expect(state.doc.pages['page-1'].widgetRows).toEqual([['w1']]);
+  });
+
+  it('deduplicates a persisted widgetRows id repeated across a row (review 3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1'), w2: chart('w2') },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'w1', 'w2']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+  });
+
+  it('clamps out-of-range persisted spans and drops orphan spans (review 3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1'), w2: chart('w2') },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1'], ['w2']],
+          // w1: 40 clamps down to GRID_COLS (24); w2: 2 clamps up to MIN_SPAN (6);
+          // `ghost` is on no row, so its orphan span is dropped.
+          widgetColSpans: { w1: 40, w2: 2, ghost: 10 },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].widgetColSpans).toEqual({ w1: 24, w2: 6 });
+  });
+
+  it('leaves a well-formed persisted pages map reference-stable (no churn) (review 3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1']],
+          widgetColSpans: { w1: 12 },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // Nothing needed fixing, so the same page object is carried through untouched.
+    expect(state.doc.pages['page-1']).toBe(serialized.pages['page-1']);
   });
 });
 

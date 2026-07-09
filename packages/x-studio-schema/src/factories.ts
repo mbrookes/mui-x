@@ -17,73 +17,48 @@ import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './sta
 import type { StateMutation, MutationEnvelope } from './aiTypes';
 
 /**
- * Mints a collision-resistant widget ID.
+ * Builds a collision-resistant id factory for the given `prefix`.
  *
- * The previous `widget-${kind}-${Date.now()}` scheme was millisecond-resolution,
- * so two widgets created within the same millisecond received identical IDs — and
- * a collision silently overwrites a widget via `{ ...state.widgets, [id]: widget }`.
- * Both consumers (the client UI and the AI middleware) mint IDs through this one
- * generator, so the anti-collision suffix lives in a single place.
+ * A naive `${prefix}-${Date.now()}` scheme is millisecond-resolution, so two ids
+ * minted within the same millisecond collide — and every id below becomes a `Record`
+ * map key (`state.widgets`, `state.pages`, …) where a collision silently overwrites an
+ * entry (or, for a filter, makes a genuinely-new filter be dropped as an idempotent
+ * "re-delivery"). Each returned factory therefore combines the timestamp with a
+ * per-factory monotonic counter (deterministically unique within one process — no
+ * birthday-paradox risk from a short random string alone under a tight creation loop)
+ * plus a random suffix (so ids minted by separate processes, e.g. client + server,
+ * still don't collide).
  *
- * Combines the timestamp with a per-process monotonic counter (deterministically
- * unique within one process — no birthday-paradox risk from a short random string
- * alone under a tight creation loop) plus a random component (so ids minted by
- * separate processes, e.g. client + server, still don't collide).
+ * The five domain id factories share this single implementation, so a tweak to the id
+ * scheme is made once here instead of five hand-copies.
  */
-let widgetIdSequence = 0;
-export function createWidgetId(): string {
-  widgetIdSequence += 1;
-  return `widget-${Date.now()}-${widgetIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+function makeIdFactory(prefix: string): () => string {
+  let sequence = 0;
+  return () => {
+    sequence += 1;
+    return `${prefix}-${Date.now()}-${sequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  };
 }
 
-/**
- * Mints a collision-resistant mutation-envelope ID. Same scheme as
- * {@link createWidgetId} (timestamp + per-process counter + random suffix) —
- * see that function's doc comment for the collision-avoidance rationale.
- */
-let mutationIdSequence = 0;
-export function createMutationId(): string {
-  mutationIdSequence += 1;
-  return `mut-${Date.now()}-${mutationIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
+/** Mints a collision-resistant widget ID (see {@link makeIdFactory}). A widget id
+ *  becomes a `state.widgets` map key, so a collision would silently overwrite a widget
+ *  via `{ ...state.widgets, [id]: widget }`. */
+export const createWidgetId = makeIdFactory('widget');
 
-/**
- * Mints a collision-resistant page ID. Same scheme as {@link createWidgetId}
- * (timestamp + per-process counter + random suffix) — see that function's doc
- * comment for the collision-avoidance rationale. A page id becomes a `state.pages`
- * map key, so millisecond-resolution collisions (two pages added in the same
- * millisecond) would silently overwrite a page; the counter + random suffix rule
- * that out.
- */
-let pageIdSequence = 0;
-export function createPageId(): string {
-  pageIdSequence += 1;
-  return `page-${Date.now()}-${pageIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
+/** Mints a collision-resistant mutation-envelope ID (see {@link makeIdFactory}). */
+export const createMutationId = makeIdFactory('mut');
 
-/**
- * Mints a collision-resistant filter-preset ID. Same scheme as
- * {@link createWidgetId} (timestamp + per-process counter + random suffix) — see
- * that function's doc comment for the collision-avoidance rationale.
- */
-let presetIdSequence = 0;
-export function createPresetId(): string {
-  presetIdSequence += 1;
-  return `preset-${Date.now()}-${presetIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
+/** Mints a collision-resistant page ID (see {@link makeIdFactory}). A page id becomes a
+ *  `state.pages` map key, so a collision would silently overwrite a page. */
+export const createPageId = makeIdFactory('page');
 
-/**
- * Mints a collision-resistant filter ID. Same scheme as {@link createWidgetId}
- * (timestamp + per-process counter + random suffix) — see that function's doc
- * comment for the collision-avoidance rationale. `addFilter` is idempotent on the
- * filter's `id`, so a millisecond-resolution collision would make a genuinely-new
- * filter be dropped as a "re-delivery"; the counter + random suffix rule that out.
- */
-let filterIdSequence = 0;
-export function createFilterId(): string {
-  filterIdSequence += 1;
-  return `filter-${Date.now()}-${filterIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
+/** Mints a collision-resistant filter-preset ID (see {@link makeIdFactory}). */
+export const createPresetId = makeIdFactory('preset');
+
+/** Mints a collision-resistant filter ID (see {@link makeIdFactory}). `addFilter` is
+ *  idempotent on the filter's `id`, so a collision would make a genuinely-new filter be
+ *  dropped as a "re-delivery". */
+export const createFilterId = makeIdFactory('filter');
 
 /**
  * Wraps a `StateMutation` in its wire-transport {@link MutationEnvelope}: a

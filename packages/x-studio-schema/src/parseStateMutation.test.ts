@@ -444,6 +444,42 @@ describe('parseStateMutation — malformed per-variant args', () => {
         },
       },
     },
+    // Architecture review 2.2: `addFilter` previously validated only `id` + `scope`, so
+    // a non-string `field`/`operator` installed an active-but-unevaluable filter that
+    // silently rendered every widget in scope empty. Both are read downstream, so both
+    // must be string-checked at the wire boundary.
+    {
+      label: 'addFilter filter.field is a non-string (number)',
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: { id: 'f', field: 42, operator: 'equals', value: 1, scope: { kind: 'page' } },
+        },
+      },
+    },
+    {
+      label: 'addFilter filter.field is missing',
+      value: {
+        type: 'addFilter',
+        args: { filter: { id: 'f', operator: 'equals', value: 1, scope: { kind: 'page' } } },
+      },
+    },
+    {
+      label: 'addFilter filter.operator is a non-string (object)',
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: { id: 'f', field: 'x', operator: {}, value: 1, scope: { kind: 'page' } },
+        },
+      },
+    },
+    {
+      label: 'addFilter filter.operator is missing',
+      value: {
+        type: 'addFilter',
+        args: { filter: { id: 'f', field: 'x', value: 1, scope: { kind: 'page' } } },
+      },
+    },
   ];
 
   it.each(cases)('rejects $label', ({ value }) => {

@@ -92,42 +92,17 @@ function rowsEqual(a: string[][], b: string[][]): boolean {
 }
 
 /**
- * Value-equality for two `widgetColSpans` records (either may be `undefined`).
- * `enforceLayoutColSpans` and the `setWidgetColSpan` rebuild both mint a fresh object
- * even when the contents are unchanged, so the layout handlers compare by value (not
- * reference) to detect a no-op and preserve the same-doc contract.
- */
-function spansEqual(
-  a: Record<string, number> | undefined,
-  b: Record<string, number> | undefined,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (!a || !b) {
-    return false;
-  }
-  const keysA = Object.keys(a);
-  if (keysA.length !== Object.keys(b).length) {
-    return false;
-  }
-  for (const key of keysA) {
-    if (!Object.hasOwn(b, key) || a[key] !== b[key]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Shallow value-equality for two config-like records. Used by the widget-merge
- * handlers (`updateWidget`'s `changes.config` wholesale replacement and
- * `applyBulkUpdate`'s `updatedWidgets` config merge) to honor the reference-equality
- * no-op contract: a merge/replacement that is key-for-key identical to the current
- * config must NOT rewrap the widget (which would push a spurious undo entry).
- * Object-valued keys are compared by reference — matching the `config`-patch branch's
- * own `nextConfig[key] !== value` check — so re-supplying a value-equal but
- * reference-different nested value (e.g. a fresh `ySeries` array) is still a change.
+ * Shallow key-by-key `===` value-equality for two records: same key count, and every
+ * key of `a` present in `b` with a `===` value. Object-valued keys are compared by
+ * reference — matching the `config`-patch branch's own `nextConfig[key] !== value`
+ * check — so re-supplying a value-equal but reference-different nested value (e.g. a
+ * fresh `ySeries` array) still counts as a change.
+ *
+ * Used directly by the widget-merge handlers (`updateWidget`'s `changes.config`
+ * wholesale replacement and `applyBulkUpdate`'s `updatedWidgets` config merge) to
+ * honor the reference-equality no-op contract, and it is the single shared core of the
+ * `undefined`-tolerant {@link spansEqual} wrapper — one implementation so the two can
+ * never drift (e.g. one gaining a tolerance the other lacks).
  */
 function shallowRecordEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   if (a === b) {
@@ -143,6 +118,54 @@ function shallowRecordEqual(a: Record<string, unknown>, b: Record<string, unknow
     }
   }
   return true;
+}
+
+/**
+ * Value-equality for two `widgetColSpans` records (either may be `undefined`).
+ * `enforceLayoutColSpans` and the `setWidgetColSpan` rebuild both mint a fresh object
+ * even when the contents are unchanged, so the layout handlers compare by value (not
+ * reference) to detect a no-op and preserve the same-doc contract. The
+ * `undefined`-tolerant wrapper over the shared {@link shallowRecordEqual} core.
+ */
+function spansEqual(
+  a: Record<string, number> | undefined,
+  b: Record<string, number> | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return shallowRecordEqual(a, b);
+}
+
+/**
+ * Drop duplicate widget ids from a layout matrix — first occurrence wins, across the
+ * WHOLE matrix (a duplicate within a single row OR spread across rows). A widget id
+ * appearing twice renders the same widget twice (a duplicate React key in
+ * `StudioCanvas`) and double-counts its span in `enforceLayoutColSpans`'s overflow sum
+ * (e.g. `[['w1','w1']]` with `w1: 13` sums to 26 > 24 and would delete a valid span).
+ * Rows left empty after de-duplication are dropped. Callers pair this with the
+ * phantom-id filter in their existing sanitization pass, so the layout handlers reject
+ * both unknown ids and duplicates in one place.
+ */
+function dedupeLayoutRows(rows: string[][]): string[][] {
+  const seen = new Set<string>();
+  const result: string[][] = [];
+  for (const row of rows) {
+    const deduped: string[] = [];
+    for (const id of row) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        deduped.push(id);
+      }
+    }
+    if (deduped.length > 0) {
+      result.push(deduped);
+    }
+  }
+  return result;
 }
 
 /**
@@ -280,6 +303,61 @@ function enforceLayoutColSpans(
     }
   }
   return Object.keys(next).length > 0 ? next : undefined;
+}
+
+/**
+ * Load-time layout normalization sweep for a persisted `pages` map. Every LIVE mutation
+ * path maintains the layout invariants (rows reference real widgets, no duplicate ids,
+ * spans are in range and orphan-free), but a corrupted or hand-edited persisted doc can
+ * violate them: `deserializeState` previously installed `pages` verbatim, so phantom
+ * `widgetRows` ids (no `widgets` entry), duplicate ids, or out-of-range/orphan
+ * `widgetColSpans` loaded as-is and rendered blank cards / wrong widths until the next
+ * layout mutation happened to prune them. This is a cheap DEFENSIVE sweep applied at the
+ * load boundary — NOT a schema migration: the doc SHAPE is unchanged, so no version bump.
+ *
+ * Per page it filters rows against `widgets`, dedupes duplicate ids (first occurrence
+ * wins), clamps each span into the valid `MIN_SPAN`–`GRID_COLS` range, and drops spans
+ * for unsafe keys or widgets no longer present in the sanitized rows. Reference-stable:
+ * returns the SAME `pages` object (and the SAME page objects within it) when nothing
+ * needed fixing, so a well-formed persisted doc loads without churn.
+ */
+export function normalizePersistedPages(
+  pages: StudioDoc['pages'],
+  widgets: StudioDoc['widgets'],
+): StudioDoc['pages'] {
+  let pagesChanged = false;
+  const nextPages: StudioDoc['pages'] = {};
+  for (const [pid, page] of Object.entries(pages)) {
+    const currentRows = page.widgetRows ?? [];
+    const sanitizedRows = dedupeLayoutRows(
+      currentRows.map((row) => row.filter((id) => Object.hasOwn(widgets, id))),
+    );
+    const present = new Set<string>();
+    for (const row of sanitizedRows) {
+      for (const id of row) {
+        present.add(id);
+      }
+    }
+    let nextSpans: Record<string, number> | undefined = page.widgetColSpans;
+    if (page.widgetColSpans) {
+      const rebuilt: Record<string, number> = {};
+      for (const key of Object.keys(page.widgetColSpans)) {
+        // Drop prototype-polluting keys and spans orphaned by the row filter/dedupe
+        // above; clamp survivors into range (guards a hand-corrupted `3` or `40`).
+        if (isSafePatchKey(key) && present.has(key)) {
+          rebuilt[key] = clampSpan(page.widgetColSpans[key]);
+        }
+      }
+      nextSpans = Object.keys(rebuilt).length > 0 ? rebuilt : undefined;
+    }
+    if (!rowsEqual(currentRows, sanitizedRows) || !spansEqual(nextSpans, page.widgetColSpans)) {
+      nextPages[pid] = { ...page, widgetRows: sanitizedRows, widgetColSpans: nextSpans };
+      pagesChanged = true;
+    } else {
+      nextPages[pid] = page;
+    }
+  }
+  return pagesChanged ? nextPages : pages;
 }
 
 /**
@@ -726,9 +804,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // the page rendering a widget that does not exist. Mirrors the trust boundary the
       // rest of this file applies to producer-supplied ids.
       const currentRows = targetPage.widgetRows ?? [];
-      const sanitizedRows = args.rows
-        .map((row) => row.filter((id) => Object.hasOwn(state.widgets, id)))
-        .filter((row) => row.length > 0);
+      // Drop phantom-widget ids (absent from `state.widgets`) AND deduplicate ids that
+      // appear more than once — the same id twice (in one row or across rows) would
+      // render the widget twice (duplicate React key) and double-count its span in the
+      // overflow sum below. `dedupeLayoutRows` keeps the first occurrence and drops any
+      // row it empties.
+      const sanitizedRows = dedupeLayoutRows(
+        args.rows.map((row) => row.filter((id) => Object.hasOwn(state.widgets, id))),
+      );
       // Replacing a page's rows verbatim can leave the col-spans invalid: a row
       // collapsed to a sole occupant keeps its stale multi-widget span, and a row
       // merged from two widgets can sum past `GRID_COLS`. `enforceLayoutColSpans` (the
@@ -788,6 +871,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // (mirrors the producer's own `?? [widgetId]` fallback for a not-yet-placed
       // widget) — otherwise the derived current row wins.
       const currentRow = (targetPage.widgetRows ?? []).find((row) => row.includes(widgetId));
+      // Orphan-span guard: the widget exists in `state.widgets` but is not on THIS
+      // page's rows. If it instead lives on ANOTHER page's rows, writing its span here
+      // would persist a dead `widgetColSpans` entry on the wrong page — a legacy payload
+      // without `pageId` applied while the user is on another page, or an explicit
+      // server-stamped `pageId` racing a concurrent user move of the widget to another
+      // page mid-turn (the same stale-snapshot class the `currentRow` derivation names).
+      // No-op in that case. A widget on NO page at all is the documented not-yet-placed
+      // case and keeps the `args.rowWidgetIds` fallback below.
+      if (
+        currentRow === undefined &&
+        Object.values(state.pages).some((p) =>
+          (p.widgetRows ?? []).some((row) => row.includes(widgetId)),
+        )
+      ) {
+        return state;
+      }
       const rowWidgetIds = currentRow ?? args.rowWidgetIds;
       const clamped = columns == null ? null : clampSpan(columns);
       const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
@@ -1004,9 +1103,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           validRowIds.add(widget.id);
         }
       }
-      const sanitizedRows = widgetRows
-        .map((row) => row.filter((id) => validRowIds.has(id)))
-        .filter((row) => row.length > 0);
+      // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
+      // deduplicate ids that appear more than once — the same id twice would render the
+      // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
+      // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
+      const sanitizedRows = dedupeLayoutRows(
+        widgetRows.map((row) => row.filter((id) => validRowIds.has(id))),
+      );
 
       // Normalize the producer-supplied active-page spans through the SAME invariants
       // every other layout path enforces (previously they were stored verbatim, so a

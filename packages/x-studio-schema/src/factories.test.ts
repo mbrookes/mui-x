@@ -166,6 +166,30 @@ describe('createFilterId', () => {
   });
 });
 
+// Review 3.3: the five id factories are now built from a single `makeIdFactory(prefix)`
+// helper. Each must still carry its own independent counter, so interleaving calls
+// across factories can never collide (a shared counter would be a regression risk).
+describe('id factories share makeIdFactory but keep independent counters (review 3.3)', () => {
+  it('interleaved ids across all five factories are unique and keep their prefixes', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 200; i += 1) {
+      ids.push(
+        createWidgetId(),
+        createMutationId(),
+        createPageId(),
+        createPresetId(),
+        createFilterId(),
+      );
+    }
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.some((id) => id.startsWith('widget-'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('mut-'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('page-'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('preset-'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('filter-'))).toBe(true);
+  });
+});
+
 describe('createMutationEnvelope', () => {
   const mutation = { type: 'setDashboardTitle', args: { title: 'Q3 Revenue' } } as const;
 

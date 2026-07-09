@@ -1,4 +1,5 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
+import { normalizePersistedPages } from './applyMutation';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
@@ -243,8 +244,28 @@ export function migrateState(state: unknown): MigrationResult {
   // shallow spread would leak those edits back to the caller. `StudioController`'s
   // `restoreSession`/`loadSerializedState` both retain the object they pass in.
   // Persisted state is JSON, so `structuredClone` (Node ≥ 17, met by the toolchain) is
-  // safe and total.
-  let currentState = structuredClone(state) as Record<string, unknown>;
+  // safe and total for real persisted input. But `migrateState(state: unknown)` is a
+  // public API whose every OTHER failure mode returns a failed `MigrationResult`; a
+  // caller that mistakenly passes a live object carrying a non-cloneable value (e.g. a
+  // function on an attached `dataSources.adapter`) would otherwise get an uncaught
+  // `DataCloneError` on the migration path only. Catch it and fail closed in the same
+  // error style, so the function is total.
+  let currentState: Record<string, unknown>;
+  try {
+    currentState = structuredClone(state) as Record<string, unknown>;
+  } catch (error) {
+    return {
+      success: false,
+      state: null,
+      fromVersion,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors: [
+        `Failed to clone state for migration: ${
+          error instanceof Error ? error.message : String(error)
+        }. Persisted state must be JSON-serializable (no functions, class instances, or other non-cloneable values).`,
+      ],
+    };
+  }
   for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version += 1) {
     const migrateFn = migrations[version];
     if (!migrateFn) {
@@ -356,6 +377,43 @@ export function deserializeState(
 ): StudioState {
   const defaultState = createDefaultStudioState();
 
+  const normalizedWidgets = Object.fromEntries(
+    Object.entries(serialized.widgets).map(([id, widget]) => {
+      // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
+      // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
+      // `config` only when one is present; otherwise return the widget untouched
+      // (keeping reference stability for the common case). This runs across kinds
+      // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
+      // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
+      const config = widget.config as StudioWidgetConfig;
+      const columns = config?.columns;
+      const ySeries = config?.ySeries;
+      // `Array.isArray` (not truthiness) with a non-empty guard: an empty
+      // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
+      // `!columns && !ySeries` check rebuilt a fresh, identical config on every
+      // load — needless reference churn that defeated the "return the widget
+      // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
+      // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
+      // untouched instead (deep config validation is out of scope for this package).
+      const hasColumns = Array.isArray(columns) && columns.length > 0;
+      const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
+      if (!hasColumns && !hasYSeries) {
+        return [id, widget];
+      }
+      return [
+        id,
+        {
+          ...widget,
+          config: {
+            ...widget.config,
+            ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
+            ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
+          },
+        },
+      ];
+    }),
+  ) as StudioDoc['widgets'];
+
   return {
     doc: {
       // `deserializeState` only ever runs on migrated state (a guarantee `migrateState`
@@ -364,43 +422,15 @@ export function deserializeState(
       // — a version bump now forces this to follow via the type system.
       schemaVersion: CURRENT_SCHEMA_VERSION,
       dashboard: serialized.dashboard,
-      pages: serialized.pages,
-      widgets: Object.fromEntries(
-        Object.entries(serialized.widgets).map(([id, widget]) => {
-          // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
-          // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
-          // `config` only when one is present; otherwise return the widget untouched
-          // (keeping reference stability for the common case). This runs across kinds
-          // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
-          // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
-          const config = widget.config as StudioWidgetConfig;
-          const columns = config?.columns;
-          const ySeries = config?.ySeries;
-          // `Array.isArray` (not truthiness) with a non-empty guard: an empty
-          // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
-          // `!columns && !ySeries` check rebuilt a fresh, identical config on every
-          // load — needless reference churn that defeated the "return the widget
-          // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
-          // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
-          // untouched instead (deep config validation is out of scope for this package).
-          const hasColumns = Array.isArray(columns) && columns.length > 0;
-          const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
-          if (!hasColumns && !hasYSeries) {
-            return [id, widget];
-          }
-          return [
-            id,
-            {
-              ...widget,
-              config: {
-                ...widget.config,
-                ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
-                ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
-              },
-            },
-          ];
-        }),
-      ),
+      // Defensive load-time layout normalization: the reducer maintains layout
+      // invariants on every LIVE write, but a corrupted or hand-edited persisted doc can
+      // carry phantom `widgetRows` ids, duplicate ids, or out-of-range/orphan
+      // `widgetColSpans` that would render blank cards / wrong widths until the next
+      // layout mutation happened to prune them. This sweep filters rows against the
+      // actual widgets, dedupes ids, clamps spans, and drops orphans — NOT a schema
+      // migration (the doc shape is unchanged). Reference-stable for a well-formed doc.
+      pages: normalizePersistedPages(serialized.pages, normalizedWidgets),
+      widgets: normalizedWidgets,
       filters: serialized.filters,
       relationships: serialized.relationships ?? [],
       expressionFields: serialized.expressionFields ?? [],

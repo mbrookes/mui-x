@@ -9,7 +9,7 @@ import {
   selectWidgets,
   selectDataSources,
 } from '../../../context';
-import { useStudioUIConfig } from '../../../internals/StudioUIConfigContext';
+import { useStudioUIConfig, useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildWidgetDataSummary } from '../../StudioChatPanel/generateInsight';
 import { parseSSEStream, serializeDashboardState } from '../../StudioChatPanel/sseUtils';
 
@@ -156,7 +156,16 @@ export interface TextWidgetAIResult {
 
 export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIResult {
   const { aiConfig } = useStudioUIConfig();
+  const localeText = useStudioLocaleText();
   const controller = useStudioController();
+  // Private mode: this headless widget must genuinely NOT send real row values or
+  // dashboard structure to the LLM provider — mirroring `studioBackendAdapter.ts`'s
+  // schema-only stance (which gates `pageSnapshot`/`dashboardState`/`richContext`
+  // behind the same flag) rather than relying on the server honouring `privateMode`.
+  // When on, `buildPageSnapshot` (sampled sibling-widget row values) is never built
+  // and the full serialized `dashboardState` is never sent; only the prompt goes out,
+  // with `privateMode` forwarded so the server can additionally refuse to comply.
+  const privateMode = aiConfig?.privateMode === true;
   const activePage = useStudioSelector(selectActivePage);
   const dashboard = useStudioSelector(selectDashboard);
   // `buildPageSnapshot` (via `buildWidgetDataSummary`) reads sibling widget configs
@@ -170,7 +179,9 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
 
   const { snapshot, hash, cacheKey } = React.useMemo(() => {
     const state = controller.getState();
-    const snap = buildPageSnapshot(widgetId, state);
+    // In private mode the page snapshot (sampled sibling row values) is never built,
+    // so it also never contributes to the cache key.
+    const snap = privateMode ? '' : buildPageSnapshot(widgetId, state);
     const h = djb2Hash(`${prompt}\n${snap}`);
     const key = `${CACHE_PREFIX}:${dashboard.id}:${dashboard.activePageId}:${widgetId}:${h}`;
     return { snapshot: snap, hash: h, cacheKey: key };
@@ -178,7 +189,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     // `buildPageSnapshot` reads changes identity — the memo body itself re-derives
     // everything from `controller.getState()` rather than from these values directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- widgets/dataSources are used as reactive triggers only, see comment above
-  }, [activePage, dashboard, widgetId, controller, prompt, widgets, dataSources]);
+  }, [activePage, dashboard, widgetId, controller, prompt, widgets, dataSources, privateMode]);
 
   const [markdown, setMarkdown] = React.useState<string | null>(() => readCache(cacheKey));
   const [loading, setLoading] = React.useState(false);
@@ -213,7 +224,9 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     (async () => {
       try {
         const state = controller.getState();
-        const serializableState = serializeDashboardState(state);
+        // Gated behind `!privateMode` so no widget configs, field names, layout, or
+        // serialized dashboard structure leave the client in private mode.
+        const serializableState = privateMode ? undefined : serializeDashboardState(state);
 
         const response = await fetch(chatUrl, {
           method: 'POST',
@@ -223,6 +236,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
             messages: [{ id: 'prompt', role: 'user', parts: [{ type: 'text', text: prompt }] }],
             dashboardState: serializableState,
             pageSnapshot: snapshot || undefined,
+            privateMode,
             // Restrict to read-only tools so no dashboard state mutations occur
             allowedTools: [...READ_ONLY_TOOL_NAMES],
           }),
@@ -274,12 +288,22 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
           return;
         }
         setLoading(false);
-        setError(err instanceof Error ? err.message : 'Failed to generate content');
+        setError(err instanceof Error ? err.message : localeText.aiTextWidgetGenerationError);
       }
     })();
 
     return () => abort.abort();
-  }, [cacheKey, hash, refreshSeq, aiConfig, snapshot, prompt, controller]);
+  }, [
+    cacheKey,
+    hash,
+    refreshSeq,
+    aiConfig,
+    snapshot,
+    prompt,
+    controller,
+    privateMode,
+    localeText.aiTextWidgetGenerationError,
+  ]);
 
   return { markdown, loading, error, refresh };
 }

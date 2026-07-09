@@ -142,6 +142,10 @@ export interface StudioLocaleText {
   aiCreateWidgetButton: string;
   aiCreateWidgetLoading: string;
   aiCreateWidgetError: string;
+  aiCreateWidgetNetworkError: string;
+  aiCreateWidgetRequestFailed: (status: number, detail: string) => string;
+  aiCreateWidgetInvalidResponse: string;
+  aiTextWidgetGenerationError: string;
 
   // ── Widget type names (used in picker, dialog titles, empty states) ────────
   widgetKindGrid: string;
@@ -1323,6 +1327,11 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiCreateWidgetButton: 'Create',
   aiCreateWidgetLoading: 'Creating\u2026',
   aiCreateWidgetError: 'Failed to create widget',
+  aiCreateWidgetNetworkError: 'Network error. Check your connection and try again.',
+  aiCreateWidgetRequestFailed: (status: number, detail: string) =>
+    `AI request failed (${status})${detail ? `: ${detail}` : ''}.`,
+  aiCreateWidgetInvalidResponse: 'Invalid response from AI.',
+  aiTextWidgetGenerationError: 'Failed to generate content',
 
   // Widget type names
   widgetKindGrid: 'Table',

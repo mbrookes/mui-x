@@ -105,6 +105,12 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiCreateWidgetButton: 'Erstellen',
   aiCreateWidgetLoading: 'Erstellen…',
   aiCreateWidgetError: 'Widget konnte nicht erstellt werden',
+  aiCreateWidgetNetworkError:
+    'Netzwerkfehler. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.',
+  aiCreateWidgetRequestFailed: (status, detail) =>
+    `KI-Anfrage fehlgeschlagen (${status})${detail ? `: ${detail}` : ''}.`,
+  aiCreateWidgetInvalidResponse: 'Ungültige Antwort der KI.',
+  aiTextWidgetGenerationError: 'Inhalt konnte nicht generiert werden',
 
   // Widget type names
   widgetKindGrid: 'Tabelle',

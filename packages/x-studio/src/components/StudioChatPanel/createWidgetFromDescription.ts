@@ -6,6 +6,8 @@ import {
 import type { StudioController } from '../../store/StudioController';
 import type { StudioChartType, StudioWidget, StudioWidgetKind } from '../../models';
 import { createDefaultWidget } from '../../internals/widgetUtils';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioAIConfig } from './studioBackendAdapter';
 
 export interface CreateWidgetResult {
@@ -69,13 +71,28 @@ function sanitizeServerWidgetConfig(
  * Asks the backend to create a widget from a natural-language description.
  * POSTs to `aiConfig.endpoint` + `/widget` with the description and data-source context.
  * The server returns a `StudioWidget`-shaped object which is applied via the controller.
+ *
+ * `localeText` is optional so existing callers/tests that don't pass it fall back to
+ * the English defaults; the only in-app caller (`DescribeWidgetSection`) forwards the
+ * active `useStudioLocaleText()` bundle so the surfaced error strings are localized.
  */
 export async function createWidgetFromDescription(
   description: string,
   config: StudioAIConfig,
   controller: StudioController,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): Promise<CreateWidgetResult> {
   const state = controller.getState();
+  // Private mode: the client must genuinely NOT send real row values, author-written
+  // descriptions, or any other data-derived signal to the LLM provider — mirroring
+  // `studioBackendAdapter.ts`'s schema-only stance (which gates `pageSnapshot`/
+  // `dashboardState`/`richContext` behind the same flag) rather than relying on the
+  // server honouring `privateMode`. In private mode we still send the field *schema*
+  // (ids/labels/types/formats) so the server can construct a valid widget, but never
+  // the `cardinality` string (built from actual distinct row values via
+  // `fieldDistinctValues`) or the `aiDescription` metadata. `privateMode` is also
+  // forwarded in the body so the server can additionally refuse to comply.
+  const privateMode = config.privateMode === true;
   const sources = Object.values(state.runtime.dataSources).flatMap((s) => {
     if (s.hidden) {
       return [];
@@ -84,18 +101,20 @@ export async function createWidgetFromDescription(
       {
         id: s.id,
         label: s.label,
-        aiDescription: s.aiDescription,
+        ...(privateMode ? {} : { aiDescription: s.aiDescription }),
         fields: s.fields.flatMap((f) => {
           if (f.hidden) {
             return [];
           }
-          const vals = s.fieldDistinctValues?.[f.id];
           let cardinality: string | undefined;
-          if (vals) {
-            if (vals.length <= 8) {
-              cardinality = `${vals.length}: ${vals.join('|')}`;
-            } else if (vals.length <= 30) {
-              cardinality = `${vals.length} values`;
+          if (!privateMode) {
+            const vals = s.fieldDistinctValues?.[f.id];
+            if (vals) {
+              if (vals.length <= 8) {
+                cardinality = `${vals.length}: ${vals.join('|')}`;
+              } else if (vals.length <= 30) {
+                cardinality = `${vals.length} values`;
+              }
             }
           }
           return [
@@ -104,7 +123,7 @@ export async function createWidgetFromDescription(
               type: f.type,
               label: f.label,
               ...(f.format ? { format: f.format } : {}),
-              ...(f.aiDescription ? { aiDescription: f.aiDescription } : {}),
+              ...(!privateMode && f.aiDescription ? { aiDescription: f.aiDescription } : {}),
               ...(f.defaultAggregationFn ? { defaultAggregationFn: f.defaultAggregationFn } : {}),
               ...(cardinality ? { cardinality } : {}),
             },
@@ -124,17 +143,20 @@ export async function createWidgetFromDescription(
         'Content-Type': 'application/json',
         ...(config.headers ?? {}),
       },
-      body: JSON.stringify({ description, sources }),
+      body: JSON.stringify({ description, sources, privateMode }),
     });
   } catch {
-    return { success: false, error: 'Network error. Check your connection and try again.' };
+    return { success: false, error: localeText.aiCreateWidgetNetworkError };
   }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
     return {
       success: false,
-      error: `AI request failed (${response.status})${errorText ? `: ${errorText.slice(0, 120)}` : ''}.`,
+      error: localeText.aiCreateWidgetRequestFailed(
+        response.status,
+        errorText ? errorText.slice(0, 120) : '',
+      ),
     };
   }
 
@@ -142,7 +164,7 @@ export async function createWidgetFromDescription(
   try {
     data = (await response.json()) as Record<string, unknown>;
   } catch {
-    return { success: false, error: 'Invalid response from AI.' };
+    return { success: false, error: localeText.aiCreateWidgetInvalidResponse };
   }
 
   const kind = String(data.kind ?? 'chart') as StudioWidgetKind;

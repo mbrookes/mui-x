@@ -206,6 +206,42 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     setPendingAutoSubmit({ text: pendingMessage.text, seq: pendingMessage.id });
   }, [pendingMessage]);
 
+  // ── Initial prompt auto-submit ──────────────────────────────────────────────
+  // `initialPrompt` is documented to auto-submit on mount for a brand-new (empty)
+  // thread — e.g. a right-click "Explain this widget" entry point. ChatBox's own
+  // `autoSubmitInitialValue` is declared in its PropTypes but not implemented, so
+  // route the prompt through the same `AutoSubmitTrigger` the `pendingMessage` path
+  // uses. Fires at most once, and only while the conversation has no messages yet.
+  const initialPromptSubmittedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (initialPromptSubmittedRef.current) {
+      return;
+    }
+    const text = initialPrompt?.trim();
+    if (text && threadMessages.length === 0) {
+      initialPromptSubmittedRef.current = true;
+      // A distinct seq space from `pendingMessage.id` (small monotonic ints) so the
+      // two auto-submit paths can't accidentally dedupe against each other inside
+      // `AutoSubmitTrigger`.
+      setPendingAutoSubmit({ text, seq: Date.now() });
+    }
+  }, [initialPrompt, threadMessages.length]);
+
+  // ── Abort an in-flight stream when the overlay panel is dismissed ────────────
+  // In overlay mode `Grow`'s `unmountOnExit` tears down `<ChatBox>` the moment `open`
+  // flips to false; a response still streaming then has its remaining tokens dropped
+  // with no error shown — the same silent-truncation class of bug the thread-switch
+  // path already fixes by calling `stopStreaming` first (see useChatThreads). Stop the
+  // stream on close so the partial response is cleanly terminated and preserved.
+  const { isStreamingRef, stopStreamRef } = streamThreadPinProps;
+  const wasOpenRef = React.useRef(open);
+  React.useEffect(() => {
+    if (overlay && wasOpenRef.current && !open && isStreamingRef.current) {
+      stopStreamRef.current?.();
+    }
+    wasOpenRef.current = open;
+  }, [open, overlay, isStreamingRef, stopStreamRef]);
+
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
     () => generateSuggestions(dataSources, widgets, activeWidgetIds, localeText),
@@ -383,14 +419,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             onError={slotProps?.chatBox?.onError}
             composerValue={composerValue}
             onComposerValueChange={handleComposerValueChange}
-            // initialPrompt: pre-fill when there are no existing messages.
-            // autoSubmitInitialValue is declared in ChatBox PropTypes but not implemented —
-            // omit it to avoid the "unrecognized DOM prop" console warning.
-            initialComposerValue={
-              threadMessages.length === 0
-                ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
-                : slotProps?.chatBox?.initialComposerValue
-            }
+            // `initialPrompt` is auto-submitted (not merely pre-filled) via the
+            // `AutoSubmitTrigger` effect above — ChatBox's own `autoSubmitInitialValue`
+            // is declared in its PropTypes but not implemented. Only the consumer's
+            // `slotProps.chatBox.initialComposerValue` pre-fill is honoured here.
+            initialComposerValue={slotProps?.chatBox?.initialComposerValue}
             suggestions={threadMessages.length === 0 ? suggestions : undefined}
             suggestionsAutoSubmit
             currentUser={{ id: 'user', displayName: 'You', role: 'user' }}

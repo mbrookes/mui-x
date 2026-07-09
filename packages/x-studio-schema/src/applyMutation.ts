@@ -178,6 +178,14 @@ function dedupeLayoutRows(rows: string[][]): string[][] {
  * by design (only chart configs carry `ySeries`), reading the flat config shape.
  */
 function normalizeConfigChartSeries<C extends object>(config: C): C {
+  // Tolerate a non-record `config` (e.g. `null` from a server-built `addWidget`/
+  // `applyBulkUpdate.addedWidgets` that bypassed `parseStateMutation`): reading
+  // `.ySeries` off `null` would throw `Cannot read properties of null`. A non-record
+  // carries no `ySeries` to normalize, so return it unchanged — defense-in-depth
+  // matching the file's other "server bypasses the parser" guards.
+  if (config === null || typeof config !== 'object') {
+    return config;
+  }
   const ySeries = (config as { ySeries?: unknown }).ySeries;
   if (!Array.isArray(ySeries)) {
     return config;
@@ -497,6 +505,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addPage: {
     apply: (state, args) => {
       const { id, title } = args;
+      // Screen the id against the shared prototype-hazard denylist before the literal
+      // insert below (matching `applyBulkUpdate.addedWidgets` and the load boundary). The
+      // literal `{ ...pages, [id]: … }` uses define-semantics, so there is no prototype
+      // pollution — but an `id` of `'__proto__'` would create a real own entry that
+      // silently VANISHES on the next load (the load-boundary key screen drops it):
+      // transient data loss. Reject it up front, uniform with the sibling handler.
+      if (!isSafePatchKey(id)) {
+        return state;
+      }
       // Idempotent: re-delivery of an addPage event for an existing id must not
       // reset that page's `widgetRows: []` (which would orphan its widgets). Only
       // re-activate it. `Object.hasOwn` (not `id in`/truthy access) so an untrusted
@@ -536,6 +553,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addWidget: {
     apply: (state, args) => {
       const { widget } = args;
+      // Screen the widget id against the shared prototype-hazard denylist before the
+      // literal inserts below (matching `applyBulkUpdate.addedWidgets` and the load
+      // boundary). No prototype pollution risk (literal define-semantics), but a
+      // `'__proto__'` id would create a real own entry that silently vanishes on the next
+      // load (the load-boundary key screen drops it) — transient data loss. Reject it up
+      // front, uniform with the sibling handler.
+      if (!isSafePatchKey(widget.id)) {
+        return state;
+      }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads. Never relies on "whatever page happens to be active on
       // the applying side", which is the page-targeting divergence this fixes.
@@ -598,7 +624,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       //
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
-      if (config !== undefined) {
+      //
+      // Require a record: a non-record `config` (e.g. `config: null` from a server-built
+      // mutation that bypassed `parseStateMutation`) is treated as ABSENT rather than
+      // applied — `Object.entries(null)` would otherwise throw. This mirrors the sibling
+      // `changes.config: null` guard below (T3.3), finishing the defense-in-depth pair.
+      if (config !== null && typeof config === 'object') {
         // Normalize the deprecated `seriesType` alias on the incoming patch's
         // `ySeries` to canonical `type`, so the alias never survives a live write
         // (it is otherwise only normalized at the load boundary in

@@ -192,6 +192,49 @@ describe('migrateState', () => {
     expect(result.success).toBe(true);
   });
 
+  // ── fail-closed per-entry `filters` shape validation (Tier 1) ────────────────
+  // A `filters: [null]` (or scope-less / `scope: null`) entry used to pass migration
+  // (only `Array.isArray(filters)` was checked), load successfully, then throw an
+  // uncaught TypeError in `serializeDoc` (autosave AND undo-snapshot) and the reducer on
+  // the very next commit. It must now be rejected here with a NAMED field.
+  it('fails a doc with a null filters entry, naming the field (Tier 1)', () => {
+    const result = migrateState(
+      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, filters: [null] }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/filters\[0\]/);
+  });
+
+  it('fails a doc with a filters entry whose scope is null, naming the field (Tier 1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filters: [{ id: 'f1', field: 'x', operator: 'equals', value: '', scope: null }],
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
+  });
+
+  it('fails a doc with a primitive filters entry, naming the field (Tier 1)', () => {
+    const result = migrateState(
+      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, filters: ['junk'] }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filters\[0\]/);
+  });
+
+  it('a doc with a well-formed filters entry still succeeds (Tier 1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filters: [{ id: 'f1', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } }],
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
   // ── fail-closed on non-integer schemaVersion (finding 3 / review 2.1) ────────
   // `typeof NaN === 'number'` used to fail OPEN: `NaN === CURRENT` / `NaN > CURRENT`
   // are both false and the migration loop never runs, so a `schemaVersion: NaN` doc
@@ -707,6 +750,149 @@ describe('deserializeState', () => {
     expect(state.doc.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
     expect(state.doc.filters.some((f) => f.scope?.kind === 'interactive')).toBe(false);
     expect(state.doc.filters.some((f) => f.id === 'page-f')).toBe(true);
+  });
+
+  // ── total over corrupt `filters` entries, direct deserializeState call (Tier 1) ─
+  // `deserializeState` is a public API callable on a `SerializedStudioState` directly, so
+  // a hand-edited/foreign doc with a junk `filters` entry must not install it into live
+  // `doc.filters` (where it would then crash `serializeDoc` and the reducer on the next
+  // commit). The entry is defensively DROPPED here.
+  it('does not throw on a null filters entry, dropping it (Tier 1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        null,
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(state.doc.filters).toHaveLength(1);
+    expect(state.doc.filters[0].id).toBe('page-f');
+    // The surviving doc must round-trip through `serializeDoc` without throwing.
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('does not throw on a filters entry whose scope is null, dropping it (Tier 1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        { id: 'bad', field: 'x', operator: 'equals', value: '', scope: null },
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['page-f']);
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  // ── dangling activePageId reconciliation at the load boundary (Tier 2) ───────
+  // The factory and `removePage` both reconcile a dangling `activePageId`; the load
+  // boundary did not. A hand-edited `activePageId` naming no page must fall back to the
+  // first page id, mirroring the existing fallback pattern.
+  it('reconciles a dangling dashboard.activePageId to the first page id (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 'nope' },
+      pages: { p1: { id: 'p1', title: 'P1', widgetRows: [] } },
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.dashboard.activePageId).toBe('p1');
+  });
+
+  it('re-points activePageId when the load-boundary sweep drops its (corrupt) page (Tier 2)', () => {
+    // `normalizePersistedPages` legitimately drops a `null` page; nothing used to
+    // re-point `activePageId` afterward, leaving a blank canvas.
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 'gone' },
+      pages: { gone: null, good: { id: 'good', title: 'G', widgetRows: [] } },
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(Object.hasOwn(state.doc.pages, 'gone')).toBe(false);
+    expect(state.doc.dashboard.activePageId).toBe('good');
+  });
+
+  it('leaves a valid activePageId untouched (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 'p2' },
+      pages: {
+        p1: { id: 'p1', title: 'P1', widgetRows: [] },
+        p2: { id: 'p2', title: 'P2', widgetRows: [] },
+      },
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.dashboard.activePageId).toBe('p2');
+  });
+
+  it('falls back activePageId to "" when the pages map is empty (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 'nope' },
+      pages: {},
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.dashboard.activePageId).toBe('');
+  });
+
+  // ── junk doc.ai shape validation at the load boundary (Tier 2) ───────────────
+  // `renameAIThread` does `(state.ai.threads ?? []).map(…)` — the `??` guards nullish
+  // but NOT a truthy non-array. A junk `ai.threads` used to install verbatim and
+  // round-trip through `serializeDoc`. It must be dropped to `undefined` here.
+  it('drops a doc.ai whose threads is a non-array (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: { threads: 'junk', activeThreadId: 't1' },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.ai).toBeUndefined();
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('drops a doc.ai that is a primitive (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: 'junk',
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.ai).toBeUndefined();
+  });
+
+  it('keeps a well-formed doc.ai (Tier 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [{ id: 't1', name: 'Chat', createdAt: '2026-01-01T00:00:00.000Z', messages: [] }],
+        activeThreadId: 't1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.ai).toBeDefined();
+    expect(state.doc.ai!.threads).toHaveLength(1);
+  });
+
+  // ── non-array optional collections coerced to [] (Tier 3) ────────────────────
+  it('coerces a non-array relationships/expressionFields/filterPresets to [] (Tier 3)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      relationships: 'junk',
+      expressionFields: {},
+      filterPresets: 42,
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.relationships).toEqual([]);
+    expect(state.doc.expressionFields).toEqual([]);
+    expect(state.doc.filterPresets).toEqual([]);
   });
 });
 

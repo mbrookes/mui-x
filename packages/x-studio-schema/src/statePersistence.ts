@@ -207,6 +207,23 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
       return `widgets["${widgetId}"].config`;
     }
   }
+  // Per-entry shape check for `filters`, the same one-level-down validation applied to
+  // `pages`/`widgets` above. `serializeDoc` (the autosave AND undo-snapshot path) and the
+  // reducer (`dropWidgetScopedFilters`, `addFilter`, `removePage`) all read `f.scope.kind`
+  // / `f.id` with NO optional chaining, so a `filters: [null]` (or a scope-less / `scope:
+  // null` entry) that slipped through migration would load fine and then throw an uncaught
+  // `TypeError` on every subsequent save, undo snapshot, and widget removal — deferred,
+  // repeated data loss, strictly worse than being rejected at load. Reject it here with a
+  // named field instead, matching the pages/widgets treatment.
+  for (let i = 0; i < state.filters.length; i += 1) {
+    const filter = state.filters[i];
+    if (!isRecord(filter)) {
+      return `filters[${i}]`;
+    }
+    if (!isRecord(filter.scope) || typeof filter.scope.kind !== 'string') {
+      return `filters[${i}].scope`;
+    }
+  }
   return null;
 }
 
@@ -474,6 +491,23 @@ export function deserializeState(
       }),
   ) as StudioDoc['widgets'];
 
+  // Sweep the persisted pages (drop prototype-hazard keys / non-record values, clamp
+  // layout) BEFORE reconciling `activePageId`, so a page the sweep legitimately drops
+  // (a `null` page, a `"__proto__"` key) is accounted for by the reconciliation below.
+  const normalizedPages = normalizePersistedPages(serialized.pages, normalizedWidgets);
+
+  // Reconcile a dangling `dashboard.activePageId` at the load boundary, mirroring the
+  // exact fallback the factory (`createDefaultStudioState`) and `removePage` already use:
+  // the invariant "the active page exists" is enforced everywhere EXCEPT here. A
+  // hand-edited `activePageId`, or one orphaned when the sweep above dropped its page,
+  // would otherwise render a blank canvas and silently no-op every legacy mutation that
+  // falls back to the active page (`addWidget`/`setWidgetLayout` without an explicit
+  // `pageId`). `Object.hasOwn` (not `in`) so an untrusted id can't match a prototype member.
+  const { dashboard } = serialized;
+  const reconciledDashboard = Object.hasOwn(normalizedPages, dashboard.activePageId)
+    ? dashboard
+    : { ...dashboard, activePageId: Object.keys(normalizedPages)[0] ?? '' };
+
   return {
     doc: {
       // `deserializeState` only ever runs on migrated state (a guarantee `migrateState`
@@ -481,7 +515,7 @@ export function deserializeState(
       // Stamping the constant keeps the compile-time tie the previous `as 1` cast erased
       // — a version bump now forces this to follow via the type system.
       schemaVersion: CURRENT_SCHEMA_VERSION,
-      dashboard: serialized.dashboard,
+      dashboard: reconciledDashboard,
       // Defensive load-time layout normalization: the reducer maintains layout
       // invariants on every LIVE write, but a corrupted or hand-edited persisted doc can
       // carry phantom `widgetRows` ids, duplicate ids, or out-of-range/orphan
@@ -489,7 +523,7 @@ export function deserializeState(
       // layout mutation happened to prune them. This sweep filters rows against the
       // actual widgets, dedupes ids, clamps spans, and drops orphans — NOT a schema
       // migration (the doc shape is unchanged). Reference-stable for a well-formed doc.
-      pages: normalizePersistedPages(serialized.pages, normalizedWidgets),
+      pages: normalizedPages,
       widgets: normalizedWidgets,
       // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
       // filters are session-flavoured and never written to disk, so a hand-edited or
@@ -498,13 +532,39 @@ export function deserializeState(
       // doesn't contain) would otherwise permanently filter its page: the reducer's
       // cleanup for such filters only fires when the source widget is REMOVED, and it was
       // never present, so the page would load pre-filtered with no affordance to clear it.
+      //
+      // Also DROP any entry that is not a record with a record `scope`: `migrateState`
+      // rejects such junk up front, but `deserializeState` is a public API callable on a
+      // `SerializedStudioState` directly (its documented "total over nested-corrupt docs"
+      // surface), so a `filters: [null]` / `scope: null` entry must be defensively removed
+      // here too — otherwise it installs into live `doc.filters` and then throws in
+      // `serializeDoc` and the reducer on the next commit.
       filters: serialized.filters.filter(
-        (f) => f?.scope?.kind !== 'cross-filter' && f?.scope?.kind !== 'interactive',
+        (f) =>
+          isRecord(f) &&
+          isRecord((f as { scope?: unknown }).scope) &&
+          (f as { scope: { kind?: unknown } }).scope.kind !== 'cross-filter' &&
+          (f as { scope: { kind?: unknown } }).scope.kind !== 'interactive',
       ),
-      relationships: serialized.relationships ?? [],
-      expressionFields: serialized.expressionFields ?? [],
-      filterPresets: serialized.filterPresets ?? [],
-      ai: serialized.ai,
+      // Defensive container validation, symmetric with the pages/widgets/filters screening:
+      // `?? []` only defaults an ABSENT value, so a hand-edited `relationships: "junk"` /
+      // `{}` would install verbatim and then break any client code iterating it (and
+      // `serializeDoc`'s `.length > 0` would silently collapse a non-array to `undefined`,
+      // discarding it). Coerce a non-array to `[]`.
+      relationships: Array.isArray(serialized.relationships) ? serialized.relationships : [],
+      expressionFields: Array.isArray(serialized.expressionFields)
+        ? serialized.expressionFields
+        : [],
+      filterPresets: Array.isArray(serialized.filterPresets) ? serialized.filterPresets : [],
+      // Validate `doc.ai`'s shape at the load boundary: keep it only when it is a record
+      // whose `threads` is an array. `renameAIThread` does `(state.ai.threads ?? []).map(…)`
+      // — the `??` guards nullish but NOT a truthy non-array (`threads: 'junk'` / `{}`),
+      // which would throw `.map is not a function`; and `serializeDoc` re-persists the junk
+      // verbatim (`'junk'.length > 0`), round-tripping the corruption. Drop it to `undefined`.
+      ai:
+        isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)
+          ? serialized.ai
+          : undefined,
     },
     session: {
       mode: 'edit',

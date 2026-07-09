@@ -129,6 +129,50 @@ describe('applyMutation', () => {
     expect((next.widgets.w1.config as { ySeries: unknown[] }).ySeries).toEqual([null]);
   });
 
+  it('addWidget with a `null` config does not throw (Tier 3)', () => {
+    // A server-built `addWidget` bypassing `parseStateMutation` could carry a non-record
+    // `config`; `normalizeConfigChartSeries(null)` used to throw on the `.ySeries` read.
+    const widget = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'W',
+      config: null,
+    } as unknown as StudioWidgetOf<'chart'>;
+    let next!: StudioDoc;
+    expect(() => {
+      next = applyDocMutation(twoPageState('page-1'), {
+        type: 'addWidget',
+        args: { widget, pageId: 'page-1' },
+      });
+    }).not.toThrow();
+    expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+  });
+
+  it('addWidget with a prototype-hazard id is a no-op (Tier 3)', () => {
+    // A `'__proto__'` id would create a real own entry that silently vanishes on the next
+    // load (the load-boundary key screen drops it) — so reject it up front, uniform with
+    // `applyBulkUpdate.addedWidgets`.
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget: chartWidget('__proto__'), pageId: 'page-1' },
+    });
+    expect(next).toBe(state);
+    expect(Object.getPrototypeOf(next.widgets)).toBe(Object.prototype);
+    expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
+  });
+
+  it('addPage with a prototype-hazard id is a no-op (Tier 3)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'addPage',
+      args: { id: '__proto__', title: 'Evil' },
+    });
+    expect(next).toBe(state);
+    expect(Object.getPrototypeOf(next.pages)).toBe(Object.prototype);
+    expect(Object.hasOwn(next.pages, '__proto__')).toBe(false);
+  });
+
   it('addWidget is idempotent: re-delivering the same event does not add a duplicate row', () => {
     const mutation = {
       type: 'addWidget' as const,
@@ -667,6 +711,28 @@ describe('applyMutation', () => {
         },
       });
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'b' });
+    });
+
+    // Finishing the T3.3 defense-in-depth pair: the top-level `updateWidget.args.config`
+    // branch admitted `null` (a server-built mutation bypassing the parser), then threw
+    // inside `normalizeConfigChartSeries`/`Object.entries(null)`. A non-record `config` is
+    // now treated as ABSENT (a clean no-op), mirroring the `changes.config: null` twin.
+    it('top-level config: null is a no-op, not a throw (Tier 3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', config: null as never },
+        });
+      }).not.toThrow();
+      // Unchanged config, and a reference-equality no-op (no spurious undo step).
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+      expect(next).toBe(state);
     });
 
     it('a value-identical `changes` scalar returns the SAME state reference (no undo step) (1.1)', () => {

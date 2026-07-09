@@ -330,6 +330,35 @@ export interface VegaData {
   [key: string]: unknown;
 }
 
+/**
+ * A top-level `params` entry (selection or variable parameter).
+ *
+ * Reference: https://vega.github.io/vega-lite/docs/parameter.html
+ * Loosely typed on purpose — `select`/`bind`/`value` accept whatever shape
+ * the spec provides and unrecognized refinements are still readable via the
+ * index signature instead of being type errors.
+ */
+export interface VegaSelectionDef {
+  type: 'point' | 'interval' | (string & {});
+  on?: unknown;
+  toggle?: unknown;
+  fields?: unknown;
+  encodings?: unknown;
+  nearest?: unknown;
+  [key: string]: unknown;
+}
+
+export interface VegaParam {
+  name?: string;
+  /** Selection params only; absent for plain variable params. */
+  select?: 'point' | 'interval' | VegaSelectionDef;
+  /** Initial value: a selection's initial state, or a variable param's value. */
+  value?: unknown;
+  /** Input widget / scale / legend binding. */
+  bind?: unknown;
+  [key: string]: unknown;
+}
+
 export interface VegaUnitSpec {
   data?: VegaData | null;
   mark: VegaMark;

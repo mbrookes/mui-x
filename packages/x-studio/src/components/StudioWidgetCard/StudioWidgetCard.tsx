@@ -474,6 +474,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           mode={mode}
           canExport={canExport}
           isChart={isChart}
+          canExpand={canExpand}
           exportLabel={exportLabel}
           showEditActions={showEditActions}
           showViewActions={showViewActions}

@@ -27,6 +27,7 @@ function setup(
     mode: 'edit',
     canExport: false,
     isChart: false,
+    canExpand: false,
     exportLabel: 'Export CSV',
     showEditActions: true,
     showViewExport: false,
@@ -140,6 +141,25 @@ describe('StudioWidgetCardActionsOverlay — edit mode', () => {
       null,
     );
     expect(screen.queryByRole('menuitem', { name: 'Summary' })).toBe(null);
+  });
+
+  // Regression coverage for architecture-review finding 3.13: the Expand button used to
+  // be gated on `isChart` alone, while the expand dialog itself (in `StudioWidgetCard`)
+  // is gated on `capabilities.expand === true`. Latent today because only the chart def
+  // sets `expand: true`, but a non-chart custom widget declaring the capability got a
+  // dialog with no button to open it, and (in principle) a chart widget without the
+  // capability would show a button that does nothing.
+  describe('Expand button gating (finding 3.13)', () => {
+    it('shows the Expand button for a non-chart widget that declares capabilities.expand', async () => {
+      const { user, onExpand } = setup({ isChart: false, canExpand: true });
+      await user.click(screen.getByRole('button', { name: 'Expand widget' }));
+      expect(onExpand).toHaveBeenCalledOnce();
+    });
+
+    it('hides the Expand button for a chart widget without capabilities.expand', () => {
+      setup({ isChart: true, canExpand: false });
+      expect(screen.queryByRole('button', { name: 'Expand widget' })).toBe(null);
+    });
   });
 });
 

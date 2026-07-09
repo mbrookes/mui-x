@@ -984,6 +984,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   dateRangePresetThisQuarter: 'Ce trimestre',
   dateRangePresetLastQuarter: 'Le trimestre dernier',
   dateRangePresetThisAndLastQuarter: 'Ce trimestre et le précédent',
+  dateRangePresetCustom: 'Personnalisé',
   dateRangePresetGroupRolling: 'Glissant',
   dateRangePresetGroupCalendarYear: 'Année civile',
   dateRangePresetGroupQuarter: 'Trimestre',

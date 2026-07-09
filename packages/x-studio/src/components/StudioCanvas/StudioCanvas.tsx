@@ -32,6 +32,7 @@ import {
 import { GRID_COLS, MIN_SPAN } from './canvasGridConstants';
 import { InsertionPoint } from './InsertionPoint';
 import { WidgetGap } from './WidgetGap';
+import { useStudioDropTarget } from './useStudioDropTarget';
 
 /** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
@@ -546,6 +547,47 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     return autoScrollForElements({ element: findScrollParent(canvasRef.current) });
   }, [mode]);
 
+  // ── Empty-page drop target (finding 2.11) ──────────────────────────────────
+  // `StudioPageRows` (and its `InsertionPoint`/`WidgetGap` drop targets) is never
+  // rendered for an empty page — it returns `null` for `widgetRows.length === 0`,
+  // and the branch below short-circuits before `StudioPageRows` is even reached.
+  // Yet the edit-mode empty-state copy explicitly invites dropping ("...or drag
+  // them here"), and `WidgetTypeCard` registers a real `DRAG_TYPE_COMPOSE_WIDGET`
+  // draggable. Without a drop target here, dragging a widget type (or an existing
+  // widget from another page) onto an empty page was a dead drop. Register one
+  // directly on the empty-state Paper so the invitation is actually honored; this
+  // mirrors `StudioPageRows.handleDrop`'s two branches but always produces a
+  // single fresh row, since there is nothing to splice into.
+  const emptyDropRef = React.useRef<HTMLDivElement>(null);
+  const canDropOnEmptyPage = React.useCallback(() => mode === 'edit', [mode]);
+  const handleEmptyPageDrop = React.useCallback(
+    (data: StudioDragItem) => {
+      if (!activePageId) {
+        return;
+      }
+      if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
+        const sources = Object.values(controller.getState().runtime.dataSources);
+        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+          return;
+        }
+        const newWidget = createDefaultWidget(data.kind);
+        controller.insertWidgetAt(newWidget, activePageId, [[newWidget.id]]);
+        announce(localeText.canvasWidgetAddedAnnouncement);
+      } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
+        const widgetId: string = data.widgetId;
+        const sourcePageId: string | undefined = data.sourcePageId;
+        controller.moveWidget(widgetId, sourcePageId ?? activePageId, activePageId, [[widgetId]]);
+        announce(localeText.canvasWidgetMovedAnnouncement);
+      }
+    },
+    [activePageId, controller, announce, localeText],
+  );
+  const isOverEmptyPage = useStudioDropTarget({
+    ref: emptyDropRef,
+    canDrop: canDropOnEmptyPage,
+    onDrop: handleEmptyPageDrop,
+  });
+
   if (!activePage?.widgetRows?.length) {
     return (
       <Box
@@ -553,6 +595,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
       >
         <Paper
+          ref={emptyDropRef}
           variant="outlined"
           role="status"
           sx={{
@@ -563,6 +606,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             minHeight: 420,
             p: 4,
             borderStyle: 'dashed',
+            borderColor: isOverEmptyPage ? 'primary.main' : undefined,
+            backgroundColor: isOverEmptyPage ? 'action.hover' : undefined,
             justifyContent: 'center',
           }}
         >

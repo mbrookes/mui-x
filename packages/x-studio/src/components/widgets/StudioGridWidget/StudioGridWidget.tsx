@@ -150,8 +150,22 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [dataSource?.fields, expressionFields],
   );
 
+  // Column render order follows the user-configured order (`config.columns`, as
+  // authored via drag-and-drop / keyboard reorder in `GridSetupPanel`), not the
+  // data-source field order — configured fields first (in their stored order),
+  // then any remaining fields not yet added to `config.columns`. (Finding 1.2:
+  // `config.columns` used to drive only visibility, never order.)
+  const orderedFieldIds = React.useMemo(() => {
+    const configuredIds = (widget.config.columns ?? [])
+      .map((c) => c.fieldId)
+      .filter((id) => allFieldIds.includes(id));
+    const configuredSet = new Set(configuredIds);
+    const remaining = allFieldIds.filter((id) => !configuredSet.has(id));
+    return [...configuredIds, ...remaining];
+  }, [widget.config.columns, allFieldIds]);
+
   const columns = React.useMemo<GridColDef[]>(() => {
-    return allFieldIds.map((fieldName) => {
+    return orderedFieldIds.map((fieldName) => {
       const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
       const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
       const fieldType = field?.type ?? expressionField?.type;
@@ -184,7 +198,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             : undefined,
       };
     });
-  }, [dataSource, expressionFields, allFieldIds, isEditable, pkField]);
+  }, [dataSource, expressionFields, orderedFieldIds, isEditable, pkField]);
 
   const {
     filteredRows,

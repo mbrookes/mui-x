@@ -1,4 +1,4 @@
-import type { PieValueType } from '@mui/x-charts/models';
+import type { PieItemId, PieSeriesType, PieValueType } from '@mui/x-charts/models';
 import type { CompiledUnit, UnitContext } from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toNumber } from '../compile/fieldTypes';
@@ -15,11 +15,54 @@ import type { VegaFieldDef } from '../types';
  * - `mark.innerRadius`/`outerRadius`/`padAngle`/`cornerRadius` → the pie
  *   series' `innerRadius`/`outerRadius`/`paddingAngle`/`cornerRadius`;
  * - `theta2`/`radius` encodings and non-pie radial layouts → gaps;
- * - text layers on top of arcs (labels) → gap pointing at `arcLabel`.
+ * - text layers on top of arcs (labels) → wired to the pie series' `arcLabel`
+ *   (see readArcTextEncoding below), rendered by src/overlays/ArcLabels.tsx.
  *
  * Note the shell renders pie series with <PiePlot /> and no cartesian axes —
- * return `plots: ['pie']` and no axis-aligned data.
+ * return `plots: ['pie']` (plus `'pieLabels'` when `arcLabel` is set) and no
+ * axis-aligned data.
  */
+
+/**
+ * Reads the `text` encoding down to either a field name (per-slice lookup)
+ * or a constant string, plus whether it carries a `format` d3-format string
+ * (not translated — the raw value is stringified as-is instead).
+ * `compileArcMark` turns this into an actual pie series `arcLabel` once the
+ * color/theta fields (needed to pick the 'label'/'value' shortcuts) are
+ * known.
+ */
+function readArcTextEncoding(
+  encoding: UnitContext['encoding'],
+):
+  | { field: string; hasFormat: boolean }
+  | { constant: string }
+  | { unresolvable: true }
+  | undefined {
+  const textDef = encoding.text;
+  if (textDef === undefined) {
+    return undefined;
+  }
+  if (Array.isArray(textDef)) {
+    // Vega-Lite multi-line text (an array of strings) has no equivalent —
+    // `arcLabel` renders a single string per slice.
+    return { unresolvable: true };
+  }
+  if (isFieldDef(textDef)) {
+    const fieldDef = textDef as VegaFieldDef;
+    if (!fieldDef.field) {
+      // e.g. `{aggregate: 'count'}` with no `field` — nothing to read per row.
+      return { unresolvable: true };
+    }
+    return { field: fieldDef.field, hasFormat: fieldDef.format !== undefined };
+  }
+  if (isValueDef(textDef) && textDef.value != null) {
+    return { constant: String(textDef.value) };
+  }
+  if (isDatumDef(textDef)) {
+    return { constant: String(textDef.datum) };
+  }
+  return { unresolvable: true };
+}
 
 /** Vega-Lite's `mark.padAngle` is in radians; x-charts' `paddingAngle` is in degrees. */
 const DEGREES_PER_RADIAN = 180 / Math.PI;
@@ -41,15 +84,23 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
     }
   }
 
-  if (encoding.text !== undefined) {
+  if (
+    encoding.text !== undefined &&
+    !Array.isArray(encoding.text) &&
+    (encoding.text as { condition?: unknown }).condition !== undefined
+  ) {
+    // Same convention as compile/color.ts's color-condition handling: the
+    // base field/value is used, the condition branches are dropped.
     gaps.add({
-      code: 'encoding:arc-text-label',
+      code: 'encoding:arc-text-condition',
       message:
-        'Text labels on arc marks are not rendered by this wrapper. `@mui/x-charts` pie series support an `arcLabel` prop for in-slice labels, but it is not wired up through this translator yet.',
+        'Conditional `text` encodings (`condition`) are not translated; the base `field`/`value` drives the arc labels and the condition branches were dropped.',
       severity: 'unsupported',
-      path: `${path}.encoding.text`,
+      path: `${path}.encoding.text.condition`,
     });
   }
+
+  const arcTextEncoding = readArcTextEncoding(encoding);
 
   if (encoding.order !== undefined) {
     gaps.add({
@@ -134,6 +185,48 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
     }
   }
 
+  // Decide how the `text` encoding (if any) maps onto `arcLabel`. Needs
+  // `color.splitField` (drives the 'label' shortcut) and `thetaField` (drives
+  // the 'value' shortcut), both resolved above.
+  let arcLabelKind: 'label' | 'value' | 'field' | 'constant' | undefined;
+  let arcLabelConstant: string | undefined;
+  let arcLabelField: string | undefined;
+
+  if (arcTextEncoding) {
+    if ('unresolvable' in arcTextEncoding) {
+      gaps.add({
+        code: 'encoding:arc-text-label',
+        message:
+          'This `text` encoding could not be resolved to a per-slice label (e.g. a multi-line array, or a field-less aggregate like `{aggregate: "count"}` with no `field`); no `arcLabel` was set.',
+        severity: 'partial',
+        path: `${path}.encoding.text`,
+      });
+    } else if ('constant' in arcTextEncoding) {
+      arcLabelKind = 'constant';
+      arcLabelConstant = arcTextEncoding.constant;
+    } else {
+      const { field, hasFormat } = arcTextEncoding;
+      arcLabelField = field;
+      if (field === color.splitField) {
+        arcLabelKind = 'label';
+      } else if (field === thetaField) {
+        arcLabelKind = 'value';
+      } else {
+        arcLabelKind = 'field';
+      }
+      if (hasFormat) {
+        gaps.add({
+          code: 'encoding:arc-text-label',
+          message:
+            'The `format` d3-format string on the `text` field is not translated; the slice label/value renders without the requested number format.',
+          severity: 'partial',
+          path: `${path}.encoding.text.format`,
+        });
+      }
+    }
+  }
+
+  const textById = new Map<PieItemId, string>();
   const data: PieValueType[] = [];
   rows.forEach((row, index) => {
     const rawValue = thetaField !== undefined ? row[thetaField] : staticThetaValue;
@@ -150,8 +243,30 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
       sliceColor = domainIndex >= 0 ? range[domainIndex % range.length] : undefined;
     }
 
+    const id: PieItemId = label ?? index;
+    if (arcLabelKind === 'field' && arcLabelField !== undefined) {
+      const rawText = row[arcLabelField];
+      if (rawText != null) {
+        const text = String(rawText);
+        // Slice ids come from the color-field value, so un-aggregated rows
+        // with duplicate categories collide on `id` — the label lookup can
+        // only keep one text per id. Warn instead of silently overwriting.
+        const existing = textById.get(id);
+        if (existing !== undefined && existing !== text) {
+          gaps.add({
+            code: 'encoding:arc-text-duplicate-slice',
+            message:
+              "Multiple rows share the same slice identity (duplicate color-field values in un-aggregated data) but carry different `text` values; each such slice shows the last row's text. Aggregate the data so each slice maps to a single row.",
+            severity: 'partial',
+            path: `${path}.encoding.text`,
+          });
+        }
+        textById.set(id, text);
+      }
+    }
+
     data.push({
-      id: label ?? index,
+      id,
       value,
       label,
       ...(sliceColor ? { color: sliceColor } : {}),
@@ -171,6 +286,21 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
   const paddingAngle =
     typeof mark.padAngle === 'number' ? mark.padAngle * DEGREES_PER_RADIAN : undefined;
 
+  let arcLabel: PieSeriesType['arcLabel'] | undefined;
+  if (arcLabelKind === 'label') {
+    arcLabel = 'label';
+  } else if (arcLabelKind === 'value') {
+    arcLabel = 'value';
+  } else if (arcLabelKind === 'field') {
+    // Look the per-slice text up by the slice's `id`, populated in the same
+    // loop that built `data` above — covers any field, not just the ones
+    // already carried on the datum via `label`/`value`.
+    arcLabel = (item) => (item.id !== undefined ? textById.get(item.id) : undefined) ?? '';
+  } else if (arcLabelKind === 'constant') {
+    const constant = arcLabelConstant ?? '';
+    arcLabel = () => constant;
+  }
+
   const series: CompiledUnit['series'] = [
     {
       type: 'pie',
@@ -179,8 +309,9 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
       ...(typeof mark.outerRadius === 'number' ? { outerRadius: mark.outerRadius } : {}),
       ...(paddingAngle !== undefined ? { paddingAngle } : {}),
       ...(typeof mark.cornerRadius === 'number' ? { cornerRadius: mark.cornerRadius } : {}),
+      ...(arcLabel !== undefined ? { arcLabel } : {}),
     },
   ];
 
-  return { series, plots: ['pie'] };
+  return { series, plots: arcLabel !== undefined ? ['pie', 'pieLabels'] : ['pie'] };
 }

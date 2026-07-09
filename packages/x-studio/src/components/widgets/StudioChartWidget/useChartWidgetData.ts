@@ -233,7 +233,14 @@ export function useChartWidgetData(
   // 'count', so we pass an empty field id. Split-by / multi-Y are NOT supported fieldless
   // (aggregateByTwoFields/MultipleSeries sum the measure), so this only relaxes the single-
   // series path; the setup panel disables those combinations. See BL-186.
-  const isFieldlessCount = activeYFields.length === 0 && config.yAggregation === 'count';
+  // Check the SAME aggregation value that's actually passed to `aggregateByField` below
+  // (`singleSeriesYAggregation`), not the widget-level `config.yAggregation` default. A
+  // half-configured `ySeries[0]` (e.g. `{yAggregation: 'sum'}` with no `fieldId` yet, the
+  // state the setup panel can pass through while a user is adding a series) previously
+  // made this guard pass on `config.yAggregation === 'count'` while `singleSeriesYAggregation`
+  // was actually 'sum' — producing all-zero bars (summing an empty field id) instead of
+  // counts (finding 3.6).
+  const isFieldlessCount = activeYFields.length === 0 && singleSeriesYAggregation === 'count';
   const categoryYField = activeYFields[0] ?? '';
 
   // Blended multi-Y data: each series aggregated in its own source, aligned on xField.

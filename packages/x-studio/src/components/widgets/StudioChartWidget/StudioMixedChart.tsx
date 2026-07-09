@@ -18,7 +18,7 @@ import { makeValueFormatter } from './chartWidgetHelpers';
 
 type YSeriesConfig = NonNullable<StudioChartConfig['ySeries']>[number];
 
-interface StudioMixedChartProps {
+export interface StudioMixedChartProps {
   /** Aggregated multi-series data (one entry per configured y-series). */
   multiYData: MultiYSeriesData;
   /** Per-series configuration (type, source, label) aligned to `multiYData.series`. */
@@ -26,8 +26,10 @@ interface StudioMixedChartProps {
   /** Route line series to a right-hand y-axis. */
   dualYAxis?: boolean;
   /**
-   * Whether the chart blends series from independent sources. When blended the
-   * series config is matched by index (order is preserved 1:1); otherwise by fieldId.
+   * Whether the chart blends series from independent sources. The series config is
+   * always matched by fieldId (see the `mixedSeries` comment below) — this flag is
+   * used elsewhere (e.g. the support-guard call site) to decide whether the usual
+   * xField/yField support validation applies.
    */
   isBlended: boolean;
   resolvedChartColors: string[];
@@ -37,6 +39,13 @@ interface StudioMixedChartProps {
   dataSource?: StudioDataSource;
   height: number;
   skipAnimation: boolean;
+  /**
+   * Format a raw category label for display (applies period labels when x is grouped).
+   * Threaded through so the band x-axis/tooltip agree with every other categorical
+   * chart, which formats period-grouped keys (e.g. `2024-W07`) via this same helper
+   * (finding 2.3).
+   */
+  formatLabel: (label: string | number) => string;
   /** Annotation reference lines rendered as chart children. */
   children?: React.ReactNode;
 }
@@ -57,13 +66,18 @@ export function StudioMixedChart({
   dataSource,
   height,
   skipAnimation,
+  formatLabel,
   children,
 }: StudioMixedChartProps) {
   const mixedSeries = multiYData.series.map((s, index) => {
-    // For blended charts a fieldId can repeat across sources, so match the config
-    // by index (aggregateBlendedSeries preserves ySeries order 1:1); otherwise match
-    // by fieldId to stay robust to de-duplicated multi-Y series.
-    const seriesConfig = isBlended ? ySeries[index] : ySeries.find((c) => c.fieldId === s.fieldId);
+    // Always match the config by fieldId, for both blended and non-blended charts.
+    // `multiYData.series` order does NOT reliably line up with `ySeries` by index for
+    // blended charts: `useChartWidgetData`'s `blendedMultiYData` builds its inputs via
+    // `blendSeries.flatMap((s) => (s.fieldId ? [...] : []))`, which drops fieldless
+    // entries — so an incomplete `ySeries` row (no `fieldId` yet, e.g. mid-configuration
+    // in the setup panel) before a configured one shifts every subsequent series one
+    // index out of alignment with a positional lookup (finding 2.2).
+    const seriesConfig = ySeries.find((c) => c.fieldId === s.fieldId);
     const seriesType = (seriesConfig && normalizeChartSeries(seriesConfig).type) ?? 'bar';
     const seriesId = `${s.fieldId}-${index}`;
     const color = resolvedChartColors[index % resolvedChartColors.length];
@@ -75,6 +89,14 @@ export function StudioMixedChart({
         (f) => f.id === s.fieldId,
       ) ?? dataSource?.fields.find((f) => f.id === s.fieldId);
     const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
+    // Series values must honour the field's format/currencyCode/precision the same way
+    // the y-axes already do (lines below) — otherwise the tooltip shows raw numbers
+    // while the axis they're plotted against shows formatted ones (finding 2.3).
+    const valueFormatter = makeValueFormatter(
+      fieldDef?.format,
+      fieldDef?.currencyCode,
+      fieldDef?.precision,
+    );
     if (seriesType === 'line') {
       return {
         type: 'line' as const,
@@ -83,6 +105,7 @@ export function StudioMixedChart({
         data: s.values,
         color,
         yAxisId: dualYAxis ? 'right' : 'left',
+        valueFormatter,
       };
     }
     return {
@@ -92,6 +115,7 @@ export function StudioMixedChart({
       data: s.values,
       color,
       yAxisId: 'left',
+      valueFormatter,
     };
   });
 
@@ -150,7 +174,14 @@ export function StudioMixedChart({
     <div style={{ width: '100%', height }}>
       <ChartsDataProvider
         series={mixedSeries}
-        xAxis={[{ id: 'x', data: xAxisData, scaleType: 'band' }]}
+        xAxis={[
+          {
+            id: 'x',
+            data: xAxisData,
+            scaleType: 'band',
+            valueFormatter: (v: string | number) => formatLabel(String(v)),
+          },
+        ]}
         yAxis={yAxes}
         height={height}
         skipAnimation={skipAnimation}

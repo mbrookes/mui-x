@@ -2,6 +2,7 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StudioDataSource, StudioExpressionField } from '../../../models';
 
 const lineChartSpy = vi.fn();
 
@@ -413,6 +414,82 @@ describe('StudioLineAreaChart', () => {
     const props = lastLineProps();
     expect(props.highlightedItem).toEqual({ seriesId: 'revenue-0', dataIndex: 1 });
     expect(props.series.map((s) => s.id)).toContain('revenue-0');
+  });
+
+  // Regression for finding 2.1: the normal (non-ghost) multi-Y branch used to delegate to
+  // `buildMultiYLineSeries`, whose internal field lookup never consulted expression fields
+  // — so a computed y-field showed its raw field id (unformatted) in the legend/tooltip in
+  // the normal state, and only resolved correctly once a ghost activated (which uses
+  // `resolveFieldDef`), flipping back when the ghost cleared. Both branches must resolve
+  // the SAME label/format for the same field, whether or not a ghost is active.
+  it('resolves an expression (computed) y-field label/format identically in the ghost and non-ghost multi-Y branches', () => {
+    const dataSource: StudioDataSource = {
+      id: 'src',
+      label: 'Source',
+      rows: [],
+      fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+    };
+    const expressionFields: StudioExpressionField[] = [
+      {
+        id: 'margin',
+        label: 'Margin %',
+        sourceId: 'src',
+        isMeasure: false,
+        type: 'number',
+        format: 'percent',
+        expression: { id: 'revenue' },
+      },
+    ];
+    const multiYData = {
+      labels: ['A', 'B'],
+      series: [
+        { fieldId: 'revenue', values: [10, 20] },
+        { fieldId: 'margin', values: [12.345, 50] },
+      ],
+    };
+
+    // Non-ghost render.
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: null,
+        multiYData,
+        dataSource,
+        expressionFields,
+      }),
+    );
+    const nonGhostProps = lastLineProps();
+    const marginNonGhost = nonGhostProps.series.find((s) => s.id === 'margin-1')!;
+    expect(marginNonGhost.label).toBe('Margin %');
+    expect(marginNonGhost.valueFormatter!(12.345, { dataIndex: 0 })).toBe('12.3%');
+
+    // Ghost render (same field) must resolve to the identical label and formatted string —
+    // no flip when a cross-filter ghost activates.
+    const allMultiYData = {
+      labels: ['A', 'B', 'C'],
+      series: [
+        { fieldId: 'revenue', values: [10, 20, 30] },
+        { fieldId: 'margin', values: [12.345, 50, 75] },
+      ],
+    };
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: null,
+        multiYData,
+        allMultiYData,
+        dataSource,
+        expressionFields,
+        shouldShowGhost: true,
+        preserveXFieldBaseline: true,
+      }),
+    );
+    const ghostProps = lastLineProps();
+    const marginGhost = ghostProps.series.find((s) => s.id === 'margin-1')!;
+    expect(marginGhost.label).toBe(marginNonGhost.label);
+    expect(marginGhost.valueFormatter!(12.345, { dataIndex: 0 })).toBe(
+      marginNonGhost.valueFormatter!(12.345, { dataIndex: 0 }),
+    );
   });
 
   it('drives highlightedItem from getSelectedDataIndices for a single-series line', () => {

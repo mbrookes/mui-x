@@ -399,7 +399,7 @@ export function StudioLineAreaChart({
             ),
           };
         })
-      : buildMultiYLineSeries(multiYData, chartType, dataSource?.fields);
+      : buildMultiYLineSeries(multiYData, chartType, dataSource, expressionFields);
 
     return (
       <div style={{ height }}>

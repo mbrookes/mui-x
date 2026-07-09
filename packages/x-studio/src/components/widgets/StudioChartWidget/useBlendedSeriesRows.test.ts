@@ -155,3 +155,68 @@ describe('useBlendedSeriesRows — adapter-backed foreign source caching', () =>
     expect(studioRequestCache.get(cacheKey)).toBeUndefined();
   });
 });
+
+describe('useBlendedSeriesRows — refetch failure must not serve stale rows (finding 2.4)', () => {
+  it('clears the stale asyncForeignRows entry for a sid when its refetch fails', async () => {
+    const getRows = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ category: 'Electronics', stock: 12 }] })
+      .mockRejectedValueOnce(new Error('network error'));
+    const colonSource: StudioDataSource = {
+      id: COLON_SOURCE_ID,
+      label: 'Products (external db)',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'stock', label: 'Stock', type: 'number' },
+      ],
+      rows: undefined,
+      adapter: { getRows },
+    };
+    mockState = createState({
+      widgets: { 'chart-blend': blendedWidget() },
+      dataSources: { orders: ordersSource, [COLON_SOURCE_ID]: colonSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const widget = blendedWidget();
+    const { result, rerender } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    // First fetch succeeds — the foreign source's rows are populated.
+    await waitFor(() => {
+      expect(result.current.foreignRowsBySource.get(COLON_SOURCE_ID)).toEqual([
+        { category: 'Electronics', stock: 12 },
+      ]);
+    });
+
+    // Add a page filter that applies to the foreign source's field — this changes the
+    // per-source query descriptor (and its cacheKey), forcing a refetch. This time the
+    // adapter's promise rejects.
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f1',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            filterSourceId: COLON_SOURCE_ID,
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    rerender();
+
+    await waitFor(() => {
+      expect(getRows).toHaveBeenCalledTimes(2);
+    });
+
+    // The failed refetch must NOT leave the previous (pre-filter) rows serving
+    // indefinitely — the stale entry for this sid is cleared rather than kept.
+    await waitFor(() => {
+      expect(result.current.foreignRowsBySource.has(COLON_SOURCE_ID)).toBe(false);
+    });
+  });
+});

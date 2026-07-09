@@ -249,6 +249,59 @@ describe('useChartWidgetData — cross-source blending', () => {
     expect(data.values[eng]).toBe(1);
   });
 
+  // Regression for finding 3.6: `isFieldlessCount` used to check `config.yAggregation ===
+  // 'count'`, but the aggregation actually passed downstream to `aggregateByField` is
+  // `singleSeriesYAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation`.
+  // A half-configured `ySeries[0]` (yAggregation: 'sum', no fieldId yet — reachable while a
+  // user is mid-way through configuring a series in the setup panel) made the OLD guard
+  // pass on `config.yAggregation === 'count'` while the real aggregation was 'sum',
+  // producing all-zero bars (summing an empty field id) instead of counts. The fixed guard
+  // checks `singleSeriesYAggregation` itself, so this malformed combination no longer
+  // renders misleading zero data.
+  it('does not treat a half-configured ySeries entry as a fieldless count (finding 3.6)', () => {
+    const contactsSource: StudioDataSource = {
+      id: 'contacts',
+      label: 'Contacts',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string', hidden: true },
+        { id: 'department', label: 'Department', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', department: 'Sales' },
+        { id: 'c2', department: 'Sales' },
+        { id: 'c3', department: 'Sales' },
+        { id: 'c4', department: 'Engineering' },
+      ],
+    };
+    const halfConfiguredWidget: StudioWidgetOf<'chart'> = {
+      id: 'chart-half-configured',
+      kind: 'chart',
+      title: 'Contacts by Department (half-configured)',
+      sourceId: 'contacts',
+      config: {
+        chartType: 'bar',
+        xField: 'department',
+        // Widget-level default still says 'count' ...
+        yAggregation: 'count',
+        // ... but the actually-used per-series aggregation is 'sum', with no fieldId yet.
+        ySeries: [{ yAggregation: 'sum' }],
+      } as unknown as StudioWidgetOf<'chart'>['config'],
+    };
+    mockState = createState({
+      widgets: { 'chart-half-configured': halfConfiguredWidget },
+      dataSources: { contacts: contactsSource },
+    });
+
+    const { result } = renderHook(() =>
+      useChartWidgetData(halfConfiguredWidget, contactsSource, 'page-1'),
+    );
+    // Must NOT render as a fieldless count: the fixed guard reads the same
+    // `singleSeriesYAggregation` ('sum') that `aggregateByField` actually receives, so the
+    // fieldless-count relaxation doesn't apply and chartData stays null rather than
+    // silently rendering all-zero bars.
+    expect(result.current.chartData).toBeNull();
+  });
+
   it('fetches a foreign series from its own adapter when the source is adapter-backed', async () => {
     // Products is adapter-backed (server/adapter mode): its rows are fetched via getRows,
     // not read from in-memory `rows`. The blend must still resolve the foreign series.
@@ -330,10 +383,12 @@ describe('useChartWidgetData — cross-source blending', () => {
     const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
     expect(getRows).toHaveBeenCalled();
 
-    // Reject the in-flight fetch. The hook's rejection handler is a documented no-op
-    // (see the comment above `promise.then(...)` in useChartWidgetData.ts: "errors leave
-    // the series empty; the primary chart still renders") — it must not throw, produce an
-    // unhandled rejection, or crash the hook.
+    // Reject the in-flight fetch. The rejection handler lives in useBlendedSeriesRows.ts
+    // (the sub-hook this hook delegates blending to) and, on a FIRST fetch with no prior
+    // successful entry for this sid, is a no-op — the series stays empty because there was
+    // never anything to serve. It must not throw, produce an unhandled rejection, or crash
+    // the hook. (A refetch that fails AFTER a prior success instead clears the stale entry
+    // — see useBlendedSeriesRows.test.ts's "refetch failure" coverage for finding 2.4.)
     await act(async () => {
       rejectFetch(new Error('network down'));
       // Flush the microtask queue so the attached rejection handler runs.

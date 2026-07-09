@@ -630,6 +630,53 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.config).toEqual({ chartType: 'line' });
     });
 
+    it('a value-identical `changes` scalar returns the SAME state reference (no undo step) (1.1)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'Same', config: { chartType: 'bar' } },
+        },
+      });
+      // Re-setting `title` to its current value must not rewrap the widget — otherwise
+      // `commitDocPatch`'s reference-equality no-op guard pushes a spurious undo entry
+      // (a realistic producer: an LLM re-issuing `update_widget` with the current title).
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: 'Same' } },
+      });
+      expect(next).toBe(state);
+    });
+
+    it('a value-identical wholesale `changes.config` returns the SAME state reference (1.1)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: {
+          widgetId: 'w1',
+          changes: { config: { chartType: 'bar', xField: 'a' } } as never,
+        },
+      });
+      expect(next).toBe(state);
+    });
+
+    it('a `changes` mixing a same-valued and a changed scalar rewraps and applies only the real change (1.1)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'Same', config: { chartType: 'bar' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: 'Same', subtitle: 'New' } },
+      });
+      expect(next).not.toBe(state);
+      expect(next.widgets.w1.title).toBe('Same');
+      expect(next.widgets.w1.subtitle).toBe('New');
+    });
+
     it('unknown widgetId is a no-op', () => {
       const state = twoPageState();
       const next = applyDocMutation(state, {
@@ -1033,6 +1080,35 @@ describe('applyMutation', () => {
         args: { widgetId: 'w1', columns: null, rowWidgetIds: ['w1'] },
       });
       expect(next).toBe(state);
+    });
+
+    it('does not rebalance a span onto a phantom row-mate on the fallback path (2.1)', () => {
+      // w1 exists but sits in NO row, so the handler falls back to the wire-supplied
+      // `rowWidgetIds` grouping. `ghost` carries a pre-existing span (forcing the
+      // single-other-widget overflow rebalance) but is NOT a real widget — makeDoc
+      // auto-registers any id appearing in `widgetColSpans`, so strip it back out.
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [],
+            widgetColSpans: { ghost: 15 },
+          },
+        },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const state: StudioDoc = { ...base, widgets: { w1: base.widgets.w1 } };
+      const next = applyDocMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'ghost'], pageId: 'page-1' },
+      });
+      // clamped(12) + ghost(15) = 27 > 24 with a single other id and remaining(12) >=
+      // MIN_SPAN, so the OLD code rebalanced the phantom `ghost` to 12. The
+      // `Object.hasOwn(state.widgets, …) && isSafePatchKey(…)` guard skips writing a span
+      // for a non-widget id, so ghost's span is never rewritten to the rebalanced value.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ ghost: 15, w1: 12 });
     });
   });
 
@@ -1723,6 +1799,139 @@ describe('applyMutation', () => {
         },
       });
       expect(next).toBe(state);
+    });
+
+    it('a field-less updatedWidgets entry returns the SAME state reference (idempotent update) (1.2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          // No field to apply — must not rewrap the widget or churn the doc.
+          updatedWidgets: [{ widgetId: 'w1' }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next).toBe(state);
+    });
+
+    it('a value-identical updatedWidgets entry returns the SAME state reference (idempotent update) (1.2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1', 'Current') },
+      });
+      // Re-delivered bulk (SSE at-least-once) carrying the widget's CURRENT title and a
+      // config patch equal to the live config must be a no-op — not a spurious undo step.
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', title: 'Current', config: { chartType: 'bar' } }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next).toBe(state);
+    });
+
+    it('an updatedWidgets entry that genuinely changes a field still rewraps and applies (1.2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1', 'Old') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', title: 'New' }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next).not.toBe(state);
+      expect(next.widgets.w1.title).toBe('New');
+    });
+
+    it('sanitizes phantom widgetRows ids (neither an existing nor an added widget) (1.3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          // `ghost` is neither an existing widget nor an added widget — it must be
+          // stripped from the persisted rows (no widget entry would exist for it).
+          updatedWidgets: [],
+          widgetRows: [['w1', 'ghost']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(Object.hasOwn(next.widgets, 'ghost')).toBe(false);
+    });
+
+    it("keeps rows referencing this bulk's own addedWidgets ids (not filtered as phantoms) (1.3)", () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      // A row legitimately references `new1`, inserted later in the same handler; it must
+      // survive sanitization (filtering against `state.widgets` alone would drop it).
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('new1')],
+          updatedWidgets: [],
+          widgetRows: [['new1', 'ghost']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['new1']]);
+      expect(Object.hasOwn(next.widgets, 'new1')).toBe(true);
+      expect(Object.hasOwn(next.widgets, 'ghost')).toBe(false);
+    });
+
+    it('drops a phantom row id left behind by a skipped unsafe-id addedWidgets entry (1.3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          // The `__proto__`-id add is skipped as unsafe, so a row referencing it would be
+          // a phantom — it must be stripped rather than persisted with no widget entry.
+          addedWidgets: [chartWidget('__proto__'), chartWidget('good')],
+          updatedWidgets: [],
+          widgetRows: [['good', '__proto__']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.pages['page-1'].widgetRows).toEqual([['good']]);
+      expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
+      expect(Object.getPrototypeOf(next.widgets)).toBe(Object.prototype);
     });
 
     it('normalizes `seriesType` in an updatedWidgets config patch (2.3)', () => {

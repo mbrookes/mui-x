@@ -202,12 +202,18 @@ export function normalizeChartSeries(series: StudioChartSeries): StudioChartSeri
     return series;
   }
   const resolvedType = series.type ?? series.seriesType;
-  if (series.seriesType === undefined && series.type === resolvedType) {
-    // Already canonical (no alias present); avoid churning object identity.
+  // No deprecated alias present ⇒ already canonical; avoid churning object identity.
+  // (The former `&& series.type === resolvedType` conjunct was tautological here:
+  // when `seriesType` is `undefined`, `resolvedType` collapses to `series.type`.)
+  if (series.seriesType === undefined) {
     return series;
   }
+  // Past the early return `seriesType` is defined, so `resolvedType` (`type ??
+  // seriesType`) is always defined — strip the alias and express the render kind
+  // through the canonical `type`. (The former `resolvedType === undefined` branch
+  // was unreachable.)
   const { seriesType, ...rest } = series;
-  return resolvedType === undefined ? rest : { ...rest, type: resolvedType };
+  return { ...rest, type: resolvedType };
 }
 
 const defaultPageId = 'page-1';

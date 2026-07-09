@@ -53,6 +53,14 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string';
 }
 
+/** Absent, or one of the `'auto' | 'manual'` literals. Used for `titleMode`/
+ *  `subtitleMode` in `updateWidget.changes`: a stricter check than `isOptionalString`
+ *  so a junk value (e.g. `titleMode: 42`, or an arbitrary string) can't persist into a
+ *  field the client's auto-title logic branches on. */
+function isOptionalTitleMode(value: unknown): value is 'auto' | 'manual' | undefined {
+  return value === undefined || value === 'auto' || value === 'manual';
+}
+
 /**
  * A string id that is safe to use as an object key via a bare bracket assignment
  * (`record[id] = value`).
@@ -303,6 +311,16 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       if (!isOptionalString(args.changes.kind)) {
         return 'updateWidget.args.changes.kind must be a string when present';
       }
+      // `titleMode`/`subtitleMode` are the only other `StudioWidget` fields a wholesale
+      // `changes` merge can carry; without these checks a junk value (e.g.
+      // `titleMode: 42`) passes the wire gate and persists into a field the client's
+      // auto-title logic branches on.
+      if (!isOptionalTitleMode(args.changes.titleMode)) {
+        return "updateWidget.args.changes.titleMode must be 'auto' or 'manual' when present";
+      }
+      if (!isOptionalTitleMode(args.changes.subtitleMode)) {
+        return "updateWidget.args.changes.subtitleMode must be 'auto' or 'manual' when present";
+      }
       if (args.changes.config !== undefined) {
         if (!isRecord(args.changes.config)) {
           return 'updateWidget.args.changes.config must be an object when present';
@@ -356,6 +374,14 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     }
     if (!isStringArray(args.rowWidgetIds)) {
       return 'setWidgetColSpan.args.rowWidgetIds must be a string[]';
+    }
+    // Per-entry safe-id check (mirrors `applyBulkUpdate.removedWidgetIds`): a
+    // `rowWidgetIds` entry becomes the sibling-rebalance bracket-assignment target in
+    // the reducer, so an unsafe id must be rejected at the wire boundary.
+    for (const id of args.rowWidgetIds) {
+      if (!isSafeId(id)) {
+        return "setWidgetColSpan.args.rowWidgetIds entries must not be '__proto__'/'constructor'/'prototype'";
+      }
     }
     if (!isOptionalString(args.pageId)) {
       return 'setWidgetColSpan.args.pageId must be a string when present';

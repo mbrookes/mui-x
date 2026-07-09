@@ -120,6 +120,32 @@ function spansEqual(
 }
 
 /**
+ * Shallow value-equality for two config-like records. Used by the widget-merge
+ * handlers (`updateWidget`'s `changes.config` wholesale replacement and
+ * `applyBulkUpdate`'s `updatedWidgets` config merge) to honor the reference-equality
+ * no-op contract: a merge/replacement that is key-for-key identical to the current
+ * config must NOT rewrap the widget (which would push a spurious undo entry).
+ * Object-valued keys are compared by reference — matching the `config`-patch branch's
+ * own `nextConfig[key] !== value` check — so re-supplying a value-equal but
+ * reference-different nested value (e.g. a fresh `ySeries` array) is still a change.
+ */
+function shallowRecordEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (a === b) {
+    return true;
+  }
+  const keysA = Object.keys(a);
+  if (keysA.length !== Object.keys(b).length) {
+    return false;
+  }
+  for (const key of keysA) {
+    if (!Object.hasOwn(b, key) || a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Normalizes the deprecated `seriesType` alias to the canonical `type` on a config's
  * `ySeries`, so the alias never survives a LIVE write (`updateWidget`/`addWidget`) —
  * `deserializeState` normalizes only at the load boundary, so without this a widget
@@ -502,6 +528,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // which survive JSON (an `undefined` value never does).
       if (changes) {
         const definedChanges: Record<string, unknown> = {};
+        const updatedRecord = updated as unknown as Record<string, unknown>;
         for (const [key, value] of Object.entries(changes)) {
           // Skip unsafe keys (defense-in-depth; the spread below copies own props
           // only, so this is a latent rather than live vector) and `undefined` values.
@@ -510,18 +537,35 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // wire boundary (`parseStateMutation`) rejects a `changes.id` too — this is
           // the defense-in-depth copy for a server-built mutation bypassing the parser,
           // mirroring the `unsetFields` `id` denylist.
-          if (key !== 'id' && isSafePatchKey(key) && value !== undefined) {
+          if (key === 'id' || !isSafePatchKey(key) || value === undefined) {
+            continue;
+          }
+          if (key === 'config') {
+            // `changes.config` is a wholesale replacement of the widget's config.
+            // Normalize the deprecated `seriesType` alias first (matching the `config`
+            // patch branch above and `addWidget`/`applyBulkUpdate`; otherwise it would
+            // linger until the next load boundary), then include it ONLY when it differs
+            // by value from the current config — a value-identical replacement must not
+            // rewrap the widget (reference-equality no-op contract). Compared key-by-key,
+            // the same way the `config`-patch branch tracks `changedConfig`.
+            if (value !== null && typeof value === 'object') {
+              const normalized = normalizeConfigChartSeries(value as Record<string, unknown>);
+              if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
+                definedChanges.config = normalized;
+              }
+            } else if (value !== updated.config) {
+              definedChanges.config = value;
+            }
+            continue;
+          }
+          // Scalar field (`title`/`subtitle`/`sourceId`/`kind`/`titleMode`/
+          // `subtitleMode`): only a value that differs from the current widget is a real
+          // change. Re-setting a field to its current value must not rewrap the widget
+          // (reference-equality no-op contract), so a `changes: { title: 'Same' }` on a
+          // widget already titled 'Same' returns the SAME doc.
+          if (!(Object.hasOwn(updatedRecord, key) && updatedRecord[key] === value)) {
             definedChanges[key] = value;
           }
-        }
-        // Normalize the deprecated `seriesType` alias on a wholesale `changes.config`
-        // replacement, so the alias never survives a live update (matching the `config`
-        // patch branch above and `addWidget`/`applyBulkUpdate`); otherwise it would
-        // linger until the next load boundary. Reference-stable when already canonical.
-        if (definedChanges.config !== null && typeof definedChanges.config === 'object') {
-          definedChanges.config = normalizeConfigChartSeries(
-            definedChanges.config as Record<string, unknown>,
-          );
         }
         if (Object.keys(definedChanges).length > 0) {
           updated = { ...updated, ...(definedChanges as Partial<StudioWidget>) };
@@ -756,11 +800,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         );
         if (clamped + otherTotal > GRID_COLS) {
           if (otherIds.length === 1) {
+            const otherId = otherIds[0];
             const remaining = GRID_COLS - clamped;
             if (remaining >= MIN_SPAN) {
-              newSpans[otherIds[0]] = remaining;
+              // `Object.hasOwn`/`isSafePatchKey` before the bracket assignment (matching
+              // every other id-keyed write in this file): on the fallback branch the row
+              // membership comes from the wire-supplied `args.rowWidgetIds`, so a phantom
+              // row-mate id must never receive a persisted orphan span, and a prototype-
+              // polluting id (`'__proto__'`/`'constructor'`) must never reach the setter.
+              if (Object.hasOwn(state.widgets, otherId) && isSafePatchKey(otherId)) {
+                newSpans[otherId] = remaining;
+              }
             } else {
-              delete newSpans[otherIds[0]];
+              delete newSpans[otherId];
             }
           } else {
             for (const id of otherIds) {
@@ -929,6 +981,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const page = state.pages[activePageId];
 
+      // Sanitize the producer-supplied active-page rows against the ids that will
+      // actually exist once this bulk applies: existing widgets PLUS this bulk's own
+      // `addedWidgets` ids (inserted below in the same handler, so a row legitimately
+      // references them) that pass the safe-key gate. Unlike `setWidgetLayout` — which
+      // filters against `state.widgets` alone — the bulk's rows may name a not-yet-
+      // inserted added widget, so filtering against `state.widgets` alone would wrongly
+      // drop them. A phantom id (neither an existing widget nor a safe added-widget id)
+      // would otherwise persist in `widgetRows` with no `widgets` entry — exactly the
+      // "page renders a widget that does not exist" state `setWidgetLayout` guards
+      // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
+      // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
+      const validRowIds = new Set<string>(Object.keys(state.widgets));
+      for (const widget of addedWidgets ?? []) {
+        if (isSafePatchKey(widget.id)) {
+          validRowIds.add(widget.id);
+        }
+      }
+      const sanitizedRows = widgetRows
+        .map((row) => row.filter((id) => validRowIds.has(id)))
+        .filter((row) => row.length > 0);
+
       // Normalize the producer-supplied active-page spans through the SAME invariants
       // every other layout path enforces (previously they were stored verbatim, so a
       // bad producer could persist an out-of-range or overflowing span): clamp each
@@ -936,7 +1009,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // prototype pollution), then run `enforceLayoutColSpans`. `oldRows = []` so the
       // 2→1 collapse never fires — the producer supplied rows and spans together, so a
       // singleton span is intentional — while the row-overflow drop, orphaned-span
-      // drop, and empty→undefined collapse all apply.
+      // drop, and empty→undefined collapse all apply. Feeding the SANITIZED rows here
+      // means a span for a dropped phantom id is pruned as an orphan.
       const clampedSpans: Record<string, number> = {};
       for (const key of Object.keys(widgetColSpans)) {
         if (!isSafePatchKey(key)) {
@@ -944,18 +1018,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
         clampedSpans[key] = clampSpan(widgetColSpans[key]);
       }
-      const normalizedActiveSpans = enforceLayoutColSpans([], widgetRows, clampedSpans);
+      const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, clampedSpans);
 
       // Reference-equality no-op tracking: only rebuild the active page when its rows or
       // spans actually changed (by value), so a re-delivered bulk carrying the current
       // layout doesn't churn the page reference and push a spurious undo entry.
       const layoutChanged =
-        !rowsEqual(page.widgetRows ?? [], widgetRows) ||
+        !rowsEqual(page.widgetRows ?? [], sanitizedRows) ||
         !spansEqual(normalizedActiveSpans, page.widgetColSpans);
       const layoutPages: StudioDoc['pages'] = layoutChanged
         ? {
             ...state.pages,
-            [activePageId]: { ...page, widgetRows, widgetColSpans: normalizedActiveSpans },
+            [activePageId]: {
+              ...page,
+              widgetRows: sanitizedRows,
+              widgetColSpans: normalizedActiveSpans,
+            },
           }
         : state.pages;
 
@@ -1015,25 +1093,43 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           continue;
         }
         const existing = nextWidgets[update.widgetId];
-        nextWidgets[update.widgetId] = {
-          ...existing,
-          ...(update.title !== undefined ? { title: update.title } : {}),
-          ...(update.sourceId !== undefined ? { sourceId: update.sourceId } : {}),
-          // `config` is a shallow-merge patch onto the LIVE widget's config, so a
-          // concurrent edit to a different config key is preserved. Normalize the merged
-          // config's `ySeries` so the deprecated `seriesType` alias never survives a live
-          // bulk update (matching `updateWidget`/`addWidget`, so the alias is not left to
-          // be normalized only at the next load boundary).
-          ...(update.config
-            ? {
-                config: normalizeConfigChartSeries({
-                  ...existing.config,
-                  ...update.config,
-                }) as StudioWidget['config'],
-              }
-            : {}),
-        };
-        widgetsChanged = true;
+        let patchedWidget = existing;
+        // Only rewrap the widget for a field that genuinely DIFFERS from its current
+        // value — same idempotency guard the `config`-patch branch of `updateWidget`
+        // applies. Without this, a re-delivered bulk (SSE at-least-once) carrying a
+        // value-identical or field-less `{ widgetId }` update entry churns the doc and
+        // pushes a spurious undo entry, breaking the reference-equality no-op contract.
+        if (update.title !== undefined && update.title !== existing.title) {
+          patchedWidget = { ...patchedWidget, title: update.title };
+        }
+        if (update.sourceId !== undefined && update.sourceId !== existing.sourceId) {
+          patchedWidget = { ...patchedWidget, sourceId: update.sourceId };
+        }
+        // `config` is a shallow-merge patch onto the LIVE widget's config, so a
+        // concurrent edit to a different config key is preserved. Normalize the merged
+        // config's `ySeries` so the deprecated `seriesType` alias never survives a live
+        // bulk update (matching `updateWidget`/`addWidget`, so the alias is not left to
+        // be normalized only at the next load boundary). Only assign when the merge
+        // actually changed a config key by value (compared like the `config`-patch
+        // branch), so a value-identical config patch stays a no-op.
+        if (update.config) {
+          const mergedConfig = normalizeConfigChartSeries({
+            ...existing.config,
+            ...update.config,
+          }) as StudioWidget['config'];
+          if (
+            !shallowRecordEqual(
+              existing.config as Record<string, unknown>,
+              mergedConfig as Record<string, unknown>,
+            )
+          ) {
+            patchedWidget = { ...patchedWidget, config: mergedConfig };
+          }
+        }
+        if (patchedWidget !== existing) {
+          nextWidgets[update.widgetId] = patchedWidget;
+          widgetsChanged = true;
+        }
       }
 
       // Reference-equality no-op: a bulk that removed nothing, added/updated no widget,

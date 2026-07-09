@@ -370,6 +370,41 @@ describe('deserializeState', () => {
     expect(ySeries[0].type).toBe('line');
     expect('seriesType' in ySeries[0]).toBe(false);
   });
+
+  // 3.2: legacy-shape detection uses `Array.isArray` + a non-empty guard, not
+  // truthiness. An empty `columns: []`/`ySeries: []` (the factory defaults) has
+  // nothing to normalize and must be returned untouched (reference-stable), and a
+  // hand-corrupted non-array must not crash on `.map`.
+  it('returns a widget with empty columns/ySeries arrays untouched (same reference) (3.2)', () => {
+    const widget = {
+      id: 'g1',
+      kind: 'grid',
+      title: 'Grid',
+      config: { columns: [], ySeries: [] },
+    };
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { g1: widget },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // The exact same widget object is carried through — no needless config rebuild.
+    expect(state.doc.widgets.g1).toBe(serialized.widgets.g1);
+  });
+
+  it('does not throw on a hand-corrupted non-array columns config (3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        g1: { id: 'g1', kind: 'grid', title: 'Grid', config: { columns: 'junk' } },
+      },
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    // Left untouched — deep config validation is out of scope for this package.
+    expect((state.doc.widgets.g1.config as unknown as { columns: unknown }).columns).toBe('junk');
+  });
 });
 
 // ─── serializeState / deserializeState roundtrip ─────────────────────────────

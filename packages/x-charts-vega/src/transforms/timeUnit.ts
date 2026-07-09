@@ -14,9 +14,17 @@ import { toDate } from '../compile/fieldTypes';
  * (so `month` and `yearmonth` produce the same result: the first of the real
  * month). That is the more useful behavior for the primary use case here
  * (time-series axes), at the cost of not supporting cross-year cyclic
- * alignment. The one genuinely cyclic unit, `day` (day-of-week), has no
- * truncation-only equivalent, so it is mapped onto a canonical reference
- * week and flagged with a 'partial' gap.
+ * alignment. The two genuinely cyclic units, `day` (day-of-week) and
+ * `dayofyear`, have no truncation-only equivalent, so they are mapped onto a
+ * canonical reference week / reference leap year (2012, matching Vega-Lite's
+ * own convention) and flagged with a 'partial' gap.
+ *
+ * UTC: any unit may be prefixed with `utc` (e.g. `utcyear`, `utcyearmonth`,
+ * `utcday`) to truncate using UTC calendar fields instead of local time —
+ * `splitUtc` strips the prefix and every truncation path below has a plain
+ * and a UTC variant. The cyclic units keep reporting their 'partial' gap
+ * under their UTC forms too (`utcday`/`utcdayofyear`), since the reference-
+ * date approximation still applies.
  */
 
 type Granularity =
@@ -51,6 +59,15 @@ const UNIT_GRANULARITY: Partial<Record<string, Granularity>> = {
   hoursminutes: 'minutes',
   hoursminutesseconds: 'seconds',
 };
+
+/** Splits a possibly-`utc`-prefixed unit into its UTC flag and base (non-prefixed) unit name. */
+function splitUtc(unit: VegaTimeUnit): { utc: boolean; base: string } {
+  const str = String(unit);
+  if (str.startsWith('utc')) {
+    return { utc: true, base: str.slice(3) };
+  }
+  return { utc: false, base: str };
+}
 
 function truncate(date: Date, granularity: Granularity): Date {
   const d = new Date(date.getTime());
@@ -94,6 +111,49 @@ function truncate(date: Date, granularity: Granularity): Date {
   return d;
 }
 
+/** UTC mirror of `truncate`: same granularity semantics, `setUTC*`/`getUTC*` fields throughout. */
+function truncateUTC(date: Date, granularity: Granularity): Date {
+  const d = new Date(date.getTime());
+  switch (granularity) {
+    case 'year':
+      d.setUTCMonth(0, 1);
+      d.setUTCHours(0, 0, 0, 0);
+      break;
+    case 'quarter': {
+      const quarter = Math.floor(d.getUTCMonth() / 3);
+      d.setUTCMonth(quarter * 3, 1);
+      d.setUTCHours(0, 0, 0, 0);
+      break;
+    }
+    case 'month':
+      d.setUTCDate(1);
+      d.setUTCHours(0, 0, 0, 0);
+      break;
+    case 'week': {
+      const day = d.getUTCDay();
+      d.setUTCDate(d.getUTCDate() - day);
+      d.setUTCHours(0, 0, 0, 0);
+      break;
+    }
+    case 'date':
+      d.setUTCHours(0, 0, 0, 0);
+      break;
+    case 'hours':
+      d.setUTCMinutes(0, 0, 0);
+      break;
+    case 'minutes':
+      d.setUTCSeconds(0, 0);
+      break;
+    case 'seconds':
+      d.setUTCMilliseconds(0);
+      break;
+    case 'milliseconds':
+    default:
+      break;
+  }
+  return d;
+}
+
 // Jan 1, 2006 is a Sunday — used as the canonical reference week for the
 // cyclic day-of-week `day` unit, matching Vega-Lite's own convention.
 const DAY_OF_WEEK_REFERENCE = { year: 2006, month: 0, date: 1 };
@@ -107,9 +167,40 @@ function truncateDayOfWeek(date: Date): Date {
   );
 }
 
-/** Whether `unit` is in the supported truncation set (including the cyclic `day`). */
+function truncateDayOfWeekUTC(date: Date): Date {
+  const day = date.getUTCDay();
+  return new Date(
+    Date.UTC(
+      DAY_OF_WEEK_REFERENCE.year,
+      DAY_OF_WEEK_REFERENCE.month,
+      DAY_OF_WEEK_REFERENCE.date + day,
+    ),
+  );
+}
+
+// 2012 is a leap year — used as the canonical reference year for the cyclic
+// `dayofyear` unit, matching Vega-Lite's own convention (so a leap-day input
+// still maps onto a real Feb 29).
+const DAY_OF_YEAR_REFERENCE_YEAR = 2012;
+
+function truncateDayOfYear(date: Date): Date {
+  const startOfYear = new Date(date.getFullYear(), 0, 1);
+  const truncated = truncate(date, 'date');
+  const doy = Math.round((truncated.getTime() - startOfYear.getTime()) / 86400000) + 1;
+  return new Date(DAY_OF_YEAR_REFERENCE_YEAR, 0, doy);
+}
+
+function truncateDayOfYearUTC(date: Date): Date {
+  const startOfYear = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const truncated = truncateUTC(date, 'date');
+  const doy = Math.round((truncated.getTime() - startOfYear) / 86400000) + 1;
+  return new Date(Date.UTC(DAY_OF_YEAR_REFERENCE_YEAR, 0, doy));
+}
+
+/** Whether `unit` is in the supported truncation set (including the cyclic `day`/`dayofyear`, with or without a `utc` prefix). */
 export function isTimeUnitSupported(unit: VegaTimeUnit): boolean {
-  return unit === 'day' || UNIT_GRANULARITY[unit] !== undefined;
+  const { base } = splitUtc(unit);
+  return base === 'day' || base === 'dayofyear' || UNIT_GRANULARITY[base] !== undefined;
 }
 
 function addUnsupportedUnitGap(unit: VegaTimeUnit, gaps: GapCollector, path: string): void {
@@ -123,9 +214,10 @@ function addUnsupportedUnitGap(unit: VegaTimeUnit, gaps: GapCollector, path: str
 
 /**
  * Truncates `date` to the given Vega-Lite `unit`. Returns `null` (after
- * recording a gap) for units outside the supported set; `day` is supported
- * but always records a 'partial' gap since it maps onto a synthetic
- * reference week rather than the real calendar date.
+ * recording a gap) for units outside the supported set; `day`/`dayofyear`
+ * are supported but always record a 'partial' gap since they map onto a
+ * synthetic reference week/year rather than the real calendar date. A `utc`
+ * prefix (e.g. `utcyear`, `utcday`) truncates using UTC calendar fields.
  */
 export function resolveTimeUnit(
   date: Date,
@@ -133,7 +225,9 @@ export function resolveTimeUnit(
   gaps: GapCollector,
   path: string,
 ): Date | null {
-  if (unit === 'day') {
+  const { utc, base } = splitUtc(unit);
+
+  if (base === 'day') {
     gaps.add({
       code: 'timeUnit:day',
       message:
@@ -141,14 +235,25 @@ export function resolveTimeUnit(
       severity: 'partial',
       path,
     });
-    return truncateDayOfWeek(date);
+    return utc ? truncateDayOfWeekUTC(date) : truncateDayOfWeek(date);
   }
-  const granularity = UNIT_GRANULARITY[unit];
+
+  if (base === 'dayofyear') {
+    gaps.add({
+      code: 'timeUnit:dayofyear',
+      message: `The \`dayofyear\` (day-of-year) time unit maps every date onto a canonical reference leap year (${DAY_OF_YEAR_REFERENCE_YEAR}) by ordinal day; the result is comparable day-to-day but is not the real calendar date.`,
+      severity: 'partial',
+      path,
+    });
+    return utc ? truncateDayOfYearUTC(date) : truncateDayOfYear(date);
+  }
+
+  const granularity = UNIT_GRANULARITY[base];
   if (!granularity) {
     addUnsupportedUnitGap(unit, gaps, path);
     return null;
   }
-  return truncate(date, granularity);
+  return utc ? truncateUTC(date, granularity) : truncate(date, granularity);
 }
 
 /** Shared by the inline and top-level paths: truncate `field` into `outKey` on every row. */

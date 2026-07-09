@@ -1,8 +1,16 @@
-import type { AxisResolution, CompiledUnit, OverlayBoxItem, UnitContext } from '../compile/context';
+import type {
+  AxisResolution,
+  CompiledUnit,
+  OverlayBoxItem,
+  OverlayBoxSubMark,
+  UnitContext,
+} from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
-import type { VegaMarkDef } from '../types';
+import type { GapCollector } from '../gaps';
+import type { DatasetRow, VegaMarkDef } from '../types';
+import { groupRowsByField } from './bar';
 
 /*
  * OWNERSHIP: the "boxplot" work unit owns this file.
@@ -15,9 +23,11 @@ import type { VegaMarkDef } from '../types';
  *   extent, values beyond → `outliers`; `extent: 'min-max'` → full extent, no
  *   outliers; numeric extent k → k×IQR;
  * - color: static mark/value color or resolveColor staticColor; a color FIELD
- *   split → 'partial' gap (one box per category, no dodging);
- * - mark.size → widthRatio approximation; opacity/median/box sub-mark configs
- *   → 'ignored' gaps where unmappable;
+ *   split → grouped/dodged boxes (one box per category per color group),
+ *   flagged with a 'partial' gap since the overlay draws no legend entries;
+ * - mark.size → widthRatio approximation ('partial' gap); mark.median/box/
+ *   rule/ticks/outliers sub-mark configs → styling carried through where
+ *   translatable (color/opacity), other keys → 'partial' gap;
  * - return { series: [], plots: [], overlays: [{kind: 'boxes', ...}] }.
  */
 
@@ -67,12 +77,68 @@ function resolveExtent(mark: VegaMarkDef): WhiskerExtent {
   return { k: 1.5 };
 }
 
+/** Sub-mark styling keys this wrapper can honor (color/opacity, under either their `mark.<part>.color`/`fill`/`stroke` and `opacity`/`fillOpacity`/`strokeOpacity` aliases). */
+const HONORED_SUBMARK_KEYS = new Set([
+  'color',
+  'fill',
+  'stroke',
+  'opacity',
+  'fillOpacity',
+  'strokeOpacity',
+]);
+
+/**
+ * Resolves one box-plot sub-mark config (`mark.median`/`box`/`rule`/`ticks`/
+ * `outliers`): `false` hides the sub-mark; `null`/`true`/omitted leaves it at
+ * the overlay's default styling (`undefined`); an object carries its
+ * color/opacity through (`color`/`fill`/`stroke` and `opacity`/`fillOpacity`/
+ * `strokeOpacity`, first-wins) and reports any other keys as a 'partial' gap
+ * listing what was unhonored.
+ */
+function resolveSubMark(
+  raw: unknown,
+  gaps: GapCollector,
+  path: string,
+  key: string,
+): OverlayBoxSubMark | false | undefined {
+  if (raw === false) {
+    return false;
+  }
+  if (raw == null || raw === true) {
+    return undefined;
+  }
+  if (typeof raw !== 'object') {
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  const color = obj.color ?? obj.fill ?? obj.stroke;
+  const opacity = obj.opacity ?? obj.fillOpacity ?? obj.strokeOpacity;
+  const unhonoredKeys = Object.keys(obj).filter((k) => !HONORED_SUBMARK_KEYS.has(k));
+  if (unhonoredKeys.length > 0) {
+    gaps.add({
+      code: 'mark:boxplot-submark-config',
+      message: `Box-plot sub-mark styling \`mark.${key}\` has properties with no x-charts equivalent (${unhonoredKeys.join(', ')}); only color/opacity are honored, the rest were ignored.`,
+      severity: 'partial',
+      path: `${path}.mark.${key}`,
+    });
+  }
+  const resolved: OverlayBoxSubMark = {};
+  if (typeof color === 'string') {
+    resolved.color = color;
+  }
+  if (typeof opacity === 'number') {
+    resolved.opacity = opacity;
+  }
+  return resolved;
+}
+
 /** Computes one box (quartiles, whiskers, outliers) for a category's values. */
 function computeBox(
   category: OverlayBoxItem['category'],
   values: number[],
   extent: WhiskerExtent,
   color: string | undefined,
+  groupIndex?: number,
 ): OverlayBoxItem | null {
   const q1 = evaluateAggregate('q1', values);
   const median = evaluateAggregate('median', values);
@@ -109,6 +175,7 @@ function computeBox(
     max: whiskerMax,
     ...(outliers.length > 0 ? { outliers } : {}),
     ...(color !== undefined ? { color } : {}),
+    ...(groupIndex !== undefined ? { groupIndex } : {}),
   };
 }
 
@@ -138,29 +205,34 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [] };
   }
 
-  // Sub-mark styling (median/box/outliers/rule/ticks/opacity) has no per-part
-  // x-charts equivalent — the overlay draws a fixed box glyph.
-  const subMarkKeys = ['median', 'box', 'outliers', 'rule', 'ticks', 'opacity'] as const;
-  const styledSubMark = subMarkKeys.find((key) => (mark as Record<string, unknown>)[key] != null);
-  if (styledSubMark) {
+  // Sub-mark styling: median/box/rule/ticks/outliers each resolve to color/
+  // opacity (or `false` to hide the sub-mark); other unmapped keys report a
+  // 'partial' gap per sub-mark (see resolveSubMark).
+  const median = resolveSubMark(mark.median, gaps, unit.path, 'median');
+  const rule = resolveSubMark(mark.rule, gaps, unit.path, 'rule');
+  const ticks = resolveSubMark(mark.ticks, gaps, unit.path, 'ticks');
+  const outliersSubMark = resolveSubMark(mark.outliers, gaps, unit.path, 'outliers');
+  const opacity = typeof mark.opacity === 'number' ? mark.opacity : undefined;
+
+  // Unlike the other sub-marks, the box (IQR rectangle) is the overlay's
+  // primary glyph and cannot be hidden — `mark.box: false` degrades to an
+  // 'ignored' gap instead of a hidden box.
+  const boxRaw = resolveSubMark(mark.box, gaps, unit.path, 'box');
+  let box: OverlayBoxSubMark | undefined;
+  if (boxRaw === false) {
     gaps.add({
-      code: 'mark:boxplot-submark-config',
-      message: `Box-plot sub-mark styling (\`${styledSubMark}\`) has no per-part x-charts equivalent; the overlay draws a fixed box/whisker/median/outlier glyph and the styling was ignored.`,
+      code: 'mark:boxplot-box-hide-unsupported',
+      message:
+        'mark.box: false would hide the box (IQR rectangle) sub-mark, but the overlay always draws it as the primary box-plot glyph; the box was rendered instead.',
       severity: 'ignored',
-      path: `${unit.path}.mark`,
+      path: `${unit.path}.mark.box`,
     });
+  } else {
+    box = boxRaw;
   }
 
   const color = resolveColor(encoding, rows, gaps, unit.path);
   const staticColor = color.staticColor ?? mark.color ?? mark.fill;
-  if (color.splitField) {
-    gaps.add({
-      code: 'mark:boxplot-color-field',
-      message: `A color field ("${color.splitField}") would split each category into several boxes, but this wrapper draws one aggregated box per category (no dodged/grouped box plots); the color split was collapsed to a single box per category.`,
-      severity: 'partial',
-      path: `${unit.path}.encoding.color`,
-    });
-  }
 
   // `mark.size` is an explicit pixel box thickness; the overlay sizes boxes as
   // a fraction of the (unknown-at-compile-time) band width, so the pixel value
@@ -179,38 +251,91 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
   const categoryField = categoryAxis.field;
   const categories = categoryAxis.categories;
 
-  // Collect the continuous values per category, index-aligned to `categories`.
-  const grouped: number[][] = categories.map(() => []);
-  for (const row of rows) {
-    const index = ctx.categoryIndex(
-      categoryAxis,
-      toCategoryValue(categoryAxis, row[categoryField]),
-    );
-    if (index < 0) {
-      continue;
+  /** Collects a group's rows into per-category value arrays, index-aligned to `categories`. */
+  const collectByCategory = (groupRows: readonly DatasetRow[]): number[][] => {
+    const grouped: number[][] = categories.map(() => []);
+    for (const row of groupRows) {
+      const index = ctx.categoryIndex(
+        categoryAxis,
+        toCategoryValue(categoryAxis, row[categoryField]),
+      );
+      if (index < 0) {
+        continue;
+      }
+      const value = toNumber(row[valueField]);
+      if (value === null) {
+        continue;
+      }
+      grouped[index].push(value);
     }
-    const value = toNumber(row[valueField]);
-    if (value === null) {
-      continue;
-    }
-    grouped[index].push(value);
-  }
+    return grouped;
+  };
 
   const items: OverlayBoxItem[] = [];
-  categories.forEach((category, index) => {
-    const values = grouped[index];
-    if (values.length === 0) {
-      return;
-    }
-    const box = computeBox(category, values, extent, staticColor);
-    if (box) {
-      items.push(box);
-    }
-  });
+  let groupCount = 1;
+
+  if (color.splitField) {
+    // Grouped/dodged boxes: one box per category per color group.
+    const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
+    groupCount = groups.length;
+    groups.forEach((group, gi) => {
+      // Deliberately does not fall back to `staticColor`: a static
+      // mark/value color applies when there's no color split at all (see
+      // the `else` branch below) — falling back to it here as well would
+      // paint every dodged group identically whenever `mark.color` happens
+      // to be set alongside a color-field split, defeating the point of
+      // dodging (and contradicting the color-legend gap message below,
+      // which tells the user to use box color to tell groups apart).
+      const groupColor = color.range?.[gi] ?? ctx.palette[gi % ctx.palette.length];
+      const grouped = collectByCategory(group.rows);
+      categories.forEach((category, index) => {
+        const values = grouped[index];
+        if (values.length === 0) {
+          return;
+        }
+        const item = computeBox(category, values, extent, groupColor, gi);
+        if (item) {
+          items.push(item);
+        }
+      });
+    });
+    gaps.add({
+      code: 'mark:boxplot-color-legend',
+      message: `A color field ("${color.splitField}") splits each category into ${groupCount} dodged boxes, but the overlay draws them without contributing legend entries; use the color values shown on the boxes to identify groups.`,
+      severity: 'partial',
+      path: `${unit.path}.encoding.color`,
+    });
+  } else {
+    // No color split: one aggregated box per category.
+    const grouped = collectByCategory(rows);
+    categories.forEach((category, index) => {
+      const values = grouped[index];
+      if (values.length === 0) {
+        return;
+      }
+      const item = computeBox(category, values, extent, staticColor);
+      if (item) {
+        items.push(item);
+      }
+    });
+  }
 
   return {
     series: [],
     plots: [],
-    overlays: [{ kind: 'boxes', orientation, items }],
+    overlays: [
+      {
+        kind: 'boxes',
+        orientation,
+        items,
+        ...(groupCount > 1 ? { groupCount } : {}),
+        ...(opacity !== undefined ? { opacity } : {}),
+        ...(median !== undefined ? { median } : {}),
+        ...(box !== undefined ? { box } : {}),
+        ...(rule !== undefined ? { rule } : {}),
+        ...(ticks !== undefined ? { ticks } : {}),
+        ...(outliersSubMark !== undefined ? { outliers: outliersSubMark } : {}),
+      },
+    ],
   };
 }

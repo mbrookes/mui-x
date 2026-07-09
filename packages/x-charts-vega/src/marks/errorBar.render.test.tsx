@@ -64,6 +64,25 @@ describe('<VegaLiteChart /> errorbar/errorband marks (render)', () => {
     expect(path!.getAttribute('fill-opacity')).to.equal('0.3');
   });
 
+  it('renders one closed path for a transposed (horizontal) errorband', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: rows },
+      mark: { type: 'errorband', orient: 'horizontal' },
+      encoding: {
+        y: { field: 'day', type: 'nominal' },
+        x: { field: 'temp', type: 'quantitative', scale: { domain: [0, 30] } },
+      },
+    };
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    const group = container.querySelector('.MuiVegaOverlay-band');
+    expect(group).not.to.equal(null);
+    const paths = group!.querySelectorAll('path');
+    expect(paths.length).to.equal(1);
+    expect(paths[0].getAttribute('d')).to.match(/^M.*Z$/);
+  });
+
   it('renders a layered errorband + line spec sharing the same encodings', () => {
     const spec: VegaLiteSpec = {
       data: { values: rows },

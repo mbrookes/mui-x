@@ -2,8 +2,8 @@
 import * as React from 'react';
 import { useXScale, useYScale } from '@mui/x-charts/hooks';
 import type { CompiledOverlay, OverlayBandPoint, OverlayErrorBarItem } from '../compile/context';
-import { scalePosition  } from './scaleUtils';
-import type {AnyScale} from './scaleUtils';
+import { scalePosition } from './scaleUtils';
+import type { AnyScale } from './scaleUtils';
 
 /*
  * OWNERSHIP: the "errorbar/errorband" work unit owns this file.
@@ -11,8 +11,11 @@ import type {AnyScale} from './scaleUtils';
  * Render `{kind: 'errorBars'}`: per item, a whisker line from lower→upper at
  * the category position with perpendicular end caps and an optional center
  * tick; `orientation: 'horizontal'` transposes. Render `{kind: 'band'}`: a
- * single closed <path> tracing points' upper values left→right then lower
- * values right→left, filled with `color` at `opacity` (default ~0.3).
+ * single closed <path> tracing points' upper values along the category axis
+ * in order, then lower values back in reverse, filled with `color` at
+ * `opacity` (default ~0.3). `orientation: 'horizontal'` transposes: the
+ * category runs along y (`point.x` holds the category value regardless of
+ * orientation — see `OverlayBandPoint`) and lower/upper run along x.
  * Use useXScale()/useYScale() + scalePosition from ../overlays/scaleUtils.
  * Wrap in <g className="MuiVegaOverlay-errorBars"> / "MuiVegaOverlay-band".
  */
@@ -116,7 +119,6 @@ function ErrorBarsGroup(props: {
     <g className="MuiVegaOverlay-errorBars">
       {overlay.items.map((item, index) => (
         <ErrorBarWhisker
-           
           key={index}
           item={item}
           horizontal={horizontal}
@@ -129,23 +131,35 @@ function ErrorBarsGroup(props: {
 }
 
 interface ResolvedBandPoint {
-  x: number;
-  upperY: number;
-  lowerY: number;
+  /** Position along the category axis (x for vertical, y for horizontal/transposed). */
+  categoryPos: number;
+  /** Position along the value axis for the interval's lower bound. */
+  lowerV: number;
+  /** Position along the value axis for the interval's upper bound. */
+  upperV: number;
 }
 
+/**
+ * Resolves one band point through the category/value scale pair. `point.x`
+ * always carries the category value (regardless of orientation — see
+ * `OverlayBandPoint`); `horizontal` picks which screen axis is "category"
+ * (y) vs "value" (x).
+ */
 function resolveBandPoint(
   point: OverlayBandPoint,
+  horizontal: boolean,
   xScale: AnyScale,
   yScale: AnyScale,
 ): ResolvedBandPoint | null {
-  const x = scalePosition(xScale, point.x);
-  const upperY = scalePosition(yScale, point.upper);
-  const lowerY = scalePosition(yScale, point.lower);
-  if (x == null || upperY == null || lowerY == null) {
+  const categoryScale = horizontal ? yScale : xScale;
+  const valueScale = horizontal ? xScale : yScale;
+  const categoryPos = scalePosition(categoryScale, point.x);
+  const lowerV = scalePosition(valueScale, point.lower);
+  const upperV = scalePosition(valueScale, point.upper);
+  if (categoryPos == null || lowerV == null || upperV == null) {
     return null;
   }
-  return { x, upperY, lowerY };
+  return { categoryPos, lowerV, upperV };
 }
 
 function BandGroup(props: {
@@ -154,19 +168,29 @@ function BandGroup(props: {
   yScale: AnyScale;
 }) {
   const { overlay, xScale, yScale } = props;
+  const horizontal = overlay.orientation === 'horizontal';
   const resolved = overlay.points
-    .map((point) => resolveBandPoint(point, xScale, yScale))
+    .map((point) => resolveBandPoint(point, horizontal, xScale, yScale))
     .filter((point): point is ResolvedBandPoint => point != null);
   if (resolved.length < 2) {
     return null;
   }
-  const upperPath = resolved.map(
-    (point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.upperY}`,
-  );
+  // Vertical (default): the upper edge is traced left→right along x
+  // (categoryPos), value on y. Horizontal (transposed): the upper edge is
+  // traced top→bottom along y (categoryPos), value on x.
+  const toXY = (point: ResolvedBandPoint, v: number): [number, number] =>
+    horizontal ? [v, point.categoryPos] : [point.categoryPos, v];
+  const upperPath = resolved.map((point, index) => {
+    const [x, y] = toXY(point, point.upperV);
+    return `${index === 0 ? 'M' : 'L'}${x},${y}`;
+  });
   const lowerPath = resolved
     .slice()
     .reverse()
-    .map((point) => `L${point.x},${point.lowerY}`);
+    .map((point) => {
+      const [x, y] = toXY(point, point.lowerV);
+      return `L${x},${y}`;
+    });
   const d = `${upperPath.join(' ')} ${lowerPath.join(' ')} Z`;
   return (
     <g className="MuiVegaOverlay-band">

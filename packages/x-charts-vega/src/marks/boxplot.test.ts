@@ -150,12 +150,59 @@ describe('compileBoxplotMark', () => {
     expect(overlay.items[0].color).to.equal('#ff0000');
   });
 
-  it('collapses a color field to one box per category with a partial gap', () => {
+  it('groups a color field into dodged boxes (one box per category per group) with a color-legend gap', () => {
     const compiled = compileSpec({
       data: {
         values: [
           { g: 'A', v: 1, region: 'east' },
-          { g: 'A', v: 3, region: 'west' },
+          { g: 'A', v: 5, region: 'east' },
+          { g: 'A', v: 2, region: 'west' },
+          { g: 'A', v: 8, region: 'west' },
+          { g: 'B', v: 3, region: 'east' },
+          { g: 'B', v: 7, region: 'east' },
+          { g: 'B', v: 4, region: 'west' },
+          { g: 'B', v: 9, region: 'west' },
+        ],
+      },
+      mark: 'boxplot',
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+        color: {
+          field: 'region',
+          type: 'nominal',
+          scale: { domain: ['east', 'west'], range: ['#111111', '#222222'] },
+        },
+      },
+    });
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:boxplot-color-field');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-color-legend');
+    expect(gap?.severity).to.equal('partial');
+
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.groupCount).to.equal(2);
+    // 2 categories x 2 groups: group 0 (east) covers both categories first,
+    // then group 1 (west).
+    expect(overlay.items).to.have.length(4);
+    expect(overlay.items.map((item) => item.category)).to.deep.equal(['A', 'B', 'A', 'B']);
+    expect(overlay.items.map((item) => item.groupIndex)).to.deep.equal([0, 0, 1, 1]);
+    expect(overlay.items.map((item) => item.color)).to.deep.equal([
+      '#111111',
+      '#111111',
+      '#222222',
+      '#222222',
+    ]);
+  });
+
+  it('falls back to the chart palette for group colors when no explicit range is set', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1, region: 'east' },
+          { g: 'A', v: 2, region: 'west' },
         ],
       },
       mark: 'boxplot',
@@ -165,10 +212,40 @@ describe('compileBoxplotMark', () => {
         color: { field: 'region', type: 'nominal' },
       },
     });
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-color-field');
-    expect(gap?.severity).to.equal('partial');
     const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
-    expect(overlay?.kind === 'boxes' && overlay.items).to.have.length(1);
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0].color).to.equal(compiled.colors[0]);
+    expect(overlay.items[1].color).to.equal(compiled.colors[1 % compiled.colors.length]);
+  });
+
+  it('does not collapse dodged groups to the same static mark.color when a color split is also set', () => {
+    // A static `mark.color` combined with a color-field split is a
+    // realistic (if slightly redundant) spec; the palette-derived per-group
+    // colors must still win so dodged boxes stay visually distinguishable.
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1, region: 'east' },
+          { g: 'A', v: 2, region: 'west' },
+        ],
+      },
+      mark: { type: 'boxplot', color: '#123456' },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+        color: { field: 'region', type: 'nominal' },
+      },
+    });
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0].color).not.to.equal(overlay.items[1].color);
+    expect(overlay.items.some((item) => item.color === '#123456')).to.equal(false);
   });
 
   it('reports a partial gap for mark.size (pixel thickness vs band ratio)', () => {
@@ -187,6 +264,97 @@ describe('compileBoxplotMark', () => {
     });
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-size');
     expect(gap?.severity).to.equal('partial');
+  });
+
+  it('carries median/box/rule sub-mark color and opacity through with no submark-config gap', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1 },
+          { g: 'A', v: 3 },
+        ],
+      },
+      mark: {
+        type: 'boxplot',
+        median: { color: '#ff0000' },
+        box: { fill: '#00ff00', fillOpacity: 0.7 },
+        rule: { stroke: '#0000ff' },
+      },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:boxplot-submark-config');
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.median).to.deep.equal({ color: '#ff0000' });
+    expect(overlay.box).to.deep.equal({ color: '#00ff00', opacity: 0.7 });
+    expect(overlay.rule).to.deep.equal({ color: '#0000ff' });
+  });
+
+  it('reports a partial submark-config gap listing unhonored keys (e.g. strokeDash)', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1 },
+          { g: 'A', v: 3 },
+        ],
+      },
+      mark: { type: 'boxplot', rule: { strokeDash: [4, 2] } },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-submark-config');
+    expect(gap?.severity).to.equal('partial');
+    expect(gap?.message).to.include('strokeDash');
+  });
+
+  it('passes outliers:false / ticks:false through to hide those sub-marks', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1 },
+          { g: 'A', v: 3 },
+        ],
+      },
+      mark: { type: 'boxplot', outliers: false, ticks: false },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.outliers).to.equal(false);
+    expect(overlay.ticks).to.equal(false);
+  });
+
+  it('carries whole-glyph mark.opacity through to the overlay', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1 },
+          { g: 'A', v: 3 },
+        ],
+      },
+      mark: { type: 'boxplot', opacity: 0.4 },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.opacity).to.equal(0.4);
   });
 
   it('reports an unsupported gap when the categorical channel is missing', () => {

@@ -139,13 +139,13 @@ function buildRangedSeriesData(
   return data;
 }
 
-interface RowGroup {
+export interface RowGroup {
   value: unknown;
   rows: DatasetRow[];
 }
 
 /** Groups rows by `splitField`, ordered by `domain` when provided, else first appearance. */
-function groupRowsByField(
+export function groupRowsByField(
   ctx: UnitContext,
   rows: readonly DatasetRow[],
   splitField: string,
@@ -190,13 +190,50 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const mark = unit.mark;
 
-  if (mark.cornerRadius !== undefined) {
+  let barBorderRadius: number | undefined;
+  if (typeof mark.cornerRadius === 'number' && mark.cornerRadius > 0) {
+    barBorderRadius = mark.cornerRadius;
     gaps.add({
       code: 'mark:bar-corner-radius',
       message:
-        'mark.cornerRadius is per-mark in Vega-Lite, but x-charts only exposes bar corner rounding as a chart-wide `borderRadius` prop on `<BarPlot>` (not per series). Not applied by this wrapper.',
+        'mark.cornerRadius is per-mark in Vega-Lite; x-charts applies it chart-wide via ' +
+        '<BarPlot borderRadius>, rounding value-end corners of every bar series.',
+      severity: 'partial',
+      path: `${unit.path}.mark.cornerRadius`,
+    });
+  } else if (mark.cornerRadius !== undefined) {
+    // Defined but not a usable positive number (0, negative, or a Vega
+    // signal-expression object) — nothing to apply, but still worth
+    // recording so the discrepancy from the source spec isn't silent.
+    gaps.add({
+      code: 'mark:bar-corner-radius',
+      message:
+        "mark.cornerRadius must be a positive number to map onto x-charts' chart-wide " +
+        `<BarPlot borderRadius>; the given value (${JSON.stringify(mark.cornerRadius)}) was not applied.`,
       severity: 'ignored',
       path: `${unit.path}.mark.cornerRadius`,
+    });
+  }
+
+  // Per-corner radii (cornerRadiusTopLeft/TopRight/BottomLeft/BottomRight,
+  // and the `mark.cornerRadiusEnd` alias) have no x-charts equivalent — only
+  // a single uniform chart-wide radius is supported (see above).
+  const perCornerKeys = [
+    'cornerRadiusTopLeft',
+    'cornerRadiusTopRight',
+    'cornerRadiusBottomLeft',
+    'cornerRadiusBottomRight',
+    'cornerRadiusEnd',
+  ] as const;
+  const styledPerCorner = perCornerKeys.find(
+    (key) => (mark as Record<string, unknown>)[key] !== undefined,
+  );
+  if (styledPerCorner) {
+    gaps.add({
+      code: 'mark:bar-corner-radius-per-corner',
+      message: `\`${styledPerCorner}\` sets a per-corner radius, but x-charts only exposes a single uniform chart-wide bar corner radius; the per-corner configuration was ignored.`,
+      severity: 'ignored',
+      path: `${unit.path}.mark.${styledPerCorner}`,
     });
   }
 
@@ -403,5 +440,6 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
   return {
     series,
     plots: [rangeTwin ? 'rangeBar' : 'bar'],
+    ...(barBorderRadius !== undefined ? { barBorderRadius } : {}),
   };
 }

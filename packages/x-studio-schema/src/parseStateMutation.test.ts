@@ -191,6 +191,28 @@ describe('parseStateMutation — valid payloads (one per variant)', () => {
       }).ok,
     ).toBe(true);
   });
+
+  // Architecture review T2.1: valid values for the previously-unvalidated full-widget
+  // scalar fields must still pass (no false-positive rejection introduced by the fix).
+  it('accepts a valid full-widget titleMode/subtitleMode/subtitle/sourceId in addWidget (T2.1)', () => {
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w',
+            kind: 'chart',
+            title: 'T',
+            subtitle: 'Sub',
+            sourceId: 'src-1',
+            titleMode: 'auto',
+            subtitleMode: 'manual',
+            config: { chartType: 'bar' },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
 });
 
 describe('parseStateMutation — table-sync pins', () => {
@@ -359,6 +381,67 @@ describe('parseStateMutation — malformed per-variant args', () => {
       value: {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1', '__proto__'] },
+      },
+    },
+    // Architecture review T2.1: `addWidget.args.widget` (and, by extension,
+    // `applyBulkUpdate.addedWidgets[]`) previously skipped the `titleMode`/
+    // `subtitleMode`/`subtitle`/`sourceId` checks that `updateWidget.changes` already
+    // enforced, so junk values on these fields sailed through the full-widget path.
+    {
+      label: 'addWidget widget.titleMode is a non-string',
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'chart', title: 'T', config: {}, titleMode: 42 } },
+      },
+    },
+    {
+      label: "addWidget widget.titleMode is a string but not 'auto'/'manual'",
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'chart', title: 'T', config: {}, titleMode: 'weird' } },
+      },
+    },
+    {
+      label: "addWidget widget.subtitleMode is a string but not 'auto'/'manual'",
+      value: {
+        type: 'addWidget',
+        args: {
+          widget: { id: 'w', kind: 'chart', title: 'T', config: {}, subtitleMode: 'nonsense' },
+        },
+      },
+    },
+    {
+      label: 'addWidget widget.sourceId is a non-string',
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'chart', title: 'T', config: {}, sourceId: 99 } },
+      },
+    },
+    {
+      label: 'addWidget widget.subtitle is a non-string',
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'chart', title: 'T', config: {}, subtitle: 42 } },
+      },
+    },
+    {
+      label: 'applyBulkUpdate addedWidgets entry titleMode is junk',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [{ id: 'w', kind: 'chart', title: 'T', config: {}, titleMode: 42 }],
+        },
+      },
+    },
+    {
+      label: 'applyBulkUpdate addedWidgets entry sourceId is a non-string',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [{ id: 'w', kind: 'chart', title: 'T', config: {}, sourceId: 99 }],
+        },
       },
     },
   ];
@@ -546,6 +629,31 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     const parsed = parseStateMutation({
       type: 'applyBulkUpdate',
       args: { ...validBulkArgs(), widgetColSpans: JSON.parse('{"__proto__":6}') },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  // Architecture review T3.1: for a KNOWN kind, an own `__proto__` config key was
+  // already incidentally rejected by the per-kind config-key allow-list (it flags
+  // `__proto__` as a stray key). For a CUSTOM kind the allow-list returns "anything
+  // goes", so before the fix an own `__proto__` config key sailed through. Now
+  // `hasUnsafeOwnKeys` runs on every full-widget config regardless of kind.
+  it('rejects an addWidget custom-kind widget whose config carries an own __proto__ key', () => {
+    const parsed = parseStateMutation(
+      JSON.parse(
+        '{"type":"addWidget","args":{"widget":{"id":"w2","kind":"acme-x","title":"T","config":{"__proto__":{"polluted":true}}}}}',
+      ),
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects an applyBulkUpdate custom-kind addedWidgets entry whose config carries an own __proto__ key', () => {
+    const pollutedWidget = JSON.parse(
+      '{"id":"w2","kind":"acme-x","title":"T","config":{"__proto__":{"polluted":true}}}',
+    );
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), addedWidgets: [pollutedWidget] },
     });
     expect(parsed.ok).toBe(false);
   });

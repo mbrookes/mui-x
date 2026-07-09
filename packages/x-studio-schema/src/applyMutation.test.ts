@@ -630,6 +630,45 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.config).toEqual({ chartType: 'line' });
     });
 
+    // Architecture review T3.3: `changes.config` is typed non-nullable and
+    // `parseStateMutation` rejects a non-object `changes.config` at the wire
+    // boundary, so `null` can only reach the reducer via a server-built mutation
+    // that bypasses the parser (or defeats its own types, hence the `as never`
+    // cast here). Before the fix, the `else if (value !== updated.config)` branch
+    // would assign `config = null` outright, corrupting the widget. The reducer
+    // must instead ignore the invalid value and leave the config-patch result (or
+    // existing config) untouched — matching this file's other defense-in-depth
+    // guards for exactly this "server bypasses the parser" case.
+    it('changes.config: null does not corrupt the widget config (T3.3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: null } as never },
+      });
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+    });
+
+    it('changes.config: null does not override a preceding config-patch (T3.3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: {
+          widgetId: 'w1',
+          config: { xField: 'b' },
+          changes: { config: null } as never,
+        },
+      });
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'b' });
+    });
+
     it('a value-identical `changes` scalar returns the SAME state reference (no undo step) (1.1)', () => {
       const state = makeDoc({
         widgets: {

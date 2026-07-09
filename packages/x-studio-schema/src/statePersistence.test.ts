@@ -204,6 +204,32 @@ describe('serializeState', () => {
     expect(filters.map((f) => f.id)).toContain('w');
   });
 
+  // Architecture review T3.2: `relationships` was always serialized (even when
+  // empty), asymmetric with `expressionFields`/`filterPresets`/`ai`, which are
+  // omitted when empty. Symmetry restored: an empty array is now omitted too.
+  it('omits relationships when the array is empty (T3.2)', () => {
+    const state = createDefaultStudioState({ doc: { relationships: [] } });
+    expect(serializeState(state).relationships).toBeUndefined();
+  });
+
+  it('includes relationships when non-empty (T3.2)', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        relationships: [
+          {
+            id: 'r1',
+            sourceId: 'orders',
+            targetId: 'customers',
+            sourceField: 'customerId',
+            targetField: 'id',
+            type: 'many-to-one' as const,
+          },
+        ],
+      },
+    });
+    expect(serializeState(state).relationships).toHaveLength(1);
+  });
+
   it('omits expressionFields when the array is empty', () => {
     const state = createDefaultStudioState({ doc: { expressionFields: [] } });
     expect(serializeState(state).expressionFields).toBeUndefined();
@@ -449,6 +475,37 @@ describe('serializeState / deserializeState roundtrip', () => {
         (f: { scope?: { kind: string } }) => f.scope?.kind === 'cross-filter',
       ),
     ).toHaveLength(0);
+  });
+
+  // Architecture review T3.2: an empty `relationships` must round-trip through the
+  // "omitted when empty" serialized shape back to `[]`, exactly like the sibling
+  // omitted-when-empty collections (`expressionFields`/`filterPresets`).
+  it('roundtrip: empty relationships is omitted on the wire and restored as [] (T3.2)', () => {
+    const state = createDefaultStudioState({ doc: { relationships: [] } });
+    const serialized = serializeState(state);
+    expect(serialized.relationships).toBeUndefined();
+    const json = JSON.stringify(serialized);
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
+    expect(restored?.doc.relationships).toEqual([]);
+  });
+
+  it('roundtrip: non-empty relationships survives serialize/deserialize (T3.2)', () => {
+    const relationships = [
+      {
+        id: 'rel1',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one' as const,
+      },
+    ];
+    const state = createDefaultStudioState({ doc: { relationships } });
+    const json = JSON.stringify(serializeState(state));
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
+    expect(restored?.doc.relationships).toEqual(relationships);
   });
 
   it('retains chart config keys left over from a previously-selected chartType', () => {

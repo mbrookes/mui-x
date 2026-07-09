@@ -136,6 +136,18 @@ export function StudioPieChart({
   const localeText = useStudioLocaleText();
   const otherBucketLabel = localeText.chartOtherBucketLabel;
 
+  // Resolve the colour palette shared by the single-series arcs, the custom legend, AND the
+  // grouped concentric rings so they always agree. Priority: explicit chartColors > theme
+  // MuiPieChart default props > resolvedChartColors (blueberryTwilightPalette fallback).
+  // Hoisted above the ring branch so the ring path can reconcile its slice/dim colours the
+  // same way the single-ring path does (finding 1.3).
+  const themeDefaultPieColors = (
+    theme.components as
+      | Record<string, { defaultProps?: { colors?: string[] } } | undefined>
+      | undefined
+  )?.MuiPieChart?.defaultProps?.colors;
+  const pieColors: string[] = chartColors ?? themeDefaultPieColors ?? resolvedChartColors;
+
   // Pre-compute grouped-ring pie data: one ring per xField category, each ring
   // divided into slices by seriesField — like grouped bars but as concentric rings.
   const twoRingData = React.useMemo(() => {
@@ -157,8 +169,15 @@ export function StudioPieChart({
       return String(applyXGroupBy(toXValue(rawX), xGroupBy));
     };
 
-    // Always use baseline rows so cross-filters dim rather than remove slices.
-    const baseRows = allEnrichedRows.length > 0 ? allEnrichedRows : enrichedRows;
+    // Finding 1.1: use the properly filtered rows (which honor interactive filter-widget
+    // selections AND `crossFilterMode: 'filter'` cross-filters) as the base by default —
+    // mirroring the single-ring path's `pieBaseData = isPieHighlightActive ? allChartData : chartData`.
+    // Only fall back to the unfiltered baseline (`allEnrichedRows`) — rendering every slice and
+    // *dimming* the filtered-out ones — when a chart-click cross-highlight ghost is genuinely
+    // active. `shouldShowGhost` is true ONLY for chart-click cross-filters in 'cross-highlight'
+    // mode, so hard filters (which every other widget applies) now filter the rings too.
+    const useGhostBaseline = shouldShowGhost && allEnrichedRows.length > 0;
+    const baseRows = useGhostBaseline ? allEnrichedRows : enrichedRows;
 
     // Get unique category values (period-grouped xField) in stable order.
     const categories = [...new Set(baseRows.map(categoryKeyOf))].filter(
@@ -166,17 +185,71 @@ export function StudioPieChart({
     );
 
     // For each category, aggregate by sliceField within that category's rows.
-    const rings = categories.map((category) => {
+    let rings = categories.map((category) => {
       const catRows = baseRows.filter((r) => categoryKeyOf(r) === category);
       const agg = aggregateByField(catRows, sliceField, ringYField, undefined, ringAggregation);
       return { id: `ring-${category}`, label: category, slices: agg };
     });
 
-    // Filtered label sets for dimming when cross-filters are active.
-    const filteredCategories = shouldShowGhost
+    // Finding 1.3: "Other"-group the split-by categories GLOBALLY across all rings (keeping the
+    // top `pieMaxSlices - 1` categories by total value), so the kept category set — and therefore
+    // the category→colour mapping — stays consistent between rings. This mirrors the single-ring
+    // pieMaxSlices behaviour (which only applied to the single-ring path before).
+    let keptCategories: Set<string> | null = null;
+    {
+      const totals = new Map<string, number>();
+      for (const ring of rings) {
+        ring.slices.labels.forEach((l, i) => {
+          const s = String(l);
+          totals.set(s, (totals.get(s) ?? 0) + (ring.slices.values[i] ?? 0));
+        });
+      }
+      if (pieMaxSlices && totals.size >= pieMaxSlices) {
+        const sorted = [...totals.keys()].sort(
+          (a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0),
+        );
+        keptCategories = new Set(sorted.slice(0, pieMaxSlices - 1));
+      }
+    }
+    // Collapse a slice label to its display key: itself when kept (or no grouping), else "Other".
+    const collapseLabel = (label: string | number): string => {
+      const s = String(label);
+      return keptCategories && !keptCategories.has(s) ? otherBucketLabel : s;
+    };
+    if (keptCategories) {
+      rings = rings.map((ring) => {
+        const merged = new Map<string, number>();
+        ring.slices.labels.forEach((l, i) => {
+          const key = collapseLabel(l);
+          merged.set(key, (merged.get(key) ?? 0) + (ring.slices.values[i] ?? 0));
+        });
+        return {
+          ...ring,
+          slices: { labels: [...merged.keys()], values: [...merged.values()] },
+        };
+      });
+    }
+
+    // Stable union of split-by categories across ALL rings (first-seen order, post-grouping).
+    // Drives the category→colour mapping and the legend so an inner ring's slice is always
+    // coloured (and labelled) by its category, not by its positional index within that ring.
+    const categoryOrder: string[] = [];
+    const seenCategory = new Set<string>();
+    for (const ring of rings) {
+      for (const l of ring.slices.labels) {
+        const s = String(l);
+        if (!seenCategory.has(s)) {
+          seenCategory.add(s);
+          categoryOrder.push(s);
+        }
+      }
+    }
+
+    // Filtered label sets for dimming — only when the ghost baseline is in use.
+    const filteredCategories = useGhostBaseline
       ? new Set(enrichedRows.map(categoryKeyOf).filter((c): c is string => c != null))
       : null;
-    const filteredSlicesByCategory = shouldShowGhost
+    const filteredSlicesByCategory = useGhostBaseline
       ? new Map(
           categories.map((cat) => {
             const catRows = enrichedRows.filter((r) => categoryKeyOf(r) === cat);
@@ -187,12 +260,13 @@ export function StudioPieChart({
               undefined,
               ringAggregation,
             );
-            return [cat, new Set(agg.labels.map(String))];
+            // Collapse filtered labels the same way so grouped ("Other") rings dim correctly.
+            return [cat, new Set(agg.labels.map(collapseLabel))];
           }),
         )
       : null;
 
-    return { rings, filteredCategories, filteredSlicesByCategory };
+    return { rings, categoryOrder, filteredCategories, filteredSlicesByCategory };
   }, [
     seriesField,
     xField,
@@ -203,6 +277,8 @@ export function StudioPieChart({
     shouldShowGhost,
     xGroupBy,
     yAggregation,
+    pieMaxSlices,
+    otherBucketLabel,
   ]);
 
   // ── Pie cross-highlight context ──────────────────────────────────────────────
@@ -266,7 +342,7 @@ export function StudioPieChart({
 
   // ── Grouped rings: one ring per xField category, slices by seriesField ──
   if (seriesField && twoRingData) {
-    const { rings, filteredCategories, filteredSlicesByCategory } = twoRingData;
+    const { rings, categoryOrder, filteredCategories, filteredSlicesByCategory } = twoRingData;
     const n = rings.length;
     if (n === 0) {
       return <div style={{ height }} />;
@@ -275,6 +351,19 @@ export function StudioPieChart({
     const totalSpace = maxRadius - donutHole;
     const ringGapActual = 1;
     const ringWidth = Math.max(6, Math.floor((totalSpace - ringGapActual * (n - 1)) / n));
+
+    // Finding 1.3: a stable category → colour mapping across ALL rings, keyed on the union of
+    // split-by categories (categoryOrder). Every slice is coloured by its category, so the same
+    // split-by category is the same colour in every ring — unlike the previous positional
+    // `resolvedChartColors[i % …]` which re-coloured categories per ring. Reconciled with the
+    // single-ring palette (`pieColors`) so dimmed and un-dimmed arcs draw from one source.
+    const categoryColor = new Map<string, string>(
+      categoryOrder.map((cat, i) => [cat, pieColors[i % pieColors.length]]),
+    );
+    // Emit exactly one legend entry per union category — from the first ring that contains it —
+    // so the legend describes every category once, coloured to match. (Previously the legend was
+    // built from the outermost ring only, mislabelling inner-ring categories absent from it.)
+    const legendAssigned = new Set<string>();
 
     const pieSeries = rings.map((ring, ringIndex) => {
       const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
@@ -286,7 +375,7 @@ export function StudioPieChart({
       // For multi-ring, compute per-ring arc label props
       let ringArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
       if (pieArcLabelCfg === 'value') {
-        ringArcLabel = 'value';
+        ringArcLabel = (item) => valueFormatter(item.value);
       } else if (pieArcLabelCfg === 'percent' && ringTotal > 0) {
         ringArcLabel = (item) => `${((item.value / ringTotal) * 100).toFixed(1)}%`;
       }
@@ -297,21 +386,27 @@ export function StudioPieChart({
         innerRadius,
         outerRadius,
         ...(ringArcLabel ? { arcLabel: ringArcLabel, arcLabelMinAngle } : {}),
+        // Apply the measure valueFormatter so ring tooltips show formatted values (finding 1.3),
+        // matching the single-ring path instead of showing raw numbers.
+        valueFormatter: (item: { value: number }) => valueFormatter(item.value),
         data: ring.slices.labels.map((label, i) => {
-          const isDimmed =
-            isCatDimmed || (filteredSlices != null && !filteredSlices.has(String(label)));
-          const color = resolvedChartColors[i % resolvedChartColors.length];
+          const catKey = String(label);
+          const isDimmed = isCatDimmed || (filteredSlices != null && !filteredSlices.has(catKey));
+          const baseColor = categoryColor.get(catKey) ?? pieColors[i % pieColors.length];
+          const showLegend = !legendAssigned.has(catKey);
+          if (showLegend) {
+            legendAssigned.add(catKey);
+          }
           return {
             id: i,
-            // Use a function label: tooltip gets the slice name, legend only
-            // shows entries for the outermost ring to avoid duplicates.
-            label:
-              ringIndex === 0
-                ? formatLabel(label)
-                : (location: 'legend' | 'tooltip' | 'arc') =>
-                    location === 'tooltip' ? formatLabel(label) : '',
+            // Function label: tooltip gets the slice name; a legend entry is emitted only for the
+            // first ring that carries each category, so every category appears exactly once.
+            label: showLegend
+              ? formatLabel(label)
+              : (location: 'legend' | 'tooltip' | 'arc') =>
+                  location === 'tooltip' ? formatLabel(label) : '',
             value: ring.slices.values[i] ?? 0,
-            ...(isDimmed && { color: `${color}40` }),
+            color: isDimmed ? `${baseColor}40` : baseColor,
           };
         }),
         highlightScope: { highlight: 'item' as const, fade: 'series' as const },
@@ -324,7 +419,7 @@ export function StudioPieChart({
         height={twoRingPieH}
         skipAnimation={skipAnimation}
         series={pieSeries}
-        colors={chartColors}
+        colors={pieColors}
         {...(pieLegendBelow && {
           slotProps: {
             legend: {
@@ -498,15 +593,8 @@ export function StudioPieChart({
     }
   }
 
-  // Resolve the colour palette for both the arc slices and the custom legend so
-  // they always agree.  Priority: explicit chartColors > theme MuiPieChart default
-  // props > resolvedChartColors (blueberryTwilightPalette fallback).
-  const themeDefaultPieColors = (
-    theme.components as
-      | Record<string, { defaultProps?: { colors?: string[] } } | undefined>
-      | undefined
-  )?.MuiPieChart?.defaultProps?.colors;
-  const pieColors: string[] = chartColors ?? themeDefaultPieColors ?? resolvedChartColors;
+  // `pieColors` (the reconciled arc/legend palette) is hoisted to the top of the component so
+  // the grouped-ring branch can reuse it (finding 1.3).
 
   // Shared series definition for both legend modes
   const pieSingleSeries = [

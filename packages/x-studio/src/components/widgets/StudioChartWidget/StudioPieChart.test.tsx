@@ -35,8 +35,11 @@ const theme = createTheme();
 type PieCallProps = {
   series: Array<{
     id?: string;
+    label?: unknown;
     innerRadius?: number;
     outerRadius?: number;
+    valueFormatter?: (item: { value: number }) => string;
+    arcLabel?: 'value' | ((item: { value: number }) => string);
     data: Array<{ id: number; label: unknown; value: number; color?: string }>;
   }>;
   highlightedItem?: { seriesId: string; dataIndex: number } | null;
@@ -47,6 +50,27 @@ type PieCallProps = {
 
 function lastPieProps(): PieCallProps {
   return pieSpy.mock.calls.at(-1)?.[0] as PieCallProps;
+}
+
+// Collect the legend-visible label strings across every ring series. A slice contributes a
+// legend entry only when its `label` is a plain string (function labels render '' for the
+// legend location), so this is exactly the set of categories the legend describes.
+function legendLabels(props: PieCallProps): string[] {
+  const out: string[] = [];
+  for (const s of props.series) {
+    for (const d of s.data) {
+      if (typeof d.label === 'string') {
+        out.push(d.label);
+      }
+    }
+  }
+  return out;
+}
+
+// Find the single slice within one ring whose value matches — used to identify a category's
+// slice when its legend label may be a function in inner rings.
+function sliceByValue(props: PieCallProps, seriesIndex: number, value: number) {
+  return props.series[seriesIndex].data.find((d) => d.value === value);
 }
 
 const noop = () => {};
@@ -286,5 +310,208 @@ describe('StudioPieChart', () => {
     // The built-in legend is suppressed via slots in this mode.
     const props = lastPieProps();
     expect(props.slots?.legend).toBeDefined();
+  });
+
+  // ── Grouped rings honor hard filters (finding 1.1) ─────────────────────────
+  describe('grouped rings honor hard filters (finding 1.1)', () => {
+    it('aggregates rings from the FILTERED rows for an interactive filter-widget selection', () => {
+      // A filter widget selected "North" → every widget hard-filters to North. `enrichedRows`
+      // already reflects that; `allEnrichedRows` is the unfiltered baseline; `shouldShowGhost`
+      // is false (interactive selections never ghost). The rings must follow `enrichedRows`.
+      const filtered = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'North', segment: 'Enterprise', total: 7 },
+      ];
+      const baseline = [
+        ...filtered,
+        { region: 'South', segment: 'SMB', total: 3 },
+        { region: 'South', segment: 'Enterprise', total: 4 },
+      ];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: filtered,
+          allEnrichedRows: baseline,
+          shouldShowGhost: false,
+          chartData: { labels: ['North'], values: [12] },
+        }),
+      );
+      const props = lastPieProps();
+      // Only the North ring renders — the South baseline rows are filtered out, not dimmed.
+      expect(props.series).toHaveLength(1);
+      // And nothing is dimmed (every slice keeps its full-opacity base colour).
+      expect(props.series[0].data.every((d) => !String(d.color).endsWith('40'))).toBe(true);
+      expect(props.series[0].data.map((d) => d.value).sort()).toEqual([5, 7]);
+    });
+
+    it("removes filtered-out slices for a 'filter'-mode cross-filter (no ghost, no dimming)", () => {
+      // crossFilterMode: 'filter' → the incoming cross-filter hard-filters this widget, so
+      // `shouldShowGhost` is false and `enrichedRows` already excludes the Enterprise segment.
+      const filtered = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'South', segment: 'SMB', total: 3 },
+      ];
+      const baseline = [
+        ...filtered,
+        { region: 'North', segment: 'Enterprise', total: 7 },
+        { region: 'South', segment: 'Enterprise', total: 4 },
+      ];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: filtered,
+          allEnrichedRows: baseline,
+          shouldShowGhost: false,
+          chartData: { labels: ['North', 'South'], values: [5, 3] },
+        }),
+      );
+      const props = lastPieProps();
+      // Both region rings render, but each keeps only the SMB slice (Enterprise is filtered out).
+      expect(props.series).toHaveLength(2);
+      for (const ring of props.series) {
+        expect(ring.data).toHaveLength(1);
+        expect(String(ring.data[0].color).endsWith('40')).toBe(false);
+      }
+      expect(props.series[0].data[0].value).toBe(5);
+      expect(props.series[1].data[0].value).toBe(3);
+    });
+
+    it('still renders the unfiltered baseline with dimming when a chart-click ghost IS active', () => {
+      // shouldShowGhost true → keep the baseline rings and DIM the filtered-out slices.
+      const baseline = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'North', segment: 'Enterprise', total: 7 },
+      ];
+      const filtered = [{ region: 'North', segment: 'SMB', total: 5 }];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: filtered,
+          allEnrichedRows: baseline,
+          shouldShowGhost: true,
+          resolvedChartColors: ['#111', '#222', '#333', '#444'],
+          chartData: { labels: ['North'], values: [5] },
+        }),
+      );
+      const props = lastPieProps();
+      // Both baseline slices still render (dim, not removed).
+      expect(props.series[0].data).toHaveLength(2);
+      // Labels sort alphabetically → categoryOrder (union) = [Enterprise, SMB]:
+      // Enterprise=#111 (filtered out → dimmed), SMB=#222 (kept → full opacity).
+      const smb = sliceByValue(props, 0, 5);
+      const enterprise = sliceByValue(props, 0, 7);
+      expect(smb!.color).toBe('#222');
+      // Dim colour is reconciled with the resolved palette (base + '40'), like the single ring.
+      expect(enterprise!.color).toBe('#11140');
+    });
+  });
+
+  // ── Stable category colours + union legend (finding 1.3) ───────────────────
+  describe('grouped rings: stable colours and union legend (finding 1.3)', () => {
+    // Sparse data: the split-by category set differs between rings (North has A,B; South has B,C).
+    const sparseRows = [
+      { region: 'North', segment: 'A', total: 1 },
+      { region: 'North', segment: 'B', total: 2 },
+      { region: 'South', segment: 'B', total: 3 },
+      { region: 'South', segment: 'C', total: 4 },
+    ];
+
+    const sparseProps = () =>
+      baseProps({
+        seriesField: 'segment',
+        xField: 'region',
+        yField: 'total',
+        enrichedRows: sparseRows,
+        allEnrichedRows: sparseRows,
+        resolvedChartColors: ['#111', '#222', '#333', '#444'],
+        chartData: { labels: ['North', 'South'], values: [3, 7] },
+      });
+
+    it('assigns the same colour to a split-by category across every ring', () => {
+      renderPie(sparseProps());
+      const props = lastPieProps();
+      // Identify each category's slice by its (unique) value.
+      const northB = sliceByValue(props, 0, 2); // North / B
+      const southB = sliceByValue(props, 1, 3); // South / B
+      const northA = sliceByValue(props, 0, 1); // North / A
+      const southC = sliceByValue(props, 1, 4); // South / C
+      // Same category B → same colour in both rings (the core 1.3 fix).
+      expect(southB!.color).toBe(northB!.color);
+      // Different categories → different colours (no positional collision).
+      expect(northA!.color).not.toBe(northB!.color);
+      expect(southC!.color).not.toBe(southB!.color);
+      expect(northA!.color).not.toBe(southC!.color);
+    });
+
+    it('builds the legend from the union of categories, each appearing exactly once', () => {
+      renderPie(sparseProps());
+      const props = lastPieProps();
+      const labels = legendLabels(props).sort();
+      // Union A,B,C — not just the outermost ring's [A,B]; C (inner-ring only) is included.
+      expect(labels).toEqual(['A', 'B', 'C']);
+    });
+
+    it('reuses the reconciled pie palette for the rings', () => {
+      renderPie(sparseProps());
+      const props = lastPieProps();
+      // The ring PieChart is fed the reconciled palette, not a bare `chartColors` (undefined).
+      expect(props.colors).toEqual(['#111', '#222', '#333', '#444']);
+    });
+  });
+
+  // ── valueFormatter + pieMaxSlices applied to rings (finding 1.3 secondary) ──
+  describe('grouped rings apply valueFormatter and pieMaxSlices (finding 1.3)', () => {
+    it('applies the measure valueFormatter to each ring series (tooltips are formatted)', () => {
+      const rows = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'North', segment: 'Enterprise', total: 7 },
+      ];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: rows,
+          allEnrichedRows: rows,
+          valueFormatter: (v) => `$${v ?? 0}`,
+          chartData: { labels: ['North'], values: [12] },
+        }),
+      );
+      const props = lastPieProps();
+      expect(typeof props.series[0].valueFormatter).toBe('function');
+      expect(props.series[0].valueFormatter!({ value: 5 })).toBe('$5');
+    });
+
+    it('collapses the tail into a global "Other" bucket across rings when pieMaxSlices is set', () => {
+      const rows = [
+        { region: 'North', segment: 'A', total: 10 },
+        { region: 'North', segment: 'B', total: 8 },
+        { region: 'North', segment: 'C', total: 6 },
+        { region: 'North', segment: 'D', total: 4 },
+      ];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: rows,
+          allEnrichedRows: rows,
+          pieMaxSlices: 3,
+          chartData: { labels: ['North'], values: [28] },
+        }),
+      );
+      const props = lastPieProps();
+      // Keep top (pieMaxSlices - 1) = 2 categories by total (A=10, B=8); collapse C+D → Other.
+      const labels = props.series[0].data.map((d) => d.label);
+      expect(labels).toEqual(['A', 'B', 'Other']);
+      const other = props.series[0].data.find((d) => d.label === 'Other');
+      expect(other?.value).toBe(6 + 4);
+    });
   });
 });

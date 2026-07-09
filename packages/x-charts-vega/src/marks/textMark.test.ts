@@ -27,9 +27,12 @@ describe('compileTextMark', () => {
     const compiled = compileSpec(baseSpec);
     expect(compiled.plots).to.deep.equal([]);
     const items = textItems(compiled.overlays);
+    // Every item carries the centered default style (Vega-Lite text marks
+    // default to align 'center' / baseline 'middle').
+    const centered = { textAnchor: 'middle', dominantBaseline: 'middle' };
     expect(items).to.deep.equal([
-      { x: 'A', y: 10, text: '10' },
-      { x: 'B', y: 20, text: '20' },
+      { x: 'A', y: 10, text: '10', style: centered },
+      { x: 'B', y: 20, text: '20', style: centered },
     ]);
   });
 
@@ -39,9 +42,10 @@ describe('compileTextMark', () => {
       encoding: { ...baseSpec.encoding, text: { value: 'fixed' } },
     });
     const items = textItems(compiled.overlays);
+    const centered = { textAnchor: 'middle', dominantBaseline: 'middle' };
     expect(items).to.deep.equal([
-      { x: 'A', y: 10, text: 'fixed' },
-      { x: 'B', y: 20, text: 'fixed' },
+      { x: 'A', y: 10, text: 'fixed', style: centered },
+      { x: 'B', y: 20, text: 'fixed', style: centered },
     ]);
   });
 
@@ -74,6 +78,8 @@ describe('compileTextMark', () => {
       fontFamily: 'Arial',
       fontWeight: 'bold',
       fill: '#ff0000',
+      textAnchor: 'middle',
+      dominantBaseline: 'middle',
     });
   });
 

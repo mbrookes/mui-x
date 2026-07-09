@@ -70,82 +70,88 @@ export const temperatureRows: DatasetRow[] = [
 ];
 
 /**
- * A tiny inline GeoJSON FeatureCollection (three abstract island polygons)
- * for the geoshape demo — no topojson fetching in the demo app.
+ * An inline GeoJSON FeatureCollection for the choropleth demo: six named
+ * regions tiling a 3×2 grid (no topojson fetching in the demo app), each with
+ * a distinct population so the sequential color scale reads as a real map.
  */
-export const islandFeatures: DatasetRow[] = [
-  {
-    type: 'Feature',
-    properties: { name: 'North Isle', population: 320 },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [-10, 20],
-          [10, 25],
-          [15, 40],
-          [-5, 45],
-          [-15, 32],
-          [-10, 20],
-        ],
-      ],
-    },
-  },
-  {
-    type: 'Feature',
-    properties: { name: 'East Isle', population: 540 },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [25, 5],
-          [45, 10],
-          [50, 25],
-          [30, 30],
-          [20, 18],
-          [25, 5],
-        ],
-      ],
-    },
-  },
-  {
-    type: 'Feature',
-    properties: { name: 'South Isle', population: 150 },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [-20, -30],
-          [5, -35],
-          [10, -15],
-          [-10, -10],
-          [-25, -20],
-          [-20, -30],
-        ],
-      ],
-    },
-  },
-];
+export const regionFeatures: DatasetRow[] = (() => {
+  const cols: Array<[number, number]> = [
+    [-30, -10],
+    [-10, 10],
+    [10, 30],
+  ];
+  const rows: Array<[number, number]> = [
+    [10, 40],
+    [-20, 10],
+  ];
+  const names = [
+    ['Northwest', 'North', 'Northeast'],
+    ['Southwest', 'South', 'Southeast'],
+  ];
+  // Wide, spatially-graded values so the six cells read as clearly distinct
+  // shades (a narrow range collapses them into one indistinct blob).
+  const populations = [
+    [120, 520, 900],
+    [300, 700, 1100],
+  ];
+  const features: DatasetRow[] = [];
+  rows.forEach(([lat0, lat1], ri) => {
+    cols.forEach(([lon0, lon1], ci) => {
+      features.push({
+        type: 'Feature',
+        properties: { name: names[ri][ci], population: populations[ri][ci] },
+        geometry: {
+          type: 'Polygon',
+          // Clockwise ring: d3-geo (the Map's projection engine) reads a
+          // counter-clockwise exterior ring as "the whole globe minus this
+          // hole", which floods the map with one feature's color. Winding the
+          // ring clockwise keeps each rectangle a small, self-contained cell.
+          coordinates: [
+            [
+              [lon0, lat0],
+              [lon0, lat1],
+              [lon1, lat1],
+              [lon1, lat0],
+              [lon0, lat0],
+            ],
+          ],
+        },
+      });
+    });
+  });
+  return features;
+})();
 
-/** Rows for the boxplot demos: several revenue samples per category (+ region split). */
-export const distributionRows: DatasetRow[] = [
-  { category: 'Electronics', region: 'West', revenue: 4200 },
-  { category: 'Electronics', region: 'West', revenue: 4600 },
-  { category: 'Electronics', region: 'West', revenue: 5100 },
-  { category: 'Electronics', region: 'West', revenue: 3800 },
-  { category: 'Electronics', region: 'East', revenue: 5100 },
-  { category: 'Electronics', region: 'East', revenue: 3900 },
-  { category: 'Electronics', region: 'East', revenue: 4400 },
-  { category: 'Electronics', region: 'East', revenue: 6200 },
-  { category: 'Apparel', region: 'West', revenue: 2400 },
-  { category: 'Apparel', region: 'West', revenue: 2100 },
-  { category: 'Apparel', region: 'West', revenue: 3000 },
-  { category: 'Apparel', region: 'West', revenue: 1700 },
-  { category: 'Apparel', region: 'East', revenue: 2600 },
-  { category: 'Apparel', region: 'East', revenue: 2750 },
-  { category: 'Apparel', region: 'East', revenue: 2200 },
-  { category: 'Apparel', region: 'East', revenue: 3400 },
-];
+/**
+ * Rows for the boxplot demos: several revenue samples per category, each split
+ * into two regions. Six categories keep the single box plot from looking bare
+ * and give the grouped (color-split) variant enough dodged boxes to read.
+ */
+export const distributionRows: DatasetRow[] = (() => {
+  const bases: Array<[string, number]> = [
+    ['Electronics', 4600],
+    ['Apparel', 2500],
+    ['Home', 3300],
+    ['Sports', 2900],
+    ['Books', 1700],
+    ['Toys', 2100],
+  ];
+  const spreads = [-0.32, -0.12, 0.05, 0.28];
+  const rows: DatasetRow[] = [];
+  bases.forEach(([category, base], ci) => {
+    ['West', 'East'].forEach((region, ri) => {
+      const center = base + (ri === 0 ? 250 : -250);
+      spreads.forEach((factor, si) => {
+        rows.push({
+          category,
+          region,
+          revenue: Math.round(center * (1 + factor * 0.35) + ((ci + si) % 3) * 80),
+        });
+      });
+    });
+  });
+  return rows;
+})();
 
 /**
  * Rows for the continuous-time-scale demo: daily active users over an
@@ -160,6 +166,21 @@ export const timeSeriesRows: DatasetRow[] = [
   { date: '2024-02-05', users: 210 },
   { date: '2024-02-19', users: 265 },
   { date: '2024-03-01', users: 240 },
+];
+
+/**
+ * Rows for the regression demo: a noisy but upward relationship between ad
+ * spend and conversions, so the `regression` transform fits a visible trend.
+ */
+export const spendRows: DatasetRow[] = [
+  { spend: 10, conversions: 22 },
+  { spend: 15, conversions: 30 },
+  { spend: 20, conversions: 35 },
+  { spend: 25, conversions: 48 },
+  { spend: 30, conversions: 52 },
+  { spend: 35, conversions: 67 },
+  { spend: 40, conversions: 71 },
+  { spend: 45, conversions: 85 },
 ];
 
 export interface Demo {
@@ -300,7 +321,7 @@ export const demos: Demo[] = [
     description:
       'mark: "geoshape" over an inline GeoJSON FeatureCollection with a quantitative color ' +
       'field — translates to the x-charts-premium Map (renders watermarked without a license key).',
-    data: islandFeatures,
+    data: regionFeatures,
     spec: {
       projection: { type: 'naturalEarth1' },
       mark: 'geoshape',
@@ -429,6 +450,28 @@ export const demos: Demo[] = [
         x: { field: 'month', type: 'ordinal' },
         y: { field: 'cumulative', type: 'quantitative' },
       },
+    },
+  },
+  {
+    id: 'regression-line',
+    title: 'Scatter with regression trend line',
+    description:
+      'A "regression" transform fits a linear trend; the layer draws the raw points plus the ' +
+      'fitted line. Because the x axis is continuous quantitative, the line renders as a polyline ' +
+      'overlay (the wrapper has no index-aligned category domain to hang a line series on).',
+    data: spendRows,
+    spec: {
+      encoding: {
+        x: { field: 'spend', type: 'quantitative' },
+        y: { field: 'conversions', type: 'quantitative' },
+      },
+      layer: [
+        { mark: { type: 'point' } },
+        {
+          mark: { type: 'line', color: '#d32f2f' },
+          transform: [{ regression: 'conversions', on: 'spend' }],
+        },
+      ],
     },
   },
   {

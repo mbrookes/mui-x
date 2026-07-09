@@ -252,4 +252,28 @@ describe('compileErrorBarMark', () => {
     expect(compiled.overlays[0].kind).to.equal('band');
     expect(compiled.xAxis?.categories).to.deep.equal(['Mon', 'Tue']);
   });
+
+  it('extends the value axis to cover a band that reaches past its line series', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+      },
+      layer: [
+        { mark: { type: 'errorband', extent: 'stdev' } },
+        { mark: 'line', encoding: { y: { field: 'temp', aggregate: 'mean' } } },
+      ],
+    });
+    const band = compiled.overlays.find((overlay) => overlay.kind === 'band');
+    if (!band || band.kind !== 'band') {
+      throw new Error('expected a band overlay');
+    }
+    const bandUpper = Math.max(...band.points.map((point: OverlayBandPoint) => point.upper));
+    // The mean line tops out at 22 (Tue); the band reaches 24. Without unioning
+    // the band into the domain the axis would stop at ~22 and clip the band.
+    const yMax = (compiled.yAxis?.config as { max?: number } | undefined)?.max;
+    expect(yMax).to.not.equal(undefined);
+    expect(yMax).to.be.at.least(bandUpper);
+  });
 });

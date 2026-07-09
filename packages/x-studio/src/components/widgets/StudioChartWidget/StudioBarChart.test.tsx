@@ -2,6 +2,10 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { SourceSelectionContext } from './SourceSelectionContext';
 
@@ -131,6 +135,24 @@ describe('StudioBarChart', () => {
     render(
       <ThemeProvider theme={theme}>
         <StudioBarChart {...props} />
+      </ThemeProvider>,
+    );
+
+  // Renders with a StudioUIConfigContext override, mirroring StudioPieChart.test.tsx's
+  // localization test — used to pin the "Other" bucket label to the localeText value rather
+  // than the English literal (finding 3.1).
+  const renderChartWithOtherBucketLabel = (props: StudioBarChartProps, otherBucketLabel: string) =>
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, chartOtherBucketLabel: otherBucketLabel },
+          }}
+        >
+          <StudioBarChart {...props} />
+        </StudioUIConfigContext.Provider>
       </ThemeProvider>,
     );
 
@@ -392,6 +414,54 @@ describe('StudioBarChart', () => {
       const props = lastBarProps();
       expect(props.xAxis[0].data).toEqual(['A', 'Other']);
       expect(props.series[0].data).toEqual([5, 9]);
+    });
+
+    // finding 3.1: the synthetic "Other" bucket must use localeText.chartOtherBucketLabel (as
+    // StudioPieChart already does) rather than the hardcoded English literal, so it matches the
+    // rest of a localized UI and the merge-with-real-category / click-guard logic keys on the
+    // same localized string.
+    it('localizes the synthetic "Other" bucket label via localeText.chartOtherBucketLabel', () => {
+      renderChartWithOtherBucketLabel(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [5, 4, 3, 2, 1] },
+          barMaxCategories: 3,
+        }),
+        'Autre',
+      );
+      const props = lastBarProps();
+      expect(props.xAxis[0].data).toEqual(['A', 'B', 'Autre']);
+      expect(props.xAxis[0].data).not.toContain('Other');
+      expect(props.series[0].data).toEqual([5, 4, 6]);
+    });
+
+    it('merges the remainder into an existing localized "Other" category instead of creating a duplicate English bucket', () => {
+      renderChartWithOtherBucketLabel(
+        baseProps({
+          chartData: { labels: ['A', 'Autre', 'C', 'D'], values: [5, 4, 3, 2] },
+          barMaxCategories: 3,
+        }),
+        'Autre',
+      );
+      const props = lastBarProps();
+      expect(props.xAxis[0].data).toEqual(['A', 'Autre']);
+      expect(props.series[0].data).toEqual([5, 9]);
+    });
+
+    it('ignores a click on the localized synthetic "Other" bucket but forwards a kept category', () => {
+      const onItemClick = vi.fn();
+      renderChartWithOtherBucketLabel(
+        baseProps({
+          chartData: { labels: ['A', 'B', 'C', 'D', 'E'], values: [5, 4, 3, 2, 1] },
+          barMaxCategories: 3,
+          onItemClick,
+        }),
+        'Autre',
+      );
+      // Display order is ['A','B','Autre']; the localized synthetic bucket must not cross-filter.
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'Autre' });
+      expect(onItemClick).not.toHaveBeenCalled();
+      lastBarProps().onAxisClick!({ shiftKey: false }, { axisValue: 'B' });
+      expect(onItemClick).toHaveBeenCalledWith('B', false);
     });
 
     it('highlights the selected bar for a lone selection', () => {

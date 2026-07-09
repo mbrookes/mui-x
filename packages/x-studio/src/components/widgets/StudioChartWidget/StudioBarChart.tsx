@@ -9,6 +9,7 @@ import type {
   MultiSeriesData,
   MultiYSeriesData,
 } from '../../../internals/chartAggregation';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import {
   buildGhostBarContext,
   CHART_LEGEND_SLOT_PROPS,
@@ -153,6 +154,9 @@ export function StudioBarChart({
   slotProps,
   children,
 }: StudioBarChartProps) {
+  const localeText = useStudioLocaleText();
+  const otherBucketLabel = localeText.chartOtherBucketLabel;
+
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
   // Densified (temporal-gap-filled) bar data. Computed as memos so they only run when a bar
@@ -646,7 +650,7 @@ export function StudioBarChart({
     const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     const topPairs = sortedPairs.slice(0, topN);
     const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
-    const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
+    const existingOtherIdx = topPairs.findIndex((p) => p.label === otherBucketLabel);
     if (existingOtherIdx >= 0) {
       // Real "Other" category already in top-N — merge remainder into it
       const merged = topPairs.map((p, i) =>
@@ -655,7 +659,7 @@ export function StudioBarChart({
       displayXAxisData = merged.map((p) => p.label);
       displayBarValues = merged.map((p) => p.value);
     } else {
-      displayXAxisData = [...topPairs.map((p) => p.label), 'Other'];
+      displayXAxisData = [...topPairs.map((p) => p.label), otherBucketLabel];
       displayBarValues = [...topPairs.map((p) => p.value), otherValue];
     }
     otherGroupingApplied = true;
@@ -682,11 +686,11 @@ export function StudioBarChart({
     );
     const keepSet = new Set(
       displayXAxisData
-        .filter((l) => !(otherGroupingApplied && String(l) === 'Other'))
+        .filter((l) => !(otherGroupingApplied && String(l) === otherBucketLabel))
         .map((l) => String(l)),
     );
     singleSeriesFilteredValues = displayXAxisData.map((label) => {
-      if (otherGroupingApplied && String(label) === 'Other') {
+      if (otherGroupingApplied && String(label) === otherBucketLabel) {
         let sum = 0;
         for (const [lbl, fv] of filteredValueByLabel) {
           if (!keepSet.has(lbl)) {
@@ -827,7 +831,7 @@ export function StudioBarChart({
             // category (no grouping active) still cross-filters normally.
             onAxisClick={makeAxisClickHandler(
               onItemClick,
-              (label) => otherGroupingApplied && label === 'Other',
+              (label) => otherGroupingApplied && label === otherBucketLabel,
             )}
             sx={{ cursor: 'default' }}
             slots={singleBarSlots}

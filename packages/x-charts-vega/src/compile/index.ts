@@ -102,13 +102,40 @@ function overlayAxisValues(overlay: CompiledOverlay, axis: 'x' | 'y'): number[] 
   }
 }
 
+/** Numeric values a compiled series contributes to a continuous axis. */
+function seriesAxisValues(entry: CompiledSeries, axis: 'x' | 'y'): number[] {
+  const data = (entry as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    return [];
+  }
+  const items = data as unknown[];
+  if (entry.type === 'scatter') {
+    return items
+      .map((point) =>
+        point && typeof point === 'object' ? (point as Record<string, unknown>)[axis] : undefined,
+      )
+      .filter((value): value is number => typeof value === 'number');
+  }
+  // line/area/bar carry a flat value array on the non-category axis: y for the
+  // default vertical layout, x when the bar series is laid out horizontally.
+  const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';
+  if (axis !== valueAxis) {
+    return [];
+  }
+  return items.filter((value): value is number => typeof value === 'number');
+}
+
 /**
- * Seeds continuous-axis min/max from overlay geometry (with 5% padding) when
- * an overlay-only chart would otherwise have a degenerate axis domain. Skips
- * discrete axes and axes that already constrain their domain.
+ * Sizes each continuous axis to cover BOTH the series data and any overlay
+ * geometry (with 5% padding), so an overlay that extends past the series range
+ * (e.g. an error band above the line it wraps) is not clipped at the plot edge.
+ * Runs only for axes that carry overlay values; unioning the series data in
+ * means the explicit min/max can only widen the domain, never clip a series.
+ * Skips discrete axes and axes that already constrain their domain.
  */
 function applyOverlayDomains(
   overlays: CompiledOverlay[],
+  series: CompiledSeries[],
   x: AxisResolution<XAxis> | undefined,
   y: AxisResolution<YAxis> | undefined,
 ): void {
@@ -125,10 +152,11 @@ function applyOverlayDomains(
     if (config.min !== undefined || config.max !== undefined) {
       continue;
     }
-    const values = overlays.flatMap((overlay) => overlayAxisValues(overlay, name));
-    if (values.length === 0) {
+    const overlayValues = overlays.flatMap((overlay) => overlayAxisValues(overlay, name));
+    if (overlayValues.length === 0) {
       continue;
     }
+    const values = [...overlayValues, ...series.flatMap((entry) => seriesAxisValues(entry, name))];
     const min = Math.min(...values);
     const max = Math.max(...values);
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
@@ -271,13 +299,13 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
   }
 
-  // Overlay-only charts (standalone boxplot/errorbar/errorband/segment specs)
-  // have no series to seed x-charts' automatic continuous-axis extents, so
-  // the axis would collapse to a degenerate domain. Derive min/max from the
-  // overlay geometry instead (only when no series exist and the axis doesn't
-  // already constrain its domain).
-  if (series.length === 0 && overlays.length > 0) {
-    applyOverlayDomains(overlays, axes.x, axes.y);
+  // Size continuous axes to cover overlay geometry as well as series data:
+  // an overlay-only chart (standalone boxplot/errorbar/segment) would otherwise
+  // collapse to a degenerate domain, and an overlay layered over a series (an
+  // error band above its line) would otherwise be clipped where it extends past
+  // the series range. Unioning the series data in keeps series from clipping.
+  if (overlays.length > 0) {
+    applyOverlayDomains(overlays, series, axes.x, axes.y);
   }
 
   // Point-selection params map onto x-charts' controlled item highlighting;

@@ -1,8 +1,15 @@
 import type { CurveType } from '@mui/x-charts/models';
-import type { CompiledSeries, CompiledUnit, PlotKind, UnitContext } from '../compile/context';
+import type {
+  CompiledOverlay,
+  CompiledSeries,
+  CompiledUnit,
+  OverlaySegment,
+  PlotKind,
+  UnitContext,
+} from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { toDate, toNumber } from '../compile/fieldTypes';
-import type { DatasetRow, VegaFieldDef } from '../types';
+import type { DatasetRow, VegaFieldDef, VegaMarkDef } from '../types';
 import { isFieldDef } from '../types';
 
 /*
@@ -119,6 +126,69 @@ function formatGroupLabel(value: unknown): string {
   return String(value);
 }
 
+/**
+ * Builds a polyline (segments overlay) for a `line`/`trail` mark whose x is a
+ * continuous quantitative axis — the one axis shape with no index-aligned
+ * category domain to hang an x-charts line series on. Each color group becomes
+ * one x-sorted polyline; endpoints are data-space and get positioned by the
+ * continuous x/y scales at render time. Returns `null` when fewer than two
+ * numeric points survive (nothing to connect).
+ */
+function buildContinuousLineOverlay(
+  ctx: UnitContext,
+  xField: string,
+  yField: string,
+): CompiledOverlay | null {
+  const { rows, encoding, palette } = ctx;
+  const mark = ctx.unit.mark as VegaMarkDef & { stroke?: unknown };
+  const colorDef = [encoding.color, encoding.fill, encoding.stroke].find((def) =>
+    isFieldDef(def),
+  ) as VegaFieldDef | undefined;
+  const colorField = colorDef?.field;
+  const staticStroke =
+    (typeof mark.color === 'string' && mark.color) ||
+    (typeof mark.stroke === 'string' && mark.stroke) ||
+    undefined;
+
+  const groups = new Map<string, Array<{ x: number; y: number }>>();
+  const order: string[] = [];
+  rows.forEach((row) => {
+    const xv = toNumber(row[xField]);
+    const yv = toNumber(row[yField]);
+    if (xv == null || yv == null || Number.isNaN(xv) || Number.isNaN(yv)) {
+      return;
+    }
+    const key = colorField ? String(row[colorField]) : '';
+    let points = groups.get(key);
+    if (!points) {
+      points = [];
+      groups.set(key, points);
+      order.push(key);
+    }
+    points.push({ x: xv, y: yv });
+  });
+
+  const items: OverlaySegment[] = [];
+  order.forEach((key, groupIndex) => {
+    const color = colorField ? palette[groupIndex % palette.length] : (staticStroke ?? palette[0]);
+    const points = groups
+      .get(key)!
+      .slice()
+      .sort((a, b) => a.x - b.x);
+    for (let i = 0; i < points.length - 1; i += 1) {
+      items.push({
+        x1: points[i].x,
+        y1: points[i].y,
+        x2: points[i + 1].x,
+        y2: points[i + 1].y,
+        style: { stroke: color, strokeWidth: 2 },
+      });
+    }
+  });
+
+  return items.length > 0 ? { kind: 'segments', items } : null;
+}
+
 export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const { unit, rows, encoding, x, gaps } = ctx;
   const path = unit.path;
@@ -130,14 +200,25 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const xField = x?.field;
 
   if (!x || !x.categories || !x.categoryKeys) {
-    // Never fires for a temporal x: even the continuous `scaleType: 'time'`
-    // path keeps `categories`/`categoryKeys` populated (see scales.ts). It only
-    // trips on a genuinely continuous *quantitative* x axis, which has no
-    // index-aligned category domain to plot a line/area series against.
+    // Continuous *quantitative* x has no index-aligned category domain for an
+    // x-charts line series (a temporal x doesn't reach here — the continuous
+    // `scaleType: 'time'` path still populates `categories`/`categoryKeys`, see
+    // scales.ts). For `line`/`trail` we render a polyline through the segments
+    // overlay instead of dropping the layer (trend/regression/function lines);
+    // `area` (which needs a filled polygon) is still dropped.
+    const contXField = x?.field;
+    if ((markType === 'line' || markType === 'trail') && contXField && yField) {
+      const overlay = buildContinuousLineOverlay(ctx, contXField, yField);
+      if (overlay) {
+        return { series: [], plots: [], overlays: [overlay] };
+      }
+    }
     gaps.add({
       code: 'mark:line-continuous-x',
       message:
-        'Line/area marks need a discrete (nominal/ordinal) or temporal x axis in this wrapper — a continuous quantitative x axis has no index-aligned category domain to plot the series against. The layer was dropped.',
+        markType === 'area'
+          ? 'Area marks need a discrete (nominal/ordinal) or temporal x axis in this wrapper — a filled area band over a continuous quantitative x axis is not built as an overlay. The layer was dropped.'
+          : 'A line/trail mark over a continuous quantitative x axis needs numeric `x` and `y` field values on at least two rows to draw a polyline; none survived, so the layer was dropped.',
       severity: 'unsupported',
       path,
     });

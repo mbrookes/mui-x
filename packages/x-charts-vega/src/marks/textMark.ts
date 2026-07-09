@@ -77,7 +77,7 @@ export function resolveAxisValue(
   return raw as string | number;
 }
 
-function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties | undefined {
+function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties {
   const style: React.CSSProperties = {};
   if (typeof mark.fontSize === 'number') {
     style.fontSize = mark.fontSize;
@@ -91,15 +91,16 @@ function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties
   if (typeof mark.color === 'string') {
     style.fill = mark.color;
   }
-  if (typeof mark.align === 'string' && ALIGN_TO_ANCHOR[mark.align]) {
-    style.textAnchor = ALIGN_TO_ANCHOR[mark.align] as React.CSSProperties['textAnchor'];
-  }
-  if (typeof mark.baseline === 'string' && BASELINE_TO_DOMINANT[mark.baseline]) {
-    style.dominantBaseline = BASELINE_TO_DOMINANT[
-      mark.baseline
-    ] as React.CSSProperties['dominantBaseline'];
-  }
-  return Object.keys(style).length > 0 ? style : undefined;
+  // Vega-Lite text marks default to centered alignment (`align: 'center'`,
+  // `baseline: 'middle'`); an unset channel must center rather than fall back
+  // to SVG's left/alphabetic default, or value labels sit off to the side of
+  // the point they annotate. An explicit align/baseline still wins.
+  const anchor = typeof mark.align === 'string' ? ALIGN_TO_ANCHOR[mark.align] : undefined;
+  style.textAnchor = (anchor ?? 'middle') as React.CSSProperties['textAnchor'];
+  const baseline =
+    typeof mark.baseline === 'string' ? BASELINE_TO_DOMINANT[mark.baseline] : undefined;
+  style.dominantBaseline = (baseline ?? 'middle') as React.CSSProperties['dominantBaseline'];
+  return style;
 }
 
 export function compileTextMark(ctx: UnitContext): CompiledUnit {

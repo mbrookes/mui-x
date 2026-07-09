@@ -296,12 +296,13 @@ describe('compileLineAreaMark', () => {
     expect((compiled.series[0] as { color?: string }).color).to.equal('#abcdef');
   });
 
-  it('reports an unsupported gap for a continuous quantitative x axis instead of throwing', () => {
+  it('renders a line over a continuous quantitative x axis as a segments overlay', () => {
     const compiled = compileSpec({
       data: {
         values: [
-          { a: 1, b: 2 },
           { a: 2, b: 4 },
+          { a: 1, b: 2 },
+          { a: 3, b: 9 },
         ],
       },
       mark: 'line',
@@ -310,7 +311,37 @@ describe('compileLineAreaMark', () => {
         y: { field: 'b', type: 'quantitative' },
       },
     });
+    // No line series (no index-aligned category domain) and no gap: the layer
+    // becomes a polyline through the segments overlay instead of being dropped.
     expect(compiled.series).to.have.length(0);
+    expect(compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x')).to.equal(
+      undefined,
+    );
+    const segments = compiled.overlays.find((overlay) => overlay.kind === 'segments');
+    if (!segments || segments.kind !== 'segments') {
+      throw new Error('expected a segments overlay');
+    }
+    // Points are x-sorted before connecting: (1,2)→(2,4)→(3,9) = two segments.
+    expect(segments.items).to.have.length(2);
+    expect(segments.items[0]).to.include({ x1: 1, y1: 2, x2: 2, y2: 4 });
+  });
+
+  it('still drops an area mark over a continuous quantitative x axis with a gap', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { a: 1, b: 2 },
+          { a: 2, b: 4 },
+        ],
+      },
+      mark: 'area',
+      encoding: {
+        x: { field: 'a', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+      },
+    });
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.overlays).to.have.length(0);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x');
     expect(gap?.severity).to.equal('unsupported');
   });

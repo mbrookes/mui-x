@@ -110,9 +110,41 @@ function sanitizeColors(colors: string[] | undefined): string[] | undefined {
 }
 
 /**
+ * Coerce a caller-supplied data value to a finite number, falling back to `0`.
+ * `value` is declared `number` in the `render_chart` schema but is never
+ * validated at runtime, so a string value would flow into `reduce`/coordinate
+ * maps and — for the donut centre `total`, which is printed as text content —
+ * inject arbitrary markup into the SVG. Coercing here, in the same choke point
+ * that guards colors/dimensions, closes both the injection path and the
+ * NaN-geometry hazard for every renderer at once.
+ */
+function sanitizeValue(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sanitizeData(data: ChartDataPoint[] | undefined): ChartDataPoint[] | undefined {
+  if (data === undefined) {
+    return undefined;
+  }
+  return data.map((d) => ({ ...d, value: sanitizeValue(d?.value) }));
+}
+
+function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | undefined {
+  if (series === undefined) {
+    return undefined;
+  }
+  return series.map((s) => ({
+    ...s,
+    values: Array.isArray(s?.values) ? s.values.map(sanitizeValue) : [],
+  }));
+}
+
+/**
  * Validate/coerce the untrusted, model-supplied portions of the input
- * (`width`, `height`, `colors`) before any renderer interpolates them into SVG
- * markup. Text content is handled separately by `esc()`.
+ * (`width`, `height`, `colors`, and every numeric `value`) before any renderer
+ * interpolates them into SVG markup. Text content is handled separately by
+ * `esc()`.
  */
 function sanitizeInput(input: ChartRendererInput): ChartRendererInput {
   return {
@@ -120,6 +152,8 @@ function sanitizeInput(input: ChartRendererInput): ChartRendererInput {
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),
     height: sanitizeDimension(input.height, DEFAULT_HEIGHT),
     colors: sanitizeColors(input.colors),
+    data: sanitizeData(input.data),
+    series: sanitizeSeries(input.series),
   };
 }
 
@@ -170,6 +204,12 @@ function renderBar(input: ChartRendererInput): string {
   const { title, data = [], colors = DEFAULT_COLORS } = input;
   const W = input.width ?? 600;
   const H = input.height ?? 400;
+
+  // Guard against empty / all-non-positive data: with maxVal === 0 every bar's
+  // geometry becomes `v / 0` → NaN. Render a placeholder like line/stacked_bar do.
+  if (data.length === 0 || !data.some((d) => d.value > 0)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
 
   const PAD = { top: title ? 50 : 20, right: 20, bottom: 60, left: 60 };
   const chartW = W - PAD.left - PAD.right;
@@ -515,6 +555,12 @@ function renderDonut(input: ChartRendererInput): string {
   const W = input.width ?? 600;
   const H = input.height ?? 400;
 
+  // Guard against empty / all-non-positive data: total === 0 makes every slice's
+  // `value / total` NaN. Render a placeholder like line/stacked_bar do.
+  if (data.length === 0 || !data.some((d) => d.value > 0)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
+
   const PAD = { top: title ? 50 : 20, right: 20, bottom: 20, left: 20 };
   const legendH = Math.ceil(data.length / 3) * 22 + 10;
   const pieH = H - PAD.top - PAD.bottom - legendH;
@@ -569,7 +615,10 @@ function renderDonut(input: ChartRendererInput): string {
   // Total label in center
   svgLines.push(
     `<text x="${cx}" y="${cy - 8}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#888">Total</text>`,
-    `<text x="${cx}" y="${cy + 10}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="700" fill="#1a1a2e">${total.toLocaleString()}</text>`,
+    // `total` is a coerced finite number (see sanitizeValue), so `toLocaleString()`
+    // yields only digits/grouping separators; `esc()` is defense-in-depth for the
+    // one value-derived number printed as SVG text content.
+    `<text x="${cx}" y="${cy + 10}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="700" fill="#1a1a2e">${esc(total.toLocaleString())}</text>`,
   );
 
   // Legend

@@ -721,6 +721,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   add_page_filter: {
     effect: 'pure',
     plan: (args, { state }) => {
+      const activePageId = state.doc.dashboard.activePageId;
+      // Match add_widget: confirm the active page exists before scoping a filter to
+      // it, so a stale/empty activePageId returns an actionable error instead of
+      // committing a page filter targeting a page that no longer exists.
+      if (!state.doc.pages[activePageId]) {
+        return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
+      }
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
       const operatorRaw = String(args.operator ?? 'equals');
@@ -741,7 +748,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         fieldType,
         // Page target chosen server-side and carried in the filter's scope, so
         // the client applies it to this page rather than its own active page.
-        scope: { kind: 'page', pageId: state.doc.dashboard.activePageId },
+        scope: { kind: 'page', pageId: activePageId },
       };
       const mutation: StateMutation = { type: 'addFilter', args: { filter } };
       return {
@@ -758,6 +765,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
+      // Match every other entity-targeting tool: validate the widget exists before
+      // committing a widget-scoped filter, so a fabricated/stale widgetId returns an
+      // actionable error instead of silently committing a dangling no-op filter.
+      if (!state.doc.widgets[widgetId]) {
+        return {
+          output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
+          nextState: state,
+        };
+      }
       const field = String(args.field ?? '');
       const sourceId = String(args.sourceId ?? '');
       const operatorRaw = String(args.operator ?? 'equals');

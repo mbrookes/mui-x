@@ -862,6 +862,27 @@ describe('executeToolOnState: add_page_filter', () => {
     expect(result.nextState).toBe(state);
   });
 
+  it('returns an error (not success) when there is no active page, and does not mutate', () => {
+    // activePageId points at a page that does not exist in `pages`.
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'gone' },
+        pages: {},
+        widgets: {},
+      },
+    });
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 1 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/no active page/i);
+    expect(out.success).toBeUndefined();
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
   it('accepts every valid StudioFilterOperator', () => {
     const state = makeState();
     const operators = [
@@ -922,6 +943,28 @@ describe('executeToolOnState: add_widget_filter', () => {
     );
     const out = parseOutput(result.output);
     expect(out.error).toMatch(/invalid filter operator/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('returns an error (not success) for an unknown widgetId, and does not mutate', () => {
+    // Matches every sibling entity-targeting tool: a fabricated/stale widgetId is
+    // rejected up front instead of committing a dangling widget-scoped filter.
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget_filter',
+      {
+        widgetId: 'does-not-exist',
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'equals',
+        value: 1,
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/does-not-exist.*not found/i);
+    expect(out.success).toBeUndefined();
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
   });

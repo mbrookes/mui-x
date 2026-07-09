@@ -269,4 +269,66 @@ describe('renderChartSvg — injection hardening', () => {
     expect(svg).toContain('width="800"');
     expect(svg).toContain('height="500"');
   });
+
+  it('coerces a string data value so the donut centre total cannot inject markup', () => {
+    // `value` is typed `number` but never validated at runtime. A string value
+    // previously flowed into `total.toLocaleString()` as raw text content.
+    const svg = renderChartSvg({
+      type: 'donut',
+      title: 'ok',
+      data: [{ label: 'x', value: '5</text><script>alert(1)</script>' as unknown as number }],
+    });
+    expect(svg).not.toContain('<script');
+    expect(svg).not.toContain('</script>');
+    expect(svg).not.toContain('alert(1)');
+  });
+
+  it('coerces a non-numeric bar value to 0 rather than producing NaN geometry', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: [
+        { label: 'A', value: 10 },
+        { label: 'B', value: 'not-a-number' as unknown as number },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).not.toContain('NaN');
+  });
+});
+
+// ── No-data / all-non-positive guards (finding 3.3) ─────────────────────────────
+
+describe('renderChartSvg — empty / non-positive data guards', () => {
+  it('renders a "No data" placeholder for a bar chart with no data points', () => {
+    const svg = renderChartSvg({ type: 'bar', data: [] });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('renders a "No data" placeholder for a bar chart with all-non-positive values', () => {
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: [
+        { label: 'A', value: 0 },
+        { label: 'B', value: -5 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('renders a "No data" placeholder for a donut chart with all-non-positive values', () => {
+    const svg = renderChartSvg({
+      type: 'donut',
+      data: [
+        { label: 'A', value: 0 },
+        { label: 'B', value: -5 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
 });

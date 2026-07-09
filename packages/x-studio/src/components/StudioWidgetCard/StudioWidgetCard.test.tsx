@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
   StudioDataSource,
@@ -16,6 +16,16 @@ vi.mock('../../internals/widgetUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
   return { ...actual, exportGridToCsv: vi.fn() };
 });
+
+// Capture the config passed to pragmatic-dnd's `draggable` so drag start/teardown can be
+// driven directly (jsdom has no real pointer drag). Returns a no-op cleanup.
+let lastDraggableConfig: { onDragStart?: () => void; onDrop?: () => void } | null = null;
+vi.mock('@atlaskit/pragmatic-drag-and-drop/element/adapter', () => ({
+  draggable: (config: { onDragStart?: () => void; onDrop?: () => void }) => {
+    lastDraggableConfig = config;
+    return () => {};
+  },
+}));
 
 const { render } = createRenderer();
 
@@ -235,5 +245,55 @@ describe('StudioWidgetCard', () => {
       const rows = vi.mocked(exportGridToCsv).mock.calls[0][2];
       expect(rows).toEqual([{ status: 'active' }]);
     });
+  });
+
+  // Regression coverage (finding 3.7): the drag body flag + inline card opacity were only
+  // cleared in `onDrop`. If the card unmounted mid-drag (widget deleted, page changed, or
+  // edit mode exited), pragmatic-dnd tore down without firing `onDrop`, so
+  // `document.body.dataset.studioDraggingWidgetId` (and any global CSS keyed on it) stuck.
+  // `useStudioDraggable`'s effect cleanup now runs the drop handler when a drag is in flight.
+  it('clears the drag body flag when the card unmounts mid-drag', () => {
+    lastDraggableConfig = null;
+    const w = widget({ kind: 'grid', config: {} as StudioWidgetConfig });
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: { widgets: { [w.id]: w } },
+        session: { mode: 'edit' },
+      },
+    });
+    const { unmount } = render(<StudioWidgetCard widgetId={w.id} pageId="page-1" />, { wrapper });
+
+    // Simulate a drag that starts but never receives a drop before the card is unmounted.
+    act(() => {
+      lastDraggableConfig?.onDragStart?.();
+    });
+    expect(document.body.dataset.studioDraggingWidgetId).toBe(w.id);
+
+    act(() => {
+      unmount();
+    });
+    expect(document.body.dataset.studioDraggingWidgetId).toBeUndefined();
+  });
+
+  // Regression coverage (finding 3.2): the untitled-widget fallback used to render a
+  // hardcoded `'KPI'` / capitalized raw kind string. It now routes through localized
+  // widget-kind labels, e.g. a grid resolves to "Table" rather than the old "Grid".
+  // (setup()'s `getByLabelText(/^Widget: /)` can't be used here — an empty title yields the
+  // label "Widget: " whose trailing space testing-library trims — so render directly.)
+  function renderUntitled(w: StudioWidget) {
+    const { wrapper } = createStudioHarness({ initialState: { doc: { widgets: { [w.id]: w } } } });
+    render(<StudioWidgetCard widgetId={w.id} pageId="page-1" />, { wrapper });
+  }
+
+  it('renders a localized widget-kind label as the untitled fallback', () => {
+    renderUntitled(widget({ kind: 'grid', title: '', config: {} as StudioWidgetConfig }));
+    // Localized label for the grid kind is "Table", not the old capitalized "Grid".
+    expect(screen.getByText('Table')).not.toBe(null);
+    expect(screen.queryByText('Grid')).toBe(null);
+  });
+
+  it('renders the localized KPI label for an untitled KPI widget', () => {
+    renderUntitled(widget({ kind: 'kpi', title: '', config: {} as StudioWidgetConfig }));
+    expect(screen.getByText('KPI')).not.toBe(null);
   });
 });

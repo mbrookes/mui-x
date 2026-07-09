@@ -40,33 +40,21 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import { isWidgetOfKind } from '../../models';
-import type { StudioPageTheme, StudioWidgetConfig } from '../../models';
-import type { StudioChartAnnotation } from '../../models/widgetTypes';
+import type { StudioPageTheme } from '../../models';
 import type { StudioGridWidgetProps } from '../widgets/StudioGridWidget/StudioGridWidget';
 import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
 import type { StudioKpiWidgetProps } from '../widgets/StudioKpiWidget/StudioKpiWidget';
 import type { StudioTextWidgetProps } from '../widgets/StudioTextWidget/StudioTextWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
-import {
-  exportGridToCsv,
-  exportChartToPng,
-  inferKpiDateSubtitle,
-} from '../../internals/widgetUtils';
+import { inferKpiDateSubtitle } from '../../internals/widgetUtils';
 import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
-import {
-  buildInsightPrompt,
-  buildAnomalyExplainPrompt,
-  type StudioWidgetInsightType,
-} from './widgetInsightPrompts';
+import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
+import { runWidgetExport } from './widgetExport';
+import { useStudioWidgetInsights } from './useStudioWidgetInsights';
+import { useStudioWidgetCardDrag } from './useStudioWidgetCardDrag';
 import { SliderFilterPill } from './SliderFilterPill';
-import {
-  DRAG_TYPE_CANVAS_WIDGET,
-  type CanvasWidgetDragItem,
-} from '../StudioCanvas/studioWidgetDndTypes';
-import { useStudioDraggable } from '../StudioCanvas/useStudioDraggable';
-import { createClonePreview } from '../StudioCanvas/createClonePreview';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -200,6 +188,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
+  const widgetKindLabels = useWidgetKindLabels();
   const widgetDefMap = useWidgetDefMap();
   const features = useStudioFeatures();
 
@@ -250,39 +239,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // The `aiInsights` feature flag lets embedders hide per-widget AI actions independently of AI chat.
   const supportsInsight = features.aiInsights && widget != null && def?.aiInsight === true;
 
-  // ── AI Insight routing ────────────────────────────────────────────────────
-  const handleInsightRequest = React.useCallback(
-    (type: StudioWidgetInsightType) => {
-      if (!onInsightRequest || !widget) {
-        return;
-      }
-      onInsightRequest(widgetId, buildInsightPrompt(type, widget.title || widget.kind));
-    },
-    [onInsightRequest, widget, widgetId],
-  );
-
-  // ── Anomaly detection state ────────────────────────────────────────────────
-  const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
-  const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<StudioChartAnnotation[]>([]);
-  // Toggle anomaly detection; clear annotations immediately when disabling
-  const handleAnomalyToggle = React.useCallback(() => {
-    setAnomalyEnabled((prev) => {
-      if (prev) {
-        setAnomalyAnnotations([]);
-      }
-      return !prev;
-    });
-  }, []);
-
-  const handleAnomalyExplain = React.useCallback(() => {
-    if (!onInsightRequest || !anomalyAnnotations.length || !widget) {
-      return;
-    }
-    onInsightRequest(
-      widgetId,
-      buildAnomalyExplainPrompt(widget.title || widget.kind, anomalyAnnotations),
-    );
-  }, [onInsightRequest, anomalyAnnotations, widget, widgetId]);
+  // ── AI Insight routing + anomaly detection state ───────────────────────────
+  const {
+    handleInsightRequest,
+    anomalyEnabled,
+    anomalyAnnotations,
+    setAnomalyAnnotations,
+    handleAnomalyToggle,
+    handleAnomalyExplain,
+  } = useStudioWidgetInsights({ widget, widgetId, onInsightRequest });
 
   // Pages the user can move this widget to (all pages except the one this widget is on)
   const moveToPageOptions = React.useMemo(
@@ -340,39 +305,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
 
-  const [isDragging, setIsDragging] = React.useState(false);
-
-  const getData = React.useCallback(
-    (): CanvasWidgetDragItem => ({
-      type: DRAG_TYPE_CANVAS_WIDGET,
-      widgetId,
-      sourcePageId: pageId,
-    }),
-    [widgetId, pageId],
-  );
-
-  const renderPreview = React.useMemo(() => createClonePreview(ref), []);
-
-  useStudioDraggable({
-    ref,
-    canDrag: mode === 'edit',
-    getData,
-    renderPreview,
-    onDragStart: () => {
-      setIsDragging(true);
-      document.body.dataset.studioDraggingWidgetId = widgetId;
-      if (ref.current) {
-        ref.current.style.opacity = '0.1';
-      }
-    },
-    onDrop: () => {
-      setIsDragging(false);
-      delete document.body.dataset.studioDraggingWidgetId;
-      if (ref.current) {
-        ref.current.style.opacity = '';
-      }
-    },
-  });
+  // Pointer drag-and-drop wiring lives in a focused hook; it owns the drag "side effects"
+  // (body flag + source-card dimming) and clears them even on unmount / canDrag flip mid-drag.
+  const isDragging = useStudioWidgetCardDrag({ ref, widgetId, pageId, canDrag: mode === 'edit' });
 
   const [expanded, setExpanded] = React.useState(false);
   // Built-in edit dialog — only used when onEditRequest is not provided
@@ -415,24 +350,18 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       if (!widget) {
         return;
       }
-      if (widget.kind === 'grid' && widget.sourceId) {
-        // Compute filtered rows lazily at export time — no need for a reactive subscription
-        const state = controller.getState();
-        const pipeline = createStudioPipeline(state);
-        const sourceRows = source?.rows ?? [];
-        const rows =
-          sourceRows.length > 0
-            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId, {
-                // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
-                widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
-              })
-            : [];
-        exportGridToCsv(widget, source, rows);
-      } else if (widget.kind === 'chart') {
-        exportChartToPng(widget, chartContainerRef.current, theme.palette.background.default);
-      } else if (widget.kind === 'pivot' || isCustomKind) {
-        imperativeExportRef.current?.();
-      }
+      // Per-kind export dispatch lives in `widgetExport.ts` (mirrors the `setupPanel`
+      // pattern) so the card stays free of kind-specific export branches.
+      runWidgetExport({
+        widget,
+        source,
+        controller,
+        pageId,
+        isCustomKind,
+        chartContainer: chartContainerRef.current,
+        imperativeExport: imperativeExportRef.current,
+        chartBackgroundColor: theme.palette.background.default,
+      });
     },
     [widget, source, controller, pageId, theme.palette.background.default, isCustomKind],
   );
@@ -622,9 +551,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   }}
                 >
                   {widget.title ||
-                    (widget.kind === 'kpi'
-                      ? 'KPI'
-                      : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
+                    widgetKindLabels[widget.kind] ||
+                    widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1)}
                 </Typography>
                 {activeRankFilter && (
                   <Chip

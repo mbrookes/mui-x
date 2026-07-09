@@ -1,48 +1,31 @@
+import {
+  accumulateValue,
+  createAggregateAccumulator,
+  finalizeAccumulator,
+  type AggregateAccumulator,
+} from '../../../internals/aggregate';
+import { escapeCsvCell } from '../../../internals/csvUtils';
+
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
-interface AggState {
-  sum: number;
-  count: number;
-  min: number;
-  max: number;
-}
+// The per-cell accumulator is the shared one, so the pivot matrix, the chart
+// aggregators and the KPI/map reducers all apply a single null/boolean policy
+// (finding 2.1).
+type AggState = AggregateAccumulator;
 
 function emptyAgg(): AggState {
-  return { sum: 0, count: 0, min: Infinity, max: -Infinity };
+  return createAggregateAccumulator();
 }
 
 function addToAgg(agg: AggState, v: number) {
-  agg.sum += v;
-  agg.count += 1;
-  if (v < agg.min) {
-    agg.min = v;
-  }
-  if (v > agg.max) {
-    agg.max = v;
-  }
+  accumulateValue(agg, v);
 }
 
 export function resolveAgg(
   agg: AggState | undefined,
   fn: 'sum' | 'avg' | 'count' | 'min' | 'max',
 ): number | null {
-  if (!agg || agg.count === 0) {
-    return null;
-  }
-  switch (fn) {
-    case 'sum':
-      return agg.sum;
-    case 'avg':
-      return agg.sum / agg.count;
-    case 'count':
-      return agg.count;
-    case 'min':
-      return agg.min === Infinity ? null : agg.min;
-    case 'max':
-      return agg.max === -Infinity ? null : agg.max;
-    default:
-      return agg.sum;
-  }
+  return finalizeAccumulator(agg, fn);
 }
 
 export interface PivotMatrix {
@@ -128,8 +111,13 @@ export function pivotToCsv(
   showTotals: boolean,
 ): string {
   const { rowValues, colValues } = matrix;
+  // Label cells (header row + row labels + the "Total" caption) come from user data,
+  // so they go through `escapeCsvCell`, which neutralizes spreadsheet formula
+  // injection (a label like `=HYPERLINK(...)`) on top of standard CSV quoting
+  // (finding 1.8). Numeric cells (`formatCell`) are emitted raw — escaping them would
+  // corrupt legitimate negatives like `-5`.
   const header = ['', ...colValues, ...(showTotals ? ['Total'] : [])];
-  const lines: string[] = [header.map((h) => JSON.stringify(h)).join(',')];
+  const lines: string[] = [header.map((h) => escapeCsvCell(h)).join(',')];
 
   for (const rv of rowValues) {
     const rowCells = matrix.cells.get(rv);
@@ -137,14 +125,14 @@ export function pivotToCsv(
     const rowTotal = showTotals
       ? formatCell(resolveAgg(matrix.rowTotals.get(rv), aggFn))
       : undefined;
-    const line = [JSON.stringify(rv), ...cells, ...(rowTotal !== undefined ? [rowTotal] : [])];
+    const line = [escapeCsvCell(rv), ...cells, ...(rowTotal !== undefined ? [rowTotal] : [])];
     lines.push(line.join(','));
   }
 
   if (showTotals) {
     const totals = colValues.map((cv) => formatCell(resolveAgg(matrix.colTotals.get(cv), aggFn)));
     const grand = formatCell(resolveAgg(matrix.grandTotal, aggFn));
-    lines.push([JSON.stringify('Total'), ...totals, grand].join(','));
+    lines.push([escapeCsvCell('Total'), ...totals, grand].join(','));
   }
 
   return lines.join('\n');

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRenderer, act, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -2156,5 +2157,103 @@ describe('<StudioChartWidget />', () => {
         expect(screen.queryByText(englishHint)).toBeNull();
       },
     );
+  });
+
+  // finding 3.5: a value-threshold annotation (`axis: 'y'`) must target whichever physical
+  // axis actually carries the numeric measure, and a category/anomaly marker (`axis: 'x'`)
+  // must target whichever physical axis carries the category band — which flips between
+  // 'x'/'y' when `barLayout: 'horizontal'` swaps the measure onto the x-axis.
+  describe('annotation axis targeting', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [
+        { id: '1', category: 'A', amount: 10 },
+        { id: '2', category: 'B', amount: 20 },
+      ],
+    };
+
+    function makeWidget(barLayout: 'grouped' | 'horizontal' | undefined): StudioWidgetOf<'chart'> {
+      return {
+        id: `chart-annotations-${barLayout ?? 'default'}`,
+        kind: 'chart',
+        title: 'Revenue',
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          ...(barLayout ? { barLayout } : {}),
+          xField: 'category',
+          yField: 'amount',
+          annotations: [
+            { id: 'threshold', axis: 'y', value: 15, label: 'Threshold' },
+            { id: 'peak', axis: 'x', value: 'A', label: 'Peak' },
+          ],
+        },
+      };
+    }
+
+    type AnnotationLineProps = {
+      x?: string | number | Date;
+      y?: string | number | Date;
+      label?: string;
+    };
+
+    function renderedAnnotationLines(): Array<React.ReactElement<AnnotationLineProps>> {
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as { children?: React.ReactNode };
+      return React.Children.toArray(props.children) as Array<
+        React.ReactElement<AnnotationLineProps>
+      >;
+    }
+
+    it('targets the y-axis for a value annotation and the x-axis for a category annotation in the default (vertical) layout', () => {
+      const widget = makeWidget(undefined);
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: dataSource },
+      });
+
+      renderChart(widget, dataSource);
+
+      const lines = renderedAnnotationLines();
+      expect(lines).toHaveLength(2);
+      expect(lines.every((line) => line.type === ChartsReferenceLine)).toBe(true);
+
+      const thresholdLine = lines.find((line) => line.props.label === 'Threshold')!;
+      expect(thresholdLine.props.y).toBe(15);
+      expect(thresholdLine.props.x).toBeUndefined();
+
+      const peakLine = lines.find((line) => line.props.label === 'Peak')!;
+      expect(peakLine.props.x).toBe('A');
+      expect(peakLine.props.y).toBeUndefined();
+    });
+
+    it('swaps to target the x-axis for a value annotation and the y-axis for a category annotation when barLayout is horizontal (finding 3.5)', () => {
+      const widget = makeWidget('horizontal');
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: dataSource },
+      });
+
+      renderChart(widget, dataSource);
+
+      const lines = renderedAnnotationLines();
+      expect(lines).toHaveLength(2);
+
+      // The numeric threshold now lands on the physical x-axis (which carries the measure
+      // in horizontal layout), NOT on the band y-axis.
+      const thresholdLine = lines.find((line) => line.props.label === 'Threshold')!;
+      expect(thresholdLine.props.x).toBe(15);
+      expect(thresholdLine.props.y).toBeUndefined();
+
+      // The category marker now lands on the physical y-axis (the band axis in horizontal
+      // layout), NOT on the value x-axis.
+      const peakLine = lines.find((line) => line.props.label === 'Peak')!;
+      expect(peakLine.props.y).toBe('A');
+      expect(peakLine.props.x).toBeUndefined();
+    });
   });
 });

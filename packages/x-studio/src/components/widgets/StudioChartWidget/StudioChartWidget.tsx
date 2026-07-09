@@ -514,6 +514,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const sourceLabels = chartData?.labels ?? multiYData?.labels ?? [];
     const useTemporalX = !isBarType && getTemporalAxisData(sourceLabels) != null;
 
+    // `ann.axis` is defined relative to the DEFAULT (vertical) orientation: 'y' = a numeric
+    // value threshold, 'x' = a category/anomaly marker (see StudioChartAnnotation). Bar charts
+    // can flip the physical axes via `barLayout: 'horizontal'` (measure on x, category band on
+    // y), so in that layout the mapping to the physical `x`/`y` props must be swapped too —
+    // otherwise a numeric threshold lands on the band axis and a category marker lands on the
+    // value axis (finding 3.5).
+    const isHorizontalBar = isBarType && barLayout === 'horizontal';
+
     return allAnnotations.map((ann) => {
       const isAnomaly = isAnomalyAnnotation(ann);
       const lineStyle = isAnomaly
@@ -530,12 +538,37 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }
       }
 
-      return ann.axis === 'y' ? (
+      const isValueAnnotation = ann.axis === 'y';
+      if (isValueAnnotation) {
+        // Numeric threshold — target whichever physical axis carries the measure.
+        return isHorizontalBar ? (
+          <ChartsReferenceLine
+            key={ann.id}
+            x={ann.value as number}
+            label={ann.label || ''}
+            labelAlign="start"
+            lineStyle={lineStyle}
+            labelStyle={labelStyle}
+          />
+        ) : (
+          <ChartsReferenceLine
+            key={ann.id}
+            y={ann.value as number}
+            label={ann.label || ''}
+            labelAlign="start"
+            lineStyle={lineStyle}
+            labelStyle={labelStyle}
+          />
+        );
+      }
+
+      // Category/anomaly marker — target whichever physical axis carries the category band.
+      return isHorizontalBar ? (
         <ChartsReferenceLine
           key={ann.id}
-          y={ann.value as number}
+          y={xValue}
           label={ann.label || ''}
-          labelAlign="start"
+          labelAlign="end"
           lineStyle={lineStyle}
           labelStyle={labelStyle}
         />
@@ -557,6 +590,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     chartType,
     chartData,
     multiYData,
+    barLayout,
   ]);
 
   const getSelectedDataIndices = React.useCallback(

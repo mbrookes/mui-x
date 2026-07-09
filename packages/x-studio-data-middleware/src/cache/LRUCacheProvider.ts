@@ -172,10 +172,19 @@ export class LRUCacheProvider implements CacheProvider {
    * For Studio cache keys ("studio:v1:<tenantId>:<secHash>:<queryHash>") the
    * prefix is "studio:v1:<tenantId>:" — the tenant isolation boundary.
    * For any other key format, falls back to using the full key as its own prefix.
+   *
+   * Boundary exactness (finding 3.2): the 3rd-colon scan below is exact ONLY
+   * because `generateCacheKey` URL-encodes the tenant segment, so a `tenantId`
+   * containing ':' (e.g. `org:1234` → `org%3A1234`) can no longer inject an extra
+   * colon that would shift the boundary and collapse distinct tenants into one
+   * eviction bucket. Callers that construct a tenant prefix to pass to
+   * `invalidatePrefix` must likewise encode the tenant id (`studio:v1:${encodeURIComponent(tenantId)}:`).
    */
   private extractPrefix(key: string): string {
     // Find the 3rd colon (the one right after "studio:v1:<tenantId>"), and
     // return the slice up to and including it — i.e. "studio:v1:<tenantId>:".
+    // The tenant segment is colon-free (URL-encoded by generateCacheKey), so the
+    // 3rd colon is unambiguously the tenant/securityHash boundary.
     let colons = 0;
     for (let i = 0; i < key.length; i += 1) {
       if (key[i] === ':') {

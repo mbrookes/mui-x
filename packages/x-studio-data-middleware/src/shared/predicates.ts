@@ -22,8 +22,32 @@ import type {
   FilterPredicate,
   JwtSecurityClaims,
   SecurityColumns,
+  SecurityColumnOverride,
   SecurityColumnsConfig,
 } from '../security/types';
+
+/**
+ * Resolve ONE security dimension's column name from a per-table override.
+ *
+ * Three-way semantics (finding 2.1) — an override value distinguishes THREE
+ * intents, which a plain `?? fallback` cannot:
+ *   - a `string`    → this table renames the dimension's column; use it.
+ *   - `null`        → DROP this dimension for this table (no predicate emitted) —
+ *                     returns `undefined`, so the caller keeps its OTHER dimensions
+ *                     (e.g. tenant) while suppressing this one. This is what lets a
+ *                     joined table stay tenant-scoped without a region/department
+ *                     column, instead of collapsing to a fully-unscoped `null`.
+ *   - `undefined`   → INHERIT the supplied `fallback` default.
+ */
+function resolveDimension(
+  overrideValue: string | null | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  if (overrideValue === null) {
+    return undefined;
+  }
+  return overrideValue ?? fallback;
+}
 
 /** Allowlist of operators that may be used in user-supplied filters / where-clauses. */
 export const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
@@ -53,11 +77,11 @@ export function resolvePrimarySecurityColumns(
   config: SecurityColumnsConfig | undefined,
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns {
-  const override = config?.perTable?.[table];
+  const override: SecurityColumnOverride | null | undefined = config?.perTable?.[table];
   return {
-    tenant: override?.tenant ?? resolvedTenantColumn,
-    region: override?.region ?? config?.region ?? 'region_id',
-    department: override?.department ?? config?.department ?? 'department',
+    tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
+    region: resolveDimension(override?.region, config?.region ?? 'region_id'),
+    department: resolveDimension(override?.department, config?.department ?? 'department'),
   };
 }
 
@@ -78,11 +102,21 @@ export function resolvePrimarySecurityColumns(
  * (the tenant column derived from the caller's `TenancyConfig`, matching the
  * primary table).
  *
- * OPT-OUT — a genuinely shared/lookup table that has no tenant column (e.g. a
- * country-codes table) opts out of scoping with an explicit `perTable[table] =
- * null` sentinel, which returns `undefined` (no predicate). This is deliberate:
- * a table joins unscoped ONLY when the host explicitly declares it shared, never
- * merely because the host forgot to register it.
+ * PER-DIMENSION OPT-OUT (finding 2.1) — a joined table that carries `tenant_id`
+ * but has NO region/department column (e.g. an audit-log or line-item table) sets
+ * an individual dimension to `null` — `perTable[table] = { region: null,
+ * department: null }` — to KEEP tenant scoping while dropping the region/department
+ * predicates that would otherwise reference a non-existent column. This is distinct
+ * from the whole-entry opt-out below: it drops only the named dimension(s), never
+ * the tenant predicate, so a region/department-restricted caller can still join the
+ * table (tenant-scoped) instead of being forced onto the fully-unscoped `null`
+ * escape hatch (which re-opens the cross-tenant fan-out on a non-unique join key).
+ *
+ * WHOLE-TABLE OPT-OUT — a genuinely shared/lookup table that has no tenant column
+ * (e.g. a country-codes table) opts out of ALL scoping with an explicit
+ * `perTable[table] = null` sentinel, which returns `undefined` (no predicate). This
+ * is deliberate: a table joins unscoped ONLY when the host explicitly declares it
+ * shared, never merely because the host forgot to register it.
  *
  * Returns `undefined` only when the table is explicitly opted out (shared lookup).
  */
@@ -91,18 +125,19 @@ export function resolveJoinSecurityColumns(
   config: SecurityColumnsConfig | undefined,
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns | undefined {
-  const override = config?.perTable?.[table];
-  // Explicit opt-out: this joined table is a shared/lookup table with no tenant
+  const override: SecurityColumnOverride | null | undefined = config?.perTable?.[table];
+  // Whole-table opt-out: this joined table is a shared/lookup table with no tenant
   // column and must join unscoped.
   if (override === null) {
     return undefined;
   }
   // Default: inherit the primary table's resolved security columns (fail-closed),
-  // letting an explicit per-table entry override individual column names.
+  // letting an explicit per-table entry rename individual columns or drop an
+  // individual dimension via a per-dimension `null` (see `resolveDimension`).
   return {
-    tenant: override?.tenant ?? resolvedTenantColumn,
-    region: override?.region ?? config?.region ?? 'region_id',
-    department: override?.department ?? config?.department ?? 'department',
+    tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
+    region: resolveDimension(override?.region, config?.region ?? 'region_id'),
+    department: resolveDimension(override?.department, config?.department ?? 'department'),
   };
 }
 
@@ -223,6 +258,19 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.where(column, '!=', value);
       break;
     case 'in':
+      // Runtime-guard the array shape (finding 3.1). `FilterPredicate.value` is
+      // client JSON, so its TS type is not a runtime guarantee: a bare string
+      // (`"abc"`) has a truthy non-zero `.length` and would reach `whereIn` as a
+      // non-array, and a number/object has no meaningful `.length` at all. Fail
+      // closed with a clear message rather than emitting malformed SQL / a
+      // confusing DB error. Values still stay parameterized either way.
+      if (!Array.isArray(value)) {
+        throw new Error(
+          `MUI X Studio Server: "in" predicate on column "${column}" requires an array value, but received ${typeof value}. ` +
+            `An "in" filter matches against a list, so a non-array value cannot be translated to a valid SQL "IN (...)" clause. ` +
+            `Provide the values as an array (e.g. { operator: "in", value: [1, 2, 3] }).`,
+        );
+      }
       if (value.length === 0) {
         if (mode === 'write') {
           throw new Error(
@@ -252,6 +300,19 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.whereLike(column, value);
       break;
     case 'between': {
+      // Runtime-guard the array shape (finding 3.1). A `between` needs exactly two
+      // bounds `[lo, hi]`; a non-array (or a short array) destructures to
+      // `undefined` bounds and emits malformed SQL. Fail closed with a clear
+      // message. Bounds still stay parameterized.
+      if (!Array.isArray(value) || value.length !== 2) {
+        throw new Error(
+          `MUI X Studio Server: "between" predicate on column "${column}" requires a two-element [low, high] array, but received ${
+            Array.isArray(value) ? `an array of length ${value.length}` : typeof value
+          }. ` +
+            `A "between" filter compares against an inclusive lower and upper bound, so it cannot be translated without exactly two values. ` +
+            `Provide the bounds as a two-element array (e.g. { operator: "between", value: [10, 20] }).`,
+        );
+      }
       const [lo, hi] = value;
       query.whereBetween(column, [lo, hi]);
       break;

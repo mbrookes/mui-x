@@ -169,6 +169,86 @@ describe('compileSecurityPolicy — multi-tenant per-table overrides', () => {
   });
 });
 
+// ── Per-dimension override / opt-out (finding 2.1) ────────────────────────────
+//
+// A joined table that carries tenant_id but has NO region/department column can
+// now drop those dimensions individually (`{ region: null }`) while KEEPING tenant
+// scoping — instead of the old all-or-nothing `perTable[table] = null`, which also
+// dropped the tenant predicate and re-opened the cross-tenant fan-out on a
+// non-unique join key.
+describe('compileSecurityPolicy — per-dimension override (finding 2.1)', () => {
+  it('drops only region/department for a joined table while keeping tenant scoping', () => {
+    const policy = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: null, department: null } } },
+    });
+    expect(policy.forJoinedTable('audit_log')).toEqual({
+      tenant: 'tenant_id',
+      region: undefined,
+      department: undefined,
+    });
+  });
+
+  it('drops one dimension and renames another in the same override', () => {
+    const policy = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: null, department: 'dept' } } },
+    });
+    expect(policy.forJoinedTable('audit_log')).toEqual({
+      tenant: 'tenant_id',
+      region: undefined,
+      department: 'dept',
+    });
+  });
+
+  it('applies a per-dimension null on the PRIMARY table too (keeps tenant + department)', () => {
+    const policy = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { orders: { region: null } } },
+    });
+    expect(policy.forPrimaryTable('orders')).toEqual({
+      tenant: 'tenant_id',
+      region: undefined,
+      department: 'department',
+    });
+  });
+
+  it('a per-dimension null is distinct from a whole-entry null (tenant survives)', () => {
+    const perDimension = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: null } } },
+    });
+    const wholeEntry = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: null } },
+    });
+    // Per-dimension keeps tenant (only region dropped); whole-entry drops everything.
+    expect(perDimension.forJoinedTable('audit_log')).toEqual({
+      tenant: 'tenant_id',
+      region: undefined,
+      department: 'department',
+    });
+    expect(wholeEntry.forJoinedTable('audit_log')).toBeUndefined();
+  });
+
+  it('folds a per-dimension null override into the policy digest (cache-key sensitive)', () => {
+    const withDrop = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: null } } },
+    });
+    const withoutOverride = compileSecurityPolicy({ tenancy: MULTI_TENANT });
+    const withRename = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: 'region_id' } } },
+    });
+    // Dropping a dimension must change the digest vs. no override at all…
+    expect(withDrop.digest).not.toBe(withoutOverride.digest);
+    // …and vs. RENAMING the same dimension (null ≠ 'region_id' in the canonical form),
+    // so a cache entry computed under one policy can never be served under the other.
+    expect(withDrop.digest).not.toBe(withRename.digest);
+  });
+});
+
 /**
  * `columnAllowlist` folding into the policy digest (U-CacheKey).
  *

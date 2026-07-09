@@ -210,6 +210,59 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     expect(viaPlan).toMatch(/contains characters outside the allowed set/);
   });
 
+  // Regression for finding 3.4: an expression-field OUTPUT alias used to reach
+  // `execute.ts`'s `db.raw('?? as ??', [physical, outputAlias])` with no charset
+  // check at all — unlike its sibling `agg.alias`, which `validateAggregationAliases`
+  // already constrains. Both are `??`-bound (Knex-escaped either way), so this is
+  // defense-in-depth, not a live injection, but the output alias was the one
+  // client-controlled identifier token that skipped the allowlist pattern.
+  it('rejects an unsafe expression-field output alias (finding 3.4)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { 'revenue; DROP TABLE sales': 'amount' },
+      columns: ['revenue; DROP TABLE sales'],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(
+      /Output alias .* contains characters outside the allowed set/,
+    );
+  });
+
+  it('accepts a safe expression-field output alias (letters/digits/underscore)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { total_revenue_2024: 'amount' },
+      columns: ['total_revenue_2024'],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('does NOT validate a direct (non-renamed) column reference as an alias', () => {
+    // A column with no `columnAliases` entry resolves to itself — `buildPlan`
+    // never gives it an `outputAlias`, so it must not be charset-checked even if
+    // it contains characters the alias pattern would reject (e.g. it is qualified
+    // with a dot, which is a legitimate physical column reference, not an alias).
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['customers.region'],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('runs the output-alias check even without a columnAllowlist (unconditional)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { 'bad alias': 'amount' },
+      columns: ['bad alias'],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(
+      /contains characters outside the allowed set/,
+    );
+  });
+
   it('throws the same error as validateDescriptorColumns for an unlisted table (fail-closed)', () => {
     const descriptor: BatchWidgetDescriptor = {
       id: 'w1',

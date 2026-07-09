@@ -952,6 +952,177 @@ describe('INSERT region/department scope validation', () => {
   });
 });
 
+// ── INSERT fail-closed region/department scope on OMISSION (finding 2.2) ───────
+//
+// Tenant is force-stamped on insert unconditionally, but region/department used to
+// be validated ONLY when the client supplied the column at all
+// (`validateSecurityColumnValues` gates on `hasOwnProperty`). A region-restricted
+// caller that simply omitted `region_id` therefore inserted a region-NULL /
+// DB-default row — outside their own row-level read scope. `validateMutation` must
+// now reject that omission (fail-closed) when the server cannot unambiguously pick
+// a region, and `buildInsertMutation` must auto-stamp when it safely can (exactly
+// one authorized region, or the caller's single department).
+
+describe('INSERT fail-closed region/department scope on omission (finding 2.2)', () => {
+  const ONE_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+  const MULTI_REGION_CLAIMS = {
+    tenantId: 'acme',
+    userId: 'u1',
+    roleIds: ['editor'],
+    regionIds: [5, 6],
+  };
+  const ZERO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [] };
+  const DEPT_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], department: 'Sales' };
+
+  it('REJECTS an insert that omits region_id when the caller has MULTIPLE authorized regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, MULTI_REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/must set an in-scope "region_id"/);
+  });
+
+  it('REJECTS an insert that omits region_id when the caller has ZERO authorized regions', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, ZERO_REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/must set an in-scope "region_id"/);
+  });
+
+  it('does NOT throw from validateMutation when the caller has exactly ONE authorized region (auto-stampable)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, ONE_REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('buildInsertMutation auto-stamps region_id when the caller has exactly ONE authorized region', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    await buildInsertMutation(db, ONE_REGION_CLAIMS, descriptor, MT_POLICY);
+    expect(db.snapshot().orders[0]).toMatchObject({
+      status: 'ok',
+      tenant_id: 'acme',
+      region_id: 5,
+    });
+  });
+
+  it('buildInsertMutation throws (does not silently insert unscoped) with MULTIPLE regions and no region_id', () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    expect(() => buildInsertMutation(db, MULTI_REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /must set an in-scope "region_id"/,
+    );
+    // Nothing was inserted.
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('does not stamp or throw for region when the caller supplied an in-scope region_id explicitly', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 6 },
+    };
+    await buildInsertMutation(db, MULTI_REGION_CLAIMS, descriptor, MT_POLICY);
+    expect(db.snapshot().orders[0]).toMatchObject({ status: 'ok', region_id: 6 });
+  });
+
+  it('does not require region_id when the caller is NOT region-scoped (regionIds: undefined)', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    await buildInsertMutation(db, CLAIMS, descriptor, MT_POLICY);
+    expect(db.snapshot().orders[0]).not.toHaveProperty('region_id');
+  });
+
+  it('buildInsertMutation auto-stamps department when the caller has a department and omits it', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    await buildInsertMutation(db, DEPT_CLAIMS, descriptor, MT_POLICY);
+    expect(db.snapshot().orders[0]).toMatchObject({ status: 'ok', department: 'Sales' });
+  });
+
+  it('validateMutation does not throw when the caller has a department and omits it (auto-stampable)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    expect(() =>
+      validateMutation(descriptor, DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'department'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not require region/department scope on UPDATE or DELETE (insert-only requirement)', () => {
+    // The fail-closed omission REQUIREMENT is INSERT-only: update/delete are
+    // already unconditionally scoped by `applySecurityPredicates` (the WHERE
+    // clause), so requiring values to carry a region/department would be both
+    // redundant and wrong (an UPDATE's `values` need not touch the region column
+    // at all).
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    expect(() =>
+      validateMutation(descriptor, MULTI_REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status'] },
+      }),
+    ).not.toThrow();
+  });
+});
+
 // ── Write-path column validation is fail-closed + wildcard-aware (finding 1.4) ─
 
 describe('write-path column validation (fail-closed + wildcard)', () => {

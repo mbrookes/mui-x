@@ -154,6 +154,69 @@ function validateSecurityColumnValues(
 }
 
 /**
+ * INSERT-only: ensure a region/department-restricted caller writes an IN-SCOPE row.
+ *
+ * Finding 2.2 — tenant is force-stamped on insert, but region/department were only
+ * validated WHEN PRESENT (`validateSecurityColumnValues` gates on the key existing).
+ * A region-restricted caller that simply OMITTED `region_id` therefore inserted a
+ * region-NULL / DB-default (out-of-scope) row, escaping its own row-level read
+ * scope on the write path — a genuine row-level-security write gap (bounded within
+ * the tenant, but region-unrestricted users then see the orphaned row).
+ *
+ * This fails closed for INSERT: when the caller carries a region/department scope
+ * and the column is configured, an in-scope value is REQUIRED. Where the server can
+ * unambiguously derive it, it is auto-stamped (returned as a stamp); otherwise the
+ * caller must supply it (throws):
+ *   - region, caller has exactly ONE region → auto-stamp that region.
+ *   - region omitted, caller has zero or MANY regions → throw (the server cannot
+ *     pick a region; the caller must send an in-scope `region_id`).
+ *   - region present in `values` → left to `validateSecurityColumnValues`'s
+ *     in-scope check; not restamped here.
+ *   - department (single-valued) → auto-stamp the caller's department when omitted.
+ *
+ * Returns the security-column values to STAMP onto the insert payload. It never
+ * mutates `values`, so it is safe to call from BOTH the validation pre-flight
+ * (which discards the stamps, wanting only the fail-closed throw) and the builder
+ * (which applies them) — mirroring how the tenant column is validated in one place
+ * and stamped in another.
+ */
+function resolveInsertScopeStamps(
+  values: Record<string, unknown>,
+  claims: JwtSecurityClaims,
+  cols: SecurityColumns,
+): Record<string, unknown> {
+  const stamps: Record<string, unknown> = {};
+
+  if (cols.region && claims.regionIds !== undefined) {
+    const present = Object.prototype.hasOwnProperty.call(values, cols.region);
+    if (!present) {
+      if (claims.regionIds.length === 1) {
+        // Exactly one authorized region — the server can safely derive it.
+        [stamps[cols.region]] = claims.regionIds;
+      } else {
+        throw new Error(
+          `MUI X Studio Server: An insert into a region-scoped table must set an in-scope "${cols.region}", but none was provided. ` +
+            `The caller is authorized for ${claims.regionIds.length === 0 ? 'zero regions' : `regions ${claims.regionIds.join(', ')}`}, ` +
+            `so leaving "${cols.region}" unset would create a row outside the caller's own row-level scope (fail-closed). ` +
+            `Include an in-scope "${cols.region}" value in the insert.`,
+        );
+      }
+    }
+  }
+
+  if (cols.department && claims.department) {
+    const present = Object.prototype.hasOwnProperty.call(values, cols.department);
+    if (!present) {
+      // Department is single-valued — the caller's own department is always the
+      // unambiguous in-scope value to stamp.
+      stamps[cols.department] = claims.department;
+    }
+  }
+
+  return stamps;
+}
+
+/**
  * Validate a mutation descriptor before building the query.
  * Throws with a descriptive message on any security or invariant violation.
  */
@@ -200,6 +263,15 @@ export function validateMutation(
   rejectQualifiedValueKeys(values, descriptor.table);
   validateSecurityColumnValues(values, claims, cols);
 
+  // INSERT-only fail-closed region/department scope (finding 2.2): a
+  // region/department-restricted caller must produce an in-scope row rather than
+  // omit the column and mint an out-of-scope (region-NULL) row. The stamps are
+  // applied by `buildInsertMutation`; here we only want the fail-closed throw, so
+  // the returned stamps are discarded.
+  if (descriptor.operation === 'insert') {
+    resolveInsertScopeStamps(values, claims, cols);
+  }
+
   // Validate value keys against the writable columns allowlist. Fail-closed +
   // `'*'`-aware via the shared helper (a table with no entry is rejected).
   if (options.writableColumns) {
@@ -235,6 +307,13 @@ export function buildInsertMutation(
   if (cols.tenant) {
     values[cols.tenant] = claims.tenantId;
   }
+
+  // Fail-closed region/department scope on INSERT (finding 2.2): auto-stamp the
+  // caller's scope where the server can derive it (a single authorized region, or
+  // the caller's single department), and throw when a region-restricted caller
+  // omitted a region the server cannot pick. Runs even for direct callers that skip
+  // `validateMutation` (defense-in-depth), mirroring the tenant force-stamp above.
+  Object.assign(values, resolveInsertScopeStamps(values, claims, cols));
 
   return db(descriptor.table).insert(values);
 }

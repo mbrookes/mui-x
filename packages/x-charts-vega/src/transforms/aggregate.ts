@@ -1,10 +1,13 @@
 import type { DatasetRow, VegaAggregateTransform } from '../types';
 import type { GapCollector } from '../gaps';
 import { evaluateAggregate } from './aggregateOps';
+import { groupRows } from './groupBy';
 
 /*
  * OWNERSHIP: the "transforms" work unit owns this file. Baseline: full
- * group-by aggregation using the shared op evaluator.
+ * group-by aggregation using the shared op evaluator. Grouping itself is
+ * delegated to `groupRows` (groupBy.ts), shared with every other group-aware
+ * transform (window/joinaggregate/regression/loess/quantile/density).
  */
 export function applyAggregateTransform(
   rows: readonly DatasetRow[],
@@ -13,21 +16,7 @@ export function applyAggregateTransform(
   path: string,
 ): readonly DatasetRow[] {
   const groupby = transform.groupby ?? [];
-  const groups = new Map<string, { key: DatasetRow; rows: DatasetRow[] }>();
-  for (const row of rows) {
-    const groupKey = groupby
-      .map((field) => {
-        const value = row[field];
-        return value instanceof Date ? `d:${value.getTime()}` : `${typeof value}:${String(value)}`;
-      })
-      .join(' ');
-    let group = groups.get(groupKey);
-    if (!group) {
-      group = { key: Object.fromEntries(groupby.map((field) => [field, row[field]])), rows: [] };
-      groups.set(groupKey, group);
-    }
-    group.rows.push(row);
-  }
+  const groups = groupRows(rows, groupby);
 
   const out: DatasetRow[] = [];
   for (const group of groups.values()) {

@@ -7,6 +7,12 @@ import { applyFilterTransform } from './filter';
 import { applyLookupTransform } from './lookup';
 import { applyTimeUnitTransform } from './timeUnit';
 import { applyEncodingTransforms } from './encoding';
+import { applyWindowTransform } from './window';
+import { applyJoinAggregateTransform } from './joinaggregate';
+import { applyRegressionTransform } from './regression';
+import { applyLoessTransform } from './loess';
+import { applyQuantileTransform } from './quantile';
+import { applyDensityTransform } from './density';
 
 export { applyEncodingTransforms };
 export type { EncodingTransformResult } from './encoding';
@@ -18,15 +24,7 @@ export type { EncodingTransformResult } from './encoding';
  * message below).
  */
 const KNOWN_UNSUPPORTED_TRANSFORMS: Record<string, string> = {
-  window:
-    'Window transforms (running/cumulative calculations over sorted, partitioned frames) are not supported.',
-  joinaggregate:
-    'Join-aggregate transforms (aggregate values joined back onto every row) are not supported.',
-  density: 'Density transforms (kernel density estimation) are not supported.',
-  regression: 'Regression transforms (fitted trend lines) are not supported.',
-  loess: 'Loess transforms (local regression smoothing) are not supported.',
   pivot: 'Pivot transforms (long-to-wide reshaping) are not supported.',
-  quantile: 'Quantile transforms (per-group quantile curves) are not supported.',
   sample: 'Sample transforms (random row sampling) are not supported.',
   stack: 'Explicit `stack` transforms are not supported; use a stacked mark/encoding instead.',
   impute: 'Impute transforms (synthesizing missing data points) are not supported.',
@@ -59,6 +57,18 @@ export function applyTransforms(
       current = applyTimeUnitTransform(current, transform as never, gaps, transformPath);
     } else if ('lookup' in transform) {
       current = applyLookupTransform(current, transform as never, gaps, transformPath);
+    } else if ('window' in transform) {
+      current = applyWindowTransform(current, transform as never, gaps, transformPath);
+    } else if ('joinaggregate' in transform) {
+      current = applyJoinAggregateTransform(current, transform as never, gaps, transformPath);
+    } else if ('regression' in transform) {
+      current = applyRegressionTransform(current, transform as never, gaps, transformPath);
+    } else if ('loess' in transform) {
+      current = applyLoessTransform(current, transform as never, gaps, transformPath);
+    } else if ('quantile' in transform) {
+      current = applyQuantileTransform(current, transform as never, gaps, transformPath);
+    } else if ('density' in transform) {
+      current = applyDensityTransform(current, transform as never, gaps, transformPath);
     } else if ('fold' in transform) {
       const fold = transform as { fold: string[]; as?: [string, string] };
       const [keyAs, valueAs] = fold.as ?? ['key', 'value'];

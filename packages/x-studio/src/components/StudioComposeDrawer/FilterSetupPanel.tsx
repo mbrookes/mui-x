@@ -16,7 +16,11 @@ import {
   selectDataSources,
   useStudioLocaleText,
 } from '../../context';
-import type { StudioFilterWidgetType, StudioWidgetConfigForKind } from '../../models';
+import type {
+  StudioFilterWidgetType,
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+} from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
 export function FilterSetupPanel(props: { widgetId: string }) {
@@ -96,14 +100,23 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   };
 
   const handleFieldChange = (newFieldId: string, newSourceId: string) => {
-    const prevSourceId = widget.sourceId;
-    if (newSourceId && newSourceId !== prevSourceId) {
-      controller.updateWidget(widgetId, { sourceId: newSourceId });
-    }
-    controller.updateWidgetConfig(widgetId, {
+    const configUpdate: Partial<StudioWidgetConfig> = {
       filterWidgetField: newFieldId || undefined,
       filterWidgetSourceId: newSourceId !== widget.sourceId ? newSourceId : undefined,
-    });
+    };
+    // When the picked field belongs to a different source, adopt that source AND write
+    // the field in ONE `updateWidget` commit so the cross-source field pick is a single
+    // undo step (finding 2.2) — a lone Ctrl+Z otherwise lands on a torn state (new
+    // sourceId, old field) the UI never produced. `clearInteractiveFilter` is a separate
+    // non-undoable (session-scoped) commit and never adds an undo entry.
+    if (newSourceId && newSourceId !== widget.sourceId) {
+      controller.updateWidget(widgetId, {
+        sourceId: newSourceId,
+        config: { ...config, ...configUpdate },
+      });
+    } else {
+      controller.updateWidgetConfig(widgetId, configUpdate);
+    }
     controller.clearInteractiveFilter(widgetId);
   };
 

@@ -548,13 +548,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             // by value from the current config — a value-identical replacement must not
             // rewrap the widget (reference-equality no-op contract). Compared key-by-key,
             // the same way the `config`-patch branch tracks `changedConfig`.
-            if (value !== null && typeof value === 'object') {
+            //
+            // `value && typeof value === 'object'` is a defense-in-depth guard (mirroring
+            // this file's other unsafe-key guards for the "server bypasses the parser"
+            // case): `parseStateMutation` already rejects a non-object `changes.config`
+            // at the wire boundary, but without this guard a server-built mutation with
+            // `changes: { config: null }` would fall through to a bare `value !==
+            // updated.config` comparison and assign `config = null`, corrupting the
+            // widget. A non-object value is simply ignored rather than applied.
+            if (value && typeof value === 'object') {
               const normalized = normalizeConfigChartSeries(value as Record<string, unknown>);
               if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
                 definedChanges.config = normalized;
               }
-            } else if (value !== updated.config) {
-              definedChanges.config = value;
             }
             continue;
           }

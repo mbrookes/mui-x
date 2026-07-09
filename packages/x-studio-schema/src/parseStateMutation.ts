@@ -148,8 +148,31 @@ function validateWidget(widget: unknown, path: string): string | null {
   if (!isString(widget.title)) {
     return `${path}.title must be a string`;
   }
+  if (!isOptionalString(widget.subtitle)) {
+    return `${path}.subtitle must be a string when present`;
+  }
+  if (!isOptionalString(widget.sourceId)) {
+    return `${path}.sourceId must be a string when present`;
+  }
+  // `titleMode`/`subtitleMode` mirror the `updateWidget.changes` checks: without
+  // these, a junk value (e.g. `titleMode: 42`) passes the wire gate and persists
+  // into a field the client's auto-title logic branches on.
+  if (!isOptionalTitleMode(widget.titleMode)) {
+    return `${path}.titleMode must be 'auto' or 'manual' when present`;
+  }
+  if (!isOptionalTitleMode(widget.subtitleMode)) {
+    return `${path}.subtitleMode must be 'auto' or 'manual' when present`;
+  }
   if (!isRecord(widget.config)) {
     return `${path}.config must be an object`;
+  }
+  // Mirrors every other config-carrying arg in this file (`updateWidget.config`,
+  // `updateWidget.changes.config`, `applyBulkUpdate.updatedWidgets[].config`,
+  // `applyBulkUpdate.widgetColSpans`): a full-widget `config` carrying an own
+  // `__proto__`/`constructor`/`prototype` key is rejected here even for a custom
+  // kind, where `validateConfigKeysForKind` would otherwise allow anything.
+  if (hasUnsafeOwnKeys(widget.config)) {
+    return `${path}.config must not carry a '__proto__'/'constructor'/'prototype' key`;
   }
   // Fail-closed per-kind config-key check (matches this file's other validators,
   // which are all fail-closed on untrusted wire input): a widget carrying a

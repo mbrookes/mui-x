@@ -311,7 +311,10 @@ export function migrateState(state: unknown): MigrationResult {
  * interactive-scoped filter entries: it spreads every doc field (so a newly-added
  * `StudioDoc` field is carried automatically — no hand-picked field list to forget it
  * from), stripping the cross-filter- and interactive-scoped filters and normalizing the
- * empties-are-omitted fields. The two scope kinds have DIFFERENT undo semantics but are
+ * empties-are-omitted fields (`relationships`, `expressionFields`, `filterPresets`, `ai`
+ * are all omitted from the serialized shape when empty, keeping persisted payloads
+ * minimal and symmetric across every optional collection). The two scope kinds have
+ * DIFFERENT undo semantics but are
  * both session-scoped and both stripped here: cross-filters are undoable but
  * session-scoped (they time-travel with the doc, so `StudioController` does NOT carry
  * them across undo/redo); interactive entries are carried across undo/redo by
@@ -325,6 +328,7 @@ export function serializeDoc(doc: StudioDoc): SerializedStudioState {
     filters: filters.filter(
       (f) => f.scope.kind !== 'cross-filter' && f.scope.kind !== 'interactive',
     ),
+    relationships: doc.relationships.length > 0 ? doc.relationships : undefined,
     expressionFields: doc.expressionFields.length > 0 ? doc.expressionFields : undefined,
     filterPresets: (doc.filterPresets?.length ?? 0) > 0 ? doc.filterPresets : undefined,
     ai: doc.ai?.threads && doc.ai.threads.length > 0 ? doc.ai : undefined,

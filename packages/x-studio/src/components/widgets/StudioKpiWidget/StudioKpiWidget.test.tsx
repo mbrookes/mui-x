@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,6 +18,7 @@ import {
 } from '../../../../test/studioContextMock';
 import type { KpiTrendProps } from './KpiTrend';
 import type { KpiValueProps } from './KpiValue';
+import type { KpiSparklineProps } from './KpiSparkline';
 import { StudioKpiWidget } from './StudioKpiWidget';
 
 // The KPI widget reads its current-period rows through useWidgetRows. Route the mock
@@ -57,12 +58,20 @@ function ValueSpy(props: KpiValueProps) {
   valueSpy(props.value);
   return null;
 }
+const sparklineSpy = vi.fn();
+function SparklineSpy(props: KpiSparklineProps) {
+  sparklineSpy(props);
+  return null;
+}
 
 function lastTrend(): KpiTrendProps['trendResult'] {
   return trendSpy.mock.calls.at(-1)?.[0] ?? null;
 }
 function lastValue(): string | undefined {
   return valueSpy.mock.calls.at(-1)?.[0];
+}
+function lastSparkline(): KpiSparklineProps | undefined {
+  return sparklineSpy.mock.calls.at(-1)?.[0];
 }
 
 let mockState: StudioState;
@@ -121,7 +130,7 @@ function renderKpi(widget: StudioWidgetOf<'kpi'>, dataSource: StudioDataSource) 
         widget={widget}
         dataSource={dataSource}
         pageId="page-1"
-        slots={{ trend: TrendSpy, value: ValueSpy }}
+        slots={{ trend: TrendSpy, value: ValueSpy, sparkline: SparklineSpy }}
       />
     </ThemeProvider>,
   );
@@ -223,6 +232,7 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
   beforeEach(() => {
     trendSpy.mockClear();
     valueSpy.mockClear();
+    sparklineSpy.mockClear();
     // The fixed-period branch reads `new Date()`; pin "today" so the rolling windows
     // are deterministic. Only fake Date so React scheduling is unaffected.
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -448,5 +458,251 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
     // previousValue must be 200 (both previous-window rows), NOT 100 (region-A only).
     expect(trend!.previousValue).toBe(200);
     expect(trend!.delta).toBeCloseTo(0.5);
+  });
+});
+
+// ─── finding 2.5: sparkline + filter tooltip must use widget-scoped filters ──────
+
+describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not let another page's date filter drive the sparkline time field / granularity", () => {
+    // Only a page-2-scoped date filter exists, on a field that isn't even present on
+    // `sales` rows. Pre-fix, `findDateFilter` matched ANY `scope.kind === 'page'`
+    // filter with no pageId check, so this widget (on page-1, with no
+    // `kpiSparklineField` configured) would have resolved its time axis to
+    // `otherDate` — producing an empty sparkline instead of the "no time field"
+    // placeholder. Post-fix, `selectFiltersForWidget` excludes it (wrong pageId), so
+    // no date filter applies and no time field is resolved.
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const otherPageFilter: StudioFilterState = {
+      id: 'f-other-page',
+      field: 'otherDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-2' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiSparkline: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [otherPageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    const sparkline = lastSparkline();
+    expect(sparkline?.timeFieldResolved).toBe(false);
+    expect(sparkline?.data).toBeNull();
+  });
+
+  it('still resolves the sparkline time field from a date filter scoped to this widget’s page', () => {
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-15' },
+    ];
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-1',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiSparkline: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [pageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    const sparkline = lastSparkline();
+    expect(sparkline?.timeFieldResolved).toBe(true);
+    expect(sparkline?.data).not.toBeNull();
+  });
+
+  it('ignores a disabled date filter when resolving the sparkline time field', () => {
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const disabledFilter: StudioFilterState = {
+      id: 'f-disabled',
+      field: 'otherDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+      disabled: true,
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiSparkline: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [disabledFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    const sparkline = lastSparkline();
+    expect(sparkline?.timeFieldResolved).toBe(false);
+    expect(sparkline?.data).toBeNull();
+  });
+
+  it("does not leak another page's filter into the KPI hover tooltip", async () => {
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const otherPageFilter: StudioFilterState = {
+      id: 'f-other-page',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-2' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [otherPageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    // filterSubtitle must be empty (the other page's filter is excluded), which
+    // disables the tooltip's hover listener entirely — no tooltip should open.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('shows this page’s filter in the KPI hover tooltip', async () => {
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-1',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [pageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain('Date');
+  });
+});
+
+// ─── finding 2.6: KPI sparkline on a measure expression field ────────────────────
+
+describe('<StudioKpiWidget /> sparkline on a measure expression field (finding 2.6)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('is not flat zero for a KPI configured on a measure field', () => {
+    // salesRows: Jul (100+200=300), May (100+100=200), Jan (1000) — bucketed by month.
+    // Pre-fix, `computeAggregate(bucketRows, 'revenueMeasure', 'sum')` read the
+    // nonexistent `row['revenueMeasure']` and produced [0, 0, 0].
+    rowsHolder.current = salesRows;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenueMeasure',
+        kpiSparkline: true,
+        kpiSparklineField: 'saleDate',
+        kpiSparklineGranularity: 'month',
+      },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      expressionFields: [revenueMeasure],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    const sparkline = lastSparkline();
+    expect(sparkline?.data).not.toBeNull();
+    expect(sparkline!.data!.some((v) => v !== 0)).toBe(true);
+    // Chronological month buckets: Jan (1000), May (200), Jul (300).
+    expect(sparkline!.data).toEqual([1000, 200, 300]);
+  });
+
+  it("propagates a measure field's format/currency to the sparkline tooltip formatting", () => {
+    rowsHolder.current = salesRows;
+    const formattedMeasure: StudioExpressionField = {
+      ...revenueMeasure,
+      format: 'currency',
+      currencyCode: 'EUR',
+    } as unknown as StudioExpressionField;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenueMeasure',
+        kpiSparkline: true,
+        kpiSparklineField: 'saleDate',
+        kpiSparklineGranularity: 'month',
+      },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      expressionFields: [formattedMeasure],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    const sparkline = lastSparkline();
+    expect(sparkline?.fieldFormat).toBe('currency');
+    expect(sparkline?.fieldCurrencyCode).toBe('EUR');
   });
 });

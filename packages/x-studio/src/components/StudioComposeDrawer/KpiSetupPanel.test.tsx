@@ -1,11 +1,12 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioWidgetConfig } from '../../models';
+import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../test/studioContextMock';
+import { StudioController } from '../../store/StudioController';
 import { KpiSetupPanel } from './KpiSetupPanel';
 
 const controller = {
@@ -260,5 +261,109 @@ describe('KpiSetupPanel', () => {
         fields: previousFields,
       };
     }
+  });
+});
+
+// Finding 2.2: a source-switch gesture (pick a field from a different source, which also
+// ADOPTS that source) must collapse to ONE undo step. These tests run the panel against a
+// REAL StudioController so `canUndo()`/`undo()` observe the actual undo stack — proving the
+// two mutations were folded into a single commit (a lone Ctrl+Z otherwise lands on a torn
+// state the UI never rendered).
+describe('KpiSetupPanel — source-switch folds to a single undo step (finding 2.2)', () => {
+  function makeController() {
+    return new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'kpi',
+            title: 'Revenue',
+            // A valid stored aggregation for the numeric field, so the panel's
+            // aggregation-repair effect never fires and pollutes the clean undo baseline.
+            config: { kpiValueField: 'total', kpiAggregation: 'sum' },
+            sourceId: 'orders',
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'total', label: 'Total', type: 'number' }],
+            rows: [],
+          },
+          customers: {
+            id: 'customers',
+            label: 'Customers',
+            fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+  }
+
+  it('folds a value-field pick from another source into one undoable step', async () => {
+    const realController = makeController();
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    // Clean baseline — no undoable action has happened yet.
+    expect(realController.canUndo()).toBe(false);
+
+    const { user } = render(<KpiSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Value field'));
+    // Name includes the field-type icon's aria-label prefix (e.g. "Number Revenue").
+    const revenueOption = await screen.findByRole('option', { name: /Revenue$/ });
+    await user.click(revenueOption);
+
+    // The gesture reached the intended state: new source adopted + new field written.
+    const afterGesture = realController.getState().doc.widgets['widget-1'];
+    expect(afterGesture.sourceId).toBe('customers');
+    expect((afterGesture.config as StudioWidgetConfig).kpiValueField).toBe('revenue');
+    expect(realController.canUndo()).toBe(true);
+
+    // Exactly ONE undo entry: a single undo fully reverts to the pre-gesture state
+    // (old source AND old field together — never a torn source/field intermediate)...
+    realController.undo();
+    const reverted = realController.getState().doc.widgets['widget-1'];
+    expect(reverted.sourceId).toBe('orders');
+    expect((reverted.config as StudioWidgetConfig).kpiValueField).toBe('total');
+    // ...and there is nothing left to undo, proving the gesture pushed only one entry.
+    expect(realController.canUndo()).toBe(false);
+  });
+
+  it('folds a data-source switch from the source picker into one undoable step', async () => {
+    const realController = makeController();
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    expect(realController.canUndo()).toBe(false);
+
+    const { user } = render(<KpiSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Data source'));
+    const customersOption = await screen.findByRole('option', { name: 'Customers' });
+    await user.click(customersOption);
+
+    const afterGesture = realController.getState().doc.widgets['widget-1'];
+    expect(afterGesture.sourceId).toBe('customers');
+    // Switching source clears the old-source field and locks a fieldless count.
+    expect((afterGesture.config as StudioWidgetConfig).kpiValueField).toBe('');
+    expect((afterGesture.config as StudioWidgetConfig).kpiAggregation).toBe('count');
+    expect(realController.canUndo()).toBe(true);
+
+    realController.undo();
+    const reverted = realController.getState().doc.widgets['widget-1'];
+    expect(reverted.sourceId).toBe('orders');
+    expect((reverted.config as StudioWidgetConfig).kpiValueField).toBe('total');
+    expect((reverted.config as StudioWidgetConfig).kpiAggregation).toBe('sum');
+    expect(realController.canUndo()).toBe(false);
   });
 });

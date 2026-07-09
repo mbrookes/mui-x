@@ -253,10 +253,13 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // created widget seeds `kpiAggregation: 'sum'`, which would otherwise leave
           // it inoperative until a numeric field is chosen). Picking a value field
           // afterwards re-derives a field-appropriate aggregation in the select below.
-          controller.updateWidget(widgetId, { sourceId: nextSourceId });
-          controller.updateWidgetConfig(widgetId, {
-            kpiValueField: '',
-            kpiAggregation: 'count',
+          // Fold the source switch and the field/aggregation reset into ONE
+          // `updateWidget` commit so the whole gesture is a single undo step (finding
+          // 2.2) — a lone Ctrl+Z otherwise lands on a torn state (new source, stale
+          // field) the UI never actually rendered.
+          controller.updateWidget(widgetId, {
+            sourceId: nextSourceId,
+            config: { ...config, kpiValueField: '', kpiAggregation: 'count' },
           });
         }}
         renderInput={(params) => (
@@ -296,9 +299,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             // Reset aggregation when the current one isn't valid for the new field type
             ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
           };
-          controller.updateWidgetConfig(widgetId, configUpdate);
+          // When the picked field belongs to a different source, adopt that source AND
+          // write the field/aggregation in ONE `updateWidget` commit so the source-switch
+          // gesture collapses to a single undo step (finding 2.2); without a source switch
+          // a plain config patch is already one commit.
           if (fSourceId && fSourceId !== widget?.sourceId) {
-            controller.updateWidget(widgetId, { sourceId: fSourceId });
+            controller.updateWidget(widgetId, {
+              sourceId: fSourceId,
+              config: { ...config, ...configUpdate },
+            });
+          } else {
+            controller.updateWidgetConfig(widgetId, configUpdate);
           }
         }}
         fields={allFields}

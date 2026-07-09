@@ -1,11 +1,12 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioWidgetConfig } from '../../../models';
+import type { StudioWidget, StudioWidgetConfig } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
+import { StudioController } from '../../../store/StudioController';
 import { ChartSetupPanel } from './ChartSetupPanel';
 
 const controller = {
@@ -683,5 +684,74 @@ describe('ChartSetupPanel', () => {
         };
       }
     });
+  });
+});
+
+// Finding 2.2: picking the X field also ADOPTS its source (the widget starts with no
+// source). That single gesture must collapse to ONE undo step. This runs the panel against
+// a REAL StudioController so `canUndo()`/`undo()` observe the actual undo stack — proving
+// the X-field config write and the source adoption were folded into one commit rather than
+// leaving a lone Ctrl+Z on a torn state (new sourceId, no xField) the UI never produced.
+describe('ChartSetupPanel — X-field source adoption folds to a single undo step (finding 2.2)', () => {
+  function makeController() {
+    return new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'chart',
+            title: 'Chart',
+            // No source yet, and no X/Y field — the from-scratch state where picking a
+            // field adopts its source (the ChartSetupPanel version of the adopt-source flow).
+            config: { chartType: 'bar' },
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'department', label: 'Department', type: 'string' }],
+            rows: [],
+          },
+        },
+      },
+    });
+  }
+
+  it('folds the X-field pick and its source adoption into one undoable step', async () => {
+    const realController = makeController();
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    expect(realController.canUndo()).toBe(false);
+
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    // The X picker is `required` (BL-186 has no fieldless fallback), so its label carries a
+    // trailing asterisk — match with `exact: false`.
+    const xInput = screen.getByLabelText('X / Category field', { exact: false });
+    await user.click(xInput);
+    const departmentOption = await screen.findByRole('option', { name: /Department$/ });
+    await user.click(departmentOption);
+
+    // The gesture reached the intended state: source adopted + X field written (+ the
+    // BL-186 fieldless-count seed) in one shot.
+    const afterGesture = realController.getState().doc.widgets['widget-1'];
+    expect(afterGesture.sourceId).toBe('orders');
+    expect((afterGesture.config as StudioWidgetConfig).xField).toBe('department');
+    expect(realController.canUndo()).toBe(true);
+
+    // Exactly ONE undo entry: a single undo fully reverts (no source, no X field together —
+    // never a torn source-without-field intermediate)...
+    realController.undo();
+    const reverted = realController.getState().doc.widgets['widget-1'];
+    expect(reverted.sourceId).toBeUndefined();
+    expect((reverted.config as StudioWidgetConfig).xField).toBeUndefined();
+    // ...and nothing remains to undo, proving the gesture pushed only one entry.
+    expect(realController.canUndo()).toBe(false);
   });
 });

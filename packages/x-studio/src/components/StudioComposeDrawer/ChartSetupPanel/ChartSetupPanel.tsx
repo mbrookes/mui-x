@@ -426,12 +426,21 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // have their own measure pickers, so they're excluded (supportsMultipleSeries).
               const seedFieldlessCount =
                 fieldId && (supportsMultipleSeries || isPieOrDonut) && !hasYField;
-              controller.updateWidgetConfig(widgetId, {
+              const configUpdate = {
                 xField: fieldId,
-                ...(seedFieldlessCount && { yAggregation: 'count' }),
-              });
+                ...(seedFieldlessCount && { yAggregation: 'count' as const }),
+              };
+              // Fold the X-field pick and the source adoption into ONE `updateWidget`
+              // commit so the source-switch gesture is a single undo step (finding 2.2);
+              // a lone Ctrl+Z otherwise lands on a torn state (new sourceId, old xField)
+              // the UI never produced. Without a source switch it's already one commit.
               if (sourceId && sourceId !== widget?.sourceId) {
-                controller.updateWidget(widgetId, { sourceId });
+                controller.updateWidget(widgetId, {
+                  sourceId,
+                  config: { ...config, ...configUpdate } as StudioChartWidgetConfig,
+                });
+              } else {
+                controller.updateWidgetConfig(widgetId, configUpdate);
               }
             }}
             fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}

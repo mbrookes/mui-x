@@ -399,6 +399,54 @@ export interface StudioLocaleText {
   expressionPrecisionLabel: string;
   expressionPrecisionHelperText: string;
 
+  // ── Expression builder: operator picker ────────────────────────────────────
+  exprOpAdd: string;
+  exprOpSubtract: string;
+  exprOpMultiply: string;
+  exprOpDivide: string;
+  exprOpModulo: string;
+  exprOpNegate: string;
+  exprOpEquals: string;
+  exprOpNotEqual: string;
+  exprOpLessThan: string;
+  exprOpGreaterThan: string;
+  exprOpLessThanOrEqual: string;
+  exprOpGreaterThanOrEqual: string;
+  exprOpAnd: string;
+  exprOpOr: string;
+  exprOpNot: string;
+  exprOpIsTrue: string;
+  exprOpIsFalse: string;
+  exprOpIsNull: string;
+  exprOpIsNotNull: string;
+  exprOpIf: string;
+  exprOpIn: string;
+  exprOpDatediff: string;
+  /** Group heading shown next to arithmetic operator options (e.g. Add, Subtract) */
+  exprGroupArithmetic: string;
+  /** Group heading shown next to comparison operator options (e.g. Equals, Less Than) */
+  exprGroupComparison: string;
+  /** Group heading shown next to logical operator options (e.g. And, Or, Not) */
+  exprGroupLogical: string;
+  /** Group heading shown next to conditional operator options (e.g. If / Then / Else) */
+  exprGroupConditional: string;
+  /** Group heading shown next to date operator options (e.g. Date Difference) */
+  exprGroupDate: string;
+  /** Label for the first `datediff` input, which takes a unit string */
+  exprInputLabelUnit: string;
+  /** Label for the first `if` operator input (the boolean test) */
+  exprInputLabelCondition: string;
+  /** Label for the second `if` operator input (the value returned when true) */
+  exprInputLabelThen: string;
+  /** Label for the third `if` operator input (the value returned when false) */
+  exprInputLabelElse: string;
+  /** Returns e.g. "Input 2" for the Nth (1-indexed) generic operator input */
+  exprInputLabelGeneric: (index: number) => string;
+  /** Button that appends another input to a variadic operator (e.g. `add`, `and`) */
+  exprAddInputButton: string;
+  /** Caption label preceding the inferred output-type chip in the expression dialog */
+  exprOutputTypeLabel: string;
+
   // ── Shared aggregation function labels ─────────────────────────────────────
   aggFnSum: string;
   aggFnCount: string;
@@ -828,6 +876,8 @@ export interface StudioLocaleText {
   kpiTrendTargetTooltip: (value: number | string) => string;
   /** Returns e.g. "Previous period: Q1 2024" */
   kpiTrendPreviousPeriodTooltip: (period: string) => string;
+  /** Returns e.g. "vs. Q1 2024", shown next to the trend delta chip */
+  kpiTrendVsLabel: (period: string) => string;
   /** Hint shown when a time field is needed to display the trend */
   kpiTrendNoDateFilterHint: string;
   /** Hint shown when a time field is needed to display the sparkline */
@@ -1478,6 +1528,42 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   expressionPrecisionHelperText:
     'Decimal places (0\u201310) used when formatting this calculated field',
 
+  // Expression builder: operator picker
+  exprOpAdd: 'Add (+)',
+  exprOpSubtract: 'Subtract (\u2212)',
+  exprOpMultiply: 'Multiply (\u00d7)',
+  exprOpDivide: 'Divide (\u00f7)',
+  exprOpModulo: 'Modulo (%)',
+  exprOpNegate: 'Negate (\u2212x)',
+  exprOpEquals: 'Equals (=)',
+  exprOpNotEqual: 'Not Equal (\u2260)',
+  exprOpLessThan: 'Less Than (<)',
+  exprOpGreaterThan: 'Greater Than (>)',
+  exprOpLessThanOrEqual: 'Less Than or Equal (\u2264)',
+  exprOpGreaterThanOrEqual: 'Greater Than or Equal (\u2265)',
+  exprOpAnd: 'And',
+  exprOpOr: 'Or',
+  exprOpNot: 'Not',
+  exprOpIsTrue: 'Is True',
+  exprOpIsFalse: 'Is False',
+  exprOpIsNull: 'Is Null',
+  exprOpIsNotNull: 'Is Not Null',
+  exprOpIf: 'If / Then / Else',
+  exprOpIn: 'In (value is one of)',
+  exprOpDatediff: 'Date Difference',
+  exprGroupArithmetic: 'Arithmetic',
+  exprGroupComparison: 'Comparison',
+  exprGroupLogical: 'Logical',
+  exprGroupConditional: 'Conditional',
+  exprGroupDate: 'Date',
+  exprInputLabelUnit: 'Unit (e.g. "day", "month", "year")',
+  exprInputLabelCondition: 'Condition',
+  exprInputLabelThen: 'Then',
+  exprInputLabelElse: 'Else',
+  exprInputLabelGeneric: (index) => `Input ${index}`,
+  exprAddInputButton: 'Add input',
+  exprOutputTypeLabel: 'Output type:',
+
   // Shared aggregation function labels
   aggFnSum: 'Sum',
   aggFnCount: 'Count',
@@ -1908,6 +1994,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiTrendNewLabel: 'New',
   kpiTrendTargetTooltip: (value) => `Target: ${value}`,
   kpiTrendPreviousPeriodTooltip: (period) => `Previous period: ${period}`,
+  kpiTrendVsLabel: (period) => `vs. ${period}`,
   kpiTrendNoDateFilterHint: 'Add a date filter to show the trend.',
   kpiSparklineNoTimeFieldHint: 'Add a date filter or select a time field to show a sparkline.',
 

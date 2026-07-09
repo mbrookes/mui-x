@@ -48,7 +48,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
-  // Includes string expression fields (event.g. a joined country field).
+  // Includes string expression fields (e.g. a joined country field).
   const allStringFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     const all: DataSourceFieldEntry[] = [];
     Object.values(dataSources).forEach((ds) => {
@@ -68,7 +68,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         });
       });
     });
-    // Include string expression fields (event.g. expr-order-country via join)
+    // Include string expression fields (e.g. expr-order-country via join)
     expressionFields.forEach((ef) => {
       if (ef.hidden || ef.type !== 'string') {
         return;

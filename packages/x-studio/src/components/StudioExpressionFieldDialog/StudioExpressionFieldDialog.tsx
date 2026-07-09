@@ -239,7 +239,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
           {/* Inferred output type */}
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Typography variant="caption" color="text.secondary">
-              Output type:
+              {localeText.exprOutputTypeLabel}
             </Typography>
             <Chip label={inferredType} size="small" variant="outlined" />
           </Stack>

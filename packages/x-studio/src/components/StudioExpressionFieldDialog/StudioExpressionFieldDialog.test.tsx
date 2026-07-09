@@ -110,4 +110,26 @@ describe('StudioExpressionFieldDialog', () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(addSpy).not.toHaveBeenCalled();
   });
+
+  // Regression coverage for architecture-review finding 2.2: the "Output type:" caption
+  // used to be hardcoded English even though the rest of this dialog resolves strings
+  // through `useStudioLocaleText`.
+  it('renders the "Output type" caption translated under a non-English locale', async () => {
+    const { frLocaleText } = await import('../../locales/fr');
+    const { wrapper } = createStudioHarness({
+      providerProps: { localeText: frLocaleText },
+    });
+    render(
+      <StudioExpressionFieldDialog
+        open
+        onClose={() => {}}
+        dataSource={DATA_SOURCE}
+        expressionFields={[]}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByText('Type de sortie :')).not.toBe(null);
+    expect(screen.queryByText('Output type:')).toBe(null);
+  });
 });

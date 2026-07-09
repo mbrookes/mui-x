@@ -174,6 +174,26 @@ describe('GridSetupPanel', () => {
     }
   });
 
+  // ─── Re-selecting the already-active source is a no-op (finding 1.13) ────────
+  //
+  // MUI `useAutocomplete`'s single-select equality is reference equality, and both
+  // the picker's `value` and its `options` are freshly-mapped objects every render,
+  // so clicking the currently-selected option in the dropdown still fires `onChange`
+  // with a different object reference — `handleSourceChange` must guard against
+  // treating that as a real source switch, or it wipes every field-bound column/
+  // sort/group-by/aggregation/conditional-format setting in one undoable commit.
+
+  it('does not call updateWidget when re-selecting the already-active data source', async () => {
+    controller.updateWidget.mockClear();
+    const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Data source'));
+    const ordersOption = await screen.findByRole('option', { name: 'Orders' });
+    await user.click(ordersOption);
+
+    expect(controller.updateWidget).not.toHaveBeenCalled();
+  });
+
   it('hides the columns section and shows a helper alert when no source is selected', () => {
     const previousWidget = mockState.doc.widgets['widget-1'];
 

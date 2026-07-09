@@ -310,6 +310,16 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   const handleSourceChange = (_: React.SyntheticEvent, selected: { id: string } | null) => {
     const nextSourceId = selected?.id ?? undefined;
+    // Re-selecting the already-active source is a no-op gesture, not a real source
+    // switch — MUI `useAutocomplete`'s single-select equality is reference equality,
+    // and both the picker's value and its options are freshly-mapped objects every
+    // render, so clicking the currently-selected option still fires `onChange` with a
+    // different object reference. Without this guard that "no-op" click wiped every
+    // field-bound column/sort/group-by/aggregation/conditional-format setting in one
+    // undoable commit (finding 1.13) — mirrors the guard `KpiSetupPanel` already has.
+    if (nextSourceId === widget?.sourceId) {
+      return;
+    }
     controller.updateWidget(
       widgetId,
       {

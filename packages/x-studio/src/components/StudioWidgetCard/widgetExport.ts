@@ -1,7 +1,9 @@
 import type { StudioController } from '../../store/StudioController';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
-import { exportGridToCsv, exportChartToPng } from '../../internals/widgetUtils';
+import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
+import { buildQueryDescriptor } from '../../internals/queryDescriptor';
+import { studioRequestCache } from '../../internals/StudioRequestCache';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
 
 export interface RunWidgetExportParams {
@@ -47,7 +49,48 @@ export function runWidgetExport({
     // Compute filtered rows lazily at export time — no need for a reactive subscription.
     const state = controller.getState();
     const pipeline = createStudioPipeline(state);
-    const sourceRows = source?.rows ?? [];
+    const hasAdapter = Boolean(source?.adapter);
+
+    // Adapter-backed sources never populate `source.rows` — fetched rows live only in
+    // the on-screen grid's local `useAdapterRows` state, seeded from (and written back
+    // to) the module-singleton `studioRequestCache`. Exporting `source?.rows ?? []`
+    // unconditionally was therefore always an empty array for an adapter source, with
+    // no indication to the user why the CSV came out empty (finding 2.9). Rebuild the
+    // EXACT descriptor `useAdapterRows` builds for the on-screen grid so this reads the
+    // SAME cache entry instead of silently exporting nothing.
+    let sourceRows: Record<string, unknown>[];
+    let cacheMiss = false;
+    if (hasAdapter) {
+      const descriptor = buildQueryDescriptor(
+        widget,
+        state.doc.filters,
+        pageId,
+        source?.tableName,
+        state.doc.expressionFields,
+      );
+      const cached = studioRequestCache.get(descriptor.cacheKey);
+      cacheMiss = cached === undefined;
+      sourceRows = cached?.rows ?? [];
+    } else {
+      sourceRows = source?.rows ?? [];
+    }
+
+    // The grid hasn't fetched (or its cache entry was invalidated) — there is genuinely
+    // no data to export yet, as opposed to a query that legitimately returned zero rows
+    // (a `cached.rows.length === 0` cache HIT proceeds normally below and exports a
+    // headers-only CSV, which correctly represents "no rows"). Rather than silently
+    // downloading an empty file, download a short explanatory message instead — there is
+    // no snackbar/toast in x-studio (see `StudioGridWidget.tsx`'s write-back error
+    // handling for the same constraint) so this is the only user-visible channel
+    // available from here.
+    if (hasAdapter && cacheMiss) {
+      downloadCsv(
+        'No data available to export yet. Open the grid so it can load data from the server, then try exporting again.',
+        `${widget.title}_export.csv`,
+      );
+      return;
+    }
+
     // NOTE (finding 2.19, cross-highlight mode): when `hasChartCrossFilters` is true and the
     // widget's effective mode is `cross-highlight`, the on-screen grid (`StudioGridWidget.tsx`)
     // shows ALL baseline rows (page/widget/interactive filters only) and dims the ones the
@@ -90,7 +133,15 @@ export function runWidgetExport({
           )
         : rows;
 
-    exportGridToCsv(widget, source, enrichedRows);
+    // Fold in the widget's own-source expression fields so the CSV header/format for a
+    // calculated-field column matches the on-screen grid instead of falling back to the
+    // raw field id with no number/currency formatting (finding — grid CSV export drifts
+    // from on-screen rendering for expression-field columns).
+    const ownExpressionFields = state.doc.expressionFields.filter(
+      (ef) => ef.sourceId === widget.sourceId,
+    );
+
+    exportGridToCsv(widget, source, enrichedRows, ownExpressionFields);
   } else if (widget.kind === 'chart') {
     exportChartToPng(widget, chartContainer, chartBackgroundColor);
   } else if (widget.kind === 'pivot' || isCustomKind) {

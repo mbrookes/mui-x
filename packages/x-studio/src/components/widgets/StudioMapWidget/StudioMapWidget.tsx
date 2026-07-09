@@ -12,6 +12,8 @@ import {
   useStudioLocaleText,
   useStudioSelector,
   makeSelectActiveCrossFilter,
+  selectDataSources,
+  makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
@@ -140,10 +142,37 @@ export function StudioMapWidget({
   const legendOrder = legendPosition === 'left' ? 0 : 1;
 
   // Look up the full field definition for the value field (format, currencyCode, precision).
-  const fieldDef = React.useMemo(
-    () => dataSource.fields.find((f) => f.id === valueField),
-    [dataSource.fields, valueField],
+  // Checked in the same priority order the row-enrichment pipeline (`useWidgetRows.ts`)
+  // already resolves `mapValueField` in: the widget's own source, its own-source expression
+  // fields, and finally — when `mapValueSourceId` names a different (related) source — that
+  // source's fields. Previously this only ever checked `dataSource.fields`, so a calculated
+  // field or a cross-source value field silently lost its format/currency/precision in the
+  // tooltip and legend (architecture review: map value-field lookup ignores expression
+  // fields and cross-source fields — the same class of fix already applied to the KPI
+  // sparkline's field-def lookup, see `StudioKpiWidget.tsx`).
+  const dataSources = useStudioSelector(selectDataSources);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
   );
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const valueSourceId = config.mapValueSourceId;
+  const fieldDef = React.useMemo(() => {
+    if (valueSourceId && valueSourceId !== widget.sourceId) {
+      return dataSources[valueSourceId]?.fields.find((f) => f.id === valueField);
+    }
+    return (
+      dataSource.fields.find((f) => f.id === valueField) ??
+      expressionFields.find((f) => f.id === valueField)
+    );
+  }, [
+    dataSource.fields,
+    valueField,
+    expressionFields,
+    dataSources,
+    valueSourceId,
+    widget.sourceId,
+  ]);
 
   const formatMapValueCompact = React.useCallback(
     (v: number): string => {

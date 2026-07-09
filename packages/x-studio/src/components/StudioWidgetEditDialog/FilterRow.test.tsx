@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioFilterState } from '../../models';
 import { FilterRow, type FieldOption } from './FilterRow';
@@ -56,6 +56,38 @@ describe('FilterRow', () => {
       />,
     );
     expect(screen.getByPlaceholderText('Value')).not.toBe(null);
+  });
+
+  it('renders a between filter value without corrupting it, and edits preserve the object (1.10)', () => {
+    // Regression for finding 1.10: a `between` value is a `{ from, to }` object. The generic
+    // single-value TextField would render it as `[object Object]` and the first keystroke
+    // would clobber it into a plain string. The dedicated from/to editor must show the two
+    // bounds and, when one is edited, dispatch an object `value` (not a string).
+    const onUpdate = vi.fn();
+    render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'amount',
+          operator: 'between',
+          fieldType: 'number',
+          value: { from: '10', to: '20' },
+        })}
+        fieldOptions={[numberField]}
+        onRemove={() => {}}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const fromInput = screen.getByPlaceholderText('From') as HTMLInputElement;
+    const toInput = screen.getByPlaceholderText('To') as HTMLInputElement;
+    // The object is displayed as two bounds, never as `[object Object]`.
+    expect(fromInput.value).toBe('10');
+    expect(toInput.value).toBe('20');
+    expect(screen.queryByDisplayValue('[object Object]')).toBe(null);
+
+    // Editing the "from" bound keeps the value an object, only changing `from`.
+    fireEvent.change(fromInput, { target: { value: '15' } });
+    expect(onUpdate).toHaveBeenCalledWith({ value: { from: '15', to: '20' } });
   });
 
   it('calls onRemove when the delete button is clicked', () => {

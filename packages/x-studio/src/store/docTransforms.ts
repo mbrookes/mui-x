@@ -1,3 +1,4 @@
+import { createFilterId } from '@mui/x-studio-schema';
 import type {
   StudioDoc,
   StudioDataField,
@@ -210,6 +211,15 @@ export function saveFilterPreset(doc: StudioDoc, id: string, name: string): Stud
 /**
  * Applies a saved filter preset by replacing all page-level filters for the active page
  * with the preset's filters. Returns `doc` unchanged when the preset is unknown.
+ *
+ * Each re-materialized filter gets a FRESH, collision-resistant id (via `createFilterId`)
+ * rather than reusing the preset-baked `${presetId}-${originalFilterId}` id (1.7). Applying
+ * the same preset to two different pages would otherwise mint two `doc.filters` entries with
+ * the IDENTICAL id, and `StudioController.toggleFilter`/`updateFilter`/`removeFilter` all match
+ * by `f.id === filterId` across the WHOLE array — so editing "the preset filter" on page A
+ * would silently mutate page B's supposedly-independent copy. Nothing tracks preset origin via
+ * the id derivation (only `saveFilterPreset` produces it and only this function consumes it),
+ * so a plain id swap is sufficient — no `sourcePresetId` marker is needed.
  */
 export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   const preset = (doc.filterPresets ?? []).find((p: StudioFilterPreset) => p.id === presetId);
@@ -225,9 +235,10 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
         (f: StudioFilterState) =>
           f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
-      // Apply preset filters scoped to the current page.
+      // Apply preset filters scoped to the current page, each with a fresh unique id.
       ...preset.filters.map((f: StudioFilterState) => ({
         ...f,
+        id: createFilterId(),
         scope: { kind: 'page' as const, pageId: activePageId },
       })),
     ],

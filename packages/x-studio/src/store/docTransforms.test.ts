@@ -178,11 +178,65 @@ describe('docTransforms preset family', () => {
       filterPresets: [preset],
     });
     const next = docTransforms.applyFilterPreset(doc, 'preset-1');
-    const ids = next.filters.map((f) => f.id).sort();
     // page-2 filter kept, page-1 filter replaced with the preset filter scoped to page-1.
-    expect(ids).toEqual(['other', 'preset-1-a']);
-    const applied = next.filters.find((f) => f.id === 'preset-1-a');
+    expect(next.filters.find((f) => f.id === 'other')).toBeTruthy();
+    expect(next.filters.find((f) => f.id === 'current')).toBeUndefined();
+    // The applied filter carries a FRESH id (not the preset-baked `preset-1-a`), scoped to
+    // the active page and preserving the preset filter's field/operator/value payload.
+    const applied = next.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    );
+    expect(applied).toBeTruthy();
+    expect(applied!.id).not.toBe('preset-1-a');
+    expect(applied!.field).toBe('value');
     expect(applied!.scope).toEqual({ kind: 'page', pageId: 'page-1' });
+  });
+
+  it('applyFilterPreset mints distinct ids per page so the two copies stay independent (1.7)', () => {
+    // Repro for finding 1.7: applying the same preset to two different pages must NOT
+    // produce two `doc.filters` entries sharing an id — otherwise the controller's
+    // id-keyed toggle/update/remove would mutate both copies at once.
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [pageFilter('preset-1-a')],
+    };
+    // Apply to page-1.
+    const docA = makeDoc({
+      filterPresets: [preset],
+      dashboard: { id: 'dashboard-1', title: 't', activePageId: 'page-1' },
+    });
+    const afterA = docTransforms.applyFilterPreset(docA, 'preset-1');
+    const filterA = afterA.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    )!;
+
+    // Switch to page-2 and apply the same preset (keeping page-1's applied copy).
+    const docB: StudioDoc = {
+      ...afterA,
+      dashboard: { ...afterA.dashboard, activePageId: 'page-2' },
+    };
+    const afterB = docTransforms.applyFilterPreset(docB, 'preset-1');
+    const filterB = afterB.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-2',
+    )!;
+
+    // Both copies still exist, scoped to their own page, with DISTINCT ids.
+    const pageAStill = afterB.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    )!;
+    expect(pageAStill.id).toBe(filterA.id);
+    expect(filterB.id).not.toBe(filterA.id);
+
+    // Simulate the controller's id-keyed edit on page-2's copy: only that entry changes.
+    const edited = afterB.filters.map((f) => (f.id === filterB.id ? { ...f, value: 'edited' } : f));
+    expect(edited.find((f) => f.id === filterB.id)!.value).toBe('edited');
+    expect(edited.find((f) => f.id === filterA.id)!.value).toBe('x');
+
+    // Simulate the controller's id-keyed remove on page-2's copy: page-1's copy survives.
+    const removed = edited.filter((f) => f.id !== filterB.id);
+    expect(removed.find((f) => f.id === filterA.id)).toBeTruthy();
+    expect(removed.find((f) => f.id === filterB.id)).toBeUndefined();
   });
 
   it('deleteFilterPreset removes by id and preserves identity on no-op', () => {

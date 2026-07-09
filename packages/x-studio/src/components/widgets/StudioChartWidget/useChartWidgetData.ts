@@ -328,7 +328,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -340,6 +340,12 @@ export function useChartWidgetData(
             chartSortBy,
             chartSortDirection,
             xFieldOrderedValues,
+            // Pass the configured aggregation so this color-stability baseline ranks the same
+            // top-N series set the rendered `seriesFieldData`/`allSeriesFieldData` do — omitting
+            // it defaulted to 'sum', which under a rank filter + non-sum aggregation (avg/min/max/
+            // count) could rank a different top-N than the actual data, defeating stable colors
+            // (finding 2.23).
+            singleSeriesYAggregation,
           ),
           widgetRankFilter,
         ).seriesNames,
@@ -350,6 +356,7 @@ export function useChartWidgetData(
     config.seriesField,
     activeYFields,
     xGroupBy,
+    singleSeriesYAggregation,
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,

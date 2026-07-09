@@ -259,6 +259,10 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
       xField={config.xField}
       yField={config.yField}
       activeYFields={ctx.activeYFields}
+      // Mirror `useChartWidgetData`'s single-ring precedence (per-series fn wins over the
+      // yField-level default) so grouped rings honour the configured aggregation (finding 2.25).
+      yAggregation={config.ySeries?.[0]?.yAggregation ?? config.yAggregation}
+      xGroupBy={ctx.xGroupBy}
       pieLegendBelow={!!config.pieLegendBelow}
       pieArcLabel={config.pieArcLabel}
       pieArcLabelMinAngle={config.pieArcLabelMinAngle}
@@ -287,10 +291,17 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
 function renderLineArea(
   ctx: ChartRenderContext<'line' | 'area' | 'area-stacked' | 'area-100'>,
 ): React.ReactElement {
-  const { config, chartData, chartHeight } = ctx;
+  const { config, chartData, chartHeight, multiYData } = ctx;
   const chartType = config.chartType;
 
-  if (!chartData || chartData.labels.length === 0) {
+  // `chartData` is null whenever `activeYFields.length > 1` (multi-Y line/area uses `multiYData`
+  // instead), so a multi-measure line/area chart must be reachable even when `chartData` is
+  // null/empty — this check therefore runs BEFORE (and independently of) the chartData-emptiness
+  // check below, mirroring `renderBar`. `StudioLineAreaChart` has a complete multi-Y render path
+  // that was dead code while this guard fell straight through to `EmptyChartBox` (finding 1.8).
+  const hasMultiY = !!multiYData && multiYData.labels.length > 0;
+
+  if (!hasMultiY && (!chartData || chartData.labels.length === 0)) {
     return <EmptyChartBox height={chartHeight} />;
   }
 

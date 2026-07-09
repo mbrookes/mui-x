@@ -251,6 +251,30 @@ const sankeyDescriptor: ChartTypeDescriptor = {
   },
 };
 
+/**
+ * Gauge chart descriptor.
+ *
+ * Key invariant: like the KPI descriptor, gauge aggregations must NOT be pushed to the
+ * server. `renderGauge` (`chartTypeDefs.tsx`) aggregates client-side via
+ * `computeAggregate(rows, yField, yAggregation)`. Emitting an aggregation spec (e.g. the
+ * default `count`) makes the db-tier return ONE pre-aggregated row; re-running
+ * `computeAggregate` over that single already-aggregated row yields `1` for `count` (or the
+ * wrong value for other fns) instead of the real aggregate (finding 2.26). Gauge previously
+ * routed through `xyDescriptor`, which emitted that spec — the exact hazard the KPI
+ * descriptor was already special-cased for.
+ */
+const gaugeDescriptor: ChartTypeDescriptor = {
+  collectFields(config) {
+    const fields = new Set<string>();
+    addField(fields, config.yField);
+    return [...fields].filter(Boolean);
+  },
+  buildAggregationSpecs() {
+    // Gauge always aggregates client-side — never push to the server.
+    return [];
+  },
+};
+
 // ── Widget-kind descriptors ───────────────────────────────────────────────────
 
 /**
@@ -387,7 +411,7 @@ const chartTypeRegistry = {
   mixed: xyDescriptor,
   pie: xyDescriptor,
   donut: xyDescriptor,
-  gauge: xyDescriptor,
+  gauge: gaugeDescriptor,
   heatmap: heatmapDescriptor,
   funnel: funnelDescriptor,
   gantt: ganttDescriptor,

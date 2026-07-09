@@ -422,7 +422,6 @@ export function StudioLineAreaChart({
     yFieldDef?.currencyCode,
     yFieldDef?.precision,
   );
-  const selectedDataIndices = getSelectedDataIndices(singleChartData!.labels);
 
   // Ghost line series data (allChartData values) for line/area charts when ghost-rendering
   const ghostLineValues =
@@ -437,8 +436,31 @@ export function StudioLineAreaChart({
       ? computeWidgetForecast(singleChartData.labels, singleChartData.values, forecast)
       : null;
 
-  // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
-  const effectiveLabels = forecastData ? forecastData.labels : singleChartData!.labels;
+  // When ghost-rendering, the axis is built from the ALL-data (baseline) labels — the same basis
+  // as the ghost values — so the filtered values must be RE-ALIGNED onto those positions. Without
+  // that, a cross-filter that drops an entire x bucket shifts every later filtered value one slot
+  // left of its real label and the "filtered / total" tooltip pairs mismatch. The split-by and
+  // multi-Y paths already align this way via `alignFilteredToAllLabels`; the single-series ghost
+  // path did not (finding 2.29). Forecast and ghost are mutually exclusive (forecast is disabled
+  // when `ghostLineValues` is set), so the branches below never overlap.
+  // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill.
+  const effectiveLabels = forecastData
+    ? forecastData.labels
+    : ghostLineValues && allChartData
+      ? allChartData.labels
+      : singleChartData!.labels;
+  const mainSeriesData: (number | null)[] = forecastData
+    ? forecastData.historicalSeries
+    : ghostLineValues && allChartData
+      ? alignFilteredToAllLabels(
+          allChartData.labels,
+          singleChartData!.labels,
+          singleChartData!.values,
+        )
+      : singleChartData!.values;
+  // Highlight index is computed against the RENDERED (effective) label order so an own-selection
+  // resolves to the correct axis position even when the ghost axis uses the baseline labels.
+  const selectedDataIndices = getSelectedDataIndices(effectiveLabels);
   const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
   const lineColor = resolvedChartColors[0];
   return (
@@ -472,7 +494,7 @@ export function StudioLineAreaChart({
             : []),
           {
             id: CROSS_FILTER_SERIES_ID,
-            data: forecastData ? forecastData.historicalSeries : singleChartData!.values,
+            data: mainSeriesData,
             label: seriesLabel,
             area: isArea,
             connectNulls: true,

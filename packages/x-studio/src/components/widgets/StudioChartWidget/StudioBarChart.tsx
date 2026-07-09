@@ -315,9 +315,25 @@ export function StudioBarChart({
         ? formatPercentValue
         : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision);
       const seriesId = `${s.fieldId}-${i}`;
+      const rawFilteredValues = multiYFilteredBySeriesId[seriesId];
+      // For bar-100 the rendered bar values (and thus the `value` handed to the formatter) are
+      // percentages of the per-label stack total, but the ghost context holds RAW filtered
+      // aggregates. Normalize the filtered values into the same percent frame before formatting
+      // so the "filtered / total" tooltip compares like with like instead of stamping a raw
+      // count with a '%' suffix (finding 2.24). The ghost-bar geometry keeps the raw context.
+      const filteredValuesForFormatter =
+        totals100 && rawFilteredValues
+          ? rawFilteredValues.map((fv, li) => {
+              if (fv == null) {
+                return null;
+              }
+              const total = totals100[li];
+              return total ? (fv / total) * 100 : 0;
+            })
+          : rawFilteredValues;
       const valueFormatter =
-        multiYBarContext && multiYFilteredBySeriesId[seriesId]
-          ? makeCrossFilterValueFormatter(multiYFilteredBySeriesId[seriesId], baseFormatter)
+        multiYBarContext && filteredValuesForFormatter
+          ? makeCrossFilterValueFormatter(filteredValuesForFormatter, baseFormatter)
           : baseFormatter;
       return {
         id: seriesId,
@@ -460,9 +476,23 @@ export function StudioBarChart({
           })
         : stackedOrRaw;
       const seriesId = String(name);
+      const rawFilteredValues = sfFilteredBySeriesId[seriesId];
+      // See the multi-Y path above: for bar-100 normalize the raw filtered aggregates into the
+      // same per-label percent frame as the rendered bars so the "filtered / total" tooltip
+      // doesn't format a raw value as a percentage (finding 2.24).
+      const filteredValuesForFormatter =
+        totals100 && rawFilteredValues
+          ? rawFilteredValues.map((fv, i) => {
+              if (fv == null) {
+                return null;
+              }
+              const total = totals100[i];
+              return total ? (fv / total) * 100 : 0;
+            })
+          : rawFilteredValues;
       const valueFormatter =
-        sfBarContext && sfFilteredBySeriesId[seriesId]
-          ? makeCrossFilterValueFormatter(sfFilteredBySeriesId[seriesId], baseSeriesValueFormatter)
+        sfBarContext && filteredValuesForFormatter
+          ? makeCrossFilterValueFormatter(filteredValuesForFormatter, baseSeriesValueFormatter)
           : baseSeriesValueFormatter;
       return {
         id: seriesId,

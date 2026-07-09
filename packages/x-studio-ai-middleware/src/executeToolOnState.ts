@@ -322,6 +322,18 @@ function planRemoveFilter(
   ctx: ToolPlanContext,
 ): ToolExecutionResult {
   const filterId = String(args.filterId ?? '');
+  // Existence check BEFORE mutating: the `removeFilter` reducer is a silent
+  // no-op for an unknown id, so without this guard the model would be told
+  // `success: true` for a call that changed nothing and has no signal to
+  // retry with a corrected id — matching every other entity-targeting tool
+  // (`remove_widget`, `remove_page`, `set_widget_width`, etc.), which all
+  // validate existence and return an actionable error instead.
+  if (!ctx.state.doc.filters.find((f) => f.id === filterId)) {
+    return {
+      output: JSON.stringify({ error: `Filter ${filterId} not found.` }),
+      nextState: ctx.state,
+    };
+  }
   const mutation: StateMutation = { type: 'removeFilter', args: { filterId } };
   return {
     output: JSON.stringify({ success: true, filterId }),
@@ -1043,11 +1055,24 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Accept spans in the 24-column unit system the canvas renders (matches
       // `canvasGridConstants.GRID_COLS` = 24 / `MIN_SPAN` = 6 in `@mui/x-studio`
       // and the `setWidgetColSpan` reducer's clamp).
-      const colSpanPatch = (args.colSpans as Record<string, number> | undefined) ?? {};
+      //
+      // An out-of-range (or non-numeric) span is REJECTED and reported via `skipped`,
+      // rather than silently dropped: this handler's output reports `applied.colSpans`
+      // as a per-op COUNT, not the per-widget applied value (unlike `set_widget_width`,
+      // which echoes back the reducer-clamped value for its single widget), so clamping
+      // here instead would give the model no way to learn which width it actually got.
+      // A `skipped` entry matches every other rejected op in this handler (removals,
+      // additions, updates, layout) and gives the model an actionable signal to retry
+      // with a value in range.
+      const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
       for (const [wid, span] of Object.entries(colSpanPatch)) {
         if (typeof span === 'number' && span >= 6 && span <= 24) {
           colSpans[wid] = span;
           applied.colSpans += 1;
+        } else {
+          skipped.push(
+            `colSpan ${wid}: ${JSON.stringify(span)} is out of range (must be a number 6-24).`,
+          );
         }
       }
 

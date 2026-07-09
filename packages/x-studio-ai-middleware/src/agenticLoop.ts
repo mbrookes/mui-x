@@ -439,6 +439,15 @@ export async function* runAgenticLoop(
         finishReason = choice.finish_reason;
       }
 
+      // NOTE: `StudioAISSEEvent` (`models/protocol.ts`) declares `reasoning-start` /
+      // `reasoning-delta` / `reasoning-end` events for provider-emitted chain-of-thought,
+      // but this loop never yields them: the `delta` type above (and every provider this
+      // package has been run against) carries only `content`/`tool_calls`, with no
+      // `reasoning`/`reasoning_content` streaming field to map from. A future provider
+      // integration that streams reasoning tokens over an OpenAI-compatible wire format
+      // (e.g. a `delta.reasoning_content`) should inspect it here and yield
+      // `reasoning-start`/`reasoning-delta`/`reasoning-end` around it, mirroring the
+      // `text-delta` handling below.
       if (delta.content) {
         yield { type: 'text-delta', delta: delta.content };
       }

@@ -13,6 +13,10 @@ import {
   isBarStacked,
   makeValueFormatter,
   normalizeCrossFilterValue,
+  getTemporalSortOrder,
+  sortAggregatedTemporally,
+  sortMultiSeriesTemporally,
+  sortMultiYTemporally,
 } from './chartWidgetHelpers';
 
 // ─── crossFilterValueEquals ───────────────────────────────────────────────────
@@ -313,5 +317,86 @@ describe('percent formatters', () => {
   it('formatPercentAxis: whole-number percent', () => {
     expect(formatPercentAxis(24.6)).toBe('25%');
     expect(formatPercentAxis(0)).toBe('0%');
+  });
+});
+
+// ─── temporal series ordering (finding 1.7) ──────────────────────────────────
+//
+// A temporal line/area x-axis is always plotted chronologically ascending, but the
+// aggregation arrives in whatever order chartSortBy / chartSortDirection / a rank
+// filter produced. The series values must be reordered with the same chronological
+// permutation, otherwise each value renders against the wrong date.
+
+describe('getTemporalSortOrder', () => {
+  it('returns the chronological permutation for descending temporal labels', () => {
+    expect(getTemporalSortOrder(['2024-03', '2024-02', '2024-01'])).toEqual([2, 1, 0]);
+  });
+
+  it('returns null for already-ascending temporal labels (no reordering needed)', () => {
+    expect(getTemporalSortOrder(['2024-01', '2024-02', '2024-03'])).toBeNull();
+  });
+
+  it('returns null for non-temporal (categorical) labels', () => {
+    expect(getTemporalSortOrder(['North', 'South', 'East'])).toBeNull();
+  });
+
+  it('reorders value-sorted (non-monotonic) temporal labels chronologically', () => {
+    // chartSortBy: 'value' can scramble the dates entirely.
+    expect(getTemporalSortOrder(['2024-02', '2024-04', '2024-01', '2024-03'])).toEqual([
+      2, 0, 3, 1,
+    ]);
+  });
+});
+
+describe('sortAggregatedTemporally', () => {
+  it('pairs each value with its date after chronological reordering (finding 1.7 repro)', () => {
+    // labels desc, values aligned to the desc order → Jan must keep 10, Mar must keep 30.
+    const result = sortAggregatedTemporally({
+      labels: ['2024-03', '2024-02', '2024-01'],
+      values: [30, 20, 10],
+    });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.values).toEqual([10, 20, 30]);
+  });
+
+  it('returns the same reference for already-chronological labels', () => {
+    const data = { labels: ['2024-01', '2024-02'], values: [10, 20] };
+    expect(sortAggregatedTemporally(data)).toBe(data);
+  });
+
+  it('returns the same reference for non-temporal labels', () => {
+    const data = { labels: ['A', 'B'], values: [1, 2] };
+    expect(sortAggregatedTemporally(data)).toBe(data);
+  });
+});
+
+describe('sortMultiSeriesTemporally', () => {
+  it('reorders every series column with the same chronological permutation', () => {
+    const result = sortMultiSeriesTemporally({
+      labels: ['2024-03', '2024-01', '2024-02'],
+      seriesNames: ['a', 'b'],
+      seriesData: {
+        a: [3, 1, 2],
+        b: [30, 10, 20],
+      },
+    });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.seriesData.a).toEqual([1, 2, 3]);
+    expect(result.seriesData.b).toEqual([10, 20, 30]);
+  });
+});
+
+describe('sortMultiYTemporally', () => {
+  it('reorders every y-field series with the same chronological permutation', () => {
+    const result = sortMultiYTemporally({
+      labels: ['2024-03', '2024-01', '2024-02'],
+      series: [
+        { fieldId: 'x', values: [3, 1, 2] },
+        { fieldId: 'y', values: [300, 100, 200] },
+      ],
+    });
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.series[0].values).toEqual([1, 2, 3]);
+    expect(result.series[1].values).toEqual([100, 200, 300]);
   });
 });

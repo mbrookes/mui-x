@@ -25,6 +25,9 @@ import {
   makeCrossHighlightLineFormatter,
   makeValueFormatter,
   resolveFieldDef,
+  sortAggregatedTemporally,
+  sortMultiSeriesTemporally,
+  sortMultiYTemporally,
 } from './chartWidgetHelpers';
 
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
@@ -109,12 +112,12 @@ export interface StudioLineAreaChartProps {
 export function StudioLineAreaChart({
   chartType,
   height,
-  chartData,
-  allChartData,
-  seriesFieldData,
-  allSeriesFieldData,
-  multiYData,
-  allMultiYData,
+  chartData: chartDataRaw,
+  allChartData: allChartDataRaw,
+  seriesFieldData: seriesFieldDataRaw,
+  allSeriesFieldData: allSeriesFieldDataRaw,
+  multiYData: multiYDataRaw,
+  allMultiYData: allMultiYDataRaw,
   activeYFields,
   dataSource,
   expressionFields,
@@ -143,6 +146,27 @@ export function StudioLineAreaChart({
 }: StudioLineAreaChartProps) {
   const createLineXAxis = (labels: (string | number)[], axisId?: string) =>
     createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId);
+
+  // A temporal line/area x-axis is always plotted chronologically ascending (the axis
+  // dates are sorted inside `getTemporalAxisData`). The aggregations arrive in whatever
+  // order `chartSortBy` / `chartSortDirection` / a rank filter produced, so reorder every
+  // series' values with the same chronological permutation — otherwise each value renders
+  // against the wrong date (finding 1.7). No-ops (same reference) for non-temporal or
+  // already-chronological labels.
+  const chartData = chartDataRaw ? sortAggregatedTemporally(chartDataRaw) : chartDataRaw;
+  const allChartData = allChartDataRaw
+    ? sortAggregatedTemporally(allChartDataRaw)
+    : allChartDataRaw;
+  const seriesFieldData = seriesFieldDataRaw
+    ? sortMultiSeriesTemporally(seriesFieldDataRaw)
+    : seriesFieldDataRaw;
+  const allSeriesFieldData = allSeriesFieldDataRaw
+    ? sortMultiSeriesTemporally(allSeriesFieldDataRaw)
+    : allSeriesFieldDataRaw;
+  const multiYData = multiYDataRaw ? sortMultiYTemporally(multiYDataRaw) : multiYDataRaw;
+  const allMultiYData = allMultiYDataRaw
+    ? sortMultiYTemporally(allMultiYDataRaw)
+    : allMultiYDataRaw;
 
   // Highlightable series ids: the split-by names, the multi-Y series ids, or the single
   // cross-filter series. Computed locally since this component owns the series shape and

@@ -61,6 +61,47 @@ export function periodKeyToDateRange(key: string): { from: string; to: string } 
   return null;
 }
 
+/**
+ * Whether a raw date input is in a timezone-aware format, i.e. one `new Date()` resolves
+ * to a definite instant independent of the runtime timezone:
+ * - a bare ISO date `YYYY-MM-DD` (parsed as UTC midnight), or
+ * - an ISO datetime carrying an explicit zone (`Z` or `±hh:mm`).
+ *
+ * Everything else — non-ISO strings like `'1/15/2024'`, zone-less ISO datetimes, `Date`
+ * objects, and numeric timestamps — is parsed in (or relative to) local time, so its
+ * calendar date must be read from the LOCAL Y/M/D components rather than through UTC
+ * (`toISOString`), which would day-shift for UTC+ viewers (finding 2.27).
+ */
+function isZonedDateInput(raw: unknown): boolean {
+  if (typeof raw !== 'string') {
+    return false;
+  }
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(raw) || /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/.test(raw)
+  );
+}
+
+/** Formats a `Date` as `YYYY-MM-DD` from its LOCAL calendar components (no UTC conversion). */
+function toLocalYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Normalises a raw date input to a canonical `YYYY-MM-DD` string. Timezone-aware inputs
+ * round-trip through UTC (canonical ISO inputs are unaffected); local-time-ambiguous
+ * inputs use their LOCAL calendar date to avoid a day-shift for UTC+ viewers.
+ */
+function normalizeToDateOnlyString(raw: unknown): string | null {
+  const d = normalizeToDate(raw);
+  if (!d) {
+    return null;
+  }
+  return isZonedDateInput(raw) ? d.toISOString().slice(0, 10) : toLocalYmd(d);
+}
+
 /** Normalise any date-like value (Date, ms number, or string) to a Date. */
 export function normalizeToDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -151,9 +192,9 @@ export function normalizeDataSourceRows(
           if (raw == null) {
             continue;
           }
-          const d = normalizeToDate(raw);
-          if (d) {
-            next[id] = d.toISOString().slice(0, 10);
+          const normalized = normalizeToDateOnlyString(raw);
+          if (normalized != null) {
+            next[id] = normalized;
             changed = true;
           }
         }

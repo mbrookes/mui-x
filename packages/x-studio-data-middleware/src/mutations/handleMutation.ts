@@ -131,12 +131,18 @@ async function processMutation(
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
-      // No `default` arm (finding 3.5): `descriptor.operation` is validated
-      // against exactly ['insert', 'update', 'delete'] above, before this
-      // switch is ever reached (an unknown operation throws and returns early
-      // via the catch block below) — and the three cases above are the
-      // complete `MutationDescriptor['operation']` union, so a default arm
-      // here was dead code.
+      default: {
+        // Unreachable: `descriptor.operation` is validated against exactly
+        // ['insert', 'update', 'delete'] above, before this switch is ever
+        // reached (an unknown operation throws and returns early via the
+        // catch block below). This exhaustiveness check (rather than a
+        // dead-code default arm, finding 3.5) fails to compile if a new
+        // operation is ever added to the union without a case here.
+        const exhaustiveCheck: never = descriptor.operation;
+        throw /* minify-error-disabled */ new Error(
+          `MUI X: Unreachable mutation operation: ${exhaustiveCheck}`,
+        );
+      }
     }
 
     // ── Post-mutation cache invalidation ──────────────────────────────────

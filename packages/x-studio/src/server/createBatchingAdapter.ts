@@ -1159,7 +1159,7 @@ function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
     return;
   }
   dedupe.add(message);
-  // eslint-disable-next-line no-console
+
   console.warn(`MUI X Studio: ${message}`);
 }
 

@@ -277,6 +277,76 @@ describe('StudioRequestCache', () => {
     expect(short.get(cacheKey)).toBeUndefined();
   });
 
+  // ── bounded growth / eviction (finding 2.18) ───────────────────────────────
+  // The cache is a module-level singleton. Every distinct descriptor (each filter/
+  // date-range tweak produces a new cacheKey) inserts an entry holding the full row array.
+  // Entries used to be removed ONLY when the SAME key was re-requested after TTL, on
+  // invalidateSource, or clear() — so keys never re-requested were never evicted and the
+  // singleton grew monotonically for the life of the page. set() must now bound growth.
+
+  it('caps the number of entries and evicts the least-recently-used one', () => {
+    const bounded = new StudioRequestCache(60_000, 3); // long TTL, cap of 3
+    bounded.set('source:key-1', RESULT_A);
+    bounded.set('source:key-2', RESULT_A);
+    bounded.set('source:key-3', RESULT_A);
+    expect(bounded.size).toBe(3);
+
+    // Touch key-1 so key-2 becomes the least-recently-used entry.
+    expect(bounded.get('source:key-1')).toBe(RESULT_A);
+
+    // Inserting a 4th entry must evict exactly one entry (the LRU: key-2), not grow to 4.
+    bounded.set('source:key-4', RESULT_B);
+    expect(bounded.size).toBe(3);
+    expect(bounded.get('source:key-2')).toBeUndefined(); // evicted
+    expect(bounded.get('source:key-1')).toBe(RESULT_A); // recently used → kept
+    expect(bounded.get('source:key-3')).toBe(RESULT_A);
+    expect(bounded.get('source:key-4')).toBe(RESULT_B);
+  });
+
+  it('does not grow unbounded under interactive descriptor churn', () => {
+    const bounded = new StudioRequestCache(60_000, 10);
+    // Simulate 1000 distinct filter/date-range descriptors, none ever re-requested.
+    for (let i = 0; i < 1000; i += 1) {
+      bounded.set(`source:key-${i}`, { rows: [{ id: i }], totalCount: 1 });
+    }
+    // Without the cap this would hold 1000 row arrays; it must stay bounded.
+    expect(bounded.size).toBeLessThanOrEqual(10);
+  });
+
+  it('sweeps expired entries on set() even for keys that are never re-requested', async () => {
+    const short = new StudioRequestCache(50, 1000); // short TTL, large cap
+    // These keys expire and are never get()-requested again, so the old on-get cleanup
+    // would never reclaim them.
+    short.set('source:cold-1', RESULT_A);
+    short.set('source:cold-2', RESULT_A);
+    expect(short.size).toBe(2);
+
+    await sleep(60); // both entries are now expired
+
+    // A write for a DIFFERENT key must sweep the expired cold entries as a side effect,
+    // so the cache does not accumulate dead entries that are never read again.
+    short.set('source:warm', RESULT_B);
+    expect(short.size).toBe(1);
+    expect(short.get('source:cold-1')).toBeUndefined();
+    expect(short.get('source:cold-2')).toBeUndefined();
+    expect(short.get('source:warm')).toBe(RESULT_B);
+  });
+
+  it('keeps the source index consistent after eviction', () => {
+    const bounded = new StudioRequestCache(60_000, 2);
+    bounded.set('source-a:key-1', RESULT_A);
+    bounded.set('source-a:key-2', RESULT_A);
+    // Evicts source-a:key-1 (LRU).
+    bounded.set('source-b:key-1', RESULT_B);
+    expect(bounded.get('source-a:key-1')).toBeUndefined();
+
+    // Invalidate the source whose entry was evicted — must not resurrect it or throw, and
+    // the surviving entries must be untouched by a stale reverse-index reference.
+    bounded.invalidateSource('source-a');
+    expect(bounded.get('source-a:key-2')).toBeUndefined();
+    expect(bounded.get('source-b:key-1')).toBe(RESULT_B);
+  });
+
   // ── clear ─────────────────────────────────────────────────────────────────
 
   it('clear removes all entries', () => {

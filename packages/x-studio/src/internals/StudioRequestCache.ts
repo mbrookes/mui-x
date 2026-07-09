@@ -2,6 +2,15 @@ import type { StudioQueryResult } from '../models';
 
 const TTL_MS = 30_000;
 
+/**
+ * Hard cap on the number of cached result entries. Every distinct descriptor (each filter /
+ * date-range tweak produces a new `cacheKey`) inserts an entry holding the full `result.rows`
+ * array; without a cap the module-level singleton grows monotonically across a long-lived
+ * session (surviving even a Studio unmount). When the cap is exceeded the least-recently-used
+ * entry is evicted.
+ */
+const MAX_ENTRIES = 500;
+
 interface CacheEntry {
   result: StudioQueryResult;
   fetchedAt: number;
@@ -47,8 +56,55 @@ export class StudioRequestCache {
 
   private readonly ttlMs: number;
 
-  constructor(ttlMs: number = TTL_MS) {
+  private readonly maxEntries: number;
+
+  constructor(ttlMs: number = TTL_MS, maxEntries: number = MAX_ENTRIES) {
     this.ttlMs = ttlMs;
+    this.maxEntries = maxEntries;
+  }
+
+  /**
+   * Removes a single cache entry and keeps its source's reverse index in sync. Uses the
+   * `sourceId` stored on the entry (not a parse of the key) so a sourceId containing ':'
+   * cleans the correct bucket.
+   */
+  private deleteEntry(cacheKey: string, entry?: CacheEntry): void {
+    const target = entry ?? this.cache.get(cacheKey);
+    this.cache.delete(cacheKey);
+    if (target) {
+      const keys = this.sourceIndex.get(target.sourceId);
+      if (keys) {
+        keys.delete(cacheKey);
+        if (keys.size === 0) {
+          this.sourceIndex.delete(target.sourceId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Bounds cache size. Sweeps expired entries first (cheap, and the common reason the cache
+   * grew), then, if still over the cap, evicts least-recently-used entries. Map iteration
+   * order is insertion order and `get()`/`set()` re-insert on access, so the first entries
+   * are the least recently used. Runs on every `set()` so growth is bounded eagerly rather
+   * than only when a stale key happens to be re-requested via `get()`.
+   */
+  private evictIfNeeded(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (now - entry.fetchedAt > this.ttlMs) {
+        this.deleteEntry(key, entry);
+      }
+    }
+    if (this.cache.size <= this.maxEntries) {
+      return;
+    }
+    for (const [key, entry] of this.cache) {
+      if (this.cache.size <= this.maxEntries) {
+        break;
+      }
+      this.deleteEntry(key, entry);
+    }
   }
 
   /** Current generation for a sourceId (0 if never invalidated). */
@@ -73,12 +129,15 @@ export class StudioRequestCache {
       return undefined;
     }
     if (Date.now() - entry.fetchedAt > this.ttlMs) {
-      this.cache.delete(cacheKey);
       // Use the sourceId stored at set-time so the correct bucket is cleaned even when
       // the sourceId contains a ':' (the parse-based fallback would target a wrong bucket).
-      this.sourceIndex.get(entry.sourceId)?.delete(cacheKey);
+      this.deleteEntry(cacheKey, entry);
       return undefined;
     }
+    // Mark as most-recently-used: delete + re-insert moves the key to the end of the Map's
+    // iteration order so LRU eviction in `evictIfNeeded` targets genuinely cold entries.
+    this.cache.delete(cacheKey);
+    this.cache.set(cacheKey, entry);
     return entry.result;
   }
 
@@ -89,6 +148,9 @@ export class StudioRequestCache {
    */
   set(cacheKey: string, result: StudioQueryResult, sourceId?: string): void {
     const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
+    // Delete first so a re-set moves the key to the most-recently-used end of the Map's
+    // insertion order (Map.set on an existing key keeps its original position).
+    this.cache.delete(cacheKey);
     this.cache.set(cacheKey, { result, fetchedAt: Date.now(), sourceId: resolvedSourceId });
     let keys = this.sourceIndex.get(resolvedSourceId);
     if (!keys) {
@@ -96,6 +158,10 @@ export class StudioRequestCache {
       this.sourceIndex.set(resolvedSourceId, keys);
     }
     keys.add(cacheKey);
+    // Bound growth eagerly on every write: sweep expired entries and, if still over the cap,
+    // evict least-recently-used ones. Without this the singleton grows monotonically since
+    // entries are otherwise only removed when the SAME key is re-requested after TTL.
+    this.evictIfNeeded();
   }
 
   /**
@@ -191,6 +257,11 @@ export class StudioRequestCache {
     // promise before invalidation hold the reference directly and are unaffected. The next
     // descriptor evaluation then misses the cache and triggers a genuine re-fetch.
     this.sourceGeneration.set(sourceId, this.getGeneration(sourceId) + 1);
+  }
+
+  /** Number of live cached result entries. Primarily for observability/testing. */
+  get size(): number {
+    return this.cache.size;
   }
 
   /** Clears all cached entries and in-flight requests. Primarily for testing. */

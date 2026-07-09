@@ -1,4 +1,5 @@
 'use client';
+import * as React from 'react';
 import {
   Box,
   FormControl,
@@ -35,6 +36,59 @@ const NO_VALUE_OPERATORS = new Set<StudioFilterOperator>(['is_empty', 'is_not_em
 
 // Encode field selection as "sourceId::fieldId" when cross-source to keep Select value unique
 const encodeValue = (f: FieldOption) => (f.sourceId ? `${f.sourceId}::${f.id}` : f.id);
+
+// ── Buffered value input ────────────────────────────────────────────────────────
+// Finding 2.3/2.8: the value inputs used to route every keystroke straight to
+// `controller.updateFilter` (default `undoable: true`), so typing a 6-char value produced
+// 6 undo entries + 6 full pipeline recomputes and Ctrl+Z un-typed one character at a time.
+// Buffer locally and commit on blur / Enter — the pattern already used by
+// `ConditionalFormatStringValueInput`, `SliderBoundInput`, and `AnnotationLabelInput`.
+function BufferedTextField(props: {
+  value: unknown;
+  onCommit: (next: string) => void;
+  placeholder?: string;
+  type?: string;
+  sx?: object;
+}) {
+  const { value, onCommit, placeholder, type, sx } = props;
+  const initialText = value === undefined || value === null ? '' : String(value);
+  const [text, setText] = React.useState(initialText);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed filter value; resync on external change (field/operator swap, undo/redo)
+  React.useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    onCommit(text);
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      type={type}
+      placeholder={placeholder}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={sx}
+    />
+  );
+}
 
 // ── Filter row ────────────────────────────────────────────────────────────────
 
@@ -86,14 +140,21 @@ export function FilterRow(props: {
           onChange={(evt) => {
             const raw = evt.target.value as string;
             const sep = raw.indexOf('::');
+            // 2.12: a field switch can leave a now-invalid operator/value combination — e.g.
+            // switching a string `contains` filter to a number field leaves `operator:
+            // 'contains'`, which isn't in `NUMBER_OPERATORS`, so the operator Select renders
+            // an out-of-range value (blank + MUI dev warning) while the engine keeps applying
+            // `contains` against numbers. Reset the operator to `equals` and clear the value,
+            // matching the drawer's phase-1 field pickers (`PageFilterRow`/`WidgetFilterRow`).
+            const reset = { operator: 'equals' as StudioFilterOperator, value: '' };
             if (sep !== -1) {
               const srcId = raw.slice(0, sep);
               const fId = raw.slice(sep + 2);
               const meta = fieldOptions.find((f) => f.sourceId === srcId && f.id === fId);
-              onUpdate({ field: fId, filterSourceId: srcId, fieldType: meta?.type });
+              onUpdate({ field: fId, filterSourceId: srcId, fieldType: meta?.type, ...reset });
             } else {
               const meta = fieldOptions.find((f) => !f.sourceId && f.id === raw);
-              onUpdate({ field: raw, filterSourceId: undefined, fieldType: meta?.type });
+              onUpdate({ field: raw, filterSourceId: undefined, fieldType: meta?.type, ...reset });
             }
           }}
           displayEmpty
@@ -140,7 +201,22 @@ export function FilterRow(props: {
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
           value={filter.operator}
-          onChange={(evt) => onUpdate({ operator: evt.target.value as StudioFilterOperator })}
+          onChange={(evt) => {
+            const nextOperator = evt.target.value as StudioFilterOperator;
+            // 1.6: switching AWAY from `between` must not strand the `{ from, to }` object
+            // value — `toComparable` would yield NaN (matching nothing) and the value input
+            // would show "[object Object]". Reset the value when the new operator is
+            // shape-incompatible with the object shape `between` uses.
+            const valueIsBetweenShape =
+              filter.value !== null &&
+              typeof filter.value === 'object' &&
+              !Array.isArray(filter.value);
+            onUpdate(
+              nextOperator !== 'between' && valueIsBetweenShape
+                ? { operator: nextOperator, value: '' }
+                : { operator: nextOperator },
+            );
+          }}
         >
           {operators.map((op) => (
             <MenuItem key={op.value} value={op.value}>
@@ -159,30 +235,27 @@ export function FilterRow(props: {
         // inputs for numeric fields — is the appropriately-scoped fix; a full date-range
         // picker unification is out of scope here.
         <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 80 }}>
-          <TextField
-            size="small"
+          <BufferedTextField
             type={betweenInputType}
             placeholder={localeText.filterWidgetDateFromLabel}
             value={toBoundString(betweenValue.from)}
-            onChange={(evt) => onUpdate({ value: { ...betweenValue, from: evt.target.value } })}
+            onCommit={(next) => onUpdate({ value: { ...betweenValue, from: next } })}
             sx={{ flex: 1, minWidth: 60 }}
           />
-          <TextField
-            size="small"
+          <BufferedTextField
             type={betweenInputType}
             placeholder={localeText.filterWidgetDateToLabel}
             value={toBoundString(betweenValue.to)}
-            onChange={(evt) => onUpdate({ value: { ...betweenValue, to: evt.target.value } })}
+            onCommit={(next) => onUpdate({ value: { ...betweenValue, to: next } })}
             sx={{ flex: 1, minWidth: 60 }}
           />
         </Stack>
       )}
       {!noValue && !isBetween && (
-        <TextField
-          size="small"
+        <BufferedTextField
           placeholder={localeText.filterValueLabel}
           value={filter.value === undefined || filter.value === null ? '' : String(filter.value)}
-          onChange={(evt) => onUpdate({ value: evt.target.value })}
+          onCommit={(next) => onUpdate({ value: next })}
           sx={{ flex: 1, minWidth: 80 }}
         />
       )}

@@ -1325,7 +1325,16 @@ export class StudioController {
     });
   };
 
-  updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
+  updateFilter = (
+    filterId: string,
+    changes: Partial<import('../models').StudioFilterState>,
+    // `undoable` defaults to `true` (via `commitDocPatch`/`commitState`), so existing
+    // callers are unaffected. A `{ undoable: false }` write lets a UI-driven self-repair
+    // (e.g. a filters-drawer row rewriting a stored operator that is invalid for the
+    // field type — finding 2.12) reconcile the doc without pushing an unauthored undo
+    // entry, mirroring `updateWidgetConfig`'s option used by `KpiSetupPanel` (finding 2.4).
+    options?: { undoable?: boolean },
+  ) => {
     const state = this.store.state;
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
     const switchingToRank =
@@ -1363,7 +1372,7 @@ export class StudioController {
           return { ...filter, ...changes };
         }),
       },
-      { label: `updateFilter:${filterId}` },
+      { label: `updateFilter:${filterId}`, undoable: options?.undoable },
     );
   };
 

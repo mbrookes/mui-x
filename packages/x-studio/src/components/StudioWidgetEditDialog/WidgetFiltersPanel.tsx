@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Button, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import { createFilterId } from '@mui/x-studio-schema';
 import type { StudioFilterState, StudioDataField } from '../../models';
 import { useStudioController } from '../../context/StudioContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
@@ -75,7 +76,10 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const widgetFilters = React.useMemo(
     () =>
       allFilters.filter(
-        (f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.dateRangePreset === undefined,
+        (f) =>
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
+          f.dateRangePreset === undefined,
       ),
     [allFilters, widgetId],
   );
@@ -86,7 +90,10 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       return;
     }
     controller.addFilter({
-      id: `wf-${widgetId}-${Date.now()}`,
+      // 3.11: `wf-${widgetId}-${Date.now()}` collides on a fast double-click (two adds in the
+      // same millisecond), and `addFilter` is idempotent on `id`, so the reducer silently
+      // drops the second filter as a re-delivery. Use the collision-resistant factory.
+      id: createFilterId(),
       field: firstField.id,
       fieldType: firstField.type,
       operator: 'equals',

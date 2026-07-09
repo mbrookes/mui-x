@@ -111,6 +111,34 @@ describe('StudioDashboard', () => {
     expect(stateAfter.runtime.dataSources.customers.rows).toEqual([{ value: 'b' }]);
   });
 
+  it('prunes data sources the new config no longer contains, instead of leaking them (2.1)', async () => {
+    // Regression (2.1): `loadSerializedState` preserves the PREVIOUS controller's entire
+    // `runtime.dataSources`, and the swap effect only upserts the new config's sources — so a
+    // source dropped from the new config survived forever (and kept the date-range bar minting
+    // a dashboard-date-range filter for it).
+    const configA = makeConfig('A', {
+      orders: makeSource('orders', [{ value: 'a' }]),
+      customers: makeSource('customers', [{ value: 'c' }]),
+    });
+    const configB = makeConfig('B', { orders: makeSource('orders', [{ value: 'b' }]) });
+
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(<StudioDashboard ref={ref} config={configA} />);
+    expect(await screen.findByText('A')).not.toBe(null);
+    expect(ref.current!.getState().runtime.dataSources.customers).toBeTruthy();
+
+    await act(async () => {
+      setProps({ config: configB });
+    });
+
+    expect(await screen.findByText('B')).not.toBe(null);
+    const stateAfter = ref.current!.getState();
+    // The source dropped from config B is gone; the surviving source has config B's rows.
+    expect(stateAfter.runtime.dataSources.customers).toBeUndefined();
+    expect(stateAfter.runtime.dataSources.orders).toBeTruthy();
+    expect(stateAfter.runtime.dataSources.orders.rows).toEqual([{ value: 'b' }]);
+  });
+
   it('preserves adapters registered via `dataAdapters` across a `config` prop swap (1.8)', async () => {
     // Regression (1.8): adapters registered through the `dataAdapters` prop
     // (→ `setDataSourceAdapter`) were silently wiped when the `config` prop changed. The

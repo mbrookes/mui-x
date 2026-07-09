@@ -36,6 +36,29 @@ function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
 }
 
 /**
+ * Content equality for a managed date-range `StudioFilterState`. Used by the three
+ * date-range setters below to detect a rebuild that produced a filter identical to the one
+ * already stored, so they can return the ORIGINAL `doc` reference (identity preservation)
+ * instead of allocating a fresh-but-equivalent `filters` array — which would otherwise pass
+ * `commitDocPatch`'s reference-equality guard and commit a phantom undoable no-op that clears
+ * the redo stack. `value` (`{ from, to }` or `null`) and `scope` are the only structured
+ * fields; `JSON.stringify` compares them safely for these fixed-shape managed filters.
+ */
+function isSameManagedDateRangeFilter(a: StudioFilterState, b: StudioFilterState): boolean {
+  return (
+    a.id === b.id &&
+    a.field === b.field &&
+    a.fieldType === b.fieldType &&
+    a.filterSourceId === b.filterSourceId &&
+    a.dateRangePreset === b.dateRangePreset &&
+    a.filterMode === b.filterMode &&
+    a.operator === b.operator &&
+    JSON.stringify(a.value) === JSON.stringify(b.value) &&
+    JSON.stringify(a.scope) === JSON.stringify(b.scope)
+  );
+}
+
+/**
  * Builds one managed date-range `StudioFilterState`. Shared by the three date-range
  * setters below. A `'custom'` preset carries the explicit `{ from, to }` in `value`;
  * every other preset stores `value: null` and is resolved fresh at query time by
@@ -88,6 +111,9 @@ export function setDashboardDateRange(
   customFrom?: string,
   customTo?: string,
 ): StudioDoc {
+  const existingForPage = doc.filters.filter(
+    (f: StudioFilterState) => f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId,
+  );
   const withoutExisting = doc.filters.filter(
     (f: StudioFilterState) =>
       !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
@@ -107,10 +133,17 @@ export function setDashboardDateRange(
         })
       : null;
 
-  return {
-    ...doc,
-    filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-  };
+  // Identity preservation (2.3): return the ORIGINAL doc when nothing logically changed —
+  // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
+  // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
+  if (!newFilter) {
+    return existingForPage.length === 0 ? doc : { ...doc, filters: withoutExisting };
+  }
+  if (existingForPage.length === 1 && isSameManagedDateRangeFilter(existingForPage[0], newFilter)) {
+    return doc;
+  }
+
+  return { ...doc, filters: [...withoutExisting, newFilter] };
 }
 
 /**
@@ -127,6 +160,9 @@ export function setDashboardDateRangeAll(
   customFrom?: string,
   customTo?: string,
 ): StudioDoc {
+  const existingForPage = doc.filters.filter(
+    (f: StudioFilterState) => f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId,
+  );
   const withoutExisting = doc.filters.filter(
     (f: StudioFilterState) =>
       !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
@@ -147,6 +183,17 @@ export function setDashboardDateRangeAll(
     )
     .filter((f): f is StudioFilterState => f !== null);
 
+  // Identity preservation (2.3): return the ORIGINAL doc when the rebuilt set is content-equal
+  // to the existing dashboard-date-range filters for the page (same count, each new filter
+  // matches an existing one) — including the both-empty case — so `commitDocPatch` skips a
+  // phantom redo-clearing commit.
+  if (
+    existingForPage.length === newFilters.length &&
+    newFilters.every((nf) => existingForPage.some((ef) => isSameManagedDateRangeFilter(ef, nf)))
+  ) {
+    return doc;
+  }
+
   return { ...doc, filters: [...withoutExisting, ...newFilters] };
 }
 
@@ -165,6 +212,9 @@ export function setWidgetDateRange(
   customFrom?: string,
   customTo?: string,
 ): StudioDoc {
+  const existing = doc.filters.filter(
+    (f: StudioFilterState) => f.id === `widget-date-range-${widgetId}`,
+  );
   const withoutExisting = doc.filters.filter(
     (f: StudioFilterState) => !(f.id === `widget-date-range-${widgetId}`),
   );
@@ -183,10 +233,17 @@ export function setWidgetDateRange(
         })
       : null;
 
-  return {
-    ...doc,
-    filters: newFilter ? [...withoutExisting, newFilter] : withoutExisting,
-  };
+  // Identity preservation (2.3): return the ORIGINAL doc when nothing logically changed —
+  // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
+  // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
+  if (!newFilter) {
+    return existing.length === 0 ? doc : { ...doc, filters: withoutExisting };
+  }
+  if (existing.length === 1 && isSameManagedDateRangeFilter(existing[0], newFilter)) {
+    return doc;
+  }
+
+  return { ...doc, filters: [...withoutExisting, newFilter] };
 }
 
 /**

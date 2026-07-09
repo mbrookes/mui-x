@@ -30,7 +30,12 @@ import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/ge
 export interface StudioDashboardProps {
   /**
    * Pre-built dashboard configuration (pages, widgets, data sources, relationships, filters).
-   * This is the value returned by `Studio` ref's `getState()` or `serializeState()`.
+   * This is the full `StudioState` returned by `Studio` ref's `getState()`.
+   *
+   * Note: this is NOT the output of `serializeState()`. `serializeState()` returns the
+   * persisted, doc-only `SerializedStudioState` shape (no `runtime`/`session` partitions),
+   * which does not satisfy this prop's `StudioState` type — passing it would drop the data
+   * sources and mis-shape the config.
    *
    * When this prop changes (by reference), the dashboard is reloaded with the new config.
    * Changes the user makes to filters while viewing are **not** propagated back — the
@@ -172,6 +177,20 @@ export const StudioDashboard = React.memo(function StudioDashboard({
         // data sources must be explicitly re-applied or they'd silently disappear.
         for (const dataSource of Object.values(config.runtime.dataSources)) {
           innerRef.current?.upsertDataSource(dataSource);
+        }
+        // Prune stale sources (2.1): `loadSerializedState` preserved the ENTIRE previous
+        // `runtime.dataSources`, so a source the new config dropped would otherwise survive
+        // forever (and e.g. keep `StudioDateRangeBar`'s coverage-expansion effect minting a
+        // `dashboard-date-range` filter for it). Remove any runtime source whose id isn't in
+        // the new config's `runtime.dataSources`.
+        const nextSourceIds = new Set(Object.keys(config.runtime.dataSources));
+        const currentSources = innerRef.current?.getState().runtime.dataSources;
+        if (currentSources) {
+          for (const sourceId of Object.keys(currentSources)) {
+            if (!nextSourceIds.has(sourceId)) {
+              innerRef.current?.removeDataSource(sourceId);
+            }
+          }
         }
       }
     }

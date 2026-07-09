@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { executeForTier } from '../execute';
+import { validateQueryPlan } from '../../security/validateQueryPlan';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
 interface RecordedCall {
@@ -174,5 +175,73 @@ describe('executeForTier — "client"/"server" tiers', () => {
       { tenancy: SINGLE_TENANT },
     );
     expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
+});
+
+// End-to-end regression for the Tier 1 SELECT * column-allowlist bypass on joined
+// tables (finding 1.1). Exercises the REAL `validateQueryPlan` + `executeForTier`
+// together against the recording query builder — the only faithful way to observe
+// the emitted projection, since the in-memory mock never merges joined columns.
+describe('executeForTier — joined-table SELECT * bypass (finding 1.1)', () => {
+  // The exact config + descriptor from the review: "orders fully visible,
+  // customers restricted to id". A no-columns widget that JOINs customers.
+  const columnAllowlist = { orders: ['*'], customers: ['id'] };
+  const joinedDescriptor = (): BatchWidgetDescriptor => ({
+    id: 'w1',
+    table: 'orders',
+    joins: [
+      {
+        table: 'customers',
+        type: 'left',
+        on: [['orders.customer_id', 'customers.id']],
+      },
+    ],
+    // no `columns`, no `aggregations`
+  });
+
+  it('emits an explicit orders.* projection (NOT a bare SELECT *) so joined columns are not leaked', async () => {
+    const plan = validateQueryPlan(joinedDescriptor(), columnAllowlist);
+
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      joinedDescriptor(),
+      'client',
+      { tenancy: SINGLE_TENANT },
+      plan,
+    );
+
+    // Before the fix: plan.columns was [] → executeForTier skipped .select()
+    // entirely → the query ran as a bare `SELECT * FROM orders LEFT JOIN customers`,
+    // returning every `customers` column (ssn, credit_limit, …). Now `.select()`
+    // IS called, and only with the primary-table-qualified wildcard.
+    const selectCalls = calls.filter((c) => c.method === 'select');
+    expect(selectCalls).toHaveLength(1);
+    const projected = selectCalls[0].args[0] as unknown[];
+    expect(projected).toEqual(['orders.*']);
+    // The projection names ONLY the primary table — no `customers.*` and no
+    // implicit `customers` column. Joined columns must now be requested explicitly
+    // (which routes them back through the allowlist check).
+    expect(projected.every((col) => col === 'orders.*')).toBe(true);
+    expect(projected.some((col) => String(col).includes('customers'))).toBe(false);
+  });
+
+  it('a single-table ["*"] widget still gets its SELECT * opt-out (as table.*)', async () => {
+    const plan = validateQueryPlan({ id: 'w1', table: 'orders' }, { orders: ['*'] });
+
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      { id: 'w1', table: 'orders' },
+      'client',
+      { tenancy: SINGLE_TENANT },
+      plan,
+    );
+
+    const selectCalls = calls.filter((c) => c.method === 'select');
+    expect(selectCalls).toHaveLength(1);
+    expect(selectCalls[0].args[0]).toEqual(['orders.*']);
   });
 });

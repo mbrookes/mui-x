@@ -313,10 +313,36 @@ describe('validateQueryPlan — SELECT * allowlist-bypass synthesis (finding 1.1
     expect(plan.columns).toEqual([{ physical: 'region' }]);
   });
 
-  it('leaves the projection empty for a ["*"] wildcard entry (explicit SELECT * opt-out)', () => {
+  it('synthesizes a PRIMARY-TABLE-qualified wildcard for a ["*"] entry (opt-out, not a bare SELECT *)', () => {
+    // `['*']` means "all columns of THIS table" → `sales.*`, NOT a bare `*`. A
+    // bare `*` (empty projection) would leak every column of every JOINed table,
+    // bypassing that table's own allowlist (the Tier 1 finding). Qualifying the
+    // wildcard keeps the single-table SELECT * opt-out intact.
     const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'sales' };
     const plan = validateQueryPlan(descriptor, { sales: ['*'] });
-    expect(plan.columns).toEqual([]);
+    expect(plan.columns).toEqual([{ physical: 'sales.*' }]);
+  });
+
+  it('scopes the ["*"] wildcard to the primary table when the widget JOINs another table (finding 1.1)', () => {
+    // The exact bypass shape from the review: primary `orders: ['*']`, joined
+    // `customers: ['id']`, no explicit columns. Before the fix the projection was
+    // empty → bare SELECT * → every `customers` column leaked. Now the projection
+    // is `orders.*`, so joined columns are NOT projected implicitly.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [
+        {
+          table: 'customers',
+          type: 'left',
+          on: [['orders.customer_id', 'customers.id']],
+        },
+      ],
+    };
+    const plan = validateQueryPlan(descriptor, { orders: ['*'], customers: ['id'] });
+    expect(plan.columns).toEqual([{ physical: 'orders.*' }]);
+    // Crucially: no `customers.*` and no unlisted `customers` column is synthesized.
+    expect(plan.columns.some((c) => c.physical.startsWith('customers'))).toBe(false);
   });
 
   it('rejects fail-closed when a no-columns widget has no allowlist entry for its table', () => {

@@ -302,6 +302,38 @@ describe('aggregateByField with xGroupBy', () => {
   });
 });
 
+// ─── aggregateByField null / non-numeric handling (finding 1.4) ───────────────
+
+describe('aggregateByField null handling (finding 1.4)', () => {
+  const rows = [
+    { cat: 'A', v: 10 },
+    { cat: 'A', v: null },
+    { cat: 'A', v: 20 },
+  ];
+  const idxA = (r: { labels: (string | number)[] }) => r.labels.indexOf('A');
+
+  it('excludes null values from the avg denominator (not coerced to 0)', () => {
+    const result = aggregateByField(rows, 'cat', 'v', undefined, 'avg');
+    // avg(10, 20) = 15 — NOT (10 + 0 + 20) / 3 = 10
+    expect(result.values[idxA(result)]).toBe(15);
+  });
+
+  it('does not drag min toward 0 with null values', () => {
+    const result = aggregateByField(rows, 'cat', 'v', undefined, 'min');
+    expect(result.values[idxA(result)]).toBe(10); // was 0 when null → 0
+  });
+
+  it('sums only the non-null values', () => {
+    const result = aggregateByField(rows, 'cat', 'v', undefined, 'sum');
+    expect(result.values[idxA(result)]).toBe(30);
+  });
+
+  it("'count' still tallies every row, including null-measure rows", () => {
+    const result = aggregateByField(rows, 'cat', 'v', undefined, 'count');
+    expect(result.values[idxA(result)]).toBe(3);
+  });
+});
+
 // ─── resolveChartRowsForAggregation ──────────────────────────────────────────
 
 describe('resolveChartRowsForAggregation', () => {
@@ -797,6 +829,47 @@ describe('analyzeChartSupport', () => {
     ).toEqual({ supported: false, reason: 'field_not_found_or_not_direct' });
   });
 
+  // Regression (finding 2.5): non-xy families (heatmap/funnel/sankey/gantt) read fields
+  // (e.g. `heatYField`) that are not x/y/series. They are passed via the trailing
+  // `extraFields` arg so the guard validates them instead of silently ignoring them.
+  it('validates a non-xy family extra dimension field via extraFields', () => {
+    // An unresolved extra field now makes the guard report the chart unsupported.
+    expect(
+      analyzeChartSupport(
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+        'heatmap',
+        dataSources,
+        relationships,
+        [],
+        undefined,
+        undefined,
+        ['region'], // heatYField — no such field on any related source
+      ),
+    ).toEqual({ supported: false, reason: 'field_not_found_or_not_direct' });
+
+    // A resolvable extra dimension field (owned by the widget source) keeps it supported,
+    // and is validated like a dimension — never treated as a y-measure anchor.
+    const supported = analyzeChartSupport(
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      'heatmap',
+      dataSources,
+      relationships,
+      [],
+      undefined,
+      undefined,
+      ['id'],
+    );
+    expect(supported.supported).toBe(true);
+    expect(supported.fieldOwners?.get('id')).toBe('customers');
+    expect(supported.anchorSourceId).toBe('orders');
+  });
+
   it('returns stable message copy for reason codes', () => {
     expect(getChartSupportMessage('mixed_cross_source_fields')).toMatch(
       'single safe aggregation grain',
@@ -1112,6 +1185,30 @@ describe('applyRankToSeriesFieldData', () => {
     );
     expect(result.seriesNames).toHaveLength(3);
   });
+
+  // Regression (finding 1.13): a numeric split-by field (e.g. a year column) keeps genuine
+  // `number` names in `seriesNames`, but `seriesData` keys are always strings. The membership
+  // test must coerce both sides so the kept series' data column survives — otherwise the
+  // series id survives while its data is dropped, and the renderers crash on `undefined`.
+  it('keeps the data column for a kept numeric split-by series', () => {
+    const numericData = {
+      labels: ['Q1', 'Q2'],
+      seriesNames: [2023, 2024, 2025] as (string | number)[],
+      seriesData: {
+        2023: [10, 10], // total 20
+        2024: [50, 50], // total 100 (highest)
+        2025: [5, 5], // total 10
+      },
+    };
+    const result = applyRankToSeriesFieldData(
+      numericData,
+      makeLocalFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+    );
+    expect(result.seriesNames).toEqual([2024]);
+    // The surviving series' data column must not be dropped (the pre-fix crash).
+    expect(result.seriesData[2024]).toEqual([50, 50]);
+    expect(Object.keys(result.seriesData)).toEqual(['2024']);
+  });
 });
 
 // ─── aggregateByTwoFields ─────────────────────────────────────────────────────
@@ -1194,6 +1291,30 @@ describe('aggregateByTwoFields', () => {
     const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
     const northIdx = result.labels.indexOf('North');
     expect(result.seriesData.A[northIdx]).toBe(175);
+  });
+
+  // ─── null handling (finding 1.4) ─────────────────────────────────────────────
+
+  it('skips null values from a cell avg (not coerced to 0)', () => {
+    const sparse = [
+      { region: 'North', product: 'A', revenue: 10 },
+      { region: 'North', product: 'A', revenue: null },
+      { region: 'North', product: 'A', revenue: 20 },
+    ];
+    const result = aggregateByTwoFields(
+      sparse,
+      'region',
+      'product',
+      'revenue',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'avg',
+    );
+    const northIdx = result.labels.indexOf('North');
+    // avg(10, 20) = 15 — NOT (10 + 0 + 20) / 3 = 10
+    expect(result.seriesData.A[northIdx]).toBe(15);
   });
 });
 
@@ -1390,6 +1511,28 @@ describe('aggregateMultipleSeries', () => {
     const salSeries = result.series.find((s) => s.fieldId === 'salary')!;
     expect(idSeries.values[engIdx]).toBe(2); // string → count wins over map's 'avg'
     expect(salSeries.values[engIdx]).toBe(85000); // avg(80000, 90000)
+  });
+
+  it('skips null values from avg instead of coercing them to 0 (finding 1.4)', () => {
+    const withNulls = [
+      { month: '2024-01', revenue: 10 },
+      { month: '2024-01', revenue: null },
+      { month: '2024-01', revenue: 20 },
+    ];
+    const result = aggregateMultipleSeries(
+      withNulls,
+      'month',
+      ['revenue'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'avg',
+    );
+    const janIdx = result.labels.indexOf('2024-01');
+    const revSeries = result.series.find((s) => s.fieldId === 'revenue')!;
+    // avg(10, 20) = 15 — NOT (10 + 0 + 20) / 3 = 10
+    expect(revSeries.values[janIdx]).toBe(15);
   });
 });
 

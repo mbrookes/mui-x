@@ -16,6 +16,59 @@ import type {
   StudioExpressionField,
   StudioNumberFormat,
 } from '../../../models';
+import type { StudioBarLayout } from '../../../models/baseTypes';
+
+/**
+ * Whether a bar chart stacks its series. Shared by the multi-Y and split-by bar
+ * render paths (previously an identical inline expression at both). A `bar` layout
+ * stacks only when `barLayout === 'stacked'`; the dedicated stacked/100% types always do.
+ */
+export function isBarStacked(
+  chartType: 'bar' | 'bar-stacked' | 'bar-100',
+  barLayout: StudioBarLayout,
+): boolean {
+  return (
+    chartType === 'bar-stacked' ||
+    chartType === 'bar-100' ||
+    (chartType === 'bar' && barLayout === 'stacked')
+  );
+}
+
+/**
+ * Whether a line/area chart stacks its series (`area-stacked` / `area-100`). Shared by
+ * the split-by and multi-Y line/area render paths and `lineSeries.ts`.
+ */
+export function isAreaStacked(chartType: string | undefined): boolean {
+  return chartType === 'area-stacked' || chartType === 'area-100';
+}
+
+/**
+ * Per-x-position totals for 100%-stacked normalization: sums every series' value at each
+ * label index (null → 0). One shared implementation for the multi-Y and split-by bar/line
+ * renderers, previously hand-rolled at four call sites (finding 2.4).
+ */
+export function computeStackTotals(columns: (number | null)[][], labelCount: number): number[] {
+  const totals: number[] = new Array(labelCount).fill(0);
+  for (const column of columns) {
+    for (let i = 0; i < labelCount; i += 1) {
+      totals[i] += column[i] ?? 0;
+    }
+  }
+  return totals;
+}
+
+/**
+ * Series/tooltip value formatter for 100%-stacked charts: one-decimal percent, null → `'0%'`.
+ * Shared by every bar/line 100%-stacked series (previously reimplemented ~6×, finding 2.4).
+ */
+export function formatPercentValue(value: number | null): string {
+  return value == null ? '0%' : `${value.toFixed(1)}%`;
+}
+
+/** Axis-tick value formatter for 100%-stacked charts: whole-number percent. */
+export function formatPercentAxis(value: number): string {
+  return `${Math.round(value)}%`;
+}
 
 /** A temporal-gap-densified aggregation — gap-filled positions carry `null` values. */
 export interface DensifiedAggregatedData {

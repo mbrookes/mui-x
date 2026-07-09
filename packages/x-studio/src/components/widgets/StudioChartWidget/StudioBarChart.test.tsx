@@ -41,7 +41,7 @@ type SeriesEntry = {
   label?: string;
   stack?: string;
   color?: string;
-  yAxisKey?: string;
+  yAxisId?: string;
   valueFormatter?: (value: number | null, context: { dataIndex: number }) => string;
 };
 
@@ -169,7 +169,11 @@ describe('StudioBarChart', () => {
       expect(props.yAxis).toHaveLength(2);
       expect(props.yAxis[0].position).toBe('left');
       expect(props.yAxis[1].position).toBe('right');
-      expect(props.series.map((s) => s.yAxisKey)).toEqual(['y-0', 'y-1']);
+      // `yAxisId` (not `yAxisKey`) is the real x-charts prop that binds a series to an
+      // axis; the id must match the per-axis `id: 'y-0' | 'y-1'` above (finding 1.1).
+      expect(props.yAxis[0].id).toBe('y-0');
+      expect(props.yAxis[1].id).toBe('y-1');
+      expect(props.series.map((s) => s.yAxisId)).toEqual(['y-0', 'y-1']);
     });
 
     it('renders a horizontal layout with a band y-axis and a value x-axis', () => {

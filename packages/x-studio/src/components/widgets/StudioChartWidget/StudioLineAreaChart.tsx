@@ -16,7 +16,11 @@ import {
   alignFilteredToAllLabels,
   CHART_LEGEND_SLOT_PROPS,
   computeControlledHighlight,
+  computeStackTotals,
   createLineXAxisConfig,
+  formatPercentAxis,
+  formatPercentValue,
+  isAreaStacked,
   makeAxisClickHandler,
   makeCrossHighlightLineFormatter,
   makeValueFormatter,
@@ -176,7 +180,7 @@ export function StudioLineAreaChart({
   ) {
     const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const isArea = chartType !== 'line';
-    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
+    const isStacked = isAreaStacked(chartType);
     const is100 = chartType === 'area-100';
 
     // When ghost-rendering (non-stacked only), use allSeriesFieldData as the x-axis basis so
@@ -191,11 +195,9 @@ export function StudioLineAreaChart({
 
     // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
     const totals100 = is100
-      ? seriesFieldData.labels.map((_, i) =>
-          seriesFieldData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
-            0,
-          ),
+      ? computeStackTotals(
+          seriesFieldData.seriesNames.map((name) => seriesFieldData.seriesData[name]),
+          seriesFieldData.labels.length,
         )
       : null;
 
@@ -240,7 +242,7 @@ export function StudioLineAreaChart({
         color: getSeriesColor(name),
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
         valueFormatter: is100
-          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+          ? formatPercentValue
           : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision),
       };
     });
@@ -254,7 +256,7 @@ export function StudioLineAreaChart({
             {
               width: 'auto',
               valueFormatter: is100
-                ? (v: number) => `${Math.round(v)}%`
+                ? formatPercentAxis
                 : makeValueFormatter(
                     yFieldDef?.format,
                     yFieldDef?.currencyCode,
@@ -289,7 +291,7 @@ export function StudioLineAreaChart({
   // ── multi-Y line/area chart: one series per y-field ──
   if (multiYData && multiYData.labels.length > 0) {
     const isArea = chartType !== 'line';
-    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
+    const isStacked = isAreaStacked(chartType);
     const is100 = chartType === 'area-100';
 
     // When ghost-rendering (non-stacked only), use allMultiYData as the x-axis basis so ghost
@@ -321,7 +323,7 @@ export function StudioLineAreaChart({
           {
             width: 'auto' as const,
             valueFormatter: is100
-              ? (v: number) => `${Math.round(v)}%`
+              ? formatPercentAxis
               : makeValueFormatter(
                   multiYLineFieldDefs[0]?.format,
                   multiYLineFieldDefs[0]?.currencyCode,
@@ -341,7 +343,7 @@ export function StudioLineAreaChart({
           connectNulls: true as const,
           showMark: false,
           disableHighlight: true as const,
-          yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+          yAxisId: useIndependentAxes ? `y-${i}` : undefined,
         }))
       : [];
 
@@ -364,7 +366,7 @@ export function StudioLineAreaChart({
             area: isArea,
             connectNulls: true as const,
             color: resolvedChartColors[i % resolvedChartColors.length],
-            yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+            yAxisId: useIndependentAxes ? `y-${i}` : undefined,
             highlightScope: { highlight: 'item' as const, fade: 'global' as const },
             valueFormatter: makeValueFormatter(
               fieldDef?.format,
@@ -544,21 +546,9 @@ export function StudioLineAreaChart({
         onHighlightChange={(item) =>
           onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
         }
-        onAxisClick={(_event, params) => {
-          if (params?.axisValue !== undefined) {
-            onItemClick(params.axisValue, Boolean(_event?.shiftKey));
-          }
-        }}
+        onAxisClick={makeAxisClickHandler(onItemClick)}
         sx={{ cursor: 'default' }}
-        slotProps={{
-          legend: {
-            sx: {
-              overflowY: 'auto',
-              flexWrap: 'nowrap',
-              maxHeight: '100%',
-            },
-          },
-        }}
+        slotProps={CHART_LEGEND_SLOT_PROPS}
       >
         {children}
       </LineChart>

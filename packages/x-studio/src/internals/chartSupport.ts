@@ -163,6 +163,13 @@ export function analyzeChartSupport(
   expressionFields: StudioExpressionField[] = [],
   scatterColorField?: string,
   scatterSizeField?: string,
+  /**
+   * Additional dimension-like fields a non-xy chart family reads but that are not
+   * expressed via x / y / series (e.g. heatmap `heatYField`, sankey `sankeyTargetField`,
+   * funnel `funnelReachedField`, the `gantt*` fields). Validated / grain-resolved exactly
+   * like `seriesField` — never treated as a y-measure (finding 2.5).
+   */
+  extraFields: (string | undefined)[] = [],
 ): ChartSupportResult {
   const requestedFields = [
     xField,
@@ -170,6 +177,7 @@ export function analyzeChartSupport(
     seriesField,
     scatterColorField,
     scatterSizeField,
+    ...extraFields,
   ].filter((field): field is string => Boolean(field));
 
   if (!widgetSourceId || requestedFields.length === 0) {

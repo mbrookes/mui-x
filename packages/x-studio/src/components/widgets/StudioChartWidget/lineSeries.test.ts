@@ -22,15 +22,17 @@ describe('buildMultiYLineSeries', () => {
       fields,
     );
 
+    // `yAxisId` (not `yAxisKey`) is the real x-charts prop for binding a series to an
+    // independent axis (finding 1.1).
     expect(
       result.map((series) => ({
         label: series.label,
         connectNulls: series.connectNulls,
-        yAxisKey: series.yAxisKey,
+        yAxisId: series.yAxisId,
       })),
     ).toEqual([
-      { label: 'Revenue', connectNulls: true, yAxisKey: 'y-0' },
-      { label: 'Profit', connectNulls: true, yAxisKey: 'y-1' },
+      { label: 'Revenue', connectNulls: true, yAxisId: 'y-0' },
+      { label: 'Profit', connectNulls: true, yAxisId: 'y-1' },
     ]);
   });
 
@@ -49,7 +51,7 @@ describe('buildMultiYLineSeries', () => {
     expect(result[0].area).toBe(true);
     expect(result[0].stack).toBe('total');
     expect(result[0].connectNulls).toBe(true);
-    expect(result[0].yAxisKey).toBeUndefined();
+    expect(result[0].yAxisId).toBeUndefined();
     expect(result[0].data).toEqual([75, 50]);
     expect(result[1].data).toEqual([25, 50]);
     expect(result[0].valueFormatter?.(12.345)).toBe('12.3%');

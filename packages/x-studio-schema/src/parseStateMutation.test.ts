@@ -182,6 +182,15 @@ describe('parseStateMutation — valid payloads (one per variant)', () => {
     });
     expect(parsed.ok).toBe(true);
   });
+
+  it("accepts a valid 'auto'/'manual' titleMode/subtitleMode in updateWidget.changes (2.2)", () => {
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { titleMode: 'auto', subtitleMode: 'manual' } },
+      }).ok,
+    ).toBe(true);
+  });
 });
 
 describe('parseStateMutation — table-sync pins', () => {
@@ -323,6 +332,34 @@ describe('parseStateMutation — malformed per-variant args', () => {
     {
       label: 'updateWidget changes.sourceId is a non-string',
       value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { sourceId: {} } } },
+    },
+    // Schema review 2.2: `titleMode`/`subtitleMode` are the only other `StudioWidget`
+    // fields a `changes` merge can carry and were previously unchecked — a junk value
+    // must not reach a field the client's auto-title logic branches on.
+    {
+      label: 'updateWidget changes.titleMode is a non-string',
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { titleMode: 42 } } },
+    },
+    {
+      label: "updateWidget changes.titleMode is a string but not 'auto'/'manual'",
+      value: { type: 'updateWidget', args: { widgetId: 'w1', changes: { titleMode: 'weird' } } },
+    },
+    {
+      label: "updateWidget changes.subtitleMode is a string but not 'auto'/'manual'",
+      value: {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { subtitleMode: 'nonsense' } },
+      },
+    },
+    // Schema review 2.1: a `setWidgetColSpan.rowWidgetIds` entry becomes the sibling-
+    // rebalance bracket-assignment target in the reducer, so a prototype-polluting id
+    // must be rejected per-entry at the wire boundary.
+    {
+      label: 'setWidgetColSpan rowWidgetIds carries a __proto__ entry',
+      value: {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1', '__proto__'] },
+      },
     },
   ];
 

@@ -372,7 +372,16 @@ export function deserializeState(
           const config = widget.config as StudioWidgetConfig;
           const columns = config?.columns;
           const ySeries = config?.ySeries;
-          if (!columns && !ySeries) {
+          // `Array.isArray` (not truthiness) with a non-empty guard: an empty
+          // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
+          // `!columns && !ySeries` check rebuilt a fresh, identical config on every
+          // load — needless reference churn that defeated the "return the widget
+          // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
+          // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
+          // untouched instead (deep config validation is out of scope for this package).
+          const hasColumns = Array.isArray(columns) && columns.length > 0;
+          const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
+          if (!hasColumns && !hasYSeries) {
             return [id, widget];
           }
           return [
@@ -381,8 +390,8 @@ export function deserializeState(
               ...widget,
               config: {
                 ...widget.config,
-                ...(columns ? { columns: columns.map(normalizeGridColumn) } : {}),
-                ...(ySeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
+                ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
+                ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
               },
             },
           ];

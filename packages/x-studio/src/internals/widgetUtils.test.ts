@@ -396,7 +396,9 @@ describe('buildCsvContent', () => {
   it('uses field labels as CSV headers', () => {
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
     const csv = buildCsvContent(widget, source, rows);
-    expect(csv.split('\n')[0]).toBe('Order ID,Product,Revenue');
+    // Headers are always escaped via `escapeCsvCell` (finding 1.8), which always
+    // quotes — see the injection test below for why.
+    expect(csv.split('\n')[0]).toBe('"Order ID","Product","Revenue"');
   });
 
   it('restricts columns to config.columns when set', () => {
@@ -408,7 +410,7 @@ describe('buildCsvContent', () => {
     };
     const csv = buildCsvContent(widget, source, rows);
     const header = csv.split('\n')[0];
-    expect(header).toBe('Order ID,Revenue');
+    expect(header).toBe('"Order ID","Revenue"');
     expect(header).not.toContain('Product');
   });
 
@@ -432,13 +434,31 @@ describe('buildCsvContent', () => {
       config: { columns: [] },
     };
     const csv = buildCsvContent(widget, source, rows);
-    expect(csv.split('\n')[0]).toBe('Order ID,Product,Revenue');
+    expect(csv.split('\n')[0]).toBe('"Order ID","Product","Revenue"');
   });
 
   it('produces one line per data row plus a header', () => {
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
     const csv = buildCsvContent(widget, source, rows);
     expect(csv.split('\n')).toHaveLength(rows.length + 1);
+  });
+
+  // ─── CSV formula injection (architecture review 1.8) ────────────────────────
+  it('neutralizes a formula-injection-lead text cell with a leading apostrophe', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const hostileRows = [{ id: 'ORD-1', product: '=HYPERLINK("http://evil","click")', revenue: 1 }];
+    const csv = buildCsvContent(widget, source, hostileRows);
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine).toContain('"\'=HYPERLINK(""http://evil"",""click"")"');
+  });
+
+  it('does not neutralize a legitimate negative number cell', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const negativeRows = [{ id: 'ORD-1', product: 'Refund', revenue: -5 }];
+    const csv = buildCsvContent(widget, source, negativeRows);
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine.endsWith(',-5') || dataLine.includes(',-5,')).toBe(true);
+    expect(dataLine).not.toContain("'-5");
   });
 });
 
@@ -521,7 +541,9 @@ describe('buildCsvContent — number formatting', () => {
     };
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
     const csv = buildCsvContent(widget, src, [{ name: 'Alice' }]);
-    expect(csv.split('\n')[1]).toBe('Alice');
+    // String cells always go through `escapeCsvCell` (finding 1.8), which always
+    // quotes — the value itself is untouched.
+    expect(csv.split('\n')[1]).toBe('"Alice"');
   });
 });
 

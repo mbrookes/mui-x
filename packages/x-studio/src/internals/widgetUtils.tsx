@@ -15,6 +15,7 @@ import { isWidgetOfKind } from '../models';
 import { isRelativeDateValue } from './filterUtils';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
+import { escapeCsvCell } from './csvUtils';
 import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './StudioUIConfigContext';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
@@ -508,17 +509,23 @@ export function buildCsvContent(
     : dataSource.fields.map((f) => f.id);
 
   const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));
-  const headers = visibleColumns.map((col) => fieldMap.get(col)?.label ?? col);
+  // Header labels always come from user-configured field labels — always text,
+  // so always escaped via `escapeCsvCell` (formula-injection neutralization,
+  // finding 1.8). Row cells are escaped the same way UNLESS the field is
+  // `number`-typed: escaping a numeric cell would corrupt a legitimate leading
+  // `-` (e.g. `-5`) into a quoted text literal.
+  const headers = visibleColumns.map((col) => escapeCsvCell(fieldMap.get(col)?.label ?? col));
 
   const csvRows = rows.map((row) =>
     visibleColumns
       .map((col) => {
         const value = row[col];
-        const strVal = formatFieldValue(value, fieldMap.get(col));
-        if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
-          return `"${strVal.replace(/"/g, '""')}"`;
+        const field = fieldMap.get(col);
+        const strVal = formatFieldValue(value, field);
+        if (field?.type === 'number') {
+          return strVal;
         }
-        return strVal;
+        return escapeCsvCell(strVal);
       })
       .join(','),
   );

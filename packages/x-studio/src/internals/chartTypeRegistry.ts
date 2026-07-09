@@ -90,11 +90,17 @@ function buildXYAggSpecs(
   isExpr: (id: string) => boolean,
   widgetSourceId: string | undefined,
 ): AggSpec[] {
-  const aggs: AggSpec[] = [];
+  // De-duplicate by SQL alias (the field id). `config.yField` and a `config.ySeries`
+  // entry routinely name the same field (the setup panel writes both when a measure is
+  // picked). Emitting two specs for one alias is wasteful when the fns match and
+  // produces an ambiguous duplicate-alias query when they differ (e.g. a chart-type
+  // switch that retains `ySeries` with `avg` while `yField` still says `sum`). The
+  // more specific per-series fn wins over the `yField`-derived one (finding 1.5).
+  const byAlias = new Map<string, AggSpec>();
 
   if (config.yField && !isExpr(config.yField)) {
     const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
-    aggs.push({ field: config.yField, fn, alias: config.yField });
+    byAlias.set(config.yField, { field: config.yField, fn, alias: config.yField });
   }
 
   if (config.ySeries) {
@@ -103,11 +109,11 @@ function buildXYAggSpecs(
         return;
       }
       const fn = (s.yAggregation as AggFn | undefined) ?? 'sum';
-      aggs.push({ field: s.fieldId, fn, alias: s.fieldId });
+      byAlias.set(s.fieldId, { field: s.fieldId, fn, alias: s.fieldId });
     });
   }
 
-  return aggs;
+  return [...byAlias.values()];
 }
 
 // ── Descriptors ───────────────────────────────────────────────────────────────

@@ -101,4 +101,28 @@ describe('pivotToCsv', () => {
     // avg = 1.5
     expect(pivotToCsv(avgMatrix, 'avg', false)).toContain(',1.5');
   });
+
+  // ─── CSV formula injection is neutralized (finding 1.8) ──────────────────────
+
+  it('neutralizes spreadsheet formula injection in row and column labels', () => {
+    const evil = buildPivotMatrix(
+      [{ region: '=HYPERLINK("http://evil")', product: '+cmd', amount: 1 }],
+      'region',
+      'product',
+      'amount',
+    );
+    const lines = pivotToCsv(evil, 'sum', false).split('\n');
+    // Header column label starting with '+' is prefixed with a single quote.
+    expect(lines[0]).toBe('"","\'+cmd"');
+    // Row label starting with '=' is prefixed with a single quote.
+    expect(lines[1]).toBe('"\'=HYPERLINK(""http://evil"")",1');
+    // The raw formula must never appear unescaped at the start of a cell.
+    expect(lines[1].startsWith('"=')).toBe(false);
+  });
+
+  it('does not corrupt legitimate negative numeric cells', () => {
+    const negMatrix = buildPivotMatrix([{ r: 'x', c: 'y', v: -5 }], 'r', 'c', 'v');
+    // Numeric cell stays a bare -5, not quoted or prefixed.
+    expect(pivotToCsv(negMatrix, 'sum', false)).toContain(',-5');
+  });
 });

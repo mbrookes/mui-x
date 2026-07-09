@@ -66,9 +66,16 @@ export function GaugeConfigSection({
           label={localeText.chartSetupMinLabel}
           type="number"
           value={config.gaugeMin ?? 0}
-          onChange={(evt) =>
-            controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
-          }
+          onChange={(evt) => {
+            // Validate before writing (matching the Funnel/Scatter/PieArcLabels
+            // sections): reject NaN and keep min strictly below max so an invalid
+            // gaugeMin > gaugeMax range can't be persisted (finding 3.4).
+            const parsed = Number(evt.target.value);
+            if (Number.isNaN(parsed) || parsed >= (config.gaugeMax ?? 100)) {
+              return;
+            }
+            controller.updateWidgetConfig(widgetId, { gaugeMin: parsed });
+          }}
           sx={{ flex: 1, minWidth: 0 }}
         />
         <TextField
@@ -76,9 +83,13 @@ export function GaugeConfigSection({
           label={localeText.chartSetupMaxLabel}
           type="number"
           value={config.gaugeMax ?? 100}
-          onChange={(evt) =>
-            controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
-          }
+          onChange={(evt) => {
+            const parsed = Number(evt.target.value);
+            if (Number.isNaN(parsed) || parsed <= (config.gaugeMin ?? 0)) {
+              return;
+            }
+            controller.updateWidgetConfig(widgetId, { gaugeMax: parsed });
+          }}
           sx={{ flex: 1, minWidth: 0 }}
         />
       </Stack>

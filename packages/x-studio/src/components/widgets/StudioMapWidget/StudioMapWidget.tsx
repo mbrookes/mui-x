@@ -22,6 +22,7 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
 import { formatNumber } from '../../../internals/numberFormat';
+import { aggregateNumbers } from '../../../internals/aggregate';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -81,22 +82,11 @@ const PROJECTION_CONTENT_ASPECT: Record<string, number> = {
 
 type AggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
+// The caller pre-parses each cell to a finite number (parseFloat + NaN skip), so
+// this only reduces the clean numeric set — routed through the shared reducer so
+// map, KPI, pivot and chart aggregation share one policy (finding 2.1).
 function aggregateValues(values: number[], fn: AggFn): number {
-  if (values.length === 0) {
-    return 0;
-  }
-  switch (fn) {
-    case 'count':
-      return values.length;
-    case 'avg':
-      return values.reduce((a, b) => a + b, 0) / values.length;
-    case 'min':
-      return Math.min(...values);
-    case 'max':
-      return Math.max(...values);
-    default:
-      return values.reduce((a, b) => a + b, 0);
-  }
+  return aggregateNumbers(values, fn);
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────

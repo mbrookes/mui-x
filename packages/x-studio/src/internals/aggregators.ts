@@ -1,8 +1,17 @@
 import type { StudioFilterState } from '../models';
 import { sortLabels, type XGroupBy } from './temporalUtils';
 import { applyXGroupBy, isEmptyXValue, toXValue } from './chartValues';
+import {
+  accumulateValue,
+  createAggregateAccumulator,
+  finalizeAccumulator,
+  type AggregateAccumulator,
+} from './aggregate';
 
 type Row = Record<string, unknown>;
+
+/** The per-series aggregation functions the chart aggregators understand. */
+type ChartAggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
 export interface AggregatedData {
   labels: (string | number)[];
@@ -198,56 +207,28 @@ function orderLabels(
   return labels;
 }
 
-/** Per-cell streaming accumulator shared by the multi-series aggregators. */
-interface CellAcc {
-  sum: number;
-  count: number;
-  min: number;
-  max: number;
-}
+/**
+ * Per-cell streaming accumulator shared by the multi-series aggregators. Backed by
+ * the shared {@link AggregateAccumulator} so the chart aggregators, the pivot
+ * matrix and the KPI/map reducers all apply one null/boolean-coercion policy.
+ */
+type CellAcc = AggregateAccumulator;
 
 /** Fold `value` into the accumulator stored at `key`, creating it on first sight. */
 function accumulateCell<K>(map: Map<K, CellAcc>, key: K, value: number): void {
-  const acc = map.get(key);
+  let acc = map.get(key);
   if (!acc) {
-    map.set(key, { sum: value, count: 1, min: value, max: value });
-    return;
+    acc = createAggregateAccumulator();
+    map.set(key, acc);
   }
-  acc.sum += value;
-  acc.count += 1;
-  if (value < acc.min) {
-    acc.min = value;
-  }
-  if (value > acc.max) {
-    acc.max = value;
-  }
+  accumulateValue(acc, value);
 }
 
 /**
  * Reduce a per-cell accumulator to a single value according to `aggregation`.
  * Returns `null` for an empty cell so callers can distinguish "no data" from 0.
  */
-function finalizeCell(
-  acc: CellAcc | undefined,
-  aggregation: 'sum' | 'count' | 'avg' | 'min' | 'max',
-): number | null {
-  if (!acc || acc.count === 0) {
-    return null;
-  }
-  switch (aggregation) {
-    case 'count':
-      return acc.count;
-    case 'avg':
-      return acc.sum / acc.count;
-    case 'min':
-      return acc.min;
-    case 'max':
-      return acc.max;
-    case 'sum':
-    default:
-      return acc.sum;
-  }
-}
+const finalizeCell = finalizeAccumulator;
 
 export function aggregateByField(
   rows: Row[],
@@ -394,7 +375,13 @@ export function aggregateMultipleSeries(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
-  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
+  /**
+   * Per-series aggregation. Accepts either a single fn applied to every field
+   * (back-compat with callers that aggregate uniformly), or a `fieldId → fn` map
+   * so each series honours its own `StudioChartSeries.yAggregation` (finding 1.4).
+   * Fields absent from the map default to `'sum'`.
+   */
+  yAggregation: ChartAggFn | Record<string, ChartAggFn> = 'sum',
 ): MultiYSeriesData {
   // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
   // A non-numeric field is always aggregated as a count regardless of yAggregation.
@@ -411,8 +398,11 @@ export function aggregateMultipleSeries(
     }
   }
 
-  const fieldAggregation = (fieldId: string): 'sum' | 'count' | 'avg' | 'min' | 'max' =>
-    useCount.has(fieldId) ? 'count' : yAggregation;
+  const configuredAggregation = (fieldId: string): ChartAggFn =>
+    typeof yAggregation === 'string' ? yAggregation : (yAggregation[fieldId] ?? 'sum');
+
+  const fieldAggregation = (fieldId: string): ChartAggFn =>
+    useCount.has(fieldId) ? 'count' : configuredAggregation(fieldId);
 
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();

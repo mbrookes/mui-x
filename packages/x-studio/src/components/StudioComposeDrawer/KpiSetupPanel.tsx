@@ -61,6 +61,30 @@ function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) 
   } satisfies Record<string, { value: StudioKpiAggregation; label: string }[]>;
 }
 
+type KpiAggregationOption = { value: StudioKpiAggregation; label: string };
+
+/**
+ * Valid aggregation options for the current KPI value field. Shared by the render
+ * path and the value-field `onChange` so the two can't drift (finding 2.6): with no
+ * field, only the fieldless row "count" applies; otherwise the field type selects
+ * the option set (falling back to `count` for unknown types, `number` when the type
+ * isn't resolved yet).
+ */
+function deriveKpiAggregationOptions(
+  aggregations: ReturnType<typeof getKpiAggregations>,
+  hasField: boolean,
+  fieldType: string | null,
+  countOnly: KpiAggregationOption[],
+): KpiAggregationOption[] {
+  if (!hasField) {
+    return countOnly;
+  }
+  if (fieldType) {
+    return aggregations[fieldType as keyof typeof aggregations] ?? countOnly;
+  }
+  return aggregations.number;
+}
+
 export function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector(selectWidgets)[props.widgetId];
   const controller = useStudioController();
@@ -106,21 +130,29 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   // one (and gives a fresh KPI a sensible default instead of an inoperative Sum).
   const hasValueField = !!config.kpiValueField;
   const countOnly = [{ value: 'count' as StudioKpiAggregation, label: localeText.aggFnCount }];
-  const aggregationOptions = (() => {
-    if (!hasValueField) {
-      return countOnly;
-    }
-    if (selectedFieldType) {
-      return aggregations[selectedFieldType] || countOnly;
-    }
-    return aggregations.number;
-  })();
+  const aggregationOptions = deriveKpiAggregationOptions(
+    aggregations,
+    hasValueField,
+    selectedFieldType,
+    countOnly,
+  );
   const onlyOneAgg = aggregationOptions.length === 1;
-  const selectedAgg = aggregationOptions.find((a) => a.value === config.kpiAggregation)
-    ? config.kpiAggregation
-    : aggregationOptions[0].value;
+  const storedAggIsValid = aggregationOptions.some((a) => a.value === config.kpiAggregation);
+  const selectedAgg = storedAggIsValid ? config.kpiAggregation : aggregationOptions[0].value;
 
   const { widgetId } = props;
+
+  // Finding 3.6: when the stored `kpiAggregation` is invalid for the current field
+  // type, the Select above merely displays a valid fallback (`selectedAgg`) while the
+  // doc keeps the invalid value — so the panel and the widget renderer (which reads
+  // the doc) disagree until the user touches the field. Repair the doc on detect.
+  // (The renderer, `StudioKpiWidget`, is outside this fix's scope; write-back is the
+  // in-scope option and self-terminates once the value is valid.)
+  React.useEffect(() => {
+    if (config.kpiAggregation !== undefined && !storedAggIsValid) {
+      controller.updateWidgetConfig(widgetId, { kpiAggregation: selectedAgg });
+    }
+  }, [config.kpiAggregation, storedAggIsValid, selectedAgg, controller, widgetId]);
 
   const widgetSource = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   // BL-179/180: pass calculated-field context to the value picker only when the
@@ -252,15 +284,12 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // Clearing the field (fieldId === '') leaves only the fieldless "count"
           // aggregation valid, so force it — otherwise a previously chosen sum/avg
           // would leave the KPI inoperative (the renderer only tallies rows for count).
-          const newAggOptions = (() => {
-            if (!fieldId) {
-              return countOnly;
-            }
-            if (newFieldType) {
-              return aggregations[newFieldType] ?? countOnly;
-            }
-            return aggregations.number;
-          })();
+          const newAggOptions = deriveKpiAggregationOptions(
+            aggregations,
+            !!fieldId,
+            newFieldType,
+            countOnly,
+          );
           const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
           const configUpdate: Partial<import('../../models').StudioWidgetConfig> = {
             kpiValueField: fieldId,

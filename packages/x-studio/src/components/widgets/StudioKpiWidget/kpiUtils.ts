@@ -5,6 +5,7 @@
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
 import { normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
+import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
 import {
   isRelativeDateValue,
   relativeToAbsolute,
@@ -232,37 +233,19 @@ export function computeAggregate(
   }
 
   if (aggregation === 'count_distinct') {
+    // Distinctness is over the raw cell values (strings, dates, …), so it must not
+    // route through the numeric coercion below.
     return new Set(rows.map((row) => row[field])).size;
   }
 
-  // Exclude null/undefined values so they don't inflate the denominator for avg/min/max.
-  // Boolean fields (e.g. onTime) are coerced to 0/1 so avg produces a ratio.
+  // Exclude null/non-numeric values so they don't inflate the denominator for
+  // avg/min/max. Boolean fields (e.g. onTime) are coerced to 0/1 so avg produces a
+  // ratio. This is the reference null-skip policy shared via `internals/aggregate`.
   const values = rows
-    .map((row) => {
-      const v = row[field];
-      if (typeof v === 'boolean') {
-        return v ? 1 : 0;
-      }
-      return v;
-    })
-    .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+    .map((row) => coerceAggregateValue(row[field]))
+    .filter((v): v is number => v !== null);
 
-  if (values.length === 0) {
-    return 0;
-  }
-
-  switch (aggregation) {
-    case 'sum':
-      return values.reduce((acc, v) => acc + v, 0);
-    case 'avg':
-      return values.reduce((acc, v) => acc + v, 0) / values.length;
-    case 'min':
-      return Math.min(...values);
-    case 'max':
-      return Math.max(...values);
-    default:
-      return values.reduce((acc, v) => acc + v, 0);
-  }
+  return aggregateNumbers(values, aggregation);
 }
 
 // ─── Sparkline bucketing ──────────────────────────────────────────────────────

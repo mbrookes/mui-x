@@ -13,6 +13,7 @@ import type {
   StudioDataSource,
   StudioRelationship,
 } from '../models';
+import { aggregateNumbers, coerceAggregateValue } from '../internals/aggregate';
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
 
@@ -359,9 +360,13 @@ function evalMeasureExpression(
 
   if (isFieldExpression(expr)) {
     const { aggregation = 'sum' } = expr;
+    // Skip null / non-numeric rows BEFORE coercing (mirrors `computeAggregate`). The
+    // previous `toNumber`-then-`isNaN` guard was dead code — `toNumber` maps null and
+    // unparseable values to 0, so null rows silently entered every aggregate as 0,
+    // inflating avg denominators and skewing min/count (finding 1.6).
     const values = rows.flatMap((r) => {
-      const v = toNumber(r[expr.id]);
-      return Number.isNaN(v) ? [] : [v];
+      const v = coerceAggregateValue(r[expr.id]);
+      return v === null ? [] : [v];
     });
     return aggregate(values, aggregation);
   }
@@ -426,11 +431,13 @@ function evalMeasureExpression(
     case 'in': {
       // Conditional and logical operators: evaluate row-by-row then aggregate (sum).
       // This enables conditional sums like: if(on_time, 1, 0) → sum per-row results.
+      // Coerce with the shared policy (booleans → 0/1) and skip null/non-numeric row
+      // results before aggregating, mirroring the field-expression branch (finding 1.6).
       const rowValues = rows.flatMap((row) => {
-        const v = toNumber(
+        const v = coerceAggregateValue(
           evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
         );
-        return Number.isNaN(v) ? [] : [v];
+        return v === null ? [] : [v];
       });
       return aggregate(rowValues, 'sum');
     }
@@ -439,26 +446,11 @@ function evalMeasureExpression(
   }
 }
 
+// Thin alias over the shared reducer so measure aggregation shares the one
+// null-skip / boolean-coercion policy (finding 2.1). `StudioKpiAggregation` is the
+// same union as the shared `AggregateFn`.
 function aggregate(values: number[], aggregation: StudioKpiAggregation): number {
-  if (values.length === 0) {
-    return 0;
-  }
-  switch (aggregation) {
-    case 'sum':
-      return values.reduce((a, v) => a + v, 0);
-    case 'avg':
-      return values.reduce((a, v) => a + v, 0) / values.length;
-    case 'min':
-      return Math.min(...values);
-    case 'max':
-      return Math.max(...values);
-    case 'count':
-      return values.length;
-    case 'count_distinct':
-      return new Set(values).size;
-    default:
-      return values.reduce((a, v) => a + v, 0);
-  }
+  return aggregateNumbers(values, aggregation);
 }
 
 // ─── Type inference ───────────────────────────────────────────────────────────

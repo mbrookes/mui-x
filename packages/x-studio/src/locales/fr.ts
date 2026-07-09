@@ -59,7 +59,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Modifier le widget',
   widgetExportCsvTooltip: 'Télécharger en CSV',
   widgetExportPngTooltip: 'Télécharger en PNG',
-  widgetExpandTooltip: 'Agrandir le graphique',
+  widgetExpandTooltip: 'Agrandir le widget',
   widgetMoveToPageLabel: 'Déplacer vers la page',
   widgetDuplicateTooltip: 'Dupliquer le widget',
   widgetDeleteTooltip: 'Supprimer le widget',

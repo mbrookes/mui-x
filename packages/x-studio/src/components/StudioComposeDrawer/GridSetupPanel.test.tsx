@@ -155,14 +155,20 @@ describe('GridSetupPanel', () => {
       const customersOption = await screen.findByRole('option', { name: 'Customers' });
       await user.click(customersOption);
 
-      expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
-        sourceId: 'customers',
-        config: {
-          gridSortDirection: 'desc',
-          gridHeight: 500,
-          columns: [],
+      // Third arg carries stale widget-scoped filter ids to remove in the same undo step
+      // (finding 1.5) — empty here since this fixture has no filters.
+      expect(controller.updateWidget).toHaveBeenCalledWith(
+        'widget-1',
+        {
+          sourceId: 'customers',
+          config: {
+            gridSortDirection: 'desc',
+            gridHeight: 500,
+            columns: [],
+          },
         },
-      });
+        { removeFilterIds: [] },
+      );
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
     }

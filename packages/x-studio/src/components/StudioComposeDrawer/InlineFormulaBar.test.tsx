@@ -31,7 +31,7 @@ describe('InlineFormulaBar', () => {
   it('creates a new expression field with an id on Add', async () => {
     const { user, addSpy, onFieldCreated } = setup();
 
-    await user.click(screen.getByRole('button', { name: 'Formula' }));
+    await user.click(screen.getByRole('button', { name: 'Add a calculated formula field' }));
     await user.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(addSpy).toHaveBeenCalledTimes(1);
@@ -51,10 +51,10 @@ describe('InlineFormulaBar', () => {
 
     const { user, addSpy } = setup();
 
-    await user.click(screen.getByRole('button', { name: 'Formula' }));
+    await user.click(screen.getByRole('button', { name: 'Add a calculated formula field' }));
     await user.click(screen.getByRole('button', { name: 'Add' }));
     // The bar collapses after a successful add; reopen it for a second creation.
-    await user.click(screen.getByRole('button', { name: 'Formula' }));
+    await user.click(screen.getByRole('button', { name: 'Add a calculated formula field' }));
     await user.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(addSpy).toHaveBeenCalledTimes(2);
@@ -66,7 +66,7 @@ describe('InlineFormulaBar', () => {
   it('disables Add until both operands are set', async () => {
     const { user } = setup();
 
-    await user.click(screen.getByRole('button', { name: 'Formula' }));
+    await user.click(screen.getByRole('button', { name: 'Add a calculated formula field' }));
     expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', false);
   });
 });

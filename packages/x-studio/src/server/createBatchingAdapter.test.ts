@@ -236,6 +236,10 @@ describe('createBatchingAdapter — filter serialisation', () => {
   });
 
   it('maps not_equals filter operator to neq', async () => {
+    // not_equals pushed server-side diverges from in-memory NULL-row handling
+    // (finding 2.16) — suppress the expected dev-mode divergence warning so
+    // vitest-fail-on-console does not fail the test.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = createBatchingAdapter(uid(), {
       fetchFn: fetchFn as unknown as typeof fetch,
@@ -253,6 +257,7 @@ describe('createBatchingAdapter — filter serialisation', () => {
       widgets: Array<{ filters: Array<{ operator: string }> }>;
     };
     expect(body.widgets[0].filters[0].operator).toBe('neq');
+    warnSpy.mockRestore();
   });
 });
 

@@ -60,7 +60,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Widget bearbeiten',
   widgetExportCsvTooltip: 'Download als CSV',
   widgetExportPngTooltip: 'Download als PNG',
-  widgetExpandTooltip: 'Diagramm erweitern',
+  widgetExpandTooltip: 'Widget erweitern',
   widgetMoveToPageLabel: 'Auf Seite verschieben',
   widgetDuplicateTooltip: 'Widget duplizieren',
   widgetDeleteTooltip: 'Widget löschen',

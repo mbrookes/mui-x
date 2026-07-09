@@ -32,7 +32,7 @@ import type { StudioFilterState, StudioRelationship } from '../../models';
  * @returns The ids of widget-scoped filters that no longer resolve and should be removed.
  */
 export function collectStaleWidgetFilterIds(
-  filters: StudioFilterState[],
+  filters: StudioFilterState[] | undefined,
   widgetId: string,
   newSourceId: string | undefined,
   fieldCatalog: readonly { id: string; sourceId: string }[],
@@ -48,7 +48,7 @@ export function collectStaleWidgetFilterIds(
       .filter((entry) => reachableSourceIds.has(entry.sourceId))
       .map((entry) => `${entry.sourceId}/${entry.id}`),
   );
-  return filters
+  return (filters ?? [])
     .filter((f) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId && f.field !== '')
     .filter((f) => {
       // A filter without an explicit `filterSourceId` targets the widget's own (now new)

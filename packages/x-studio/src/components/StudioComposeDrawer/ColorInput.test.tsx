@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
+import { act, createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
 import { ColorInput } from './ColorInput';
@@ -45,6 +45,9 @@ describe('ColorInput (finding 2.9)', () => {
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#123456' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -57,6 +60,9 @@ describe('ColorInput (finding 2.9)', () => {
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#123456' } });
+    act(() => {
+      input.focus();
+    });
     fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.blur(input);
 

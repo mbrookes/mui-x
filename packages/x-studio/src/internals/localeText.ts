@@ -1277,7 +1277,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetEditTooltip: 'Edit widget',
   widgetExportCsvTooltip: 'Download as CSV',
   widgetExportPngTooltip: 'Download as PNG',
-  widgetExpandTooltip: 'Expand chart',
+  widgetExpandTooltip: 'Expand widget',
   widgetMoveToPageLabel: 'Move to page',
   widgetDuplicateTooltip: 'Duplicate widget',
   widgetDeleteTooltip: 'Delete widget',

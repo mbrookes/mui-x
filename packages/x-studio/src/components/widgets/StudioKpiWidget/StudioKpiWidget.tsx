@@ -118,7 +118,10 @@ function computePeriodValue(
   } = params;
 
   if (measureExprField) {
-    return evaluateMeasure(measureExprField, periodRows, expressionFields);
+    // A root-level divide/modulo-by-zero yields `null` (finding 3.16); the trend delta
+    // is a subtraction between two period values, so a period with no valid result
+    // contributes 0 rather than propagating `null` through the comparison.
+    return evaluateMeasure(measureExprField, periodRows, expressionFields) ?? 0;
   }
   if (isGrainAnchored) {
     const anchoredRows = resolveChartRowsForAggregation(
@@ -451,6 +454,20 @@ function useKpiValue(params: {
         ? evaluateMeasure(measureExprField, valueRows, expressionFields)
         : computeAggregate(valueRows, valueField, aggregation),
     );
+
+    // A measure's root-level divide/modulo-by-zero yields `null` (finding 3.16) rather
+    // than a fabricated 0 — treat it the same as "no data" instead of silently coercing.
+    if (value === null) {
+      return {
+        displayValue: '—',
+        hasData: false,
+        kpiNumericValue: 0,
+        rawValue: 0,
+        aggregation,
+        measureExprField,
+        measureKey,
+      };
+    }
 
     const fieldDef =
       dataSource.fields.find((f) => f.id === config.kpiValueField) ??

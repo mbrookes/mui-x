@@ -116,17 +116,28 @@ describe('StudioExpressionFieldDialog', () => {
   // the `draftField`/`validationErrors` memos (both depend on `fieldId`) on every
   // keystroke until save.
   it('does not regenerate the field id per keystroke', async () => {
-    const dateNowSpy = vi.spyOn(Date, 'now');
-    const { user } = setup();
-    // Let the initial render settle before taking the baseline call count, so any
-    // Date.now() calls attributable to mount (unrelated library internals) aren't
-    // mistaken for per-keystroke churn.
+    // A global `Date.now()` call-count assertion is too broad — React/MUI/test-harness
+    // internals call it for unrelated reasons on every render, independent of this
+    // component. Instead, mint an INCREASING sequence of timestamps and verify the
+    // *saved* field's id embeds the first one (from mount), not a later one that would
+    // only appear if the id were regenerated on a subsequent keystroke's render.
+    let nextTimestamp = 1_700_000_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      const value = nextTimestamp;
+      nextTimestamp += 1;
+      return value;
+    });
+    const { user, addSpy } = setup();
     await screen.findByRole('button', { name: 'Add Field' });
-    const callsBeforeTyping = dateNowSpy.mock.calls.length;
 
     await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Profit Margin');
+    await user.click(screen.getByRole('button', { name: 'Add Field' }));
 
-    expect(dateNowSpy.mock.calls.length).toBe(callsBeforeTyping);
+    // The id's timestamp segment must be the FIRST minted value (from mount) — a
+    // module-level counter suffix makes the full id order-dependent across this
+    // file's tests, so only the timestamp portion is asserted here.
+    const created = addSpy.mock.calls[0][0] as { id: string };
+    expect(created.id).toMatch(/^expr-1700000000000-\d+$/);
   });
 
   // Regression coverage for finding 3.11: a plain `expr-${Date.now()}` collides

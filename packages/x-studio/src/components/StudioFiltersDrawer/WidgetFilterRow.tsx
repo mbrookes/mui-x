@@ -60,7 +60,14 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   const selectedOption =
     fieldOptions.find((o) => o.id === filter.field && o.sourceId === effectiveSourceId) ?? null;
   const fieldType = filter.fieldType ?? selectedOption?.fieldType;
-  const operators = getOperators(fieldType, localeText);
+  // Memoized: this feeds the operator-repair effect's dependency array below, and
+  // `getOperators` returning a fresh array every render would make that effect refire
+  // on every unrelated re-render (e.g. from this component's other store subscriptions),
+  // not just when `fieldType`/`localeText` actually change.
+  const operators = React.useMemo(
+    () => getOperators(fieldType, localeText),
+    [fieldType, localeText],
+  );
   const activeOperator = operators.find((o) => o.value === filter.operator)
     ? filter.operator
     : operators[0].value;

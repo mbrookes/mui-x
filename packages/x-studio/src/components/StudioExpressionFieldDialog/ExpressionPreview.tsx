@@ -65,7 +65,13 @@ export function ExpressionPreview({
           {localeText.expressionPreviewMeasureLabel(previewResult.count)}
         </Typography>
         <Chip
-          label={formatNumber(previewResult.value, undefined, undefined, undefined, precision)}
+          label={
+            // A root-level divide/modulo-by-zero yields `null` (finding 3.16) — no
+            // valid result to format, rather than a fabricated 0.
+            previewResult.value === null
+              ? '—'
+              : formatNumber(previewResult.value, undefined, undefined, undefined, precision)
+          }
           size="small"
           color="primary"
           variant="outlined"

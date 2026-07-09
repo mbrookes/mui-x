@@ -85,8 +85,11 @@ describe('FilterRow', () => {
     expect(toInput.value).toBe('20');
     expect(screen.queryByDisplayValue('[object Object]')).toBe(null);
 
-    // Editing the "from" bound keeps the value an object, only changing `from`.
+    // Editing the "from" bound keeps the value an object, only changing `from`. The
+    // bound editors buffer locally and commit on blur (finding 2.8), so the change
+    // alone doesn't commit yet — blur triggers it.
     fireEvent.change(fromInput, { target: { value: '15' } });
+    fireEvent.blur(fromInput);
     expect(onUpdate).toHaveBeenCalledWith({ value: { from: '15', to: '20' } });
   });
 

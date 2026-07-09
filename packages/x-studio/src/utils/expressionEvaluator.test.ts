@@ -577,7 +577,7 @@ describe('StudioJoinFieldExpression', () => {
   });
 
   it('join index fast path: evaluateExpression uses precomputed index when provided', () => {
-    const prebuiltIndex = new Map<unknown, Record<string, unknown>>([
+    const prebuiltIndex = new Map<string, Record<string, unknown>>([
       ['CUS-001', { id: 'CUS-001', country: 'Germany' }],
       ['CUS-002', { id: 'CUS-002', country: 'UK' }],
     ]);
@@ -597,7 +597,7 @@ describe('StudioJoinFieldExpression', () => {
   });
 
   it('join index fast path: returns null for FK miss even with pre-built index', () => {
-    const prebuiltIndex = new Map<unknown, Record<string, unknown>>([
+    const prebuiltIndex = new Map<string, Record<string, unknown>>([
       ['CUS-001', { id: 'CUS-001', country: 'Germany' }],
     ]);
     const joinIndexes = new Map([

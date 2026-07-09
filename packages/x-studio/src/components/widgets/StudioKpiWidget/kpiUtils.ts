@@ -371,9 +371,13 @@ export function computeSparklineData(
   const sortedKeys = Array.from(buckets.keys()).sort();
   const periodValues = sortedKeys.map((key) => {
     const bucketRows = buckets.get(key)!;
-    return measureExprField
+    // `evaluateMeasure` returns `null` for a bucket it can't compute (e.g. no rows);
+    // the sparkline renders plain numbers, so a null bucket collapses to 0 rather
+    // than propagating `null` through the cumulative running sum below.
+    const value = measureExprField
       ? evaluateMeasure(measureExprField, bucketRows, expressionFields ?? [])
       : computeAggregate(bucketRows, valueField, aggregation);
+    return value ?? 0;
   });
 
   if (!cumulative) {

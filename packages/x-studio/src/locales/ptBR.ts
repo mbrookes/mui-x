@@ -56,7 +56,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Editar widget',
   widgetExportCsvTooltip: 'Baixar como CSV',
   widgetExportPngTooltip: 'Baixar como PNG',
-  widgetExpandTooltip: 'Expandir gráfico',
+  widgetExpandTooltip: 'Expandir widget',
   widgetMoveToPageLabel: 'Mover para página',
   widgetDuplicateTooltip: 'Duplicar widget',
   widgetDeleteTooltip: 'Excluir widget',

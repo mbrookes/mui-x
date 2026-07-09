@@ -26,11 +26,15 @@ import {
 import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
 import { RangeBarPlot } from '@mui/x-charts-premium/BarChartPremium';
 import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
+import { ChartsClipPath } from '@mui/x-charts/ChartsClipPath';
+import useId from '@mui/utils/useId';
 import type { DatasetRow, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
+import { collectBindInputs } from '../compile/params';
 import { VegaOverlays, ArcLabelsPlot } from '../overlays';
 import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
+import { ParamInputs } from './ParamInputs';
 
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
@@ -48,6 +52,18 @@ const SERIES_CONFIG = {
  * leaf sub-specs have no facet channels left).
  */
 const FacetDepthContext = React.createContext(0);
+
+/**
+ * Shared bound-param signal values for a single chart tree. The root
+ * `VegaLiteChart` owns the state and renders the input toolbar; nested
+ * (facet/concat) instances read the same context so their compiled specs see
+ * the live param values without each rendering their own controls.
+ */
+interface VegaParamsContextValue {
+  values: Record<string, unknown>;
+  setValue: (name: string, value: unknown) => void;
+}
+const VegaParamsContext = React.createContext<VegaParamsContextValue | null>(null);
 
 export interface VegaLiteChartProps {
   /** The Vega-Lite specification to translate. */
@@ -92,6 +108,32 @@ export interface VegaLiteChartProps {
 export function VegaLiteChart(props: VegaLiteChartProps) {
   const { spec, data, datasets, width, height, colors, onGaps, children } = props;
   const depth = React.useContext(FacetDepthContext);
+
+  // Only the outermost instance (no inherited param context) owns the shared
+  // param signal values and renders the input toolbar; nested facet/concat
+  // cells inherit the same context.
+  const inheritedParams = React.useContext(VegaParamsContext);
+  const isRoot = inheritedParams == null;
+  const widgetInputs = React.useMemo(() => (isRoot ? collectBindInputs(spec) : []), [isRoot, spec]);
+  const [paramValues, setParamValues] = React.useState<Record<string, unknown>>({});
+  // Reset param values when the spec identity changes (store-info-from-previous-
+  // render pattern) so a new dashboard doesn't inherit stale control values.
+  const prevSpecRef = React.useRef(spec);
+  if (prevSpecRef.current !== spec) {
+    prevSpecRef.current = spec;
+    // Only the root owns this state; nested cells never read it, so skip the
+    // extra render their reset would trigger.
+    if (isRoot) {
+      setParamValues({});
+    }
+  }
+  const setValue = React.useCallback((name: string, value: unknown) => {
+    setParamValues((prev) => ({ ...prev, [name]: value }));
+  }, []);
+  const paramsContextValue = React.useMemo<VegaParamsContextValue>(
+    () => ({ values: paramValues, setValue }),
+    [paramValues, setValue],
+  );
 
   const gridSize = resolveGridSize(spec, width, height);
   const plan = React.useMemo(
@@ -184,8 +226,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     return null;
   }
 
+  let content: React.ReactNode;
   if (plan != null) {
-    return (
+    content = (
       <FacetDepthContext.Provider value={depth + 1}>
         <div
           style={{
@@ -225,20 +268,34 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
         </div>
       </FacetDepthContext.Provider>
     );
+  } else {
+    content = (
+      <SingleViewChart
+        spec={spec}
+        data={data}
+        datasets={datasets}
+        width={width}
+        height={height}
+        colors={colors}
+        onGaps={onGaps}
+      >
+        {children}
+      </SingleViewChart>
+    );
+  }
+
+  // Nested instances inherit the root's param context and render no toolbar.
+  if (!isRoot) {
+    return content;
   }
 
   return (
-    <SingleViewChart
-      spec={spec}
-      data={data}
-      datasets={datasets}
-      width={width}
-      height={height}
-      colors={colors}
-      onGaps={onGaps}
-    >
-      {children}
-    </SingleViewChart>
+    <VegaParamsContext.Provider value={paramsContextValue}>
+      {widgetInputs.length > 0 && (
+        <ParamInputs inputs={widgetInputs} values={paramValues} onChange={setValue} />
+      )}
+      {content}
+    </VegaParamsContext.Provider>
   );
 }
 
@@ -250,11 +307,14 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
  */
 function SingleViewChart(props: VegaLiteChartProps) {
   const { spec, data, datasets, width, height, colors, onGaps, children } = props;
+  const paramCtx = React.useContext(VegaParamsContext);
+  const paramValues = paramCtx?.values;
 
   const compiled = React.useMemo(
-    () => compileSpec(spec, { data, datasets, palette: colors }),
-    [spec, data, datasets, colors],
+    () => compileSpec(spec, { data, datasets, palette: colors, params: paramValues }),
+    [spec, data, datasets, colors, paramValues],
   );
+  const clipId = useId();
 
   const reportedRef = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -321,6 +381,29 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const xAxis = compiled.xAxis ? [compiled.xAxis.config] : undefined;
   const yAxis = compiled.yAxis ? [compiled.yAxis.config] : undefined;
 
+  // Scale-bound interval selections enable gesture zoom/pan (the axis configs
+  // carry `zoom: true`, read by the Premium provider). Clip the plotting area
+  // so zoomed/panned marks don't overflow the drawing area, mirroring the
+  // built-in cartesian charts.
+  const zoomEnabled = Boolean(compiled.zoom && (compiled.zoom.x || compiled.zoom.y) && clipId);
+  const plotContent = (
+    <React.Fragment>
+      {compiled.plots.includes('heatmap') && <HeatmapPlot />}
+      {compiled.plots.includes('bar') && <BarPlot borderRadius={compiled.barBorderRadius} />}
+      {compiled.plots.includes('rangeBar') && (
+        <RangeBarPlot borderRadius={compiled.barBorderRadius} />
+      )}
+      {compiled.plots.includes('area') && <AreaPlot />}
+      {compiled.plots.includes('line') && <LinePlot />}
+      {compiled.plots.includes('scatter') && <ScatterPlot />}
+      {compiled.plots.includes('marks') && <MarkPlot />}
+      {compiled.plots.includes('lineHighlight') && <LineHighlightPlot />}
+      {compiled.plots.includes('pie') && <PiePlot />}
+      {compiled.plots.includes('pieLabels') && <ArcLabelsPlot />}
+      <VegaOverlays overlays={compiled.overlays} />
+    </React.Fragment>
+  );
+
   return (
     <ChartsDataProviderPremium
       series={compiled.series}
@@ -341,19 +424,8 @@ function SingleViewChart(props: VegaLiteChartProps) {
               horizontal={compiled.grid.horizontal ?? false}
             />
           )}
-          {compiled.plots.includes('heatmap') && <HeatmapPlot />}
-          {compiled.plots.includes('bar') && <BarPlot borderRadius={compiled.barBorderRadius} />}
-          {compiled.plots.includes('rangeBar') && (
-            <RangeBarPlot borderRadius={compiled.barBorderRadius} />
-          )}
-          {compiled.plots.includes('area') && <AreaPlot />}
-          {compiled.plots.includes('line') && <LinePlot />}
-          {compiled.plots.includes('scatter') && <ScatterPlot />}
-          {compiled.plots.includes('marks') && <MarkPlot />}
-          {compiled.plots.includes('lineHighlight') && <LineHighlightPlot />}
-          {compiled.plots.includes('pie') && <PiePlot />}
-          {compiled.plots.includes('pieLabels') && <ArcLabelsPlot />}
-          <VegaOverlays overlays={compiled.overlays} />
+          {zoomEnabled && <ChartsClipPath id={clipId as string} />}
+          {zoomEnabled ? <g clipPath={`url(#${clipId})`}>{plotContent}</g> : plotContent}
           {compiled.chartKind === 'cartesian' && xAxis && <ChartsXAxis />}
           {compiled.chartKind === 'cartesian' && yAxis && <ChartsYAxis />}
           {compiled.chartKind === 'cartesian' && <ChartsAxisHighlight />}

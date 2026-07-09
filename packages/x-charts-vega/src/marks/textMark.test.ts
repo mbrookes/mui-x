@@ -95,16 +95,89 @@ describe('compileTextMark', () => {
     expect(textItems(bottom.overlays)?.[0]?.style?.dominantBaseline).to.equal('auto');
   });
 
-  it('reports a partial gap for a `format` string on the text field', () => {
+  it('applies a translatable `format` d3 pattern to the text field (no gap)', () => {
     const compiled = compileSpec({
       ...baseSpec,
-      encoding: { ...baseSpec.encoding, text: { field: 'amount', format: '.2f' } },
+      encoding: {
+        ...baseSpec.encoding,
+        text: { field: 'amount', type: 'quantitative', format: '.2f' },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:text-format');
+    const items = textItems(compiled.overlays);
+    expect(items?.[0]?.text).to.equal('10.00');
+    expect(items?.[1]?.text).to.equal('20.00');
+  });
+
+  it('reports a partial gap and falls back to the raw value for an untranslatable format', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      // A nominal field with no explicit formatType cannot pick a d3 formatter.
+      encoding: {
+        ...baseSpec.encoding,
+        text: { field: 'category', type: 'nominal', format: '.2f' },
+      },
     });
     const gap = compiled.gaps.find((entry) => entry.code === 'encoding:text-format');
     expect(gap?.severity).to.equal('partial');
-    // Still renders the (unformatted) value rather than dropping the layer.
+    const items = textItems(compiled.overlays);
+    expect(items?.[0]?.text).to.equal('A');
+  });
+
+  it('resolves a test-predicate text condition per row (no text-condition gap)', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        text: { field: 'amount', condition: { test: 'datum.amount > 15', value: 'BIG' } },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:text-condition');
     const items = textItems(compiled.overlays);
     expect(items?.[0]?.text).to.equal('10');
+    expect(items?.[1]?.text).to.equal('BIG');
+  });
+
+  it('picks the first matching entry from a condition array', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        text: {
+          field: 'amount',
+          condition: [
+            { test: 'datum.amount > 50', value: 'HUGE' },
+            { test: 'datum.amount > 15', value: 'BIG' },
+          ],
+        },
+      },
+    });
+    const items = textItems(compiled.overlays);
+    expect(items?.map((item) => item.text)).to.deep.equal(['10', 'BIG']);
+  });
+
+  it('reports encoding:condition-param and uses the base value for a param-ref condition', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        text: { field: 'amount', condition: { param: 'sel', value: 'X' } },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).to.include('encoding:condition-param');
+    const items = textItems(compiled.overlays);
+    expect(items?.[0]?.text).to.equal('10');
+  });
+
+  it('reports encoding:condition-test for an unparseable condition test', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        text: { field: 'amount', condition: { test: 'datum.amount >>> 5', value: 'X' } },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).to.include('encoding:condition-test');
   });
 
   it('reports an unsupported gap and drops the layer when the text channel is missing', () => {

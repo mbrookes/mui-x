@@ -61,7 +61,7 @@ function ImageItems(props: { items: OverlayImageItem[] }) {
             y={y - height / 2}
             width={width}
             height={height}
-            preserveAspectRatio="none"
+            preserveAspectRatio={item.aspect === false ? 'none' : 'xMidYMid meet'}
           />
         );
       })}

@@ -98,14 +98,35 @@ function describeSource(source: StudioDataSource): string {
 function describeWidget(widget: StudioWidget, sources: Record<string, StudioDataSource>): string {
   const source = widget.sourceId ? sources[widget.sourceId] : undefined;
   const cfg = widget.config;
-  const parts: string[] = [
-    `id: ${sanitizeForPrompt(widget.id)}`,
-    `kind: ${sanitizeForPrompt(widget.kind)}`,
-    `title: "${sanitizeForPrompt(widget.title)}"`,
-    source
-      ? `source: "${sanitizeForPrompt(source.label)}" (${sanitizeForPrompt(source.id)})`
-      : 'no source',
-  ];
+
+  // STRUCTURAL sanitize choke point (finding 1.1 / 3.1): every value-bearing field is
+  // appended through `pushField`/`pushQuoted`, whose ONLY stringifier for the value is
+  // `sanitizeForPrompt`. No call site interpolates a state-derived value into `parts`
+  // raw — that is now structurally impossible, so a crafted config value (e.g. a
+  // forecast `periods` or `pivotShowTotals` string containing `</dashboard_state>`,
+  // both of which pass config-KEY validation but were previously printed verbatim)
+  // can no longer close the `<dashboard_state>` block early and inject instructions.
+  // Composite values (e.g. `enabled (linear, 3 periods)`) are passed to `pushField`
+  // RAW and sanitized as a whole — `sanitizeForPrompt` only neutralizes `<`/`>`, so
+  // the trusted punctuation (`()[],"`) is preserved while any embedded angle bracket
+  // from an attacker-influenced sub-value is escaped wherever it sits.
+  const parts: string[] = [];
+  const pushField = (key: string, value: unknown): void => {
+    parts.push(`${key}: ${sanitizeForPrompt(value)}`);
+  };
+  const pushQuoted = (key: string, value: unknown): void => {
+    parts.push(`${key}: "${sanitizeForPrompt(value)}"`);
+  };
+
+  pushField('id', widget.id);
+  pushField('kind', widget.kind);
+  pushQuoted('title', widget.title);
+  if (source) {
+    pushField('source', `"${source.label}" (${source.id})`);
+  } else {
+    // Trusted constant, no state-derived interpolation.
+    parts.push('no source');
+  }
 
   if (isWidgetOfKind(widget, 'chart')) {
     // Read through the flat `StudioChartConfig` patch view, then gate EVERY field on
@@ -115,133 +136,126 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     // config patches, a widget switched e.g. sankey → gauge still carries the stale
     // `sankeyTargetField`/`xField`; the previous unconditional reads would describe
     // those irrelevant keys to the model as if they applied to the current gauge.
-    const cfg = widget.config as StudioChartConfig;
-    const chartType = resolveChartType(cfg);
+    const chartCfg = widget.config as StudioChartConfig;
+    const chartType = resolveChartType(chartCfg);
     const allowed = getAllowedChartConfigKeys(chartType);
     // Gate on `!== undefined` (not truthiness) so a legitimately-falsy-but-set value
     // (e.g. `gaugeMin: 0`, `barCategoryGapRatio: 0`, `dualYAxis: false`) is still
-    // described to the model instead of being silently dropped.
-    const pushField = (key: keyof StudioChartConfig, value: unknown): void => {
+    // described to the model instead of being silently dropped. Routes through the
+    // shared `pushField` choke point, so the value is always sanitized.
+    const pushChartField = (key: keyof StudioChartConfig, value: unknown): void => {
       if (allowed.has(key) && value !== undefined) {
-        parts.push(`${key}: ${sanitizeForPrompt(value)}`);
+        pushField(key, value);
       }
     };
-    parts.push(`chartType: ${chartType}`);
-    pushField('xField', cfg.xField);
-    pushField('heatYField', cfg.heatYField);
-    pushField('yField', cfg.yField);
-    pushField('yField2', cfg.yField2);
-    pushField('yAggregation', cfg.yAggregation);
-    pushField('barLayout', cfg.barLayout);
-    pushField('barBandLabelWrap', cfg.barBandLabelWrap);
-    pushField('wrapBandLabelMaxLines', cfg.wrapBandLabelMaxLines);
-    pushField('barCategoryGapRatio', cfg.barCategoryGapRatio);
-    pushField('barMinBandSize', cfg.barMinBandSize);
-    pushField('barMaxCategories', cfg.barMaxCategories);
-    pushField('axisTickFontSize', cfg.axisTickFontSize);
-    if (allowed.has('annotations') && cfg.annotations?.length) {
-      parts.push(`annotations: ${cfg.annotations.length}`);
+    // `chartType` is a resolved config value (`cfg.chartType ?? 'bar'`, unvalidated on
+    // the crafted-body read path) — sanitize it like every other value (finding 1.1).
+    pushField('chartType', chartType);
+    pushChartField('xField', chartCfg.xField);
+    pushChartField('heatYField', chartCfg.heatYField);
+    pushChartField('yField', chartCfg.yField);
+    pushChartField('yField2', chartCfg.yField2);
+    pushChartField('yAggregation', chartCfg.yAggregation);
+    pushChartField('barLayout', chartCfg.barLayout);
+    pushChartField('barBandLabelWrap', chartCfg.barBandLabelWrap);
+    pushChartField('wrapBandLabelMaxLines', chartCfg.wrapBandLabelMaxLines);
+    pushChartField('barCategoryGapRatio', chartCfg.barCategoryGapRatio);
+    pushChartField('barMinBandSize', chartCfg.barMinBandSize);
+    pushChartField('barMaxCategories', chartCfg.barMaxCategories);
+    pushChartField('axisTickFontSize', chartCfg.axisTickFontSize);
+    if (allowed.has('annotations') && chartCfg.annotations?.length) {
+      pushField('annotations', chartCfg.annotations.length);
     }
-    if (allowed.has('forecast') && cfg.forecast?.enabled) {
-      const method = sanitizeForPrompt(cfg.forecast.method ?? 'linear');
-      const periods = cfg.forecast.periods ?? 3;
-      parts.push(`forecast: enabled (${method}, ${periods} periods)`);
+    if (allowed.has('forecast') && chartCfg.forecast?.enabled) {
+      // `method`/`periods` are attacker-influenceable config values (finding 1.1):
+      // pass the composite RAW to `pushField`, which sanitizes the whole thing.
+      const method = chartCfg.forecast.method ?? 'linear';
+      const periods = chartCfg.forecast.periods ?? 3;
+      pushField('forecast', `enabled (${method}, ${periods} periods)`);
     }
-    pushField('dualYAxis', cfg.dualYAxis);
-    pushField('xGroupBy', cfg.xGroupBy);
-    pushField('chartSortBy', cfg.chartSortBy);
-    pushField('chartSortDirection', cfg.chartSortDirection);
-    if (allowed.has('ySeries') && cfg.ySeries?.length) {
-      parts.push(
-        `ySeries: [${cfg.ySeries
-          .map(
-            (s) => `${sanitizeForPrompt(s.fieldId)}(${sanitizeForPrompt(s.yAggregation ?? 'sum')})`,
-          )
-          .join(', ')}]`,
+    pushChartField('dualYAxis', chartCfg.dualYAxis);
+    pushChartField('xGroupBy', chartCfg.xGroupBy);
+    pushChartField('chartSortBy', chartCfg.chartSortBy);
+    pushChartField('chartSortDirection', chartCfg.chartSortDirection);
+    if (allowed.has('ySeries') && chartCfg.ySeries?.length) {
+      pushField(
+        'ySeries',
+        `[${chartCfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
       );
     }
-    pushField('seriesField', cfg.seriesField);
-    pushField('scatterColorField', cfg.scatterColorField);
-    pushField('scatterSizeField', cfg.scatterSizeField);
-    pushField('scatterMinRadius', cfg.scatterMinRadius);
-    pushField('scatterMaxRadius', cfg.scatterMaxRadius);
-    pushField('heatColorScheme', cfg.heatColorScheme);
-    pushField('heatLegendPosition', cfg.heatLegendPosition);
-    pushField('heatLegendAlign', cfg.heatLegendAlign);
-    pushField('heatSortBy', cfg.heatSortBy);
-    pushField('heatSortDirection', cfg.heatSortDirection);
-    pushField('ganttLabelField', cfg.ganttLabelField);
-    pushField('ganttStartField', cfg.ganttStartField);
-    pushField('ganttEndField', cfg.ganttEndField);
-    pushField('ganttColorField', cfg.ganttColorField);
-    if (allowed.has('funnelCategoryOrder') && cfg.funnelCategoryOrder?.length) {
-      parts.push(
-        `funnelCategoryOrder: [${cfg.funnelCategoryOrder.map(sanitizeForPrompt).join(', ')}]`,
-      );
+    pushChartField('seriesField', chartCfg.seriesField);
+    pushChartField('scatterColorField', chartCfg.scatterColorField);
+    pushChartField('scatterSizeField', chartCfg.scatterSizeField);
+    pushChartField('scatterMinRadius', chartCfg.scatterMinRadius);
+    pushChartField('scatterMaxRadius', chartCfg.scatterMaxRadius);
+    pushChartField('heatColorScheme', chartCfg.heatColorScheme);
+    pushChartField('heatLegendPosition', chartCfg.heatLegendPosition);
+    pushChartField('heatLegendAlign', chartCfg.heatLegendAlign);
+    pushChartField('heatSortBy', chartCfg.heatSortBy);
+    pushChartField('heatSortDirection', chartCfg.heatSortDirection);
+    pushChartField('ganttLabelField', chartCfg.ganttLabelField);
+    pushChartField('ganttStartField', chartCfg.ganttStartField);
+    pushChartField('ganttEndField', chartCfg.ganttEndField);
+    pushChartField('ganttColorField', chartCfg.ganttColorField);
+    if (allowed.has('funnelCategoryOrder') && chartCfg.funnelCategoryOrder?.length) {
+      pushField('funnelCategoryOrder', `[${chartCfg.funnelCategoryOrder.join(', ')}]`);
     }
-    pushField('funnelReachedField', cfg.funnelReachedField);
-    if (allowed.has('funnelStageSequence') && cfg.funnelStageSequence?.length) {
-      parts.push(
-        `funnelStageSequence: [${cfg.funnelStageSequence.map(sanitizeForPrompt).join(', ')}]`,
-      );
+    pushChartField('funnelReachedField', chartCfg.funnelReachedField);
+    if (allowed.has('funnelStageSequence') && chartCfg.funnelStageSequence?.length) {
+      pushField('funnelStageSequence', `[${chartCfg.funnelStageSequence.join(', ')}]`);
     }
-    pushField('funnelLabelFormat', cfg.funnelLabelFormat);
-    pushField('funnelLabelPlacement', cfg.funnelLabelPlacement);
-    pushField('funnelGap', cfg.funnelGap);
-    pushField('funnelCurve', cfg.funnelCurve);
-    pushField('funnelVariant', cfg.funnelVariant);
-    pushField('sankeyTargetField', cfg.sankeyTargetField);
-    pushField('sankeyLinkColor', cfg.sankeyLinkColor);
-    pushField('sankeyShowValues', cfg.sankeyShowValues);
-    pushField('pieArcLabel', cfg.pieArcLabel);
-    pushField('pieArcLabelMinAngle', cfg.pieArcLabelMinAngle);
-    pushField('pieMaxSlices', cfg.pieMaxSlices);
-    pushField('pieLegendBelow', cfg.pieLegendBelow);
-    pushField('gaugeMin', cfg.gaugeMin);
-    pushField('gaugeMax', cfg.gaugeMax);
-    pushField('crossFilterMode', cfg.crossFilterMode);
+    pushChartField('funnelLabelFormat', chartCfg.funnelLabelFormat);
+    pushChartField('funnelLabelPlacement', chartCfg.funnelLabelPlacement);
+    pushChartField('funnelGap', chartCfg.funnelGap);
+    pushChartField('funnelCurve', chartCfg.funnelCurve);
+    pushChartField('funnelVariant', chartCfg.funnelVariant);
+    pushChartField('sankeyTargetField', chartCfg.sankeyTargetField);
+    pushChartField('sankeyLinkColor', chartCfg.sankeyLinkColor);
+    pushChartField('sankeyShowValues', chartCfg.sankeyShowValues);
+    pushChartField('pieArcLabel', chartCfg.pieArcLabel);
+    pushChartField('pieArcLabelMinAngle', chartCfg.pieArcLabelMinAngle);
+    pushChartField('pieMaxSlices', chartCfg.pieMaxSlices);
+    pushChartField('pieLegendBelow', chartCfg.pieLegendBelow);
+    pushChartField('gaugeMin', chartCfg.gaugeMin);
+    pushChartField('gaugeMax', chartCfg.gaugeMax);
+    pushChartField('crossFilterMode', chartCfg.crossFilterMode);
   } else if (isWidgetOfKind(widget, 'kpi')) {
-    const cfg = widget.config;
+    const kpiCfg = widget.config;
     // Value fields: gate on `!== undefined` (not truthiness) so a set-but-falsy value survives.
-    if (cfg.kpiValueField !== undefined) {
-      parts.push(`valueField: ${sanitizeForPrompt(cfg.kpiValueField)}`);
+    if (kpiCfg.kpiValueField !== undefined) {
+      pushField('valueField', kpiCfg.kpiValueField);
     }
-    if (cfg.kpiAggregation !== undefined) {
-      parts.push(`aggregation: ${sanitizeForPrompt(cfg.kpiAggregation)}`);
+    if (kpiCfg.kpiAggregation !== undefined) {
+      pushField('aggregation', kpiCfg.kpiAggregation);
     }
     // `kpiSparkline`/`kpiTrend` are enablement flags: truthiness IS the intended gate
     // (a `false` value means the feature is off and must not be described).
-    if (cfg.kpiSparkline) {
-      const plotType = cfg.kpiSparklinePlotType ?? 'line';
-      parts.push(`sparkline: ${sanitizeForPrompt(plotType)}`);
+    if (kpiCfg.kpiSparkline) {
+      pushField('sparkline', kpiCfg.kpiSparklinePlotType ?? 'line');
     }
-    if (cfg.kpiTrend) {
-      const comparison = cfg.kpiTrendComparison ?? 'previous-period';
-      const invert = cfg.kpiTrendInvert ? ', invert' : '';
-      parts.push(`trend: ${sanitizeForPrompt(comparison)}${invert}`);
+    if (kpiCfg.kpiTrend) {
+      const comparison = kpiCfg.kpiTrendComparison ?? 'previous-period';
+      const invert = kpiCfg.kpiTrendInvert ? ', invert' : '';
+      pushField('trend', `${comparison}${invert}`);
     }
   } else if (isWidgetOfKind(widget, 'grid')) {
-    const cfg = widget.config;
-    if (cfg.columns?.length) {
-      parts.push(`columns: [${cfg.columns.map((c) => sanitizeForPrompt(c.fieldId)).join(', ')}]`);
+    const gridCfg = widget.config;
+    if (gridCfg.columns?.length) {
+      pushField('columns', `[${gridCfg.columns.map((c) => c.fieldId).join(', ')}]`);
     }
-    if (cfg.gridSortField !== undefined) {
-      parts.push(
-        `sortField: ${sanitizeForPrompt(cfg.gridSortField)}(${sanitizeForPrompt(
-          cfg.gridSortDirection ?? 'asc',
-        )})`,
-      );
+    if (gridCfg.gridSortField !== undefined) {
+      pushField('sortField', `${gridCfg.gridSortField}(${gridCfg.gridSortDirection ?? 'asc'})`);
     }
-    if (cfg.gridGroupByField !== undefined) {
-      parts.push(`groupBy: ${sanitizeForPrompt(cfg.gridGroupByField)}`);
+    if (gridCfg.gridGroupByField !== undefined) {
+      pushField('groupBy', gridCfg.gridGroupByField);
     }
   } else if (isWidgetOfKind(widget, 'filter')) {
-    const cfg = widget.config;
-    if (cfg.filterWidgetType !== undefined) {
-      parts.push(`filterType: ${sanitizeForPrompt(cfg.filterWidgetType)}`);
+    const filterCfg = widget.config;
+    if (filterCfg.filterWidgetType !== undefined) {
+      pushField('filterType', filterCfg.filterWidgetType);
     }
-    if (cfg.filterWidgetField !== undefined) {
-      parts.push(`filterField: ${sanitizeForPrompt(cfg.filterWidgetField)}`);
+    if (filterCfg.filterWidgetField !== undefined) {
+      pushField('filterField', filterCfg.filterWidgetField);
     }
   } else if (widget.kind === 'pivot') {
     const cfg2 = cfg as {
@@ -252,19 +266,22 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       pivotShowTotals?: boolean;
     };
     if (cfg2.pivotRowField !== undefined) {
-      parts.push(`rowField: ${sanitizeForPrompt(cfg2.pivotRowField)}`);
+      pushField('rowField', cfg2.pivotRowField);
     }
     if (cfg2.pivotColField !== undefined) {
-      parts.push(`colField: ${sanitizeForPrompt(cfg2.pivotColField)}`);
+      pushField('colField', cfg2.pivotColField);
     }
     if (cfg2.pivotValueField !== undefined) {
-      parts.push(`valueField: ${sanitizeForPrompt(cfg2.pivotValueField)}`);
+      pushField('valueField', cfg2.pivotValueField);
     }
     if (cfg2.pivotAggregation !== undefined) {
-      parts.push(`aggregation: ${sanitizeForPrompt(cfg2.pivotAggregation)}`);
+      pushField('aggregation', cfg2.pivotAggregation);
     }
     if (cfg2.pivotShowTotals !== undefined) {
-      parts.push(`showTotals: ${cfg2.pivotShowTotals}`);
+      // `pivotShowTotals` is typed `boolean` but is a valid pivot config KEY, so a
+      // crafted `update_widget` could store an arbitrary string here that passed
+      // key validation (finding 1.1) — sanitize it like every other value.
+      pushField('showTotals', cfg2.pivotShowTotals);
     }
   } else if (widget.kind === 'map') {
     const cfg2 = cfg as {
@@ -274,16 +291,16 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       crossFilterMode?: string;
     };
     if (cfg2.mapCountryField !== undefined) {
-      parts.push(`countryField: ${sanitizeForPrompt(cfg2.mapCountryField)}`);
+      pushField('countryField', cfg2.mapCountryField);
     }
     if (cfg2.mapValueField !== undefined) {
-      parts.push(`valueField: ${sanitizeForPrompt(cfg2.mapValueField)}`);
+      pushField('valueField', cfg2.mapValueField);
     }
     if (cfg2.mapAggregation !== undefined) {
-      parts.push(`aggregation: ${sanitizeForPrompt(cfg2.mapAggregation)}`);
+      pushField('aggregation', cfg2.mapAggregation);
     }
     if (cfg2.crossFilterMode !== undefined) {
-      parts.push(`crossFilterMode: ${sanitizeForPrompt(cfg2.crossFilterMode)}`);
+      pushField('crossFilterMode', cfg2.crossFilterMode);
     }
   }
 
@@ -549,7 +566,10 @@ function buildDashboardState(
           .map((id) => {
             const w = widgets[id];
             const span = widgetColSpans[id];
-            const spanSuffix = span != null ? `, ${span}col` : '';
+            // `widgetColSpans` is client-asserted (part of the request body), so a
+            // crafted `span` could carry a `</dashboard_state>`-style break — sanitize
+            // it like every other state-derived value (finding 1.1).
+            const spanSuffix = span != null ? `, ${sanitizeForPrompt(span)}col` : '';
             return w
               ? `${sanitizeForPrompt(id)} ("${sanitizeForPrompt(w.title)}", ${sanitizeForPrompt(w.kind)}${spanSuffix})`
               : sanitizeForPrompt(id);
@@ -683,6 +703,22 @@ function buildDashboardState(
 
 // ── Skill section builder ─────────────────────────────────────────────────────
 
+/**
+ * Neutralizes a `</skill>` (or `</skill …>`) closing tag inside a client-supplied
+ * skill `promptFragment` so the fragment cannot terminate its own `<skill>` block
+ * early and inject fabricated content into the trusted system region (finding 2.1).
+ *
+ * Unlike `sanitizeForPrompt`, this does NOT escape every angle bracket — a skill
+ * fragment is intentionally model-facing instruction prose that may legitimately
+ * contain markup/code — it only breaks the one boundary that matters (the closing
+ * `</skill>` tag). The primary server-side lever for untrusted skills is the
+ * `allowedSkills` allow-list in `handleAIChat`; this is defense-in-depth for the
+ * tag framing so a passing-through fragment still can't escape its block.
+ */
+function neutralizeSkillBoundary(fragment: string): string {
+  return String(fragment).replace(/<\s*\/\s*skill/gi, '&lt;/skill');
+}
+
 function buildSkillSection(skills?: SerializableSkill[]): string {
   if (!skills?.length) {
     return '';
@@ -690,7 +726,7 @@ function buildSkillSection(skills?: SerializableSkill[]): string {
   const fragments = skills
     .map(
       (s) =>
-        `<skill name="${sanitizeForPrompt(s.name)}" mode="${sanitizeForPrompt(s.mode)}">\n${s.promptFragment}\n</skill>`,
+        `<skill name="${sanitizeForPrompt(s.name)}" mode="${sanitizeForPrompt(s.mode)}">\n${neutralizeSkillBoundary(s.promptFragment)}\n</skill>`,
     )
     .join('\n\n');
   return `\n\n## Skills\n\nThe following skills are enabled. Use each skill when its trigger conditions match.\nDo not invent tool names beyond those listed here plus the built-in tools.\n\n${fragments}`;

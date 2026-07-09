@@ -295,6 +295,20 @@ export interface StudioAIHandlerOptions {
    */
   allowedTools?: string[];
   /**
+   * Server-enforced skill allow-list, by skill `name`. The client asserts `body.skills`
+   * (name, mode, `promptFragment`, tool schema), and each skill's `promptFragment` is
+   * interpolated into the higher-trust **system** prompt region — unlike `allowedTools`
+   * and `privateMode`, there was previously no server lever to filter it, so a client
+   * could inject arbitrary system-prompt content (finding 2.1). When set, only skills
+   * whose `name` is in this list contribute prompt text (and server-tool advertisements);
+   * every other body-supplied skill is dropped. Omit to preserve the current behavior
+   * (the client-asserted `body.skills` is trusted as-is).
+   *
+   * Use this on a multi-tenant/public endpoint to guarantee an integration can never
+   * inject skill prompt fragments the host did not vet.
+   */
+  allowedSkills?: string[];
+  /**
    * Server-enforced private mode. The effective private mode is
    * `options.privateMode || body.privateMode`: the client can opt INTO private mode
    * but can never opt OUT of a server-mandated one. Omit to preserve the current
@@ -361,6 +375,15 @@ export function handleAIChat(
   }
   const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
+  // Server-side skill allow-list enforcement (finding 2.1). A client-asserted
+  // `body.skills` fragment lands in the higher-trust system region; when the host
+  // supplies `allowedSkills`, drop every body skill whose name is not vetted, so a
+  // public/multi-tenant endpoint can guarantee no un-vetted skill prompt text is
+  // injected. Omitting the option preserves the current behavior (skills trusted).
+  const effectiveSkills = options.allowedSkills
+    ? (skills ?? []).filter((s) => options.allowedSkills!.includes(s.name))
+    : skills;
+
   // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
   // actually propagates into the agentic loop. It is also linked to any external
   // `options.signal` so a host-wired abort still stops the loop.
@@ -399,7 +422,7 @@ export function handleAIChat(
           customWidgets,
           focusedWidgetId,
           effectiveAllowedTools,
-          skills,
+          effectiveSkills,
           {
             endpoint: options.endpoint,
             apiKey: options.apiKey,

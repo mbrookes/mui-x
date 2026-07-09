@@ -39,6 +39,6 @@ describe('<VegaLiteChart /> (foundation shell)', () => {
         }}
       />,
     );
-    expect(reported.map((gap) => gap.code)).to.include('mark:boxplot');
+    expect(reported.map((gap) => gap.code)).to.include('mark:boxplot-not-implemented');
   });
 });

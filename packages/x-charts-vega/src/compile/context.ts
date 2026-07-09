@@ -21,11 +21,91 @@ export type PlotKind =
   | 'marks'
   | 'scatter'
   | 'pie'
+  | 'pieLabels'
   | 'lineHighlight'
   | 'heatmap'
   | 'rangeBar'
   | 'geoBase'
   | 'mapShape';
+
+/** A data-space position on a cartesian axis (band/point categories included). */
+export type OverlayPosition = number | string | Date;
+
+export interface OverlaySegment {
+  x1: OverlayPosition;
+  y1: OverlayPosition;
+  x2: OverlayPosition;
+  y2: OverlayPosition;
+  style?: React.CSSProperties;
+}
+
+export interface OverlayBoxItem {
+  /** The category-axis value the box is centered on. */
+  category: OverlayPosition;
+  min: number;
+  q1: number;
+  median: number;
+  q3: number;
+  max: number;
+  /** Values beyond the whiskers, drawn as dots. */
+  outliers?: number[];
+  color?: string;
+}
+
+export interface OverlayErrorBarItem {
+  category: OverlayPosition;
+  /** Optional center tick (mean/median). */
+  center?: number;
+  lower: number;
+  upper: number;
+  color?: string;
+}
+
+export interface OverlayBandPoint {
+  x: OverlayPosition;
+  lower: number;
+  upper: number;
+}
+
+export interface OverlayTextItem {
+  x: OverlayPosition;
+  y: OverlayPosition;
+  text: string;
+  dx?: number;
+  dy?: number;
+  style?: React.CSSProperties;
+}
+
+export interface OverlayImageItem {
+  x: OverlayPosition;
+  y: OverlayPosition;
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Custom-drawn output for Vega-Lite marks with no x-charts series equivalent
+ * (boxplot, errorbar/errorband, text, image, rule segments, tick shapes).
+ * All positions are data-space values; the `VegaOverlays` component
+ * (src/overlays) converts them to pixels via the public `useXScale`/
+ * `useYScale` hooks and draws plain SVG inside `ChartsSurface` — the same
+ * composition pattern as `ChartsReferenceLine` and the official
+ * custom-component docs demos.
+ */
+export type CompiledOverlay =
+  | { kind: 'segments'; items: OverlaySegment[] }
+  | {
+      kind: 'boxes';
+      orientation: 'vertical' | 'horizontal';
+      items: OverlayBoxItem[];
+      /** Box thickness as a fraction of the band width (default ~0.5). */
+      widthRatio?: number;
+    }
+  | { kind: 'errorBars'; orientation: 'vertical' | 'horizontal'; items: OverlayErrorBarItem[] }
+  | { kind: 'band'; points: OverlayBandPoint[]; color?: string; opacity?: number }
+  | { kind: 'text'; items: OverlayTextItem[] }
+  | { kind: 'image'; items: OverlayImageItem[] };
 
 export interface CompiledReferenceLine {
   axis: 'x' | 'y';
@@ -62,6 +142,8 @@ export interface CompiledUnit {
   zAxis?: CompiledZAxis[];
   /** Present when the layer requires geographic rendering ('geoshape'). */
   geo?: CompiledGeo;
+  /** Custom-drawn output for marks with no x-charts series equivalent. */
+  overlays?: CompiledOverlay[];
 }
 
 /**

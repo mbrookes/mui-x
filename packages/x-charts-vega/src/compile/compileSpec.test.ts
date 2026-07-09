@@ -53,12 +53,12 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(layerAccounted(1)).to.equal(true);
   });
 
-  it('reports unsupported marks with a hint instead of throwing', () => {
+  it('reports unknown marks with a generic gap instead of throwing', () => {
     const compiled = compileSpec({
       data: { values: [{ a: 1 }] },
-      mark: 'boxplot',
+      mark: 'sunburst',
     });
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:sunburst');
     expect(gap?.severity).to.equal('unsupported');
     expect(gap?.message).to.contain('no x-charts equivalent');
     expect(compiled.series).to.have.length(0);

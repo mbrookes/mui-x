@@ -183,12 +183,14 @@ export function normalizeChartSeries(series: StudioChartSeries): StudioChartSeri
   if (series.seriesType === undefined) {
     return series;
   }
-  // Past the early return `seriesType` is defined, so `resolvedType` (`type ??
-  // seriesType`) is always defined — strip the alias and express the render kind
-  // through the canonical `type`. (The former `resolvedType === undefined` branch
-  // was unreachable.)
+  // Past the early return the `seriesType` alias key is present — strip it. Express the
+  // render kind through the canonical `type` only when one actually resolved: a NULLISH
+  // alias (`seriesType: null`, possible via an unvalidated config leaf) with no canonical
+  // `type` must OMIT `type` rather than promote the junk into a `type: null` canonical
+  // field. The normalizer's contract is that the result expresses the render kind through
+  // `type`, and `null` is not a render kind.
   const { seriesType, ...rest } = series;
-  return { ...rest, type: resolvedType };
+  return resolvedType == null ? rest : { ...rest, type: resolvedType };
 }
 
 const defaultPageId = 'page-1';
@@ -255,15 +257,29 @@ export function createDefaultStudioState(
   const sessionOverrides = overrides?.session;
   const runtimeOverrides = overrides?.runtime;
 
-  return {
-    doc: {
-      ...baseDoc,
-      ...docOverrides,
-      dashboard: {
-        ...baseDoc.dashboard,
-        ...docOverrides?.dashboard,
-      },
+  const mergedDoc: StudioDoc = {
+    ...baseDoc,
+    ...docOverrides,
+    dashboard: {
+      ...baseDoc.dashboard,
+      ...docOverrides?.dashboard,
     },
+  };
+  // Reconcile a dangling `activePageId`: a `doc.pages` override replaces the default page
+  // map WHOLESALE (the documented merge contract), so a caller that supplies `pages`
+  // without also updating `dashboard.activePageId` would mint a state whose active page
+  // names a page that no longer exists — a blank canvas until the user switches pages.
+  // Fall back to the first page id (or `''` when the map is empty), mirroring the exact
+  // fallback `removePage` uses when it deletes the active page.
+  if (!Object.hasOwn(mergedDoc.pages, mergedDoc.dashboard.activePageId)) {
+    mergedDoc.dashboard = {
+      ...mergedDoc.dashboard,
+      activePageId: Object.keys(mergedDoc.pages)[0] ?? '',
+    };
+  }
+
+  return {
+    doc: mergedDoc,
     session: {
       ...baseSession,
       ...sessionOverrides,

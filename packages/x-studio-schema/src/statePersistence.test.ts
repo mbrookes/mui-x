@@ -132,6 +132,91 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/clone/i);
   });
 
+  // ── fail-closed nested per-entry shape validation (finding 1.1) ──────────────
+  // `findMissingRequiredField` now checks one level deeper than the four top-level
+  // fields, so a nested-corrupt doc is rejected here with a NAMED field rather than
+  // passing migration and then throwing an uncaught TypeError inside `deserializeState`.
+  it('fails a doc whose page has a non-array widgetRows, naming the field (finding 1.1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: 'junk' } },
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/pages\["p1"\]\.widgetRows/);
+  });
+
+  it('fails a doc with a null page value, naming the field (finding 1.1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        pages: { p1: null },
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/pages\["p1"\]/);
+  });
+
+  it('fails a doc with a null widget value, naming the field (finding 1.1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        widgets: { w1: null },
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/widgets\["w1"\]/);
+  });
+
+  it('fails a doc whose widget has a non-record config, naming the field (finding 1.1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: 'junk' } },
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/widgets\["w1"\]\.config/);
+  });
+
+  it('a doc with well-formed nested pages/widgets still succeeds (finding 1.1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [['w1']] } },
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: {} } },
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  // ── fail-closed on non-integer schemaVersion (finding 3 / review 2.1) ────────
+  // `typeof NaN === 'number'` used to fail OPEN: `NaN === CURRENT` / `NaN > CURRENT`
+  // are both false and the migration loop never runs, so a `schemaVersion: NaN` doc
+  // passed through un-migrated with `success: true`. It must now fail closed.
+  it('fails closed for a NaN schemaVersion instead of passing through un-migrated (finding 3)', () => {
+    const result = migrateState(completeSerialized({ schemaVersion: NaN }));
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/schemaVersion/);
+  });
+
+  it('fails closed for a fractional schemaVersion (finding 3)', () => {
+    const result = migrateState(completeSerialized({ schemaVersion: 0.5 }));
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/schemaVersion/);
+  });
+
+  it('still treats an absent schemaVersion as legacy v0 (finding 3)', () => {
+    // `undefined` remains the legacy pre-versioning sentinel — only genuinely invalid
+    // (non-integer) versions fail closed.
+    const result = migrateState(completeSerialized());
+    expect(result.success).toBe(true);
+    expect(result.fromVersion).toBe(0);
+  });
+
   // ── missing-migration completeness pin (1.4) ─────────────────────────────────
   it('every version step 0 … CURRENT_SCHEMA_VERSION-1 has a registered migration', () => {
     const registered = new Set(REGISTERED_MIGRATION_VERSIONS);
@@ -512,6 +597,116 @@ describe('deserializeState', () => {
     const state = deserializeState(serialized, {});
     // Nothing needed fixing, so the same page object is carried through untouched.
     expect(state.doc.pages['page-1']).toBe(serialized.pages['page-1']);
+  });
+
+  // ── total over nested-corrupt docs, direct deserializeState call (finding 1.1) ─
+  // `deserializeState` is a public API callable on a `SerializedStudioState` directly
+  // (not just via `migrateState`), so its load-boundary sweeps must not throw an
+  // uncaught TypeError on a hand-edited/foreign doc with a junk shape one level down.
+  it('does not throw on a non-array widgetRows, coercing it away (finding 1.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: 'junk' } },
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(state.doc.pages['page-1'].widgetRows).toEqual([]);
+  });
+
+  it('does not throw on a null page value, dropping it (finding 1.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {},
+      pages: { 'page-1': null, good: { id: 'good', title: 'G', widgetRows: [] } },
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(Object.hasOwn(state.doc.pages, 'page-1')).toBe(false);
+    expect(Object.hasOwn(state.doc.pages, 'good')).toBe(true);
+  });
+
+  it('does not throw on a null widget value, dropping it (finding 1.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: null, w2: chart('w2') },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(Object.hasOwn(state.doc.widgets, 'w1')).toBe(false);
+    expect(Object.hasOwn(state.doc.widgets, 'w2')).toBe(true);
+  });
+
+  // ── prototype-hazard keys in persisted maps (finding 1.2) ────────────────────
+  it('drops a persisted "__proto__" page key and does not re-prototype the pages map (finding 1.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: JSON.parse(
+        // JSON.parse produces a genuine own `"__proto__"` key (an object literal would not).
+        '{"page-1":{"id":"page-1","title":"P1","widgetRows":[["w1"]]},' +
+          '"__proto__":{"id":"evil","title":"Evil","widgetRows":[]}}',
+      ),
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // The unsafe page entry is dropped and the map's prototype is untouched — no
+    // inherited-property leak (`doc.pages.title` must not read back as 'Evil').
+    expect(Object.getPrototypeOf(state.doc.pages)).toBe(Object.prototype);
+    expect(Object.hasOwn(state.doc.pages, '__proto__')).toBe(false);
+    expect((state.doc.pages as Record<string, unknown>).title).toBeUndefined();
+    expect(state.doc.pages['page-1']).toBeDefined();
+  });
+
+  it('drops a persisted "__proto__" widget key from the widgets map (finding 1.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: JSON.parse(
+        '{"w1":{"id":"w1","kind":"chart","title":"C","config":{"chartType":"bar"}},' +
+          '"__proto__":{"id":"evil","kind":"chart","title":"Evil","config":{}}}',
+      ),
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(Object.getPrototypeOf(state.doc.widgets)).toBe(Object.prototype);
+    expect(Object.hasOwn(state.doc.widgets, '__proto__')).toBe(false);
+    expect(state.doc.widgets.w1).toBeDefined();
+  });
+
+  // ── symmetric filter strip on load (finding 4 / review 2.2) ──────────────────
+  it('strips a hand-carried cross-filter/interactive filter on load, symmetric with serializeDoc (finding 4)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+        {
+          id: 'cross-f',
+          field: 'category',
+          operator: 'equals',
+          value: 'A',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'ghost', pageId: 'page-1' },
+        },
+        {
+          id: 'interactive-f',
+          field: 'region',
+          operator: 'equals',
+          value: 'EMEA',
+          scope: { kind: 'interactive', sourceWidgetId: 'ghost2', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // The orphaned session-flavoured filters must not install into live `doc.filters`
+    // (they would permanently filter the page with no clearing affordance).
+    expect(state.doc.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
+    expect(state.doc.filters.some((f) => f.scope?.kind === 'interactive')).toBe(false);
+    expect(state.doc.filters.some((f) => f.id === 'page-f')).toBe(true);
   });
 });
 

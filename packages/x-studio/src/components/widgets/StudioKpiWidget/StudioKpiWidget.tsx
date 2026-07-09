@@ -20,6 +20,7 @@ import {
   analyzeChartSupport,
 } from '../../../internals/chartAggregation';
 import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
+import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
 import { buildFieldLabelMap } from '../../../internals/fieldCatalog';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
@@ -201,6 +202,7 @@ function computeFilterBasedTrend(params: {
   config: KpiConfig;
   widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource;
+  pageId: string;
   filters: StudioFilterState[];
   currentValue: number;
   measureKey: string;
@@ -214,6 +216,7 @@ function computeFilterBasedTrend(params: {
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentValue,
     measureKey,
@@ -226,7 +229,24 @@ function computeFilterBasedTrend(params: {
 
   // In this branch kpiValueField is set (guaranteed by the caller's gate).
   const previousKpiValueField = config.kpiValueField!;
-  const dateFilter = findDateFilter(filters, widget.id, dataSource);
+
+  // Scope the filters through the SAME authority the headline rows use
+  // (`selectFiltersForWidget`) before deriving anything from them. This enforces
+  // the `pageId`, `disabled`, and `dashboard-date-range` sourceId checks that a raw
+  // `filters` partition skips — otherwise, on a multi-page dashboard, the previous
+  // period would be computed with another page's filters applied while the current
+  // headline correctly excludes them, and `findDateFilter` could latch onto a
+  // disabled date filter or one whose source doesn't match the widget (finding 2.17).
+  // `include` mirrors the row-scope the headline actually renders:
+  //   'none' → currentRows = filteredRowsNoCross → page + widget only ('no-cross')
+  //   else   → currentRows = effectiveRows        → all active scopes ('all')
+  const scopedFilters = selectFiltersForWidget(filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId: pageId,
+    include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+  });
+  const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
   if (!dateFilter) {
     return null;
   }
@@ -246,7 +266,7 @@ function computeFilterBasedTrend(params: {
   // hits the already-populated cache slot rather than the all-fields slot.
   const kpiUsedFieldIds = new Set(collectSelectFields(widget));
   kpiUsedFieldIds.add(dateFilter.field);
-  for (const f of filters) {
+  for (const f of scopedFilters) {
     if (f.field) {
       kpiUsedFieldIds.add(f.field);
     }
@@ -260,23 +280,12 @@ function computeFilterBasedTrend(params: {
     kpiUsedFieldIds,
   );
 
-  // Build allFilters for the previous period using the same scope as currentRows.
-  // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
-  // interactive and cross-filter scopes. Including interactive filters here would cause
-  // the trend delta to reflect different filter states for current vs previous period.
-  const pageFilters = filters.filter(
-    (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range',
-  );
-  const widgetFilters = filters.filter(
-    (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id,
-  );
-  const interactiveFilters =
-    crossFilterMode !== 'none'
-      ? filters.filter(
-          (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id,
-        )
-      : [];
-  const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
+  // `scopedFilters` already reflects the current row scope (see above): for the
+  // 'none' mode it is page + widget only (matching filteredRowsNoCross), and for
+  // cross-filter mode it is every active scope (matching effectiveRows). Swapping
+  // the current date filter for the previous-period window below therefore keeps the
+  // previous side under exactly the same non-date filters as the current headline.
+  const allFilters = scopedFilters;
 
   const prevDateFilter: StudioFilterState = {
     ...dateFilter,
@@ -608,6 +617,7 @@ function useKpiTrend(params: {
   config: KpiConfig;
   widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
+  pageId: string;
   filters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
   isGrainAnchored: boolean;
@@ -625,6 +635,7 @@ function useKpiTrend(params: {
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     isGrainAnchored,
@@ -647,11 +658,19 @@ function useKpiTrend(params: {
 
     // Fixed-period mode derives its own windows from today — no date filter required.
     // The existing filter-based mode still requires an active date filter to define the
-    // current period (shown as a warning badge when missing).
+    // current period (shown as a warning badge when missing). Scope the lookup through
+    // the same authority the trend computation uses so the "needs a date filter" hint
+    // stays consistent with whether a date filter is actually in scope (finding 2.17).
+    const scopedFiltersForBadge = selectFiltersForWidget(filters, {
+      widgetId: widget.id,
+      widgetSourceId: widget.sourceId,
+      activePageId: pageId,
+      include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+    });
     const needsDateFilter =
       !hasFixedPeriodTrend &&
       !!(config.kpiTrend && config.kpiValueField) &&
-      !findDateFilter(filters, widget.id, dataSource);
+      !findDateFilter(scopedFiltersForBadge, widget.id, dataSource);
 
     // Shared parameters for reducing a date-windowed row set to a single trend value.
     // Both the fixed-period and filter-based trend branches route through
@@ -691,6 +710,7 @@ function useKpiTrend(params: {
           config,
           widget,
           dataSource,
+          pageId,
           filters,
           currentValue: rawValue,
           measureKey,
@@ -709,6 +729,7 @@ function useKpiTrend(params: {
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     isGrainAnchored,
@@ -800,6 +821,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     isGrainAnchored,

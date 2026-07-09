@@ -383,4 +383,70 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
     expect(trend!.delta).toBeCloseTo(0.5);
     expect(trend!.previousValue).toBe(200);
   });
+
+  it("filter-based trend does NOT leak another page's filters into the previous period (finding 2.17)", () => {
+    // Headline current-window rows (sum 300) come straight from useWidgetRows.
+    rowsHolder.current = [
+      { id: 'c1', amount: 100, saleDate: '2026-07-01', region: 'A' },
+      { id: 'c2', amount: 200, saleDate: '2026-07-02', region: 'B' },
+    ];
+    // The full row set the previous-period resolveRows re-windows over: one region-A
+    // and one region-B row, both inside the previous window. If another page's
+    // `region = A` filter leaked in (the pre-fix behavior, which partitioned the raw
+    // filters array with no pageId check), the region-B row would be dropped and
+    // previousValue would be 100 instead of the correct 200.
+    const salesWithRegion = {
+      id: 'sales',
+      label: 'Sales',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+        { id: 'saleDate', label: 'Date', type: 'date' },
+        { id: 'region', label: 'Region', type: 'string' },
+      ],
+      rows: [
+        { id: 'p1', amount: 100, saleDate: '2026-05-20', region: 'A' },
+        { id: 'p2', amount: 100, saleDate: '2026-05-25', region: 'B' },
+      ],
+    } as unknown as StudioDataSource;
+
+    // Date filter on THIS widget's page defines the current period.
+    const dateFilter: StudioFilterState = {
+      id: 'f-date',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'between',
+      value: { from: '2026-06-07', to: '2026-07-07' },
+    } as unknown as StudioFilterState;
+
+    // A page filter that belongs to ANOTHER page — must never touch this widget's trend.
+    const otherPageFilter: StudioFilterState = {
+      id: 'f-other-page',
+      field: 'region',
+      fieldType: 'string',
+      scope: { kind: 'page', pageId: 'page-2' },
+      operator: 'equals',
+      value: 'A',
+    } as unknown as StudioFilterState;
+
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiTrend: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesWithRegion },
+      filters: [dateFilter, otherPageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesWithRegion);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    // previousValue must be 200 (both previous-window rows), NOT 100 (region-A only).
+    expect(trend!.previousValue).toBe(200);
+    expect(trend!.delta).toBeCloseTo(0.5);
+  });
 });

@@ -65,3 +65,33 @@ export function prepareScatterDataGrouped(
     return data.length > 0 ? [{ id: cat, label: cat, data }] : [];
   });
 }
+
+/**
+ * Assigns a stable color to each category, keyed by category identity rather than
+ * array position.
+ *
+ * Used to pin matching colors on a color-by scatter's ghost (baseline) and
+ * highlighted (filtered) series lists. Those two lists can have different
+ * lengths/orders — a category present in the unfiltered baseline may have no
+ * points (and therefore no series) in the current filtered set — so assigning
+ * colors positionally (`colors[seriesIndex]`) would skew every subsequent
+ * category's color and make a category's ghost render a different color than its
+ * highlighted series.
+ *
+ * `categories` should be given in a stable, filter-independent order (e.g. the
+ * baseline/unfiltered category list) so a category's color never shifts as the
+ * filtered set changes.
+ */
+export function buildScatterCategoryColorMap(
+  categories: string[],
+  colors: string[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (colors.length === 0) {
+    return map;
+  }
+  categories.forEach((cat, index) => {
+    map.set(cat, colors[index % colors.length]);
+  });
+  return map;
+}

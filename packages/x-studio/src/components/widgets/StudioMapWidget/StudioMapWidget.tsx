@@ -197,22 +197,30 @@ export function StudioMapWidget({
     [geographyDef],
   );
 
-  // Build region → aggregated value map, plus reverse lookup featureId → first raw key
-  const [regionData, rawKeyByFeatureId] = React.useMemo<
-    [Map<string, number>, Map<string, unknown>]
+  // Build region → aggregated value map, plus reverse lookup featureId → EVERY distinct raw
+  // value that normalizes into it (e.g. 'US', 'USA', 'United States' all merge into one
+  // display region). Finding 2.21: a merged region's cross-filter must cover every raw variant
+  // it visibly aggregates, not just the first one encountered — so this keeps the full list,
+  // in first-seen order (index 0 is used as the single value for the common non-merged case).
+  const [regionData, rawKeysByFeatureId] = React.useMemo<
+    [Map<string, number>, Map<string, unknown[]>]
   >(() => {
     if (!countryField || !rows.length) {
       return [new Map(), new Map()];
     }
     const groups = new Map<string, number[]>();
-    const rawKeys = new Map<string, unknown>();
+    const rawKeys = new Map<string, unknown[]>();
     for (const row of rows) {
       const id = normalize(row[countryField]);
       if (!id) {
         continue;
       }
-      if (!rawKeys.has(id)) {
-        rawKeys.set(id, row[countryField]);
+      const rawCountryValue = row[countryField];
+      const existingRawKeys = rawKeys.get(id);
+      if (!existingRawKeys) {
+        rawKeys.set(id, [rawCountryValue]);
+      } else if (!existingRawKeys.some((v) => crossFilterValueEquals(v, rawCountryValue))) {
+        existingRawKeys.push(rawCountryValue);
       }
       const rawValue = valueField != null ? row[valueField] : 1;
       // Shared null-skip + boolean-coercion policy (finding 1.4): null/undefined/NaN and
@@ -380,7 +388,17 @@ export function StudioMapWidget({
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
   const [geography, setGeography] = React.useState<ExtendedFeatureCollection | null>(null);
+  const [geographyError, setGeographyError] = React.useState(false);
   const loadedGeoRef = React.useRef<string | null>(null);
+  // Finding 2.20: a plain `loadedGeoRef.current === mapGeography` key comparison isn't enough
+  // to detect a stale response when the SAME geography is requested twice in a row (e.g.
+  // world → usa → world) — both requests share the same key, so comparing keys alone can't
+  // tell the first (now-stale) 'world' load apart from the second. A monotonically increasing
+  // request id is the standard "ignore out-of-order async response" guard: each effect run
+  // claims the next id, and a `.then`/`.catch` callback only applies its result if its id is
+  // still the latest one issued — a superseded request's resolution is silently discarded
+  // instead of clobbering a newer (possibly different-geography) response.
+  const geoRequestIdRef = React.useRef(0);
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- intentional: clear stale geography when map type changes
   React.useEffect(() => {
     if (loadedGeoRef.current === mapGeography) {
@@ -390,11 +408,34 @@ export function StudioMapWidget({
     if (!loader) {
       return;
     }
+    geoRequestIdRef.current += 1;
+    const requestId = geoRequestIdRef.current;
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- async load requires useEffect; null reset clears stale geography before new data arrives
     setGeography(null);
+    setGeographyError(false);
     loadedGeoRef.current = mapGeography;
     // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- setGeography is local state, not a parent callback; geography must be loaded asynchronously
-    loader().then(setGeography);
+    loader().then(
+      (geo) => {
+        // A newer request has since been issued — this response is stale, discard it rather
+        // than risk pairing an out-of-date topology with the current projection.
+        if (geoRequestIdRef.current !== requestId) {
+          return;
+        }
+        setGeography(geo);
+      },
+      () => {
+        if (geoRequestIdRef.current !== requestId) {
+          return;
+        }
+        // Reset `loadedGeoRef` so a later effect run for this same geography key (e.g. the
+        // consumer re-selects the same map type) re-enters the `loader()` branch above
+        // instead of short-circuiting on the `loadedGeoRef.current === mapGeography` guard —
+        // without this a rejected load left the widget permanently blank with no way to retry.
+        loadedGeoRef.current = null;
+        setGeographyError(true);
+      },
+    );
   }, [mapGeography, geographyDef]);
 
   const isConfigured = !!countryField;
@@ -404,10 +445,17 @@ export function StudioMapWidget({
       if (!crossFilterEmit || !countryField) {
         return;
       }
-      const rawValue = rawKeyByFeatureId.get(featureId);
-      if (rawValue == null) {
+      const rawValues = rawKeysByFeatureId.get(featureId);
+      if (!rawValues || rawValues.length === 0) {
         return;
       }
+      // Finding 2.21: a display region can merge several distinct raw encodings (e.g. 'US',
+      // 'USA', 'United States') via `normalize`. Emitting `equals <first variant>` would only
+      // match a SUBSET of what the clicked region visibly aggregates downstream. When more than
+      // one raw variant merged into this region, emit an `in` filter over all of them so a
+      // downstream widget's filter matches everything the display aggregated; the common
+      // single-variant case keeps emitting a plain `equals` (unchanged call shape).
+      const isMerged = rawValues.length > 1;
       const filterSourceId = config.mapCountrySourceId ?? widget.sourceId;
       // `activeCrossFilter` (via `makeSelectActiveCrossFilter`) is already scoped to
       // `sourceWidgetId === widget.id && pageId && !disabled`, so no need to re-check the
@@ -418,17 +466,25 @@ export function StudioMapWidget({
       const isActive =
         activeCrossFilter != null &&
         activeCrossFilter.field === countryField &&
-        crossFilterValueEquals(activeCrossFilter.value, rawValue);
+        (isMerged
+          ? Array.isArray(activeCrossFilter.value) &&
+            activeCrossFilter.value.length === rawValues.length &&
+            rawValues.every((v) =>
+              (activeCrossFilter.value as unknown[]).some((av) => crossFilterValueEquals(av, v)),
+            )
+          : crossFilterValueEquals(activeCrossFilter.value, rawValues[0]));
       if (isActive) {
         controller.clearCrossFilter(widget.id);
+      } else if (isMerged) {
+        controller.applyCrossFilter(widget.id, countryField, rawValues, filterSourceId, 'in');
       } else {
-        controller.applyCrossFilter(widget.id, countryField, rawValue, filterSourceId);
+        controller.applyCrossFilter(widget.id, countryField, rawValues[0], filterSourceId);
       }
     },
     [
       crossFilterEmit,
       countryField,
-      rawKeyByFeatureId,
+      rawKeysByFeatureId,
       config.mapCountrySourceId,
       widget.sourceId,
       widget.id,
@@ -443,6 +499,13 @@ export function StudioMapWidget({
 
   if (isError) {
     return <StudioWidgetErrorOverlay />;
+  }
+
+  // Finding 2.20: surface a visible, non-silent state when the geography topology failed to
+  // load — `loadedGeoRef` was reset above so this is also retryable (e.g. re-selecting the same
+  // map type in the setup panel re-triggers the loader) rather than a permanent blank widget.
+  if (geographyError) {
+    return <StudioWidgetErrorOverlay message={localeText.mapGeographyLoadError} />;
   }
 
   if (!isConfigured) {

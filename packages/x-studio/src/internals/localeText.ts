@@ -58,6 +58,7 @@ export interface StudioLocaleText {
   widgetConfigureMapHint: string;
   widgetNoData: string;
   widgetLoadError: string;
+  mapGeographyLoadError: string;
 
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
@@ -1246,6 +1247,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetConfigureMapHint: 'Use the Setup tab to choose a country field and a value field.',
   widgetNoData: 'No data to display.',
   widgetLoadError: 'Failed to load data',
+  mapGeographyLoadError: 'Failed to load map data. Please try again.',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',

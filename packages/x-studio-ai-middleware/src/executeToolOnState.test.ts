@@ -942,6 +942,20 @@ describe('executeToolOnState: remove_page_filter', () => {
     const ids = (result.nextState.doc.filters ?? []).map((f) => f.id);
     expect(ids).not.toContain('filter-1');
   });
+
+  it('returns an error (not success) for a nonexistent filterId, and does not mutate', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'remove_page_filter',
+      { filterId: 'nonexistent-filter' },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/nonexistent-filter.*not found/i);
+    expect(out.success).toBeUndefined();
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
 });
 
 describe('executeToolOnState: remove_widget_filter', () => {
@@ -949,6 +963,20 @@ describe('executeToolOnState: remove_widget_filter', () => {
     const state = makeState();
     const result = executeToolOnState('remove_widget_filter', { filterId: 'filter-1' }, state);
     expect(result.mutation?.type).toBe('removeFilter');
+  });
+
+  it('returns an error (not success) for a nonexistent filterId, and does not mutate', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'remove_widget_filter',
+      { filterId: 'nonexistent-filter' },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/nonexistent-filter.*not found/i);
+    expect(out.success).toBeUndefined();
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
   });
 });
 
@@ -1361,6 +1389,48 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(out.skipped).toEqual(
       expect.arrayContaining([expect.stringMatching(/layout: unknown or removed widget IDs/)]),
     );
+  });
+
+  it('rejects an out-of-range colSpan with a skipped entry instead of silently dropping it', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { colSpans: { 'widget-1': 100 } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number };
+    expect(applied.colSpans).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/colSpan widget-1: 100 is out of range/)]),
+    );
+    // Nothing landed in the page's widgetColSpans for the rejected widget.
+    expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-1']).toBeUndefined();
+  });
+
+  it('rejects a non-numeric colSpan with a skipped entry', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { colSpans: { 'widget-1': 'wide' as unknown as number } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number };
+    expect(applied.colSpans).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/colSpan widget-1: "wide" is out of range/)]),
+    );
+  });
+
+  it('applies an in-range colSpan normally (no skipped entry)', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { colSpans: { 'widget-1': 12 } }, state);
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number };
+    expect(applied.colSpans).toBe(1);
+    expect(out.skipped).toBeUndefined();
+    expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-1']).toBe(12);
   });
 });
 

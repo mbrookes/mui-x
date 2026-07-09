@@ -215,9 +215,9 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       const plotType = cfg.kpiSparklinePlotType ?? 'line';
       parts.push(`sparkline: ${sanitizeForPrompt(plotType)}`);
     }
-    if ((cfg as any).kpiTrend) {
-      const comparison = (cfg as any).kpiTrendComparison ?? 'previous-period';
-      const invert = (cfg as any).kpiTrendInvert ? ', invert' : '';
+    if (cfg.kpiTrend) {
+      const comparison = cfg.kpiTrendComparison ?? 'previous-period';
+      const invert = cfg.kpiTrendInvert ? ', invert' : '';
       parts.push(`trend: ${sanitizeForPrompt(comparison)}${invert}`);
     }
   } else if (isWidgetOfKind(widget, 'grid')) {
@@ -225,15 +225,15 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.columns?.length) {
       parts.push(`columns: [${cfg.columns.map((c) => sanitizeForPrompt(c.fieldId)).join(', ')}]`);
     }
-    if ((cfg as any).gridSortField !== undefined) {
+    if (cfg.gridSortField !== undefined) {
       parts.push(
-        `sortField: ${sanitizeForPrompt((cfg as any).gridSortField)}(${sanitizeForPrompt(
-          (cfg as any).gridSortDirection ?? 'asc',
+        `sortField: ${sanitizeForPrompt(cfg.gridSortField)}(${sanitizeForPrompt(
+          cfg.gridSortDirection ?? 'asc',
         )})`,
       );
     }
-    if ((cfg as any).gridGroupByField !== undefined) {
-      parts.push(`groupBy: ${sanitizeForPrompt((cfg as any).gridGroupByField)}`);
+    if (cfg.gridGroupByField !== undefined) {
+      parts.push(`groupBy: ${sanitizeForPrompt(cfg.gridGroupByField)}`);
     }
   } else if (isWidgetOfKind(widget, 'filter')) {
     const cfg = widget.config;

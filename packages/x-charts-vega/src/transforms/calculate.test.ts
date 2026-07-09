@@ -1,5 +1,10 @@
 import { createGapCollector } from '../gaps';
-import { applyCalculateTransform , compileExpression, isTruthy, UnsupportedExpressionError } from './calculate';
+import {
+  applyCalculateTransform,
+  compileExpression,
+  isTruthy,
+  UnsupportedExpressionError,
+} from './calculate';
 
 describe('calculate.ts / compileExpression', () => {
   it('reads datum field access via dot and bracket notation', () => {
@@ -91,6 +96,26 @@ describe('calculate.ts / compileExpression', () => {
     expect(isTruthy(undefined)).to.equal(false);
     expect(isTruthy(1)).to.equal(true);
     expect(isTruthy('a')).to.equal(true);
+  });
+
+  describe('bound signals (variable params)', () => {
+    it('resolves a bare identifier from the signals map', () => {
+      expect(compileExpression('cutoff + 1', { cutoff: 2 })({})).to.equal(3);
+    });
+
+    it('still throws for an identifier absent from signals', () => {
+      expect(() => compileExpression('missing + 1', { cutoff: 2 })({})).to.throw(
+        UnsupportedExpressionError,
+      );
+    });
+
+    it('does not let a signal shadow datum field access', () => {
+      expect(compileExpression('datum.x + cutoff', { cutoff: 10, x: 999 })({ x: 5 })).to.equal(15);
+    });
+
+    it('does not resolve inherited prototype keys as signals', () => {
+      expect(() => compileExpression('toString', {})({})).to.throw(UnsupportedExpressionError);
+    });
   });
 });
 

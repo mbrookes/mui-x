@@ -8,6 +8,7 @@ import { applyTransforms, applyEncodingTransforms } from '../transforms';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';
 import { resolveAxes } from './scales';
 import { resolveParams } from './params';
+import type { CompiledParamInput } from './params';
 import type {
   AxisResolution,
   CompiledGeo,
@@ -51,11 +52,11 @@ export interface CompiledChart {
   height?: number;
   /** Chart-wide bar corner radius (from a bar mark's `cornerRadius`). */
   barBorderRadius?: number;
-  /** Per-axis zoom/pan enablement (populated later by the interactivity worker). */
+  /** Per-axis zoom/pan enablement from scale-bound interval selections. */
   zoom?: { x: boolean; y: boolean };
-  /** Input-widget descriptors for bound params (refined later by the interactivity worker). */
-  inputs?: unknown[];
-  /** Resolved param values, keyed by name (populated later by the interactivity worker). */
+  /** Input-widget descriptors for bound variable params, rendered by the shell. */
+  inputs?: CompiledParamInput[];
+  /** Resolved param/signal values, keyed by name (variable defaults + host overrides). */
   paramValues?: Readonly<Record<string, unknown>>;
   gaps: TranslationGap[];
 }
@@ -146,8 +147,16 @@ function applyOverlayDomains(
 export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): CompiledChart {
   const gaps = createGapCollector();
   const palette = options.palette ?? rainbowSurgePalette('light');
-  const signals = options.params;
   const normalized = normalizeSpec(spec, { data: options.data, datasets: options.datasets }, gaps);
+
+  // Resolve params before the transform pass so that named variable params
+  // (and bound-input defaults) are visible as signals to `calculate`/`filter`
+  // expressions; host-supplied `options.params` override the spec defaults.
+  const paramsRes = resolveParams(spec, gaps);
+  const signals: Readonly<Record<string, unknown>> = {
+    ...paramsRes.initialValues,
+    ...options.params,
+  };
 
   // Run transforms per unit first so axis domains see post-transform rows.
   const prepared = normalized.units.map((unit) => {
@@ -273,12 +282,11 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
 
   // Point-selection params map onto x-charts' controlled item highlighting;
   // apply the resolved scope to every series that doesn't set its own.
-  const params = resolveParams(spec, gaps);
-  if (params.highlightScope) {
+  if (paramsRes.highlightScope) {
     series.forEach((entry) => {
       const scoped = entry as { highlightScope?: unknown };
       if (scoped.highlightScope === undefined) {
-        scoped.highlightScope = params.highlightScope;
+        scoped.highlightScope = paramsRes.highlightScope;
       }
     });
   }
@@ -307,6 +315,28 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   }
   const isCartesian = chartKind === 'cartesian';
 
+  // Scale-bound interval selections map to gesture zoom/pan: flag the per-axis
+  // `zoom` on the axis config (the Premium provider's zoom plugin reads it).
+  // Zoom only applies to cartesian charts; a polar/geo request is a gap.
+  if (paramsRes.zoom) {
+    if (isCartesian) {
+      if (paramsRes.zoom.x && axes.x) {
+        (axes.x.config as XAxis & { zoom?: boolean }).zoom = true;
+      }
+      if (paramsRes.zoom.y && axes.y) {
+        (axes.y.config as YAxis & { zoom?: boolean }).zoom = true;
+      }
+    } else {
+      gaps.add({
+        code: 'param:interval-scales-noncartesian',
+        message:
+          "A scale-bound interval selection (`bind: 'scales'`) requests zoom/pan, but this chart renders in a polar/geo coordinate system where x-charts' cartesian axis zoom does not apply; the binding was ignored.",
+        severity: 'partial',
+        path: '$',
+      });
+    }
+  }
+
   return {
     chartKind,
     series: outSeries,
@@ -324,10 +354,11 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     width: normalized.width,
     height: normalized.height,
     barBorderRadius,
-    // Populated later by the interactivity worker; kept undefined for now.
-    zoom: undefined,
-    inputs: undefined,
-    paramValues: undefined,
+    // Zoom is a cartesian-only capability; a scale binding on a polar/geo chart
+    // was already reported as a gap above and must not reach the renderer.
+    zoom: isCartesian ? paramsRes.zoom : undefined,
+    inputs: paramsRes.inputs,
+    paramValues: signals,
     gaps: gaps.list(),
   };
 }

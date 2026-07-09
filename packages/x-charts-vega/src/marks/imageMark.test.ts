@@ -51,21 +51,41 @@ describe('compileImageMark', () => {
     expect(items?.[0]).to.include({ width: 32, height: 40 });
   });
 
-  it('reports an ignored gap for a truthy mark.aspect (preserve-ratio request)', () => {
+  it('preserves the aspect ratio by default (no gap, no item.aspect flag)', () => {
     const compiled = compileSpec({
       ...baseSpec,
       mark: { type: 'image', aspect: true },
     });
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:image-aspect');
-    expect(gap?.severity).to.equal('ignored');
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:image-aspect');
+    const items = imageItems(compiled.overlays);
+    expect(items?.[0]?.aspect).to.equal(undefined);
   });
 
-  it('reports no aspect gap for aspect: false (stretching is exactly what renders)', () => {
+  it('records item.aspect: false for aspect: false (stretch to width x height)', () => {
     const compiled = compileSpec({
       ...baseSpec,
       mark: { type: 'image', aspect: false },
     });
     expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:image-aspect');
+    const items = imageItems(compiled.overlays);
+    expect(items?.[0]?.aspect).to.equal(false);
+  });
+
+  it('resolves a test-predicate url condition per row (no url-condition gap)', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        url: {
+          field: 'icon',
+          condition: { test: 'datum.x > 1', value: 'https://example.com/big.png' },
+        },
+      } as VegaLiteSpec['encoding'],
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:url-condition');
+    const items = imageItems(compiled.overlays);
+    expect(items?.[0]?.url).to.equal('https://example.com/a.png');
+    expect(items?.[1]?.url).to.equal('https://example.com/big.png');
   });
 
   it('reports an unsupported gap and drops the layer when the url channel is missing', () => {

@@ -352,7 +352,7 @@ export function resolveColor(
     gaps.add({
       code: 'encoding:color-condition-unsupported',
       message:
-        'Conditional color encodings (`condition`) have no x-charts equivalent; the base `value`/`field` was used instead and the condition branches were dropped.',
+        'Conditional color encodings (`condition`) have no x-charts equivalent: an x-charts series is drawn in a single color, so a per-row test-predicate color cannot be applied (unlike `text`/`url` conditions, which this wrapper does resolve per row). The base `value`/`field` was used instead and the condition branches were dropped.',
       severity: 'unsupported',
       path: `${path}.encoding.color`,
     });

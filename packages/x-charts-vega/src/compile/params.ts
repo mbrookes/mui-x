@@ -1,4 +1,6 @@
 import type {
+  DatasetRow,
+  VegaBindInput,
   VegaLayerSpec,
   VegaLiteSpec,
   VegaParam,
@@ -6,27 +8,53 @@ import type {
   VegaUnitSpec,
 } from '../types';
 import type { GapCollector } from '../gaps';
+import { createGapCollector } from '../gaps';
+import { compileExpression, isTruthy, UnsupportedExpressionError } from '../transforms/calculate';
 
 /*
- * OWNERSHIP: the "selections subset" work unit owns this file.
+ * OWNERSHIP: the "selections & interactivity" work unit owns this file.
  *
- * Translate the mappable subset of Vega-Lite `params` (selections):
- * - `select: 'point'` (or {type: 'point'}) → return a highlightScope so the
- *   orchestrator applies item hover-highlighting to every series
- *   ({highlight: 'item', fade: 'global'} — x-charts' controlled highlight);
- *   `on`/`toggle`/`fields`/`encodings`/`nearest` refinements → 'ignored' gaps.
- * - `select: 'interval'` → 'partial' gap: x-charts Pro has brush/zoom but
- *   not Vega's interval-selection semantics (conditional encodings /
- *   cross-filtering).
- * - Value-only params (variables) and `bind` (input widgets) → 'unsupported'
- *   gaps with precise codes.
- * - `condition` blocks referencing params are reported where the color
- *   resolver already gaps them; this module only handles the params array.
+ * Translate the mappable subset of Vega-Lite `params` (selections and
+ * variables) into an x-charts-facing resolution:
+ * - `select: 'point'` → a highlightScope (controlled item hover-highlight);
+ *   refinements (`on`/`toggle`/`fields`/`encodings`/`nearest`) → 'ignored' gaps.
+ * - `select: 'interval'` with `bind: 'scales'` → per-axis zoom/pan enablement
+ *   (Vega's scale-bound interval idiom); a plain `select: 'interval'` (no
+ *   scale binding) stays a 'partial' gap.
+ * - Named variable params (`{name, value}`) → an initial signal value the
+ *   expression evaluator can read (calculate/filter/test conditions).
+ * - `bind: {input}` input widgets (range/select/checkbox/radio) with a name →
+ *   an input-widget descriptor the shell renders as a control.
+ * - `condition` blocks with `test` predicates and constant values →
+ *   per-row resolvers (compileTestConditions), consumed by the text/image
+ *   mark compilers.
  */
+
+export interface CompiledParamInput {
+  /** The param name; the input's value is written to this signal. */
+  name: string;
+  kind: 'range' | 'select' | 'checkbox' | 'radio';
+  /** Human-readable label (the bind's `name`, falling back to the param name). */
+  label: string;
+  initialValue: unknown;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Choices for select/radio inputs (raw, type-preserving). */
+  options?: unknown[];
+  /** Display labels index-aligned with `options`. */
+  labels?: string[];
+}
 
 export interface ParamsResolution {
   /** When set, the orchestrator applies this highlightScope to every series. */
   highlightScope?: { highlight: 'item'; fade: 'global' };
+  /** Per-axis zoom/pan enablement requested by scale-bound interval selections. */
+  zoom?: { x: boolean; y: boolean };
+  /** Input-widget descriptors for bound variable params. */
+  inputs?: CompiledParamInput[];
+  /** Initial signal values (variable params + input defaults), keyed by name. */
+  initialValues?: Record<string, unknown>;
 }
 
 interface ParamGroup {
@@ -113,16 +141,131 @@ const POINT_REFINEMENTS: ReadonlyArray<{
   },
 ];
 
+/** Input widget kinds the shell can render as a control. */
+const SUPPORTED_INPUTS = ['range', 'select', 'checkbox', 'radio'] as const;
+
+/** Returns the bind as an input-widget definition when it declares an `input` string. */
+function getBindInputDef(bind: VegaParam['bind']): VegaBindInput | undefined {
+  if (
+    bind &&
+    typeof bind === 'object' &&
+    !Array.isArray(bind) &&
+    typeof (bind as VegaBindInput).input === 'string'
+  ) {
+    return bind as VegaBindInput;
+  }
+  return undefined;
+}
+
+/** Whether a condition's `value` is a translatable constant (not a field/param reference). */
+function isPrimitiveValue(value: unknown): boolean {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+/** Per-axis zoom enablement from an interval selection's `encodings` restriction. */
+function zoomFromSelect(select: VegaParam['select']): { x: boolean; y: boolean } {
+  if (select && typeof select === 'object' && Array.isArray(select.encodings)) {
+    const encodings = select.encodings as unknown[];
+    return { x: encodings.includes('x'), y: encodings.includes('y') };
+  }
+  return { x: true, y: true };
+}
+
+/**
+ * Builds an input-widget descriptor from a supported, named `bind` input, or
+ * reports the reason it couldn't and returns undefined. Assumes the caller has
+ * already checked that `bindDef.input` is one of `SUPPORTED_INPUTS` and that
+ * `param.name` is present.
+ * @param {VegaParam} param The variable param carrying the binding.
+ * @param {VegaBindInput} bindDef The input binding definition.
+ * @param {string} path Locator prefix for reported gaps.
+ * @param {GapCollector} gaps Collector for translation gaps.
+ * @returns {CompiledParamInput | undefined} The descriptor, or undefined when it couldn't be built.
+ */
+function buildParamInput(
+  param: VegaParam,
+  bindDef: VegaBindInput,
+  path: string,
+  gaps: GapCollector,
+): CompiledParamInput | undefined {
+  const name = param.name as string;
+  const label = typeof bindDef.name === 'string' ? bindDef.name : name;
+
+  // `debounce` throttles input propagation; the React control fires eagerly.
+  if (bindDef.debounce !== undefined) {
+    gaps.add({
+      code: 'param:bind-debounce',
+      message:
+        'The `debounce` on an input binding is ignored; the rendered control updates the param on every change.',
+      severity: 'ignored',
+      path: `${path}.bind`,
+    });
+  }
+
+  if (bindDef.input === 'range') {
+    const min = typeof bindDef.min === 'number' ? bindDef.min : 0;
+    const max = typeof bindDef.max === 'number' ? bindDef.max : 100;
+    const step = typeof bindDef.step === 'number' ? bindDef.step : undefined;
+    return {
+      name,
+      kind: 'range',
+      label,
+      initialValue: param.value ?? min,
+      min,
+      max,
+      ...(step !== undefined ? { step } : {}),
+    };
+  }
+
+  if (bindDef.input === 'checkbox') {
+    return {
+      name,
+      kind: 'checkbox',
+      label,
+      initialValue: param.value ?? false,
+    };
+  }
+
+  // select / radio
+  const options = Array.isArray(bindDef.options) ? bindDef.options : undefined;
+  if (!options || options.length === 0) {
+    gaps.add({
+      code: 'param:bind-options',
+      message: `A \`${bindDef.input}\` input binding needs an \`options\` array to enumerate its choices; without one no control could be rendered and the binding was dropped.`,
+      severity: 'unsupported',
+      path: `${path}.bind`,
+    });
+    return undefined;
+  }
+  const labels = Array.isArray(bindDef.labels) ? bindDef.labels.map(String) : undefined;
+  return {
+    name,
+    kind: bindDef.input as 'select' | 'radio',
+    label,
+    initialValue: param.value ?? options[0],
+    options: options.slice(),
+    ...(labels ? { labels } : {}),
+  };
+}
+
 /**
  * Translates the mappable subset of Vega-Lite `params` (selections and
  * variables) into an x-charts-facing resolution, reporting a gap for every
  * feature that could not be (fully) translated.
  * @param {VegaLiteSpec} spec The full input spec.
  * @param {GapCollector} gaps Collector for translation gaps encountered along the way.
- * @returns {ParamsResolution} The mappable subset of `params`, currently only a highlightScope.
+ * @returns {ParamsResolution} The mappable subset of `params`.
  */
 export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsResolution {
   let highlightScope: ParamsResolution['highlightScope'];
+  let zoom: ParamsResolution['zoom'];
+  const inputs: CompiledParamInput[] = [];
+  const initialValues: Record<string, unknown> = {};
 
   for (const group of collectParamGroups(spec)) {
     for (let index = 0; index < group.params.length; index += 1) {
@@ -132,6 +275,9 @@ export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsRes
       }
       const path = `${group.path}[${index}]`;
       const hasSelect = param.select !== undefined;
+      const bind = param.bind;
+      const bindDef = getBindInputDef(bind);
+      let bindHandled = false;
 
       if (hasSelect) {
         const type = selectionType(param.select);
@@ -141,39 +287,64 @@ export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsRes
             const select = param.select;
             for (const { key, code, message } of POINT_REFINEMENTS) {
               if (select[key] !== undefined) {
-                gaps.add({
-                  code,
-                  message,
-                  severity: 'ignored',
-                  path: `${path}.select.${key}`,
-                });
+                gaps.add({ code, message, severity: 'ignored', path: `${path}.select.${key}` });
               }
             }
           }
         } else if (type === 'interval') {
+          if (bind === 'scales') {
+            const axes = zoomFromSelect(param.select);
+            zoom = zoom ? { x: zoom.x || axes.x, y: zoom.y || axes.y } : axes;
+            bindHandled = true;
+            // A scale-bound interval's `value` seeds an initial zoom domain,
+            // which x-charts' gesture zoom doesn't accept declaratively.
+            if (param.value !== undefined) {
+              gaps.add({
+                code: 'param:interval-init',
+                message:
+                  "A scale-bound interval selection's initial `value` (starting zoom domain) is ignored; the chart opens at the full data extent.",
+                severity: 'ignored',
+                path,
+              });
+            }
+          } else {
+            gaps.add({
+              code: 'param:interval',
+              message:
+                "Vega-Lite interval selection (select: 'interval') has no x-charts equivalent unless it is bound to scales (`bind: 'scales'`, which maps to gesture zoom/pan): a plain interval selection would drive conditional encodings / cross-filtering, which this wrapper does not reproduce. Workaround: add `bind: 'scales'` for zoom/pan, or implement selection-driven filtering in application state and re-render with filtered data.",
+              severity: 'partial',
+              path,
+            });
+          }
+        }
+      } else if (bindDef && SUPPORTED_INPUTS.includes(bindDef.input as never) && param.name) {
+        const input = buildParamInput(param, bindDef, path, gaps);
+        if (input) {
+          inputs.push(input);
+          initialValues[input.name] = input.initialValue;
+        }
+        bindHandled = true;
+      } else if (param.value !== undefined) {
+        if (param.name) {
+          if (!(param.name in initialValues)) {
+            initialValues[param.name] = param.value;
+          }
+        } else {
           gaps.add({
-            code: 'param:interval',
+            code: 'param:variable',
             message:
-              "Vega-Lite interval selection (select: 'interval') has no x-charts equivalent: @mui/x-charts-pro has brush/zoom interactions (e.g. ChartZoomSlider), but they pan/zoom the view rather than reproducing Vega's interval-selection semantics (conditional encodings, cross-filtering driven by the dragged range). Workaround: implement selection-driven filtering in application state and re-render with filtered data.",
-            severity: 'partial',
+              'A value-only Vega-Lite param (variable) has no name, so expressions/transforms cannot reference it and its value is ignored. Workaround: give the param a `name` to make it readable from `calculate`/`filter`/`test` expressions.',
+            severity: 'ignored',
             path,
           });
         }
-      } else if (param.value !== undefined) {
-        gaps.add({
-          code: 'param:variable',
-          message:
-            'Value-only Vega-Lite params (variables) are not evaluated: this wrapper does not run a Vega expression interpreter against param values, so encodings/transforms/conditions referencing this param see no live value from it. Workaround: compute the derived value yourself and pass it in via the data/encoding you provide.',
-          severity: 'ignored',
-          path,
-        });
       }
 
-      if (param.bind !== undefined) {
+      if (bind !== undefined && !bindHandled) {
         gaps.add({
           code: 'param:bind',
           message:
-            'Vega-Lite `bind` (input widgets, or legend/scale binding) has no x-charts equivalent: the wrapper does not render input widgets or wire them to selections. Workaround: implement the equivalent control with React state and pass the resulting value through the data/encoding you provide.',
+            'This Vega-Lite `bind` has no x-charts equivalent: only input widgets (`range`/`select`/`checkbox`/`radio`) on named variable params render as controls, and only `bind: "scales"` on an interval selection maps to zoom/pan. Legend binding, scale binding on non-interval params, and other input types are not wired up.',
           severity: 'unsupported',
           path: `${path}.bind`,
         });
@@ -181,5 +352,138 @@ export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsRes
     }
   }
 
-  return highlightScope ? { highlightScope } : {};
+  const resolution: ParamsResolution = {};
+  if (highlightScope) {
+    resolution.highlightScope = highlightScope;
+  }
+  if (zoom) {
+    resolution.zoom = zoom;
+  }
+  if (inputs.length > 0) {
+    resolution.inputs = inputs;
+  }
+  if (Object.keys(initialValues).length > 0) {
+    resolution.initialValues = initialValues;
+  }
+  return resolution;
+}
+
+/**
+ * Spec-only extraction of the input-widget descriptors (range/select/checkbox/
+ * radio) the shell renders as controls, without running a full compile. Uses a
+ * throwaway gap collector — gap reporting for these bindings is the compiler's
+ * job (via `resolveParams`).
+ * @param {VegaLiteSpec} spec The full input spec.
+ * @returns {CompiledParamInput[]} The bound input descriptors, in spec order.
+ */
+export function collectBindInputs(spec: VegaLiteSpec): CompiledParamInput[] {
+  const gaps = createGapCollector();
+  const inputs: CompiledParamInput[] = [];
+  for (const group of collectParamGroups(spec)) {
+    for (let index = 0; index < group.params.length; index += 1) {
+      const param = group.params[index];
+      if (!param || typeof param !== 'object' || param.select !== undefined || !param.name) {
+        continue;
+      }
+      const bindDef = getBindInputDef(param.bind);
+      if (!bindDef || !SUPPORTED_INPUTS.includes(bindDef.input as never)) {
+        continue;
+      }
+      const input = buildParamInput(param, bindDef, `${group.path}[${index}]`, gaps);
+      if (input) {
+        inputs.push(input);
+      }
+    }
+  }
+  return inputs;
+}
+
+/**
+ * Compiles a channel's `condition` into a per-row resolver for the test-
+ * predicate subset (`{test: 'datum.x > 50', value: 'BIG'}`, or an array of
+ * such entries evaluated first-match-wins). Returns undefined — reporting the
+ * reason as a gap — when a condition references a param/selection, encodes a
+ * field/non-constant value, or uses an unparseable test expression. The
+ * returned resolver yields the matched entry's `value`, or undefined when no
+ * test matches (the caller falls back to the base encoding).
+ * @param {unknown} condition The channel's `condition` (object or array).
+ * @param {Readonly<Record<string, unknown>> | undefined} signals Bound param values for the test expressions.
+ * @param {GapCollector} gaps Collector for translation gaps.
+ * @param {string} path Locator for reported gaps.
+ * @returns {((row: DatasetRow) => unknown) | undefined} A per-row value resolver, or undefined when untranslatable.
+ */
+export function compileTestConditions(
+  condition: unknown,
+  signals: Readonly<Record<string, unknown>> | undefined,
+  gaps: GapCollector,
+  path: string,
+): ((row: DatasetRow) => unknown) | undefined {
+  const entries = Array.isArray(condition) ? condition : [condition];
+  const compiled: Array<{ test: (row: DatasetRow) => unknown; value: unknown }> = [];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      return undefined;
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.test !== 'string' || !isPrimitiveValue(record.value)) {
+      gaps.add({
+        code: 'encoding:condition-param',
+        message:
+          'A `condition` that references a selection/param, or encodes a field (rather than a constant `value`) with a `test` predicate, is not translated; the base encoding is used for every row.',
+        severity: 'unsupported',
+        path,
+      });
+      return undefined;
+    }
+    let evaluator: (row: DatasetRow) => unknown;
+    try {
+      evaluator = compileExpression(record.test, signals);
+    } catch (error) {
+      if (!(error instanceof UnsupportedExpressionError)) {
+        throw error;
+      }
+      gaps.add({
+        code: 'encoding:condition-test',
+        message: `A \`condition\` test expression ("${record.test}") uses syntax outside the supported subset; the condition was dropped and the base encoding is used for every row.`,
+        severity: 'unsupported',
+        path,
+      });
+      return undefined;
+    }
+    compiled.push({ test: evaluator, value: record.value });
+  }
+
+  if (compiled.length === 0) {
+    return undefined;
+  }
+
+  let runtimeGapReported = false;
+  return (row: DatasetRow) => {
+    for (const entry of compiled) {
+      let result: unknown;
+      try {
+        result = entry.test(row);
+      } catch (error) {
+        if (!(error instanceof UnsupportedExpressionError)) {
+          throw error;
+        }
+        if (!runtimeGapReported) {
+          runtimeGapReported = true;
+          gaps.add({
+            code: 'encoding:condition-test',
+            message:
+              'A `condition` test expression uses unsupported syntax for some rows; those rows fall back to the base encoding.',
+            severity: 'unsupported',
+            path,
+          });
+        }
+        return undefined;
+      }
+      if (isTruthy(result)) {
+        return entry.value;
+      }
+    }
+    return undefined;
+  };
 }

@@ -86,4 +86,93 @@ describe('<VegaLiteChart /> text/image marks', () => {
     );
     expect(hrefs).to.deep.equal(['https://example.com/a.png', 'https://example.com/b.png']);
   });
+
+  it('preserves the aspect ratio by default (preserveAspectRatio="xMidYMid meet")', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1, icon: 'a.png' }] },
+      layer: [
+        {
+          mark: 'point',
+          encoding: {
+            x: { field: 'x', type: 'quantitative' },
+            y: { field: 'y', type: 'quantitative' },
+          },
+        },
+        {
+          mark: 'image',
+          encoding: {
+            x: { field: 'x', type: 'quantitative' },
+            y: { field: 'y', type: 'quantitative' },
+            url: { field: 'icon' },
+          } as VegaLiteSpec['encoding'],
+        },
+      ],
+    };
+    const { container } = render(
+      <VegaLiteChart width={400} height={300} spec={spec} onGaps={() => {}} />,
+    );
+    const image = container.querySelector('.MuiVegaOverlay-image image');
+    expect(image?.getAttribute('preserveAspectRatio')).to.equal('xMidYMid meet');
+  });
+
+  it('stretches to width x height when mark.aspect is false (preserveAspectRatio="none")', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1, icon: 'a.png' }] },
+      layer: [
+        {
+          mark: 'point',
+          encoding: {
+            x: { field: 'x', type: 'quantitative' },
+            y: { field: 'y', type: 'quantitative' },
+          },
+        },
+        {
+          mark: { type: 'image', aspect: false },
+          encoding: {
+            x: { field: 'x', type: 'quantitative' },
+            y: { field: 'y', type: 'quantitative' },
+            url: { field: 'icon' },
+          } as VegaLiteSpec['encoding'],
+        },
+      ],
+    };
+    const { container } = render(
+      <VegaLiteChart width={400} height={300} spec={spec} onGaps={() => {}} />,
+    );
+    const image = container.querySelector('.MuiVegaOverlay-image image');
+    expect(image?.getAttribute('preserveAspectRatio')).to.equal('none');
+  });
+
+  it('renders a `text` field formatted by its d3 `format` string', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { category: 'A', amount: 28.4 },
+          { category: 'B', amount: 55.6 },
+        ],
+      },
+      layer: [
+        {
+          mark: 'bar',
+          encoding: {
+            x: { field: 'category', type: 'nominal' },
+            y: { field: 'amount', type: 'quantitative' },
+          },
+        },
+        {
+          mark: 'text',
+          encoding: {
+            x: { field: 'category', type: 'nominal' },
+            y: { field: 'amount', type: 'quantitative' },
+            text: { field: 'amount', type: 'quantitative', format: '.1f' },
+          },
+        },
+      ],
+    };
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    const textNodes = Array.from(container.querySelectorAll('.MuiVegaOverlay-text text'));
+    expect(textNodes.map((node) => node.textContent)).to.deep.equal(['28.4', '55.6']);
+  });
 });

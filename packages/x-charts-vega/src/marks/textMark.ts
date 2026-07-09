@@ -6,7 +6,9 @@ import type {
 } from '../compile/context';
 import type { DatasetRow, VegaFieldDef, VegaMarkDef } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
-import { toDate, toNumber } from '../compile/fieldTypes';
+import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
+import { compileTestConditions } from '../compile/params';
+import { createValueFormatter } from '../format';
 
 /*
  * OWNERSHIP: the "text/image marks" work unit owns this file.
@@ -119,30 +121,49 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
   const textDef = encoding.text;
   let textField: string | undefined;
   let staticText: string | undefined;
+  let conditionResolver: ((row: DatasetRow) => unknown) | undefined;
+  let fmt: ((value: unknown) => string) | null = null;
 
   if (textDef && !Array.isArray(textDef)) {
-    if ((textDef as { condition?: unknown }).condition !== undefined) {
-      // Same convention as compile/color.ts's color-condition handling: the
-      // base field/value is used, the condition branches are dropped.
-      gaps.add({
-        code: 'encoding:text-condition',
-        message:
-          'Conditional `text` encodings (`condition`) are not translated; the base `field`/`value` is used for every row and the condition branches were dropped.',
-        severity: 'unsupported',
-        path: `${path}.encoding.text.condition`,
-      });
+    const condition = (textDef as { condition?: unknown }).condition;
+    if (condition !== undefined) {
+      // Test-predicate conditions (`{test, value}`, first-match-wins) become a
+      // per-row override; a param/field/unparseable condition returns no
+      // resolver, in which case the base `field`/`value` is used for every row.
+      conditionResolver = compileTestConditions(
+        condition,
+        ctx.signals,
+        gaps,
+        `${path}.encoding.text.condition`,
+      );
+      if (!conditionResolver) {
+        gaps.add({
+          code: 'encoding:text-condition',
+          message:
+            'This conditional `text` encoding (`condition`) could not be translated; the base `field`/`value` is used for every row and the condition branches were dropped.',
+          severity: 'unsupported',
+          path: `${path}.encoding.text.condition`,
+        });
+      }
     }
     if (isFieldDef(textDef)) {
       const fieldDef = textDef as VegaFieldDef;
       textField = fieldDef.field;
       if (fieldDef.format) {
-        gaps.add({
-          code: 'encoding:text-format',
-          message:
-            'The `format` d3-format string on the `text` field is not translated; the raw field value is stringified instead.',
-          severity: 'partial',
-          path: `${path}.encoding.text.format`,
-        });
+        fmt = createValueFormatter(
+          fieldDef.format,
+          resolveFieldType(fieldDef, rows),
+          fieldDef.formatType as string | undefined,
+        );
+        if (fmt === null) {
+          gaps.add({
+            code: 'encoding:text-format',
+            message:
+              'The `format` string on the `text` field could not be translated to a d3 number/time formatter (e.g. a nominal field without an explicit `formatType`, or an invalid pattern); the raw field value is stringified instead.',
+            severity: 'partial',
+            path: `${path}.encoding.text.format`,
+          });
+        }
       }
     } else if (isValueDef(textDef) && textDef.value != null) {
       staticText = String(textDef.value);
@@ -174,16 +195,23 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
       return;
     }
 
-    let text: string;
+    let base: string;
     if (textField !== undefined) {
       const raw = row[textField];
       if (raw == null) {
-        return;
+        // Skip rows without a value unless a condition can supply one.
+        if (!conditionResolver) {
+          return;
+        }
+        base = '';
+      } else {
+        base = fmt ? fmt(raw) : String(raw);
       }
-      text = String(raw);
     } else {
-      text = staticText as string;
+      base = staticText as string;
     }
+
+    const text = conditionResolver ? String(conditionResolver(row) ?? base) : base;
 
     items.push({
       x,

@@ -199,6 +199,25 @@ describe('applyFilters — numeric operators', () => {
     expect(result).toHaveLength(4);
   });
 
+  it('between — a genuine 0 lower bound is honoured, not treated as unset (finding 2.25)', () => {
+    const rows0 = [
+      { id: 1, score: -5 }, // below 0 → excluded
+      { id: 2, score: 0 }, // at the 0 lower bound → included
+      { id: 3, score: 10 }, // within → included
+      { id: 4, score: 25 }, // above upper bound → excluded
+    ];
+    const result = applyFilters(rows0, [
+      makeFilter({
+        field: 'score',
+        operator: 'between',
+        value: { from: 0, to: 20 },
+        fieldType: 'number',
+      }),
+    ]);
+    // A truthiness bound check treated `from: 0` as absent and admitted the -5 row.
+    expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
   it('string "20" coerces to number for comparison', () => {
     const result = applyFilters(rows, [
       makeFilter({ field: 'score', operator: 'equals', value: '20', fieldType: 'number' }),
@@ -365,17 +384,37 @@ describe('applyFilters — date operators', () => {
     expect(result.map((r) => r.id)).toEqual([2, 3]);
   });
 
-  it('datetime equals matches a timestamped value committed as YYYY-MM-DD midnight', () => {
-    // The datetime picker commits a 'YYYY-MM-DD' string; both sides normalize to the same
-    // ISO instant via toComparable, so a midnight-stored datetime row matches.
+  it('datetime equals matches the WHOLE day, not only exact midnight (finding 2.22)', () => {
+    // The datetime picker commits a 'YYYY-MM-DD' string. Equality must match every row on that
+    // calendar day (both sides truncated to day granularity), not only the midnight-stored row —
+    // matching ARCHITECTURE.md's "in-memory equality matches the whole day against a DATETIME
+    // column". A row on a different day is excluded.
     const dtRows = [
       { id: 1, ts: '2024-06-15T00:00:00.000Z' },
       { id: 2, ts: '2024-06-15T14:30:00.000Z' },
+      { id: 3, ts: '2024-06-16T09:00:00.000Z' },
     ];
     const result = applyFilters(dtRows, [
       makeFilter({ field: 'ts', operator: 'equals', value: '2024-06-15', fieldType: 'datetime' }),
     ]);
-    expect(result.map((r) => r.id)).toEqual([1]);
+    expect(result.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('datetime not_equals excludes the whole matching day (finding 2.22)', () => {
+    const dtRows = [
+      { id: 1, ts: '2024-06-15T00:00:00.000Z' },
+      { id: 2, ts: '2024-06-15T14:30:00.000Z' },
+      { id: 3, ts: '2024-06-16T09:00:00.000Z' },
+    ];
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'not_equals',
+        value: '2024-06-15',
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3]);
   });
 });
 

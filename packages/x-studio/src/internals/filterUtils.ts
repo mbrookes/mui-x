@@ -101,6 +101,28 @@ function toComparable(
 }
 
 /**
+ * Day-granularity comparable for `equals`/`not_equals` on `date`/`datetime` fields.
+ *
+ * A `datetime` column stores a full timestamp, but an equality/inequality against a
+ * date-only picker value must match the WHOLE day — not only the exact-midnight rows that
+ * `toComparable`'s full-ISO form would (which contradicted ARCHITECTURE.md's "in-memory
+ * equality matches the whole day against a DATETIME column"). Truncating both sides to
+ * `YYYY-MM-DD` matches the day for both `date` (already day-granular) and `datetime`.
+ */
+function toDayComparable(
+  val: unknown,
+  fieldType?: 'string' | 'number' | 'boolean' | 'date' | 'datetime',
+): number | string {
+  const c = toComparable(val, fieldType);
+  return typeof c === 'string' ? c.slice(0, 10) : c;
+}
+
+/** True when a `between` bound is actually set — a genuine `0` (or `false`) bound counts as present. */
+function hasBetweenBound(v: unknown): boolean {
+  return v != null && v !== '';
+}
+
+/**
  * Compiles a filter into a fast row-test function.
  *
  * Per-row work in matchesFilter was calling toComparable(filterVal, fieldType) on
@@ -157,14 +179,15 @@ function compileSingleCondition(
         return (row) => String(row[field]) === fStr;
       }
       if (fieldType === 'date' || fieldType === 'datetime') {
-        // Route both sides through toComparable (same as gt/lt/between) so a
-        // RelativeDateValue is resolved and Date/ISO/timestamp forms are normalized.
-        // Raw `==` here made "On" + relative mode never match (hiding all rows) and a
-        // datetime picker's 'YYYY-MM-DD' never loose-equal a timestamped value.
-        const cmpVal = toComparable(filterVal, fieldType);
+        // Route both sides through toDayComparable (day granularity) so a RelativeDateValue is
+        // resolved and Date/ISO/timestamp forms are normalized, AND a `datetime` column matches
+        // the whole day rather than only exact midnight. Raw `==` here made "On" + relative mode
+        // never match (hiding all rows); a full-ISO compare made a `datetime` "On" filter match
+        // only midnight rows (contradicting ARCHITECTURE.md).
+        const cmpVal = toDayComparable(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv != null && toComparable(rv, fieldType) === cmpVal;
+          return rv != null && toDayComparable(rv, fieldType) === cmpVal;
         };
       }
       // eslint-disable-next-line eqeqeq
@@ -189,12 +212,13 @@ function compileSingleCondition(
         return (row) => String(row[field]) !== fStr;
       }
       if (fieldType === 'date' || fieldType === 'datetime') {
-        // Mirror of `equals`: normalize both sides via toComparable. A null/absent row
-        // value is treated as "not equal" to the target date (kept, matching raw `!=`).
-        const cmpVal = toComparable(filterVal, fieldType);
+        // Mirror of `equals`: normalize both sides via toDayComparable (day granularity, so a
+        // `datetime` "not On" excludes the whole day, not only midnight). A null/absent row value
+        // is treated as "not equal" to the target date (kept, matching raw `!=`).
+        const cmpVal = toDayComparable(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv == null || toComparable(rv, fieldType) !== cmpVal;
+          return rv == null || toDayComparable(rv, fieldType) !== cmpVal;
         };
       }
       // eslint-disable-next-line eqeqeq
@@ -310,8 +334,10 @@ function compileSingleCondition(
       if (!range || typeof range !== 'object') {
         return () => true;
       }
-      const from = range.from ? toComparable(range.from, fieldType) : null;
-      const to = range.to ? toComparable(range.to, fieldType) : null;
+      // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
+      // "between 0 and 100") is treated as present rather than absent (finding 2.14/2.25).
+      const from = hasBetweenBound(range.from) ? toComparable(range.from, fieldType) : null;
+      const to = hasBetweenBound(range.to) ? toComparable(range.to, fieldType) : null;
       if (fieldType === 'date' || fieldType === 'datetime') {
         return (row) => {
           const rv = row[field];
@@ -380,7 +406,9 @@ function isConditionComplete(operator: StudioFilterState['operator'], value: unk
   }
   if (operator === 'between') {
     const range = value as { from?: unknown; to?: unknown } | null;
-    return !!(range?.from || range?.to);
+    // A genuine `0` bound must count as "set" — a truthiness check treated it as absent,
+    // marking an otherwise-complete "between 0 and N" condition incomplete (finding 2.14/2.25).
+    return hasBetweenBound(range?.from) || hasBetweenBound(range?.to);
   }
   if (isRelativeDateValue(value)) {
     return true;

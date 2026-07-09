@@ -412,7 +412,11 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
 // ── heatmap ───────────────────────────────────────────────────────────────────
 
 function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
-  const { config, dataSource, expressionFields, filteredRows, xGroupBy, chartHeight } = ctx;
+  // Aggregate `enrichedRows` (L4-resolved: a cross-source extra dimension like a many-to-one
+  // `heatYField` is enriched onto each row, and cross-filter mode is honoured because
+  // `enrichedRows` derives from `effectiveRows`) rather than raw, un-enriched `filteredRows`
+  // (findings 1.9 / 2.5).
+  const { config, dataSource, expressionFields, enrichedRows, xGroupBy, chartHeight } = ctx;
   const heatXField = config.xField ?? '';
   const heatYField = config.heatYField ?? '';
   const heatValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -430,7 +434,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
   const heatAggregation = config.yAggregation ?? 'sum';
   const heatData = cachedCompute(
-    filteredRows,
+    enrichedRows,
     JSON.stringify([
       'heatmap',
       heatXField,
@@ -445,7 +449,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
     ]),
     () =>
       aggregateHeatmap(
-        filteredRows,
+        enrichedRows,
         heatXField,
         heatYField,
         heatValueField,
@@ -478,7 +482,9 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
 // ── funnel ────────────────────────────────────────────────────────────────────
 
 function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
-  const { config, dataSource, filteredRows, chartHeight } = ctx;
+  // Aggregate `enrichedRows` (L4-resolved cross-source `funnelReachedField` + cross-filter-mode
+  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  const { config, dataSource, enrichedRows, chartHeight } = ctx;
   const funnelXField = config.xField ?? '';
   const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
 
@@ -498,7 +504,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // sequential math and reported separately. Opt-in via `funnelReachedField`.
   if (config.funnelReachedField && config.funnelStageSequence) {
     const reached = cachedCompute(
-      filteredRows,
+      enrichedRows,
       JSON.stringify([
         'funnelReached',
         funnelXField,
@@ -507,7 +513,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
       ]),
       () =>
         aggregateFunnelReached(
-          filteredRows,
+          enrichedRows,
           funnelXField,
           config.funnelReachedField!,
           config.funnelStageSequence!,
@@ -530,7 +536,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
 
   const fieldOrderedValues = dataSource?.fields.find((f) => f.id === funnelXField)?.orderedValues;
   const { stages, sort } = cachedCompute(
-    filteredRows,
+    enrichedRows,
     JSON.stringify([
       'funnelStages',
       funnelXField,
@@ -542,7 +548,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
     ]),
     () =>
       buildFunnelStages(
-        filteredRows,
+        enrichedRows,
         funnelXField,
         funnelValueField,
         config.yAggregation,
@@ -576,7 +582,9 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
 // ── sankey ────────────────────────────────────────────────────────────────────
 
 function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
-  const { config, dataSource, filteredRows, chartHeight } = ctx;
+  // Aggregate `enrichedRows` (L4-resolved cross-source `sankeyTargetField` + cross-filter-mode
+  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  const { config, dataSource, enrichedRows, chartHeight } = ctx;
   const sankeySourceField = config.xField ?? '';
   const sankeyTargetField = config.sankeyTargetField ?? '';
   const sankeyValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -591,9 +599,9 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
 
   const valueFieldDef = dataSource?.fields.find((f) => f.id === sankeyValueField);
   const sankeyData = cachedCompute(
-    filteredRows,
+    enrichedRows,
     JSON.stringify(['sankey', sankeySourceField, sankeyTargetField, sankeyValueField]),
-    () => aggregateSankey(filteredRows, sankeySourceField, sankeyTargetField, sankeyValueField),
+    () => aggregateSankey(enrichedRows, sankeySourceField, sankeyTargetField, sankeyValueField),
   );
   if (sankeyData.links.length === 0) {
     return <StudioNoDataOverlay height={chartHeight} />;
@@ -614,7 +622,9 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
 // ── gantt ─────────────────────────────────────────────────────────────────────
 
 function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
-  const { config, filteredRows, chartHeight } = ctx;
+  // Aggregate `enrichedRows` (L4-resolved cross-source `gantt*` fields + cross-filter-mode
+  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  const { config, enrichedRows, chartHeight } = ctx;
   const labelField = config.ganttLabelField ?? '';
   const startField = config.ganttStartField ?? '';
   const endField = config.ganttEndField ?? '';
@@ -629,9 +639,9 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
   }
 
   const { items, categories } = cachedCompute(
-    filteredRows,
+    enrichedRows,
     JSON.stringify(['gantt', labelField, startField, endField, colorField]),
-    () => buildGanttItems(filteredRows, labelField, startField, endField, colorField),
+    () => buildGanttItems(enrichedRows, labelField, startField, endField, colorField),
   );
 
   return <StudioGanttChart items={items} height={chartHeight} categories={categories} />;
@@ -640,7 +650,9 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
 // ── gauge ─────────────────────────────────────────────────────────────────────
 
 function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
-  const { config, filteredRows, chartHeight } = ctx;
+  // Aggregate `enrichedRows` (cross-filter-mode aware via `effectiveRows`) rather than raw
+  // `filteredRows`, so a `'none'`-mode gauge doesn't react to sibling cross-filters (finding 2.5).
+  const { config, enrichedRows, chartHeight } = ctx;
   const gaugeValueField = config.yField;
 
   if (!gaugeValueField) {
@@ -651,9 +663,9 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
 
   const gaugeAggregation = config.yAggregation ?? 'sum';
   const gaugeValue = cachedCompute(
-    filteredRows,
+    enrichedRows,
     JSON.stringify(['gauge', gaugeValueField, gaugeAggregation]),
-    () => computeAggregate(filteredRows, gaugeValueField, gaugeAggregation),
+    () => computeAggregate(enrichedRows, gaugeValueField, gaugeAggregation),
   );
 
   return (

@@ -12,6 +12,7 @@ function enrichSourceRowsWithExpressions(
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
   usedFieldIds?: ReadonlySet<string>,
+  collectReadSourceIds?: Set<string>,
 ): Row[] {
   return getCachedEnrichedRows(
     rows,
@@ -20,6 +21,7 @@ function enrichSourceRowsWithExpressions(
     dataSources,
     relationships,
     usedFieldIds,
+    collectReadSourceIds,
   );
 }
 
@@ -62,6 +64,15 @@ export function resolveRowsAtGrain(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
+  /**
+   * Out-param: every foreign source id whose rows this call actually reads — a related source
+   * enriched for a display/dimension field, a many-to-many remote endpoint, or a
+   * join-field-expression target — is added to it (the widget source and the anchor source are
+   * NOT added; the caller already tracks those directly). `resolveChartRowsForAggregation` folds
+   * these row refs into its L4 (`rcfaCache`) validity check so a non-anchor related source's rows
+   * changing invalidates the entry instead of serving stale rows (finding 1.5).
+   */
+  collectReadSourceIds?: Set<string>,
 ): Row[] {
   // Determine which requested fields are expression fields on the anchor source.
   const exprFieldIdsOnSource = new Set(
@@ -78,6 +89,7 @@ export function resolveRowsAtGrain(
       requestedFields,
       dataSources,
       relationships,
+      collectReadSourceIds,
     );
     return needsExpressionEnrichment
       ? enrichSourceRowsWithExpressions(
@@ -87,6 +99,7 @@ export function resolveRowsAtGrain(
           relationships,
           expressionFields,
           new Set(requestedFields),
+          collectReadSourceIds,
         )
       : related;
   }
@@ -122,6 +135,10 @@ export function resolveRowsAtGrain(
         ? manyToManyRel.targetField
         : manyToManyRel.sourceField;
 
+    // The junction (anchor) rows are tracked by the caller as `anchorRows`; the remote endpoint
+    // is a distinct foreign source whose rows this branch reads and must be reported (finding 1.5).
+    collectReadSourceIds?.add(remoteSourceId);
+
     // Build lookup maps for widget and remote source (normalized join keys).
     const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
     const widgetRowLookup = indexRowsByKey(widgetRows, widgetJoinField);
@@ -155,6 +172,7 @@ export function resolveRowsAtGrain(
       requestedFields,
       dataSources,
       relationships,
+      collectReadSourceIds,
     );
   }
 
@@ -174,6 +192,7 @@ export function resolveRowsAtGrain(
     relationships,
     expressionFields,
     anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
+    collectReadSourceIds,
   ).filter((row) => {
     const key = normalizeJoinKey(row[anchorJoinField]);
     return key !== null && allowedWidgetKeys.has(key);
@@ -185,6 +204,7 @@ export function resolveRowsAtGrain(
     requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
     dataSources,
     relationships,
+    collectReadSourceIds,
   );
 
   const widgetRowLookup = indexRowsByKey(widgetRowsForLookup, widgetJoinField);

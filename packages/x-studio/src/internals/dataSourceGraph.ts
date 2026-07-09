@@ -356,6 +356,13 @@ export function enrichRowsWithRelatedFields(
   fieldIds: string[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
+  /**
+   * Out-param: every foreign source id whose rows this enrichment actually reads (a related
+   * source for a one-hop display column, or the remote endpoint + junction source for a
+   * two-hop many-to-many column) is added to it. Lets a caller building its own dependency
+   * cache (the L4 `rcfaCache`) invalidate when those foreign rows change (finding 1.5).
+   */
+  collectReadSourceIds?: Set<string>,
 ): Row[] {
   if (!widgetSourceId || rows.length === 0 || fieldIds.length === 0) {
     return rows;
@@ -417,6 +424,7 @@ export function enrichRowsWithRelatedFields(
         continue;
       }
 
+      collectReadSourceIds?.add(relatedSourceId);
       foreignFieldNeeds.push({
         kind: 'direct',
         fieldId,
@@ -468,6 +476,8 @@ export function enrichRowsWithRelatedFields(
         continue;
       }
 
+      collectReadSourceIds?.add(targetSourceId);
+      collectReadSourceIds?.add(rel.junctionSourceId);
       foreignFieldNeeds.push({
         kind: 'many-to-many',
         fieldId,

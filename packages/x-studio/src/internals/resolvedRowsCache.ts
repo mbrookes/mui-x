@@ -1,4 +1,5 @@
 import { resolveRows } from './dataSourceGraph';
+import { isRelativeDateValue, resolveRelativeDate } from './filterUtils';
 import { stableStringify } from './stableStringify';
 import type {
   StudioDataSource,
@@ -83,9 +84,17 @@ function filterFingerprint(f: StudioFilterState): string {
     f.filterMode ?? null,
     f.operator,
     f.value ?? null,
+    // A relative-date value (e.g. "7 days ago") is a stable object, so `f.value` alone never
+    // changes across a midnight crossing — the entry would serve a stale window forever while
+    // preset filters self-heal (their resolved `{from,to}` changes daily). Fold the resolved
+    // day into the fingerprint so a relative-valued filter re-computes when the day rolls over
+    // (finding 2.21). Preset (`dateRangePreset`) filters are already resolved to concrete bounds
+    // in `f.value` before reaching here, so they need no equivalent treatment.
+    isRelativeDateValue(f.value) ? resolveRelativeDate(f.value) : null,
     f.conjunction ?? null,
     f.operator2 ?? null,
     f.value2 ?? null,
+    isRelativeDateValue(f.value2) ? resolveRelativeDate(f.value2) : null,
     f.rankDirection ?? null,
     f.rankByField ?? null,
     f.rankMultiSeriesBy ?? null,

@@ -327,8 +327,16 @@ export function useWidgetRows(
         if (!widget.sourceId) {
           return enrichedAdapterRows;
         }
+        // Page-scoped rank filters (top/bottom-N) are stripped from the server descriptor
+        // (`buildQueryDescriptor`) because the wire protocol can't express a rank reduction —
+        // so they must be re-applied here, client-side, exactly as the sync path does via
+        // `applyFilters` (finding 1.6). Non-rank page/widget filters were already enforced
+        // server-side and are deliberately NOT re-applied.
+        const pageRankFilters = deferredPartitioned.page.filter(
+          (f) => (f.filterMode ?? 'condition') === 'rank',
+        );
         const scoped = selectFiltersForWidget(
-          [...deferredPartitioned.cross, ...deferredPartitioned.interactive],
+          [...pageRankFilters, ...deferredPartitioned.cross, ...deferredPartitioned.interactive],
           {
             widgetId: widget.id,
             widgetSourceId: widget.sourceId,

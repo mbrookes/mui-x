@@ -51,13 +51,15 @@ export function linearRegression(values: (number | null)[]): LinearRegressionRes
   const slope = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slope * sumX) / n;
 
-  // Residual standard error
+  // Residual standard error. Needs at least 3 points: with only 2 the line fits them
+  // exactly (ssRes === 0) and the `n - 2` divisor is 0, so `0 / 0` would be `NaN` and
+  // poison every confidence-band value downstream (finding 2.28). Fall back to 0.
   let ssRes = 0;
   for (const [x, y] of pairs) {
     const predicted = slope * x + intercept;
     ssRes += (y - predicted) ** 2;
   }
-  const stdError = Math.sqrt(ssRes / (n - 2));
+  const stdError = n > 2 ? Math.sqrt(ssRes / (n - 2)) : 0;
 
   return { slope, intercept, stdError };
 }
@@ -77,6 +79,14 @@ export function extendLabels(labels: (string | number)[], periods: number): (str
     return [];
   }
 
+  // Week (`YYYY-Www`) / quarter (`YYYY-Qn`) period keys. These fail the date/numeric
+  // patterns below, so without this branch a weekly/quarterly forecast would degrade to
+  // `+1`, `+2`, … garbage tail labels and a point-scale axis (finding 2.28).
+  const periodKeyLabels = tryExtendAsPeriodKeyLabels(labels, periods);
+  if (periodKeyLabels) {
+    return periodKeyLabels;
+  }
+
   // Try date extension
   const dateLabels = tryExtendAsDateLabels(labels, periods);
   if (dateLabels) {
@@ -91,6 +101,57 @@ export function extendLabels(labels: (string | number)[], periods: number): (str
 
   // Fallback: generic forecast labels
   return Array.from({ length: periods }, (_, i) => `+${i + 1}`);
+}
+
+/**
+ * Number of ISO-8601 weeks in a year (52 or 53). A year has 53 weeks when Jan 1 is a
+ * Thursday, or when it is a leap year and Jan 1 is a Wednesday.
+ */
+function isoWeeksInYear(year: number): number {
+  const p = (y: number) => (y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400)) % 7;
+  return p(year) === 4 || p(year - 1) === 3 ? 53 : 52;
+}
+
+function tryExtendAsPeriodKeyLabels(
+  labels: (string | number)[],
+  periods: number,
+): (string | number)[] | null {
+  const last = labels[labels.length - 1];
+  if (typeof last !== 'string') {
+    return null;
+  }
+
+  // Quarter: YYYY-Qn — increment the quarter, rolling Q4 → Q1 of the next year.
+  const qMatch = last.match(/^(\d{4})-Q([1-4])$/);
+  if (qMatch) {
+    let year = parseInt(qMatch[1], 10);
+    let quarter = parseInt(qMatch[2], 10);
+    return Array.from({ length: periods }, () => {
+      quarter += 1;
+      if (quarter > 4) {
+        quarter = 1;
+        year += 1;
+      }
+      return `${year}-Q${quarter}`;
+    });
+  }
+
+  // Week: YYYY-Www — increment the ISO week, rolling week 52/53 → week 1 of the next year.
+  const wMatch = last.match(/^(\d{4})-W(\d{2})$/);
+  if (wMatch) {
+    let year = parseInt(wMatch[1], 10);
+    let week = parseInt(wMatch[2], 10);
+    return Array.from({ length: periods }, () => {
+      week += 1;
+      if (week > isoWeeksInYear(year)) {
+        week = 1;
+        year += 1;
+      }
+      return `${year}-W${String(week).padStart(2, '0')}`;
+    });
+  }
+
+  return null;
 }
 
 function tryExtendAsDateLabels(
@@ -227,14 +288,18 @@ export function computeWidgetForecast(
   // Extend labels
   const newLabels = extendLabels(labels, periods);
 
-  // Build series arrays
+  // Build series arrays.
+  //
+  // The forecast/band series repeat the LAST actual value (`values[n - 1]`) at its own
+  // index (`n - 1`) so the dashed line connects to the end of the historical series even
+  // with `connectNulls: false`, then carry every forecast value at indices n … n+periods-1.
+  // Placing the connection point at index `n` instead (and slicing off `forecastValues[0]`)
+  // shifts the whole overlay one period late and drops the first prediction (finding 1.9).
   const historicalSeries: (number | null)[] = [...values, ...Array(periods).fill(null)];
   const forecastSeries: (number | null)[] = [
-    ...Array(n).fill(null),
-    // Include the last historical point as the first forecast point so the dashed
-    // line visually connects to the end of the historical series
+    ...Array(n - 1).fill(null),
     values[n - 1],
-    ...forecastValues.slice(1),
+    ...forecastValues,
   ];
 
   let upperBand: (number | null)[] | null = null;
@@ -242,14 +307,14 @@ export function computeWidgetForecast(
 
   if (showConfidenceBands) {
     upperBand = [
-      ...Array(n).fill(null),
+      ...Array(n - 1).fill(null),
       values[n - 1],
-      ...forecastValues.slice(1).map((v) => v + stdError),
+      ...forecastValues.map((v) => v + stdError),
     ];
     lowerBand = [
-      ...Array(n).fill(null),
+      ...Array(n - 1).fill(null),
       values[n - 1],
-      ...forecastValues.slice(1).map((v) => Math.max(0, v - stdError)),
+      ...forecastValues.map((v) => Math.max(0, v - stdError)),
     ];
   }
 

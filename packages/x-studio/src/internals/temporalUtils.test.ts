@@ -187,6 +187,20 @@ describe('normalizeDataSourceRows', () => {
     expect(result.rows![0].ts).toBe('2024-06-01T00:00:00.000Z');
   });
 
+  it('normalizes a local-midnight Date using its LOCAL calendar date (finding 2.27)', () => {
+    // A host-injected local-midnight Date must keep its local calendar day. The old
+    // `toISOString().slice(0,10)` converts through UTC and day-shifts for UTC+ viewers.
+    const localMidnight = new Date(2024, 0, 15); // local Jan 15, 00:00
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, date: localMidnight }]));
+    expect(result.rows![0].date).toBe('2024-01-15');
+  });
+
+  it('normalizes a non-ISO date string using its LOCAL calendar date (finding 2.27)', () => {
+    // `new Date('1/15/2024')` parses as local midnight; the local day must be preserved.
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, date: '1/15/2024' }]));
+    expect(result.rows![0].date).toBe('2024-01-15');
+  });
+
   it('leaves already-canonical ISO strings untouched (returns same row reference)', () => {
     const row = { id: 1, date: '2024-01-01', ts: '2024-01-01T00:00:00.000Z' };
     const source = makeNormSource([row]);

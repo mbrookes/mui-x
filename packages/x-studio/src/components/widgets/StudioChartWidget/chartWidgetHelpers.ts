@@ -2,6 +2,7 @@ import {
   fillTemporalLabelGaps,
   formatTemporalAxisLabel,
   getTemporalAxisData,
+  sortLabels,
 } from '../../../internals/temporalUtils';
 import { formatNumber } from '../../../internals/numberFormat';
 import type {
@@ -309,6 +310,79 @@ export function makeCrossHighlightLineFormatter(
 
 export function densifyBarLabels(labels: (string | number)[]) {
   return fillTemporalLabelGaps(labels);
+}
+
+/**
+ * Computes the permutation that reorders temporal x-axis labels into chronological
+ * order — the same order `getTemporalAxisData` / `createLineXAxisConfig` plot the axis
+ * dates in. Returns `null` when the labels are not temporal, or when they are already
+ * chronological (so callers can keep their existing arrays unchanged).
+ *
+ * A temporal line/area x-axis is always rendered chronologically ascending. The series
+ * values are aligned to the ORIGINAL label order (whatever `chartSortBy` /
+ * `chartSortDirection` / rank produced), so without applying this permutation to the
+ * series each value would plot against the wrong date (finding 1.7).
+ */
+export function getTemporalSortOrder(labels: (string | number)[]): number[] | null {
+  if (getTemporalAxisData(labels) == null) {
+    return null;
+  }
+  const sorted = sortLabels(labels);
+  const order = sorted.map((label) => labels.indexOf(label));
+  // indexOf is safe because aggregation labels are unique period keys; O(n^2) on the
+  // small chart label set. An identity order means the labels were already chronological.
+  return order.every((value, index) => value === index) ? null : order;
+}
+
+function applyOrder<T>(array: readonly T[], order: number[]): T[] {
+  return order.map((index) => array[index]);
+}
+
+/**
+ * Reorders a single-series aggregation into chronological order for a temporal x-axis.
+ * Returns the same reference when the labels are non-temporal or already chronological.
+ */
+export function sortAggregatedTemporally(data: AggregatedData): AggregatedData {
+  const order = getTemporalSortOrder(data.labels);
+  if (!order) {
+    return data;
+  }
+  return {
+    ...data,
+    labels: applyOrder(data.labels, order),
+    values: applyOrder(data.values, order),
+  };
+}
+
+/** Reorders a split-by (series-field) aggregation into chronological order for a temporal x-axis. */
+export function sortMultiSeriesTemporally(data: MultiSeriesData): MultiSeriesData {
+  const order = getTemporalSortOrder(data.labels);
+  if (!order) {
+    return data;
+  }
+  return {
+    ...data,
+    labels: applyOrder(data.labels, order),
+    seriesData: Object.fromEntries(
+      data.seriesNames.map((name) => [name, applyOrder(data.seriesData[name], order)]),
+    ),
+  };
+}
+
+/** Reorders a multi-Y aggregation into chronological order for a temporal x-axis. */
+export function sortMultiYTemporally(data: MultiYSeriesData): MultiYSeriesData {
+  const order = getTemporalSortOrder(data.labels);
+  if (!order) {
+    return data;
+  }
+  return {
+    ...data,
+    labels: applyOrder(data.labels, order),
+    series: data.series.map((series) => ({
+      ...series,
+      values: applyOrder(series.values, order),
+    })),
+  };
 }
 
 export function createLineXAxisConfig(

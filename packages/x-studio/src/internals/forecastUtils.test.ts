@@ -67,6 +67,20 @@ describe('extendLabels', () => {
     const result = extendLabels(['Q1', 'Q2', 'Q3'], 2);
     expect(result).toEqual(['+1', '+2']);
   });
+
+  it('extends YYYY-Qn quarter labels, rolling Q4 → Q1 of the next year (finding 2.28)', () => {
+    expect(extendLabels(['2024-Q1', '2024-Q2', '2024-Q3'], 2)).toEqual(['2024-Q4', '2025-Q1']);
+  });
+
+  it('extends YYYY-Www week labels, rolling week 52 → W01 of the next year (finding 2.28)', () => {
+    // 2024 has 52 ISO weeks.
+    expect(extendLabels(['2024-W51', '2024-W52'], 2)).toEqual(['2025-W01', '2025-W02']);
+  });
+
+  it('respects a 53-week ISO year before rolling over (finding 2.28)', () => {
+    // 2020 has 53 ISO weeks, so W52 → W53 (same year) before rolling to 2021-W01.
+    expect(extendLabels(['2020-W51', '2020-W52'], 2)).toEqual(['2020-W53', '2021-W01']);
+  });
 });
 
 describe('computeWidgetForecast', () => {
@@ -99,17 +113,53 @@ describe('computeWidgetForecast', () => {
     expect(result!.historicalSeries[5]).toBeNull();
   });
 
-  it('forecast series starts at last historical value', () => {
+  it('aligns the forecast overlay with the labels and keeps the first prediction (finding 1.9)', () => {
+    // labels: ['2024-01','2024-02','2024-03','2024-04', +'2024-05','2024-06']
+    // values: [10,20,30,40] → y = 10x + 10 → predictions x=4→50, x=5→60
     const result = computeWidgetForecast(historicalLabels, historicalValues, {
       enabled: true,
       periods: 2,
     });
-    // First 4 elements are null (historical), then the connection point and forecast
-    expect(result!.forecastSeries[0]).toBeNull();
-    expect(result!.forecastSeries[3]).toBeNull();
-    // The connection point equals the last historical value
-    expect(result!.forecastSeries[3]).toBeNull();
-    expect(result!.forecastSeries.filter((v) => v !== null).length).toBeGreaterThan(0);
+    expect(result!.forecastSeries).toHaveLength(6);
+    // Indices 0..2 (earlier actual labels) are null …
+    expect(result!.forecastSeries.slice(0, 3)).toEqual([null, null, null]);
+    // … the connection point sits at index n-1 (the LAST actual label), carrying the
+    // last actual value so the dashed overlay touches the historical series.
+    expect(result!.forecastSeries[3]).toBe(40);
+    // The first prediction (50) is preserved, not discarded, and lands on '2024-05'.
+    expect(result!.forecastSeries[4]).toBe(50);
+    expect(result!.forecastSeries[5]).toBe(60);
+  });
+
+  it('connects the overlay to the historical series even with connectNulls: false (finding 1.9)', () => {
+    const result = computeWidgetForecast(historicalLabels, historicalValues, {
+      enabled: true,
+      periods: 2,
+    });
+    // The forecast series renders with connectNulls: false, so the overlay only touches
+    // the historical line if both series carry a non-null value at the SAME index (n-1).
+    const connectionIndex = historicalValues.length - 1; // 3
+    expect(result!.historicalSeries[connectionIndex]).toBe(40);
+    expect(result!.forecastSeries[connectionIndex]).toBe(40);
+  });
+
+  it('does not produce NaN confidence bands for a 2-point forecast (finding 2.28)', () => {
+    // Two points fit a line exactly; the residual std-error divisor (n-2) is 0 → guard
+    // must keep the bands finite rather than emitting NaN.
+    const result = computeWidgetForecast(['2024-01', '2024-02'], [10, 20], {
+      enabled: true,
+      periods: 2,
+      showConfidenceBands: true,
+    });
+    expect(result).not.toBeNull();
+    for (const band of [result!.upperBand!, result!.lowerBand!]) {
+      for (const value of band) {
+        expect(Number.isNaN(value as number)).toBe(false);
+      }
+    }
+    // With zero residual error the bands collapse onto the forecast line.
+    expect(result!.upperBand![3]).toBe(20);
+    expect(result!.forecastSeries[3]).toBe(20);
   });
 
   it('does not produce confidence bands when showConfidenceBands is false', () => {

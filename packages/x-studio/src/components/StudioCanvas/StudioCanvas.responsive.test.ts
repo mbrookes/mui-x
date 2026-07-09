@@ -36,16 +36,25 @@ class FakeResizeObserver {
 
   private callback: ResizeObserverCallback;
 
+  /** The element passed to the most recent `observe()` call, if still observed. */
+  observedTarget: Element | null = null;
+
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
     FakeResizeObserver.instances.push(this);
   }
 
-  observe() {}
+  observe(target: Element) {
+    this.observedTarget = target;
+  }
 
-  unobserve() {}
+  unobserve() {
+    this.observedTarget = null;
+  }
 
-  disconnect() {}
+  disconnect() {
+    this.observedTarget = null;
+  }
 
   takeRecords(): ResizeObserverEntry[] {
     return [];
@@ -58,6 +67,21 @@ class FakeResizeObserver {
       this as unknown as ResizeObserver,
     );
   }
+}
+
+/**
+ * Among every `FakeResizeObserver` ever constructed, find the one (if any) whose
+ * `observedTarget` is still attached to the document. Under the finding-1.4 bug
+ * (registration effect keyed on a `RefObject` whose identity never changes across
+ * the empty<->populated branch swap), the original observer's `observedTarget`
+ * keeps pointing at whichever branch's root was mounted when the effect first
+ * ran — once that branch unmounts, the node is detached, and no live observer
+ * for the current canvas root exists at all.
+ */
+function findConnectedObserver(): FakeResizeObserver | undefined {
+  return FakeResizeObserver.instances.find(
+    (instance) => instance.observedTarget && document.body.contains(instance.observedTarget),
+  );
 }
 
 afterEach(() => {
@@ -180,5 +204,67 @@ describe('StudioCanvas responsive tiers (BL-154)', () => {
 
     expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(25% - 6px)');
     expect(wrapperStyle(container, 'w2').maxWidth).toBe('calc(50% - 4px)');
+  });
+
+  // Regression coverage for finding 1.4's ResizeObserver half: the review flags
+  // that the canvas root the observer watches can, in principle, be a different
+  // DOM node in the empty-state branch vs the populated branch (mutually
+  // exclusive early-return branches of the same persistent `StudioCanvas`), and a
+  // plain `[ref, enabled]`-keyed effect (in `@mui/x-internals/useResizeObserver`,
+  // which this package can't edit) would never notice a swap and re-observe.
+  // `canvasNode`/`canvasResizeRef` (a fresh `RefObject` minted whenever the
+  // attached node changes) close that hole generically, independent of whether
+  // today's two branches happen to share the same root element type — this test
+  // pins the end-to-end behavior (a connected observer exists and stacking
+  // reacts to a resize) across exactly the transition the review calls out:
+  // "mount empty -> populate -> resize window".
+  describe('resize observer survives an empty -> populated transition (finding 1.4)', () => {
+    it('re-attaches to the populated root after the page gains its first widget, and stacking reacts to a resize', async () => {
+      FakeResizeObserver.instances = [];
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          session: { mode: 'view' },
+          doc: {
+            pages: {
+              'page-1': {
+                id: 'page-1',
+                title: 'Page 1',
+                widgetRows: [],
+                // Pre-set so the populated widget has an explicit span to clamp against
+                // (an unset span skips the max-width clamp entirely — see the other
+                // tests in this file — which would make the tiers unobservable here).
+                widgetColSpans: { w1: 6 },
+              },
+            },
+          },
+        },
+      });
+      const element: React.ReactElement<any> = React.createElement(StudioCanvas, {
+        stackBreakpoint: B,
+      });
+      const { container } = render(element, { wrapper });
+
+      // While empty, no widget exists to hang a "connected observer" assertion off
+      // of yet — just populate the page straight away.
+      act(() => {
+        controller.insertWidgetAt(makeWidget('w1'), 'page-1', [['w1']]);
+      });
+
+      // A live observer for the now-mounted (populated) canvas root must exist —
+      // this is exactly what's missing under the bug: the original observer keeps
+      // watching the unmounted empty-state root, which is no longer in the document.
+      const observer = findConnectedObserver();
+      expect(observer).toBeDefined();
+
+      await resize(observer, 400);
+      // width < B (600) -> fully-stacked tier -> full width regardless of span.
+      expect(wrapperStyle(container, 'w1').maxWidth).toBe('100%');
+
+      await resize(observer, 1400);
+      // width >= 2B -> normal tier -> raw span-based basis: span=6 of 24 -> 25%,
+      // gap adjustment 8 * (1 - 6/24) = 6px (same math as the first test above).
+      expect(wrapperStyle(container, 'w1').maxWidth).toBe('calc(25% - 6px)');
+    });
   });
 });

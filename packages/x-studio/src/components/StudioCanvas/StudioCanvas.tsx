@@ -481,7 +481,24 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const dataSources = useStudioSelector(selectDataSources);
   const customWidgetMap = useCustomWidgetMap();
   const controller = useStudioController();
-  const canvasRef = React.useRef<HTMLDivElement>(null);
+  // Finding 1.4: the canvas root is rendered by one of two mutually exclusive
+  // branches below (empty-state vs populated) of this same persistent, memoized
+  // component. A plain `React.useRef` never changes identity when the branch
+  // flips, so anything that reads `.current` inside a `[ref]`-keyed effect (or a
+  // `[ref, enabled]`-keyed one, like the shared `useResizeObserver`) would keep
+  // referencing whatever node was mounted the first time that effect ran — dead
+  // after the very first empty<->populated transition. A callback ref + state
+  // makes the "current canvas node" a reactive value instead, so anything derived
+  // from it (the resize-observer ref below, the initial-width effect, auto-scroll)
+  // naturally re-runs on every attach/detach, including branch swaps.
+  const [canvasNode, setCanvasNode] = React.useState<HTMLDivElement | null>(null);
+  const canvasRefCallback = React.useCallback((node: HTMLDivElement | null) => {
+    setCanvasNode(node);
+  }, []);
+  // A fresh RefObject whenever `canvasNode` changes, so `useResizeObserver`'s own
+  // `[ref, enabled]`-keyed effect (which we can't edit — it lives in x-internals)
+  // is forced to re-run and observe the newly-attached node instead of a stale one.
+  const canvasResizeRef = React.useMemo(() => ({ current: canvasNode }), [canvasNode]);
 
   // Track which pages have ever been active — mount them once and keep alive.
   // Inactive pages use clip-path:inset(100%) + position:absolute (NOT display:none).
@@ -507,7 +524,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const [canvasWidth, setCanvasWidth] = React.useState<number | null>(null);
   const enabled = mode !== 'edit' && effectiveBreakpoint !== 0;
   useResizeObserver(
-    canvasRef,
+    canvasResizeRef,
     (entries) => {
       const entry = entries[0];
       if (entry) {
@@ -516,16 +533,18 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     },
     enabled,
   );
-  // Set initial width on mount/mode-change (useResizeObserver only fires on subsequent resizes).
+  // Set initial width on mount/mode-change/branch-swap (useResizeObserver only fires
+  // on subsequent resizes — though re-observing a newly-attached node via
+  // `canvasResizeRef` above also delivers an immediate size callback in practice,
+  // `canvasNode` is included here too so this stays correct even if that changes).
   React.useEffect(() => {
     if (!enabled) {
       return;
     }
-    const node = canvasRef.current;
-    if (node) {
-      setCanvasWidth(node.getBoundingClientRect().width);
+    if (canvasNode) {
+      setCanvasWidth(canvasNode.getBoundingClientRect().width);
     }
-  }, [enabled]);
+  }, [enabled, canvasNode]);
 
   // ── Auto-scroll the canvas's scroll container while dragging near its edges ──
   React.useEffect(() => {
@@ -544,8 +563,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       return (document.scrollingElement as HTMLElement) ?? document.documentElement;
     }
 
-    return autoScrollForElements({ element: findScrollParent(canvasRef.current) });
-  }, [mode]);
+    return autoScrollForElements({ element: findScrollParent(canvasNode) });
+  }, [mode, canvasNode]);
 
   // ── Empty-page drop target (finding 2.11) ──────────────────────────────────
   // `StudioPageRows` (and its `InsertionPoint`/`WidgetGap` drop targets) is never
@@ -582,16 +601,23 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     },
     [activePageId, controller, announce, localeText],
   );
+  const isEmptyPage = !activePage?.widgetRows?.length;
   const isOverEmptyPage = useStudioDropTarget({
     ref: emptyDropRef,
     canDrop: canDropOnEmptyPage,
     onDrop: handleEmptyPageDrop,
+    // Finding 1.4: the empty-state `Paper` this ref attaches to is only rendered
+    // in the `isEmptyPage` branch below — a different DOM node than the populated
+    // branch's root. Re-run the registration effect on every empty<->populated
+    // transition so it re-reads `emptyDropRef.current` instead of staying wired to
+    // whatever (or nothing) was mounted when the effect first ran.
+    watch: isEmptyPage,
   });
 
-  if (!activePage?.widgetRows?.length) {
+  if (isEmptyPage) {
     return (
       <Box
-        ref={canvasRef}
+        ref={canvasRefCallback}
         sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
       >
         <Paper
@@ -626,7 +652,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   return (
     <Box
-      ref={canvasRef}
+      ref={canvasRefCallback}
       sx={[
         {
           position: 'relative',
@@ -659,11 +685,21 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           if (!mountedPageIds.has(page.id)) {
             return null;
           }
+          const isInactivePage = page.id !== activePageId;
           return (
             <Box
               key={page.id}
+              // Finding 2.26: an inactive page is only visually hidden (clip-path +
+              // zero height + pointerEvents:none below) — none of that removes it from
+              // the tab order or the accessibility tree, so Tab could still reach a
+              // hidden page's controls (e.g. a `RowResizeHandle`) that a sighted mouse
+              // user could never interact with. `inert` removes the whole subtree from
+              // both the tab order and the a11y tree in one step; `aria-hidden` is kept
+              // alongside it for the (older) browsers/AT combinations that don't yet
+              // honor `inert` for accessibility-tree exclusion.
+              {...(isInactivePage ? { inert: true, 'aria-hidden': true } : {})}
               sx={
-                page.id !== activePageId
+                isInactivePage
                   ? {
                       position: 'absolute',
                       top: 0,

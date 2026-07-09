@@ -531,4 +531,98 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
       expect(dropped).toBe(false);
     });
   });
+
+  // Regression tests for finding 1.4: `useStudioDropTarget`'s registration effect
+  // used to depend on `[ref]` only. `emptyDropRef` is a plain `React.useRef` whose
+  // identity never changes, but the empty-state `Paper` it attaches to is rendered
+  // by a branch of `StudioCanvas` that's mutually exclusive with the populated
+  // branch — so the very first empty<->populated transition after mount left the
+  // effect referencing whatever `emptyDropRef.current` was (or wasn't) the first
+  // time it ran, and the drop target never (re)registered. `useStudioDropTarget`
+  // now accepts a `watch` value (here, `isEmptyPage`) that forces the effect to
+  // re-run and re-read `ref.current` on every branch swap.
+  describe('empty-page drop target survives a populated -> empty transition (finding 1.4)', () => {
+    it('registers the empty-state drop target after the last widget is removed, and a drop still works', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a']] } },
+            widgets: { a: makeWidget('a') },
+          },
+          runtime: { dataSources: { s1: makeSource('s1') } },
+        },
+      });
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      // While populated, nothing is registered on the (unmounted) empty-state Paper.
+      expect(registry.size).toBeGreaterThan(0);
+      const populatedTargets = new Set(registry.keys());
+
+      // Delete the last widget on the page — the canvas swaps from the populated
+      // branch to the empty-state branch.
+      act(() => {
+        controller.removeWidget('a');
+      });
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([]);
+
+      // Every populated-branch target (InsertionPoint/WidgetGap) unmounted, and
+      // exactly the new empty-state target is registered in its place — this is
+      // the assertion that fails without the fix (registry stays empty forever,
+      // since the drop-target effect never re-ran to pick up the newly-attached
+      // `emptyDropRef.current`).
+      for (const target of populatedTargets) {
+        expect(registry.has(target)).toBe(false);
+      }
+      expect(registry.size).toBe(1);
+
+      const [emptyTarget] = Array.from(registry.values());
+      act(() => {
+        const dropped = fireDrop(emptyTarget, composeItem('text'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).toHaveBeenCalledTimes(1);
+      const newId = Object.keys(controller.getState().doc.widgets).find((id) => id !== 'a');
+      expect(newId).toBeDefined();
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([[newId]]);
+    });
+
+    it('keeps working across repeated populated <-> empty transitions', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a']] } },
+            widgets: { a: makeWidget('a') },
+          },
+        },
+      });
+      render(<StudioCanvas />, { wrapper });
+
+      act(() => {
+        controller.removeWidget('a');
+      });
+      expect(registry.size).toBe(1);
+
+      // Re-populate, then empty it again — the drop target must still track the
+      // branch correctly the second time around, not just the first transition.
+      act(() => {
+        const [b] = ['b'];
+        controller.insertWidgetAt(makeWidget(b), 'page-1', [[b]]);
+      });
+      expect(registry.size).toBeGreaterThan(0);
+      expect(
+        Array.from(registry.values()).every(
+          (t) => !(t.element as HTMLElement).matches('[role="status"]'),
+        ),
+      ).toBe(true);
+
+      act(() => {
+        controller.removeWidget('b');
+      });
+      expect(registry.size).toBe(1);
+      const [emptyTarget] = Array.from(registry.values());
+      expect((emptyTarget.element as HTMLElement).getAttribute('role')).toBe('status');
+    });
+  });
 });

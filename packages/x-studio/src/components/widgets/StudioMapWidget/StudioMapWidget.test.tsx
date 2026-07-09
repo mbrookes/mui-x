@@ -558,6 +558,25 @@ describe('<StudioMapWidget /> shared aggregation policy', () => {
     // Single region → degenerate [0, max] scale, so the extent is "from 0 to 0.5".
     expect(latestLegendAriaLabel()).toContain('to 0.5');
   });
+
+  // ─── 'count' means COUNT(*), not COUNT(mapValueField) (finding 2.7) ─────────
+
+  it('counts every row for a region even when mapValueField is null/non-numeric — count is row-based', async () => {
+    // US has 3 rows but only 1 usable `sales` value; France has 1 row, unusable.
+    // Under the old (buggy) policy, rows whose value was null/non-numeric were
+    // skipped before counting, so France (all-null) disappeared from the map
+    // entirely and US counted only 1 instead of 3.
+    rows = [
+      { country: 'United States', sales: 10 },
+      { country: 'United States', sales: null },
+      { country: 'United States', sales: 'not-a-number' },
+      { country: 'France', sales: null },
+    ];
+    await renderWithConfig({ mapAggregation: 'count' });
+    // US count = 3 (all rows), France count = 1 (its single row, despite the
+    // null measure) — extent is "from 1 to 3", matching KPI/chart 'count' semantics.
+    expect(latestLegendAriaLabel()).toContain('from 1 to 3');
+  });
 });
 
 // Regression coverage for finding 2.21: `normalize` merges mixed country-code encodings

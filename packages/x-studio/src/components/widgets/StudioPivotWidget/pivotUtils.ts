@@ -20,21 +20,37 @@ export { downloadCsv };
 // The per-cell accumulator is the shared one, so the pivot matrix, the chart
 // aggregators and the KPI/map reducers all apply a single null/boolean policy
 // (finding 2.1).
-type AggState = AggregateAccumulator;
+//
+// `rowCount` is tracked separately from the accumulator's own `count` (which
+// only advances for usable/coerced measure values, and backs `avg`'s
+// denominator). `count` aggregation means COUNT(*) semantics — every row for
+// a cell counts, regardless of whether its measure value is null/non-numeric
+// (finding 2.7) — so it can't reuse the accumulator's null-skipping `count`.
+interface AggState {
+  acc: AggregateAccumulator;
+  rowCount: number;
+}
 
 function emptyAgg(): AggState {
-  return createAggregateAccumulator();
+  return { acc: createAggregateAccumulator(), rowCount: 0 };
 }
 
 function addToAgg(agg: AggState, v: number) {
-  accumulateValue(agg, v);
+  accumulateValue(agg.acc, v);
 }
 
 export function resolveAgg(
   agg: AggState | undefined,
   fn: 'sum' | 'avg' | 'count' | 'min' | 'max',
 ): number | null {
-  return finalizeAccumulator(agg, fn);
+  if (fn === 'count') {
+    // COUNT(*) semantics: every row that landed in this cell counts, even one
+    // whose measure value was null/non-numeric (finding 2.7). A cell that
+    // never occurred in the input (`agg` undefined) still has no data, so it
+    // stays `null` — same as every other aggregation function.
+    return agg ? agg.rowCount : null;
+  }
+  return finalizeAccumulator(agg?.acc, fn);
 }
 
 export interface PivotMatrix {
@@ -68,8 +84,8 @@ export function buildPivotMatrix(
     // `Number(v ?? 0)` silently turned null/undefined into `0` (inflating `avg`
     // denominators and dragging `min` toward 0) and any non-numeric string into
     // `NaN` (poisoning the shared accumulator's running `sum` for the cell, its
-    // row/column totals, and the grand total). For `count`, the value itself is
-    // irrelevant (we're counting rows), so it's always `1`, never coerced.
+    // row/column totals, and the grand total). When there's no value field the
+    // measure is always `1`, never coerced.
     const v = valueField ? coerceAggregateValue(row[valueField]) : 1;
 
     // Row/column categories are membership, not measurement: a row/column still
@@ -86,32 +102,45 @@ export function buildPivotMatrix(
       cells.set(rv, new Map());
     }
 
-    if (v === null) {
-      // Unusable measure value (null/undefined/NaN/non-numeric/object) — skip
-      // it, don't zero it, mirroring `coerceAggregateValue`'s policy.
-      continue;
-    }
-
     // cell
     const rowCells = cells.get(rv)!;
     if (!rowCells.has(cv)) {
       rowCells.set(cv, emptyAgg());
     }
-    addToAgg(rowCells.get(cv)!, v);
+    const cellAgg = rowCells.get(cv)!;
 
     // row total
     if (!rowTotals.has(rv)) {
       rowTotals.set(rv, emptyAgg());
     }
-    addToAgg(rowTotals.get(rv)!, v);
+    const rowTotalAgg = rowTotals.get(rv)!;
 
     // col total
     if (!colTotals.has(cv)) {
       colTotals.set(cv, emptyAgg());
     }
-    addToAgg(colTotals.get(cv)!, v);
+    const colTotalAgg = colTotals.get(cv)!;
 
-    // grand total
+    // `count` means COUNT(*) semantics — every row landing in this cell/row/col/
+    // grand-total counts, regardless of whether its measure value is
+    // null/non-numeric (finding 2.7). Increment unconditionally, before the
+    // null skip below, so a cell/region whose measure values are all unusable
+    // still reports its row count instead of disappearing entirely.
+    cellAgg.rowCount += 1;
+    rowTotalAgg.rowCount += 1;
+    colTotalAgg.rowCount += 1;
+    grandTotal.rowCount += 1;
+
+    if (v === null) {
+      // Unusable measure value (null/undefined/NaN/non-numeric/object) — skip
+      // it for sum/avg/min/max, don't zero it, mirroring
+      // `coerceAggregateValue`'s policy.
+      continue;
+    }
+
+    addToAgg(cellAgg, v);
+    addToAgg(rowTotalAgg, v);
+    addToAgg(colTotalAgg, v);
     addToAgg(grandTotal, v);
   }
 
@@ -150,13 +179,24 @@ function naturalCompare(a: string, b: string): number {
   return 0;
 }
 
+// ── Rounding ──────────────────────────────────────────────────────────────────
+
+/**
+ * Shared rounding precision for pivot cell values — the CSV export and the
+ * on-screen `PivotTable` must agree, or an exported cell can differ from the
+ * displayed cell in the third decimal (classic for `avg`) (finding 3.2).
+ */
+export function roundPivotValue(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function formatCell(v: number | null): string {
   if (v === null) {
     return '';
   }
-  return String(Math.round(v * 1000) / 1000);
+  return String(roundPivotValue(v));
 }
 
 export function pivotToCsv(

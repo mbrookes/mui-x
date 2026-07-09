@@ -6,6 +6,7 @@ import type {
 } from '../models';
 import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
+import { coerceAggregateValue } from '../internals/aggregate';
 
 function aggregateGridValue(
   rows: Record<string, unknown>[],
@@ -21,21 +22,34 @@ function aggregateGridValue(
     return seen.size;
   }
 
+  // Route through the shared null-skip + boolean/numeric-string coercion policy
+  // (finding 2.13) so a grid's group-by aggregate agrees with KPI/Chart/Pivot over
+  // the same field — a raw `typeof v === 'number'` check silently excluded numeric
+  // strings (`"12"`) and booleans instead of coercing them.
   const numericValues = rows
-    .map((row) => row[fieldId])
-    .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
+    .map((row) => coerceAggregateValue(row[fieldId]))
+    .filter((value): value is number => value !== null);
 
   switch (aggregation) {
     case 'sum':
       return numericValues.reduce((total, value) => total + value, 0);
     case 'avg':
+      // Null/empty aggregate must not silently become 0 (finding 2.13) — matches
+      // min/max below and `gridSummary.ts`'s `avg`, instead of the previous `: 0`.
       return numericValues.length > 0
         ? numericValues.reduce((total, value) => total + value, 0) / numericValues.length
-        : 0;
+        : null;
     case 'min':
-      return numericValues.length > 0 ? Math.min(...numericValues) : null;
+      // Reduce loop, not `Math.min(...numericValues)` — the spread form throws
+      // `RangeError: Maximum call stack size exceeded` past ~125k elements
+      // (finding 2.17); mirrors `internals/aggregate.ts`/`gridSummary.ts`.
+      return numericValues.length > 0
+        ? numericValues.reduce((acc, value) => (value < acc ? value : acc))
+        : null;
     case 'max':
-      return numericValues.length > 0 ? Math.max(...numericValues) : null;
+      return numericValues.length > 0
+        ? numericValues.reduce((acc, value) => (value > acc ? value : acc))
+        : null;
     default:
       return null;
   }

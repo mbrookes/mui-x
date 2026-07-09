@@ -4,6 +4,7 @@ import {
   buildPivotMatrix,
   pivotToCsv,
   downloadCsv,
+  roundPivotValue,
   type PivotMatrix,
 } from './pivotUtils';
 
@@ -89,9 +90,43 @@ describe('buildPivotMatrix', () => {
     );
     const cell = matrix.cells.get('x')!.get('y');
     expect(resolveAgg(cell, 'sum')).toBe(30);
-    expect(resolveAgg(cell, 'count')).toBe(2);
+    // 'count' is COUNT(*), not COUNT(v) — all 4 rows count, including the two
+    // null/undefined-valued ones (finding 2.7); sum/avg/min still only see the
+    // two usable values.
+    expect(resolveAgg(cell, 'count')).toBe(4);
     expect(resolveAgg(cell, 'avg')).toBe(15);
     expect(resolveAgg(cell, 'min')).toBe(10);
+  });
+
+  // ─── `count` means COUNT(*), not COUNT(valueField) (finding 2.7) ────────────
+
+  it('count includes every row for a cell/row/column/grand total, even when the measure is entirely null', () => {
+    // Region 'x'/'y' has a value field set, but every measure value is unusable.
+    // Under the old (buggy) policy this cell/row/col disappeared entirely from a
+    // 'count' aggregation — it must instead report the row count (3), matching
+    // KPI's computeAggregate and the chart's aggregateByField/aggregateByTwoFields.
+    const matrix = buildPivotMatrix(
+      [
+        { r: 'x', c: 'y', v: null },
+        { r: 'x', c: 'y', v: 'not-a-number' },
+        { r: 'x', c: 'y', v: undefined },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    expect(resolveAgg(matrix.cells.get('x')!.get('y'), 'count')).toBe(3);
+    expect(resolveAgg(matrix.rowTotals.get('x'), 'count')).toBe(3);
+    expect(resolveAgg(matrix.colTotals.get('y'), 'count')).toBe(3);
+    expect(resolveAgg(matrix.grandTotal, 'count')).toBe(3);
+    // sum/avg/min/max still have no usable data for this cell.
+    expect(resolveAgg(matrix.cells.get('x')!.get('y'), 'sum')).toBe(null);
+  });
+
+  it('a cell/row/column that never occurred in the data still reports null for count, not 0', () => {
+    const matrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
+    // APAC has no product B row at all.
+    expect(resolveAgg(matrix.cells.get('APAC')!.get('B'), 'count')).toBe(null);
   });
 
   it('skips non-numeric string measure values instead of letting them poison the sum with NaN', () => {
@@ -166,7 +201,7 @@ describe('pivotToCsv', () => {
     expect(csv).not.toContain('Total');
   });
 
-  it('rounds values to three decimals (e.g. averages)', () => {
+  it('rounds values to two decimals (e.g. averages) — same precision as the on-screen table', () => {
     const avgMatrix = buildPivotMatrix(
       [
         { r: 'x', c: 'y', v: 1 },
@@ -178,6 +213,29 @@ describe('pivotToCsv', () => {
     );
     // avg = 1.5
     expect(pivotToCsv(avgMatrix, 'avg', false)).toContain(',1.5');
+  });
+
+  // ─── CSV/table rounding parity (finding 3.2) ─────────────────────────────────
+
+  it('rounds a repeating-decimal average to 2 decimals, not 3, matching PivotTable', () => {
+    // A hand-rolled `Math.round(v * 1000) / 1000` in the CSV export used to round
+    // to 3 decimals while `PivotTable.tsx` rounds to 2, so an exported cell could
+    // differ from the on-screen cell in the third decimal.
+    const avgMatrix = buildPivotMatrix(
+      [
+        { r: 'x', c: 'y', v: 1 },
+        { r: 'x', c: 'y', v: 1 },
+        { r: 'x', c: 'y', v: 2 },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    // avg = 4 / 3 = 1.3333… -> rounds to 1.33 at 2-decimal precision (would be
+    // 1.333 at the old 3-decimal precision).
+    const csv = pivotToCsv(avgMatrix, 'avg', false);
+    expect(csv).toContain(',1.33');
+    expect(csv).not.toContain(',1.333');
   });
 
   // ─── CSV formula injection is neutralized (finding 1.8) ──────────────────────
@@ -219,6 +277,13 @@ describe('pivotToCsv', () => {
     expect(lines[0]).toBe('"","A","B","Gesamt"');
     expect(lines[lines.length - 1].startsWith('"Gesamt"')).toBe(true);
     expect(csv).not.toContain('Total');
+  });
+});
+
+describe('roundPivotValue', () => {
+  it('rounds to 2 decimal places — the shared precision used by both the CSV export and PivotTable', () => {
+    expect(roundPivotValue(4 / 3)).toBe(1.33);
+    expect(roundPivotValue(10)).toBe(10);
   });
 });
 

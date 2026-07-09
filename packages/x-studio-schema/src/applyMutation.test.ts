@@ -1685,7 +1685,7 @@ describe('applyMutation', () => {
       expect(Object.keys(next.widgets)).toEqual(['w1']);
     });
 
-    it('missing activePageId page is a no-op', () => {
+    it('missing activePageId with no widget deltas is a no-op (only the layout is page-scoped)', () => {
       const state = twoPageState();
       const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
@@ -1699,6 +1699,42 @@ describe('applyMutation', () => {
         },
       });
       expect(next).toBe(state);
+    });
+
+    it('applies page-independent widget deltas even when activePageId is stale (finding 7)', () => {
+      // The target page was deleted mid-turn (`activePageId` names no page), but the
+      // widget deltas (`removedWidgetIds`/`addedWidgets`/`updatedWidgets`) are
+      // page-independent and lost-update-safe by design — they must still apply rather
+      // than the WHOLE delta being silently dropped. Only the page-scoped layout
+      // replacement is skipped.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['keep']] },
+        },
+        // `stray` exists in the flat widgets map but is referenced on no page, so it is
+        // genuinely removable regardless of any page layout.
+        widgets: { keep: chartWidget('keep', 'Old'), stray: chartWidget('stray') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['stray'],
+          addedWidgets: [chartWidget('new1')],
+          updatedWidgets: [{ widgetId: 'keep', title: 'New' }],
+          widgetRows: [['new1']],
+          widgetColSpans: { new1: 6 },
+          activePageId: 'deleted-mid-turn', // stale — page no longer exists
+        },
+      });
+      // Widget deltas applied despite the stale active page...
+      expect(next.widgets.stray).toBeUndefined();
+      expect(Object.hasOwn(next.widgets, 'new1')).toBe(true);
+      expect(next.widgets.keep.title).toBe('New');
+      // ...but the (page-scoped) layout replacement was skipped — page-1 is untouched.
+      expect(next.pages['page-1'].widgetRows).toEqual([['keep']]);
+      // No phantom page was created for the stale id.
+      expect(Object.hasOwn(next.pages, 'deleted-mid-turn')).toBe(false);
     });
 
     it("drops a genuinely-removed widget's filters and its stale col-span on other pages", () => {

@@ -244,6 +244,25 @@ describe('normalizeChartSeries', () => {
     expect(normalizeChartSeries(42 as never)).toBe(42);
     expect(normalizeChartSeries('bar' as never)).toBe('bar');
   });
+
+  it('omits `type` for a nullish `seriesType` alias rather than promoting it to `type: null` (review 3.1)', () => {
+    // A `seriesType: null` leaf (possible via the unvalidated config interior) must be
+    // stripped, and — with no canonical `type` to fall back to — the result must OMIT
+    // `type` rather than promote the junk into a canonical `type: null`.
+    const result = normalizeChartSeries({ fieldId: 'revenue', seriesType: null } as never);
+    expect('seriesType' in result).toBe(false);
+    expect('type' in result).toBe(false);
+  });
+
+  it('drops a nullish `seriesType` alias while keeping a present canonical `type` (review 3.1)', () => {
+    const result = normalizeChartSeries({
+      fieldId: 'revenue',
+      type: 'line',
+      seriesType: null,
+    } as never);
+    expect(result.type).toBe('line');
+    expect('seriesType' in result).toBe(false);
+  });
 });
 
 describe('createDefaultStudioState', () => {
@@ -280,5 +299,35 @@ describe('createDefaultStudioState', () => {
     expect(state.doc.pages).toEqual(customPages);
     // The default page is gone entirely — not merged alongside the custom one.
     expect(state.doc.pages['page-1']).toBeUndefined();
+  });
+
+  it('reconciles a dangling activePageId when a doc.pages override omits the active page (review 3.5/finding 5)', () => {
+    // The pages override replaces the map wholesale but leaves `activePageId` at its
+    // default (`page-1`), which no longer exists — a blank canvas until the user
+    // switches pages. It must fall back to the first page id, like `removePage` does.
+    const customPages = {
+      'custom-page': { id: 'custom-page', title: 'Custom', widgetRows: [] },
+      'second-page': { id: 'second-page', title: 'Second', widgetRows: [] },
+    };
+    const state = createDefaultStudioState({ doc: { pages: customPages } });
+    expect(state.doc.dashboard.activePageId).toBe('custom-page');
+  });
+
+  it('leaves an explicitly-supplied valid activePageId untouched', () => {
+    const customPages = {
+      'custom-page': { id: 'custom-page', title: 'Custom', widgetRows: [] },
+      'second-page': { id: 'second-page', title: 'Second', widgetRows: [] },
+    };
+    const state = createDefaultStudioState({
+      doc: { pages: customPages, dashboard: { activePageId: 'second-page' } as any },
+    });
+    // A caller who kept the two in sync is respected — no spurious first-page fallback.
+    expect(state.doc.dashboard.activePageId).toBe('second-page');
+  });
+
+  it('falls back to an empty activePageId when a doc.pages override is empty', () => {
+    const state = createDefaultStudioState({ doc: { pages: {} } });
+    // Mirrors `removePage`'s `remainingPageIds[0] ?? ''` when no page survives.
+    expect(state.doc.dashboard.activePageId).toBe('');
   });
 });

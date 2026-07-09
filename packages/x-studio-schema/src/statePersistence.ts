@@ -1,5 +1,6 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages } from './applyMutation';
+import { isSafeKey } from './unsafeKeys';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
@@ -161,14 +162,23 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
   return true;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
 /**
- * The top-level fields a fully-migrated `SerializedStudioState` must carry, checked
- * fail-closed AFTER migration so a partial persisted doc is rejected cleanly here
- * (with a named field) instead of crashing later inside `deserializeState`. Returns
- * the name of the first missing/mis-typed field, or `null` when all are present.
+ * The fields a fully-migrated `SerializedStudioState` must carry, checked fail-closed
+ * AFTER migration so a partial or nested-corrupt persisted doc is rejected cleanly here
+ * (with a named field) instead of crashing later inside `deserializeState`. Returns the
+ * name of the first missing/mis-typed field, or `null` when all are present.
+ *
+ * The check is not only top-level: `migrateState`'s documented contract is that a corrupt
+ * doc is rejected here with a NAMED field rather than crashing in `deserializeState`, so a
+ * shallow per-entry shape check is applied too — each `pages[*]` must be a record with an
+ * array `widgetRows`, and each `widgets[*]` must be a record with a record `config`. A
+ * junk shape one level down (`pages.p1.widgetRows: "junk"`, `widgets.w1: null`) previously
+ * passed migration and then threw an uncaught `TypeError` inside the load-boundary sweep.
  */
 function findMissingRequiredField(state: Record<string, unknown>): string | null {
-  const isRecord = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
   if (!isRecord(state.dashboard)) {
     return 'dashboard';
   }
@@ -180,6 +190,22 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
   }
   if (!Array.isArray(state.filters)) {
     return 'filters';
+  }
+  for (const [pageId, page] of Object.entries(state.pages)) {
+    if (!isRecord(page)) {
+      return `pages["${pageId}"]`;
+    }
+    if (!Array.isArray(page.widgetRows)) {
+      return `pages["${pageId}"].widgetRows`;
+    }
+  }
+  for (const [widgetId, widget] of Object.entries(state.widgets)) {
+    if (!isRecord(widget)) {
+      return `widgets["${widgetId}"]`;
+    }
+    if (!isRecord(widget.config)) {
+      return `widgets["${widgetId}"].config`;
+    }
   }
   return null;
 }
@@ -200,7 +226,28 @@ export function migrateState(state: unknown): MigrationResult {
     };
   }
 
-  const fromVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 0;
+  // Derive the source version fail-CLOSED. `undefined` is a legacy pre-versioning doc
+  // (treated as v0); an integer is used as-is. Anything else — a non-finite `NaN`, a
+  // fractional `0.5`, or a non-number — is rejected here rather than silently passed
+  // through: `typeof NaN === 'number'` combined with the `NaN === CURRENT` / `NaN > CURRENT`
+  // comparisons both being false and the migration loop's `NaN < CURRENT` guard never
+  // running would otherwise let a `schemaVersion: NaN` doc through UN-MIGRATED with
+  // `success: true` (a fail-OPEN hole in the otherwise fail-closed version handling).
+  const rawVersion = state.schemaVersion;
+  if (rawVersion !== undefined && !Number.isInteger(rawVersion)) {
+    return {
+      success: false,
+      state: null,
+      fromVersion: 0,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors: [
+        `Invalid persisted state: "schemaVersion" must be an integer or absent, ` +
+          `received ${typeof rawVersion === 'number' ? String(rawVersion) : JSON.stringify(rawVersion)}. ` +
+          `A non-integer version cannot be matched to a migration step, so the doc cannot be safely upgraded.`,
+      ],
+    };
+  }
+  const fromVersion = typeof rawVersion === 'number' ? rawVersion : 0;
 
   // Already at current version — still validate structure fail-closed, so a partial
   // persisted doc is rejected here (with a named field) rather than crashing later in
@@ -378,40 +425,53 @@ export function deserializeState(
   const defaultState = createDefaultStudioState();
 
   const normalizedWidgets = Object.fromEntries(
-    Object.entries(serialized.widgets).map(([id, widget]) => {
-      // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
-      // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
-      // `config` only when one is present; otherwise return the widget untouched
-      // (keeping reference stability for the common case). This runs across kinds
-      // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
-      // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
-      const config = widget.config as StudioWidgetConfig;
-      const columns = config?.columns;
-      const ySeries = config?.ySeries;
-      // `Array.isArray` (not truthiness) with a non-empty guard: an empty
-      // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
-      // `!columns && !ySeries` check rebuilt a fresh, identical config on every
-      // load — needless reference churn that defeated the "return the widget
-      // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
-      // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
-      // untouched instead (deep config validation is out of scope for this package).
-      const hasColumns = Array.isArray(columns) && columns.length > 0;
-      const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
-      if (!hasColumns && !hasYSeries) {
-        return [id, widget];
-      }
-      return [
-        id,
-        {
-          ...widget,
-          config: {
-            ...widget.config,
-            ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
-            ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
+    Object.entries(serialized.widgets)
+      // Screen the persisted widget-record KEYS against the shared prototype-hazard
+      // denylist and drop non-record entries. `JSON.parse` happily produces an own
+      // `"__proto__"` widget key (and a foreign/hand-edited doc can carry a `null`
+      // widget); an unsafe key would survive `Object.fromEntries` as an own property and
+      // then get inconsistent downstream treatment in the reducer, and a `null` widget
+      // would throw `Cannot read properties of null (reading 'config')` in the map below.
+      // Persisted docs are an untrusted boundary (shared/hand-edited dashboards), so this
+      // mirrors the wire boundary's own-key screening — dropping the offending entry.
+      .filter(
+        ([id, widget]) =>
+          isSafeKey(id) && widget !== null && typeof widget === 'object' && !Array.isArray(widget),
+      )
+      .map(([id, widget]) => {
+        // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
+        // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
+        // `config` only when one is present; otherwise return the widget untouched
+        // (keeping reference stability for the common case). This runs across kinds
+        // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
+        // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
+        const config = widget.config as StudioWidgetConfig;
+        const columns = config?.columns;
+        const ySeries = config?.ySeries;
+        // `Array.isArray` (not truthiness) with a non-empty guard: an empty
+        // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
+        // `!columns && !ySeries` check rebuilt a fresh, identical config on every
+        // load — needless reference churn that defeated the "return the widget
+        // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
+        // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
+        // untouched instead (deep config validation is out of scope for this package).
+        const hasColumns = Array.isArray(columns) && columns.length > 0;
+        const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
+        if (!hasColumns && !hasYSeries) {
+          return [id, widget];
+        }
+        return [
+          id,
+          {
+            ...widget,
+            config: {
+              ...widget.config,
+              ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
+              ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
+            },
           },
-        },
-      ];
-    }),
+        ];
+      }),
   ) as StudioDoc['widgets'];
 
   return {
@@ -431,7 +491,16 @@ export function deserializeState(
       // migration (the doc shape is unchanged). Reference-stable for a well-formed doc.
       pages: normalizePersistedPages(serialized.pages, normalizedWidgets),
       widgets: normalizedWidgets,
-      filters: serialized.filters,
+      // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
+      // filters are session-flavoured and never written to disk, so a hand-edited or
+      // foreign doc carrying them must not install them into live `doc.filters` on load.
+      // An orphaned cross-filter (whose `scope.sourceWidgetId` names a widget the doc
+      // doesn't contain) would otherwise permanently filter its page: the reducer's
+      // cleanup for such filters only fires when the source widget is REMOVED, and it was
+      // never present, so the page would load pre-filtered with no affordance to clear it.
+      filters: serialized.filters.filter(
+        (f) => f?.scope?.kind !== 'cross-filter' && f?.scope?.kind !== 'interactive',
+      ),
       relationships: serialized.relationships ?? [],
       expressionFields: serialized.expressionFields ?? [],
       filterPresets: serialized.filterPresets ?? [],

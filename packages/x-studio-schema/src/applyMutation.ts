@@ -320,17 +320,40 @@ function enforceLayoutColSpans(
  * for unsafe keys or widgets no longer present in the sanitized rows. Reference-stable:
  * returns the SAME `pages` object (and the SAME page objects within it) when nothing
  * needed fixing, so a well-formed persisted doc loads without churn.
+ *
+ * It is also TOTAL over a corrupted/hand-edited persisted doc rather than throwing on the
+ * first non-conforming shape it meets: a prototype-hazard page KEY (`"__proto__"` etc.)
+ * or a non-record page value is dropped, a non-array `widgetRows` is coerced to `[]`, and
+ * non-array rows / non-string ids inside it are filtered out. The rebuild is done via
+ * `Object.fromEntries` (not a `nextPages[pid] = …` bracket assignment) so a stray unsafe
+ * key can never invoke the inherited prototype accessor and re-prototype the pages map.
  */
 export function normalizePersistedPages(
   pages: StudioDoc['pages'],
   widgets: StudioDoc['widgets'],
 ): StudioDoc['pages'] {
   let pagesChanged = false;
-  const nextPages: StudioDoc['pages'] = {};
+  const nextEntries: [string, StudioDoc['pages'][string]][] = [];
   for (const [pid, page] of Object.entries(pages)) {
-    const currentRows = page.widgetRows ?? [];
+    // Drop prototype-hazard page keys and non-record page values. A shared/hand-edited
+    // persisted doc is an untrusted boundary: `JSON.parse` can produce an own
+    // `"__proto__"` page key or a `null`/primitive page value, either of which would
+    // corrupt the rebuild or crash the sweep below.
+    if (!isSafePatchKey(pid) || page === null || typeof page !== 'object' || Array.isArray(page)) {
+      pagesChanged = true;
+      continue;
+    }
+    // `widgetRows` may be junk (`"junk"`, `null`, an array with non-array rows). Coerce
+    // defensively so the sweep is total: non-array → `[]`, non-array rows filtered, and
+    // each id kept only when it is a string naming a real widget. A non-array
+    // `widgetRows` (or `widgetColSpans`) always forces a rebuild so the junk is dropped
+    // rather than carried through by the value-equality no-op check below.
+    const rowsWereArray = Array.isArray(page.widgetRows);
+    const currentRows = rowsWereArray ? page.widgetRows : [];
     const sanitizedRows = dedupeLayoutRows(
-      currentRows.map((row) => row.filter((id) => Object.hasOwn(widgets, id))),
+      currentRows
+        .filter((row): row is string[] => Array.isArray(row))
+        .map((row) => row.filter((id) => typeof id === 'string' && Object.hasOwn(widgets, id))),
     );
     const present = new Set<string>();
     for (const row of sanitizedRows) {
@@ -338,8 +361,15 @@ export function normalizePersistedPages(
         present.add(id);
       }
     }
-    let nextSpans: Record<string, number> | undefined = page.widgetColSpans;
-    if (page.widgetColSpans) {
+    const spansWereRecord =
+      page.widgetColSpans === undefined ||
+      (typeof page.widgetColSpans === 'object' &&
+        page.widgetColSpans !== null &&
+        !Array.isArray(page.widgetColSpans));
+    let nextSpans: Record<string, number> | undefined = spansWereRecord
+      ? page.widgetColSpans
+      : undefined;
+    if (page.widgetColSpans && spansWereRecord) {
       const rebuilt: Record<string, number> = {};
       for (const key of Object.keys(page.widgetColSpans)) {
         // Drop prototype-polluting keys and spans orphaned by the row filter/dedupe
@@ -350,14 +380,19 @@ export function normalizePersistedPages(
       }
       nextSpans = Object.keys(rebuilt).length > 0 ? rebuilt : undefined;
     }
-    if (!rowsEqual(currentRows, sanitizedRows) || !spansEqual(nextSpans, page.widgetColSpans)) {
-      nextPages[pid] = { ...page, widgetRows: sanitizedRows, widgetColSpans: nextSpans };
+    if (
+      !rowsWereArray ||
+      !spansWereRecord ||
+      !rowsEqual(currentRows, sanitizedRows) ||
+      !spansEqual(nextSpans, page.widgetColSpans)
+    ) {
+      nextEntries.push([pid, { ...page, widgetRows: sanitizedRows, widgetColSpans: nextSpans }]);
       pagesChanged = true;
     } else {
-      nextPages[pid] = page;
+      nextEntries.push([pid, page]);
     }
   }
-  return pagesChanged ? nextPages : pages;
+  return pagesChanged ? (Object.fromEntries(nextEntries) as StudioDoc['pages']) : pages;
 }
 
 /**
@@ -412,19 +447,22 @@ function removeWidgetIds(
   // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id.
   const nextFilters = dropWidgetScopedFilters(filters, (id) => removedIds.has(id));
   // (e) prune each removed id's stale span entry from every page (reference-stable).
+  // Rebuilt via `Object.fromEntries` (not a `nextPages[pid] = …` bracket assignment) so a
+  // stray unsafe page key can never invoke the inherited prototype accessor — matching the
+  // load-boundary sweep in `normalizePersistedPages`.
   let pagesChanged = false;
-  const nextPages: StudioDoc['pages'] = {};
+  const nextEntries: [string, StudioDoc['pages'][string]][] = [];
   for (const [pid, p] of Object.entries(pages)) {
     const prunedSpans = removeSpanEntries(p.widgetColSpans, removedIds);
     if (prunedSpans !== p.widgetColSpans) {
-      nextPages[pid] = { ...p, widgetColSpans: prunedSpans };
+      nextEntries.push([pid, { ...p, widgetColSpans: prunedSpans }]);
       pagesChanged = true;
     } else {
-      nextPages[pid] = p;
+      nextEntries.push([pid, p]);
     }
   }
   return {
-    pages: pagesChanged ? nextPages : pages,
+    pages: pagesChanged ? (Object.fromEntries(nextEntries) as StudioDoc['pages']) : pages,
     widgets: nextWidgets,
     filters: nextFilters,
     removedIds,
@@ -1080,71 +1118,80 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
     apply: (state, args) => {
       const { removedWidgetIds, addedWidgets, updatedWidgets, widgetRows, widgetColSpans } = args;
       const { activePageId } = args;
-      // `Object.hasOwn` guard so an untrusted `activePageId` can't match a prototype member.
-      if (!Object.hasOwn(state.pages, activePageId)) {
-        return state;
-      }
-      const page = state.pages[activePageId];
 
-      // Sanitize the producer-supplied active-page rows against the ids that will
-      // actually exist once this bulk applies: existing widgets PLUS this bulk's own
-      // `addedWidgets` ids (inserted below in the same handler, so a row legitimately
-      // references them) that pass the safe-key gate. Unlike `setWidgetLayout` — which
-      // filters against `state.widgets` alone — the bulk's rows may name a not-yet-
-      // inserted added widget, so filtering against `state.widgets` alone would wrongly
-      // drop them. A phantom id (neither an existing widget nor a safe added-widget id)
-      // would otherwise persist in `widgetRows` with no `widgets` entry — exactly the
-      // "page renders a widget that does not exist" state `setWidgetLayout` guards
-      // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
-      // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
-      const validRowIds = new Set<string>(Object.keys(state.widgets));
-      for (const widget of addedWidgets ?? []) {
-        if (isSafePatchKey(widget.id)) {
-          validRowIds.add(widget.id);
+      // The layout portion (`widgetRows`/`widgetColSpans`) targets the ACTIVE PAGE only,
+      // but the widget deltas (`removedWidgetIds`/`addedWidgets`/`updatedWidgets`) are
+      // page-independent — the lost-update-safe delta shape exists precisely to apply them
+      // on top of the receiver's CURRENT widgets. When `activePageId` is stale (the target
+      // page was deleted mid-turn), the layout replacement is skipped, but the widget
+      // deltas are still applied rather than silently dropping the WHOLE mutation. Only the
+      // page-scoped layout is conditional on the page existing. `Object.hasOwn` so an
+      // untrusted `activePageId` can't match a prototype member.
+      const pageExists = Object.hasOwn(state.pages, activePageId);
+      let layoutPages: StudioDoc['pages'] = state.pages;
+      if (pageExists) {
+        const page = state.pages[activePageId];
+
+        // Sanitize the producer-supplied active-page rows against the ids that will
+        // actually exist once this bulk applies: existing widgets PLUS this bulk's own
+        // `addedWidgets` ids (inserted below in the same handler, so a row legitimately
+        // references them) that pass the safe-key gate. Unlike `setWidgetLayout` — which
+        // filters against `state.widgets` alone — the bulk's rows may name a not-yet-
+        // inserted added widget, so filtering against `state.widgets` alone would wrongly
+        // drop them. A phantom id (neither an existing widget nor a safe added-widget id)
+        // would otherwise persist in `widgetRows` with no `widgets` entry — exactly the
+        // "page renders a widget that does not exist" state `setWidgetLayout` guards
+        // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
+        // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
+        const validRowIds = new Set<string>(Object.keys(state.widgets));
+        for (const widget of addedWidgets ?? []) {
+          if (isSafePatchKey(widget.id)) {
+            validRowIds.add(widget.id);
+          }
         }
-      }
-      // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
-      // deduplicate ids that appear more than once — the same id twice would render the
-      // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
-      // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
-      const sanitizedRows = dedupeLayoutRows(
-        widgetRows.map((row) => row.filter((id) => validRowIds.has(id))),
-      );
+        // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
+        // deduplicate ids that appear more than once — the same id twice would render the
+        // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
+        // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
+        const sanitizedRows = dedupeLayoutRows(
+          widgetRows.map((row) => row.filter((id) => validRowIds.has(id))),
+        );
 
-      // Normalize the producer-supplied active-page spans through the SAME invariants
-      // every other layout path enforces (previously they were stored verbatim, so a
-      // bad producer could persist an out-of-range or overflowing span): clamp each
-      // span to the valid range and drop unsafe keys (so the rebuild can't reintroduce
-      // prototype pollution), then run `enforceLayoutColSpans`. `oldRows = []` so the
-      // 2→1 collapse never fires — the producer supplied rows and spans together, so a
-      // singleton span is intentional — while the row-overflow drop, orphaned-span
-      // drop, and empty→undefined collapse all apply. Feeding the SANITIZED rows here
-      // means a span for a dropped phantom id is pruned as an orphan.
-      const clampedSpans: Record<string, number> = {};
-      for (const key of Object.keys(widgetColSpans)) {
-        if (!isSafePatchKey(key)) {
-          continue;
+        // Normalize the producer-supplied active-page spans through the SAME invariants
+        // every other layout path enforces (previously they were stored verbatim, so a
+        // bad producer could persist an out-of-range or overflowing span): clamp each
+        // span to the valid range and drop unsafe keys (so the rebuild can't reintroduce
+        // prototype pollution), then run `enforceLayoutColSpans`. `oldRows = []` so the
+        // 2→1 collapse never fires — the producer supplied rows and spans together, so a
+        // singleton span is intentional — while the row-overflow drop, orphaned-span
+        // drop, and empty→undefined collapse all apply. Feeding the SANITIZED rows here
+        // means a span for a dropped phantom id is pruned as an orphan.
+        const clampedSpans: Record<string, number> = {};
+        for (const key of Object.keys(widgetColSpans)) {
+          if (!isSafePatchKey(key)) {
+            continue;
+          }
+          clampedSpans[key] = clampSpan(widgetColSpans[key]);
         }
-        clampedSpans[key] = clampSpan(widgetColSpans[key]);
-      }
-      const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, clampedSpans);
+        const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, clampedSpans);
 
-      // Reference-equality no-op tracking: only rebuild the active page when its rows or
-      // spans actually changed (by value), so a re-delivered bulk carrying the current
-      // layout doesn't churn the page reference and push a spurious undo entry.
-      const layoutChanged =
-        !rowsEqual(page.widgetRows ?? [], sanitizedRows) ||
-        !spansEqual(normalizedActiveSpans, page.widgetColSpans);
-      const layoutPages: StudioDoc['pages'] = layoutChanged
-        ? {
+        // Reference-equality no-op tracking: only rebuild the active page when its rows or
+        // spans actually changed (by value), so a re-delivered bulk carrying the current
+        // layout doesn't churn the page reference and push a spurious undo entry.
+        const layoutChanged =
+          !rowsEqual(page.widgetRows ?? [], sanitizedRows) ||
+          !spansEqual(normalizedActiveSpans, page.widgetColSpans);
+        if (layoutChanged) {
+          layoutPages = {
             ...state.pages,
             [activePageId]: {
               ...page,
               widgetRows: sanitizedRows,
               widgetColSpans: normalizedActiveSpans,
             },
-          }
-        : state.pages;
+          };
+        }
+      }
 
       // Remove every genuinely-gone widget via the shared primitive: a widget named in
       // `removedWidgetIds` is only truly removed if it doesn't still appear on some

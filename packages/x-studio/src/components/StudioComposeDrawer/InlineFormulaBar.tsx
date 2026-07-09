@@ -32,6 +32,17 @@ const OPERATORS = [
 
 type ArithmeticOp = (typeof OPERATORS)[number]['value'];
 
+// Collision-resistant id generator for formula-created expression fields (finding
+// 3.11): a plain `expr_formula_${Date.now()}` collides whenever two formula fields
+// are created within the same millisecond, and `addExpressionField` silently no-ops
+// a duplicate id via the reducer's idempotency check. Pairs the timestamp with a
+// module-level monotonic counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx`.
+let formulaFieldIdCounter = 0;
+function createFormulaFieldId(): string {
+  formulaFieldIdCounter += 1;
+  return `expr_formula_${Date.now()}_${formulaFieldIdCounter}`;
+}
+
 function opSymbol(operator: ArithmeticOp): string {
   return OPERATORS.find((o) => o.value === operator)?.label ?? operator;
 }
@@ -129,7 +140,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
     if (!isValid) {
       return;
     }
-    const id = `expr_formula_${Date.now()}`;
+    const id = createFormulaFieldId();
     const expression = buildExpression(left, operator, right);
     const field: StudioExpressionField = {
       id,

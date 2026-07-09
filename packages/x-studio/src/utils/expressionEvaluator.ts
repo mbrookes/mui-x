@@ -14,6 +14,7 @@ import type {
   StudioRelationship,
 } from '../models';
 import { aggregateNumbers, coerceAggregateValue } from '../internals/aggregate';
+import { normalizeJoinKey } from '../internals/joinKeys';
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ export interface EvaluationContext {
    * When present, avoids O(M) linear scans over the related source's rows per evaluated row.
    * Built by enrichRowsWithExpressions before the row loop.
    */
-  joinIndexes?: Map<string, { sourceField: string; index: Map<unknown, Record<string, unknown>> }>;
+  joinIndexes?: Map<string, { sourceField: string; index: Map<string, Record<string, unknown>> }>;
   /**
    * Internal cycle guard: ids of expression fields currently being resolved via the
    * field-reference recursion in `evaluateExpression`'s `isFieldExpression` branch.
@@ -115,11 +116,14 @@ export function evaluateExpression(
     // Fast path: use pre-built index from enrichRowsWithExpressions (O(1) lookup).
     const precomputed = joinIndexes?.get(joinSourceId);
     if (precomputed) {
-      const fkValue = row[precomputed.sourceField];
-      if (fkValue == null) {
+      // Keys are normalized (finding 3.16) so a numeric FK matches a string PK, the
+      // same policy `gridGrouping.symmetricAggregate` uses for the same kind of
+      // cross-source join — see `normalizeJoinKey`'s doc comment.
+      const fkKey = normalizeJoinKey(row[precomputed.sourceField]);
+      if (fkKey === null) {
         return null;
       }
-      return (precomputed.index.get(fkValue)?.[fieldId] ?? null) as ScalarValue;
+      return (precomputed.index.get(fkKey)?.[fieldId] ?? null) as ScalarValue;
     }
 
     // Slow path fallback: used when called without a pre-built index (e.g. single-row eval).
@@ -130,12 +134,14 @@ export function evaluateExpression(
     if (!rel) {
       return null;
     }
-    const fkValue = row[rel.sourceField];
-    if (fkValue == null) {
+    const fkKey = normalizeJoinKey(row[rel.sourceField]);
+    if (fkKey === null) {
       return null;
     }
     const relatedSource = dataSources[joinSourceId];
-    const relatedRow = relatedSource?.rows?.find((r) => r[rel.targetField] === fkValue);
+    const relatedRow = relatedSource?.rows?.find(
+      (r) => normalizeJoinKey(r[rel.targetField]) === fkKey,
+    );
     return (relatedRow?.[fieldId] ?? null) as ScalarValue;
   }
 
@@ -303,7 +309,7 @@ export function enrichRowsWithExpressions(
   // plus O(1) Map.get() per row — a dramatic speedup for large datasets.
   const joinIndexes = new Map<
     string,
-    { sourceField: string; index: Map<unknown, Record<string, unknown>> }
+    { sourceField: string; index: Map<string, Record<string, unknown>> }
   >();
   if (dataSources && relationships) {
     // Pre-build relationship index: targetId → relationship for O(1) lookup
@@ -319,11 +325,17 @@ export function enrichRowsWithExpressions(
         if (!joinIndexes.has(joinSourceId)) {
           const rel = relByTargetId.get(joinSourceId);
           if (rel) {
-            const index = new Map<unknown, Record<string, unknown>>();
+            // Keys are normalized (finding 3.16) via the shared `normalizeJoinKey`
+            // policy so a numeric FK matches a string PK, same as
+            // `gridGrouping.symmetricAggregate`'s cross-source join.
+            const index = new Map<string, Record<string, unknown>>();
             for (const r of dataSources[joinSourceId]?.rows ?? []) {
-              // First-write-wins: preserves uniqueness for PK fields.
-              if (!index.has(r[rel.targetField])) {
-                index.set(r[rel.targetField], r as Record<string, unknown>);
+              const key = normalizeJoinKey(r[rel.targetField]);
+              // First-write-wins: preserves uniqueness for PK fields. Rows whose
+              // key normalizes to null (missing/object) are skipped so they never
+              // become a spurious join target.
+              if (key !== null && !index.has(key)) {
+                index.set(key, r as Record<string, unknown>);
               }
             }
             joinIndexes.set(joinSourceId, { sourceField: rel.sourceField, index });
@@ -358,13 +370,16 @@ export function enrichRowsWithExpressions(
 
 /**
  * Evaluates a measure expression field over a (filtered) dataset.
- * Returns a single aggregate value.
+ * Returns a single aggregate value, or `null` when the expression's own root
+ * node is a `divide`/`modulo` by zero (finding 3.16 — matches the row-context
+ * policy in `evaluateFunctionExpression`, where a fabricated `0` would be
+ * misleading: "no valid result" is `null` in both contexts, not a silent 0).
  */
 export function evaluateMeasure(
   exprField: StudioExpressionField,
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[],
-): number {
+): number | null {
   if (!exprField.isMeasure) {
     return 0;
   }
@@ -375,7 +390,7 @@ function evalMeasureExpression(
   expr: StudioExpression,
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[],
-): number {
+): number | null {
   if (isValueExpression(expr)) {
     return toNumber(expr.value);
   }
@@ -399,15 +414,18 @@ function evalMeasureExpression(
   }
 
   // FunctionExpression — recursively evaluate each input as a measure scalar,
-  // then apply the operator to those scalars.
+  // then apply the operator to those scalars. Nested `null` results (from a
+  // divide/modulo by zero elsewhere in the tree) coerce to 0 here — the same
+  // "null surfaces only at the top level, 0 once nested inside other arithmetic"
+  // behavior the row-context evaluator gets from `toNumber(null) === 0`.
   const { operator, inputs } = expr;
   const evalIn = (i: number): number =>
-    inputs[i] !== undefined ? evalMeasureExpression(inputs[i], rows, expressionFields) : 0;
+    inputs[i] !== undefined ? (evalMeasureExpression(inputs[i], rows, expressionFields) ?? 0) : 0;
 
   switch (operator as StudioExpressionOperator) {
     case 'add':
       return inputs.reduce(
-        (acc, inp) => acc + evalMeasureExpression(inp, rows, expressionFields),
+        (acc, inp) => acc + (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
         0,
       );
     case 'subtract': {
@@ -416,23 +434,23 @@ function evalMeasureExpression(
       }
       const [first, ...rest] = inputs;
       return rest.reduce(
-        (acc, inp) => acc - evalMeasureExpression(inp, rows, expressionFields),
-        evalMeasureExpression(first, rows, expressionFields),
+        (acc, inp) => acc - (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
+        evalMeasureExpression(first, rows, expressionFields) ?? 0,
       );
     }
     case 'multiply':
       return inputs.reduce(
-        (acc, inp) => acc * evalMeasureExpression(inp, rows, expressionFields),
+        (acc, inp) => acc * (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
         1,
       );
     case 'divide': {
       const n = evalIn(0);
       const d = evalIn(1);
-      return d === 0 ? 0 : n / d;
+      return d === 0 ? null : n / d;
     }
     case 'modulo': {
       const d = evalIn(1);
-      return d === 0 ? 0 : evalIn(0) % d;
+      return d === 0 ? null : evalIn(0) % d;
     }
     case 'negate':
       return -evalIn(0);

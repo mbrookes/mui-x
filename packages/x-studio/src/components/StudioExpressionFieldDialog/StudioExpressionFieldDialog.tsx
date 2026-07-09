@@ -65,6 +65,16 @@ function makeDefaultExpression(): StudioExpression {
   } satisfies StudioFunctionExpression;
 }
 
+// Collision-resistant id generator for newly-created expression fields (finding
+// 3.11): a plain `expr-${Date.now()}` collides whenever two fields are created
+// within the same millisecond. Pairs the timestamp with a module-level monotonic
+// counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx` elsewhere in x-studio.
+let newExpressionFieldIdCounter = 0;
+function createNewExpressionFieldId(): string {
+  newExpressionFieldIdCounter += 1;
+  return `expr-${Date.now()}-${newExpressionFieldIdCounter}`;
+}
+
 export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogProps) {
   const {
     open,
@@ -89,7 +99,16 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   });
   const { label, description, isMeasure, expression, precision } = form;
 
-  const fieldId = existingField?.id ?? `expr-${Date.now()}`;
+  // Stable across re-renders (finding 3.11): the previous `expr-${Date.now()}` was
+  // recomputed on every render for a new (non-edit) field, churning the `draftField`/
+  // `validationErrors` memos below (both depend on `fieldId`) on every keystroke until
+  // save. Generated once per mount via a lazy ref initializer, not `useMemo` (which
+  // isn't guaranteed to preserve identity across renders without deps discipline).
+  const newFieldIdRef = React.useRef<string | null>(null);
+  if (newFieldIdRef.current === null) {
+    newFieldIdRef.current = createNewExpressionFieldId();
+  }
+  const fieldId = existingField?.id ?? newFieldIdRef.current;
 
   // BL-180: expression fields offered as operands in the builder, scoped to those
   // reachable from the configuring widget. The unfiltered `expressionFields` is still

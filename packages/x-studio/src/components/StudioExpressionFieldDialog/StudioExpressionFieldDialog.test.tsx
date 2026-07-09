@@ -111,6 +111,44 @@ describe('StudioExpressionFieldDialog', () => {
     expect(addSpy).not.toHaveBeenCalled();
   });
 
+  // Regression coverage for architecture-review finding 3.11: the previous
+  // `expr-${Date.now()}` id was recomputed on every render in create mode, churning
+  // the `draftField`/`validationErrors` memos (both depend on `fieldId`) on every
+  // keystroke until save.
+  it('does not regenerate the field id per keystroke', async () => {
+    const dateNowSpy = vi.spyOn(Date, 'now');
+    const { user } = setup();
+    // Let the initial render settle before taking the baseline call count, so any
+    // Date.now() calls attributable to mount (unrelated library internals) aren't
+    // mistaken for per-keystroke churn.
+    await screen.findByRole('button', { name: 'Add Field' });
+    const callsBeforeTyping = dateNowSpy.mock.calls.length;
+
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Profit Margin');
+
+    expect(dateNowSpy.mock.calls.length).toBe(callsBeforeTyping);
+  });
+
+  // Regression coverage for finding 3.11: a plain `expr-${Date.now()}` collides
+  // whenever two fields are created within the same millisecond, silently no-op'ing
+  // the second create via the reducer's duplicate-id idempotency.
+  it('mints unique ids for separately-created fields even when Date.now() does not advance', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+
+    const first = setup();
+    await first.user.type(screen.getByRole('textbox', { name: 'Name' }), 'A');
+    await first.user.click(screen.getByRole('button', { name: 'Add Field' }));
+    const firstId = first.addSpy.mock.calls[0][0].id;
+    first.unmount();
+
+    const second = setup();
+    await second.user.type(screen.getByRole('textbox', { name: 'Name' }), 'B');
+    await second.user.click(screen.getByRole('button', { name: 'Add Field' }));
+    const secondId = second.addSpy.mock.calls[0][0].id;
+
+    expect(firstId).not.toBe(secondId);
+  });
+
   // Regression coverage for architecture-review finding 2.2: the "Output type:" caption
   // used to be hardcoded English even though the rest of this dialog resolves strings
   // through `useStudioLocaleText`.

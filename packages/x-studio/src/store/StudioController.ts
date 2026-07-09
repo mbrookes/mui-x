@@ -52,6 +52,7 @@ import {
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 import { hasConflictingRankFilter } from '../internals/rankFilterScope';
+import { hasExpressionCycle } from '../utils/expressionEvaluator';
 import * as docTransforms from './docTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
@@ -207,6 +208,43 @@ export class StudioController {
   };
 
   /**
+   * Dev-mode diagnostic (2.7): warns when the committed doc contains a widget that
+   * is present in `doc.widgets` but absent from EVERY page's `widgetRows` — an
+   * "orphan" that stays in the document yet vanishes from the canvas.
+   *
+   * The public `setWidgetLayout` throws on unknown/omitted ids, but the callers that
+   * feed caller-computed geometry straight to the reducer (`insertWidgetAt`,
+   * `commitWidgetMove`, `duplicateWidget`) have no such check — a canvas geometry bug
+   * would silently disappear a widget with no signal. This surfaces that bug class
+   * without breaking the caller-owned-geometry contract (it warns, never throws).
+   * Called AFTER the commit so it inspects the final state the reducer produced.
+   */
+  private warnOnOrphanedWidgets = () => {
+    if (process.env.NODE_ENV === 'production') {
+      return;
+    }
+    const { doc } = this.store.state;
+    const placed = new Set<string>();
+    for (const page of Object.values(doc.pages)) {
+      for (const row of page.widgetRows ?? []) {
+        for (const id of row) {
+          placed.add(id);
+        }
+      }
+    }
+    const orphaned = Object.keys(doc.widgets).filter((id) => !placed.has(id));
+    if (orphaned.length > 0) {
+      console.warn(
+        `MUI X Studio: ${orphaned.length} widget(s) are present in the document but absent ` +
+          `from every page layout: ${orphaned.join(', ')}. ` +
+          'A layout write (drag/drop, insert, move, or duplicate) omitted them from the ' +
+          'committed rows, so they no longer render on any page. This usually indicates a ' +
+          'geometry bug in the caller that computed the rows.',
+      );
+    }
+  };
+
+  /**
    * Carries transient `doc` state forward across an undo/redo swap (1.1).
    *
    * A handful of `doc` fields are committed NON-undoably (they live in `doc` because
@@ -275,10 +313,25 @@ export class StudioController {
         }
       : incomingDoc.dashboard;
 
-    if (nextFilters === incomingDoc.filters && nextDashboard === incomingDoc.dashboard) {
+    // Carry the AI chat-thread state forward across the swap (1.2). `doc.ai` is
+    // persisted (it travels with the saved dashboard) but is written NON-undoably
+    // by `useChatThreads` — it is not part of the authored-edit timeline. Undo/redo
+    // time-travels the whole `doc`, so without this overlay a Ctrl+Z on an unrelated
+    // edit would swap in a doc snapshotted BEFORE the conversation existed, silently
+    // destroying the user's chat history (and any further edit clears the redo stack,
+    // making the loss unrecoverable). Same pattern as the cross-filter toggles above:
+    // overlay the CURRENT doc's `ai` onto the incoming doc, preserving identity when
+    // it is already reference-equal.
+    const nextAi = currentDoc.ai !== incomingDoc.ai ? currentDoc.ai : incomingDoc.ai;
+
+    if (
+      nextFilters === incomingDoc.filters &&
+      nextDashboard === incomingDoc.dashboard &&
+      nextAi === incomingDoc.ai
+    ) {
       return incomingDoc;
     }
-    return { ...incomingDoc, filters: nextFilters, dashboard: nextDashboard };
+    return { ...incomingDoc, filters: nextFilters, dashboard: nextDashboard, ai: nextAi };
   };
 
   /**
@@ -381,7 +434,21 @@ export class StudioController {
    * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
-    this.commitMutation(mutation, { label });
+    this.commitMutation(mutation, {
+      label,
+      // Reset a dangling widget selection (2.2). An AI-driven `removeWidget` (or a
+      // `removePage` that removes the selected widget) would otherwise leave
+      // `session.shell.selectedWidgetId` pointing at a widget no longer in the doc —
+      // `StudioComposeDrawer` then renders a blank `WidgetConfigView` for the missing
+      // id instead of the add-widget view, and the stale id is the enabling condition
+      // for the `updateWidget` crash (1.3). User-driven `removeWidget` already nulls
+      // the selection; this mirrors it generically for every wire-driven mutation by
+      // reusing the post-doc-swap selection normalizer.
+      transform: (next) => {
+        const session = this.normalizeSessionAfterDocSwap(next.session, next.doc);
+        return session === next.session ? next : { ...next, session };
+      },
+    });
   };
 
   /**
@@ -643,7 +710,24 @@ export class StudioController {
     if (exists) {
       return;
     }
-    this.commitDocPatch({ expressionFields: [...state.doc.expressionFields, field] });
+    // Cycle guard at the mutation boundary (2.8): cycle validation lives in the
+    // expression dialog's save button, but a host call (or a persisted doc replayed
+    // through here) could otherwise introduce a circular reference that later
+    // hard-crashes `enrichRowsWithExpressions` with unbounded recursion during widget
+    // render. Reject (guard-and-continue: warn in dev, no commit) if adding this field
+    // would create a cycle among the resulting field set.
+    const nextFields = [...state.doc.expressionFields, field];
+    if (hasExpressionCycle(field, nextFields)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          `MUI X Studio: Expression field '${field.id}' was not added because it would ` +
+            'create a circular dependency with existing expression fields. ' +
+            'Remove the self/mutual reference from its expression.',
+        );
+      }
+      return;
+    }
+    this.commitDocPatch({ expressionFields: nextFields });
   };
 
   updateExpressionField = (
@@ -657,11 +741,24 @@ export class StudioController {
     if (!existing) {
       return;
     }
-    this.commitDocPatch({
-      expressionFields: state.doc.expressionFields.map((ef: StudioExpressionField) =>
-        ef.id === fieldId ? { ...ef, ...updates } : ef,
-      ),
-    });
+    const updatedField = { ...existing, ...updates };
+    const nextFields = state.doc.expressionFields.map((ef: StudioExpressionField) =>
+      ef.id === fieldId ? updatedField : ef,
+    );
+    // Cycle guard at the mutation boundary (2.8): see `addExpressionField`. An update
+    // that changes the field's `expression` can newly introduce a cycle just as an add
+    // can, so reject it the same way rather than persisting a doc that crashes on render.
+    if (hasExpressionCycle(updatedField, nextFields)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          `MUI X Studio: Expression field '${fieldId}' was not updated because the change ` +
+            'would create a circular dependency with existing expression fields. ' +
+            'Remove the self/mutual reference from its expression.',
+        );
+      }
+      return;
+    }
+    this.commitDocPatch({ expressionFields: nextFields });
   };
 
   removeExpressionField = (fieldId: string) => {
@@ -749,6 +846,7 @@ export class StudioController {
             : next,
       },
     );
+    this.warnOnOrphanedWidgets();
   };
 
   /**
@@ -935,6 +1033,14 @@ export class StudioController {
         transform: isExplicitTitleChange
           ? undefined
           : (next) => {
+              // Guard on the widget's actual presence (1.3). Since df6c2b7 moved the
+              // no-op check to AFTER `transform` runs, this transform now executes even
+              // when the reducer no-op'd on an unknown `widgetId` — dereferencing a
+              // missing widget and passing `undefined` into `applyInferredTitles` would
+              // throw. Mirrors the `Object.hasOwn` guard on the selection transforms.
+              if (!Object.hasOwn(next.doc.widgets, widgetId)) {
+                return next;
+              }
               const updated = next.doc.widgets[widgetId];
               const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
               if (withTitles === updated) {
@@ -1035,6 +1141,13 @@ export class StudioController {
       },
       {
         transform: (next) => {
+          // Guard on the widget's actual presence (1.3) — see `updateWidget`. The
+          // reducer no-ops on an unknown `widgetId`, but the post-df6c2b7 commit path
+          // still runs this transform, so dereferencing a missing widget must be a
+          // clean no-op rather than a `TypeError` in `applyInferredTitles`.
+          if (!Object.hasOwn(next.doc.widgets, widgetId)) {
+            return next;
+          }
           const updated = next.doc.widgets[widgetId];
           const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
           if (withTitles === updated) {
@@ -1131,6 +1244,7 @@ export class StudioController {
         }),
       },
     );
+    this.warnOnOrphanedWidgets();
   };
 
   addFilter = (filter: import('../models').StudioFilterState) => {
@@ -1141,6 +1255,24 @@ export class StudioController {
       filter.scope.kind === 'page'
         ? { ...filter, scope: { kind: 'page' as const, pageId: state.doc.dashboard.activePageId } }
         : filter;
+    // Rank-filter uniqueness guard (2.6): `updateFilter` rejects switching a filter to
+    // rank mode when another rank filter already occupies the same page context, but
+    // `addFilter` historically didn't enforce the SAME invariant — a host call (or an
+    // `add_page_filter` routed here) could add a second rank filter on a page and
+    // violate the one-rank-per-page rule the update path guards. Apply the identical
+    // shared check here so both entry points agree.
+    if (
+      stampedFilter.filterMode === 'rank' &&
+      hasConflictingRankFilter(stampedFilter.id, stampedFilter, state.doc.filters, state.doc.pages)
+    ) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+            'The added rank filter was rejected.',
+        );
+      }
+      return;
+    }
     // The page-scope stamping above is argument-shaping the controller does today
     // (not reducer duplication) and must survive; the append itself delegates to
     // the shared reducer (which is idempotent on a duplicate filter id — appending
@@ -1546,10 +1678,23 @@ export class StudioController {
   removePage = (pageId: string) => {
     // Delegate the full state transform to the shared reducer — the single
     // implementation that drops the page and its widgets, cleans page-scoped AND
-    // widget-scoped (orphaned) filters, and reassigns `activePageId`. This is a
-    // pure transform with no client-only effect, so it can delegate wholesale.
-    // An unknown `pageId` is a reducer no-op, skipped by `commitMutation`.
-    this.commitMutation({ type: 'removePage', args: { pageId } });
+    // widget-scoped (orphaned) filters, and reassigns `activePageId`. An unknown
+    // `pageId` is a reducer no-op, skipped by `commitMutation`.
+    //
+    // Removing a page removes its widgets, so it DOES have a client-only effect
+    // (2.2): if the selected widget lived on the removed page, the selection is now
+    // dangling. Layer the same selection-reset transform used by `removeWidget` /
+    // `applyExternalMutation` — otherwise the compose drawer would render a blank
+    // `WidgetConfigView` for the vanished widget.
+    this.commitMutation(
+      { type: 'removePage', args: { pageId } },
+      {
+        transform: (next) => {
+          const session = this.normalizeSessionAfterDocSwap(next.session, next.doc);
+          return session === next.session ? next : { ...next, session };
+        },
+      },
+    );
   };
 
   /**
@@ -1638,6 +1783,7 @@ export class StudioController {
       label: options?.label === null ? null : (options?.label ?? `moveWidget:${widgetId}`),
       transform: options?.transform,
     });
+    this.warnOnOrphanedWidgets();
   };
 
   /**

@@ -660,6 +660,22 @@ function validateExpression(
 // ─── Cycle detection ──────────────────────────────────────────────────────────
 
 /**
+ * True when adding/updating `startField` would introduce a circular dependency
+ * among `allFields` (which must already INCLUDE `startField` in its final,
+ * post-mutation form). Exposed so the controller can enforce cycle-freedom at the
+ * mutation boundary (`addExpressionField`/`updateExpressionField`), matching the
+ * dialog's save-time `validateExpressionField` guard — a persisted doc or host/AI
+ * call must not be able to introduce a cycle that later hard-crashes
+ * `enrichRowsWithExpressions` with unbounded recursion.
+ */
+export function hasExpressionCycle(
+  startField: StudioExpressionField,
+  allFields: StudioExpressionField[],
+): boolean {
+  return detectCycles(startField, allFields).length > 0;
+}
+
+/**
  * Detects if the given expression field creates a cycle in the dependency graph
  * of expression fields.
  */

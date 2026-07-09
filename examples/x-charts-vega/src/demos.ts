@@ -50,7 +50,11 @@ export const activityRows: DatasetRow[] = (() => {
   const rows: DatasetRow[] = [];
   days.forEach((day, dayIndex) => {
     parts.forEach((part, partIndex) => {
-      rows.push({ day, part, visits: 20 + dayIndex * 7 + partIndex * 13 + ((dayIndex * partIndex) % 5) * 9 });
+      rows.push({
+        day,
+        part,
+        visits: 20 + dayIndex * 7 + partIndex * 13 + ((dayIndex * partIndex) % 5) * 9,
+      });
     });
   });
   return rows;
@@ -75,7 +79,16 @@ export const islandFeatures: DatasetRow[] = [
     properties: { name: 'North Isle', population: 320 },
     geometry: {
       type: 'Polygon',
-      coordinates: [[[-10, 20], [10, 25], [15, 40], [-5, 45], [-15, 32], [-10, 20]]],
+      coordinates: [
+        [
+          [-10, 20],
+          [10, 25],
+          [15, 40],
+          [-5, 45],
+          [-15, 32],
+          [-10, 20],
+        ],
+      ],
     },
   },
   {
@@ -83,7 +96,16 @@ export const islandFeatures: DatasetRow[] = [
     properties: { name: 'East Isle', population: 540 },
     geometry: {
       type: 'Polygon',
-      coordinates: [[[25, 5], [45, 10], [50, 25], [30, 30], [20, 18], [25, 5]]],
+      coordinates: [
+        [
+          [25, 5],
+          [45, 10],
+          [50, 25],
+          [30, 30],
+          [20, 18],
+          [25, 5],
+        ],
+      ],
     },
   },
   {
@@ -91,21 +113,53 @@ export const islandFeatures: DatasetRow[] = [
     properties: { name: 'South Isle', population: 150 },
     geometry: {
       type: 'Polygon',
-      coordinates: [[[-20, -30], [5, -35], [10, -15], [-10, -10], [-25, -20], [-20, -30]]],
+      coordinates: [
+        [
+          [-20, -30],
+          [5, -35],
+          [10, -15],
+          [-10, -10],
+          [-25, -20],
+          [-20, -30],
+        ],
+      ],
     },
   },
 ];
 
-/** Rows for the deliberately-unsupported boxplot demo. */
+/** Rows for the boxplot demos: several revenue samples per category (+ region split). */
 export const distributionRows: DatasetRow[] = [
-  { category: 'Electronics', revenue: 4200 },
-  { category: 'Electronics', revenue: 4600 },
-  { category: 'Electronics', revenue: 5100 },
-  { category: 'Electronics', revenue: 3900 },
-  { category: 'Apparel', revenue: 2400 },
-  { category: 'Apparel', revenue: 2100 },
-  { category: 'Apparel', revenue: 2600 },
-  { category: 'Apparel', revenue: 2750 },
+  { category: 'Electronics', region: 'West', revenue: 4200 },
+  { category: 'Electronics', region: 'West', revenue: 4600 },
+  { category: 'Electronics', region: 'West', revenue: 5100 },
+  { category: 'Electronics', region: 'West', revenue: 3800 },
+  { category: 'Electronics', region: 'East', revenue: 5100 },
+  { category: 'Electronics', region: 'East', revenue: 3900 },
+  { category: 'Electronics', region: 'East', revenue: 4400 },
+  { category: 'Electronics', region: 'East', revenue: 6200 },
+  { category: 'Apparel', region: 'West', revenue: 2400 },
+  { category: 'Apparel', region: 'West', revenue: 2100 },
+  { category: 'Apparel', region: 'West', revenue: 3000 },
+  { category: 'Apparel', region: 'West', revenue: 1700 },
+  { category: 'Apparel', region: 'East', revenue: 2600 },
+  { category: 'Apparel', region: 'East', revenue: 2750 },
+  { category: 'Apparel', region: 'East', revenue: 2200 },
+  { category: 'Apparel', region: 'East', revenue: 3400 },
+];
+
+/**
+ * Rows for the continuous-time-scale demo: daily active users over an
+ * irregular set of ISO dates, so the time axis must space points by their
+ * real temporal distance rather than treating them as ordinal categories.
+ */
+export const timeSeriesRows: DatasetRow[] = [
+  { date: '2024-01-01', users: 120 },
+  { date: '2024-01-08', users: 145 },
+  { date: '2024-01-10', users: 138 },
+  { date: '2024-01-24', users: 190 },
+  { date: '2024-02-05', users: 210 },
+  { date: '2024-02-19', users: 265 },
+  { date: '2024-03-01', users: 240 },
 ];
 
 export interface Demo {
@@ -320,6 +374,100 @@ export const demos: Demo[] = [
         y: { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
         color: { field: 'category', type: 'nominal' },
         column: { field: 'region', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'time-line',
+    title: 'Continuous time-scale line',
+    description:
+      'A temporal x channel over irregular ISO dates — the wrapper builds a continuous ' +
+      'time axis (scaleType "time") so points are spaced by their real date distance, not ' +
+      'as evenly-spaced ordinal ticks.',
+    data: timeSeriesRows,
+    spec: {
+      mark: { type: 'line', point: true },
+      encoding: {
+        x: { field: 'date', type: 'temporal', axis: { format: '%b %d' } },
+        y: { field: 'users', type: 'quantitative' },
+      },
+    },
+  },
+  {
+    id: 'rounded-bar',
+    title: 'Bar chart with rounded corners',
+    description:
+      'mark: {type: "bar", cornerRadius: 8} — the corner radius maps to the BarPlot ' +
+      'borderRadius, applied chart-wide.',
+    data: shareRows,
+    spec: {
+      mark: { type: 'bar', cornerRadius: 8 },
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'share', type: 'quantitative' },
+        color: { field: 'category', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'cumulative-line',
+    title: 'Cumulative total (window transform)',
+    description:
+      'A "window" transform computes a running sum (frame [null, 0]) over the per-month totals — ' +
+      'the cumulative revenue renders as a line over the ordinal month axis.',
+    data: salesRows,
+    spec: {
+      transform: [
+        { aggregate: [{ op: 'sum', field: 'revenue', as: 'monthly' }], groupby: ['month'] },
+        {
+          window: [{ op: 'sum', field: 'monthly', as: 'cumulative' }],
+          frame: [null, 0],
+        },
+      ],
+      mark: { type: 'line', point: true },
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'cumulative', type: 'quantitative' },
+      },
+    },
+  },
+  {
+    id: 'param-slider',
+    title: 'Bound input widget (variable param)',
+    description:
+      'A named param bound to a range slider drives a filter transform — dragging the slider ' +
+      're-threads the live signal value through the compile pipeline and re-filters the bars.',
+    data: salesRows,
+    spec: {
+      params: [
+        {
+          name: 'minRevenue',
+          value: 2000,
+          bind: { input: 'range', min: 0, max: 6000, step: 500, name: 'Min revenue: ' },
+        },
+      ],
+      transform: [{ filter: 'datum.revenue >= minRevenue' }],
+      mark: 'bar',
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
+        color: { field: 'category', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'grouped-boxplot',
+    title: 'Grouped box plot (color split)',
+    description:
+      'mark: "boxplot" with a nominal color channel — dodged boxes, one per region within each ' +
+      'category, rendered by the custom overlay pipeline.',
+    data: distributionRows,
+    spec: {
+      mark: 'boxplot',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'revenue', type: 'quantitative' },
+        color: { field: 'region', type: 'nominal' },
       },
     },
   },

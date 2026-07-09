@@ -21,6 +21,7 @@ import {
   isJoinFieldExpression,
   type EvaluationContext,
 } from './expressionEvaluator';
+import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -723,6 +724,64 @@ describe('evaluateMeasure', () => {
       expression: numVal(1),
     };
     expect(evaluateMeasure(colField, rows, noFields)).toBe(0);
+  });
+
+  // ─── null / non-numeric rows are skipped, not counted as 0 (finding 1.6) ──────
+
+  const nullableRows = [
+    { price: 100 },
+    { price: null },
+    { price: undefined },
+    { price: 'n/a' },
+    { price: 300 },
+  ];
+
+  it('averages only the numeric rows (nulls do not inflate the denominator)', () => {
+    const measure: StudioExpressionField = {
+      id: 'avgPrice',
+      label: 'Avg Price',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('price', 'avg'),
+    };
+    // avg over [100, 300] = 200 — NOT (100 + 300) / 5 = 80
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(200);
+  });
+
+  it('takes the min of numeric rows only (null does not become a spurious 0)', () => {
+    const measure: StudioExpressionField = {
+      id: 'minPrice',
+      label: 'Min Price',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('price', 'min'),
+    };
+    // min over [100, 300] = 100 — NOT 0 (which a null-as-0 coercion would produce)
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(100);
+  });
+
+  it('counts only the numeric rows', () => {
+    const measure: StudioExpressionField = {
+      id: 'countPrice',
+      label: 'Count Price',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('price', 'count'),
+    };
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(2);
+  });
+
+  it('matches computeAggregate semantics: measure avg == KPI avg on the same nullable data', () => {
+    const measure: StudioExpressionField = {
+      id: 'avgPrice',
+      label: 'Avg Price',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('price', 'avg'),
+    };
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(
+      computeAggregate(nullableRows, 'price', 'avg'),
+    );
   });
 });
 

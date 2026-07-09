@@ -1330,6 +1330,67 @@ describe('aggregateMultipleSeries', () => {
     // salary is averaged: (80000 + 90000) / 2
     expect(salSeries.values[engIdx]).toBe(85000);
   });
+
+  // ─── per-field aggregation map (finding 1.4) ────────────────────────────────
+
+  it('honours a per-field aggregation map (each series its own fn)', () => {
+    const result = aggregateMultipleSeries(
+      rows,
+      'month',
+      ['revenue', 'cost'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { revenue: 'avg', cost: 'sum' },
+    );
+    const janIdx = result.labels.indexOf('2024-01');
+    const revSeries = result.series.find((s) => s.fieldId === 'revenue')!;
+    const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
+    // Jan revenue: avg(100, 50) = 75; Jan cost: sum(60, 30) = 90
+    expect(revSeries.values[janIdx]).toBe(75);
+    expect(costSeries.values[janIdx]).toBe(90);
+  });
+
+  it('defaults map-absent fields to sum', () => {
+    const result = aggregateMultipleSeries(
+      rows,
+      'month',
+      ['revenue', 'cost'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { revenue: 'max' }, // cost not in the map → sum
+    );
+    const janIdx = result.labels.indexOf('2024-01');
+    const revSeries = result.series.find((s) => s.fieldId === 'revenue')!;
+    const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
+    expect(revSeries.values[janIdx]).toBe(100); // max(100, 50)
+    expect(costSeries.values[janIdx]).toBe(90); // sum(60, 30)
+  });
+
+  it('still promotes a non-numeric field to count even when the map names another fn', () => {
+    const mixed = [
+      { dept: 'Eng', employee_id: 'e-1', salary: 80000 },
+      { dept: 'Eng', employee_id: 'e-2', salary: 90000 },
+    ];
+    const result = aggregateMultipleSeries(
+      mixed,
+      'dept',
+      ['employee_id', 'salary'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { employee_id: 'avg', salary: 'avg' },
+    );
+    const engIdx = result.labels.indexOf('Eng');
+    const idSeries = result.series.find((s) => s.fieldId === 'employee_id')!;
+    const salSeries = result.series.find((s) => s.fieldId === 'salary')!;
+    expect(idSeries.values[engIdx]).toBe(2); // string → count wins over map's 'avg'
+    expect(salSeries.values[engIdx]).toBe(85000); // avg(80000, 90000)
+  });
 });
 
 // ─── aggregateBlendedSeries (cross-source blending) ────────────────────────────

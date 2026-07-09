@@ -122,6 +122,33 @@ export function useChartWidgetData(
     return config.yField ? [config.yField] : [];
   }, [config.ySeries, config.yField, isBlended, widget.sourceId]);
 
+  // Per-series aggregation map (fieldId → fn), derived from the documented
+  // `StudioChartSeries.yAggregation`. The non-blended multi-series client path must
+  // honour this per field so an in-memory source produces the same numbers as an
+  // adapter-backed source's server push-down (finding 1.4). Fields without an
+  // explicit fn fall back to 'sum' inside `aggregateMultipleSeries`.
+  const yAggregationByField = React.useMemo(() => {
+    const map: Record<string, 'sum' | 'count' | 'avg' | 'min' | 'max'> = {};
+    if (config.ySeries) {
+      for (const s of config.ySeries) {
+        if (s.fieldId && s.yAggregation) {
+          map[s.fieldId] = s.yAggregation;
+        }
+      }
+    }
+    return map;
+  }, [config.ySeries]);
+
+  // Cache-key fragment for `yAggregationByField` (memo identity isn't stable across
+  // renders, so serialize the entries for `cachedCompute` keys).
+  const yAggByFieldKey = React.useMemo(
+    () =>
+      Object.entries(yAggregationByField)
+        .map(([f, fn]) => `${f}=${fn}`)
+        .join(','),
+    [yAggregationByField],
+  );
+
   const chartSupport = React.useMemo(
     () =>
       analyzeChartSupport(
@@ -217,7 +244,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -229,6 +256,7 @@ export function useChartWidgetData(
             chartSortBy,
             chartSortDirection,
             xFieldOrderedValues,
+            config.yAggregation,
           ),
           widgetRankFilter,
         ),
@@ -239,6 +267,7 @@ export function useChartWidgetData(
     config.seriesField,
     activeYFields,
     xGroupBy,
+    config.yAggregation,
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,
@@ -350,7 +379,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateMultipleSeries(
           enrichedRows,
@@ -360,6 +389,7 @@ export function useChartWidgetData(
           chartSortBy,
           chartSortDirection,
           xFieldOrderedValues,
+          yAggregationByField,
         );
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
@@ -369,6 +399,8 @@ export function useChartWidgetData(
     enrichedRows,
     config.xField,
     activeYFields,
+    yAggregationByField,
+    yAggByFieldKey,
     widgetRankFilter,
     xGroupBy,
     chartSortBy,
@@ -438,7 +470,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `asfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `asfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -450,6 +482,7 @@ export function useChartWidgetData(
             chartSortBy,
             chartSortDirection,
             xFieldOrderedValues,
+            config.yAggregation,
           ),
           widgetRankFilter,
         ),
@@ -461,6 +494,7 @@ export function useChartWidgetData(
     config.seriesField,
     activeYFields,
     xGroupBy,
+    config.yAggregation,
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,
@@ -478,7 +512,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateMultipleSeries(
           allEnrichedRows,
@@ -488,6 +522,7 @@ export function useChartWidgetData(
           chartSortBy,
           chartSortDirection,
           xFieldOrderedValues,
+          yAggregationByField,
         );
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
@@ -497,6 +532,8 @@ export function useChartWidgetData(
     allEnrichedRows,
     config.xField,
     activeYFields,
+    yAggregationByField,
+    yAggByFieldKey,
     widgetRankFilter,
     xGroupBy,
     chartSortBy,

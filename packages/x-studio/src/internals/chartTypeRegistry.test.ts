@@ -441,6 +441,40 @@ describe('buildAggregationSpecs — bar / line / area family', () => {
       );
       expect(aggs.some((a) => a.field === 'expr-margin')).toBe(false);
     });
+
+    // ─── alias de-duplication (finding 1.5) ──────────────────────────────────
+
+    it(`${chartType}: emits a single spec when yField and ySeries name the same field`, () => {
+      const desc = chartDesc(chartType);
+      const aggs = desc.buildAggregationSpecs(
+        {
+          chartType,
+          yField: 'revenue',
+          yAggregation: 'sum',
+          ySeries: [{ fieldId: 'revenue', yAggregation: 'sum' }],
+        },
+        noExpr,
+        SOURCE_A,
+      );
+      expect(aggs.filter((a) => a.alias === 'revenue')).toHaveLength(1);
+    });
+
+    it(`${chartType}: the per-series fn wins over the yField fn for the same alias`, () => {
+      const desc = chartDesc(chartType);
+      const aggs = desc.buildAggregationSpecs(
+        {
+          chartType,
+          yField: 'revenue',
+          yAggregation: 'sum',
+          ySeries: [{ fieldId: 'revenue', yAggregation: 'avg' }],
+        },
+        noExpr,
+        SOURCE_A,
+      );
+      const revenueSpecs = aggs.filter((a) => a.alias === 'revenue');
+      expect(revenueSpecs).toHaveLength(1);
+      expect(revenueSpecs[0].fn).toBe('avg');
+    });
   });
 });
 

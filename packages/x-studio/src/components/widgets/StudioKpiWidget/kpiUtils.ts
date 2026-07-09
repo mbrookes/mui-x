@@ -2,6 +2,7 @@
  * Pure utility functions for KPI widget computations.
  * Extracted here so they can be unit-tested independently of the React component.
  */
+import { isoWeek } from '@mui/x-studio-schema';
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
 import { normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
@@ -258,10 +259,15 @@ export function getBucketKey(date: Date, granularity: Granularity): string {
     case 'day':
       return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     case 'week': {
-      const day = date.getDay() || 7;
-      const monday = new Date(date);
-      monday.setDate(d - day + 1);
-      return `${monday.getFullYear()}-W${String(monday.getDate()).padStart(2, '0')}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+      // Use the shared ISO-week helper (also used by `internals/temporalUtils.ts`'s
+      // `truncateToGranularity` for the same purpose) so the key is
+      // `{year}-W{weekNumber}` and sorts chronologically regardless of month
+      // boundaries — a hand-rolled `{year}-W{dayOfMonth}-{month}` key (the previous
+      // approach) sorts lexicographically, not chronologically, whenever a week
+      // falls in a month whose day-of-month digits compare out of order across a
+      // month boundary (see finding 1.11).
+      const { year, week } = isoWeek(new Date(Date.UTC(y, m, d)));
+      return `${year}-W${String(week).padStart(2, '0')}`;
     }
     case 'month':
       return `${y}-${String(m + 1).padStart(2, '0')}`;
@@ -318,30 +324,24 @@ export function computeSparklineData(
 
 // ─── Period formatting ────────────────────────────────────────────────────────
 
-const MONTH_ABBR = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
+/**
+ * Locale-aware short month abbreviation, e.g. "Mar" (en) / "mars" (fr) / "März" (de).
+ * Mirrors the `toLocaleDateString` approach already used by the sibling
+ * `formatDateRangeLong` below, rather than a hardcoded English month-name array.
+ */
+function monthAbbr(date: Date): string {
+  return date.toLocaleDateString(undefined, { month: 'short' });
+}
 
 /** Format a date as a short human-readable label, e.g. "Mar 2026" or "Mar–Apr 2026". */
 export function formatPeriodShort(start: Date, end: Date): string {
   if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
-    return `${MONTH_ABBR[start.getMonth()]} ${start.getFullYear()}`;
+    return `${monthAbbr(start)} ${start.getFullYear()}`;
   }
   if (start.getFullYear() === end.getFullYear()) {
-    return `${MONTH_ABBR[start.getMonth()]}–${MONTH_ABBR[end.getMonth()]} ${start.getFullYear()}`;
+    return `${monthAbbr(start)}–${monthAbbr(end)} ${start.getFullYear()}`;
   }
-  return `${MONTH_ABBR[start.getMonth()]} ${start.getFullYear()}–${MONTH_ABBR[end.getMonth()]} ${end.getFullYear()}`;
+  return `${monthAbbr(start)} ${start.getFullYear()}–${monthAbbr(end)} ${end.getFullYear()}`;
 }
 
 /** Format a full date range for a tooltip, e.g. "Mar 1 – Mar 31, 2026". */

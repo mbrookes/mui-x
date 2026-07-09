@@ -1,4 +1,5 @@
 import { truncateToGranularity, type XGroupBy } from './temporalUtils';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './localeText';
 
 /**
  * Small row-value helpers shared by the generic aggregators (`aggregators.ts`) and
@@ -21,8 +22,17 @@ export function applyXGroupBy(
   return truncateToGranularity(value, xGroupBy) ?? value;
 }
 
+/**
+ * The bucket label used for a null/undefined x-axis value. Falls back to the
+ * English default when `localeText` (or the key) isn't supplied, so existing
+ * callers that don't thread a locale through keep their current behavior.
+ */
+function emptyBucketLabel(localeText?: Partial<StudioLocaleText>): string {
+  return localeText?.chartEmptyCategoryLabel ?? DEFAULT_STUDIO_LOCALE_TEXT.chartEmptyCategoryLabel;
+}
+
 /** Safely extracts a row field value as a string or number suitable for chart grouping. */
-export function toXValue(raw: unknown): string | number {
+export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): string | number {
   if (raw instanceof Date) {
     return raw.toISOString();
   }
@@ -30,7 +40,7 @@ export function toXValue(raw: unknown): string | number {
     return String(raw);
   }
   if (raw === null || raw === undefined) {
-    return '(empty)';
+    return emptyBucketLabel(localeText);
   }
   if (typeof raw === 'object') {
     return String(raw);
@@ -38,6 +48,6 @@ export function toXValue(raw: unknown): string | number {
   return raw as string | number;
 }
 
-export function isEmptyXValue(raw: unknown): boolean {
-  return raw === null || raw === undefined || raw === '' || raw === '(empty)';
+export function isEmptyXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): boolean {
+  return raw === null || raw === undefined || raw === '' || raw === emptyBucketLabel(localeText);
 }

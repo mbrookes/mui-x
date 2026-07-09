@@ -240,13 +240,14 @@ export function summarizeFilter(
   }
 
   function summarizeCondition(op: StudioFilterOperator, value: unknown): string {
-    if (op === 'is_empty') {
-      return 'is empty';
-    }
-    if (op === 'is_not_empty') {
-      return 'is not empty';
-    }
     const opLabel = getOperatorLabel(op, localeText, filter.fieldType);
+    // `is_empty`/`is_not_empty` take no comparison value, so the operator's own
+    // (already-localized, per-field-type) label is the full summary — route
+    // through the same `filterOperator_${fieldType}_${operator}` locale keys used
+    // by the operator picker instead of a hardcoded English fallback string.
+    if (op === 'is_empty' || op === 'is_not_empty') {
+      return opLabel;
+    }
     if (op === 'between') {
       const range = value as { from?: unknown; to?: unknown } | null;
       const from = range?.from ? formatFilterValue(range.from, filter.fieldType, localeText) : '';

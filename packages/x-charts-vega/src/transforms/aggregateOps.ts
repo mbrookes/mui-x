@@ -1,8 +1,11 @@
-import type { VegaAggregateOp } from '../types';
+import type { DatasetRow, VegaAggregateOp } from '../types';
 import { toNumber } from '../compile/fieldTypes';
 
+/** Aggregate ops whose result is a normal-approximation confidence bound. */
+export const APPROXIMATE_CI_OPS = ['ci0', 'ci1'] as const;
+
 /** Linear-interpolation quantile (matches d3.quantile) over a pre-sorted array. */
-function quantile(sorted: readonly number[], p: number): number | null {
+export function quantile(sorted: readonly number[], p: number): number | null {
   if (sorted.length === 0) {
     return null;
   }
@@ -45,13 +48,23 @@ function variancepOf(numbers: readonly number[]): number | null {
 
 /**
  * Shared aggregate-op evaluation for both encoding-level and transform-level
- * aggregation. Returns undefined for ops that are not implemented so callers
- * can report a gap.
+ * aggregation. Returns undefined for ops that are not implemented (or for
+ * `argmin`/`argmax` when no `rows` are supplied) so callers can report a gap.
  */
 export function evaluateAggregate(
   op: VegaAggregateOp,
   values: unknown[],
-): number | null | undefined {
+): number | null | undefined;
+export function evaluateAggregate(
+  op: VegaAggregateOp,
+  values: unknown[],
+  rows?: readonly DatasetRow[],
+): number | DatasetRow | null | undefined;
+export function evaluateAggregate(
+  op: VegaAggregateOp,
+  values: unknown[],
+  rows?: readonly DatasetRow[],
+): number | DatasetRow | null | undefined {
   // Ops over the raw values — no numeric conversion needed.
   switch (op) {
     case 'count':
@@ -64,6 +77,28 @@ export function evaluateAggregate(
       return new Set(values.map((value) => `${typeof value}:${String(value)}`)).size;
     default:
       break;
+  }
+
+  // argmin/argmax return the whole row at the extreme numeric value. Without
+  // `rows` to point back at there is nothing to return — signal "unimplemented"
+  // so callers gap, matching the pre-rows behavior.
+  if (op === 'argmin' || op === 'argmax') {
+    if (rows === undefined) {
+      return undefined;
+    }
+    let bestIndex = -1;
+    let bestValue = op === 'argmin' ? Infinity : -Infinity;
+    for (let i = 0; i < values.length; i += 1) {
+      const n = toNumber(values[i]);
+      if (n === null) {
+        continue;
+      }
+      if (op === 'argmin' ? n < bestValue : n > bestValue) {
+        bestValue = n;
+        bestIndex = i;
+      }
+    }
+    return bestIndex === -1 ? null : (rows[bestIndex] ?? null);
   }
 
   const numbers = values.map(toNumber).filter((value): value is number => value != null);
@@ -102,6 +137,17 @@ export function evaluateAggregate(
     case 'stderr': {
       const variance = varianceOf(numbers);
       return variance == null ? null : Math.sqrt(variance) / Math.sqrt(numbers.length);
+    }
+    case 'ci0':
+    case 'ci1': {
+      // Normal-approximation confidence interval: mean ∓ 1.96·stderr.
+      if (numbers.length < 2) {
+        return null;
+      }
+      const mean = meanOf(numbers) as number;
+      const variance = varianceOf(numbers) as number;
+      const stderr = Math.sqrt(variance) / Math.sqrt(numbers.length);
+      return op === 'ci0' ? mean - 1.96 * stderr : mean + 1.96 * stderr;
     }
     case 'product':
       return numbers.length === 0 ? null : numbers.reduce((acc, value) => acc * value, 1);

@@ -49,8 +49,36 @@ describe('evaluateAggregate / new ops', () => {
     expect(evaluateAggregate('product', [])).to.equal(null);
   });
 
-  it('ci0/ci1/argmin/argmax remain unimplemented (undefined, for callers to gap)', () => {
-    expect(evaluateAggregate('ci0', values)).to.equal(undefined);
-    expect(evaluateAggregate('ci1', values)).to.equal(undefined);
+  it('ci0/ci1 compute a normal-approximation confidence interval (mean ∓ 1.96·stderr)', () => {
+    const mean = 5.5;
+    const stderr = evaluateAggregate('stderr', values) as number;
+    expect(evaluateAggregate('ci0', values)).to.be.closeTo(mean - 1.96 * stderr, 1e-9);
+    expect(evaluateAggregate('ci1', values)).to.be.closeTo(mean + 1.96 * stderr, 1e-9);
+  });
+
+  it('ci0/ci1 require at least two values', () => {
+    expect(evaluateAggregate('ci0', [5])).to.equal(null);
+    expect(evaluateAggregate('ci1', [])).to.equal(null);
+  });
+
+  it('argmin/argmax return undefined without a rows argument (for callers to gap)', () => {
+    expect(evaluateAggregate('argmin', values)).to.equal(undefined);
+    expect(evaluateAggregate('argmax', values)).to.equal(undefined);
+  });
+
+  it('argmin/argmax return the whole row at the extreme value when rows are supplied', () => {
+    const rows = [
+      { k: 'a', v: 3 },
+      { k: 'b', v: 1 },
+      { k: 'c', v: 9 },
+    ];
+    const fieldValues = rows.map((row) => row.v);
+    expect(evaluateAggregate('argmin', fieldValues, rows)).to.deep.equal({ k: 'b', v: 1 });
+    expect(evaluateAggregate('argmax', fieldValues, rows)).to.deep.equal({ k: 'c', v: 9 });
+  });
+
+  it('argmin/argmax return null when no numeric values are present', () => {
+    const rows = [{ v: null }, { v: 'x' }];
+    expect(evaluateAggregate('argmin', [null, 'x'], rows)).to.equal(null);
   });
 });

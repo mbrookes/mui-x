@@ -50,6 +50,14 @@ export interface OverlayBoxItem {
   /** Values beyond the whiskers, drawn as dots. */
   outliers?: number[];
   color?: string;
+  /** Sub-group index within the category (for grouped/dodged box plots). */
+  groupIndex?: number;
+}
+
+/** Styling for one sub-mark of a box plot (median line, box, whisker rule, ticks, outliers). */
+export interface OverlayBoxSubMark {
+  color?: string;
+  opacity?: number;
 }
 
 export interface OverlayErrorBarItem {
@@ -82,6 +90,8 @@ export interface OverlayImageItem {
   url: string;
   width?: number;
   height?: number;
+  /** Aspect-ratio handling: `false` stretches to width/height; omitted/`true` preserves the ratio. */
+  aspect?: boolean;
 }
 
 /**
@@ -101,9 +111,28 @@ export type CompiledOverlay =
       items: OverlayBoxItem[];
       /** Box thickness as a fraction of the band width (default ~0.5). */
       widthRatio?: number;
+      /** Number of sub-groups sharing each category (for grouped/dodged boxes). */
+      groupCount?: number;
+      opacity?: number;
+      /** Median line styling, or `false` to hide it. */
+      median?: OverlayBoxSubMark | false;
+      /** Box (IQR rectangle) styling. */
+      box?: OverlayBoxSubMark;
+      /** Whisker rule styling, or `false` to hide it. */
+      rule?: OverlayBoxSubMark | false;
+      /** Whisker end-tick styling, or `false` to hide it. */
+      ticks?: OverlayBoxSubMark | false;
+      /** Outlier dot styling, or `false` to hide them. */
+      outliers?: OverlayBoxSubMark | false;
     }
   | { kind: 'errorBars'; orientation: 'vertical' | 'horizontal'; items: OverlayErrorBarItem[] }
-  | { kind: 'band'; points: OverlayBandPoint[]; color?: string; opacity?: number }
+  | {
+      kind: 'band';
+      points: OverlayBandPoint[];
+      color?: string;
+      opacity?: number;
+      orientation?: 'vertical' | 'horizontal';
+    }
   | { kind: 'text'; items: OverlayTextItem[] }
   | { kind: 'image'; items: OverlayImageItem[] };
 
@@ -144,6 +173,8 @@ export interface CompiledUnit {
   geo?: CompiledGeo;
   /** Custom-drawn output for marks with no x-charts series equivalent. */
   overlays?: CompiledOverlay[];
+  /** Chart-wide bar corner radius requested by this layer's bar mark. */
+  barBorderRadius?: number;
 }
 
 /**
@@ -181,6 +212,8 @@ export interface UnitContext {
   gaps: GapCollector;
   /** Categorical palette used for series without explicit colors. */
   palette: readonly string[];
+  /** Resolved param/signal values (bound variable params), keyed by name. */
+  signals?: Readonly<Record<string, unknown>>;
   /**
    * Returns the index of a row's x (or y) value within the axis categories,
    * or -1 when the axis is not categorical or the value is absent.

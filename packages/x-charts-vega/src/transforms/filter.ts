@@ -117,10 +117,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function compileExpressionPredicate(filter: string, gaps: GapCollector, path: string): Predicate {
+function compileExpressionPredicate(
+  filter: string,
+  gaps: GapCollector,
+  path: string,
+  signals?: Readonly<Record<string, unknown>>,
+): Predicate {
   let evaluator: (datum: DatasetRow) => unknown;
   try {
-    evaluator = compileExpression(filter);
+    evaluator = compileExpression(filter, signals);
   } catch (err) {
     if (!(err instanceof UnsupportedExpressionError)) {
       throw err;
@@ -154,16 +159,21 @@ function compileExpressionPredicate(filter: string, gaps: GapCollector, path: st
   };
 }
 
-function compilePredicate(filter: unknown, gaps: GapCollector, path: string): Predicate {
+function compilePredicate(
+  filter: unknown,
+  gaps: GapCollector,
+  path: string,
+  signals?: Readonly<Record<string, unknown>>,
+): Predicate {
   if (typeof filter === 'string') {
-    return compileExpressionPredicate(filter, gaps, path);
+    return compileExpressionPredicate(filter, gaps, path, signals);
   }
 
   if (filter && typeof filter === 'object') {
     const obj = filter as Record<string, unknown>;
     if (Array.isArray(obj.and)) {
       const predicates = obj.and.map((entry, index) =>
-        compilePredicate(entry, gaps, `${path}.and[${index}]`),
+        compilePredicate(entry, gaps, `${path}.and[${index}]`, signals),
       );
       return (row) => {
         let unknown = false;
@@ -181,7 +191,7 @@ function compilePredicate(filter: unknown, gaps: GapCollector, path: string): Pr
     }
     if (Array.isArray(obj.or)) {
       const predicates = obj.or.map((entry, index) =>
-        compilePredicate(entry, gaps, `${path}.or[${index}]`),
+        compilePredicate(entry, gaps, `${path}.or[${index}]`, signals),
       );
       return (row) => {
         let unknown = false;
@@ -198,7 +208,7 @@ function compilePredicate(filter: unknown, gaps: GapCollector, path: string): Pr
       };
     }
     if (obj.not !== undefined) {
-      const predicate = compilePredicate(obj.not, gaps, `${path}.not`);
+      const predicate = compilePredicate(obj.not, gaps, `${path}.not`, signals);
       return (row) => {
         const result = predicate(row);
         return result === 'unknown' ? 'unknown' : !result;
@@ -231,8 +241,9 @@ export function applyFilterTransform(
   transform: VegaFilterTransform,
   gaps: GapCollector,
   path: string,
+  signals?: Readonly<Record<string, unknown>>,
 ): readonly DatasetRow[] {
-  const predicate = compilePredicate(transform.filter, gaps, path);
+  const predicate = compilePredicate(transform.filter, gaps, path, signals);
   // 'unknown' (unsupported predicate) keeps the row: fail open.
   return rows.filter((row) => predicate(row) !== false);
 }

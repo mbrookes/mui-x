@@ -25,6 +25,8 @@ export interface CompileOptions {
   datasets?: Record<string, readonly DatasetRow[]>;
   /** Categorical palette; defaults to the x-charts rainbowSurge palette. */
   palette?: readonly string[];
+  /** Resolved param/signal values, keyed by param name (threaded to expressions). */
+  params?: Readonly<Record<string, unknown>>;
 }
 
 export interface CompiledChart {
@@ -47,6 +49,14 @@ export interface CompiledChart {
   title?: string;
   width?: number;
   height?: number;
+  /** Chart-wide bar corner radius (from a bar mark's `cornerRadius`). */
+  barBorderRadius?: number;
+  /** Per-axis zoom/pan enablement (populated later by the interactivity worker). */
+  zoom?: { x: boolean; y: boolean };
+  /** Input-widget descriptors for bound params (refined later by the interactivity worker). */
+  inputs?: unknown[];
+  /** Resolved param values, keyed by name (populated later by the interactivity worker). */
+  paramValues?: Readonly<Record<string, unknown>>;
   gaps: TranslationGap[];
 }
 
@@ -73,10 +83,12 @@ function overlayAxisValues(overlay: CompiledOverlay, axis: 'x' | 'y'): number[] 
           : [item.lower, item.upper, item.center],
       );
     }
-    case 'band':
-      return axis === 'y'
+    case 'band': {
+      const valueAxis = overlay.orientation === 'horizontal' ? 'x' : 'y';
+      return axis === valueAxis
         ? overlay.points.flatMap((point) => [point.lower, point.upper])
         : numbers(overlay.points.map((point) => point.x));
+    }
     case 'segments':
       return numbers(
         overlay.items.flatMap((item) => (axis === 'x' ? [item.x1, item.x2] : [item.y1, item.y2])),
@@ -134,16 +146,18 @@ function applyOverlayDomains(
 export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): CompiledChart {
   const gaps = createGapCollector();
   const palette = options.palette ?? rainbowSurgePalette('light');
+  const signals = options.params;
   const normalized = normalizeSpec(spec, { data: options.data, datasets: options.datasets }, gaps);
 
   // Run transforms per unit first so axis domains see post-transform rows.
   const prepared = normalized.units.map((unit) => {
-    const afterTopLevel = applyTransforms(unit.rows, unit.transform, gaps, unit.path);
+    const afterTopLevel = applyTransforms(unit.rows, unit.transform, gaps, unit.path, signals);
     const { rows, encoding } = applyEncodingTransforms(
       afterTopLevel,
       unit.encoding,
       gaps,
       unit.path,
+      signals,
     );
     return { unit: { ...unit, encoding }, rows };
   });
@@ -156,6 +170,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const overlays: CompiledOverlay[] = [];
   const zAxis: CompiledZAxis[] = [];
   let geo: CompiledGeo | undefined;
+  let barBorderRadius: number | undefined;
 
   for (const { unit, rows } of prepared) {
     const compiler = markRegistry[unit.mark.type];
@@ -178,6 +193,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       y: axes.y,
       gaps,
       palette,
+      signals,
       categoryIndex,
       categoryKey,
     };
@@ -187,6 +203,22 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     referenceLines.push(...(compiled.referenceLines ?? []));
     overlays.push(...(compiled.overlays ?? []));
     zAxis.push(...(compiled.zAxis ?? []));
+    // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
+    // requests one wins; a conflicting later request is reported as a gap.
+    if (compiled.barBorderRadius !== undefined) {
+      if (barBorderRadius === undefined) {
+        barBorderRadius = compiled.barBorderRadius;
+      } else if (barBorderRadius !== compiled.barBorderRadius) {
+        gaps.add({
+          code: 'mark:bar-corner-radius-conflict',
+          message:
+            'Multiple bar layers request different corner radii, but borderRadius is ' +
+            'chart-wide; the first requested value is used for all bars.',
+          severity: 'partial',
+          path: unit.path,
+        });
+      }
+    }
     if (compiled.geo) {
       if (geo) {
         gaps.add({
@@ -291,6 +323,11 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     title: normalized.title,
     width: normalized.width,
     height: normalized.height,
+    barBorderRadius,
+    // Populated later by the interactivity worker; kept undefined for now.
+    zoom: undefined,
+    inputs: undefined,
+    paramValues: undefined,
     gaps: gaps.list(),
   };
 }

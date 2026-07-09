@@ -24,7 +24,10 @@ describe('planFacets', () => {
   });
 
   it('returns null for a repeat composition (kept as a compiler gap)', () => {
-    const plan = planFacets({ repeat: { field: ['a', 'b'] }, spec: {} } as VegaLiteSpec, SIZE);
+    const plan = planFacets(
+      { repeat: { field: ['a', 'b'] }, spec: {} } as unknown as VegaLiteSpec,
+      SIZE,
+    );
     expect(plan).to.equal(null);
   });
 

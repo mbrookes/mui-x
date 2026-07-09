@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  StudioConditionalFormat,
   StudioDataSource,
   StudioFilterState,
   StudioRelationship,
   StudioWidget,
 } from '../../../models';
 import { resolveRows } from '../../../internals/dataSourceGraph';
+import { evalConditionalFormat } from './StudioGridWidget';
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {
@@ -167,5 +169,44 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     const result = resolveRows(ordersSource.rows!, 'source-orders', [], dataSources, relationships);
 
     expect(result).toHaveLength(3);
+  });
+});
+
+// ─── Conditional-format numeric rules must not match empty cells (finding 3.5) ──
+// `Number(null)` / `Number(undefined)` / `Number('')` all coerce to 0, so a
+// `less_than 5` rule used to highlight genuinely empty cells as if they held 0.
+
+describe('evalConditionalFormat — numeric rules exclude empty cells', () => {
+  function rule(
+    operator: StudioConditionalFormat['operator'],
+    value: unknown,
+  ): StudioConditionalFormat {
+    return { fieldId: 'amount', operator, value, style: {} };
+  }
+
+  it('does not match null/undefined/empty-string cells for numeric comparisons', () => {
+    for (const empty of [null, undefined, '']) {
+      expect(evalConditionalFormat(rule('less_than', 5), empty)).toBe(false);
+      expect(evalConditionalFormat(rule('less_than_or_equal', 5), empty)).toBe(false);
+      expect(evalConditionalFormat(rule('greater_than', -5), empty)).toBe(false);
+      expect(evalConditionalFormat(rule('greater_than_or_equal', -5), empty)).toBe(false);
+    }
+  });
+
+  it('still matches a genuine 0 cell (0 is not empty)', () => {
+    expect(evalConditionalFormat(rule('less_than', 5), 0)).toBe(true);
+    expect(evalConditionalFormat(rule('greater_than_or_equal', 0), 0)).toBe(true);
+  });
+
+  it('matches populated numeric cells as before', () => {
+    expect(evalConditionalFormat(rule('less_than', 5), 3)).toBe(true);
+    expect(evalConditionalFormat(rule('less_than', 5), 10)).toBe(false);
+    expect(evalConditionalFormat(rule('greater_than', 5), 10)).toBe(true);
+  });
+
+  it('leaves is_empty / is_not_empty semantics intact', () => {
+    expect(evalConditionalFormat(rule('is_empty', undefined), '')).toBe(true);
+    expect(evalConditionalFormat(rule('is_empty', undefined), 0)).toBe(false);
+    expect(evalConditionalFormat(rule('is_not_empty', undefined), 0)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
-import { createRenderer, screen } from '@mui/internal-test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRenderer, screen, within } from '@mui/internal-test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
@@ -78,6 +78,11 @@ describe('MapSetupPanel', () => {
     controller.updateWidgetConfig.mockClear();
     controller.updateWidget.mockClear();
     configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    // Some tests populate expression fields; reset so they don't leak (isolate: false).
+    mockState.doc.expressionFields = [];
   });
 
   it('shows the region field section for the default (world) geography', () => {
@@ -209,6 +214,57 @@ describe('MapSetupPanel', () => {
 
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
       crossFilterMode: 'cross-highlight',
+    });
+  });
+
+  // ─── Finding 2.1 ────────────────────────────────────────────────────────────
+  it('excludes non-numeric expression fields from the value-field options', async () => {
+    mockState.doc.expressionFields = [
+      {
+        id: 'expr-num',
+        label: 'Margin',
+        type: 'number',
+        sourceId: 'orders',
+        isMeasure: false,
+        expression: {},
+      },
+      {
+        id: 'expr-str',
+        label: 'Region Name',
+        type: 'string',
+        sourceId: 'orders',
+        isMeasure: false,
+        expression: {},
+      },
+    ] as unknown as typeof mockState.doc.expressionFields;
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Value field'));
+
+    // The numeric expression field is offered as a value option...
+    expect(await screen.findByRole('option', { name: /Margin$/ })).toBeVisible();
+    // ...but the string expression field is NOT (it would coerce to NaN → blank map).
+    expect(screen.queryByRole('option', { name: /Region Name$/ })).toBeNull();
+  });
+
+  it('resets the aggregation to count when the value field is cleared', async () => {
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    // Two fields carry a "Clear field" button (country + value); target the value one.
+    const valueRoot = screen
+      .getByLabelText('Value field')
+      .closest('.MuiAutocomplete-root') as HTMLElement;
+    await user.click(within(valueRoot).getByLabelText('Clear field'));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
+      config: expect.objectContaining({
+        mapValueField: undefined,
+        mapValueSourceId: undefined,
+        // Locked "Count" label and renderer now agree: no stale avg/min/max over per-row 1s.
+        mapAggregation: 'count',
+      }),
     });
   });
 });

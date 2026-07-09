@@ -22,7 +22,7 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
 import { formatNumber } from '../../../internals/numberFormat';
-import { aggregateNumbers } from '../../../internals/aggregate';
+import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -82,9 +82,10 @@ const PROJECTION_CONTENT_ASPECT: Record<string, number> = {
 
 type AggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
-// The caller pre-parses each cell to a finite number (parseFloat + NaN skip), so
-// this only reduces the clean numeric set — routed through the shared reducer so
-// map, KPI, pivot and chart aggregation share one policy (finding 2.1).
+// The caller pre-coerces each cell via the shared `coerceAggregateValue` policy
+// (null/undefined/NaN/non-numeric skipped, booleans → 0/1), so this only reduces the
+// clean numeric set — routed through the shared reducer so map, KPI, pivot and chart
+// aggregation share one policy (findings 1.4 / 2.1).
 function aggregateValues(values: number[], fn: AggFn): number {
   return aggregateNumbers(values, fn);
 }
@@ -214,8 +215,11 @@ export function StudioMapWidget({
         rawKeys.set(id, row[countryField]);
       }
       const rawValue = valueField != null ? row[valueField] : 1;
-      const numValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? 0));
-      if (Number.isNaN(numValue)) {
+      // Shared null-skip + boolean-coercion policy (finding 1.4): null/undefined/NaN and
+      // non-numeric values are skipped (not coerced to 0), booleans become 0/1 — matching
+      // the KPI widget's `computeAggregate` so the same measure agrees across widget kinds.
+      const numValue = coerceAggregateValue(rawValue);
+      if (numValue === null) {
         continue;
       }
       const bucket = groups.get(id);

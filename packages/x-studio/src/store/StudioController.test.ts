@@ -1530,6 +1530,43 @@ describe('StudioController expression fields', () => {
     expect(controller.getExpressionFieldReferenceCount('nope')).toBe(0);
   });
 
+  // Tier-3 finding: a rank filter references an expression field not only via `field`
+  // (the ranked dimension) but also via `rankByField` (the numeric measure a dimension is
+  // ranked *by*) and `rankMultiSeriesBy` (the specific series a multi-series rank scores by).
+  // Deleting a measure used ONLY as a rank's sort key previously reported 0 references,
+  // silently stranding the rank filter.
+  it('getExpressionFieldReferenceCount counts rankByField and rankMultiSeriesBy references', () => {
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [ef],
+        filters: [
+          {
+            id: 'rankBy',
+            field: 'country',
+            filterMode: 'rank',
+            operator: 'equals',
+            value: '',
+            rankDirection: 'top',
+            rankByField: 'ef1',
+            scope: { kind: 'page' },
+          } as never,
+          {
+            id: 'rankSeries',
+            field: 'country',
+            filterMode: 'rank',
+            operator: 'equals',
+            value: '',
+            rankDirection: 'top',
+            rankMultiSeriesBy: 'ef1',
+            scope: { kind: 'page' },
+          } as never,
+        ],
+      },
+    });
+    // ef1 is referenced by `rankByField` in one filter and `rankMultiSeriesBy` in another → 2.
+    expect(controller.getExpressionFieldReferenceCount('ef1')).toBe(2);
+  });
+
   it('removeExpressionField still deletes a referenced field and returns the reference count', () => {
     const controller = new StudioController({
       doc: {
@@ -1851,6 +1888,69 @@ describe('StudioController.setActivePage', () => {
         .getState()
         .doc.filters.some((f) => f.scope.kind === 'cross-filter' && f.scope.pageId === 'page-1'),
     ).toBe(true);
+  });
+});
+
+// AI-driven wire mutations reach the controller through `applyExternalMutation` (default
+// `undoable: true`). But `setActivePage` (`dashboard.activePageId`) and `renameAIThread`
+// (`doc.ai`) touch ONLY transient-carried doc fields — `carryTransientDocState` overlays the
+// current value back onto any undo/redo swap, so an undo entry pushed for them can never
+// actually revert anything, yet the commit would still clear the redo stack. These mutations
+// must therefore be committed non-undoably from the wire path too (2.1).
+describe('StudioController.applyExternalMutation — transient-only wire mutations (2.1)', () => {
+  it('applyExternalMutation setActivePage does not push an undo entry or clear the redo stack', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    // Set up a pending redo entry via a real authored edit.
+    controller.setDashboardTitle('Edited');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    // An AI-driven page navigation must NOT push a dead undo entry or destroy the redo stack.
+    controller.applyExternalMutation({ type: 'setActivePage', args: { pageId: 'page-2' } });
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    // The redo still works and lands on the authored edit, unaffected by the navigation.
+    controller.redo();
+    expect(controller.getState().doc.dashboard.title).toBe('Edited');
+  });
+
+  it('applyExternalMutation renameAIThread does not push an undo entry or clear the redo stack', () => {
+    const controller = new StudioController({
+      doc: {
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old name', createdAt: '2020-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      },
+    });
+    // Set up a pending redo entry via a real authored edit.
+    controller.setDashboardTitle('Edited');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    // An AI-driven thread rename must NOT push a dead undo entry or destroy the redo stack.
+    controller.applyExternalMutation({
+      type: 'renameAIThread',
+      args: { name: 'New name', updatedAt: '2020-02-02T00:00:00.000Z', threadId: 't1' },
+    });
+    expect(controller.getState().doc.ai?.threads[0].name).toBe('New name');
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    controller.redo();
+    expect(controller.getState().doc.dashboard.title).toBe('Edited');
   });
 });
 
@@ -2291,6 +2391,34 @@ describe('Col-span unit system round-trip', () => {
       args: { widgetId: 'w1', columns: 100, rowWidgetIds: ['w1'] },
     });
     expect(tooLarge.doc.pages[activePageId].widgetColSpans).toEqual({ w1: GRID_COLS });
+  });
+
+  // 2.2: a resize-handle pointerup with zero movement re-derives the exact same spans.
+  // Because the handler builds a fresh spans/pages object each call, `commitDocPatch`'s
+  // reference-equality guard can't catch it — without the value-equality no-op guard this
+  // would push a phantom undoable entry and clear the redo stack.
+  it('setAdjacentWidgetColSpans is a value-equal no-op when the spans do not change (2.2)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1', 'w2']]);
+    const activePageId = controller.getState().doc.dashboard.activePageId;
+
+    // Establish an explicit split, then set up a pending redo entry.
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+    controller.setDashboardTitle('anchor');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+    const stateBefore = controller.getState();
+
+    // Re-committing the identical 16/8 split (a zero-movement pointerup) must be a clean
+    // no-op: no state change, no new undo entry, and the pending redo survives.
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+    expect(controller.getState()).toBe(stateBefore);
+    expect(controller.getState().doc.pages[activePageId].widgetColSpans).toEqual({ w1: 16, w2: 8 });
+    expect(controller.canRedo()).toBe(true);
+    controller.redo();
+    expect(controller.getState().doc.dashboard.title).toBe('anchor');
   });
 });
 

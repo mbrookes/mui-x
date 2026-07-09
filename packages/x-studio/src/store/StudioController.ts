@@ -442,8 +442,20 @@ export class StudioController {
    * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
+    // Undo-flag parity with the controller's own internal methods (2.1). A handful of
+    // mutation types touch ONLY transient-carried `doc` fields — `setActivePage`
+    // (`dashboard.activePageId`) and `renameAIThread` (`doc.ai`). `carryTransientDocState`
+    // overlays the CURRENT value of those fields back onto any undo/redo swap, so an undo
+    // entry pushed for one of them can never actually revert anything — yet the commit would
+    // still clear the redo stack, silently destroying a pending redo. The controller's own
+    // `setActivePage` already special-cases `undoable: false` for exactly this reason; mirror
+    // it here so the AI wire path (which reaches these mutations through `applyExternalMutation`)
+    // doesn't push dead, redo-destroying undo entries. Logging/label behaviour is unchanged.
+    const isTransientOnlyMutation =
+      mutation.type === 'setActivePage' || mutation.type === 'renameAIThread';
     this.commitMutation(mutation, {
       label,
+      ...(isTransientOnlyMutation ? { undoable: false } : {}),
       // Reset a dangling widget selection (2.2). An AI-driven `removeWidget` (or a
       // `removePage` that removes the selected widget) would otherwise leave
       // `session.shell.selectedWidgetId` pointing at a widget no longer in the doc —
@@ -862,9 +874,18 @@ export class StudioController {
         count += 1;
       }
     }
-    // Filters (page/widget/cross) whose target field is this expression field.
+    // Filters (page/widget/cross) whose target field is this expression field. Rank
+    // filters reference an expression field not only via `field` (the ranked dimension)
+    // but also via `rankByField` (the numeric measure a dimension is ranked *by*) and
+    // `rankMultiSeriesBy` (the specific series a multi-series rank scores by) — deleting a
+    // measure used only as a rank's sort key would otherwise report 0 references and skip
+    // the "used by N places" warning while silently stranding the rank filter.
     for (const filter of state.doc.filters as StudioFilterState[]) {
-      if (filter.field === fieldId) {
+      if (
+        filter.field === fieldId ||
+        filter.rankByField === fieldId ||
+        filter.rankMultiSeriesBy === fieldId
+      ) {
         count += 1;
       }
     }
@@ -1086,9 +1107,24 @@ export class StudioController {
       Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)),
     );
     const clampedRight = totalSpan - clampedLeft;
-    const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
+    const currentSpans = activePage.widgetColSpans ?? {};
+    const newSpans: Record<string, number> = { ...currentSpans };
     newSpans[leftId] = clampedLeft;
     newSpans[rightId] = clampedRight;
+    // Value-equality no-op guard (2.2): a resize-handle pointerup with zero movement
+    // re-derives the exact same spans, but `newSpans`/`pages` are freshly built objects,
+    // so `commitDocPatch`'s reference-equality guard can't catch it — without this a
+    // no-move resize would push a phantom undoable entry and clear the redo stack, unlike
+    // every sibling write path in this file. Compare the resulting record to the current
+    // one by value (same key set, same value per key) and bail when nothing changed.
+    const currentKeys = Object.keys(currentSpans);
+    const nextKeys = Object.keys(newSpans);
+    const spansEqual =
+      currentKeys.length === nextKeys.length &&
+      nextKeys.every((key) => currentSpans[key] === newSpans[key]);
+    if (spansEqual) {
+      return;
+    }
     this.commitDocPatch({
       pages: {
         ...state.doc.pages,

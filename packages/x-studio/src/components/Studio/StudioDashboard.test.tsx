@@ -173,4 +173,52 @@ describe('StudioDashboard', () => {
     expect(stateAfter.runtime.dataSources.orders.adapter).toBe(adapter);
     expect(stateAfter.runtime.dataSources.orders.rows).toEqual([{ value: 'b' }]);
   });
+
+  it('registers an adapter for a source a config swap INTRODUCES, with a referentially stable `dataAdapters` map (1.1)', async () => {
+    // Regression (1.1): the `dataAdapters` registration effect only runs on `[dataAdapters]`
+    // identity change, and `setDataSourceAdapter` no-ops when the source doesn't exist yet.
+    // A host that keeps a STABLE `dataAdapters` map (as the docs steer them toward, to satisfy
+    // `setDataSourceAdapter`'s same-adapter no-op guard) but swaps in a config that ADDS a new
+    // source got that source installed adapter-less: the mount-time registration no-op'd (source
+    // absent), and the adapters effect never re-fires. The source's widgets then silently render
+    // from (absent) static rows. The config-swap effect must re-apply the current adapters after
+    // upserting the new config's sources.
+    const ordersAdapter: StudioDataSourceAdapter = {
+      getRows: async () => ({ rows: [{ value: 'orders-live' }], totalCount: 1 }),
+    };
+    const customersAdapter: StudioDataSourceAdapter = {
+      getRows: async () => ({ rows: [{ value: 'customers-live' }], totalCount: 1 }),
+    };
+    // Referentially STABLE across both renders — the host never passes a fresh map.
+    const dataAdapters = { orders: ordersAdapter, customers: customersAdapter };
+
+    // Config A uses only 'orders'; 'customers' does not exist yet, so its adapter no-ops at mount.
+    const configA = makeConfig('A', { orders: makeSource('orders', [{ value: 'a' }]) });
+    // Config B introduces the 'customers' source.
+    const configB = makeConfig('B', {
+      orders: makeSource('orders', [{ value: 'b' }]),
+      customers: makeSource('customers', [{ value: 'c' }]),
+    });
+
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(
+      <StudioDashboard ref={ref} config={configA} dataAdapters={dataAdapters} />,
+    );
+    expect(await screen.findByText('A')).not.toBe(null);
+    // 'customers' doesn't exist yet at mount.
+    expect(ref.current!.getState().runtime.dataSources.customers).toBeUndefined();
+
+    await act(async () => {
+      setProps({ config: configB });
+    });
+
+    expect(await screen.findByText('B')).not.toBe(null);
+    const stateAfter = ref.current!.getState();
+    // The newly introduced source exists AND has its adapter registered (previously it was
+    // installed adapter-less, falling back to static rows).
+    expect(stateAfter.runtime.dataSources.customers).toBeTruthy();
+    expect(stateAfter.runtime.dataSources.customers.adapter).toBe(customersAdapter);
+    // The pre-existing source keeps its adapter too.
+    expect(stateAfter.runtime.dataSources.orders.adapter).toBe(ordersAdapter);
+  });
 });

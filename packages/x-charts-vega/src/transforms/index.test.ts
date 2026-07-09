@@ -54,13 +54,7 @@ describe('applyTransforms / dispatcher', () => {
 
   it('reports a kind-specific gap for each recognized-but-unsupported transform kind', () => {
     const kinds: Array<[string, VegaTransform]> = [
-      ['window', { window: [] } as unknown as VegaTransform],
-      ['joinaggregate', { joinaggregate: [] } as unknown as VegaTransform],
-      ['density', { density: 'x' } as unknown as VegaTransform],
-      ['regression', { regression: 'y', on: 'x' } as unknown as VegaTransform],
-      ['loess', { loess: 'y', on: 'x' } as unknown as VegaTransform],
       ['pivot', { pivot: 'k', value: 'v' } as unknown as VegaTransform],
-      ['quantile', { quantile: 'x' } as unknown as VegaTransform],
       ['sample', { sample: 100 } as unknown as VegaTransform],
       ['stack', { stack: 'x', as: 'y' } as unknown as VegaTransform],
       ['impute', { impute: 'v', key: 'k' } as unknown as VegaTransform],
@@ -81,5 +75,76 @@ describe('applyTransforms / dispatcher', () => {
     applyTransforms([], [{ someMadeUpTransform: true } as unknown as VegaTransform], gaps, '$');
     const gap = gaps.list().find((entry) => entry.code === 'transform:someMadeUpTransform');
     expect(gap?.severity).to.equal('unsupported');
+  });
+
+  it('dispatches a window transform', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 1 }, { v: 2 }, { v: 3 }];
+    const transforms: VegaTransform[] = [
+      { window: [{ op: 'row_number', as: 'rn' }] } as unknown as VegaTransform,
+    ];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.deep.equal([
+      { v: 1, rn: 1 },
+      { v: 2, rn: 2 },
+      { v: 3, rn: 3 },
+    ]);
+  });
+
+  it('dispatches a joinaggregate transform', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 1 }, { v: 2 }, { v: 3 }];
+    const transforms: VegaTransform[] = [
+      { joinaggregate: [{ op: 'sum', field: 'v', as: 'total' }] } as unknown as VegaTransform,
+    ];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.deep.equal([
+      { v: 1, total: 6 },
+      { v: 2, total: 6 },
+      { v: 3, total: 6 },
+    ]);
+  });
+
+  it('dispatches a regression transform', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { x: 0, y: 1 },
+      { x: 1, y: 3 },
+      { x: 2, y: 5 },
+    ];
+    const transforms: VegaTransform[] = [{ regression: 'y', on: 'x' } as unknown as VegaTransform];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.have.length(2);
+  });
+
+  it('dispatches a loess transform', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+      { x: 2, y: 2 },
+      { x: 3, y: 3 },
+    ];
+    const transforms: VegaTransform[] = [{ loess: 'y', on: 'x' } as unknown as VegaTransform];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.have.length(4);
+  });
+
+  it('dispatches a quantile transform', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }];
+    const transforms: VegaTransform[] = [
+      { quantile: 'v', probs: [0.5] } as unknown as VegaTransform,
+    ];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.deep.equal([{ prob: 0.5, value: 2.5 }]);
+  });
+
+  it('dispatches a density transform', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
+    const transforms: VegaTransform[] = [{ density: 'v', steps: 4 } as unknown as VegaTransform];
+    const result = applyTransforms(rows, transforms, gaps, '$');
+    expect(result).to.have.length(5);
   });
 });

@@ -159,4 +159,62 @@ describe('useTextWidgetAI', () => {
     });
     expect(result.current.loading).toBe(false);
   });
+
+  // ─── Cache: dead `hash` field removed, unbounded growth capped (finding 3.6) ─
+
+  it('does not write a redundant `hash` field into the cached localStorage entry', async () => {
+    mockFetch(makeSseBody([{ type: 'text-delta', delta: 'Hello' }, { type: 'finish' }]));
+    const wrapper = setup();
+
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('Hello');
+    });
+
+    const cacheKeys = Object.keys(localStorage).filter((k) => k.startsWith('studio:textAI:v1:'));
+    expect(cacheKeys).toHaveLength(1);
+    const entry = JSON.parse(localStorage.getItem(cacheKeys[0])!) as Record<string, unknown>;
+    // Only the fields the cache actually reads back should be persisted — the
+    // hash is already embedded in the key itself, so a separate `hash` field
+    // would be dead weight.
+    expect(entry).not.toHaveProperty('hash');
+    expect(entry.markdown).toBe('Hello');
+  });
+
+  it('evicts the oldest entries once the cache exceeds its entry cap, instead of growing unbounded', async () => {
+    // Pre-seed 60 stale entries under the same namespace the hook writes to,
+    // each with a distinct, increasing `createdAt` so eviction order is
+    // deterministic (oldest — lowest `createdAt` — first).
+    const STALE_COUNT = 60;
+    for (let i = 0; i < STALE_COUNT; i += 1) {
+      localStorage.setItem(
+        `studio:textAI:v1:stale-dashboard:stale-page:stale-widget:hash-${i}`,
+        JSON.stringify({ markdown: `stale-${i}`, createdAt: i }),
+      );
+    }
+
+    mockFetch(makeSseBody([{ type: 'text-delta', delta: 'Fresh' }, { type: 'finish' }]));
+    const wrapper = setup();
+
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('Fresh');
+    });
+
+    const cacheKeys = Object.keys(localStorage).filter((k) => k.startsWith('studio:textAI:v1:'));
+    // 60 stale + 1 fresh = 61, capped down to 50.
+    expect(cacheKeys.length).toBe(50);
+    // The oldest stale entries (lowest `createdAt`) were evicted first...
+    expect(
+      localStorage.getItem('studio:textAI:v1:stale-dashboard:stale-page:stale-widget:hash-0'),
+    ).toBe(null);
+    // ...while the newest stale entries and the just-written fresh entry survive.
+    expect(
+      localStorage.getItem('studio:textAI:v1:stale-dashboard:stale-page:stale-widget:hash-59'),
+    ).not.toBe(null);
+    const freshKey = cacheKeys.find((k) => k.includes('text-1'));
+    expect(freshKey).toBeDefined();
+  });
 });

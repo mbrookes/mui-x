@@ -13,9 +13,23 @@ import { parseSSEStream, serializeDashboardState } from '../../StudioChatPanel/s
 
 const CACHE_PREFIX = 'studio:textAI:v1';
 
+/**
+ * Cap on the number of cached AI responses kept in `localStorage` under
+ * {@link CACHE_PREFIX}. Without a cap, every distinct (dashboard, page, widget,
+ * prompt+data hash) combination a user ever generates leaves behind its own
+ * entry forever — `localStorage` has no TTL/LRU of its own, so the cache grows
+ * unbounded across the lifetime of the browser profile (finding 3.6). Kept
+ * intentionally simple: a hard count cap with oldest-first eviction, not a full
+ * cache library.
+ */
+const MAX_CACHE_ENTRIES = 50;
+
 interface CacheEntry {
-  hash: string;
   markdown: string;
+  /** Epoch ms this entry was written. Used only to pick eviction order (oldest
+   * first) when the cache exceeds {@link MAX_CACHE_ENTRIES} — not read back for
+   * cache-hit/miss decisions (the hash is already embedded in the cache key). */
+  createdAt: number;
 }
 
 function djb2Hash(s: string): string {
@@ -44,15 +58,54 @@ function readCache(key: string): string | null {
   }
 }
 
-function writeCache(key: string, hash: string, markdown: string): void {
+function writeCache(key: string, markdown: string): void {
   if (typeof window === 'undefined') {
     return;
   }
   try {
-    const entry: CacheEntry = { hash, markdown };
+    const entry: CacheEntry = { markdown, createdAt: Date.now() };
     localStorage.setItem(key, JSON.stringify(entry));
+    evictOldestEntries();
   } catch {
     // Storage full or blocked — swallow
+  }
+}
+
+/**
+ * Enforce {@link MAX_CACHE_ENTRIES} on the `CACHE_PREFIX`-namespaced entries in
+ * `localStorage`, removing the oldest (by `createdAt`) first. Best-effort: any
+ * failure reading/parsing an entry treats it as the oldest so it's cleaned up
+ * rather than left to accumulate forever.
+ */
+function evictOldestEntries(): void {
+  try {
+    const namespacePrefix = `${CACHE_PREFIX}:`;
+    const entries: { key: string; createdAt: number }[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(namespacePrefix)) {
+        continue;
+      }
+      let createdAt = 0;
+      try {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? (JSON.parse(raw) as Partial<CacheEntry>) : null;
+        createdAt = typeof parsed?.createdAt === 'number' ? parsed.createdAt : 0;
+      } catch {
+        // Corrupt entry — treat as oldest.
+      }
+      entries.push({ key, createdAt });
+    }
+    if (entries.length <= MAX_CACHE_ENTRIES) {
+      return;
+    }
+    entries.sort((a, b) => a.createdAt - b.createdAt);
+    const excess = entries.length - MAX_CACHE_ENTRIES;
+    for (let i = 0; i < excess; i += 1) {
+      localStorage.removeItem(entries[i].key);
+    }
+  } catch {
+    // Storage inaccessible — swallow, matches writeCache's own guard.
   }
 }
 
@@ -175,7 +228,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
           return;
         }
 
-        writeCache(cacheKey, hash, content);
+        writeCache(cacheKey, content);
         setMarkdown(content);
         setLoading(false);
       } catch (err) {

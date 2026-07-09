@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   buildCsvContent,
   createDefaultWidget,
+  downloadCsv,
   exportGridToCsv,
   formatDateFilterLabel,
   inferKpiDateSubtitle,
@@ -457,8 +458,61 @@ describe('buildCsvContent', () => {
     const negativeRows = [{ id: 'ORD-1', product: 'Refund', revenue: -5 }];
     const csv = buildCsvContent(widget, source, negativeRows);
     const dataLine = csv.split('\n')[1];
-    expect(dataLine.endsWith(',-5') || dataLine.includes(',-5,')).toBe(true);
+    // Numeric cells are quoted (finding 1.2) but never given the leading-apostrophe
+    // formula-injection prefix — a genuine number can't be a spreadsheet formula.
+    expect(dataLine.endsWith(',"-5"') || dataLine.includes(',"-5",')).toBe(true);
     expect(dataLine).not.toContain("'-5");
+  });
+
+  // ─── Runtime-value numeric guard (architecture review 1.2 & 1.3) ────────────
+
+  it('quotes a numeric cell whose formatted value contains a grouping comma, keeping the CSV row intact (finding 1.2)', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [
+        { id: 'val', label: 'Value', type: 'number', format: 'decimal' },
+        { id: 'name', label: 'Name', type: 'string' },
+      ],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ val: 1234.5, name: 'Alice' }]);
+    const dataLine = csv.split('\n')[1];
+    // `1,234.50`'s thousands separator would previously have been emitted bare,
+    // splitting this single logical row into three CSV columns instead of two.
+    expect(dataLine).toBe('"1,234.50","Alice"');
+  });
+
+  it('escapes a formula-injection payload in a "number"-typed field holding a non-numeric runtime value (finding 1.3)', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      // Declared as `number`, but the row below supplies a string runtime value
+      // (dirty data / a misbehaving adapter) — the guard must key off the
+      // runtime value, not this declared type.
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const hostileRows = [{ amount: '=HYPERLINK("http://evil","x")' }];
+    const csv = buildCsvContent(widget, src, hostileRows);
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine).toBe('"\'=HYPERLINK(""http://evil"",""x"")"');
+  });
+
+  it('still emits a genuine numeric value in a "number"-typed field raw (quoted, unescaped) even when other rows in the same column are dirty', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ amount: -5 }, { amount: 'bad-data' }]);
+    const lines = csv.split('\n');
+    expect(lines[1]).toBe('"-5"');
+    expect(lines[2]).toBe('"bad-data"');
   });
 });
 
@@ -479,7 +533,7 @@ describe('buildCsvContent — number formatting', () => {
     expect(value).toMatch(/\$1[,.]?23[45]/);
   });
 
-  it('formats decimal fields with two decimal places', () => {
+  it('formats decimal fields with two decimal places, quoted so the grouping comma does not split the row (finding 1.2)', () => {
     const src: StudioDataSource = {
       id: 's',
       label: 'S',
@@ -489,7 +543,9 @@ describe('buildCsvContent — number formatting', () => {
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
     const csv = buildCsvContent(widget, src, [{ val: 1234.5 }]);
     const value = csv.split('\n')[1];
-    expect(value).toContain('1,234.50');
+    // Previously asserted as an unquoted `1,234.50`, which is invalid CSV — the
+    // bare comma silently splits the row into an extra column (finding 1.2).
+    expect(value).toBe('"1,234.50"');
   });
 
   it('formats integer fields with no decimal places', () => {
@@ -502,7 +558,7 @@ describe('buildCsvContent — number formatting', () => {
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
     const csv = buildCsvContent(widget, src, [{ qty: 42.9 }]);
     const value = csv.split('\n')[1];
-    expect(value).toBe('43');
+    expect(value).toBe('"43"');
   });
 
   it('formats percent fields', () => {
@@ -528,8 +584,10 @@ describe('buildCsvContent — number formatting', () => {
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
     const csv = buildCsvContent(widget, src, [{ rev: null }, { rev: undefined }]);
     const dataLines = csv.split('\n').slice(1);
-    expect(dataLines[0]).toBe('');
-    expect(dataLines[1]).toBe('');
+    // `null`/`undefined` are not runtime numbers, so they fall through to the
+    // normal (always-quoted) text-cell path — an empty, but still quoted, cell.
+    expect(dataLines[0]).toBe('""');
+    expect(dataLines[1]).toBe('""');
   });
 
   it('does not alter string field values', () => {
@@ -574,6 +632,38 @@ describe('exportGridToCsv', () => {
     exportGridToCsv(widget, source, [{ id: 'ORD-1' }]);
 
     expect(appendSpy).toHaveBeenCalledOnce();
+  });
+
+  // ─── Filename sanitization (architecture review 3.3) ─────────────────────────
+  it('sanitizes non-alphanumeric characters out of the widget title in the download filename', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((el) => el);
+    vi.spyOn(document.body, 'removeChild').mockImplementation((el) => el);
+
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Q1 Orders/Report!', config: {} };
+    exportGridToCsv(widget, source, [{ id: 'ORD-1' }]);
+
+    const link = appendSpy.mock.calls[0][0] as unknown as HTMLAnchorElement;
+    expect(link.download).toBe('Q1_Orders_Report__export.csv');
+  });
+});
+
+describe('downloadCsv', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sanitizes the filename (preserving the extension), used by both the grid and pivot CSV export paths (finding 3.3)', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((el) => el);
+    vi.spyOn(document.body, 'removeChild').mockImplementation((el) => el);
+
+    downloadCsv('a,b\n1,2', 'Region: EMEA/Q1.csv');
+
+    const link = appendSpy.mock.calls[0][0] as unknown as HTMLAnchorElement;
+    expect(link.download).toBe('Region__EMEA_Q1.csv');
   });
 });
 

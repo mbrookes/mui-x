@@ -50,9 +50,9 @@ export function StudioPivotWidget({
     if (!matrix) {
       return;
     }
-    const csv = pivotToCsv(matrix, pivotAggregation, pivotShowTotals);
+    const csv = pivotToCsv(matrix, pivotAggregation, pivotShowTotals, localeText.pivotTotalLabel);
     downloadCsv(csv, `${widget.title || 'pivot'}.csv`);
-  }, [matrix, pivotAggregation, pivotShowTotals, widget.title]);
+  }, [matrix, pivotAggregation, pivotShowTotals, widget.title, localeText.pivotTotalLabel]);
 
   React.useEffect(() => {
     if (exportRef) {

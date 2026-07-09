@@ -94,6 +94,35 @@ describe('extractDateRange', () => {
     expect(result).not.toBeNull();
     expect(result!.start.getTime()).toBeLessThan(result!.end.getTime());
   });
+
+  it('bounds a single-sided "until X" (<=) filter on the END, not the start (finding 1.11)', () => {
+    // `less_than_or_equal` keeps rows up to 2024-06-30, so the derived current
+    // period must END at the filter value — the old operator-blind code produced
+    // `{ start: 2024-06-30, end: today }`, i.e. exactly the region the filter EXCLUDES.
+    const result = extractDateRange(
+      makeFilter({ operator: 'less_than_or_equal', value: '2024-06-30' }),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.end.toISOString().slice(0, 10)).toBe('2024-06-30');
+    // The lower bound must sit strictly before the filter value (not after it).
+    expect(result!.start.getTime()).toBeLessThan(result!.end.getTime());
+  });
+
+  it('bounds a single-sided "until X" (<) filter on the END, not the start (finding 1.11)', () => {
+    const result = extractDateRange(makeFilter({ operator: 'less_than', value: '2024-06-30' }));
+    expect(result).not.toBeNull();
+    expect(result!.end.toISOString().slice(0, 10)).toBe('2024-06-30');
+    expect(result!.start.getTime()).toBeLessThan(result!.end.getTime());
+  });
+
+  it('keeps a single-sided "since X" (>=) filter starting at X and ending ~today', () => {
+    const result = extractDateRange(
+      makeFilter({ operator: 'greater_than_or_equal', value: '2024-06-30' }),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.start.toISOString().slice(0, 10)).toBe('2024-06-30');
+    expect(Math.abs(result!.end.getTime() - Date.now())).toBeLessThan(5000);
+  });
 });
 
 // ─── findDateFilter ───────────────────────────────────────────────────────────
@@ -177,18 +206,18 @@ describe('computePreviousPeriodRange', () => {
     expect(pe.getMonth()).toBe(end.getMonth());
   });
 
-  it('previous-calendar-period (month): previous calendar month', () => {
-    // ~6-month range → 'month' granularity (91–730 days)
-    const start = new Date('2026-01-01');
-    const end = new Date('2026-06-30');
+  it('previous-calendar-period (month): a ~1-month range maps to the previous calendar month', () => {
+    // A ~30-day range is month-sized — it must NOT be treated as a week (finding 2.18).
+    const start = new Date('2026-03-01');
+    const end = new Date('2026-03-31');
     const { start: ps, end: pe } = computePreviousPeriodRange(
       start,
       end,
       'previous-calendar-period',
     );
-    expect(ps.getFullYear()).toBe(2025);
-    expect(ps.getMonth()).toBe(11); // December (wraps to prev year)
-    expect(pe.getMonth()).toBe(11);
+    expect(ps.getFullYear()).toBe(2026);
+    expect(ps.getMonth()).toBe(1); // February
+    expect(pe.getMonth()).toBe(1); // February
   });
 
   it('previous-calendar-period (month): wraps to previous year for January', () => {
@@ -197,6 +226,53 @@ describe('computePreviousPeriodRange', () => {
     const { start: ps } = computePreviousPeriodRange(start, end, 'previous-calendar-period');
     expect(ps.getFullYear()).toBe(2025);
     expect(ps.getMonth()).toBe(11); // December
+  });
+
+  it('previous-calendar-period: a 30-day current range yields a NON-overlapping previous window (finding 2.18)', () => {
+    // Verified in the review: Mar 1–31 2026 (30 days) was mis-classified by
+    // autoGranularity as 'week', so the previous window shifted back only 7 days to
+    // Feb 22 – Mar 24, overlapping the current window by 24 days and degenerating the
+    // trend toward a self-comparison. The previous window must end strictly before the
+    // current window begins.
+    const start = new Date('2026-03-01T00:00:00.000Z');
+    const end = new Date('2026-03-31T23:59:59.999Z');
+    const { start: ps, end: pe } = computePreviousPeriodRange(
+      start,
+      end,
+      'previous-calendar-period',
+    );
+    expect(pe.getTime()).toBeLessThan(start.getTime());
+    expect(ps.getTime()).toBeLessThan(pe.getTime());
+  });
+
+  it('previous-calendar-period (quarter): a ~90-day range maps to the previous calendar quarter', () => {
+    // Q2 2026 (Apr 1 – Jun 30, ~91 days) → previous calendar quarter Q1 2026.
+    const start = new Date('2026-04-01');
+    const end = new Date('2026-06-30');
+    const { start: ps, end: pe } = computePreviousPeriodRange(
+      start,
+      end,
+      'previous-calendar-period',
+    );
+    expect(ps.getMonth()).toBe(0); // January (Q1 start)
+    expect(pe.getMonth()).toBe(2); // March (Q1 end)
+    expect(pe.getTime()).toBeLessThan(start.getTime()); // non-overlapping
+  });
+
+  it('previous-calendar-period (year): a multi-month range maps to the previous calendar year', () => {
+    // A ~6-month range is larger than a quarter → previous full calendar year,
+    // which is unambiguously non-overlapping (no longer the old December-only slice).
+    const start = new Date('2026-01-01');
+    const end = new Date('2026-06-30');
+    const { start: ps, end: pe } = computePreviousPeriodRange(
+      start,
+      end,
+      'previous-calendar-period',
+    );
+    expect(ps.getFullYear()).toBe(2025);
+    expect(ps.getMonth()).toBe(0); // January
+    expect(pe.getFullYear()).toBe(2025);
+    expect(pe.getMonth()).toBe(11); // December
   });
 });
 

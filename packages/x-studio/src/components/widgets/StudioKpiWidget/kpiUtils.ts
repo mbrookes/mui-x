@@ -123,7 +123,23 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     return { start, end };
   }
   if (v1) {
-    // Single-sided — treat today as the end, v1 as the start
+    // Single-sided — the operator decides WHICH side the filter value bounds.
+    // Mirrors the display-side interpretation in `internals/widgetUtils.tsx`
+    // ("since X" for `greater_than*`, "until X" for `less_than*`).
+    const op = resolved.operator;
+    if (op === 'less_than' || op === 'less_than_or_equal') {
+      // "until X": the filter keeps rows up to (and maybe including) X, so X is
+      // the END of the current period — NOT the start. Deriving `{ start: X,
+      // end: today }` here (the old, operator-blind behavior) inverted the window
+      // to exactly the region the filter excludes (finding 1.11). Mirror the
+      // open-ended "since X" window backwards so the derived window has an
+      // equivalent length but ends at the filter value. `Math.abs` keeps `start`
+      // on or before `end` whether X is in the past (the common case) or future.
+      const span = Math.abs(new Date().getTime() - v1.getTime());
+      return { start: new Date(v1.getTime() - span), end: v1 };
+    }
+    // "since X" (`greater_than`/`greater_than_or_equal`, or a legacy filter with
+    // no range operator): X is the start, today is the open end.
     return { start: v1, end: new Date() };
   }
   return null;
@@ -164,6 +180,38 @@ export function findDateFilter(
 
 type TrendComparison = 'previous-period' | 'previous-calendar-period' | 'year-over-year';
 
+type CalendarPeriod = 'week' | 'month' | 'quarter' | 'year';
+
+/**
+ * Classify a date range by the calendar period whose typical length best matches
+ * the range, for the `previous-calendar-period` comparison mode.
+ *
+ * This is deliberately NOT `autoGranularity`: that function's thresholds are tuned
+ * for sparkline BUCKETING (how many buckets to draw), which maps any 15–90-day
+ * range to `'week'`. Feeding that into the previous-period math shifts a ~monthly
+ * range back by a single week, so the "previous" window overlaps the current one
+ * and the trend delta degenerates toward a self-comparison (finding 2.18). Here the
+ * thresholds are centered on the actual lengths of calendar periods so the previous
+ * window never overlaps the current one:
+ * - ≤ 10 days  → week    (~7-day range)
+ * - ≤ 45 days  → month   (~28–31-day range)
+ * - ≤ 135 days → quarter (~90-day range)
+ * - otherwise  → year
+ */
+function comparisonGranularity(start: Date, end: Date): CalendarPeriod {
+  const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+  if (days <= 10) {
+    return 'week';
+  }
+  if (days <= 45) {
+    return 'month';
+  }
+  if (days <= 135) {
+    return 'quarter';
+  }
+  return 'year';
+}
+
 /**
  * Given a current [start, end] date range and a comparison mode, computes the
  * [start, end] of the previous comparison period.
@@ -182,7 +230,7 @@ export function computePreviousPeriodRange(
   }
 
   if (mode === 'previous-calendar-period') {
-    const granularity = autoGranularity(start, end);
+    const granularity = comparisonGranularity(start, end);
     if (granularity === 'year') {
       return {
         start: new Date(start.getFullYear() - 1, 0, 1),

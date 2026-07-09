@@ -181,32 +181,102 @@ export const spendRows: DatasetRow[] = [
 ];
 
 /**
- * Rows for the error-band demo: a monthly revenue series with several samples
- * per month, across the full Jan–Dec year. Each month's mean is hand-picked to
- * an irregular, gently-rising path (so the line reads like real revenue rather
- * than a periodic wave), and the sample spread sets the `stderr` band width.
+ * Rows for the error-band demo: real Amazon (AMZN) daily closing prices grouped
+ * by month (Aug 2023 – Jul 2024), copied from the Charts docs' AMZN dataset.
+ * Each month's daily closes feed the error band (real intra-month volatility),
+ * and the mean line is the monthly average close — a genuinely natural series.
  */
-export const trendRows: DatasetRow[] = (() => {
-  const monthlyMean: Array<[string, number]> = [
-    ['Jan', 3050],
-    ['Feb', 3380],
-    ['Mar', 3260],
-    ['Apr', 3620],
-    ['May', 3480],
-    ['Jun', 3900],
-    ['Jul', 3760],
-    ['Aug', 4180],
-    ['Sep', 3960],
-    ['Oct', 4340],
-    ['Nov', 4210],
-    ['Dec', 4560],
+export const amznRows: DatasetRow[] = (() => {
+  const monthlyCloses: Array<[string, number[]]> = [
+    [
+      "Aug '23",
+      [
+        131.69, 128.21, 128.91, 139.57, 142.22, 139.94, 137.85, 138.56, 138.41, 140.57, 137.67,
+        135.07, 133.98, 133.22, 134.68, 134.25, 135.52, 131.84, 133.26, 133.14, 134.91, 135.07,
+        138.01,
+      ],
+    ],
+    [
+      "Sep '23",
+      [
+        138.12, 137.27, 135.36, 137.85, 138.23, 143.1, 141.23, 144.85, 144.72, 140.39, 139.98,
+        137.63, 135.29, 129.33, 129.12, 131.27, 125.98, 125.98, 125.98, 127.12,
+      ],
+    ],
+    [
+      "Oct '23",
+      [
+        129.46, 124.72, 127, 125.96, 127.96, 128.26, 129.48, 131.83, 132.33, 129.79, 132.55, 131.47,
+        128.13, 128.4, 125.17, 126.56, 128.56, 121.39, 119.57, 127.74, 132.71, 133.09,
+      ],
+    ],
+    [
+      "Nov '23",
+      [
+        137, 138.07, 138.6, 139.74, 142.71, 142.08, 140.6, 143.56, 142.59, 145.8, 143.2, 142.83,
+        145.18, 146.13, 143.9, 146.71, 146.74, 147.73, 147.03, 146.32, 146.09,
+      ],
+    ],
+    [
+      "Dec '23",
+      [
+        147.03, 144.84, 146.88, 144.52, 146.88, 147.42, 145.89, 147.48, 148.84, 147.42, 149.97,
+        154.07, 153.79, 152.12, 153.84, 153.42, 153.41, 153.34, 153.38, 151.94,
+      ],
+    ],
+    [
+      "Jan '24",
+      [
+        149.93, 148.47, 144.57, 145.24, 149.1, 151.37, 153.73, 155.18, 154.62, 153.16, 151.71,
+        153.5, 155.34, 154.78, 156.02, 156.87, 157.75, 159.12, 161.26, 159, 155.2,
+      ],
+    ],
+    [
+      "Feb '24",
+      [
+        159.28, 171.81, 170.31, 169.15, 170.53, 169.84, 174.45, 172.34, 168.64, 170.98, 169.8,
+        169.51, 167.08, 168.59, 174.58, 174.99, 174.73, 173.54, 173.16, 176.76,
+      ],
+    ],
+    [
+      "Mar '24",
+      [
+        178.22, 177.58, 174.12, 173.51, 176.82, 175.35, 171.96, 175.39, 176.56, 178.75, 174.42,
+        174.48, 175.9, 178.15, 178.15, 178.87, 179.71, 178.3, 179.83, 180.38,
+      ],
+    ],
+    [
+      "Apr '24",
+      [
+        180.97, 180.69, 182.41, 180, 185.07, 185.19, 185.67, 185.95, 189.05, 186.13, 183.62, 183.32,
+        181.28, 179.22, 174.63, 177.23, 179.54, 176.59, 173.67, 179.62, 180.96, 175,
+      ],
+    ],
+    [
+      "May '24",
+      [
+        179, 184.72, 186.21, 188.7, 188.76, 188, 189.5, 187.48, 186.57, 187.07, 185.99, 183.63,
+        184.7, 183.54, 183.15, 183.13, 181.05, 180.75, 182.15, 182.02, 179.32, 176.44,
+      ],
+    ],
+    [
+      "Jun '24",
+      [
+        178.34, 179.34, 181.28, 185, 184.3, 187.06, 187.23, 186.89, 183.83, 183.66, 184.06, 182.81,
+        186.1, 189.08, 185.57, 186.34, 193.61, 197.85, 193.25,
+      ],
+    ],
+    [
+      "Jul '24",
+      [
+        197.2, 200, 197.59, 200, 199.29, 199.34, 199.79, 195.05, 194.49, 192.72, 193.02, 187.93,
+        183.75, 183.13, 182.55,
+      ],
+    ],
   ];
-  const spread = [-300, -120, 20, 140, 300];
   const rows: DatasetRow[] = [];
-  monthlyMean.forEach(([month, base], mi) => {
-    spread.forEach((offset, si) => {
-      rows.push({ month, revenue: base + offset + ((mi + si) % 3) * 35 });
-    });
+  monthlyCloses.forEach(([month, closes]) => {
+    closes.forEach((close) => rows.push({ month, close }));
   });
   return rows;
 })();
@@ -378,17 +448,18 @@ export const demos: Demo[] = [
     id: 'errorband-line',
     title: 'Line with error band (custom overlay)',
     description:
-      'A layer of mark: "errorband" (stderr extent) under a mean line, over the Jan–Dec year — ' +
-      'the band is a custom overlay path; the line is a regular LinePlot series.',
-    data: trendRows,
+      'Real Amazon (AMZN) daily closing prices grouped by month: mark: "errorband" (stdev extent) ' +
+      'shows each month’s price volatility, under a monthly-mean line. The band is a custom ' +
+      'overlay path; the line is a regular LinePlot series.',
+    data: amznRows,
     spec: {
       encoding: {
         x: { field: 'month', type: 'ordinal' },
-        y: { field: 'revenue', type: 'quantitative' },
+        y: { field: 'close', type: 'quantitative' },
       },
       layer: [
-        { mark: { type: 'errorband', extent: 'stderr' } },
-        { mark: 'line', encoding: { y: { field: 'revenue', aggregate: 'mean' } } },
+        { mark: { type: 'errorband', extent: 'stdev' } },
+        { mark: 'line', encoding: { y: { field: 'close', aggregate: 'mean' } } },
       ],
     },
   },

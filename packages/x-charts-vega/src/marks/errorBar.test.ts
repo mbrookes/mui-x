@@ -188,7 +188,7 @@ describe('compileErrorBarMark', () => {
     expect(overlay.opacity).to.equal(0.3);
   });
 
-  it('errorband: a transposed (categorical-y) band is dropped with a partial gap', () => {
+  it('errorband: a transposed (categorical-y) band renders with orientation "horizontal" and no transposed gap', () => {
     const compiled = compileSpec({
       data: { values: rows },
       mark: { type: 'errorband', orient: 'horizontal' },
@@ -197,9 +197,33 @@ describe('compileErrorBarMark', () => {
         x: { field: 'temp', type: 'quantitative' },
       },
     });
-    expect(compiled.overlays).to.have.length(0);
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:errorband-transposed');
-    expect(gap?.severity).to.equal('partial');
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0];
+    expect(overlay.kind).to.equal('band');
+    if (overlay.kind !== 'band') {
+      throw new Error('expected band overlay');
+    }
+    expect(overlay.orientation).to.equal('horizontal');
+    expect(overlay.points.map((point: OverlayBandPoint) => point.x)).to.deep.equal(['Mon', 'Tue']);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:errorband-transposed');
+  });
+
+  it('errorband: a standalone horizontal band seeds axis domain from foundation overlayAxisValues', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: { type: 'errorband', orient: 'horizontal' },
+      encoding: {
+        y: { field: 'day', type: 'nominal' },
+        x: { field: 'temp', type: 'quantitative' },
+      },
+    });
+    // No series exist for a standalone overlay-only spec, so the quantitative
+    // x-axis domain must be seeded from the band's own lower/upper values
+    // (see compile/index.ts's applyOverlayDomains / overlayAxisValues).
+    const config = compiled.xAxis?.config as { min?: number; max?: number } | undefined;
+    expect(config?.min).to.be.a('number');
+    expect(config?.max).to.be.a('number');
+    expect(config!.min!).to.be.lessThan(config!.max!);
   });
 
   it('layers an errorband under a line mark sharing the same encodings', () => {

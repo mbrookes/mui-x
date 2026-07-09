@@ -63,10 +63,62 @@ describe('resolveTimeUnit', () => {
 
   it('returns null and records an unsupported gap for unknown units', () => {
     const gaps = createGapCollector();
-    const result = resolveTimeUnit(d, 'dayofyear', gaps, '$');
+    const result = resolveTimeUnit(d, 'bogus-unit', gaps, '$');
     expect(result).to.equal(null);
-    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:dayofyear');
+    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:bogus-unit');
     expect(gap?.severity).to.equal('unsupported');
+  });
+
+  it('maps `dayofyear` onto the 2012 reference leap year and records a partial gap', () => {
+    const gaps = createGapCollector();
+    // March 1, 2024 is day 61 of the year (2024 is a leap year: 31 + 29 + 1).
+    const march1 = new Date(2024, 2, 1);
+    const result = resolveTimeUnit(march1, 'dayofyear', gaps, '$');
+    expect(result).to.deep.equal(new Date(2012, 0, 61));
+    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:dayofyear');
+    expect(gap?.severity).to.equal('partial');
+  });
+
+  it('maps `dayofyear` consistently for a non-leap-year date', () => {
+    const gaps = createGapCollector();
+    // March 1, 2023 is day 60 of the year (2023 is not a leap year: 31 + 28 + 1).
+    const march1 = new Date(2023, 2, 1);
+    const result = resolveTimeUnit(march1, 'dayofyear', gaps, '$');
+    expect(result).to.deep.equal(new Date(2012, 0, 60));
+  });
+
+  it('truncates `utcyear`/`utcmonth`/`utchours` using UTC calendar fields', () => {
+    const gaps = createGapCollector();
+    // 2024-06-15T13:45:30.250Z (a UTC instant).
+    const instant = new Date(Date.UTC(2024, 5, 15, 13, 45, 30, 250));
+    expect(resolveTimeUnit(instant, 'utcyear', gaps, '$')).to.deep.equal(
+      new Date(Date.UTC(2024, 0, 1)),
+    );
+    expect(resolveTimeUnit(instant, 'utcmonth', gaps, '$')).to.deep.equal(
+      new Date(Date.UTC(2024, 5, 1)),
+    );
+    expect(resolveTimeUnit(instant, 'utchours', gaps, '$')).to.deep.equal(
+      new Date(Date.UTC(2024, 5, 15, 13)),
+    );
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('truncates the `utcyearmonth` composite to the UTC month start', () => {
+    const gaps = createGapCollector();
+    const instant = new Date(Date.UTC(2024, 5, 15, 13, 45, 30, 250));
+    expect(resolveTimeUnit(instant, 'utcyearmonth', gaps, '$')).to.deep.equal(
+      new Date(Date.UTC(2024, 5, 1)),
+    );
+  });
+
+  it('maps `utcday` onto the reference week (UTC) and records a partial gap', () => {
+    const gaps = createGapCollector();
+    // 2024-06-15 is a Saturday both locally and in UTC for this instant.
+    const instant = new Date(Date.UTC(2024, 5, 15, 13, 45, 30, 250));
+    const result = resolveTimeUnit(instant, 'utcday', gaps, '$');
+    expect(result).to.deep.equal(new Date(Date.UTC(2006, 0, 7)));
+    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:day');
+    expect(gap?.severity).to.equal('partial');
   });
 });
 
@@ -106,6 +158,19 @@ describe('applyTimeUnitTransform', () => {
     );
     expect(result).to.deep.equal([{ ts: null, y: null }]);
   });
+
+  it('accepts `utcmonth`, truncating with UTC calendar fields', () => {
+    const gaps = createGapCollector();
+    const rows = [{ ts: new Date(Date.UTC(2024, 5, 15, 13, 45, 30, 250)) }];
+    const result = applyTimeUnitTransform(
+      rows,
+      { timeUnit: 'utcmonth', field: 'ts', as: 'm' },
+      gaps,
+      '$',
+    );
+    expect((result[0] as { m: Date }).m).to.deep.equal(new Date(Date.UTC(2024, 5, 1)));
+    expect(gaps.list()).to.have.length(0);
+  });
 });
 
 describe('applyInlineTimeUnit', () => {
@@ -119,10 +184,21 @@ describe('applyInlineTimeUnit', () => {
 
   it('returns null (after a gap) for an unsupported unit so the caller can fall back to the raw field', () => {
     const gaps = createGapCollector();
-    const result = applyInlineTimeUnit([{ ts: d }], 'ts', 'dayofyear', gaps, '$');
+    const result = applyInlineTimeUnit([{ ts: d }], 'ts', 'bogus-unit', gaps, '$');
     expect(result).to.equal(null);
-    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:dayofyear');
+    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:bogus-unit');
     expect(gap?.severity).to.equal('unsupported');
+  });
+
+  it('accepts `utcmonth` inline, writing a UTC-truncated synthetic field', () => {
+    const gaps = createGapCollector();
+    const rows = [{ ts: new Date(Date.UTC(2024, 5, 15, 13, 45, 30, 250)) }];
+    const result = applyInlineTimeUnit(rows, 'ts', 'utcmonth', gaps, '$');
+    expect(result).not.to.equal(null);
+    expect(result!.field).to.equal('__timeUnit_utcmonth_ts');
+    expect((result!.rows[0] as Record<string, unknown>)[result!.field]).to.deep.equal(
+      new Date(Date.UTC(2024, 5, 1)),
+    );
   });
 });
 
@@ -132,12 +208,12 @@ describe('applyTimeUnitTransform / unsupported units', () => {
     const rows = [{ ts: d }];
     const result = applyTimeUnitTransform(
       rows,
-      { timeUnit: 'dayofyear', field: 'ts', as: 'doy' },
+      { timeUnit: 'bogus-unit', field: 'ts', as: 'doy' },
       gaps,
       '$',
     );
     expect(result).to.deep.equal([{ ts: d }]);
-    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:dayofyear');
+    const gap = gaps.list().find((entry) => entry.code === 'timeUnit:bogus-unit');
     expect(gap?.severity).to.equal('unsupported');
   });
 });

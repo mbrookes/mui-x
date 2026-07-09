@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { useXScale, useYScale } from '@mui/x-charts/hooks';
-import type { CompiledOverlay, OverlayBoxItem } from '../compile/context';
+import type { CompiledOverlay, OverlayBoxItem, OverlayBoxSubMark } from '../compile/context';
 import type { AnyScale } from './scaleUtils';
 import { scaleBandwidth, scalePosition } from './scaleUtils';
 
@@ -13,6 +13,15 @@ import { scaleBandwidth, scalePosition } from './scaleUtils';
  * scalePosition), a median line, whisker lines to min/max with end caps, and
  * small circles for outliers. `orientation: 'horizontal'` transposes (category
  * on the y axis, values on x). Skip unresolvable items.
+ *
+ * Grouped/dodged boxes: when `overlay.groupCount > 1`, each category's band
+ * is subdivided into `groupCount` equal slots and each item's `groupIndex`
+ * picks its slot, so sibling color-groups draw side-by-side instead of
+ * stacking on the category center.
+ *
+ * Sub-mark styling: `overlay.median`/`box`/`rule`/`ticks`/`outliers` — each
+ * `false` hides that sub-mark, an `OverlayBoxSubMark` supplies its
+ * color/opacity (falling back to the item/overlay defaults).
  */
 
 /** Fallback box fill when the compiler didn't resolve a static color. */
@@ -24,13 +33,26 @@ const DEFAULT_WIDTH_RATIO = 0.5;
 /** Outlier dot radius. */
 const OUTLIER_RADIUS = 2.5;
 
+/** Sub-mark color, falling back to `fallback` when unresolved (or the sub-mark is hidden via `false`). */
+function subMarkColor(subMark: OverlayBoxSubMark | false | undefined, fallback: string): string {
+  return subMark ? (subMark.color ?? fallback) : fallback;
+}
+
+/** Sub-mark opacity, `undefined` when unresolved (or the sub-mark is hidden via `false`). */
+function subMarkOpacity(subMark: OverlayBoxSubMark | false | undefined): number | undefined {
+  return subMark ? subMark.opacity : undefined;
+}
+
 function renderBox(
   item: OverlayBoxItem,
   index: number,
   horizontal: boolean,
   thickness: number,
+  slot: number,
+  groupCount: number,
   categoryScale: AnyScale,
   valueScale: AnyScale,
+  overlay: Extract<CompiledOverlay, { kind: 'boxes' }>,
 ): React.ReactNode | null {
   const categoryPos = scalePosition(categoryScale, item.category);
   const minPos = scalePosition(valueScale, item.min);
@@ -49,16 +71,25 @@ function renderBox(
     return null;
   }
 
+  const groupIndex = item.groupIndex ?? 0;
+  // Sub-divide the category band into `groupCount` equal slots for grouped/
+  // dodged boxes; a single group just draws on the category center.
+  const center =
+    groupCount > 1
+      ? categoryPos - (slot * groupCount) / 2 + (groupIndex + 0.5) * slot
+      : categoryPos;
+
   const color = item.color ?? DEFAULT_BOX_COLOR;
   const half = thickness / 2;
   const capHalf = thickness / 4;
-  const start = categoryPos - half;
+  const start = center - half;
   // The box spans the quartile range along the value axis.
   const boxStart = Math.min(q1Pos, q3Pos);
   const boxLength = Math.abs(q3Pos - q1Pos);
 
-  const stroke = 'currentColor';
   const strokeWidth = 1;
+  const boxFill = subMarkColor(overlay.box, color);
+  const boxFillOpacity = overlay.box?.opacity ?? 0.9;
 
   // `main` = along the value axis (whisker direction); `cross` = category axis.
   const rect = horizontal ? (
@@ -67,9 +98,9 @@ function renderBox(
       y={start}
       width={boxLength}
       height={thickness}
-      fill={color}
-      fillOpacity={0.9}
-      stroke={color}
+      fill={boxFill}
+      fillOpacity={boxFillOpacity}
+      stroke={boxFill}
     />
   ) : (
     <rect
@@ -77,97 +108,125 @@ function renderBox(
       y={boxStart}
       width={thickness}
       height={boxLength}
-      fill={color}
-      fillOpacity={0.9}
-      stroke={color}
+      fill={boxFill}
+      fillOpacity={boxFillOpacity}
+      stroke={boxFill}
     />
   );
 
-  const whisker = horizontal ? (
-    <line
-      x1={minPos}
-      y1={categoryPos}
-      x2={maxPos}
-      y2={categoryPos}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-    />
-  ) : (
-    <line
-      x1={categoryPos}
-      y1={minPos}
-      x2={categoryPos}
-      y2={maxPos}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-    />
-  );
+  const ruleStroke = subMarkColor(overlay.rule, 'currentColor');
+  const ruleOpacity = subMarkOpacity(overlay.rule);
+  let whisker: React.ReactNode = null;
+  if (overlay.rule !== false) {
+    whisker = horizontal ? (
+      <line
+        x1={minPos}
+        y1={center}
+        x2={maxPos}
+        y2={center}
+        stroke={ruleStroke}
+        strokeWidth={strokeWidth}
+        strokeOpacity={ruleOpacity}
+      />
+    ) : (
+      <line
+        x1={center}
+        y1={minPos}
+        x2={center}
+        y2={maxPos}
+        stroke={ruleStroke}
+        strokeWidth={strokeWidth}
+        strokeOpacity={ruleOpacity}
+      />
+    );
+  }
 
+  const tickStroke = subMarkColor(overlay.ticks, 'currentColor');
+  const tickOpacity = subMarkOpacity(overlay.ticks);
   const cap = (valuePos: number, key: string) =>
     horizontal ? (
       <line
         key={key}
         x1={valuePos}
-        y1={categoryPos - capHalf}
+        y1={center - capHalf}
         x2={valuePos}
-        y2={categoryPos + capHalf}
-        stroke={stroke}
+        y2={center + capHalf}
+        stroke={tickStroke}
         strokeWidth={strokeWidth}
+        strokeOpacity={tickOpacity}
       />
     ) : (
       <line
         key={key}
-        x1={categoryPos - capHalf}
+        x1={center - capHalf}
         y1={valuePos}
-        x2={categoryPos + capHalf}
+        x2={center + capHalf}
         y2={valuePos}
-        stroke={stroke}
+        stroke={tickStroke}
         strokeWidth={strokeWidth}
+        strokeOpacity={tickOpacity}
       />
     );
 
-  const median = horizontal ? (
-    <line
-      x1={medianPos}
-      y1={start}
-      x2={medianPos}
-      y2={start + thickness}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-    />
-  ) : (
-    <line
-      x1={start}
-      y1={medianPos}
-      x2={start + thickness}
-      y2={medianPos}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-    />
-  );
-
-  const outliers = (item.outliers ?? []).map((value, outlierIndex) => {
-    const valuePos = scalePosition(valueScale, value);
-    if (valuePos === null) {
-      return null;
-    }
-    return (
-      <circle
-        key={`outlier-${outlierIndex}`}
-        cx={horizontal ? valuePos : categoryPos}
-        cy={horizontal ? categoryPos : valuePos}
-        r={OUTLIER_RADIUS}
-        fill={color}
-        stroke={stroke}
+  const medianStroke = subMarkColor(overlay.median, 'currentColor');
+  const medianOpacity = subMarkOpacity(overlay.median);
+  let median: React.ReactNode = null;
+  if (overlay.median !== false) {
+    median = horizontal ? (
+      <line
+        x1={medianPos}
+        y1={start}
+        x2={medianPos}
+        y2={start + thickness}
+        stroke={medianStroke}
+        strokeWidth={strokeWidth}
+        strokeOpacity={medianOpacity}
+      />
+    ) : (
+      <line
+        x1={start}
+        y1={medianPos}
+        x2={start + thickness}
+        y2={medianPos}
+        stroke={medianStroke}
+        strokeWidth={strokeWidth}
+        strokeOpacity={medianOpacity}
       />
     );
-  });
+  }
+
+  const outlierFill = subMarkColor(overlay.outliers, color);
+  const outlierOpacity = subMarkOpacity(overlay.outliers);
+  const outliers =
+    overlay.outliers === false
+      ? []
+      : (item.outliers ?? []).map((value, outlierIndex) => {
+          const valuePos = scalePosition(valueScale, value);
+          if (valuePos === null) {
+            return null;
+          }
+          return (
+            <circle
+              key={`outlier-${outlierIndex}`}
+              cx={horizontal ? valuePos : center}
+              cy={horizontal ? center : valuePos}
+              r={OUTLIER_RADIUS}
+              fill={outlierFill}
+              fillOpacity={outlierOpacity}
+              stroke={outlierFill}
+            />
+          );
+        });
 
   return (
-    <g key={index} className="MuiVegaOverlay-box">
+    <g key={`${groupIndex}-${index}`} className="MuiVegaOverlay-box" opacity={overlay.opacity}>
       {whisker}
-      {cap(minPos, 'cap-min')}
-      {cap(maxPos, 'cap-max')}
+      {overlay.ticks !== false && (
+        <React.Fragment>
+          {cap(minPos, 'cap-min')}
+          {cap(maxPos, 'cap-max')}
+        </React.Fragment>
+      )}
       {rect}
       {median}
       {outliers}
@@ -190,12 +249,28 @@ export function BoxPlotOverlay(props: { overlay: Extract<CompiledOverlay, { kind
 
   const bandwidth = scaleBandwidth(categoryScale);
   const widthRatio = overlay.widthRatio ?? DEFAULT_WIDTH_RATIO;
-  const thickness = bandwidth > 0 ? bandwidth * widthRatio : POINT_SCALE_FALLBACK_WIDTH;
+  const groupCount = overlay.groupCount ?? 1;
+  // Divide by `groupCount` in both branches so a category's total dodge
+  // footprint (`slot * groupCount`) matches its available width whether the
+  // category scale is a band (bandwidth) or the point-scale fallback width —
+  // otherwise grouped boxes on a point scale would overlap each other.
+  const slot = (bandwidth > 0 ? bandwidth : POINT_SCALE_FALLBACK_WIDTH) / groupCount;
+  const thickness = slot * widthRatio;
 
   return (
     <g className="MuiVegaOverlay-boxes">
       {overlay.items.map((item, index) =>
-        renderBox(item, index, horizontal, thickness, categoryScale, valueScale),
+        renderBox(
+          item,
+          index,
+          horizontal,
+          thickness,
+          slot,
+          groupCount,
+          categoryScale,
+          valueScale,
+          overlay,
+        ),
       )}
     </g>
   );

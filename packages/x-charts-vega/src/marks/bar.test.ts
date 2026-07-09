@@ -305,7 +305,7 @@ describe('compileBarMark', () => {
     expect(compiled.series).to.have.length(0);
   });
 
-  it('reports an ignored gap for mark.cornerRadius', () => {
+  it('reports a partial gap for mark.cornerRadius and applies it chart-wide', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ category: 'A', amount: 1 }] },
       mark: { type: 'bar', cornerRadius: 6 },
@@ -316,6 +316,63 @@ describe('compileBarMark', () => {
     };
     const compiled = compileSpec(spec);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-corner-radius');
+    expect(gap?.severity).to.equal('partial');
+    expect(compiled.barBorderRadius).to.equal(6);
+  });
+
+  it('does not set barBorderRadius or a gap when cornerRadius is absent', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ category: 'A', amount: 1 }] },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.barBorderRadius).to.equal(undefined);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:bar-corner-radius');
+  });
+
+  it('reports an ignored gap (not silence) for a non-positive or non-numeric cornerRadius', () => {
+    const negative = compileSpec({
+      data: { values: [{ category: 'A', amount: 1 }] },
+      mark: { type: 'bar', cornerRadius: -4 },
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    });
+    expect(negative.barBorderRadius).to.equal(undefined);
+    const negativeGap = negative.gaps.find((entry) => entry.code === 'mark:bar-corner-radius');
+    expect(negativeGap?.severity).to.equal('ignored');
+
+    // A Vega-Lite signal-expression object is a realistic non-numeric shape.
+    const signalSpec: VegaLiteSpec = {
+      data: { values: [{ category: 'A', amount: 1 }] },
+      mark: { type: 'bar', cornerRadius: { signal: 'someExpr' } as unknown as number },
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    };
+    const signalCompiled = compileSpec(signalSpec);
+    expect(signalCompiled.barBorderRadius).to.equal(undefined);
+    const signalGap = signalCompiled.gaps.find((entry) => entry.code === 'mark:bar-corner-radius');
+    expect(signalGap?.severity).to.equal('ignored');
+  });
+
+  it('reports an ignored gap for a per-corner radius', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ category: 'A', amount: 1 }] },
+      mark: { type: 'bar', cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4 },
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-corner-radius-per-corner');
     expect(gap?.severity).to.equal('ignored');
   });
 

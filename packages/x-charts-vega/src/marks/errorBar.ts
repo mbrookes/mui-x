@@ -24,9 +24,13 @@ import { isFieldDef } from '../types';
  *   uses bootstrapped CIs, note the approximation in a 'partial' gap), 'iqr'
  *   (q1..q3) — reuse evaluateAggregate ops from ../transforms/aggregateOps;
  * - errorbar → errorBars overlay items (category, lower, upper, optional
- *   center=mean); errorband → band overlay points sorted by x;
- * - both orientations for errorbar; errorband is x-ordered only (transposed
- *   band → 'partial' gap);
+ *   center=mean); errorband → band overlay points (sorted by the category
+ *   axis order — x for vertical, y for horizontal/transposed);
+ * - both orientations supported for both errorbar and errorband; a
+ *   transposed (categorical-y) errorband tags its overlay with
+ *   `orientation: 'horizontal'` and stores the y-category in `point.x` (see
+ *   `OverlayBandPoint`'s JSDoc in compile/context.ts) for the renderer to
+ *   transpose;
  * - color from static mark/value color; color-field split → 'partial' gap;
  * - these marks are usually LAYERED with line/point marks — the pipeline
  *   already flattens layers, nothing special needed;
@@ -229,20 +233,11 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [], overlays: [overlay] };
   }
 
-  // errorband: only supported x-ordered (category on the x axis, the default
-  // Vega-Lite orientation) — a transposed (categorical-y) band has no
-  // supported path direction in this wrapper.
-  if (horizontal) {
-    gaps.add({
-      code: 'mark:errorband-transposed',
-      message:
-        "errorband is only supported with the category on the x axis (Vega-Lite's default orientation for this mark); a transposed (categorical-y) errorband has no supported band-path direction in this wrapper and was dropped.",
-      severity: 'partial',
-      path,
-    });
-    return { series: [], plots: [] };
-  }
-
+  // errorband: the category-axis order (x for vertical, y for horizontal —
+  // `categoryAxis` already picks the right one above) provides the band's
+  // path order. `point.x` carries the category value regardless of
+  // orientation; the `horizontal` flag on the overlay tells the renderer to
+  // transpose (draw the category on the y axis, lower/upper on x).
   const points: OverlayBandPoint[] = [];
   categoryAxis.categories.forEach((category, index) => {
     const interval = intervals[index];
@@ -266,6 +261,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
     points,
     color: staticColor,
     opacity: 0.3,
+    ...(horizontal ? { orientation: 'horizontal' as const } : {}),
   };
   return { series: [], plots: [], overlays: [overlay] };
 }

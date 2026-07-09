@@ -82,7 +82,9 @@ describe('applyEncodingTransforms / inline transform fallbacks', () => {
     const rows = [{ x: new Date(2024, 0, 1) }];
     const result = applyEncodingTransforms(
       rows,
-      { x: { field: 'x', timeUnit: 'dayofyear' } },
+      // `dayofyear` is a supported (if cyclic/approximated) unit now — use a
+      // genuinely unrecognized unit to exercise the unsupported-unit fallback.
+      { x: { field: 'x', timeUnit: 'bogus-unit' } },
       gaps,
       '$',
     );

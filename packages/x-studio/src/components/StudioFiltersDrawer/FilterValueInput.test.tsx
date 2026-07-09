@@ -31,6 +31,9 @@ describe('FilterValueInput', () => {
     // Regression for finding 1.10: a `between` value is a `{ from, to }` object. The generic
     // numeric TextField path would stringify it to `[object Object]` and the first keystroke
     // would clobber it. The dedicated editor shows two bounds and dispatches an object.
+    //
+    // Finding 1.17: the bounds now buffer locally and commit on blur (not per keystroke), so
+    // the object dispatch is asserted after a blur rather than on `change`.
     const onChange = vi.fn();
     render(
       <FilterValueInput
@@ -48,7 +51,37 @@ describe('FilterValueInput', () => {
     expect(screen.queryByDisplayValue('[object Object]')).toBe(null);
 
     fireEvent.change(toInput, { target: { value: '25' } });
+    fireEvent.blur(toInput);
     expect(onChange).toHaveBeenCalledWith({ from: '10', to: '25' });
+  });
+
+  it('buffers between-numeric keystrokes and commits once on blur (1.17)', () => {
+    // Regression for finding 1.17: the `between` bounds used to call `onChange`
+    // (`controller.updateFilter`, undoable) on EVERY keystroke — typing "1500" produced 4
+    // separate undoable commits + 4 pipeline recomputes. They now buffer locally: no commit
+    // while typing, and a single commit on blur.
+    const onChange = vi.fn();
+    render(
+      <FilterValueInput
+        fieldType="number"
+        operator="between"
+        value={{ from: '', to: '99' }}
+        onChange={onChange}
+      />,
+    );
+
+    const fromInput = screen.getByLabelText('From') as HTMLInputElement;
+    fireEvent.change(fromInput, { target: { value: '1' } });
+    fireEvent.change(fromInput, { target: { value: '15' } });
+    fireEvent.change(fromInput, { target: { value: '150' } });
+    fireEvent.change(fromInput, { target: { value: '1500' } });
+    // Still buffered — no store write yet, and the displayed text tracks every keystroke.
+    expect(onChange).not.toHaveBeenCalled();
+    expect(fromInput.value).toBe('1500');
+
+    fireEvent.blur(fromInput);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ from: '1500', to: '99' });
   });
 
   it('renders a between date filter as two date pickers (1.10)', () => {

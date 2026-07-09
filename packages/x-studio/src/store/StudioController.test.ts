@@ -1472,6 +1472,70 @@ describe('StudioController expression fields', () => {
     controller.removeExpressionField('ef1');
     expect(controller.getState().doc.expressionFields.map((field) => field.id)).toEqual(['ef2']);
   });
+
+  // Finding 2.14: deleting a calculated field used to silently strand every widget / filter /
+  // expression that referenced it. The controller now surfaces a reference count so the caller
+  // can confirm (or a future UI pass can gate) the deletion.
+  it('getExpressionFieldReferenceCount counts referencing widgets, filters, and expressions', () => {
+    const efUser = {
+      ...ef,
+      id: 'ef2',
+      label: 'Uses margin',
+      expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+    };
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [ef, efUser],
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            sourceId: 'orders',
+            config: { chartType: 'bar', xField: 'ef1' },
+          } as never,
+        },
+        filters: [
+          {
+            id: 'flt',
+            field: 'ef1',
+            operator: 'greater_than',
+            value: '5',
+            scope: { kind: 'page' },
+          } as never,
+        ],
+      },
+    });
+    // widget xField + filter field + sibling expression input → 3 references.
+    expect(controller.getExpressionFieldReferenceCount('ef1')).toBe(3);
+    // The unreferenced sibling reports 0.
+    expect(controller.getExpressionFieldReferenceCount('ef2')).toBe(0);
+    // An unknown id reports 0.
+    expect(controller.getExpressionFieldReferenceCount('nope')).toBe(0);
+  });
+
+  it('removeExpressionField still deletes a referenced field and returns the reference count', () => {
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [ef],
+        filters: [
+          {
+            id: 'flt',
+            field: 'ef1',
+            operator: 'greater_than',
+            value: '5',
+            scope: { kind: 'page' },
+          } as never,
+        ],
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const count = controller.removeExpressionField('ef1');
+    warnSpy.mockRestore();
+    // Guard-and-continue: the field is removed even though a filter still references it...
+    expect(controller.getState().doc.expressionFields).toHaveLength(0);
+    // ...and the reference count is surfaced to the caller.
+    expect(count).toBe(1);
+  });
 });
 
 // ─── StudioController — undo / redo ──────────────────────────────────────────

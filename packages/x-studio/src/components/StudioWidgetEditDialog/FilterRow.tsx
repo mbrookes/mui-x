@@ -17,6 +17,7 @@ import {
   getOperatorLabel,
   getOperatorsForFieldType,
 } from '../StudioFiltersDrawer/filterOperatorMetadata';
+import { isRelativeDateValue } from '../StudioFiltersDrawer/filterDrawerUtils';
 
 export interface FieldOption {
   id: string;
@@ -104,8 +105,16 @@ export function FilterRow(props: {
     (f) => f.id === filter.field && (f.sourceId ?? null) === (filter.filterSourceId ?? null),
   );
   const operators = getOperatorsForFieldType(fieldMeta?.type);
-  const noValue = NO_VALUE_OPERATORS.has(filter.operator);
-  const isBetween = filter.operator === 'between';
+  // 2.16: the stored `operator` can be invalid for the current field type (a legacy /
+  // AI / host-authored filter, or the field switched under it) — the drawer rows
+  // (`PageFilterRow`/`WidgetFilterRow`) fall back to `operators[0]` for display so the
+  // Select never renders an out-of-range value (blank + MUI dev warning) while the
+  // engine keeps applying the stale operator. Mirror that fallback here.
+  const activeOperator = operators.some((o) => o.value === filter.operator)
+    ? filter.operator
+    : operators[0].value;
+  const noValue = NO_VALUE_OPERATORS.has(activeOperator);
+  const isBetween = activeOperator === 'between';
   // A `between` filter's value is a `{ from, to }` object. Read the bounds defensively —
   // the value may be `null`/`undefined` or a legacy scalar if the filter was authored
   // under a different operator before switching to `between`.
@@ -200,17 +209,22 @@ export function FilterRow(props: {
       {/* Operator selector */}
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
-          value={filter.operator}
+          value={activeOperator}
           onChange={(evt) => {
             const nextOperator = evt.target.value as StudioFilterOperator;
             // 1.6: switching AWAY from `between` must not strand the `{ from, to }` object
             // value — `toComparable` would yield NaN (matching nothing) and the value input
             // would show "[object Object]". Reset the value when the new operator is
             // shape-incompatible with the object shape `between` uses.
+            //
+            // 1.14: a `RelativeDateValue` is also a non-array object but a valid scalar date
+            // value, so exclude it from the reset predicate — otherwise switching operator on
+            // a relative-date filter silently discards the configured relative value.
             const valueIsBetweenShape =
               filter.value !== null &&
               typeof filter.value === 'object' &&
-              !Array.isArray(filter.value);
+              !Array.isArray(filter.value) &&
+              !isRelativeDateValue(filter.value);
             onUpdate(
               nextOperator !== 'between' && valueIsBetweenShape
                 ? { operator: nextOperator, value: '' }

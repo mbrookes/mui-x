@@ -17,6 +17,58 @@ import { DateValueInput } from './DateValueInput';
 const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
 const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
 
+/**
+ * A numeric `between` bound input that buffers its text locally and only commits to the
+ * store on blur / Enter (finding 1.17). The raw `TextField`s used to call `onChange`
+ * (`controller.updateFilter`, undoable) on every keystroke, so typing "1500" produced 4
+ * separate undoable commits + 4 full pipeline recomputes, and Ctrl+Z un-typed one digit at
+ * a time. Mirrors the edit dialog's `BufferedTextField` for the identical `between` shape.
+ */
+function BufferedBoundInput(props: {
+  value: unknown;
+  onCommit: (next: string) => void;
+  label: string;
+}) {
+  const { value, onCommit, label } = props;
+  const initialText = value === undefined || value === null ? '' : String(value);
+  const [text, setText] = React.useState(initialText);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed bound; resync on external change (operator/field swap, undo/redo)
+  React.useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    onCommit(text);
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      type="number"
+      label={label}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ minWidth: 80, flexGrow: 1 }}
+    />
+  );
+}
+
 /** The value input appropriate for a field type and operator. */
 export function FilterValueInput(props: {
   fieldType: FieldType | undefined;
@@ -43,6 +95,20 @@ export function FilterValueInput(props: {
     setLocalText(String(value ?? ''));
     clearTimeout(debounceTimer.current);
   }
+
+  // 2.12: cancel any pending debounced commit when the operator changes. A mode/operator
+  // switch within the 150ms window would otherwise let a stale commit fire `onChange` with
+  // the OLD scalar text against the NEW operator's value shape (e.g. landing a scalar string
+  // onto a `between` object filter, or vice versa).
+  const prevOperatorRef = React.useRef(operator);
+  if (prevOperatorRef.current !== operator) {
+    prevOperatorRef.current = operator;
+    clearTimeout(debounceTimer.current);
+  }
+
+  // 2.12: flush nothing but clear the timer on unmount so a debounced commit can't fire
+  // against an unmounted component (React state update warning) or a since-changed filter.
+  React.useEffect(() => () => clearTimeout(debounceTimer.current), []);
 
   const handleTextChange = React.useCallback(
     (newVal: string) => {
@@ -89,27 +155,15 @@ export function FilterValueInput(props: {
     }
     return (
       <Stack direction="row" spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
-        <TextField
-          size="small"
-          type="number"
+        <BufferedBoundInput
           label={localeText.filterWidgetDateFromLabel}
-          value={
-            betweenValue.from === undefined || betweenValue.from === null
-              ? ''
-              : String(betweenValue.from)
-          }
-          onChange={(event) => setBound('from')(event.target.value)}
-          sx={{ minWidth: 80, flexGrow: 1 }}
+          value={betweenValue.from}
+          onCommit={(next) => setBound('from')(next)}
         />
-        <TextField
-          size="small"
-          type="number"
+        <BufferedBoundInput
           label={localeText.filterWidgetDateToLabel}
-          value={
-            betweenValue.to === undefined || betweenValue.to === null ? '' : String(betweenValue.to)
-          }
-          onChange={(event) => setBound('to')(event.target.value)}
-          sx={{ minWidth: 80, flexGrow: 1 }}
+          value={betweenValue.to}
+          onCommit={(next) => setBound('to')(next)}
         />
       </Stack>
     );

@@ -236,6 +236,97 @@ describe('GaugeConfigSection cross-source field pick folds to a single undo step
     expect(realController.canUndo()).toBe(false);
   });
 
+  // Finding 1.16: switching the gauge's value field to a field on a DIFFERENT source
+  // re-sources the widget. A widget-scoped filter whose field belonged to the OLD source
+  // no longer resolves against the new source and would silently exclude every row (blank
+  // gauge). The cross-source pick must fold `removeFilterIds` (via
+  // `collectStaleWidgetFilterIds`) into the SAME undoable commit, exactly like the sibling
+  // Chart/KPI/Grid panels.
+  it('removes a now-stale widget-scoped filter when re-sourcing to another source (1.16)', async () => {
+    const realController = new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'chart',
+            title: 'Gauge',
+            config: { chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'total' },
+            sourceId: 'orders',
+          } as StudioWidget,
+        },
+        filters: [
+          {
+            id: 'flt-stale',
+            field: 'total',
+            fieldType: 'number',
+            operator: 'greater_than',
+            value: '5',
+            scope: { kind: 'widget', widgetId: 'widget-1' },
+          },
+        ],
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'total', label: 'Total', type: 'number' }],
+            rows: [],
+          },
+          customers: {
+            id: 'customers',
+            label: 'Customers',
+            fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    expect(realController.getState().doc.filters).toHaveLength(1);
+
+    const crossSourceFields: DataSourceFieldEntry[] = [
+      { id: 'total', label: 'Total', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
+      {
+        id: 'revenue',
+        label: 'Revenue',
+        type: 'number',
+        sourceId: 'customers',
+        sourceLabel: 'Customers',
+      },
+    ];
+
+    const { user } = render(
+      <GaugeConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'total' } as never}
+        allFields={crossSourceFields}
+        widgetSourceId="orders"
+        allFilters={realController.getState().doc.filters}
+        relationships={[]}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
+    const revenueOption = await screen.findByRole('option', { name: /Revenue$/ });
+    await user.click(revenueOption);
+
+    // Widget re-sourced to customers AND the stale orders-field filter removed — in ONE step.
+    const state = realController.getState();
+    expect(state.doc.widgets['widget-1'].sourceId).toBe('customers');
+    expect(state.doc.filters).toHaveLength(0);
+
+    // A single undo restores both the source and the removed filter together.
+    realController.undo();
+    const reverted = realController.getState();
+    expect(reverted.doc.widgets['widget-1'].sourceId).toBe('orders');
+    expect(reverted.doc.filters).toHaveLength(1);
+  });
+
   it('does not adopt a new source for a same-source field pick (single commit, unchanged)', async () => {
     const realController = makeController();
     configureStudioContextMock({

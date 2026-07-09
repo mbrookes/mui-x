@@ -3,8 +3,13 @@ import * as React from 'react';
 import { FormControl, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import { fieldsForCapability } from '../../../utils/fieldCapabilities';
-import type { StudioChartConfigOfType } from '../../../models';
+import type {
+  StudioChartConfigOfType,
+  StudioFilterState,
+  StudioRelationship,
+} from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
 
 export interface GaugeConfigSectionProps {
   widgetId: string;
@@ -13,6 +18,10 @@ export interface GaugeConfigSectionProps {
   allFields: DataSourceFieldEntry[];
   /** The widget's current source id, used to detect a cross-source field pick. */
   widgetSourceId?: string;
+  /** All filters in the doc — used to fold stale widget-scoped filter removal into the source switch. */
+  allFilters?: StudioFilterState[];
+  /** Declared relationships — used for source reachability when computing stale filters. */
+  relationships?: StudioRelationship[];
 }
 
 /** Gauge chart setup: single value field, aggregation, and min/max range. */
@@ -21,6 +30,8 @@ export function GaugeConfigSection({
   config,
   allFields,
   widgetSourceId,
+  allFilters,
+  relationships,
 }: GaugeConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -92,10 +103,27 @@ export function GaugeConfigSection({
           // torn `{ old sourceId, new yField }` state the UI never produced. Every
           // sibling setup panel (Chart/KPI/Filter/Map) already folds this the same way.
           if (sourceId && sourceId !== widgetSourceId) {
-            controller.updateWidget(widgetId, {
-              sourceId,
-              config: { ...config, ...configUpdate },
-            });
+            // Also fold in the removal of any widget-scoped filter that no longer resolves
+            // against the new source (finding 1.16) — left in place, a stale filter's field
+            // is absent from the new source's rows and the `between`/`gte` branches in
+            // `filterUtils.ts` then exclude EVERY row, silently blanking the gauge. Every
+            // sibling setup panel (Chart/KPI/Grid) already folds this into the same commit.
+            controller.updateWidget(
+              widgetId,
+              {
+                sourceId,
+                config: { ...config, ...configUpdate },
+              },
+              {
+                removeFilterIds: collectStaleWidgetFilterIds(
+                  allFilters,
+                  widgetId,
+                  sourceId,
+                  allFields,
+                  relationships ?? [],
+                ),
+              },
+            );
           } else {
             controller.updateWidgetConfig(widgetId, configUpdate);
           }

@@ -3,10 +3,16 @@
  * Extracted here so they can be unit-tested independently of the React component.
  */
 import { isoWeek } from '@mui/x-studio-schema';
-import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioKpiAggregation,
+  StudioExpressionField,
+} from '../../../models';
 import { normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
 import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
+import { evaluateMeasure } from '../../../utils/expressionEvaluator';
 import {
   isRelativeDateValue,
   relativeToAbsolute,
@@ -335,6 +341,14 @@ export function computeSparklineData(
   aggregation: StudioKpiAggregation,
   granularity: Granularity,
   cumulative: boolean,
+  // When the KPI's value field is a measure expression field, measures aggregate
+  // themselves via `evaluateMeasure` (their values do not exist per-row — they are
+  // never enriched onto rows, unlike calculated columns). Passing the measure field
+  // here routes each bucket through the same computation the headline/trend use,
+  // instead of `computeAggregate` reading a nonexistent `row[measureId]` and silently
+  // producing a flat zero series (finding 2.6).
+  measureExprField?: StudioExpressionField,
+  expressionFields?: StudioExpressionField[],
 ): number[] {
   const buckets = new Map<string, Record<string, unknown>[]>();
 
@@ -355,9 +369,12 @@ export function computeSparklineData(
   }
 
   const sortedKeys = Array.from(buckets.keys()).sort();
-  const periodValues = sortedKeys.map((key) =>
-    computeAggregate(buckets.get(key)!, valueField, aggregation),
-  );
+  const periodValues = sortedKeys.map((key) => {
+    const bucketRows = buckets.get(key)!;
+    return measureExprField
+      ? evaluateMeasure(measureExprField, bucketRows, expressionFields ?? [])
+      : computeAggregate(bucketRows, valueField, aggregation);
+  });
 
   if (!cumulative) {
     return periodValues;

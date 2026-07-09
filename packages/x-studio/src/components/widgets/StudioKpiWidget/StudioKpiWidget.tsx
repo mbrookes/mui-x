@@ -487,11 +487,14 @@ function useKpiSparkline(params: {
   config: KpiConfig;
   widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
+  pageId: string;
   filters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
   grainAnchoredRows: Record<string, unknown>[];
   isGrainAnchored: boolean;
   aggregation: StudioKpiAggregation;
+  measureExprField: StudioExpressionField | undefined;
+  crossFilterMode: 'none' | 'cross-filter';
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
@@ -501,11 +504,14 @@ function useKpiSparkline(params: {
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     grainAnchoredRows,
     isGrainAnchored,
     aggregation,
+    measureExprField,
+    crossFilterMode,
     dataSources,
     relationships,
     expressionFields,
@@ -520,7 +526,20 @@ function useKpiSparkline(params: {
     let kpiSparklineData: number[] | null = null;
     let kpiSparklineTimeField: string | null = null;
 
-    const dateFilter = findDateFilter(filters, widget.id, dataSource);
+    // Scope the filters through the SAME authority the trend path uses
+    // (`selectFiltersForWidget`) before deriving the time field / auto-granularity from
+    // them. `findDateFilter` itself performs no `pageId`/`disabled`/source check, so a
+    // raw, unscoped `filters` partition let another page's (or a disabled) date filter
+    // silently drive the sparkline's time field and auto-granularity on a multi-page
+    // dashboard (finding 2.5 — the same bug already fixed for the trend path in
+    // finding 2.17). `include` mirrors the row-scope `currentRows` actually uses.
+    const scopedFilters = selectFiltersForWidget(filters, {
+      widgetId: widget.id,
+      widgetSourceId: widget.sourceId,
+      activePageId: pageId,
+      include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+    });
+    const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
     // Only use the date filter's field as the time axis when the filter applies to the
     // widget's own source. Cross-source filters (e.g. an orders.date filter on a customers
     // widget) narrow the result set correctly but their field name doesn't exist on the
@@ -586,6 +605,13 @@ function useKpiSparkline(params: {
             aggregation,
             granularity,
             config.kpiSparklineCumulative ?? false,
+            // A measure expression field aggregates itself via `evaluateMeasure` — its
+            // values do not exist per-row, so `computeAggregate` reading
+            // `row[measureId]` would silently produce a flat zero series for every
+            // bucket (finding 2.6). Route measures through the same evaluateMeasure
+            // seam the headline/trend already use.
+            measureExprField,
+            expressionFields,
           ),
       );
     }
@@ -596,11 +622,14 @@ function useKpiSparkline(params: {
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     grainAnchoredRows,
     isGrainAnchored,
     aggregation,
+    measureExprField,
+    crossFilterMode,
     dataSources,
     relationships,
     expressionFields,
@@ -806,11 +835,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     config,
     widget,
     dataSource,
+    pageId,
     filters,
     currentRows,
     grainAnchoredRows,
     isGrainAnchored,
     aggregation,
+    measureExprField,
+    crossFilterMode,
     dataSources,
     relationships,
     expressionFields,
@@ -836,18 +868,27 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     enabled: hasData,
   });
 
-  const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
+  // Also check expressionFields (not just dataSource.fields) so a measure/calculated
+  // field's format/currency/precision isn't dropped from the sparkline tooltip —
+  // matching the lookup useKpiValue already does for the headline (finding 2.6).
+  const fieldDef =
+    dataSource?.fields.find((f) => f.id === config.kpiValueField) ??
+    expressionFields.find((ef) => ef.id === config.kpiValueField);
 
   const filterSubtitle = React.useMemo(() => {
     if (!dataSource) {
       return '';
     }
-    const relevant = filters.filter(
-      (f) =>
-        f.scope.kind === 'page' ||
-        f.scope.kind === 'dashboard-date-range' ||
-        (f.scope.kind === 'widget' && f.scope.widgetId === widget.id),
-    );
+    // Route through the same widget-scoped filter selection the trend/sparkline paths
+    // use (`selectFiltersForWidget`) instead of a raw `scope.kind === 'page'` match with
+    // no pageId check — otherwise the hover tooltip lists another page's (or a disabled)
+    // filter as if it were applied to this KPI (finding 2.5).
+    const relevant = selectFiltersForWidget(filters, {
+      widgetId: widget.id,
+      widgetSourceId: widget.sourceId,
+      activePageId: pageId,
+      include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+    });
     if (relevant.length === 0) {
       return '';
     }
@@ -858,7 +899,16 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         return `${label}: ${summarizeFilter(f)}`;
       })
       .join(' · ');
-  }, [filters, dataSources, expressionFields, dataSource, widget.id]);
+  }, [
+    filters,
+    dataSources,
+    expressionFields,
+    dataSource,
+    widget.id,
+    widget.sourceId,
+    pageId,
+    crossFilterMode,
+  ]);
 
   const showSparkline = (config.kpiSparkline ?? false) && hasData;
 

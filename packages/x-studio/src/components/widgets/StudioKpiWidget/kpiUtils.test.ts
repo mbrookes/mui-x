@@ -11,7 +11,7 @@ import {
   formatPeriodShort,
   formatDateRangeLong,
 } from './kpiUtils';
-import type { StudioDataSource, StudioFilterState } from '../../../models';
+import type { StudioDataSource, StudioExpressionField, StudioFilterState } from '../../../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -440,6 +440,69 @@ describe('computeSparklineData', () => {
       { t: '2026-02-03', v: 200 }, // week of 2026-02-02 (ISO week 6)
     ];
     expect(computeSparklineData(weekRows, 't', 'v', 'sum', 'week', false)).toEqual([100, 200]);
+  });
+
+  // ─── finding 2.6: measure expression fields must not read a nonexistent row column ──
+  const revenueMeasure: StudioExpressionField = {
+    id: 'revenueMeasure',
+    label: 'Revenue',
+    sourceId: 'sales',
+    isMeasure: true,
+    type: 'number',
+    expression: { id: 'amount', aggregation: 'sum' },
+  } as unknown as StudioExpressionField;
+
+  it('is flat zero for a measure field when no measure is passed (documents the pre-fix bug)', () => {
+    // Measure values are never enriched onto rows — `row['revenueMeasure']` doesn't
+    // exist — so aggregating the (bogus) field name directly always yields 0.
+    const measureRows = [
+      { t: '2026-01-15', amount: 10 },
+      { t: '2026-01-20', amount: 5 },
+      { t: '2026-02-10', amount: 20 },
+    ];
+    expect(computeSparklineData(measureRows, 't', 'revenueMeasure', 'sum', 'month', false)).toEqual(
+      [0, 0],
+    );
+  });
+
+  it('routes a measure expression field through evaluateMeasure per bucket instead of returning zeros (finding 2.6)', () => {
+    const measureRows = [
+      { t: '2026-01-15', amount: 10 },
+      { t: '2026-01-20', amount: 5 },
+      { t: '2026-02-10', amount: 20 },
+    ];
+    expect(
+      computeSparklineData(
+        measureRows,
+        't',
+        'revenueMeasure',
+        'sum',
+        'month',
+        false,
+        revenueMeasure,
+        [revenueMeasure],
+      ),
+    ).toEqual([15, 20]);
+  });
+
+  it('supports cumulative bucketing for a measure expression field', () => {
+    const measureRows = [
+      { t: '2026-01-15', amount: 10 },
+      { t: '2026-01-20', amount: 5 },
+      { t: '2026-02-10', amount: 20 },
+    ];
+    expect(
+      computeSparklineData(
+        measureRows,
+        't',
+        'revenueMeasure',
+        'sum',
+        'month',
+        true,
+        revenueMeasure,
+        [revenueMeasure],
+      ),
+    ).toEqual([15, 35]);
   });
 });
 

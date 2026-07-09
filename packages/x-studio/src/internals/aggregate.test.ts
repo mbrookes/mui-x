@@ -19,12 +19,23 @@ describe('coerceAggregateValue', () => {
     expect(coerceAggregateValue(0)).toBe(0);
   });
 
-  it('skips null, undefined, NaN, strings and objects (returns null)', () => {
+  it('parses numeric strings to their number (finding 1.6 — CSV/JSON measures)', () => {
+    expect(coerceAggregateValue('5')).toBe(5);
+    expect(coerceAggregateValue('12')).toBe(12);
+    expect(coerceAggregateValue('-2.5')).toBe(-2.5);
+    expect(coerceAggregateValue('0')).toBe(0);
+    expect(coerceAggregateValue(' 7 ')).toBe(7); // surrounding whitespace tolerated
+  });
+
+  it('skips null, undefined, NaN, non-numeric strings and objects (returns null)', () => {
     expect(coerceAggregateValue(null)).toBe(null);
     expect(coerceAggregateValue(undefined)).toBe(null);
     expect(coerceAggregateValue(NaN)).toBe(null);
-    expect(coerceAggregateValue('5')).toBe(null);
     expect(coerceAggregateValue('n/a')).toBe(null);
+    expect(coerceAggregateValue('abc')).toBe(null);
+    expect(coerceAggregateValue('12abc')).toBe(null); // partially-numeric is not a number
+    expect(coerceAggregateValue('')).toBe(null); // empty string is not 0
+    expect(coerceAggregateValue('   ')).toBe(null); // whitespace-only is not 0
     expect(coerceAggregateValue({})).toBe(null);
   });
 });

@@ -334,6 +334,94 @@ describe('aggregateByField null handling (finding 1.4)', () => {
   });
 });
 
+// ─── numeric-string measures (finding 1.6) ───────────────────────────────────
+// CSV/JSON sources have no native number type, so measures often arrive as
+// strings ("10"). The pre-detect used `Number.isNaN(Number(v))` (which treats
+// "10" as numeric) while accumulation rejected every string, so all values were
+// skipped and charts rendered flat 0. coerceAggregateValue now parses numeric
+// strings, so the pre-detect and the accumulator agree.
+
+describe('aggregateByField numeric-string measures (finding 1.6)', () => {
+  const rows = [
+    { cat: 'A', amount: '10' },
+    { cat: 'A', amount: '5' },
+    { cat: 'B', amount: '7' },
+  ];
+  const idx = (r: { labels: (string | number)[] }, label: string) => r.labels.indexOf(label);
+
+  it('sums numeric strings instead of rendering flat 0 (verified repro)', () => {
+    const result = aggregateByField(rows, 'cat', 'amount');
+    expect(result.labels).toEqual(['A', 'B']);
+    expect(result.values[idx(result, 'A')]).toBe(15);
+    expect(result.values[idx(result, 'B')]).toBe(7);
+  });
+
+  it('averages numeric strings', () => {
+    const result = aggregateByField(rows, 'cat', 'amount', undefined, 'avg');
+    expect(result.values[idx(result, 'A')]).toBe(7.5); // (10 + 5) / 2
+  });
+
+  it('takes the min of numeric strings', () => {
+    const result = aggregateByField(rows, 'cat', 'amount', undefined, 'min');
+    expect(result.values[idx(result, 'A')]).toBe(5);
+  });
+
+  it('takes the max of numeric strings', () => {
+    const result = aggregateByField(rows, 'cat', 'amount', undefined, 'max');
+    expect(result.values[idx(result, 'A')]).toBe(10);
+  });
+
+  it('still falls back to count for genuinely non-numeric string measures', () => {
+    const stringRows = [
+      { cat: 'A', label: 'foo' },
+      { cat: 'A', label: 'bar' },
+      { cat: 'B', label: 'baz' },
+    ];
+    const result = aggregateByField(stringRows, 'cat', 'label', undefined, 'sum');
+    // Non-numeric measure → pre-detect flips to count → row tallies, not NaN/0.
+    expect(result.values[idx(result, 'A')]).toBe(2);
+    expect(result.values[idx(result, 'B')]).toBe(1);
+  });
+});
+
+describe('aggregateByTwoFields numeric-string measures (finding 1.6)', () => {
+  const rows = [
+    { cat: 'A', series: 'X', amount: '10' },
+    { cat: 'A', series: 'X', amount: '5' },
+    { cat: 'B', series: 'X', amount: '7' },
+  ];
+
+  it('sums numeric strings per cell instead of producing all-null cells', () => {
+    const result = aggregateByTwoFields(rows, 'cat', 'series', 'amount');
+    expect(result.labels).toEqual(['A', 'B']);
+    expect(result.seriesNames).toEqual(['X']);
+    const aIdx = result.labels.indexOf('A');
+    const bIdx = result.labels.indexOf('B');
+    expect(result.seriesData.X[aIdx]).toBe(15);
+    expect(result.seriesData.X[bIdx]).toBe(7);
+  });
+});
+
+describe('aggregateMultipleSeries numeric-string measures (finding 1.6)', () => {
+  const rows = [
+    { cat: 'A', m1: '10', m2: '1' },
+    { cat: 'A', m1: '5', m2: '2' },
+    { cat: 'B', m1: '7', m2: '3' },
+  ];
+
+  it('sums numeric-string measures across multiple y-fields', () => {
+    const result = aggregateMultipleSeries(rows, 'cat', ['m1', 'm2']);
+    const aIdx = result.labels.indexOf('A');
+    const bIdx = result.labels.indexOf('B');
+    const m1 = result.series.find((s) => s.fieldId === 'm1')!;
+    const m2 = result.series.find((s) => s.fieldId === 'm2')!;
+    expect(m1.values[aIdx]).toBe(15);
+    expect(m1.values[bIdx]).toBe(7);
+    expect(m2.values[aIdx]).toBe(3);
+    expect(m2.values[bIdx]).toBe(3);
+  });
+});
+
 // ─── resolveChartRowsForAggregation ──────────────────────────────────────────
 
 describe('resolveChartRowsForAggregation', () => {

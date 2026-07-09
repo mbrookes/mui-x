@@ -31,7 +31,16 @@ export type AggregateFn = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_disti
  * reference "correct" behaviour):
  * - booleans → 0/1 (so `avg` yields a ratio);
  * - finite numbers → themselves;
- * - everything else (null, undefined, NaN, strings, objects) → `null` (skipped).
+ * - numeric strings (`"12"`, `"-2.5"`) → their parsed number. CSV/JSON sources
+ *   have no native number type, so measures routinely arrive as numeric strings;
+ *   parsing them here keeps every accumulator (KPI, pivot, map, chart) in agreement
+ *   with the `Number.isNaN(Number(v))` pre-detect the chart aggregators use to
+ *   decide whether a field is numeric. Without this, a numeric-string measure
+ *   passed the pre-detect as "numeric" but was then rejected by this coercion,
+ *   skipping every value and rendering flat-zero charts (finding 1.6). Empty /
+ *   whitespace-only strings are NOT numeric (`Number('')` is `0`), so they skip;
+ * - everything else (null, undefined, NaN, non-numeric strings, objects) → `null`
+ *   (skipped).
  *
  * Skipping (rather than coercing to 0) keeps null/non-numeric rows out of `avg`
  * denominators and `min`/`max` comparisons.
@@ -42,6 +51,10 @@ export function coerceAggregateValue(value: unknown): number | null {
   }
   if (typeof value === 'number') {
     return Number.isNaN(value) ? null : value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
   }
   return null;
 }

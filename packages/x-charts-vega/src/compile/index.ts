@@ -50,6 +50,83 @@ export interface CompiledChart {
   gaps: TranslationGap[];
 }
 
+/** Numeric values an overlay contributes to a continuous axis. */
+function overlayAxisValues(overlay: CompiledOverlay, axis: 'x' | 'y'): number[] {
+  const numbers = (values: Array<number | string | Date | undefined>) =>
+    values.filter((value): value is number => typeof value === 'number');
+  switch (overlay.kind) {
+    case 'boxes': {
+      const valueAxis = overlay.orientation === 'horizontal' ? 'x' : 'y';
+      if (axis !== valueAxis) {
+        return [];
+      }
+      return overlay.items.flatMap((item) => [item.min, item.max, ...(item.outliers ?? [])]);
+    }
+    case 'errorBars': {
+      const valueAxis = overlay.orientation === 'horizontal' ? 'x' : 'y';
+      if (axis !== valueAxis) {
+        return [];
+      }
+      return overlay.items.flatMap((item) =>
+        item.center === undefined
+          ? [item.lower, item.upper]
+          : [item.lower, item.upper, item.center],
+      );
+    }
+    case 'band':
+      return axis === 'y'
+        ? overlay.points.flatMap((point) => [point.lower, point.upper])
+        : numbers(overlay.points.map((point) => point.x));
+    case 'segments':
+      return numbers(
+        overlay.items.flatMap((item) => (axis === 'x' ? [item.x1, item.x2] : [item.y1, item.y2])),
+      );
+    case 'text':
+    case 'image':
+      return numbers(overlay.items.map((item) => (axis === 'x' ? item.x : item.y)));
+    default:
+      return [];
+  }
+}
+
+/**
+ * Seeds continuous-axis min/max from overlay geometry (with 5% padding) when
+ * an overlay-only chart would otherwise have a degenerate axis domain. Skips
+ * discrete axes and axes that already constrain their domain.
+ */
+function applyOverlayDomains(
+  overlays: CompiledOverlay[],
+  x: AxisResolution<XAxis> | undefined,
+  y: AxisResolution<YAxis> | undefined,
+): void {
+  const axisEntries: Array<['x' | 'y', AxisResolution<XAxis> | AxisResolution<YAxis> | undefined]> =
+    [
+      ['x', x],
+      ['y', y],
+    ];
+  for (const [name, axis] of axisEntries) {
+    if (!axis || axis.categories) {
+      continue;
+    }
+    const config = axis.config as { min?: number | Date; max?: number | Date };
+    if (config.min !== undefined || config.max !== undefined) {
+      continue;
+    }
+    const values = overlays.flatMap((overlay) => overlayAxisValues(overlay, name));
+    if (values.length === 0) {
+      continue;
+    }
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+      continue;
+    }
+    const padding = (max - min) * 0.05;
+    config.min = min - padding;
+    config.max = max + padding;
+  }
+}
+
 /**
  * Pure spec → x-charts-props compiler. Exported for tests and for hosts that
  * want to inspect the translation (including its gaps) without rendering.
@@ -151,6 +228,15 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
         path: '$',
       });
     }
+  }
+
+  // Overlay-only charts (standalone boxplot/errorbar/errorband/segment specs)
+  // have no series to seed x-charts' automatic continuous-axis extents, so
+  // the axis would collapse to a degenerate domain. Derive min/max from the
+  // overlay geometry instead (only when no series exist and the axis doesn't
+  // already constrain its domain).
+  if (series.length === 0 && overlays.length > 0) {
+    applyOverlayDomains(overlays, axes.x, axes.y);
   }
 
   // Point-selection params map onto x-charts' controlled item highlighting;

@@ -21,7 +21,9 @@ export async function* parseSSE(response: Response): AsyncGenerator<Record<strin
     }
 
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
+    // Split on LF or CRLF explicitly so a `\r` terminator is stripped by the split
+    // rather than relying on the incidental `.trim()` of the payload below.
+    const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() ?? '';
 
     for (const line of lines) {

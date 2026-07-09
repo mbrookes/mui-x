@@ -85,4 +85,18 @@ describe('parseSSE', () => {
     const result = await collect(fakeResponse(['data: {"a":1}\n', 'data: {"b":2}']));
     expect(result).toEqual([{ a: 1 }]);
   });
+
+  it('handles CRLF (\\r\\n) line terminators', async () => {
+    // Some servers terminate SSE lines with CRLF; the split must treat `\r\n` as a
+    // single terminator so no stray `\r` leaks into the buffered payload.
+    const result = await collect(fakeResponse(['data: {"a":1}\r\ndata: {"b":2}\r\n']));
+    expect(result).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  it('honors the [DONE] sentinel even with a CRLF terminator', async () => {
+    const result = await collect(
+      fakeResponse(['data: {"a":1}\r\n', 'data: [DONE]\r\n', 'data: {"b":2}\r\n']),
+    );
+    expect(result).toEqual([{ a: 1 }]);
+  });
 });

@@ -207,12 +207,29 @@ function StudioPageRows({
         // reducer's `enforceLayoutColSpans` governs ALL span cleanup — stale singleton
         // spans, overflowing rows, and the source page's leftover span — so no manual
         // span-pruning happens here.
+        //
+        // Same-row rightward move fix (finding 1.12): the removal below shifts every
+        // later index in the widget's original row left by one BEFORE we splice at
+        // `colIndex`. For a same-row move, `colIndex` was computed against the
+        // PRE-removal row, so if the target gap sits after the widget's original
+        // position it's now one slot too far right — row [a,b,c] dragging `a` onto the
+        // gap between b/c (colIndex 2) would filter to [b,c] then splice(2,...) →
+        // [b,c,a] instead of the intended [b,a,c]. Detect that case (only possible for
+        // a vertical/into-row drop) and decrement the insertion index by one so it
+        // lands against the POST-removal array the way the pre-removal gap index
+        // visually pointed to. Leftward moves (removal index > insertion index) and
+        // cross-row moves (widget not found in the target row) are unaffected.
+        const originalColIndex =
+          orientation === 'vertical' ? (currentRows[rowIndex]?.indexOf(widgetId) ?? -1) : -1;
+        const adjustedColIndex =
+          originalColIndex !== -1 && colIndex > originalColIndex ? colIndex - 1 : colIndex;
+
         const rows = currentRows.map((r) => r.filter((id) => id !== widgetId));
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [widgetId]);
         } else {
           const row = rows[rowIndex] ?? [];
-          row.splice(colIndex, 0, widgetId);
+          row.splice(adjustedColIndex, 0, widgetId);
           rows[rowIndex] = row;
         }
         const cleaned = rows.filter((r) => r.length > 0);

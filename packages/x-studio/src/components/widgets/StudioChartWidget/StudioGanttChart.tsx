@@ -54,6 +54,23 @@ function shortDate(ms: number): string {
 }
 
 /**
+ * Converts a timestamp to a percentage position within the axis reference width —
+ * i.e. relative to `rangeMs` (`maxMs - minMs`), the SAME coordinate system used by
+ * the date axis, the gridlines, AND the bars. All three must call this one function
+ * so their percentages resolve against the same reference box (`containerWidth -
+ * LABEL_W`, per the `left: LABEL_W` axis/gridline/bar-area wrappers below).
+ *
+ * Previously bars computed this ratio but positioned themselves with
+ * `left: calc(140px + pct%)` inside a FULL-width row container, so `pct%` resolved
+ * against `containerWidth` instead of `containerWidth - LABEL_W` — a different
+ * reference width than the axis/gridlines used, causing bars to drift right of
+ * their gridlines proportionally to date (finding 1.10).
+ */
+export function msToPct(ms: number, minMs: number, rangeMs: number): number {
+  return ((ms - minMs) / rangeMs) * 100;
+}
+
+/**
  * Renders a Gantt / timeline chart with horizontal bars per row.
  * Each bar is positioned by start/end timestamps; optional colour coding by category.
  */
@@ -139,7 +156,7 @@ export function StudioGanttChart({
         }}
       >
         {ticks.map((tick) => {
-          const pct = ((tick - minMs) / rangeMs) * 100;
+          const pct = msToPct(tick, minMs, rangeMs);
           return (
             <Box
               key={tick}
@@ -164,10 +181,11 @@ export function StudioGanttChart({
       {/* Grid lines */}
       <Box sx={{ position: 'absolute', top: AXIS_H, left: LABEL_W, right: 0, bottom: 0 }}>
         {ticks.map((tick) => {
-          const pct = ((tick - minMs) / rangeMs) * 100;
+          const pct = msToPct(tick, minMs, rangeMs);
           return (
             <Box
               key={tick}
+              data-gantt-gridline={tick}
               sx={{
                 position: 'absolute',
                 left: `${pct}%`,
@@ -186,7 +204,7 @@ export function StudioGanttChart({
       <Box sx={{ position: 'absolute', top: AXIS_H + 4, left: 0, right: 0, bottom: 0 }}>
         {visibleItems.map((item, idx) => {
           const top = idx * (ROW_H + ROW_GAP);
-          const leftPct = ((item.startMs - minMs) / rangeMs) * 100;
+          const leftPct = msToPct(item.startMs, minMs, rangeMs);
           const widthPct = Math.max(((item.endMs - item.startMs) / rangeMs) * 100, 0);
           const barColor = item.colorCategory
             ? colorForCategory(item.colorCategory)
@@ -243,25 +261,35 @@ export function StudioGanttChart({
                   {item.label}
                 </Typography>
               </Box>
-              {/* Bar */}
-              <Tooltip title={tooltipContent} arrow placement="top">
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: `calc(${LABEL_W}px + ${leftPct}%)`,
-                    top: (ROW_H - 20) / 2,
-                    width: `max(${widthPct}%, ${MIN_BAR_W}px)`,
-                    height: 20,
-                    bgcolor: barColor,
-                    borderRadius: 1,
-                    opacity: 0.85,
-                    cursor: 'default',
-                    transition: 'opacity 0.15s',
-                    '&:hover': { opacity: 1 },
-                    overflow: 'hidden',
-                  }}
-                />
-              </Tooltip>
+              {/* Bar area — same left/right reference box as the axis/gridlines above
+                  (left: LABEL_W, right: 0), so `leftPct`/`widthPct` (both percentages of
+                  `rangeMs`) resolve against the SAME reference width (containerWidth -
+                  LABEL_W) that produced the tick/gridline percentages. Positioning the bar
+                  directly against the full-width row Box (as before) mismatched the two
+                  scales: the bar's leftPct% was a percentage of the FULL container width
+                  while gridlines used only the post-label width, so bars drifted right of
+                  their gridlines proportionally to date (finding 1.10). */}
+              <Box sx={{ position: 'absolute', left: LABEL_W, right: 0, top: 0, height: ROW_H }}>
+                <Tooltip title={tooltipContent} arrow placement="top">
+                  <Box
+                    data-gantt-bar={item.label}
+                    sx={{
+                      position: 'absolute',
+                      left: `${leftPct}%`,
+                      top: (ROW_H - 20) / 2,
+                      width: `max(${widthPct}%, ${MIN_BAR_W}px)`,
+                      height: 20,
+                      bgcolor: barColor,
+                      borderRadius: 1,
+                      opacity: 0.85,
+                      cursor: 'default',
+                      transition: 'opacity 0.15s',
+                      '&:hover': { opacity: 1 },
+                      overflow: 'hidden',
+                    }}
+                  />
+                </Tooltip>
+              </Box>
             </Box>
           );
         })}

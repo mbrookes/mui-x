@@ -341,4 +341,86 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
     expect(gapAfterB.canDrop(arg)).toBe(true);
     expect(ipBelowR1.canDrop(arg)).toBe(true);
   });
+
+  // Regression tests for finding 1.12: `handleDrop`'s `DRAG_TYPE_CANVAS_WIDGET`
+  // branch removed the dragged widget from its row BEFORE splicing at the gap's
+  // pre-removal `colIndex`. For a same-row RIGHTWARD move, the removal shifts every
+  // later id left by one, so the insertion index ends up one slot too far right.
+  describe('same-row move geometry (finding 1.12)', () => {
+    it('rightward: dragging the first widget onto the gap between the 2nd and 3rd lands it in the middle, not last', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: {
+              'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a', 'b', 'c']] },
+            },
+            widgets: { a: makeWidget('a'), b: makeWidget('b'), c: makeWidget('c') },
+          },
+        },
+      });
+      const moveWidgetSpy = vi.spyOn(controller, 'moveWidget');
+      render(<StudioCanvas />, { wrapper });
+
+      // Gaps in DOM order for row ['a','b','c']: [after a, after b (i.e. between b
+      // and c), after c].
+      const gapBetweenBAndC = gaps()[1];
+      act(() => {
+        const dropped = fireDrop(gapBetweenBAndC, canvasMoveItem('a', 'page-1'));
+        expect(dropped).toBe(true);
+      });
+
+      // Before the fix this produced ['b', 'c', 'a'] — filtering 'a' out first
+      // shifted 'c' left into the slot the pre-removal gap index pointed at.
+      expect(moveWidgetSpy).toHaveBeenCalledWith('a', 'page-1', 'page-1', [['b', 'a', 'c']]);
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['b', 'a', 'c']]);
+    });
+
+    it('rightward to the very end: dragging the first widget onto the last gap lands it last', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: {
+              'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a', 'b', 'c']] },
+            },
+            widgets: { a: makeWidget('a'), b: makeWidget('b'), c: makeWidget('c') },
+          },
+        },
+      });
+      const moveWidgetSpy = vi.spyOn(controller, 'moveWidget');
+      render(<StudioCanvas />, { wrapper });
+
+      const gapAfterC = gaps()[2];
+      act(() => {
+        const dropped = fireDrop(gapAfterC, canvasMoveItem('a', 'page-1'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(moveWidgetSpy).toHaveBeenCalledWith('a', 'page-1', 'page-1', [['b', 'c', 'a']]);
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['b', 'c', 'a']]);
+    });
+
+    it('leftward moves are unaffected: dragging the last widget onto the first gap still lands correctly', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: {
+              'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a', 'b', 'c']] },
+            },
+            widgets: { a: makeWidget('a'), b: makeWidget('b'), c: makeWidget('c') },
+          },
+        },
+      });
+      const moveWidgetSpy = vi.spyOn(controller, 'moveWidget');
+      render(<StudioCanvas />, { wrapper });
+
+      const gapBetweenAAndB = gaps()[0];
+      act(() => {
+        const dropped = fireDrop(gapBetweenAAndB, canvasMoveItem('c', 'page-1'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(moveWidgetSpy).toHaveBeenCalledWith('c', 'page-1', 'page-1', [['a', 'c', 'b']]);
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['a', 'c', 'b']]);
+    });
+  });
 });

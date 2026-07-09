@@ -479,6 +479,50 @@ describe('StudioController.removeWidget', () => {
   });
 });
 
+// ─── 2.2: dangling-selection reset on AI-driven / page removal ────────────────
+// User-driven `removeWidget` correctly nulls a dangling `selectedWidgetId`, but the
+// AI-driven `applyExternalMutation` path and `removePage` (whose deletion removes the
+// page's widgets) previously left it pointing at a vanished widget — the compose
+// drawer then renders a blank `WidgetConfigView`, and the stale id enables crash 1.3.
+describe('StudioController selection reset (2.2)', () => {
+  it('applyExternalMutation removeWidget clears a dangling selectedWidgetId', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
+    controller.applyExternalMutation({ type: 'removeWidget', args: { widgetId: 'w1' } });
+    expect(controller.getState().session.shell.selectedWidgetId).toBeNull();
+  });
+
+  it('applyExternalMutation removeWidget preserves a still-valid selection', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2')); // selects w2
+    controller.applyExternalMutation({ type: 'removeWidget', args: { widgetId: 'w1' } });
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w2');
+  });
+
+  it('removePage clears the selection when the selected widget was on the removed page', () => {
+    const controller = new StudioController();
+    const page2 = controller.addPage('Second'); // page2 becomes active
+    controller.addWidget(makeWidget('w1')); // placed on page2, selected
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
+    controller.removePage(page2);
+    expect(controller.getState().doc.widgets.w1).toBeUndefined();
+    expect(controller.getState().session.shell.selectedWidgetId).toBeNull();
+  });
+
+  it('removePage preserves a selection that lives on a surviving page', () => {
+    const controller = new StudioController();
+    const firstPageId = controller.getState().doc.dashboard.activePageId;
+    controller.addWidget(makeWidget('keep')); // on page 1, selected
+    const page2 = controller.addPage('Second'); // active = page2
+    controller.setActivePage(firstPageId);
+    // Re-select the surviving widget, then remove the (empty) second page.
+    controller.applyExternalMutation({ type: 'removePage', args: { pageId: page2 } });
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('keep');
+  });
+});
+
 describe('StudioController.updateWidgetConfig', () => {
   it('keeps inferred chart titles in auto mode after field selection', () => {
     const controller = new StudioController({
@@ -774,6 +818,23 @@ describe('StudioController.updateWidgetConfig', () => {
 
     warnSpy.mockRestore();
   });
+
+  // 1.3: the title-inference transform runs even on a reducer no-op (post-df6c2b7),
+  // so an unknown id must be guarded rather than dereferencing `undefined.sourceId`.
+  it('is a no-op (does not throw) for an unknown widgetId', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: { id: 'chart1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      },
+    });
+    const before = controller.getState();
+    expect(() =>
+      controller.updateWidgetConfig('does-not-exist', { xField: 'a' } as StudioWidgetConfig),
+    ).not.toThrow();
+    expect(controller.getState()).toBe(before);
+  });
 });
 
 describe('StudioController.updateWidget', () => {
@@ -899,6 +960,23 @@ describe('StudioController.updateWidget', () => {
     });
     const before = controller.getState();
     controller.updateWidget('nope', { title: 'x' });
+    expect(controller.getState()).toBe(before);
+  });
+
+  // 1.3: the earlier test only exercises the `isExplicitTitleChange` branch (which
+  // suppresses the title-inference transform entirely). A NON-title change on an
+  // unknown id runs the transform, which since df6c2b7 executes even on a reducer
+  // no-op — it must guard the missing widget rather than deref `undefined.sourceId`.
+  it('is a no-op (does not throw) for an unknown widgetId with a non-title change', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: { id: 'chart1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      },
+    });
+    const before = controller.getState();
+    expect(() => controller.updateWidget('does-not-exist', { sourceId: 'foo' })).not.toThrow();
     expect(controller.getState()).toBe(before);
   });
 });

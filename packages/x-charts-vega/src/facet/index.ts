@@ -2,10 +2,10 @@
  * Faceting & view-composition planning.
  *
  * This module turns a composite Vega-Lite spec — one that uses `row`/`column`
- * facet channels, the `facet` operator, or `hconcat`/`vconcat`/`concat` — into
- * a flat, row-major grid of independent unit/layer sub-specs (`FacetPlan`).
- * The render shell (`<VegaLiteChart />`) renders one nested `<VegaLiteChart />`
- * per cell.
+ * facet channels, the `facet` operator, `hconcat`/`vconcat`/`concat`, or the
+ * `repeat` operator — into a flat, row-major grid of independent unit/layer
+ * sub-specs (`FacetPlan`). The render shell (`<VegaLiteChart />`) renders one
+ * nested `<VegaLiteChart />` per cell.
  *
  * Everything here is pure: `planFacets` performs no rendering and has no React
  * dependency. The wrapper-level composition (the CSS grid, per-cell sizing,
@@ -18,6 +18,16 @@
  *   - Concatenation does NOT partition: each entry is an independent sub-spec
  *     that resolves its own data, inheriting the top-level data when it has
  *     none (mirroring the normalizer's inheritance rules).
+ *   - Repetition does NOT partition either: every cell plots the full dataset
+ *     but through a different field, substituted into the shared `spec` template
+ *     wherever a `{repeat}` reference appears.
+ *
+ * Facet ordering: `row`/`column`/`facet` (and the `facet`-operator equivalents)
+ * accept a `sort` — `'ascending'`/`'descending'`, an explicit value array, or a
+ * `{field, op, order}` aggregate rule — applied to the distinct facet values
+ * before the grid is laid out. When `sort` is undefined the values keep
+ * first-seen data order (a deliberate deviation: Vega-Lite defaults to ascending,
+ * but data order preserves the wrapper's existing behavior).
  *
  * Shared scales (Vega-Lite's default `resolve.scale: "shared"` for facets):
  * before building the sub-specs, the union domain is computed across the whole
@@ -26,17 +36,30 @@
  * explicit domain); for discrete positional channels the union category array
  * is injected as `sort` so every cell shows the same category order. Concat
  * sub-specs keep independent scales (Vega-Lite's default for concat), so no
- * domains are injected there.
+ * domains are injected there. Repeat cells likewise keep INDEPENDENT scales —
+ * each cell plots a different field, so a shared domain would be meaningless;
+ * this is a deliberate deviation from Vega-Lite's default `resolve.scale` for
+ * repeat.
+ *
+ * Known repeat limitations (also tracked in GAPS.md):
+ *   - Nested same-key repeats (a repeat template that itself repeats on the same
+ *     `row`/`column`/`repeat` key) mis-substitute the inner refs; distinct keys
+ *     are fine, and the shell's `MAX_FACET_DEPTH` (2) caps nesting regardless.
+ *   - Repeat cells do not share scales (the deviation noted above).
  */
 import type {
   DatasetRow,
+  VegaAggregateOp,
   VegaChannelDef,
   VegaEncoding,
   VegaFieldDef,
   VegaLiteSpec,
+  VegaRepeatMapping,
+  VegaRepeatRef,
   VegaScale,
+  VegaSort,
 } from '../types';
-import { isFieldDef } from '../types';
+import { isFieldDef, isRepeatRef } from '../types';
 import type { TranslationGap } from '../gaps';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
@@ -126,6 +149,101 @@ function distinctValues(rows: readonly DatasetRow[], field: string): unknown[] {
 /** Whether a row belongs to the partition identified by `value` on `field`. */
 function facetMatch(row: DatasetRow, field: string, value: unknown): boolean {
   return String(row[field]) === String(value);
+}
+
+/** Natural comparison for facet values: numeric, then chronological, then locale. */
+function compareFacetValues(a: unknown, b: unknown): number {
+  const numA = toNumber(a);
+  const numB = toNumber(b);
+  if (numA != null && numB != null) {
+    return numA - numB;
+  }
+  const dateA = toDate(a);
+  const dateB = toDate(b);
+  if (dateA && dateB) {
+    return dateA.getTime() - dateB.getTime();
+  }
+  return String(a).localeCompare(String(b));
+}
+
+/**
+ * Order the distinct facet values according to a channel/operator `sort`.
+ *   - `undefined` / `null` → first-seen data order (see the module deviation note).
+ *   - `'ascending'` / `'descending'` → natural comparison, reversed for descending.
+ *   - an explicit value array → those values first in array order, the rest kept
+ *     in data order at the end.
+ *   - `{field, op?, order?}` → group the rows by the facet field, aggregate the
+ *     `field` per group (`op` defaults to `min`), and order by that aggregate
+ *     (reversed for `order: 'descending'`); values with no aggregate trail last.
+ *   - any other form (a bare `"field"` string, `{field}` missing, …) is reported
+ *     as a `facet:sort` gap and the values are left in data order.
+ */
+function sortFacetValues(
+  values: unknown[],
+  sort: VegaSort | undefined,
+  rows: readonly DatasetRow[],
+  facetField: string,
+  gaps: TranslationGap[],
+): unknown[] {
+  if (sort == null) {
+    return values;
+  }
+  if (sort === 'ascending' || sort === 'descending') {
+    const sorted = [...values].sort(compareFacetValues);
+    return sort === 'descending' ? sorted.reverse() : sorted;
+  }
+  if (Array.isArray(sort)) {
+    const rank = new Map<string, number>();
+    sort.forEach((value, index) => {
+      const key = String(value);
+      if (!rank.has(key)) {
+        rank.set(key, index);
+      }
+    });
+    const listed = values
+      .filter((value) => rank.has(String(value)))
+      .sort((a, b) => rank.get(String(a))! - rank.get(String(b))!);
+    const unlisted = values.filter((value) => !rank.has(String(value)));
+    return [...listed, ...unlisted];
+  }
+  if (typeof sort === 'object' && typeof (sort as { field?: unknown }).field === 'string') {
+    const def = sort as { field: string; op?: VegaAggregateOp; order?: 'ascending' | 'descending' };
+    const op = def.op ?? 'min';
+    const buckets = new Map<string, unknown[]>();
+    for (const row of rows) {
+      const key = String(row[facetField]);
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(row[def.field]);
+    }
+    const aggregate = new Map<string, number>();
+    for (const [key, bucket] of buckets) {
+      const value = evaluateAggregate(op, bucket);
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        aggregate.set(key, value);
+      }
+    }
+    const ranked = values.filter((value) => aggregate.has(String(value)));
+    const unranked = values.filter((value) => !aggregate.has(String(value)));
+    ranked.sort((a, b) => aggregate.get(String(a))! - aggregate.get(String(b))!);
+    if (def.order === 'descending') {
+      ranked.reverse();
+    }
+    return [...ranked, ...unranked];
+  }
+  gaps.push({
+    code: 'facet:sort',
+    message:
+      `The facet \`sort\` form ${JSON.stringify(sort)} is not supported ` +
+      '(only `ascending`/`descending`, an explicit value array, or a `{field, op, order}` ' +
+      'rule are). Facets are shown in first-seen data order.',
+    severity: 'partial',
+    path: 'facet',
+  });
+  return values;
 }
 
 /** Resolve the top-level rows the same way the normalizer would. */
@@ -307,6 +425,12 @@ interface GridParams {
   wrapField?: string;
   /** Explicit `columns` for a wrapping facet. */
   columns?: number;
+  /** `sort` applied to the `row` facet's distinct values. */
+  rowSort?: VegaSort;
+  /** `sort` applied to the `column` facet's distinct values. */
+  colSort?: VegaSort;
+  /** `sort` applied to the wrapping (`facet`) field's distinct values. */
+  wrapSort?: VegaSort;
   options: FacetOptions;
   // Build the leaf sub-spec for a partition of rows.
   makeCellSpec: (partition: readonly DatasetRow[]) => VegaLiteSpec;
@@ -335,7 +459,13 @@ function buildFacetGrid(params: GridParams): FacetPlan {
   }
 
   if (wrapField && !rowField && !colField) {
-    const values = distinctValues(rows, wrapField);
+    const values = sortFacetValues(
+      distinctValues(rows, wrapField),
+      params.wrapSort,
+      rows,
+      wrapField,
+      gaps,
+    );
     const columns = Math.max(1, params.columns ?? defaultWrapColumns(values.length));
     const gridRows = Math.max(1, Math.ceil(values.length / columns) || 1);
     const { width, height } = cellSize(options, columns, gridRows, gaps);
@@ -349,8 +479,12 @@ function buildFacetGrid(params: GridParams): FacetPlan {
     return { columns, rows: gridRows, cells, gaps };
   }
 
-  const rowValues = rowField ? distinctValues(rows, rowField) : [undefined];
-  const colValues = colField ? distinctValues(rows, colField) : [undefined];
+  const rowValues = rowField
+    ? sortFacetValues(distinctValues(rows, rowField), params.rowSort, rows, rowField, gaps)
+    : [undefined];
+  const colValues = colField
+    ? sortFacetValues(distinctValues(rows, colField), params.colSort, rows, colField, gaps)
+    : [undefined];
   const columns = Math.max(1, colValues.length);
   const gridRows = Math.max(1, rowValues.length);
   const { width, height } = cellSize(options, columns, gridRows, gaps);
@@ -407,12 +541,17 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     const { encoding, title, ...rest } = spec;
     return { ...rest, data: { values: partition }, encoding: cellEncoding } as VegaLiteSpec;
   };
+  const sortOf = (def: VegaChannelDef | undefined): VegaSort | undefined =>
+    isFieldDef(def) ? def.sort : undefined;
   return buildFacetGrid({
     rows,
     rowField,
     colField,
     wrapField,
     columns: numericSize(spec.columns),
+    rowSort: sortOf(encoding.row),
+    colSort: sortOf(encoding.column),
+    wrapSort: sortOf(encoding.facet),
     options,
     makeCellSpec,
   });
@@ -425,6 +564,7 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     field?: string;
     row?: VegaFieldDef;
     column?: VegaFieldDef;
+    sort?: VegaSort;
   };
   const sub = spec.spec as VegaLiteSpec | undefined;
   if (!sub) {
@@ -463,6 +603,9 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     colField,
     wrapField,
     columns: numericSize(spec.columns),
+    rowSort: facet.row?.sort,
+    colSort: facet.column?.sort,
+    wrapSort: facet.sort,
     options,
     makeCellSpec,
   });
@@ -512,14 +655,182 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
   return { columns, rows: gridRows, cells, gaps };
 }
 
+/** Which `{repeat}` keys a substitution pass can resolve to concrete fields. */
+type RepeatSubstitution = Partial<Record<'row' | 'column' | 'layer' | 'repeat', string>>;
+
+/**
+ * Deep-clone a repeat `spec` template, replacing every `{repeat: key}` field
+ * reference with the concrete field bound to `key` in `values`.
+ *   - Arrays recurse element-wise.
+ *   - Plain objects recurse per entry, but `data`/`datasets` are copied verbatim
+ *     (never scanned — a data row may legitimately contain a `{repeat: …}`-shaped
+ *     value), and entries that substitute to `undefined` are omitted.
+ *   - A reference to a key that is not currently being repeated resolves to
+ *     `undefined`, and a `repeat:unresolved-ref` gap is recorded.
+ */
+function substituteRepeat<T>(
+  node: T,
+  values: RepeatSubstitution,
+  gaps: TranslationGap[],
+): T | undefined {
+  if (isRepeatRef(node)) {
+    const key = (node as VegaRepeatRef).repeat;
+    const field = values[key];
+    if (field === undefined) {
+      gaps.push({
+        code: 'repeat:unresolved-ref',
+        message:
+          `A \`{repeat: "${key}"}\` field reference in the repeat template has no matching ` +
+          `repeated field, so that channel was dropped. Bind "${key}" in the \`repeat\` mapping ` +
+          'or remove the reference.',
+        severity: 'partial',
+        path: 'repeat',
+      });
+      return undefined;
+    }
+    return field as unknown as T;
+  }
+  if (Array.isArray(node)) {
+    return node.map((item) => substituteRepeat(item, values, gaps)) as unknown as T;
+  }
+  if (node && typeof node === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key === 'data' || key === 'datasets') {
+        result[key] = value;
+        continue;
+      }
+      const substituted = substituteRepeat(value, values, gaps);
+      if (substituted !== undefined) {
+        result[key] = substituted;
+      }
+    }
+    return result as unknown as T;
+  }
+  return node;
+}
+
+/** The uniform empty plan returned when a `repeat` spec cannot be expanded. */
+function repeatGapPlan(message: string): FacetPlan {
+  return {
+    columns: 1,
+    rows: 1,
+    cells: [],
+    gaps: [{ code: 'composition:repeat', message, severity: 'unsupported', path: 'repeat' }],
+  };
+}
+
+/**
+ * Plan the `repeat` operator (`repeat` mapping + shared `spec` template).
+ *
+ * Repetition does not partition rows — every cell plots the full dataset through
+ * a different field, substituted into the template wherever a `{repeat}` ref
+ * appears. The flat `string[]` form wraps into a grid (`columns`); the
+ * `{row, column}` form builds a matrix; `layer` repeats the template into a
+ * layered spec within each cell. Cells keep independent scales (see the module
+ * header) — no shared domain is injected.
+ */
+function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
+  const template = spec.spec as VegaLiteSpec | undefined;
+  if (!template || typeof template !== 'object') {
+    return repeatGapPlan(
+      'The `repeat` operator is missing its `spec` template, so there is nothing to repeat.',
+    );
+  }
+  const gaps: TranslationGap[] = [];
+  const rootRows = resolveRootRows(spec, options);
+  const templateHasData = template.data != null;
+  // Repeat never partitions: a cell without its own template data plots every row.
+  const cellData = templateHasData ? (template.data as unknown) : { values: rootRows };
+
+  const repeat = spec.repeat;
+
+  // Flat form: `repeat: ['a', 'b', …]`, refs use `{repeat: 'repeat'}`.
+  if (Array.isArray(repeat)) {
+    const fields = repeat.filter((field): field is string => typeof field === 'string');
+    if (fields.length === 0) {
+      return repeatGapPlan(
+        'The `repeat` array is empty (or holds no field names), so no cells can be produced.',
+      );
+    }
+    const columns = Math.max(1, numericSize(spec.columns) ?? defaultWrapColumns(fields.length));
+    const gridRows = Math.max(1, Math.ceil(fields.length / columns) || 1);
+    const { width, height } = cellSize(options, columns, gridRows, gaps);
+    const cells = fields.map((field, index) => {
+      const substituted = substituteRepeat(template, { repeat: field }, gaps) as VegaLiteSpec;
+      const cellSpec = templateHasData
+        ? substituted
+        : ({ ...substituted, data: cellData } as VegaLiteSpec);
+      return { key: `repeat-${index}`, spec: cellSpec, header: field, width, height };
+    });
+    return { columns, rows: gridRows, cells, gaps };
+  }
+
+  // Matrix form: `repeat: {row?, column?, layer?}`. An empty array is treated as
+  // "not present" so `{row: ['a'], column: []}` stays a row-only repeat instead
+  // of collapsing the grid to zero cells.
+  const mapping = (repeat ?? {}) as VegaRepeatMapping;
+  const asFields = (value: unknown): string[] | undefined =>
+    Array.isArray(value) && value.length > 0 ? (value as string[]) : undefined;
+  const rowFields = asFields(mapping.row);
+  const colFields = asFields(mapping.column);
+  const layerFields = asFields(mapping.layer);
+  if (!rowFields && !colFields && !layerFields) {
+    return repeatGapPlan(
+      'The `repeat` mapping declares no `row`, `column`, or `layer` field arrays (nor a flat ' +
+        'field array), so no cells can be produced.',
+    );
+  }
+
+  const rowValues = rowFields ?? [undefined];
+  const colValues = colFields ?? [undefined];
+  const columns = Math.max(1, colValues.length);
+  const gridRows = Math.max(1, rowValues.length);
+  const { width, height } = cellSize(options, columns, gridRows, gaps);
+
+  const cells: FacetCell[] = [];
+  rowValues.forEach((rowField, rowIndex) => {
+    colValues.forEach((colField, colIndex) => {
+      const cellSubs: RepeatSubstitution = {};
+      if (rowFields) {
+        cellSubs.row = rowField;
+      }
+      if (colFields) {
+        cellSubs.column = colField;
+      }
+      let cellSpec: VegaLiteSpec;
+      if (layerFields) {
+        // Layer the template once per layer field within the cell; each layer
+        // copy drops its own data — the shared cell data lives on the wrapper.
+        const layer = layerFields.map((layerField) => {
+          const copy = substituteRepeat(
+            template,
+            { ...cellSubs, layer: layerField },
+            gaps,
+          ) as VegaLiteSpec;
+          const { data, ...rest } = copy;
+          return rest as VegaLiteSpec;
+        });
+        cellSpec = { data: cellData, layer } as unknown as VegaLiteSpec;
+      } else {
+        const copy = substituteRepeat(template, cellSubs, gaps) as VegaLiteSpec;
+        cellSpec = templateHasData ? copy : ({ ...copy, data: cellData } as VegaLiteSpec);
+      }
+      const header = [colField, rowField].filter(Boolean).join(' × ') || undefined;
+      cells.push({ key: `repeat-${rowIndex}-${colIndex}`, spec: cellSpec, header, width, height });
+    });
+  });
+  return { columns, rows: gridRows, cells, gaps };
+}
+
 /**
  * Detect and plan a composite spec. Returns `null` for a plain unit/layer spec
- * (the shell renders it directly) and for `repeat` (kept as an unsupported gap
- * by `compileSpec`/`normalizeSpec`).
+ * (the shell renders it directly). Facet, concat and `repeat` compositions each
+ * expand into a `FacetPlan` grid that `<VegaLiteChart />` renders cell-by-cell.
  */
 export function planFacets(spec: VegaLiteSpec, options: FacetOptions): FacetPlan | null {
   if (spec.repeat !== undefined) {
-    return null; // reported as `composition:repeat` by the compiler
+    return planRepeat(spec, options);
   }
   if (isFacetOperator(spec)) {
     return planFacetOperator(spec, options);

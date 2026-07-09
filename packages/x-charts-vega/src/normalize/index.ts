@@ -198,12 +198,12 @@ function numericSize(
  * fully-resolved encoding, transforms, and rows.
  *
  * NOTE: view compositions (`facet` / `row`+`column` channels / `hconcat` /
- * `vconcat` / `concat`) are wrapper-level, not compiler-level. `<VegaLiteChart />`
- * detects them BEFORE calling `compileSpec` (see `src/facet`) and expands them
- * into a grid of nested single-view charts. The gaps below therefore only
- * surface when `compileSpec` is invoked directly on a composite spec (the pure
- * API path, which renders nothing) — the shell never reaches them. `repeat`
- * has no wrapper support and is a genuine gap in both paths.
+ * `vconcat` / `concat` / `repeat`) are wrapper-level, not compiler-level.
+ * `<VegaLiteChart />` detects them BEFORE calling `compileSpec` (see `src/facet`)
+ * and expands them into a grid of nested single-view charts. The gaps below
+ * therefore only surface when `compileSpec` is invoked directly on a composite
+ * spec (the pure API path, which renders nothing) — the shell never reaches
+ * them.
  */
 export function normalizeSpec(
   spec: VegaLiteSpec,
@@ -212,13 +212,9 @@ export function normalizeSpec(
 ): NormalizedSpec {
   for (const composite of ['hconcat', 'vconcat', 'concat', 'repeat', 'facet'] as const) {
     if (spec[composite] !== undefined) {
-      const message =
-        composite === 'repeat'
-          ? '`repeat` view composition has no x-charts equivalent and is not expanded by <VegaLiteChart />. Generate one <VegaLiteChart /> per repeated field yourself.'
-          : `\`${composite}\` view composition is not handled by the pure \`compileSpec\` API; render the spec through <VegaLiteChart />, which expands it into a grid of sub-charts.`;
       gaps.add({
         code: `composition:${composite}`,
-        message,
+        message: `\`${composite}\` view composition is not handled by the pure \`compileSpec\` API; render the spec through <VegaLiteChart />, which expands it into a grid of sub-charts.`,
         severity: 'unsupported',
         path: composite,
       });

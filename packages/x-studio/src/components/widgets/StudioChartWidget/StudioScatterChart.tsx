@@ -2,8 +2,13 @@
 import * as React from 'react';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
-import { Box } from '@mui/material';
-import type { ScatterDataPoint, ScatterSeriesData } from '../../../internals/chartAggregation';
+import { rainbowSurgePalette } from '@mui/x-charts';
+import { Box, useColorScheme, useTheme } from '@mui/material';
+import {
+  buildScatterCategoryColorMap,
+  type ScatterDataPoint,
+  type ScatterSeriesData,
+} from '../../../internals/chartAggregation';
 
 const GHOST_SERIES_SUFFIX = '-ghost';
 
@@ -57,6 +62,10 @@ export function StudioScatterChart({
   slotProps,
   children,
 }: StudioScatterChartProps) {
+  const muiTheme = useTheme();
+  const { colorScheme } = useColorScheme();
+  const resolvedMode = (colorScheme ?? muiTheme.palette.mode) as 'light' | 'dark';
+
   // Colour-by is only active when both a field is configured and grouped series exist.
   const colorSeries = colorField && scatterSeries ? scatterSeries : null;
   const hasData = colorSeries
@@ -76,6 +85,30 @@ export function StudioScatterChart({
     );
   }
 
+  // Stable per-category colors, keyed by category identity (not array index), so a
+  // category's ghost (baseline) and highlighted (filtered) series always share the
+  // same hue — even though the two series lists can differ in length/order (a
+  // category present in the baseline can be entirely absent from the filtered set).
+  // The baseline list (`allScatterSeries`, when present) is used as the canonical
+  // ordering source since it's always a superset of the filtered categories; any
+  // extra categories only present in the filtered list (not expected in practice,
+  // but handled defensively) are appended in their own order.
+  const resolvedPalette = colors && colors.length > 0 ? colors : rainbowSurgePalette(resolvedMode);
+  const categoryColorMap = (() => {
+    if (!colorSeries) {
+      return null;
+    }
+    const orderedCategoryIds = allScatterSeries ? allScatterSeries.map((s) => s.id) : [];
+    const seen = new Set(orderedCategoryIds);
+    for (const s of colorSeries) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        orderedCategoryIds.push(s.id);
+      }
+    }
+    return buildScatterCategoryColorMap(orderedCategoryIds, resolvedPalette);
+  })();
+
   // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series
   const ghostSeries = (() => {
     if (!shouldShowGhost) {
@@ -84,13 +117,22 @@ export function StudioScatterChart({
     if (colorSeries && allScatterSeries) {
       return allScatterSeries.map((s) => ({
         id: `${s.id}${GHOST_SERIES_SUFFIX}`,
-        label: s.label,
+        // No `label`: ghost series must not add a second legend entry for a
+        // category that's already shown (highlighted) in the legend.
         data: s.data,
         markerSize: 3,
+        color: categoryColorMap?.get(s.id),
       }));
     }
     if (allScatterData) {
-      return [{ id: `__all${GHOST_SERIES_SUFFIX}`, data: allScatterData, markerSize: 3 }];
+      return [
+        {
+          id: `__all${GHOST_SERIES_SUFFIX}`,
+          data: allScatterData,
+          markerSize: 3,
+          color: resolvedPalette[0],
+        },
+      ];
     }
     return null;
   })();
@@ -100,10 +142,12 @@ export function StudioScatterChart({
         id: s.id,
         label: s.label,
         data: s.data,
+        color: categoryColorMap?.get(s.id),
       }))
     : [
         {
           data: scatterData ?? [],
+          color: resolvedPalette[0],
         },
       ];
 

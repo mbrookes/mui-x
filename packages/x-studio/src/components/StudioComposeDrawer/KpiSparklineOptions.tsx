@@ -15,12 +15,14 @@ import {
   useStudioSelector,
   selectWidgets,
   selectDataSources,
+  selectExpressionFields,
   selectFilters,
   selectRelationships,
   useStudioLocaleText,
 } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
-import type { StudioWidgetConfig } from '../../models';
+import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
+import type { StudioDataSource, StudioWidgetConfig } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
 function getKpiGranularities(localeText: ReturnType<typeof useStudioLocaleText>) {
@@ -42,6 +44,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const localeText = useStudioLocaleText();
   const granularities = getKpiGranularities(localeText);
   const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const filters = useStudioSelector(selectFilters);
   const widget = useStudioSelector(selectWidgets)[widgetId];
 
@@ -50,25 +53,26 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const source = sourceId ? dataSources[sourceId] : undefined;
   const relationships = useStudioSelector(selectRelationships);
 
-  // Collect date fields from primary source + all directly related sources
+  // Collect date fields from primary source + all directly related sources.
+  // Built on the shared `buildSourceFieldEntries` catalog helper (architecture
+  // review finding 2.8) instead of hand-rolling the id/label/type/sourceId/
+  // sourceLabel shape per source, as `ChartSetupPanel`/`KpiSetupPanel` already do.
   const allDateFieldsWithJoined = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!source || !sourceId) {
       return [];
     }
     const result: DataSourceFieldEntry[] = [];
     const seen = new Set<string>();
-    for (const f of source.fields) {
-      if (fieldHasCapability(f, 'temporal')) {
-        result.push({
-          id: f.id,
-          label: f.label,
-          type: f.type,
-          sourceId,
-          sourceLabel: source.label,
-        });
-        seen.add(`${f.id}:${sourceId}`);
+    const addSourceDateFields = (src: StudioDataSource) => {
+      for (const entry of buildSourceFieldEntries(src, expressionFields, { expression: 'none' })) {
+        const key = `${entry.id}:${entry.sourceId}`;
+        if (fieldHasCapability(entry, 'temporal') && !seen.has(key)) {
+          seen.add(key);
+          result.push(entry);
+        }
       }
-    }
+    };
+    addSourceDateFields(source);
     for (const rel of relationships) {
       let relatedId: string | null = null;
       if (rel.sourceId === sourceId) {
@@ -83,29 +87,20 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       if (!relSource) {
         continue;
       }
-      for (const f of relSource.fields) {
-        const key = `${f.id}:${relatedId}`;
-        if (fieldHasCapability(f, 'temporal') && !seen.has(key)) {
-          seen.add(key);
-          result.push({
-            id: f.id,
-            label: f.label,
-            type: f.type,
-            sourceId: relatedId!,
-            sourceLabel: relSource.label,
-          });
-        }
-      }
+      addSourceDateFields(relSource);
     }
     return result;
-  }, [source, sourceId, relationships, dataSources]);
+  }, [source, sourceId, relationships, dataSources, expressionFields]);
 
   const autoDateFilter = React.useMemo(() => {
     if (!sourceId) {
       return null;
     }
     const relevant = filters.filter(
-      (f) => f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range' || (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
+      (f) =>
+        f.scope.kind === 'page' ||
+        f.scope.kind === 'dashboard-date-range' ||
+        (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
     );
     return (
       relevant.find((f) => {
@@ -122,6 +117,34 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
 
   const plotType = config.kpiSparklinePlotType ?? 'line';
   const isGauge = plotType === 'gauge';
+
+  const gaugeMax = config.kpiSparklineGaugeMax ?? 100;
+
+  // Local text buffer for the gauge-max input (architecture review finding 1.14):
+  // rejecting anything not `> 0` on every keystroke made the field impossible to
+  // clear and retype. Buffer the displayed text locally and only parse/validate/
+  // commit on blur, mirroring `FormatPanel.tsx`'s grid-height input.
+  const [gaugeMaxText, setGaugeMaxText] = React.useState(String(gaugeMax));
+  const [gaugeMaxDirty, setGaugeMaxDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gaugeMax; resync on external change (widget switch, undo/redo)
+  React.useEffect(() => {
+    setGaugeMaxText(String(gaugeMax));
+    setGaugeMaxDirty(false);
+  }, [gaugeMax, widgetId]);
+
+  const commitGaugeMax = () => {
+    if (!gaugeMaxDirty) {
+      return;
+    }
+    const parsed = Number(gaugeMaxText);
+    const valid = Number.isFinite(parsed) && parsed > 0;
+    if (valid && parsed !== gaugeMax) {
+      controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: parsed });
+    }
+    setGaugeMaxText(String(valid ? parsed : gaugeMax));
+    setGaugeMaxDirty(false);
+  };
 
   return (
     <React.Fragment>
@@ -192,11 +215,15 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
           size="small"
           label={localeText.kpiSetupGaugeMaxLabel}
           type="number"
-          value={config.kpiSparklineGaugeMax ?? 100}
+          value={gaugeMaxText}
           onChange={(event) => {
-            const n = Number(event.target.value);
-            if (Number.isFinite(n) && n > 0) {
-              controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: n });
+            setGaugeMaxText(event.target.value);
+            setGaugeMaxDirty(true);
+          }}
+          onBlur={commitGaugeMax}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              commitGaugeMax();
             }
           }}
           fullWidth

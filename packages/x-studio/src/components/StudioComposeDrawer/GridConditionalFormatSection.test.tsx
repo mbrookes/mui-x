@@ -64,6 +64,11 @@ const { render } = createRenderer();
 // Clearing a numeric rule value used to store `0` (a silent semantic change from
 // "no value" to "compare to zero"), and a partially-typed non-number stored
 // `NaN`, which then rendered literally via `String(rule.value)`.
+//
+// Finding 1.14: the numeric value input used to parse+commit on every keystroke,
+// so "0." collapsed to "0" (the decimal point eaten) and "-" instantly committed
+// `undefined` before the user could finish typing a negative number. It now
+// buffers the displayed text locally and only parses/commits on blur.
 
 describe('GridConditionalFormatSection', () => {
   beforeEach(() => {
@@ -78,11 +83,13 @@ describe('GridConditionalFormatSection', () => {
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
-  it('clearing the numeric value stores undefined, not 0', () => {
+  it('clearing the numeric value stores undefined, not 0, on blur', () => {
     render(<GridConditionalFormatSection widgetId="widget-1" />);
 
     const valueInput = screen.getByLabelText('Condition value');
     fireEvent.change(valueInput, { target: { value: '' } });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    fireEvent.blur(valueInput);
 
     expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
       gridConditionalFormats: [expect.objectContaining({ value: undefined })],
@@ -94,11 +101,12 @@ describe('GridConditionalFormatSection', () => {
     expect(patch.gridConditionalFormats[0].value).not.toBe(0);
   });
 
-  it('a partial/unparseable number never commits NaN', () => {
+  it('a partial/unparseable number never commits NaN, on blur', () => {
     render(<GridConditionalFormatSection widgetId="widget-1" />);
 
     const valueInput = screen.getByLabelText('Condition value');
     fireEvent.change(valueInput, { target: { value: '-' } });
+    fireEvent.blur(valueInput);
 
     const [, patch] = controller.updateWidgetConfig.mock.calls[0] as [
       string,
@@ -109,14 +117,48 @@ describe('GridConditionalFormatSection', () => {
     expect(committedValue).toBeUndefined();
   });
 
-  it('a valid number commits the parsed value', () => {
+  it('a valid number commits the parsed value on blur', () => {
     render(<GridConditionalFormatSection widgetId="widget-1" />);
 
     const valueInput = screen.getByLabelText('Condition value');
     fireEvent.change(valueInput, { target: { value: '42' } });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    fireEvent.blur(valueInput);
 
     expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
       gridConditionalFormats: [expect.objectContaining({ value: 42 })],
+    });
+  });
+
+  it('does not eat a trailing decimal point while typing', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: '0.' } });
+    // The in-progress "0." is never coerced/re-rendered as "0" mid-typing.
+    expect(valueInput.value).toBe('0.');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    fireEvent.change(valueInput, { target: { value: '0.5' } });
+    fireEvent.blur(valueInput);
+    expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
+      gridConditionalFormats: [expect.objectContaining({ value: 0.5 })],
+    });
+  });
+
+  it('does not commit a still-typing bare "-" before the field is blurred', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: '-' } });
+    expect(valueInput.value).toBe('-');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    fireEvent.change(valueInput, { target: { value: '-5' } });
+    expect(valueInput.value).toBe('-5');
+    fireEvent.blur(valueInput);
+    expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
+      gridConditionalFormats: [expect.objectContaining({ value: -5 })],
     });
   });
 });

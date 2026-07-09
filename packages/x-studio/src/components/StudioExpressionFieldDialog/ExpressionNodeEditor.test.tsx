@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { createRenderer, screen, within } from '@mui/internal-test-utils';
-import { describe, expect, it } from 'vitest';
-import type { StudioDataField, StudioExpression } from '../../models';
+import { createRenderer, fireEvent, screen, within } from '@mui/internal-test-utils';
+import { describe, expect, it, vi } from 'vitest';
+import type { StudioDataField, StudioExpression, StudioFunctionExpression } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 
@@ -121,5 +121,88 @@ describe('<ExpressionBuilder /> localization', () => {
 
     expect(screen.getByText('Unité (par exemple "jour", "mois", "année")')).toBeVisible();
     expect(screen.queryByText('Unit (e.g. "day", "month", "year")')).toBeNull();
+  });
+});
+
+// Regression coverage for architecture-review finding 1.14: a `type="number"` input
+// reports `badInput` (and an empty `event.target.value`) while the user is still
+// typing a bare "-" or a trailing ".", which used to be coerced straight to a
+// committed `0` on every keystroke. The literal-number input now buffers the
+// displayed text locally and only parses/commits on blur.
+describe('<ExpressionBuilder /> numeric literal input (finding 1.14)', () => {
+  function renderNegateLiteral(initialValue: number) {
+    const expression: StudioExpression = {
+      operator: 'negate',
+      inputs: [{ type: 'number', value: initialValue }],
+    } as StudioExpression;
+    const onChange = vi.fn();
+    const { wrapper } = createStudioHarness();
+    const { user } = render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={onChange}
+      />,
+      { wrapper },
+    );
+    return { onChange, user };
+  }
+
+  // Real keystroke-by-keystroke typing (not a single `fireEvent.change`) is used
+  // so a decimal point/minus sign is typed as an actual intermediate keystroke.
+  // With the old per-keystroke-commit code, the intermediate "10." keystroke
+  // re-derived the controlled value from `Number('10.')` → `10`, which forced the
+  // field back to "10" and corrupted every keystroke typed after it (e.g. typing
+  // "10.5" would land on "105", not "10.5"). Asserting the FINAL text after typing
+  // the whole sequence therefore still exercises the exact regression, even though
+  // this jsdom's `type="number"` sanitizes a truly incomplete value (a lone "-" or
+  // trailing ".") down to "" if read mid-keystroke.
+  it('preserves a trailing decimal point typed mid-sequence', async () => {
+    const { user } = renderNegateLiteral(10);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '10.5');
+    expect(input.value).toBe('10.5');
+  });
+
+  it('does not commit on every keystroke, only on blur', async () => {
+    const { onChange, user } = renderNegateLiteral(10);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '10.5');
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const committed = onChange.mock.calls[0][0] as StudioFunctionExpression;
+    expect(committed.inputs[0]).toMatchObject({ type: 'number', value: 10.5 });
+  });
+
+  it('preserves a negative sign typed mid-sequence and commits it on blur', async () => {
+    const { onChange, user } = renderNegateLiteral(10);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '-5');
+    expect(input.value).toBe('-5');
+    fireEvent.blur(input);
+    const committed = onChange.mock.calls[0][0] as StudioFunctionExpression;
+    expect(committed.inputs[0]).toMatchObject({ type: 'number', value: -5 });
+  });
+
+  it('allows clearing the field while typing without it reverting mid-edit', async () => {
+    const { user } = renderNegateLiteral(10);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    await user.clear(input);
+    expect(input.value).toBe('');
+  });
+
+  it('reverts to the last committed value when blurred empty', async () => {
+    const { onChange, user } = renderNegateLiteral(10);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    await user.clear(input);
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe('10');
   });
 });

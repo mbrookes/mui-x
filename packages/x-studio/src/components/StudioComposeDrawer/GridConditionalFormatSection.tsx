@@ -15,6 +15,62 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { SetupSection } from './SetupSection';
 
 /**
+ * Numeric conditional-format value input (architecture review finding 1.14):
+ * `Number(raw)` on every keystroke ate the in-progress decimal point ("0." rendered
+ * back as "0") and committed `undefined` for a bare "-" before the user could finish
+ * typing a negative number. Buffer the displayed text locally and only parse/commit
+ * on blur, mirroring `FormatPanel.tsx`'s grid-height input.
+ */
+function ConditionalFormatValueInput(props: {
+  value: unknown;
+  ariaLabel: string;
+  onCommit: (next: number | undefined) => void;
+}) {
+  const { value, ariaLabel, onCommit } = props;
+  const initialText = value !== undefined && value !== null ? String(value) : '';
+  const [text, setText] = React.useState(initialText);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, undo/redo)
+  React.useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    const next = Number.isNaN(parsed) ? undefined : parsed;
+    onCommit(next);
+    setText(next !== undefined ? String(next) : '');
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      value={text}
+      placeholder="0"
+      slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
+    />
+  );
+}
+
+/**
  * Grid (table) conditional-formatting rule editor. Lives in the widget's **Format** tab
  * (rule-based cell colouring is a presentation concern, not a data-setup one). Renders
  * nothing when the source is unresolved or the `gridConditionalFormats` feature is off.
@@ -119,33 +175,35 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                   </MenuItem>
                 ))}
               </Select>
-              {!noValueOp && (
-                <TextField
-                  size="small"
-                  value={rule.value !== undefined && rule.value !== null ? String(rule.value) : ''}
-                  placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
-                  slotProps={{
-                    htmlInput: { 'aria-label': localeText.gridConditionValueAriaLabel },
-                  }}
-                  onChange={(event) => {
-                    const next = [...conditionalFormats];
-                    let v: string | number | undefined;
-                    if (fieldEntry?.type === 'number') {
-                      // Empty or unparseable input means "no value" — never store `0`
-                      // (a silent semantic change from "no value" to "compare to zero")
-                      // or `NaN` (which would render literally via `String(rule.value)`).
-                      const raw = event.target.value.trim();
-                      const parsed = raw === '' ? NaN : Number(raw);
-                      v = Number.isNaN(parsed) ? undefined : parsed;
-                    } else {
-                      v = event.target.value;
+              {!noValueOp &&
+                (fieldEntry?.type === 'number' ? (
+                  <ConditionalFormatValueInput
+                    value={rule.value}
+                    ariaLabel={localeText.gridConditionValueAriaLabel}
+                    onCommit={(v) => {
+                      const next = [...conditionalFormats];
+                      next[i] = { ...rule, value: v };
+                      controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                    }}
+                  />
+                ) : (
+                  <TextField
+                    size="small"
+                    value={
+                      rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
                     }
-                    next[i] = { ...rule, value: v };
-                    controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                  }}
-                  sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
-                />
-              )}
+                    placeholder="value"
+                    slotProps={{
+                      htmlInput: { 'aria-label': localeText.gridConditionValueAriaLabel },
+                    }}
+                    onChange={(event) => {
+                      const next = [...conditionalFormats];
+                      next[i] = { ...rule, value: event.target.value };
+                      controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                    }}
+                    sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
+                  />
+                ))}
               <Select
                 size="small"
                 value={preset?.label ?? '__custom__'}

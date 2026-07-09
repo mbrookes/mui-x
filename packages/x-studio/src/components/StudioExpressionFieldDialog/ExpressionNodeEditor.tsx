@@ -197,6 +197,105 @@ function getInputKind(expr: StudioExpression): InputKind {
   return 'literal';
 }
 
+/**
+ * Numeric-literal input for a value expression (architecture review finding 1.14):
+ * a `type="number"` input reports `badInput` (and an empty `event.target.value`)
+ * while the user is still typing a bare "-" or a trailing "." — reading that
+ * per-keystroke used to coerce the in-progress text straight to a committed `0`.
+ * Buffer the displayed text locally and only parse/commit on blur, mirroring
+ * `FormatPanel.tsx`'s grid-height input.
+ */
+function LiteralNumberInput(props: { value: number; onChange: (next: number) => void }) {
+  const { value, onChange } = props;
+  const [text, setText] = React.useState(String(value));
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed literal value; resync on external change (undo/redo, switching input kind back to number)
+  React.useEffect(() => {
+    setText(String(value));
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    // An emptied field reverts to the last committed value rather than silently
+    // coercing to 0 (`Number('')` is `0`, not `NaN`).
+    const parsed = raw === '' ? NaN : Number(raw);
+    const next = Number.isNaN(parsed) ? value : parsed;
+    if (next !== value) {
+      onChange(next);
+    }
+    setText(String(next));
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      type="number"
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ flexGrow: 1, '& input': { fontSize: '0.75rem' } }}
+    />
+  );
+}
+
+/** The value editor for a literal expression, branched on its declared `type`. */
+function LiteralValueEditor(props: {
+  expr: StudioValueExpression;
+  onChange: (next: StudioExpression) => void;
+  localeText: ReturnType<typeof useStudioLocaleText>;
+}) {
+  const { expr, onChange, localeText } = props;
+  if (expr.type === 'boolean') {
+    return (
+      <Select
+        size="small"
+        value={String(expr.value)}
+        onChange={(event) => {
+          onChange({ ...expr, value: event.target.value === 'true' });
+        }}
+        aria-label={localeText.exprBooleanValueAriaLabel}
+        sx={{ flexGrow: 1, fontSize: '0.75rem' }}
+      >
+        <MenuItem value="true">{localeText.exprBooleanTrue}</MenuItem>
+        <MenuItem value="false">{localeText.exprBooleanFalse}</MenuItem>
+      </Select>
+    );
+  }
+  if (expr.type === 'number') {
+    return (
+      <LiteralNumberInput
+        value={typeof expr.value === 'number' ? expr.value : 0}
+        onChange={(next) => onChange({ ...expr, value: next })}
+      />
+    );
+  }
+  return (
+    <TextField
+      size="small"
+      type="text"
+      value={String(expr.value ?? '')}
+      onChange={(event) => {
+        onChange({ ...expr, value: event.target.value });
+      }}
+      sx={{ flexGrow: 1, '& input': { fontSize: '0.75rem' } }}
+    />
+  );
+}
+
 function InputNode({
   expr,
   label,
@@ -339,32 +438,7 @@ function InputNode({
             <MenuItem value="string">{localeText.exprDataTypeText}</MenuItem>
             <MenuItem value="boolean">{localeText.exprDataTypeBoolean}</MenuItem>
           </Select>
-          {expr.type === 'boolean' ? (
-            <Select
-              size="small"
-              value={String(expr.value)}
-              onChange={(event) => {
-                onChange({ ...expr, value: event.target.value === 'true' });
-              }}
-              aria-label={localeText.exprBooleanValueAriaLabel}
-              sx={{ flexGrow: 1, fontSize: '0.75rem' }}
-            >
-              <MenuItem value="true">{localeText.exprBooleanTrue}</MenuItem>
-              <MenuItem value="false">{localeText.exprBooleanFalse}</MenuItem>
-            </Select>
-          ) : (
-            <TextField
-              size="small"
-              type={expr.type === 'number' ? 'number' : 'text'}
-              value={String(expr.value ?? '')}
-              onChange={(event) => {
-                const raw = event.target.value;
-                const val = expr.type === 'number' ? Number(raw) : raw;
-                onChange({ ...expr, value: val });
-              }}
-              sx={{ flexGrow: 1, '& input': { fontSize: '0.75rem' } }}
-            />
-          )}
+          <LiteralValueEditor expr={expr} onChange={onChange} localeText={localeText} />
         </Stack>
       )}
 

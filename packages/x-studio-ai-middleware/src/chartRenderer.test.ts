@@ -294,6 +294,44 @@ describe('renderChartSvg — injection hardening', () => {
     expect(isSvg(svg)).toBe(true);
     expect(svg).not.toContain('NaN');
   });
+
+  it('does not throw on a non-array colors value (coerces to defaults)', () => {
+    // `colors` is typed `string[]` but is model-supplied and never validated; a
+    // non-array value previously threw a raw `TypeError` inside `.map` on the public
+    // `renderChartSvg` export (finding 2.1).
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'bar',
+        data: SIMPLE_DATA,
+        colors: '#fff' as unknown as string[],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    // Falls back to the default palette.
+    expect(svg).toContain('#4e79a7'); // DEFAULT_COLORS[0]
+  });
+
+  it('does not throw on a non-array data value (renders the No-data placeholder)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({ type: 'bar', data: {} as unknown as ChartRendererInput['data'] });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+  });
+
+  it('does not throw on a non-array series value', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'stacked_bar',
+        xLabels: ['Q1', 'Q2'],
+        series: 'x' as unknown as ChartRendererInput['series'],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+  });
 });
 
 // ── No-data / all-non-positive guards (finding 3.3) ─────────────────────────────

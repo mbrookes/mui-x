@@ -806,7 +806,14 @@ function buildRichContextBlock(
                 (w) =>
                   `${sanitizeForPrompt(w.title || w.widgetId)} [${sanitizeForPrompt(w.kind)}${
                     w.chartType ? `:${sanitizeForPrompt(w.chartType)}` : ''
-                  }${w.colSpan ? `, span ${w.colSpan}` : ''}]`,
+                  }${
+                    // `colSpan` is typed `number`, but `richContext` is client-supplied, so a
+                    // crafted request body could smuggle a `</dashboard_context>…` string into
+                    // this `number`-typed field — the same vector the `fieldStats` sibling above
+                    // was hardened against. Route it through the same choke point so invariant 13
+                    // stays literally true for the `<dashboard_context>` path.
+                    w.colSpan != null ? `, span ${sanitizeForPrompt(w.colSpan)}` : ''
+                  }]`,
               )
               .join(', ')}`,
         )
@@ -848,7 +855,7 @@ function buildRichContextBlock(
     if (enrichedContext.rowCounts && Object.keys(enrichedContext.rowCounts).length > 0) {
       const lines = Object.entries(enrichedContext.rowCounts).map(([field, counts]) => {
         const pairs = Object.entries(counts)
-          .map(([value, count]) => `${sanitizeForPrompt(value)}=${count}`)
+          .map(([value, count]) => `${sanitizeForPrompt(value)}=${sanitizeForPrompt(count)}`)
           .join(', ');
         return `  - ${sanitizeForPrompt(field)}: ${pairs}`;
       });

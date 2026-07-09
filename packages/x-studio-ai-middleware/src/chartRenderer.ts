@@ -101,7 +101,11 @@ function sanitizeDimension(value: number | undefined, fallback: number): number 
  * Bad entries are replaced individually so a partially-valid palette still works.
  */
 function sanitizeColors(colors: string[] | undefined): string[] | undefined {
-  if (colors === undefined) {
+  // `colors` is declared `string[]` but is model-supplied and never validated at
+  // runtime, so a non-array value (e.g. `"#fff"`) would throw inside `.map`. Treat any
+  // non-array as absent so the renderers fall back to `DEFAULT_COLORS`, matching the
+  // "coerce at one choke point" contract rather than throwing a raw `TypeError`.
+  if (!Array.isArray(colors)) {
     return undefined;
   }
   return colors.map((c, i) =>
@@ -124,14 +128,17 @@ function sanitizeValue(value: unknown): number {
 }
 
 function sanitizeData(data: ChartDataPoint[] | undefined): ChartDataPoint[] | undefined {
-  if (data === undefined) {
+  // Non-array `data` (e.g. `{}`) would throw inside `.map`; coerce to absent so
+  // renderers fall back to the "No data provided." placeholder.
+  if (!Array.isArray(data)) {
     return undefined;
   }
   return data.map((d) => ({ ...d, value: sanitizeValue(d?.value) }));
 }
 
 function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | undefined {
-  if (series === undefined) {
+  // Non-array `series` (e.g. `"x"`) would throw inside `.map`; coerce to absent.
+  if (!Array.isArray(series)) {
     return undefined;
   }
   return series.map((s) => ({
@@ -141,12 +148,19 @@ function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | unde
 }
 
 /**
+ * The shape a renderer receives after `sanitizeInput`: `width`/`height` are
+ * guaranteed finite numbers (never `undefined`), so renderers read them directly
+ * without a `?? DEFAULT` fallback.
+ */
+type SanitizedChartInput = ChartRendererInput & { width: number; height: number };
+
+/**
  * Validate/coerce the untrusted, model-supplied portions of the input
  * (`width`, `height`, `colors`, and every numeric `value`) before any renderer
  * interpolates them into SVG markup. Text content is handled separately by
  * `esc()`.
  */
-function sanitizeInput(input: ChartRendererInput): ChartRendererInput {
+function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
   return {
     ...input,
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),
@@ -200,10 +214,10 @@ function ticks(max: number, count = 5): number[] {
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 
-function renderBar(input: ChartRendererInput): string {
+function renderBar(input: SanitizedChartInput): string {
   const { title, data = [], colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   // Guard against empty / all-non-positive data: with maxVal === 0 every bar's
   // geometry becomes `v / 0` → NaN. Render a placeholder like line/stacked_bar do.
@@ -279,10 +293,10 @@ function renderBar(input: ChartRendererInput): string {
 
 // ── Line chart ────────────────────────────────────────────────────────────────
 
-function renderLine(input: ChartRendererInput): string {
+function renderLine(input: SanitizedChartInput): string {
   const { title, data, xLabels: rawXLabels, series: rawSeries, colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   // Normalise: single-series (data) or multi-series (xLabels + series)
   let xLabels: string[];
@@ -391,10 +405,10 @@ function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: nu
   return `M ${cx} ${cy} L ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 0 ${end.x.toFixed(2)} ${end.y.toFixed(2)} Z`;
 }
 
-function renderPie(input: ChartRendererInput): string {
+function renderPie(input: SanitizedChartInput): string {
   const { title, data = [], colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   const PAD = { top: title ? 50 : 20, right: 20, bottom: 20, left: 20 };
   const legendH = Math.ceil(data.length / 3) * 22 + 10;
@@ -459,10 +473,10 @@ function renderPie(input: ChartRendererInput): string {
 
 // ── Scatter chart ─────────────────────────────────────────────────────────────
 
-function renderScatter(input: ChartRendererInput): string {
+function renderScatter(input: SanitizedChartInput): string {
   const { title, series: rawSeries, xLabels: rawXLabels, colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   // Expect data as series with numeric values (x from xLabels, y from values)
   // or simple data[] where label is parsed as x and value is y.
@@ -558,10 +572,10 @@ function renderScatter(input: ChartRendererInput): string {
 
 // ── Donut chart ───────────────────────────────────────────────────────────────
 
-function renderDonut(input: ChartRendererInput): string {
+function renderDonut(input: SanitizedChartInput): string {
   const { title, data = [], colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   // Guard against empty / all-non-positive data: total === 0 makes every slice's
   // `value / total` NaN. Render a placeholder like line/stacked_bar do.
@@ -651,10 +665,10 @@ function renderDonut(input: ChartRendererInput): string {
 
 // ── Stacked bar chart ─────────────────────────────────────────────────────────
 
-function renderStackedBar(input: ChartRendererInput): string {
+function renderStackedBar(input: SanitizedChartInput): string {
   const { title, xLabels: rawXLabels, series: rawSeries, colors = DEFAULT_COLORS } = input;
-  const W = input.width ?? 600;
-  const H = input.height ?? 400;
+  const W = input.width;
+  const H = input.height;
 
   if (!rawSeries || !rawXLabels || rawSeries.length === 0 || rawXLabels.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">stacked_bar requires xLabels and series.</text></svg>`;

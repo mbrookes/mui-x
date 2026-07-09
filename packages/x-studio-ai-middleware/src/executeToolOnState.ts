@@ -1196,13 +1196,18 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // additions, updates, layout) and gives the model an actionable signal to retry
       // with a value in range.
       const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
-      for (const [wid, span] of Object.entries(colSpanPatch)) {
+      for (const [ref, span] of Object.entries(colSpanPatch)) {
+        // Resolve added-widget TITLE refs to their minted ids, mirroring the `layout` op
+        // above: a widget added earlier in this same batch is only known to the model by
+        // title (its id is server-minted), so keying `colSpans` strictly by id would
+        // silently drop a same-batch add-then-resize.
+        const wid = addedTitleToId[ref] ?? ref;
         if (typeof span === 'number' && span >= 6 && span <= 24) {
           colSpans[wid] = span;
           applied.colSpans += 1;
         } else {
           skipped.push(
-            `colSpan ${wid}: ${JSON.stringify(span)} is out of range (must be a number 6-24).`,
+            `colSpan ${ref}: ${JSON.stringify(span)} is out of range (must be a number 6-24).`,
           );
         }
       }

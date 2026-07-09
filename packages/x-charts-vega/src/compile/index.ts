@@ -16,6 +16,7 @@ import type {
   CompiledReferenceLine,
   CompiledSeries,
   CompiledZAxis,
+  OverlayLegendItem,
   PlotKind,
   UnitContext,
 } from './context';
@@ -44,6 +45,8 @@ export interface CompiledChart {
   referenceLines: CompiledReferenceLine[];
   /** Custom-drawn output for marks with no x-charts series equivalent. */
   overlays: CompiledOverlay[];
+  /** Custom legend swatches for color-split overlays (dodged box plots). */
+  overlayLegend: OverlayLegendItem[];
   grid: { vertical?: boolean; horizontal?: boolean };
   hasLegend: boolean;
   colors: readonly string[];
@@ -205,6 +208,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
   const overlays: CompiledOverlay[] = [];
+  const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
@@ -239,6 +243,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));
     overlays.push(...(compiled.overlays ?? []));
+    overlayLegend.push(...(compiled.overlayLegend ?? []));
     zAxis.push(...(compiled.zAxis ?? []));
     // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
     // requests one wins; a conflicting later request is reported as a gap.
@@ -375,6 +380,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     plots: Array.from(plots),
     referenceLines,
     overlays,
+    overlayLegend,
     grid: axes.grid,
     hasLegend,
     colors: palette,

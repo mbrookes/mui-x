@@ -150,7 +150,7 @@ describe('compileBoxplotMark', () => {
     expect(overlay.items[0].color).to.equal('#ff0000');
   });
 
-  it('groups a color field into dodged boxes (one box per category per group) with a color-legend gap', () => {
+  it('groups a color field into dodged boxes (one box per category per group) with a legend', () => {
     const compiled = compileSpec({
       data: {
         values: [
@@ -176,8 +176,12 @@ describe('compileBoxplotMark', () => {
       },
     });
     expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:boxplot-color-field');
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-color-legend');
-    expect(gap?.severity).to.equal('partial');
+    // The dodged groups now surface a real legend instead of a gap.
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:boxplot-color-legend');
+    expect(compiled.overlayLegend).to.deep.equal([
+      { label: 'east', color: '#111111' },
+      { label: 'west', color: '#222222' },
+    ]);
 
     const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
     if (!overlay || overlay.kind !== 'boxes') {

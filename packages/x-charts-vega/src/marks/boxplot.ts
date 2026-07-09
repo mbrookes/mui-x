@@ -3,6 +3,7 @@ import type {
   CompiledUnit,
   OverlayBoxItem,
   OverlayBoxSubMark,
+  OverlayLegendItem,
   UnitContext,
 } from '../compile/context';
 import { resolveColor } from '../compile/color';
@@ -11,6 +12,11 @@ import { evaluateAggregate } from '../transforms/aggregateOps';
 import type { GapCollector } from '../gaps';
 import type { DatasetRow, VegaMarkDef } from '../types';
 import { groupRowsByField } from './bar';
+
+/** Formats a color-group value for a legend swatch label (locale date for temporal groups). */
+function formatLegendLabel(value: unknown): string {
+  return value instanceof Date ? value.toLocaleDateString() : String(value);
+}
 
 /*
  * OWNERSHIP: the "boxplot" work unit owns this file.
@@ -23,8 +29,8 @@ import { groupRowsByField } from './bar';
  *   extent, values beyond → `outliers`; `extent: 'min-max'` → full extent, no
  *   outliers; numeric extent k → k×IQR;
  * - color: static mark/value color or resolveColor staticColor; a color FIELD
- *   split → grouped/dodged boxes (one box per category per color group),
- *   flagged with a 'partial' gap since the overlay draws no legend entries;
+ *   split → grouped/dodged boxes (one box per category per color group), plus
+ *   `overlayLegend` swatches so the shell can render a legend for the groups;
  * - mark.size → widthRatio approximation ('partial' gap); mark.median/box/
  *   rule/ticks/outliers sub-mark configs → styling carried through where
  *   translatable (color/opacity), other keys → 'partial' gap;
@@ -273,6 +279,7 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
 
   const items: OverlayBoxItem[] = [];
   let groupCount = 1;
+  const overlayLegend: OverlayLegendItem[] = [];
 
   if (color.splitField) {
     // Grouped/dodged boxes: one box per category per color group.
@@ -284,9 +291,9 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
       // the `else` branch below) — falling back to it here as well would
       // paint every dodged group identically whenever `mark.color` happens
       // to be set alongside a color-field split, defeating the point of
-      // dodging (and contradicting the color-legend gap message below,
-      // which tells the user to use box color to tell groups apart).
+      // dodging.
       const groupColor = color.range?.[gi] ?? ctx.palette[gi % ctx.palette.length];
+      overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
       const grouped = collectByCategory(group.rows);
       categories.forEach((category, index) => {
         const values = grouped[index];
@@ -298,12 +305,6 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
           items.push(item);
         }
       });
-    });
-    gaps.add({
-      code: 'mark:boxplot-color-legend',
-      message: `A color field ("${color.splitField}") splits each category into ${groupCount} dodged boxes, but the overlay draws them without contributing legend entries; use the color values shown on the boxes to identify groups.`,
-      severity: 'partial',
-      path: `${unit.path}.encoding.color`,
     });
   } else {
     // No color split: one aggregated box per category.
@@ -337,5 +338,6 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
         ...(outliersSubMark !== undefined ? { outliers: outliersSubMark } : {}),
       },
     ],
+    ...(overlayLegend.length > 0 ? { overlayLegend } : {}),
   };
 }

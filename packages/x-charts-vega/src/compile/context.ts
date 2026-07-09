@@ -173,8 +173,20 @@ export interface CompiledUnit {
   geo?: CompiledGeo;
   /** Custom-drawn output for marks with no x-charts series equivalent. */
   overlays?: CompiledOverlay[];
+  /**
+   * Legend swatches for an overlay that carries a color split but no series to
+   * feed the x-charts legend (e.g. dodged box plots). The shell renders these
+   * as a small custom legend.
+   */
+  overlayLegend?: OverlayLegendItem[];
   /** Chart-wide bar corner radius requested by this layer's bar mark. */
   barBorderRadius?: number;
+}
+
+/** One entry in an overlay's custom legend (a colored swatch + label). */
+export interface OverlayLegendItem {
+  label: string;
+  color: string;
 }
 
 /**

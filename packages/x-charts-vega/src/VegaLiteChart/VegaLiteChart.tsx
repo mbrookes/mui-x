@@ -30,6 +30,7 @@ import type { DatasetRow, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
 import { VegaOverlays, ArcLabelsPlot } from '../overlays';
+import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
@@ -38,6 +39,15 @@ const SERIES_CONFIG = {
   ...defaultSeriesConfigPremium,
   heatmap: heatmapSeriesConfig,
 };
+
+/**
+ * Nesting depth of the current chart inside a facet/concat grid. The top-level
+ * chart is depth 0; each grid level increments it. Beyond `MAX_FACET_DEPTH` the
+ * shell stops expanding compositions and reports a gap (a guard against
+ * pathological / cyclic specs — normal faceting is naturally shallow because
+ * leaf sub-specs have no facet channels left).
+ */
+const FacetDepthContext = React.createContext(0);
 
 export interface VegaLiteChartProps {
   /** The Vega-Lite specification to translate. */
@@ -54,7 +64,9 @@ export interface VegaLiteChartProps {
   colors?: readonly string[];
   /**
    * Called (on mount and when the spec changes) with every Vega-Lite feature
-   * of the spec that could not be fully translated to x-charts components.
+   * of the spec that could not be fully translated to x-charts components. For
+   * faceted / concatenated specs the gaps of every sub-chart are aggregated
+   * (deduped by code+path) and reported once alongside any facet-level gaps.
    * @param {TranslationGap[]} gaps The features that were dropped, approximated, or ignored.
    */
   onGaps?: (gaps: TranslationGap[]) => void;
@@ -72,9 +84,171 @@ export interface VegaLiteChartProps {
  * warning) rather than throwing. Marks covered only by the commercial tiers
  * (rect heatmaps, ranged bars, geoshape maps) render through
  * `@mui/x-charts-premium` — without a license key they show a watermark.
- * See GAPS.md for the full support matrix.
+ *
+ * View compositions (`row`/`column` facet channels, the `facet` operator, and
+ * `hconcat`/`vconcat`/`concat`) are expanded into a CSS grid of nested
+ * `<VegaLiteChart />` instances. See GAPS.md for the full support matrix.
  */
 export function VegaLiteChart(props: VegaLiteChartProps) {
+  const { spec, data, datasets, width, height, colors, onGaps, children } = props;
+  const depth = React.useContext(FacetDepthContext);
+
+  const gridSize = resolveGridSize(spec, width, height);
+  const plan = React.useMemo(
+    () => planFacets(spec, { data, datasets, width: gridSize.width, height: gridSize.height }),
+    [spec, data, datasets, gridSize.width, gridSize.height],
+  );
+  const overDepth = plan != null && depth >= MAX_FACET_DEPTH;
+
+  // Named datasets declared on the top-level spec are merged with the prop so
+  // sub-charts can still resolve `data: {name}` references — the single-view
+  // path merges `spec.datasets` inside `normalizeSpec`, so faceting must too.
+  const mergedDatasets = React.useMemo<Record<string, readonly DatasetRow[]>>(
+    () => ({
+      ...(spec.datasets as Record<string, readonly DatasetRow[]> | undefined),
+      ...datasets,
+    }),
+    [spec, datasets],
+  );
+
+  // Aggregate gaps reported by every sub-chart cell (plus facet-level gaps) and
+  // flush them to `onGaps` ONCE, rather than once per cell. Child effects run
+  // before this component's effect, so by flush time the ref is populated; a
+  // version counter re-flushes if a cell reports late (e.g. async data).
+  const cellGapsRef = React.useRef<Map<string, TranslationGap>>(new Map());
+  const facetReportedRef = React.useRef<string | null>(null);
+  const [gapVersion, setGapVersion] = React.useState(0);
+  // Reset the collector whenever the plan identity changes (new spec/data) —
+  // the "store info from previous render" pattern, run during render.
+  const prevPlanRef = React.useRef<typeof plan>(plan);
+  if (prevPlanRef.current !== plan) {
+    prevPlanRef.current = plan;
+    cellGapsRef.current = new Map();
+    facetReportedRef.current = null;
+  }
+
+  const handleCellGaps = React.useCallback((gaps: TranslationGap[]) => {
+    let changed = false;
+    for (const gap of gaps) {
+      const key = `${gap.code}|${gap.path ?? ''}`;
+      if (!cellGapsRef.current.has(key)) {
+        cellGapsRef.current.set(key, gap);
+        changed = true;
+      }
+    }
+    if (changed) {
+      setGapVersion((value) => value + 1);
+    }
+  }, []);
+
+  const planGaps = plan?.gaps;
+  React.useEffect(() => {
+    if (plan == null) {
+      return;
+    }
+    const collected = new Map<string, TranslationGap>();
+    const push = (gap: TranslationGap) => collected.set(`${gap.code}|${gap.path ?? ''}`, gap);
+    if (overDepth) {
+      push({
+        code: 'composition:facet-depth',
+        message:
+          `View compositions nested deeper than ${MAX_FACET_DEPTH} levels are not expanded ` +
+          '(guard against pathological specs); this sub-view was not rendered.',
+        severity: 'unsupported',
+        path: 'facet',
+      });
+    } else {
+      planGaps?.forEach(push);
+      cellGapsRef.current.forEach(push);
+    }
+    const list = [...collected.values()];
+    const signature = list
+      .map((gap) => `${gap.code}|${gap.path ?? ''}`)
+      .sort()
+      .join(';');
+    if (facetReportedRef.current === signature) {
+      return;
+    }
+    facetReportedRef.current = signature;
+    onGaps?.(list);
+    if (process.env.NODE_ENV !== 'production' && list.length > 0 && !onGaps) {
+      console.warn(
+        `MUI X Charts Vega: ${list.length} spec feature(s) could not be fully translated:\n${list
+          .map((gap) => `- [${gap.severity}] ${gap.code}: ${gap.message}`)
+          .join('\n')}`,
+      );
+    }
+  }, [plan, planGaps, gapVersion, overDepth, onGaps]);
+
+  if (overDepth) {
+    return null;
+  }
+
+  if (plan != null) {
+    return (
+      <FacetDepthContext.Provider value={depth + 1}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${plan.columns}, minmax(0, 1fr))`,
+            gap: 8,
+            width: gridSize.width,
+          }}
+        >
+          {plan.cells.map((cell) => (
+            <div key={cell.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              {cell.header != null && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    padding: '2px 0',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {cell.header}
+                </div>
+              )}
+              <VegaLiteChart
+                spec={cell.spec}
+                datasets={mergedDatasets}
+                width={cell.width}
+                height={cell.height}
+                colors={colors}
+                onGaps={handleCellGaps}
+              />
+            </div>
+          ))}
+        </div>
+      </FacetDepthContext.Provider>
+    );
+  }
+
+  return (
+    <SingleViewChart
+      spec={spec}
+      data={data}
+      datasets={datasets}
+      width={width}
+      height={height}
+      colors={colors}
+      onGaps={onGaps}
+    >
+      {children}
+    </SingleViewChart>
+  );
+}
+
+/**
+ * Renders a single (non-composite) Vega-Lite view: compiles the spec and draws
+ * the resulting x-charts components. Split out from `VegaLiteChart` so the
+ * facet path never runs `compileSpec` (which would otherwise report the
+ * composition as an unsupported gap).
+ */
+function SingleViewChart(props: VegaLiteChartProps) {
   const { spec, data, datasets, width, height, colors, onGaps, children } = props;
 
   const compiled = React.useMemo(

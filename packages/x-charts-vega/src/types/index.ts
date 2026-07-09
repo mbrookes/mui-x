@@ -392,8 +392,22 @@ export interface VegaLayerSpec {
 }
 
 /**
+ * Facet-operator mapping (`facet: {field} | {row, column}`). Faceting by a
+ * single field wraps into a grid (`columns`); `row`/`column` build a matrix.
+ */
+export interface VegaFacetMapping {
+  field?: string;
+  type?: VegaFieldType;
+  row?: VegaFieldDef;
+  column?: VegaFieldDef;
+  [key: string]: unknown;
+}
+
+/**
  * The accepted top-level spec. Facet/concat/repeat compositions are typed
- * loosely — they are detected at normalization time and reported as gaps.
+ * loosely — they are detected before compilation and expanded by
+ * `<VegaLiteChart />` into a grid of sub-charts (or, for `repeat`, reported as
+ * a gap).
  */
 export type VegaLiteSpec = (VegaUnitSpec | VegaLayerSpec) & {
   $schema?: string;
@@ -402,10 +416,12 @@ export type VegaLiteSpec = (VegaUnitSpec | VegaLayerSpec) & {
   background?: string;
   padding?: unknown;
   autosize?: unknown;
-  hconcat?: unknown[];
-  vconcat?: unknown[];
-  concat?: unknown[];
+  /** Wrapping-grid column count for `concat` / single-field `facet`. */
+  columns?: number;
+  hconcat?: VegaLiteSpec[];
+  vconcat?: VegaLiteSpec[];
+  concat?: VegaLiteSpec[];
   repeat?: unknown;
-  facet?: unknown;
-  spec?: unknown;
+  facet?: VegaFacetMapping;
+  spec?: VegaLiteSpec;
 };

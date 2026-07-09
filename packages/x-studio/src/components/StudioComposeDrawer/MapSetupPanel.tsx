@@ -114,7 +114,11 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       });
     });
     expressionFields.forEach((ef) => {
-      if (ef.hidden) {
+      // Only genuinely numeric expression fields belong in the value-field list — mirroring
+      // `allStringFields`'s `ef.type !== 'string'` check. Offering a non-numeric expression
+      // field routed into the map renderer's numeric coercion, which skips every row and
+      // silently rendered a blank map (finding 2.1).
+      if (ef.hidden || ef.type !== 'number') {
         return;
       }
       const ds = dataSources[ef.sourceId];
@@ -205,10 +209,22 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         valueSourceId={config.mapValueSourceId}
         fields={numericFields}
         onChange={(fieldId, sourceId) =>
-          update({
-            mapValueField: fieldId || undefined,
-            mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
-          })
+          update(
+            fieldId
+              ? {
+                  mapValueField: fieldId,
+                  mapValueSourceId: sourceId !== widget?.sourceId ? sourceId : undefined,
+                }
+              : // Clearing the value field falls back to a synthetic per-row count. Reset the
+                // aggregation to 'count' (mirroring KpiSetupPanel) so the renderer stops
+                // applying a stale avg/min/max to per-row 1s — which showed a constant 1 for
+                // every region while the panel's locked label claimed "Count" (finding 2.1).
+                {
+                  mapValueField: undefined,
+                  mapValueSourceId: undefined,
+                  mapAggregation: 'count',
+                },
+          )
         }
       />
 

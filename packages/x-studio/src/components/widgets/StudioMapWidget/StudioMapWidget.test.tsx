@@ -469,3 +469,79 @@ describe('<StudioMapWidget /> legend aria-label localization', () => {
     );
   });
 });
+
+// Regression coverage for finding 1.4: the map used to hand-roll
+// `parseFloat(String(rawValue ?? 0))`, which coerced null/undefined to 0 (inflating avg
+// denominators / dragging min) and dropped booleans via `parseFloat("true") → NaN`. It now
+// routes cells through the shared `coerceAggregateValue` policy (null/non-numeric skipped,
+// booleans → 0/1), matching the KPI widget. We read the aggregated extent off the legend's
+// aria-label (`… color scale from <min> to <max>`), which is derived from min/max value.
+describe('<StudioMapWidget /> shared aggregation policy', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    continuousColorLegendSpy.mockClear();
+    controller.clearCrossFilter.mockClear();
+    controller.applyCrossFilter.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+  });
+
+  function latestLegendAriaLabel() {
+    const props = continuousColorLegendSpy.mock.calls.at(-1)?.[0] as {
+      'aria-label'?: string;
+    };
+    return props?.['aria-label'];
+  }
+
+  async function renderWithConfig(configOverride: Record<string, unknown>) {
+    const widget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, ...configOverride },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+    await renderMap(widget);
+  }
+
+  it('skips null cells for avg instead of coercing them to 0', async () => {
+    // US: [10, null, 20] → avg 15 (not (10+0+20)/3 = 10); France: [30] → avg 30.
+    rows = [
+      { country: 'United States', sales: 10 },
+      { country: 'United States', sales: null },
+      { country: 'United States', sales: 20 },
+      { country: 'France', sales: 30 },
+    ];
+    await renderWithConfig({ mapAggregation: 'avg' });
+    // Legend extent spans the aggregated region values: min 15 (US), max 30 (France).
+    expect(latestLegendAriaLabel()).toContain('from 15 to 30');
+  });
+
+  it('coerces booleans to 0/1 instead of dropping them via parseFloat("true") → NaN', async () => {
+    // A single region with boolean values true/false → avg 0.5. The old parseFloat path
+    // dropped both (NaN), leaving the region empty and rendering the no-data overlay.
+    rows = [
+      { country: 'United States', sales: true },
+      { country: 'United States', sales: false },
+    ];
+    await renderWithConfig({ mapAggregation: 'avg' });
+    // Single region → degenerate [0, max] scale, so the extent is "from 0 to 0.5".
+    expect(latestLegendAriaLabel()).toContain('to 0.5');
+  });
+});

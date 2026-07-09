@@ -76,7 +76,7 @@ function toEnrichedMutationError(
   return error;
 }
 
-function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown): boolean {
+export function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown): boolean {
   const { operator, value } = rule;
   if (operator === 'is_empty') {
     return cellValue === null || cellValue === undefined || cellValue === '';
@@ -95,13 +95,28 @@ function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown
       // eslint-disable-next-line eqeqeq
       return cellValue != value;
     case 'greater_than':
-      return Number(cellValue) > Number(value);
     case 'less_than':
-      return Number(cellValue) < Number(value);
     case 'greater_than_or_equal':
-      return Number(cellValue) >= Number(value);
-    case 'less_than_or_equal':
-      return Number(cellValue) <= Number(value);
+    case 'less_than_or_equal': {
+      // A numeric comparison must never match an empty cell: `Number(null)`/`Number('')`
+      // coerce to 0, so a `less_than 5` rule would spuriously highlight genuinely empty
+      // cells as if they held 0 (finding 3.5). Empty cells are matched only by `is_empty`.
+      if (cellValue === null || cellValue === undefined || cellValue === '') {
+        return false;
+      }
+      const cell = Number(cellValue);
+      const bound = Number(value);
+      if (operator === 'greater_than') {
+        return cell > bound;
+      }
+      if (operator === 'less_than') {
+        return cell < bound;
+      }
+      if (operator === 'greater_than_or_equal') {
+        return cell >= bound;
+      }
+      return cell <= bound;
+    }
     case 'contains':
       return String(cellValue ?? '')
         .toLowerCase()
@@ -262,8 +277,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const rows = React.useMemo(() => {
     return baseRows.map((row, index) => ({
-      id: row.id ?? `${widget.id}-${index}`,
       ...row,
+      // Spread `row` FIRST, then set `id`, so the synthetic-id fallback always wins when the
+      // row carries an `id` property that is null/undefined (a nullable database id column).
+      // With the fallback placed before `...row`, `...row` overwrote the computed id back to
+      // nullish and every such row collided on the same DataGrid id (finding 1.9).
+      id: row.id ?? `${widget.id}-${index}`,
       // Stashed during this same pass (while `row` still has its original identity) so
       // `getRowClassName` below never needs to re-derive matching from `row.id`.
       __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,

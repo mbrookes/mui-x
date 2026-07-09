@@ -233,6 +233,91 @@ describe('createWidgetFromDescription: server config validation', () => {
   });
 });
 
+// ── privateMode: no row values / descriptions leak (regression: 1.1) ─────────
+
+describe('createWidgetFromDescription: privateMode', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeControllerWithSensitiveData(): StudioController {
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            aiDescription: 'Internal Q3 sales figures',
+            fieldDistinctValues: { region: ['EMEA', 'APAC', 'Americas'] },
+            fields: [
+              { id: 'region', label: 'Region', type: 'string', aiDescription: 'Sales region' },
+              { id: 'revenue', label: 'Revenue', type: 'number' },
+            ],
+          },
+        },
+      },
+    });
+    return {
+      getState: () => state,
+      addWidget: vi.fn(),
+    } as unknown as StudioController;
+  }
+
+  function getRequestBody(fetchMock: ReturnType<typeof vi.fn>): {
+    privateMode: boolean;
+    sources: {
+      id: string;
+      aiDescription?: string;
+      fields: { id: string; label: string; cardinality?: string; aiDescription?: string }[];
+    }[];
+  } {
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    return JSON.parse(String(options.body));
+  }
+
+  it('sends distinct row values (cardinality) and aiDescription when privateMode is off', async () => {
+    const fetchMock = mockCreateWidgetResponse('chart');
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = makeControllerWithSensitiveData();
+
+    await createWidgetFromDescription('a chart', AI_CONFIG, controller);
+
+    const body = getRequestBody(fetchMock);
+    expect(body.privateMode).toBe(false);
+    const src = body.sources[0];
+    expect(src.aiDescription).toBe('Internal Q3 sales figures');
+    const region = src.fields.find((f) => f.id === 'region')!;
+    // Real distinct row values are serialized in the cardinality string.
+    expect(region.cardinality).toBe('3: EMEA|APAC|Americas');
+    expect(region.aiDescription).toBe('Sales region');
+  });
+
+  it('omits row values, cardinality, and aiDescription when privateMode is on', async () => {
+    const fetchMock = mockCreateWidgetResponse('chart');
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = makeControllerWithSensitiveData();
+
+    await createWidgetFromDescription('a chart', { ...AI_CONFIG, privateMode: true }, controller);
+
+    const rawBody = String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body);
+    const body = getRequestBody(fetchMock);
+    // privateMode is forwarded so the server can also enforce it.
+    expect(body.privateMode).toBe(true);
+    const src = body.sources[0];
+    // Field schema (id/label) is still sent so the server can build a valid widget…
+    const region = src.fields.find((f) => f.id === 'region')!;
+    expect(region.id).toBe('region');
+    expect(region.label).toBe('Region');
+    // …but no real row values or author-written descriptions leak.
+    expect(src).not.toHaveProperty('aiDescription');
+    expect(region).not.toHaveProperty('cardinality');
+    expect(region).not.toHaveProperty('aiDescription');
+    // Belt-and-braces: no actual distinct value appears anywhere in the payload.
+    expect(rawBody).not.toContain('EMEA');
+    expect(rawBody).not.toContain('Internal Q3 sales figures');
+  });
+});
+
 // ── Each built-in chart / widget kind ────────────────────────────────────────
 
 const WIDGET_KINDS = [

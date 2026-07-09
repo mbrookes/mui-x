@@ -34,7 +34,7 @@ export function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) 
     setStatus('loading');
     setErrorMsg('');
 
-    const result = await createWidgetFromDescription(trimmed, aiConfig, controller);
+    const result = await createWidgetFromDescription(trimmed, aiConfig, controller, localeText);
 
     if (result.success) {
       setPrompt('');

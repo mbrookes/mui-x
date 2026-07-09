@@ -104,6 +104,11 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   aiCreateWidgetButton: 'Crear',
   aiCreateWidgetLoading: 'Creando…',
   aiCreateWidgetError: 'No se pudo crear el widget',
+  aiCreateWidgetNetworkError: 'Error de red. Comprueba tu conexión e inténtalo de nuevo.',
+  aiCreateWidgetRequestFailed: (status, detail) =>
+    `La solicitud de IA falló (${status})${detail ? `: ${detail}` : ''}.`,
+  aiCreateWidgetInvalidResponse: 'Respuesta no válida de la IA.',
+  aiTextWidgetGenerationError: 'No se pudo generar el contenido',
 
   // Widget type names
   widgetKindGrid: 'Tabla',

@@ -485,4 +485,116 @@ describe('useTextWidgetAI', () => {
       expect(body).toEqual({ id: 'call-2', approved: false });
     });
   });
+
+  // ─── privateMode: no row values / dashboard state leak (regression: 1.1) ────
+  //
+  // With `aiConfig.privateMode` on, this headless widget must not POST the full
+  // serialized `dashboardState` (widget configs, field names, layout) nor the
+  // `pageSnapshot` (sampled sibling-widget row values) to `/chat`, and must
+  // forward `privateMode` so the server can also refuse to comply — mirroring
+  // `studioBackendAdapter.ts`'s schema-only stance.
+  describe('privateMode', () => {
+    function setupWithAiConfig(
+      initialState: CreateDefaultStudioStateOverrides,
+      aiConfig: { endpoint: string; privateMode?: boolean },
+    ) {
+      const { wrapper: StudioWrapper } = createStudioHarness({ initialState });
+      const uiConfigValue = {
+        tableSourceMode: 'explicit' as const,
+        featureFlags: {},
+        localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+        aiConfig,
+      };
+      function wrapper(props: { children?: React.ReactNode }) {
+        return (
+          <StudioWrapper>
+            <StudioUIConfigContext.Provider value={uiConfigValue}>
+              {props.children}
+            </StudioUIConfigContext.Provider>
+          </StudioWrapper>
+        );
+      }
+      return wrapper;
+    }
+
+    const pageWithSiblingGrid: CreateDefaultStudioStateOverrides = {
+      doc: {
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] },
+        },
+        widgets: {
+          'grid-1': makeGridWidget('Sales grid'),
+        },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Src1',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [{ amount: 12345 }],
+          },
+        },
+      },
+    };
+
+    it('sends dashboardState and pageSnapshot when privateMode is off', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse(makeSseBody([{ type: 'text-delta', delta: 'Hi' }, { type: 'finish' }])),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const wrapper = setupWithAiConfig(pageWithSiblingGrid, {
+        endpoint: 'https://fake.test/api/ai',
+      });
+
+      renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), { wrapper });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+      const body = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as {
+        privateMode: boolean;
+        dashboardState?: unknown;
+        pageSnapshot?: string;
+      };
+      expect(body.privateMode).toBe(false);
+      expect(body.dashboardState).toBeDefined();
+      expect(body.pageSnapshot).toBeDefined();
+      // The sibling grid's real row value is present in the leak path.
+      expect(String(fetchMock.mock.calls[0][1].body)).toContain('12345');
+    });
+
+    it('omits dashboardState and pageSnapshot and forwards privateMode when on', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse(makeSseBody([{ type: 'text-delta', delta: 'Hi' }, { type: 'finish' }])),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const wrapper = setupWithAiConfig(pageWithSiblingGrid, {
+        endpoint: 'https://fake.test/api/ai',
+        privateMode: true,
+      });
+
+      renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), { wrapper });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+      const rawBody = String(fetchMock.mock.calls[0][1].body);
+      const body = JSON.parse(rawBody) as {
+        privateMode: boolean;
+        dashboardState?: unknown;
+        pageSnapshot?: string;
+      };
+      expect(body.privateMode).toBe(true);
+      expect(body.dashboardState).toBeUndefined();
+      expect(body.pageSnapshot).toBeUndefined();
+      // No sibling row value nor field name leaks into the payload.
+      expect(rawBody).not.toContain('12345');
+      expect(rawBody).not.toContain('Sales grid');
+    });
+  });
 });

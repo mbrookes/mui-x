@@ -364,7 +364,9 @@ export const STUDIO_AI_TOOLS = [
         'Returns a data snapshot of every widget on a dashboard page — ' +
         'a sampled CSV excerpt and numeric stats (min/max/avg) per widget. ' +
         'Call this when the user asks you to summarise, analyse, or describe a page. ' +
-        'Pass pageId to summarise a non-active page without switching to it. ' +
+        'Defaults to the active page. A pageId for a non-active page is honored only ' +
+        'where live data is available server-side; otherwise call set_active_page first ' +
+        '(the tool error will tell you when this is required). ' +
         'After receiving the result, write an executive summary of the key insights. ' +
         'IMPORTANT FORMATTING RULES: ' +
         '(1) Begin immediately with the content — no preamble like "Here is a summary", "I will now...", "Based on the data...", etc. ' +
@@ -379,6 +381,8 @@ export const STUDIO_AI_TOOLS = [
             type: 'string',
             description:
               'ID of the page to summarise. Defaults to the active page when omitted. ' +
+              'A non-active pageId is only honored where live data is available server-side; ' +
+              'otherwise summarise the active page or call set_active_page first. ' +
               'Use list_pages to find page IDs.',
           },
         },
@@ -395,7 +399,7 @@ export const STUDIO_AI_TOOLS = [
         'Use this instead of multiple individual tool calls whenever a prompt requires 3 or more related changes — ' +
         'for example: redesigning a page, changing all charts of a type, or restructuring the layout with config tweaks. ' +
         'All supplied operations are committed together as one undo step. ' +
-        'Removals do not require confirmation when part of a bulk update. ' +
+        'This action requires user confirmation before executing. ' +
         'Omit any key you do not need to change.',
       parameters: {
         type: 'object',

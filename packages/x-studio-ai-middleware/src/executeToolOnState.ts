@@ -750,9 +750,30 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      const rowWidgetIds = activePage.widgetRows?.find((row) => row.includes(widgetId)) ?? [
-        widgetId,
-      ];
+      // Active-page membership check: the `setWidgetColSpan` reducer silently no-ops for a
+      // widget that lives on ANOTHER page (its orphan-span guard — writing the span there
+      // would land it on the wrong page). Without this check the tool would read back
+      // `null` and report `{ success: true, columns: null }` for a request that changed
+      // nothing, telling the model a width took effect that never did. A widget on NO page
+      // yet is the documented not-yet-placed case and stays permissive (the reducer applies
+      // it via the `[widgetId]` fallback below).
+      const currentRow = activePage.widgetRows?.find((row) => row.includes(widgetId));
+      if (currentRow === undefined) {
+        const onAnotherPage = Object.values(state.doc.pages).some((page) =>
+          (page.widgetRows ?? []).some((row) => row.includes(widgetId)),
+        );
+        if (onAnotherPage) {
+          return {
+            output: JSON.stringify({
+              error:
+                `Widget ${widgetId} is not on the active page, so its width cannot be set here. ` +
+                'Call set_active_page for the page that contains it first.',
+            }),
+            nextState: state,
+          };
+        }
+      }
+      const rowWidgetIds = currentRow ?? [widgetId];
       const mutation: StateMutation = {
         type: 'setWidgetColSpan',
         args: { widgetId, columns, rowWidgetIds, pageId: activePageId },
@@ -1166,10 +1187,32 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           const mappedRows = (rawLayout as string[][])
             .map((row) => row.map((ref) => addedTitleToId[ref] ?? ref))
             .filter((row) => row.length > 0);
+          // Reject DUPLICATE ids with the SAME rigor as `set_widget_layout`: an id
+          // appearing in more than one cell would place one widget twice. The reducer's
+          // `dedupeLayoutRows` silently keeps the first occurrence, so committing a layout
+          // with duplicates would diverge from what `applied.layout: true` reports. Skip
+          // with an actionable message instead so the model can resend a clean layout.
+          const seenLayoutIds = new Set<string>();
+          const duplicateLayoutIds = [
+            ...new Set(
+              mappedRows.flat().filter((id) => {
+                if (seenLayoutIds.has(id)) {
+                  return true;
+                }
+                seenLayoutIds.add(id);
+                return false;
+              }),
+            ),
+          ];
           const unknownLayoutIds = [...new Set(mappedRows.flat())].filter(
             (id) => !liveWidgetIds.has(id),
           );
-          if (unknownLayoutIds.length > 0) {
+          if (duplicateLayoutIds.length > 0) {
+            skipped.push(
+              `layout: duplicate widget IDs: ${duplicateLayoutIds.join(', ')}. ` +
+                'Each widget must appear exactly once across all rows.',
+            );
+          } else if (unknownLayoutIds.length > 0) {
             skipped.push(
               `layout: unknown or removed widget IDs: ${unknownLayoutIds.join(', ')}. ` +
                 'Reference only widgets that exist after this update (added-widget titles ' +
@@ -1195,6 +1238,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // A `skipped` entry matches every other rejected op in this handler (removals,
       // additions, updates, layout) and gives the model an actionable signal to retry
       // with a value in range.
+      //
+      // MEMBERSHIP is also enforced (not just range): the reducer writes col-spans to the
+      // ACTIVE page only and `enforceLayoutColSpans` prunes any span whose widget isn't in
+      // the active page's post-batch rows. So a span keyed to a phantom widget, a widget
+      // living on ANOTHER page, or one removed earlier in THIS batch is silently discarded
+      // on apply — counting it in `applied.colSpans` would overstate what actually landed.
+      // `activePageWidgetIdsAfterBatch` is the authoritative membership set: `widgetRows`
+      // here already reflects this batch's removals, additions, and (if provided) layout.
+      const activePageWidgetIdsAfterBatch = new Set(widgetRows.flat());
       const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
       for (const [ref, span] of Object.entries(colSpanPatch)) {
         // Resolve added-widget TITLE refs to their minted ids, mirroring the `layout` op
@@ -1202,6 +1254,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         // title (its id is server-minted), so keying `colSpans` strictly by id would
         // silently drop a same-batch add-then-resize.
         const wid = addedTitleToId[ref] ?? ref;
+        if (!liveWidgetIds.has(wid)) {
+          skipped.push(`colSpan ${ref}: widget not found.`);
+          continue;
+        }
+        if (!activePageWidgetIdsAfterBatch.has(wid)) {
+          skipped.push(`colSpan ${ref}: not on the active page.`);
+          continue;
+        }
         if (typeof span === 'number' && span >= 6 && span <= 24) {
           colSpans[wid] = span;
           applied.colSpans += 1;

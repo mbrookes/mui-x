@@ -33,35 +33,71 @@ import { useStudioLocaleText } from '../../context';
 
 // ─── Operator options ────────────────────────────────────────────────────────
 
-const OPERATOR_OPTIONS: Array<{ value: StudioExpressionOperator; label: string; group: string }> = [
-  // Arithmetic
-  { value: 'add', label: 'Add (+)', group: 'Arithmetic' },
-  { value: 'subtract', label: 'Subtract (−)', group: 'Arithmetic' },
-  { value: 'multiply', label: 'Multiply (×)', group: 'Arithmetic' },
-  { value: 'divide', label: 'Divide (÷)', group: 'Arithmetic' },
-  { value: 'modulo', label: 'Modulo (%)', group: 'Arithmetic' },
-  { value: 'negate', label: 'Negate (−x)', group: 'Arithmetic' },
-  // Comparison
-  { value: 'equals', label: 'Equals (=)', group: 'Comparison' },
-  { value: 'notEqual', label: 'Not Equal (≠)', group: 'Comparison' },
-  { value: 'lessThan', label: 'Less Than (<)', group: 'Comparison' },
-  { value: 'greaterThan', label: 'Greater Than (>)', group: 'Comparison' },
-  { value: 'lessThanOrEqual', label: 'Less Than or Equal (≤)', group: 'Comparison' },
-  { value: 'greaterThanOrEqual', label: 'Greater Than or Equal (≥)', group: 'Comparison' },
-  // Logical
-  { value: 'and', label: 'And', group: 'Logical' },
-  { value: 'or', label: 'Or', group: 'Logical' },
-  { value: 'not', label: 'Not', group: 'Logical' },
-  { value: 'isTrue', label: 'Is True', group: 'Logical' },
-  { value: 'isFalse', label: 'Is False', group: 'Logical' },
-  { value: 'isNull', label: 'Is Null', group: 'Logical' },
-  { value: 'isNotNull', label: 'Is Not Null', group: 'Logical' },
-  // Conditional
-  { value: 'if', label: 'If / Then / Else', group: 'Conditional' },
-  { value: 'in', label: 'In (value is one of)', group: 'Conditional' },
-  // Date
-  { value: 'datediff', label: 'Date Difference', group: 'Date' },
-];
+function getOperatorOptions(
+  localeText: ReturnType<typeof useStudioLocaleText>,
+): Array<{ value: StudioExpressionOperator; label: string; group: string }> {
+  return [
+    // Arithmetic
+    { value: 'add', label: localeText.exprOpAdd, group: localeText.exprGroupArithmetic },
+    {
+      value: 'subtract',
+      label: localeText.exprOpSubtract,
+      group: localeText.exprGroupArithmetic,
+    },
+    {
+      value: 'multiply',
+      label: localeText.exprOpMultiply,
+      group: localeText.exprGroupArithmetic,
+    },
+    { value: 'divide', label: localeText.exprOpDivide, group: localeText.exprGroupArithmetic },
+    { value: 'modulo', label: localeText.exprOpModulo, group: localeText.exprGroupArithmetic },
+    { value: 'negate', label: localeText.exprOpNegate, group: localeText.exprGroupArithmetic },
+    // Comparison
+    { value: 'equals', label: localeText.exprOpEquals, group: localeText.exprGroupComparison },
+    {
+      value: 'notEqual',
+      label: localeText.exprOpNotEqual,
+      group: localeText.exprGroupComparison,
+    },
+    {
+      value: 'lessThan',
+      label: localeText.exprOpLessThan,
+      group: localeText.exprGroupComparison,
+    },
+    {
+      value: 'greaterThan',
+      label: localeText.exprOpGreaterThan,
+      group: localeText.exprGroupComparison,
+    },
+    {
+      value: 'lessThanOrEqual',
+      label: localeText.exprOpLessThanOrEqual,
+      group: localeText.exprGroupComparison,
+    },
+    {
+      value: 'greaterThanOrEqual',
+      label: localeText.exprOpGreaterThanOrEqual,
+      group: localeText.exprGroupComparison,
+    },
+    // Logical
+    { value: 'and', label: localeText.exprOpAnd, group: localeText.exprGroupLogical },
+    { value: 'or', label: localeText.exprOpOr, group: localeText.exprGroupLogical },
+    { value: 'not', label: localeText.exprOpNot, group: localeText.exprGroupLogical },
+    { value: 'isTrue', label: localeText.exprOpIsTrue, group: localeText.exprGroupLogical },
+    { value: 'isFalse', label: localeText.exprOpIsFalse, group: localeText.exprGroupLogical },
+    { value: 'isNull', label: localeText.exprOpIsNull, group: localeText.exprGroupLogical },
+    {
+      value: 'isNotNull',
+      label: localeText.exprOpIsNotNull,
+      group: localeText.exprGroupLogical,
+    },
+    // Conditional
+    { value: 'if', label: localeText.exprOpIf, group: localeText.exprGroupConditional },
+    { value: 'in', label: localeText.exprOpIn, group: localeText.exprGroupConditional },
+    // Date
+    { value: 'datediff', label: localeText.exprOpDatediff, group: localeText.exprGroupDate },
+  ];
+}
 
 const MIN_INPUTS: Partial<Record<StudioExpressionOperator, number>> = {
   add: 2,
@@ -107,13 +143,17 @@ const MAX_INPUTS: Partial<Record<StudioExpressionOperator, number>> = {
   datediff: 3,
 };
 
-const AGGREGATION_OPTIONS: Array<{ value: StudioKpiAggregation; label: string }> = [
-  { value: 'sum', label: 'Sum' },
-  { value: 'avg', label: 'Average' },
-  { value: 'min', label: 'Min' },
-  { value: 'max', label: 'Max' },
-  { value: 'count', label: 'Count' },
-];
+function getAggregationOptions(
+  localeText: ReturnType<typeof useStudioLocaleText>,
+): Array<{ value: StudioKpiAggregation; label: string }> {
+  return [
+    { value: 'sum', label: localeText.aggFnSum },
+    { value: 'avg', label: localeText.aggFnAverage },
+    { value: 'min', label: localeText.aggFnMin },
+    { value: 'max', label: localeText.aggFnMax },
+    { value: 'count', label: localeText.aggFnCount },
+  ];
+}
 
 // ─── Input node editor ────────────────────────────────────────────────────────
 
@@ -267,7 +307,7 @@ function InputNode({
               aria-label={localeText.exprAggregationAriaLabel}
               sx={{ minWidth: 80, fontSize: '0.75rem' }}
             >
-              {AGGREGATION_OPTIONS.map((opt) => (
+              {getAggregationOptions(localeText).map((opt) => (
                 <MenuItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </MenuItem>
@@ -415,7 +455,7 @@ export function ExpressionBuilder({
           value={operator}
           onChange={(event) => handleOperatorChange(event.target.value as StudioExpressionOperator)}
         >
-          {OPERATOR_OPTIONS.map((opt) => (
+          {getOperatorOptions(localeText).map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
               <Stack direction="row" sx={{ justifyContent: 'space-between', width: '100%' }}>
                 <span>{opt.label}</span>
@@ -431,11 +471,16 @@ export function ExpressionBuilder({
       {inputs.map((inp, i) => {
         let inputLabel: string;
         if (operator === 'datediff' && i === 0) {
-          inputLabel = 'Unit (e.g. "day", "month", "year")';
+          inputLabel = localeText.exprInputLabelUnit;
         } else if (operator === 'if') {
-          inputLabel = ['Condition', 'Then', 'Else'][i] ?? `Input ${i + 1}`;
+          inputLabel =
+            [
+              localeText.exprInputLabelCondition,
+              localeText.exprInputLabelThen,
+              localeText.exprInputLabelElse,
+            ][i] ?? localeText.exprInputLabelGeneric(i + 1);
         } else {
-          inputLabel = `Input ${i + 1}`;
+          inputLabel = localeText.exprInputLabelGeneric(i + 1);
         }
 
         return (
@@ -464,7 +509,7 @@ export function ExpressionBuilder({
 
       {canAddInput && (
         <Button size="small" startIcon={<AddIcon />} onClick={handleAddInput} sx={{ mt: 0.5 }}>
-          Add input
+          {localeText.exprAddInputButton}
         </Button>
       )}
     </div>

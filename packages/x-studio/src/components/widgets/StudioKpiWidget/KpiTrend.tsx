@@ -132,7 +132,7 @@ export function KpiTrend(props: KpiTrendProps) {
             </Box>
           </Box>
           <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-            vs. {periodShort}
+            {localeText.kpiTrendVsLabel(periodShort)}
           </Typography>
         </Stack>
       </Tooltip>

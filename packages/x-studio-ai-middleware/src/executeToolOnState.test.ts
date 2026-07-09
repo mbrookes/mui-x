@@ -786,6 +786,48 @@ describe('executeToolOnState: set_widget_width', () => {
     // The output matches what the reducer actually wrote.
     expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-1']).toBe(24);
   });
+
+  // Regression for T2-5: a widget that exists globally but lives on a NON-active page is
+  // a reducer no-op (its orphan-span guard). The tool used to read back `null` and report
+  // `{ success: true, columns: null }` — telling the model a width took effect that never
+  // did. It must now error and point at `set_active_page`, and commit nothing.
+  it('errors (does not report success) for a widget on a non-active page', () => {
+    const state = makeMultiPageState(); // page-1 active, widget-2 on page-2
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-2', columns: 12 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/not on the active page/i);
+    expect(out.error).toMatch(/set_active_page/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  // A widget that exists but is not yet placed on ANY page is the documented
+  // not-yet-placed case and stays permissive — it must still commit the width.
+  it('still applies the width for a widget that is not placed on any page yet', () => {
+    const base = makeState();
+    const unplaced: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        pages: {
+          'page-1': { ...base.doc.pages['page-1'], widgetRows: [] },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: 12 },
+      unplaced,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.columns).toBe(12);
+  });
 });
 
 // ── Filters ───────────────────────────────────────────────────────────────────
@@ -1474,6 +1516,89 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(applied.colSpans).toBe(1);
     expect(out.skipped).toBeUndefined();
     expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-1']).toBe(12);
+  });
+
+  // Regression for T2-4 sub-issue 2: duplicate layout ids. The reducer's
+  // `dedupeLayoutRows` silently keeps the first occurrence, so an `applied.layout: true`
+  // would overstate what committed. Reject with a skip, mirroring set_widget_layout.
+  it('rejects a bulk layout with duplicate widget IDs instead of silently deduping', () => {
+    const base = makeState();
+    const twoWidgetState: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        pages: {
+          'page-1': { ...base.doc.pages['page-1'], widgetRows: [['widget-1', 'widget-2']] },
+        },
+        widgets: {
+          ...base.doc.widgets,
+          'widget-2': { id: 'widget-2', kind: 'chart', title: 'W2', config: { chartType: 'bar' } },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      // widget-1 appears in two cells — a self-overlapping layout.
+      { layout: [['widget-1', 'widget-2'], ['widget-1']] },
+      twoWidgetState,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { layout: boolean };
+    expect(applied.layout).toBe(false);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/layout: duplicate widget IDs/)]),
+    );
+    // The original layout is untouched — the reducer never got a chance to dedupe.
+    expect(result.nextState.doc.pages['page-1'].widgetRows).toEqual([['widget-1', 'widget-2']]);
+  });
+
+  // Regression for T2-4 sub-issue 1: colSpans membership. The reducer prunes a span
+  // whose widget isn't on the active page's post-batch rows, so counting it in
+  // `applied.colSpans` overstates what actually landed. Three membership misses:
+  it('skips a colSpan for a nonexistent widget rather than counting it applied', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { colSpans: { 'no-such-widget': 12 } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number };
+    expect(applied.colSpans).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/colSpan no-such-widget: widget not found/)]),
+    );
+    expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['no-such-widget']).toBeUndefined();
+  });
+
+  it('skips a colSpan for a widget that lives on another page (reducer would prune it)', () => {
+    const state = makeMultiPageState(); // page-1 active, widget-2 on page-2
+    const result = executeToolOnState('apply_bulk_update', { colSpans: { 'widget-2': 12 } }, state);
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number };
+    expect(applied.colSpans).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/colSpan widget-2: not on the active page/)]),
+    );
+    // Nothing lands on either page — matching the reducer's orphan-span pruning.
+    expect(result.nextState.doc.pages['page-1'].widgetColSpans?.['widget-2']).toBeUndefined();
+    expect(result.nextState.doc.pages['page-2'].widgetColSpans?.['widget-2']).toBeUndefined();
+  });
+
+  it('skips a colSpan for a widget removed earlier in the same batch', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetRemovals: ['widget-1'], colSpans: { 'widget-1': 12 } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { colSpans: number; removed: number };
+    expect(applied.removed).toBe(1);
+    expect(applied.colSpans).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/colSpan widget-1: widget not found/)]),
+    );
   });
 });
 

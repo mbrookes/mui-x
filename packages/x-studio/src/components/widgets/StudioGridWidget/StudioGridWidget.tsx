@@ -38,6 +38,25 @@ function toGridAggFn(fn: string): string {
   return fn === 'count' ? 'size' : fn;
 }
 
+/**
+ * Column render order follows the user-configured order (`configColumns`, as
+ * authored via drag-and-drop / keyboard reorder in `GridSetupPanel`), not the
+ * data-source field order — configured fields first (in their stored order),
+ * then any remaining fields not yet added to `config.columns`. (Finding 1.2:
+ * `config.columns` used to drive only visibility, never order.)
+ */
+export function computeOrderedFieldIds(
+  configColumns: StudioWidgetConfig['columns'],
+  allFieldIds: string[],
+): string[] {
+  const configuredIds = (configColumns ?? [])
+    .map((c) => c.fieldId)
+    .filter((id) => allFieldIds.includes(id));
+  const configuredSet = new Set(configuredIds);
+  const remaining = allFieldIds.filter((id) => !configuredSet.has(id));
+  return [...configuredIds, ...remaining];
+}
+
 type EnrichedMutationError = Error & { gridRowId: string; gridField: string };
 
 /**
@@ -150,19 +169,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [dataSource?.fields, expressionFields],
   );
 
-  // Column render order follows the user-configured order (`config.columns`, as
-  // authored via drag-and-drop / keyboard reorder in `GridSetupPanel`), not the
-  // data-source field order — configured fields first (in their stored order),
-  // then any remaining fields not yet added to `config.columns`. (Finding 1.2:
-  // `config.columns` used to drive only visibility, never order.)
-  const orderedFieldIds = React.useMemo(() => {
-    const configuredIds = (widget.config.columns ?? [])
-      .map((c) => c.fieldId)
-      .filter((id) => allFieldIds.includes(id));
-    const configuredSet = new Set(configuredIds);
-    const remaining = allFieldIds.filter((id) => !configuredSet.has(id));
-    return [...configuredIds, ...remaining];
-  }, [widget.config.columns, allFieldIds]);
+  const orderedFieldIds = React.useMemo(
+    () => computeOrderedFieldIds(widget.config.columns, allFieldIds),
+    [widget.config.columns, allFieldIds],
+  );
 
   const columns = React.useMemo<GridColDef[]>(() => {
     return orderedFieldIds.map((fieldName) => {

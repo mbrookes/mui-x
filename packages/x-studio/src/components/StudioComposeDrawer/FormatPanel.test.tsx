@@ -120,6 +120,63 @@ describe('FormatPanel', () => {
     expect(screen.queryByText('Compact numbers')).toBeNull();
   });
 
+  // ─── Grid height field keystroke regression (architecture review 1.3) ──────
+  //
+  // The input used to be fully controlled and gated the state write on
+  // `parsed >= 200`, so typing "6" after select-all produced `parsed = 6 < 200`,
+  // the update was dropped, and React snapped the DOM back to the old value —
+  // every intermediate keystroke below 200 was discarded.
+  describe('grid height field', () => {
+    beforeEach(() => {
+      mockState.doc.widgets['widget-1'] = {
+        id: 'widget-1',
+        kind: 'grid',
+        sourceId: 'orders',
+        title: 'Orders table',
+        subtitle: undefined,
+        config: { gridHeight: 400 } as StudioWidgetConfig,
+      };
+    });
+
+    it('does not discard an intermediate keystroke below the 200 minimum', async () => {
+      const { user } = render(<FormatPanel widgetId="widget-1" />);
+
+      const input = screen.getByLabelText('Height (px)') as HTMLInputElement;
+      await user.clear(input);
+      await user.type(input, '6');
+
+      // The keystroke must survive in the field even though "6" is below the
+      // documented minimum — clamping only happens on commit (blur/Enter).
+      expect(input.value).toBe('6');
+      // No premature commit while the value is still below the minimum.
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    });
+
+    it('clamps to the 200px minimum on blur', async () => {
+      const { user } = render(<FormatPanel widgetId="widget-1" />);
+
+      const input = screen.getByLabelText('Height (px)') as HTMLInputElement;
+      await user.clear(input);
+      await user.type(input, '6');
+      await user.tab();
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { gridHeight: 200 });
+      expect(input.value).toBe('200');
+    });
+
+    it('commits a valid value as-is on blur', async () => {
+      const { user } = render(<FormatPanel widgetId="widget-1" />);
+
+      const input = screen.getByLabelText('Height (px)') as HTMLInputElement;
+      await user.clear(input);
+      await user.type(input, '650');
+      await user.tab();
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { gridHeight: 650 });
+      expect(input.value).toBe('650');
+    });
+  });
+
   it('shows the legend-alignment control only when the map legend is not hidden', async () => {
     mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
@@ -151,6 +208,51 @@ describe('FormatPanel', () => {
       title: 'Orders map',
       subtitle: undefined,
       config: { mapLegendPosition: 'hidden' } as StudioWidgetConfig,
+    };
+
+    render(<FormatPanel widgetId="widget-1" />);
+
+    expect(screen.queryByText('Legend alignment')).toBeNull();
+  });
+
+  // ─── Shared LegendPositionSection: map/heatmap parity (architecture review 2.6) ─
+  //
+  // The map and heatmap legend blocks used to be two independent ~60-line
+  // copy-pasted control blocks (config-key prefix `map*` vs `heat*`). They now
+  // both render through the same `LegendPositionSection` helper — these tests
+  // mirror the map-legend tests above but for the heatmap chart config, to prove
+  // the extraction behaves identically for both callers.
+  it('shows the legend-alignment control only when the heatmap legend is not hidden', async () => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'chart',
+      sourceId: 'orders',
+      title: 'Orders heatmap',
+      subtitle: undefined,
+      config: { chartType: 'heatmap', heatLegendPosition: 'bottom' } as StudioWidgetConfig,
+    };
+
+    const { user } = render(<FormatPanel widgetId="widget-1" />);
+
+    expect(screen.getAllByText('Legend alignment').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByText('Bottom'));
+    const hiddenOption = await screen.findByRole('option', { name: 'None' });
+    await user.click(hiddenOption);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      heatLegendPosition: 'hidden',
+    });
+  });
+
+  it('hides the legend-alignment control once the heatmap legend is hidden', () => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'chart',
+      sourceId: 'orders',
+      title: 'Orders heatmap',
+      subtitle: undefined,
+      config: { chartType: 'heatmap', heatLegendPosition: 'hidden' } as StudioWidgetConfig,
     };
 
     render(<FormatPanel widgetId="widget-1" />);

@@ -129,10 +129,17 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                   }}
                   onChange={(event) => {
                     const next = [...conditionalFormats];
-                    const v =
-                      fieldEntry?.type === 'number'
-                        ? Number(event.target.value)
-                        : event.target.value;
+                    let v: string | number | undefined;
+                    if (fieldEntry?.type === 'number') {
+                      // Empty or unparseable input means "no value" — never store `0`
+                      // (a silent semantic change from "no value" to "compare to zero")
+                      // or `NaN` (which would render literally via `String(rule.value)`).
+                      const raw = event.target.value.trim();
+                      const parsed = raw === '' ? NaN : Number(raw);
+                      v = Number.isNaN(parsed) ? undefined : parsed;
+                    } else {
+                      v = event.target.value;
+                    }
                     next[i] = { ...rule, value: v };
                     controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                   }}

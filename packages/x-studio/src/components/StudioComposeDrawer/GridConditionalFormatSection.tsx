@@ -71,6 +71,60 @@ function ConditionalFormatValueInput(props: {
 }
 
 /**
+ * String-value conditional-format value input (architecture review finding 2.3):
+ * this branch was missed by the earlier buffer-then-commit-on-blur pass above — it
+ * called `controller.updateWidgetConfig` on every keystroke, so typing a multi-
+ * character string value pushed one undoable commit (plus a mutation-log line, plus
+ * a full pipeline recompute) PER CHARACTER, and Ctrl+Z un-typed one character at a
+ * time. Buffer the displayed text locally and only commit on blur/Enter, mirroring
+ * `ConditionalFormatValueInput` above (no numeric parsing needed here).
+ */
+function ConditionalFormatStringValueInput(props: {
+  value: unknown;
+  ariaLabel: string;
+  onCommit: (next: string) => void;
+}) {
+  const { value, ariaLabel, onCommit } = props;
+  const initialText = value !== undefined && value !== null ? String(value) : '';
+  const [text, setText] = React.useState(initialText);
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, undo/redo)
+  React.useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    onCommit(text);
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      value={text}
+      placeholder="value"
+      slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
+    />
+  );
+}
+
+/**
  * Grid (table) conditional-formatting rule editor. Lives in the widget's **Format** tab
  * (rule-based cell colouring is a presentation concern, not a data-setup one). Renders
  * nothing when the source is unresolved or the `gridConditionalFormats` feature is off.
@@ -187,21 +241,14 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                     }}
                   />
                 ) : (
-                  <TextField
-                    size="small"
-                    value={
-                      rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
-                    }
-                    placeholder="value"
-                    slotProps={{
-                      htmlInput: { 'aria-label': localeText.gridConditionValueAriaLabel },
-                    }}
-                    onChange={(event) => {
+                  <ConditionalFormatStringValueInput
+                    value={rule.value}
+                    ariaLabel={localeText.gridConditionValueAriaLabel}
+                    onCommit={(v) => {
                       const next = [...conditionalFormats];
-                      next[i] = { ...rule, value: event.target.value };
+                      next[i] = { ...rule, value: v };
                       controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                     }}
-                    sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
                   />
                 ))}
               <Select

@@ -1,4 +1,4 @@
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import {
@@ -132,7 +132,7 @@ describe('FilterSetupPanel', () => {
     expect(screen.getByLabelText('Step')).toBeVisible();
   });
 
-  it('updates the slider min value via the min input', async () => {
+  it('updates the slider min value via the min input on blur', async () => {
     mockState.doc.widgets['widget-1'].config = {
       filterWidgetType: 'slider',
       filterWidgetField: 'amount',
@@ -140,10 +140,72 @@ describe('FilterSetupPanel', () => {
 
     const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
 
-    await user.type(screen.getByLabelText('Min'), '5');
+    const input = screen.getByLabelText('Min');
+    await user.type(input, '5');
+    // Finding 2.3: buffered locally — no commit until blur/Enter.
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
 
+    fireEvent.blur(input);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
       filterWidgetMin: 5,
+    });
+  });
+
+  it('does not commit slider min/max/step while typing, only on blur (finding 2.3)', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+    };
+
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    const minInput = screen.getByLabelText('Min') as HTMLInputElement;
+    fireEvent.change(minInput, { target: { value: '1' } });
+    fireEvent.change(minInput, { target: { value: '10' } });
+    fireEvent.change(minInput, { target: { value: '100' } });
+    expect(minInput.value).toBe('100');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    fireEvent.blur(minInput);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetMin: 100,
+    });
+  });
+
+  it('commits the max value once on Enter', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+    };
+
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    const maxInput = screen.getByLabelText('Max') as HTMLInputElement;
+    fireEvent.change(maxInput, { target: { value: '200' } });
+    fireEvent.keyDown(maxInput, { key: 'Enter' });
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetMax: 200,
+    });
+  });
+
+  it('commits an empty step as undefined on blur, not NaN', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+      filterWidgetStep: 5,
+    };
+
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    const stepInput = screen.getByLabelText('Step') as HTMLInputElement;
+    fireEvent.change(stepInput, { target: { value: '' } });
+    fireEvent.blur(stepInput);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetStep: undefined,
     });
   });
 

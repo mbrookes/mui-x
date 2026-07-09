@@ -251,9 +251,13 @@ describe('KpiSetupPanel', () => {
 
       render(<KpiSetupPanel widgetId="widget-1" />);
 
-      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
-        kpiAggregation: 'count',
-      });
+      // Finding 2.4: the repair write-back must be non-undoable — it fires from
+      // merely rendering the panel, not from a user gesture.
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+        'widget-1',
+        { kpiAggregation: 'count' },
+        { undoable: false },
+      );
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.runtime.dataSources.orders = {

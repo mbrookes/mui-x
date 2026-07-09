@@ -17,6 +17,69 @@ export interface PieArcLabelsSectionProps {
   config: StudioChartConfigOfType<'pie'>;
 }
 
+/**
+ * Minimum-angle numeric input (architecture review finding 2.3): committing
+ * `Math.max(0, Number(v))` on every keystroke made each digit an undoable commit
+ * plus a mutation-log line plus a full pipeline recompute. Buffer the displayed
+ * text locally and only parse/clamp/commit on blur/Enter, mirroring
+ * `GaugeConfigSection.tsx`'s min/max inputs.
+ */
+function MinAngleInput(props: {
+  value: number;
+  label: string;
+  helperText: string;
+  onCommit: (next: number) => void;
+}) {
+  const { value, label, helperText, onCommit } = props;
+  const [text, setText] = React.useState(String(value));
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed min angle; resync on external change (undo/redo)
+  React.useEffect(() => {
+    setText(String(value));
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    if (!Number.isNaN(parsed)) {
+      const clamped = Math.max(0, parsed);
+      if (clamped !== value) {
+        onCommit(clamped);
+      }
+      setText(String(clamped));
+    } else {
+      setText(String(value));
+    }
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      label={label}
+      type="number"
+      value={text}
+      helperText={helperText}
+      onChange={(evt) => {
+        setText(evt.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(evt) => {
+        if (evt.key === 'Enter') {
+          commit();
+        }
+      }}
+      slotProps={{ htmlInput: { min: 0, max: 180 } }}
+    />
+  );
+}
+
 /** Pie / donut chart setup: arc label content (none/value/percent) and minimum-angle threshold. */
 export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionProps) {
   const controller = useStudioController();
@@ -45,18 +108,13 @@ export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionPro
         </Select>
       </FormControl>
       {(config.pieArcLabel ?? 'none') !== 'none' && (
-        <TextField
-          size="small"
-          label={localeText.chartSetupMinAngleLabel}
-          type="number"
+        <MinAngleInput
           value={config.pieArcLabelMinAngle ?? 20}
+          label={localeText.chartSetupMinAngleLabel}
           helperText={localeText.chartSetupMinAngleHelperText}
-          onChange={(evt) =>
-            controller.updateWidgetConfig(widgetId, {
-              pieArcLabelMinAngle: Math.max(0, Number(evt.target.value)),
-            })
+          onCommit={(next) =>
+            controller.updateWidgetConfig(widgetId, { pieArcLabelMinAngle: next })
           }
-          slotProps={{ htmlInput: { min: 0, max: 180 } }}
         />
       )}
     </React.Fragment>

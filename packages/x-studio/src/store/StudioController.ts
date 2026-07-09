@@ -1058,6 +1058,7 @@ export class StudioController {
   updateWidgetConfig = (
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
+    options?: { undoable?: boolean },
   ) => {
     // Write-side kind guard: strip any config key that isn't valid for THIS
     // widget's kind before committing (e.g. a Chart-only key patched onto a Grid
@@ -1134,12 +1135,19 @@ export class StudioController {
     // inference is a client-only effect the pure reducer does not own, so it is
     // layered on afterwards via `transform`. Per D1 this now uses the reducer's
     // default `updateWidget:${widgetId}` log label (was `updateWidgetConfig:...`).
+    // `options.undoable` (default `true`) is forwarded so system-initiated writes
+    // (e.g. a setup panel's render-time "repair" of an invalid stored value) can opt
+    // out of the undo timeline the same way `setDashboardDateRangeAll`/
+    // `StudioDateRangeBar`'s coverage-expansion effect already do (finding 2.4) —
+    // otherwise merely rendering the panel could push an unauthored undo entry and,
+    // if re-triggered after an undo, clear the redo stack.
     this.commitMutation(
       {
         type: 'updateWidget',
         args: { widgetId, config: effectiveConfig as StudioWidget['config'] },
       },
       {
+        undoable: options?.undoable,
         transform: (next) => {
           // Guard on the widget's actual presence (1.3) — see `updateWidget`. The
           // reducer no-ops on an unknown `widgetId`, but the post-df6c2b7 commit path

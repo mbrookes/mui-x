@@ -1,11 +1,12 @@
 import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioChartConfigOfType } from '../../../models';
+import type { StudioChartConfigOfType, StudioWidget } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
+import { StudioController } from '../../../store/StudioController';
 import { GaugeConfigSection } from './GaugeConfigSection';
 import type { DataSourceFieldEntry } from '../DataSourceFieldSelect';
 
@@ -142,5 +143,121 @@ describe('GaugeConfigSection min/max validation (finding 3.4 / 1.14)', () => {
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
     fireEvent.blur(input);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { gaugeMax: 20.5 });
+  });
+});
+
+// Finding 2.5: a cross-source value-field pick (which also ADOPTS that source) must
+// collapse to ONE undo step, mirroring the `finding 2.2` coverage on the sibling
+// setup panels (Chart/KPI/Filter). Runs against a REAL StudioController so
+// `canUndo()`/`undo()` observe the actual undo stack — previously this fired two
+// separate commits (`updateWidgetConfig` then `updateWidget`), leaving a lone
+// Ctrl+Z on a torn `{ old sourceId, new yField }` state the UI never produced.
+describe('GaugeConfigSection cross-source field pick folds to a single undo step (finding 2.5)', () => {
+  function makeController() {
+    return new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'chart',
+            title: 'Gauge',
+            config: { chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'total' },
+            sourceId: 'orders',
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'total', label: 'Total', type: 'number' }],
+            rows: [],
+          },
+          customers: {
+            id: 'customers',
+            label: 'Customers',
+            fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+  }
+
+  it('folds the cross-source field pick and its source adoption into one undoable step', async () => {
+    const realController = makeController();
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    expect(realController.canUndo()).toBe(false);
+
+    const allFields: DataSourceFieldEntry[] = [
+      { id: 'total', label: 'Total', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
+      {
+        id: 'revenue',
+        label: 'Revenue',
+        type: 'number',
+        sourceId: 'customers',
+        sourceLabel: 'Customers',
+      },
+    ];
+
+    const { user } = render(
+      <GaugeConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'total' } as never}
+        allFields={allFields}
+        widgetSourceId="orders"
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Value field'));
+    // Name includes the field-type icon's aria-label prefix (e.g. "Number Revenue").
+    const revenueOption = await screen.findByRole('option', { name: /Revenue$/ });
+    await user.click(revenueOption);
+
+    // The gesture reached the intended state: new source adopted + new field written.
+    const afterGesture = realController.getState().doc.widgets['widget-1'];
+    expect(afterGesture.sourceId).toBe('customers');
+    expect((afterGesture.config as StudioChartConfigOfType<'gauge'>).yField).toBe('revenue');
+    expect(realController.canUndo()).toBe(true);
+
+    // Exactly ONE undo entry: a single undo fully reverts to the pre-gesture state
+    // (old source AND old field together — never a torn source/field intermediate)...
+    realController.undo();
+    const reverted = realController.getState().doc.widgets['widget-1'];
+    expect(reverted.sourceId).toBe('orders');
+    expect((reverted.config as StudioChartConfigOfType<'gauge'>).yField).toBe('total');
+    // ...and there is nothing left to undo, proving the gesture pushed only one entry.
+    expect(realController.canUndo()).toBe(false);
+  });
+
+  it('does not adopt a new source for a same-source field pick (single commit, unchanged)', async () => {
+    const realController = makeController();
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    const allFields: DataSourceFieldEntry[] = [
+      { id: 'total', label: 'Total', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
+    ];
+
+    render(
+      <GaugeConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'gauge', gaugeMin: 0, gaugeMax: 100, yField: 'total' } as never}
+        allFields={allFields}
+        widgetSourceId="orders"
+      />,
+    );
+
+    // No gesture performed — sanity-checks the baseline state used above.
+    const state = realController.getState().doc.widgets['widget-1'];
+    expect(state.sourceId).toBe('orders');
+    expect(realController.canUndo()).toBe(false);
   });
 });

@@ -308,6 +308,75 @@ describe('applyFilters — date operators', () => {
     ]);
     expect(result.map((r) => r.id)).toEqual([2]);
   });
+
+  // Regression (finding 2.9): equals/not_equals used to compile to a raw `row[field] ==
+  // filterVal`, bypassing the date normalization gt/lt/between apply via toComparable.
+  // That made date `equals` unable to match Date objects, ms timestamps, or datetime
+  // strings, and `equals` against a RelativeDateValue never matched anything.
+
+  it('equals normalizes Date-object row values', () => {
+    const mixedRows = [
+      { id: 1, date: new Date('2024-01-01T00:00:00Z') },
+      { id: 2, date: new Date('2024-06-15T09:30:00Z') },
+      { id: 3, date: new Date('2024-12-31T00:00:00Z') },
+    ];
+    const result = applyFilters(mixedRows, [
+      makeFilter({ field: 'date', operator: 'equals', value: '2024-06-15', fieldType: 'date' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('equals normalizes millisecond-timestamp row values', () => {
+    const tsRows = [
+      { id: 1, date: Date.parse('2024-01-01T00:00:00Z') },
+      { id: 2, date: Date.parse('2024-06-15T12:00:00Z') },
+    ];
+    const result = applyFilters(tsRows, [
+      makeFilter({ field: 'date', operator: 'equals', value: '2024-06-15', fieldType: 'date' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('equals resolves a RelativeDateValue instead of never matching', () => {
+    const relRows = [
+      { id: 'old', date: '1990-01-01' },
+      { id: 'today', date: dayjs().format('YYYY-MM-DD') },
+    ];
+    const result = applyFilters(relRows, [
+      makeFilter({
+        field: 'date',
+        operator: 'equals',
+        value: { relative: true, amount: 0, unit: 'day', direction: 'past' },
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['today']);
+  });
+
+  it('not_equals normalizes date row values and keeps nulls', () => {
+    const mixedRows = [
+      { id: 1, date: new Date('2024-06-15T09:30:00Z') },
+      { id: 2, date: '2024-01-01' },
+      { id: 3, date: null },
+    ];
+    const result = applyFilters(mixedRows, [
+      makeFilter({ field: 'date', operator: 'not_equals', value: '2024-06-15', fieldType: 'date' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  it('datetime equals matches a timestamped value committed as YYYY-MM-DD midnight', () => {
+    // The datetime picker commits a 'YYYY-MM-DD' string; both sides normalize to the same
+    // ISO instant via toComparable, so a midnight-stored datetime row matches.
+    const dtRows = [
+      { id: 1, ts: '2024-06-15T00:00:00.000Z' },
+      { id: 2, ts: '2024-06-15T14:30:00.000Z' },
+    ];
+    const result = applyFilters(dtRows, [
+      makeFilter({ field: 'ts', operator: 'equals', value: '2024-06-15', fieldType: 'datetime' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
 });
 
 // ─── Relative date values ─────────────────────────────────────────────────────
@@ -374,6 +443,67 @@ describe('applyFilters — selection mode', () => {
       makeFilter({ field: 'status', filterMode: 'selection', operator: 'equals', value: [] }),
     ]);
     expect(result).toHaveLength(4);
+  });
+
+  // Regression: the multi-select "Exclude" toggle flips the operator to `not_in`. The
+  // selection-mode compile path must honour it and EXCLUDE the selected values. It used
+  // to ignore `operator` entirely, so Exclude was byte-identical to Include and filtered
+  // TO exactly the values the user asked to exclude (silent, dashboard-wide wrong data).
+  it('not_in (Exclude mode) keeps everything except the selected values', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'status',
+        filterMode: 'selection',
+        operator: 'not_in',
+        value: ['active'],
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3]); // inactive, pending
+  });
+
+  it('not_in (Exclude mode) excludes multiple selected values', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'status',
+        filterMode: 'selection',
+        operator: 'not_in',
+        value: ['active', 'pending'],
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]); // inactive
+  });
+
+  it('exact review repro: not_in ["Books"] over [Books, Games, Toys] returns Games, Toys', () => {
+    const catRows = [
+      { id: 1, category: 'Books' },
+      { id: 2, category: 'Games' },
+      { id: 3, category: 'Toys' },
+    ];
+    const result = applyFilters(catRows, [
+      makeFilter({
+        field: 'category',
+        filterMode: 'selection',
+        operator: 'not_in',
+        value: ['Books'],
+      }),
+    ]);
+    expect(result.map((r) => r.category)).toEqual(['Games', 'Toys']);
+  });
+
+  it('not_in and in are complementary partitions of the same selection', () => {
+    const included = applyFilters(rows, [
+      makeFilter({ field: 'status', filterMode: 'selection', operator: 'in', value: ['active'] }),
+    ]);
+    const excluded = applyFilters(rows, [
+      makeFilter({
+        field: 'status',
+        filterMode: 'selection',
+        operator: 'not_in',
+        value: ['active'],
+      }),
+    ]);
+    expect(included.map((r) => r.id)).toEqual([1, 4]);
+    expect(excluded.map((r) => r.id)).toEqual([2, 3]);
   });
 });
 

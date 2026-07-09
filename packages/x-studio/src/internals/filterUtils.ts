@@ -120,6 +120,12 @@ function compileRowTest(filter: StudioFilterState): (row: Row) => boolean {
       return () => true;
     }
     const selectedSet = new Set(selected.map((v) => String(v)));
+    // The multi-select "Exclude" toggle flips the operator to `not_in`; the compiled
+    // test must EXCLUDE the selected values. Without this branch an Exclude selection is
+    // byte-identical to Include and silently filters TO exactly the excluded values.
+    if (operator === 'not_in') {
+      return (row) => !selectedSet.has(String(row[field] ?? ''));
+    }
     return (row) => selectedSet.has(String(row[field] ?? ''));
   }
 
@@ -150,6 +156,17 @@ function compileSingleCondition(
         const fStr = String(filterVal);
         return (row) => String(row[field]) === fStr;
       }
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        // Route both sides through toComparable (same as gt/lt/between) so a
+        // RelativeDateValue is resolved and Date/ISO/timestamp forms are normalized.
+        // Raw `==` here made "On" + relative mode never match (hiding all rows) and a
+        // datetime picker's 'YYYY-MM-DD' never loose-equal a timestamped value.
+        const cmpVal = toComparable(filterVal, fieldType);
+        return (row) => {
+          const rv = row[field];
+          return rv != null && toComparable(rv, fieldType) === cmpVal;
+        };
+      }
       // eslint-disable-next-line eqeqeq
       return (row) => row[field] == filterVal;
     case 'in': {
@@ -170,6 +187,15 @@ function compileSingleCondition(
       if (fieldType === 'boolean') {
         const fStr = String(filterVal);
         return (row) => String(row[field]) !== fStr;
+      }
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        // Mirror of `equals`: normalize both sides via toComparable. A null/absent row
+        // value is treated as "not equal" to the target date (kept, matching raw `!=`).
+        const cmpVal = toComparable(filterVal, fieldType);
+        return (row) => {
+          const rv = row[field];
+          return rv == null || toComparable(rv, fieldType) !== cmpVal;
+        };
       }
       // eslint-disable-next-line eqeqeq
       return (row) => row[field] != filterVal;

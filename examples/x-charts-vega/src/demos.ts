@@ -182,16 +182,30 @@ export const spendRows: DatasetRow[] = [
 
 /**
  * Rows for the error-band demo: a monthly revenue series with several samples
- * per month (a gentle upward trend plus a small deterministic spread), across
- * ten months. More months give the band more points, and the tight spread
- * keeps a `stderr` band narrow.
+ * per month, across the full Jan–Dec year. The per-month mean follows a gentle
+ * upward trend plus a deterministic sinusoidal wiggle (so the mean line bends
+ * rather than running straight), and the sample spread sets the `stderr` band
+ * width.
  */
 export const trendRows: DatasetRow[] = (() => {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'];
-  const spread = [-150, -60, 10, 70, 150];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const spread = [-300, -120, 20, 140, 300];
   const rows: DatasetRow[] = [];
   months.forEach((month, mi) => {
-    const base = 3000 + mi * 160;
+    const base = 3000 + mi * 120 + Math.round(Math.sin(mi * 1.1) * 300);
     spread.forEach((offset, si) => {
       rows.push({ month, revenue: base + offset + ((mi + si) % 3) * 35 });
     });
@@ -366,8 +380,8 @@ export const demos: Demo[] = [
     id: 'errorband-line',
     title: 'Line with error band (custom overlay)',
     description:
-      'A layer of mark: "errorband" (stderr extent) under a mean line, over ten months — the band ' +
-      'is a custom overlay path; the line is a regular LinePlot series.',
+      'A layer of mark: "errorband" (stderr extent) under a mean line, over the Jan–Dec year — ' +
+      'the band is a custom overlay path; the line is a regular LinePlot series.',
     data: trendRows,
     spec: {
       encoding: {

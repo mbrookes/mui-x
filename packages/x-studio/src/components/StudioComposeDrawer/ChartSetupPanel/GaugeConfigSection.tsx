@@ -25,6 +25,60 @@ export function GaugeConfigSection({
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
 
+  const gaugeMin = config.gaugeMin ?? 0;
+  const gaugeMax = config.gaugeMax ?? 100;
+
+  // Local text buffers for the min/max inputs (architecture review finding 1.14):
+  // validating on every keystroke against the OTHER committed bound made it
+  // impossible to type a multi-digit min/max one keystroke at a time whenever an
+  // intermediate digit transiently violated the bound, and made the field
+  // impossible to clear. Buffer the displayed text locally and only parse/
+  // validate/commit on blur (mirrors `FormatPanel.tsx`'s grid-height input).
+  const [minText, setMinText] = React.useState(String(gaugeMin));
+  const [minDirty, setMinDirty] = React.useState(false);
+  const [maxText, setMaxText] = React.useState(String(gaugeMax));
+  const [maxDirty, setMaxDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gaugeMin; resync on external change (widget switch, undo/redo, the sibling field's commit re-deriving this one)
+  React.useEffect(() => {
+    setMinText(String(gaugeMin));
+    setMinDirty(false);
+  }, [gaugeMin, widgetId]);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- see above, for gaugeMax
+  React.useEffect(() => {
+    setMaxText(String(gaugeMax));
+    setMaxDirty(false);
+  }, [gaugeMax, widgetId]);
+
+  const commitMin = () => {
+    if (!minDirty) {
+      return;
+    }
+    const raw = minText.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    const valid = !Number.isNaN(parsed) && parsed < gaugeMax;
+    if (valid && parsed !== gaugeMin) {
+      controller.updateWidgetConfig(widgetId, { gaugeMin: parsed });
+    }
+    setMinText(String(valid ? parsed : gaugeMin));
+    setMinDirty(false);
+  };
+
+  const commitMax = () => {
+    if (!maxDirty) {
+      return;
+    }
+    const raw = maxText.trim();
+    const parsed = raw === '' ? NaN : Number(raw);
+    const valid = !Number.isNaN(parsed) && parsed > gaugeMin;
+    if (valid && parsed !== gaugeMax) {
+      controller.updateWidgetConfig(widgetId, { gaugeMax: parsed });
+    }
+    setMaxText(String(valid ? parsed : gaugeMax));
+    setMaxDirty(false);
+  };
+
   return (
     <Stack spacing={2}>
       <DataSourceFieldSelect
@@ -65,16 +119,16 @@ export function GaugeConfigSection({
           size="small"
           label={localeText.chartSetupMinLabel}
           type="number"
-          value={config.gaugeMin ?? 0}
+          value={minText}
           onChange={(evt) => {
-            // Validate before writing (matching the Funnel/Scatter/PieArcLabels
-            // sections): reject NaN and keep min strictly below max so an invalid
-            // gaugeMin > gaugeMax range can't be persisted (finding 3.4).
-            const parsed = Number(evt.target.value);
-            if (Number.isNaN(parsed) || parsed >= (config.gaugeMax ?? 100)) {
-              return;
+            setMinText(evt.target.value);
+            setMinDirty(true);
+          }}
+          onBlur={commitMin}
+          onKeyDown={(evt) => {
+            if (evt.key === 'Enter') {
+              commitMin();
             }
-            controller.updateWidgetConfig(widgetId, { gaugeMin: parsed });
           }}
           sx={{ flex: 1, minWidth: 0 }}
         />
@@ -82,13 +136,16 @@ export function GaugeConfigSection({
           size="small"
           label={localeText.chartSetupMaxLabel}
           type="number"
-          value={config.gaugeMax ?? 100}
+          value={maxText}
           onChange={(evt) => {
-            const parsed = Number(evt.target.value);
-            if (Number.isNaN(parsed) || parsed <= (config.gaugeMin ?? 0)) {
-              return;
+            setMaxText(evt.target.value);
+            setMaxDirty(true);
+          }}
+          onBlur={commitMax}
+          onKeyDown={(evt) => {
+            if (evt.key === 'Enter') {
+              commitMax();
             }
-            controller.updateWidgetConfig(widgetId, { gaugeMax: parsed });
           }}
           sx={{ flex: 1, minWidth: 0 }}
         />

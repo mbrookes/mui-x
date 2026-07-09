@@ -20,6 +20,72 @@ function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/**
+ * Reference-line value input (architecture review finding 1.14): re-rendering the
+ * controlled `value` from the doc on every keystroke meant a still-typing "10."
+ * round-tripped through `Number('10.')` → `10` → back into the field as "10",
+ * silently eating the trailing decimal point mid-edit. Buffer the displayed text
+ * locally and only parse/commit on blur, mirroring `FormatPanel.tsx`'s grid-height
+ * input. `value` may be a non-numeric string (an x-axis annotation on a band-scale
+ * chart references an axis label, not a number) — an unparseable commit falls back
+ * to the raw string, same as the original per-keystroke behavior.
+ */
+function AnnotationValueInput(props: {
+  value: number | string;
+  label: string;
+  onCommit: (next: number | string) => void;
+}) {
+  const { value, label, onCommit } = props;
+  const [text, setText] = React.useState(String(value));
+  const [dirty, setDirty] = React.useState(false);
+
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed annotation value; resync on external change (undo/redo)
+  React.useEffect(() => {
+    setText(String(value));
+    setDirty(false);
+  }, [value]);
+
+  const commit = () => {
+    if (!dirty) {
+      return;
+    }
+    const raw = text.trim();
+    if (raw === '') {
+      // An emptied field reverts to the last committed value rather than silently
+      // coercing to 0 (`Number('')` is `0`, not `NaN`).
+      setText(String(value));
+      setDirty(false);
+      return;
+    }
+    const num = Number(raw);
+    const next = Number.isNaN(num) ? raw : num;
+    if (next !== value) {
+      onCommit(next);
+    }
+    setText(String(next));
+    setDirty(false);
+  };
+
+  return (
+    <TextField
+      size="small"
+      label={label}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        setDirty(true);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+        }
+      }}
+      sx={{ flexGrow: 1, minWidth: 0 }}
+    />
+  );
+}
+
 export interface AnnotationsEditorSectionProps {
   widgetId: string;
   // Annotations are shared by exactly the bar / line-area / mixed / scatter families,
@@ -84,20 +150,16 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
                 <MenuItem value="x">X</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              size="small"
-              label={localeText.chartSetupReferenceLineValueLabel}
+            <AnnotationValueInput
               value={ann.value}
-              onChange={(event) => {
-                const raw = event.target.value;
-                const num = Number(raw);
+              label={localeText.chartSetupReferenceLineValueLabel}
+              onCommit={(next) => {
                 controller.updateWidgetConfig(widgetId, {
                   annotations: annotations.map((a) =>
-                    a.id === ann.id ? { ...a, value: Number.isNaN(num) ? raw : num } : a,
+                    a.id === ann.id ? { ...a, value: next } : a,
                   ),
                 });
               }}
-              sx={{ flexGrow: 1, minWidth: 0 }}
             />
             <TextField
               size="small"

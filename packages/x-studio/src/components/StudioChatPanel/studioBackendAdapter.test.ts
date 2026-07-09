@@ -284,6 +284,41 @@ describe('createBackendChatAdapter: tool-activity', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('emits tool-input-available carrying the parsed input so the tool card renders arguments (finding 2.6)', async () => {
+    const toolInput = { kind: 'chart', title: 'Revenue', xField: 'country' };
+    const sse = makeSseBody([
+      {
+        type: 'tool-activity',
+        toolCallId: 'call-1',
+        toolName: 'add_widget',
+        phase: 'start',
+        input: toolInput,
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+
+    // x-chat's stream processor discards `tool-input-delta` text — only a
+    // `tool-input-available` chunk populates `toolInvocation.input`. Without it,
+    // the tool card shows a name/status but never the call's arguments.
+    const available = chatChunks.find((c) => c.type === 'tool-input-available') as
+      | { type: 'tool-input-available'; toolCallId: string; toolName: string; input: unknown }
+      | undefined;
+    expect(available).toBeDefined();
+    expect(available!.toolCallId).toBe('call-1');
+    expect(available!.toolName).toBe('add_widget');
+    expect(available!.input).toEqual(toolInput);
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── error handling ────────────────────────────────────────────────────────────

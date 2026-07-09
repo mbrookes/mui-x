@@ -6,6 +6,7 @@ import { Box } from '@mui/material';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import { ChatComposerSendButton } from '@mui/x-chat';
 import { useChat } from '@mui/x-chat/headless';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ── StudioSendButton — stop/send toggle for the composer ──────────────────────
 // Wraps ChatComposerSendButton (x-chat) via slots.sendButton so that x-chat's
@@ -45,6 +46,7 @@ function StudioSendButtonInner({
   ref?: React.Ref<HTMLButtonElement>;
 }) {
   const { stopStreaming } = useChat();
+  const localeText = useStudioLocaleText();
   const isStreaming = (rest as Record<string, unknown>)['data-is-streaming'] === 'true';
   let btnBgColor: string;
   if (isStreaming) {
@@ -78,7 +80,11 @@ function StudioSendButtonInner({
             }
           : (rest.onClick as React.MouseEventHandler | undefined)
       }
-      aria-label={isStreaming ? 'Stop generating' : (rest['aria-label'] ?? 'Send message')}
+      aria-label={
+        isStreaming
+          ? localeText.chatComposerStopGeneratingLabel
+          : (rest['aria-label'] ?? localeText.chatComposerSendMessageLabel)
+      }
       sx={{
         ...SEND_BTN_SX,
         bgcolor: btnBgColor,

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Box, Collapse, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ── StudioReasoningPart — "Thinking…" indicator + collapsible reasoning ────────
 
@@ -11,6 +12,7 @@ export interface ReasoningPartProps {
 }
 
 export function StudioReasoningPart({ part }: ReasoningPartProps) {
+  const localeText = useStudioLocaleText();
   const [expanded, setExpanded] = React.useState(false);
   const reasoningRegionId = React.useId();
   const isStreaming = part.state === 'streaming';
@@ -24,7 +26,7 @@ export function StudioReasoningPart({ part }: ReasoningPartProps) {
         role="status"
         sx={{ display: 'block', fontStyle: 'italic', px: 0.5, py: 0.25 }}
       >
-        Thinking…
+        {localeText.chatReasoningThinkingLabel}
       </Typography>
     );
   }
@@ -58,7 +60,7 @@ export function StudioReasoningPart({ part }: ReasoningPartProps) {
         }}
       >
         <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          Reasoning
+          {localeText.chatReasoningSectionLabel}
         </Typography>
         <ExpandMoreIcon
           aria-hidden

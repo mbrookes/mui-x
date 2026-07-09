@@ -955,6 +955,37 @@ export interface StudioLocaleText {
   chatMessageCopyAriaLabel: string;
   /** Tooltip / aria-label on the retry-message icon button */
   chatMessageRetryTooltip: string;
+  /** "Thinking…" indicator shown while the assistant prepares its response */
+  chatReasoningThinkingLabel: string;
+  /** Header of the collapsible assistant reasoning section */
+  chatReasoningSectionLabel: string;
+  /** aria-label on the composer send button while a response is streaming (click to stop) */
+  chatComposerStopGeneratingLabel: string;
+  /** aria-label on the composer send button when idle (click to send) */
+  chatComposerSendMessageLabel: string;
+
+  // ── AI chat tool-call card titles ─────────────────────────────────────────
+  chatToolLabelGetDashboardState: string;
+  chatToolLabelSetDashboardTitle: string;
+  chatToolLabelAddPage: string;
+  chatToolLabelRenamePage: string;
+  chatToolLabelRemovePage: string;
+  chatToolLabelSetActivePage: string;
+  chatToolLabelAddWidget: string;
+  chatToolLabelUpdateWidget: string;
+  chatToolLabelRemoveWidget: string;
+  chatToolLabelSetWidgetLayout: string;
+  chatToolLabelSetWidgetWidth: string;
+  chatToolLabelSetWidgetForecast: string;
+  chatToolLabelAddPageFilter: string;
+  chatToolLabelRemovePageFilter: string;
+  chatToolLabelAddWidgetFilter: string;
+  chatToolLabelRemoveWidgetFilter: string;
+  chatToolLabelSummarisePage: string;
+  chatToolLabelApplyBulkUpdate: string;
+  chatToolLabelRenameThread: string;
+  chatToolLabelQueryDataSource: string;
+  chatToolLabelGetCurrentDate: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -2043,6 +2074,33 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatMessageCopiedTooltip: 'Copied!',
   chatMessageCopyAriaLabel: 'Copy message',
   chatMessageRetryTooltip: 'Retry',
+  chatReasoningThinkingLabel: 'Thinking…',
+  chatReasoningSectionLabel: 'Reasoning',
+  chatComposerStopGeneratingLabel: 'Stop generating',
+  chatComposerSendMessageLabel: 'Send message',
+
+  // AI chat tool-call card titles
+  chatToolLabelGetDashboardState: 'Get dashboard state',
+  chatToolLabelSetDashboardTitle: 'Set dashboard title',
+  chatToolLabelAddPage: 'Add page',
+  chatToolLabelRenamePage: 'Rename page',
+  chatToolLabelRemovePage: 'Remove page',
+  chatToolLabelSetActivePage: 'Switch page',
+  chatToolLabelAddWidget: 'Add widget',
+  chatToolLabelUpdateWidget: 'Update widget',
+  chatToolLabelRemoveWidget: 'Remove widget',
+  chatToolLabelSetWidgetLayout: 'Set widget layout',
+  chatToolLabelSetWidgetWidth: 'Set widget width',
+  chatToolLabelSetWidgetForecast: 'Set widget forecast',
+  chatToolLabelAddPageFilter: 'Add page filter',
+  chatToolLabelRemovePageFilter: 'Remove page filter',
+  chatToolLabelAddWidgetFilter: 'Add widget filter',
+  chatToolLabelRemoveWidgetFilter: 'Remove widget filter',
+  chatToolLabelSummarisePage: 'Summarise page',
+  chatToolLabelApplyBulkUpdate: 'Apply bulk update',
+  chatToolLabelRenameThread: 'Rename thread',
+  chatToolLabelQueryDataSource: 'Query data source',
+  chatToolLabelGetCurrentDate: 'Get current date',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

@@ -14,7 +14,7 @@ import { renderHook, act } from '@mui/internal-test-utils';
 import type { ChatMessage } from '@mui/x-chat/headless';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
-import type { StudioController } from '../../store/StudioController';
+import { StudioController } from '../../store/StudioController';
 import { mockUseStudioSelector, configureStudioContextMock } from '../../../test/studioContextMock';
 // `useChatThreads` (and its `createThreadId`/`createMessageId` re-exports via `./chatIds`)
 // transitively imports `../../context`, which the `vi.mock` below replaces — this import
@@ -179,6 +179,44 @@ describe('useChatThreads: mid-stream thread-switch race', () => {
     });
     const threadBAfter = mockState.doc.ai?.threads.find((t) => t.id === threadBId);
     expect(threadBAfter?.messages).toHaveLength(1);
+  });
+});
+
+// ── undo-history pollution (finding 1.8) ──────────────────────────────────────
+
+describe('useChatThreads: streaming writes never pollute undo history', () => {
+  it('does not push undo entries while chat messages stream in', () => {
+    // A REAL controller (not the fake above) so the undo stack is exercised for real.
+    const controller = new StudioController();
+    configureStudioContextMock({ getState: () => controller.getState() });
+
+    const originalTitle = controller.getState().doc.dashboard.title;
+
+    // One genuine, undoable document edit the user made before chatting.
+    controller.setDashboardTitle('My dashboard');
+    expect(controller.canUndo()).toBe(true);
+
+    const { result } = renderHook(() => useChatThreads(controller));
+
+    // Simulate a multi-second AI response: `onMessagesChange` fires on every
+    // streamed token delta (~every 16ms → hundreds of times per response).
+    act(() => {
+      for (let i = 1; i <= 200; i += 1) {
+        result.current.handleMessagesChange([makeMessage(`partial reply ${i}`)]);
+      }
+    });
+
+    // The streamed messages were persisted to the thread...
+    expect(controller.getState().doc.ai?.threads[0].messages).toHaveLength(1);
+
+    // ...but NONE of those 200 writes entered the undo timeline. If any had, the
+    // undo stack would hold chat snapshots on top of the real edit, and a single
+    // undo would land on a stale chat snapshot instead of reverting the title.
+    // Proof the stack length is unchanged (still exactly the one real edit): one
+    // undo reaches the title edit, and nothing remains undoable afterwards.
+    controller.undo();
+    expect(controller.getState().doc.dashboard.title).toBe(originalTitle);
+    expect(controller.canUndo()).toBe(false);
   });
 });
 

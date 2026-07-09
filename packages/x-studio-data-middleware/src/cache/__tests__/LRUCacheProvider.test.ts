@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LRUCacheProvider } from '../LRUCacheProvider';
+import { generateCacheKey } from '../../security/cacheKey';
 import type { CacheEntry } from '../types';
 
 function entry(rows: Record<string, unknown>[] = [{ id: 1 }]): CacheEntry {
@@ -91,6 +92,36 @@ describe('LRUCacheProvider', () => {
       await cache.set('studio:v1:acme:q1', entry());
       await cache.invalidatePrefix('studio:v1:nobody:');
       expect(await cache.get('studio:v1:acme:q1')).toBeDefined();
+    });
+
+    it('keeps two colon-bearing tenants in separate eviction buckets (finding 3.2)', async () => {
+      // Regression: a tenantId containing ':' (e.g. `org:1234`) used to shift the
+      // key segment boundaries, so `extractPrefix` derived `studio:v1:org:` for
+      // BOTH `org:1234` and `org:5678` — collapsing distinct tenants into one
+      // prefix-invalidation bucket. `generateCacheKey` now URL-encodes the tenant
+      // segment, so each tenant gets its own bucket keyed on the encoded id.
+      const cache = new LRUCacheProvider();
+      const secret = 'colon-tenant-secret';
+      const descriptor = { id: 'w1', table: 'sales' };
+      const keyA = generateCacheKey(
+        { tenantId: 'org:1234', userId: 'u', roleIds: [] },
+        descriptor,
+        secret,
+      );
+      const keyB = generateCacheKey(
+        { tenantId: 'org:5678', userId: 'u', roleIds: [] },
+        descriptor,
+        secret,
+      );
+      await cache.set(keyA, entry());
+      await cache.set(keyB, entry());
+
+      // Invalidate ONLY tenant `org:1234`, using its encoded tenant prefix.
+      await cache.invalidatePrefix(`studio:v1:${encodeURIComponent('org:1234')}:`);
+
+      expect(await cache.get(keyA)).toBeUndefined();
+      // The sibling colon-tenant must survive — it is a different bucket.
+      expect(await cache.get(keyB)).toBeDefined();
     });
   });
 

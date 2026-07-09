@@ -184,6 +184,46 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
+ * Safe identifier charset for interpolated aliases — the SAME pattern
+ * `validateAggregationAliases` applies to aggregation aliases in
+ * `shared/columnValidation.ts` (kept as a module-private literal here rather than
+ * a cross-file import, matching how `SAFE_ORDER_BY_DIRECTION` is defined locally).
+ */
+const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
+
+/**
+ * Validate every expression-field OUTPUT ALIAS against the safe-identifier charset.
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), closing the finding-3.4 gap: an
+ * output alias (`PlanProjectionColumn.outputAlias` — the client's logical column
+ * id, produced by `buildPlan` when a referenced column resolves to a DIFFERENT
+ * physical column) reaches `execute.ts`'s `db.raw('?? as ??', [physical, outputAlias])`
+ * WITHOUT the charset check its sibling `agg.alias` gets. Both are `??`-bound and
+ * therefore Knex-escaped (so this is defense-in-depth, not a live injection), but
+ * the intent of `validateAggregationAliases` is to constrain EVERY client-controlled
+ * identifier token in the query-building path — and the output alias was the one
+ * such token that skipped it. An output alias only exists when the client-referenced
+ * id differs from its resolved physical column, so — mirroring `buildPlan` — only
+ * those renamed references are checked; a direct physical reference never reaches
+ * the alias position.
+ */
+function validateOutputAliases(descriptor: BatchWidgetDescriptor): void {
+  for (const column of descriptor.columns ?? []) {
+    const physical = resolveAlias(descriptor, column);
+    // Only a rename becomes an interpolated `?? as ??` output alias (see
+    // `buildPlan`); a direct physical column reference is never aliased.
+    if (physical !== column && !SAFE_ALIAS_PATTERN.test(column)) {
+      throw new Error(
+        `MUI X Studio Server: Output alias "${column}" contains characters outside the allowed set. ` +
+          `The alias is interpolated into the SQL projection as an identifier (\`?? as ??\`), so it must be a safe identifier to avoid altering the query. ` +
+          `Use only letters, digits and underscores (matching ${SAFE_ALIAS_PATTERN}).`,
+      );
+    }
+  }
+}
+
+/**
  * Close the SELECT * allowlist-bypass: when a `columnAllowlist` is configured but
  * a widget declares NO projection columns and NO aggregations, Knex would emit
  * `SELECT *` and return every column — including ones the host never allowlisted.
@@ -309,9 +349,12 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  * order):
  *   1. `validateHavingAliases`       — UNCONDITIONAL (throws on an invalid HAVING).
  *   2. `validateAggregationAliases`  — UNCONDITIONAL (throws on an unsafe alias).
- *   3. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
+ *   3. `validateOutputAliases`       — UNCONDITIONAL (throws on an unsafe
+ *      expression-field output alias — the token is interpolated into the SQL
+ *      projection via `?? as ??`, finding 3.4).
+ *   4. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
  *      direction — the token is interpolated into the SQL ORDER BY clause).
- *   4. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
+ *   5. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
  * then resolves every column reference into the plan and, when a `columnAllowlist`
  * is configured for a no-columns/no-aggregations widget, synthesizes an explicit
@@ -327,6 +370,7 @@ export function validateQueryPlan(
 ): ValidatedQueryPlan {
   validateHavingAliases(descriptor);
   validateAggregationAliases(descriptor);
+  validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);

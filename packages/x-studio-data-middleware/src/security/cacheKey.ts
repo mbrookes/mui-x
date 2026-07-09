@@ -10,7 +10,9 @@
  * 3. Deterministic: same query + same security context → same key (no clock drift)
  * 4. Opaque to the client: HMAC prevents clients from guessing other users' keys
  *
- * Key format: `studio:v1:<tenantId>:<securityHash>:<queryHash>`
+ * Key format: `studio:v1:<encodeURIComponent(tenantId)>:<securityHash>:<queryHash>`
+ * (the tenant segment is URL-encoded so a colon in the id cannot shift the segment
+ * boundaries — see finding 3.2 in `generateCacheKey`).
  */
 import { createHmac, createHash } from 'node:crypto';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
@@ -109,5 +111,15 @@ export function generateCacheKey(
   }
   const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest);
   const queryHash = computeQueryHash(descriptor);
-  return `studio:v1:${claims.tenantId}:${securityHash}:${queryHash}`;
+  // Encode the tenant segment so a `tenantId` containing ':' cannot corrupt the
+  // segment boundaries that prefix-based invalidation relies on (finding 3.2).
+  // `LRUCacheProvider.extractPrefix` recovers the tenant-scoped invalidation
+  // prefix by scanning to the 3rd colon; a raw `org:1234` would shift every
+  // boundary (deriving `studio:v1:org:` instead of `studio:v1:org:1234:`) and
+  // collapse distinct colon-prefixed tenants into ONE eviction bucket.
+  // `encodeURIComponent` maps ':' to '%3A', keeping the tenant a single colon-free
+  // segment so the boundary scan stays exact. Tenant ids without a colon (the
+  // common case, e.g. `acme`) are unchanged, so existing keys are byte-identical.
+  const tenantSegment = encodeURIComponent(claims.tenantId);
+  return `studio:v1:${tenantSegment}:${securityHash}:${queryHash}`;
 }

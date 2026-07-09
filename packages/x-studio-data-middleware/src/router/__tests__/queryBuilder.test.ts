@@ -635,6 +635,76 @@ describe('buildSecureQuery', () => {
       // No predicate of any kind is emitted against the opted-out shared table.
       expect(calls.some((c) => String(c.args[0]).startsWith('country_codes.'))).toBe(false);
     });
+
+    it('drops ONLY region/department on a joined table via a per-dimension null, keeping tenant scope (finding 2.1)', () => {
+      // A joined table (audit_log) carries tenant_id but has NO region column. With
+      // `{ region: null, department: null }` it stays tenant-scoped while emitting
+      // no region/department predicate — instead of being forced onto the
+      // whole-table `null` opt-out, which would drop tenant scoping and re-open the
+      // cross-tenant fan-out on a non-unique join key.
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [7], department: 'ops' },
+        descriptor({
+          joins: [{ table: 'audit_log', on: [['sales.id', 'audit_log.sale_id']] }],
+        }),
+        {
+          tenancy: MULTI_TENANT,
+          securityColumns: { perTable: { audit_log: { region: null, department: null } } },
+        },
+      );
+      // The joined table KEEPS its inherited tenant predicate…
+      expect(calls).toContainEqual({ method: 'where', args: ['audit_log.tenant_id', '=', 'acme'] });
+      // …but emits NO region/department predicate against it (no such column).
+      expect(calls.some((c) => String(c.args[0]).startsWith('audit_log.region'))).toBe(false);
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'audit_log.department')).toBe(
+        false,
+      );
+      // The PRIMARY table is still fully region/department-scoped.
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [7, '7']] });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
+    });
+  });
+
+  describe('non-array in/between values are rejected fail-closed (finding 3.1)', () => {
+    it('throws when an "in" value is not an array (e.g. a bare string)', () => {
+      const { db } = createRecordingDb();
+      expect(() =>
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          // Cast: the wire value is client JSON, whose runtime type is not the
+          // declared array — exactly what the guard defends against.
+          descriptor({ filters: [{ column: 'product', operator: 'in', value: 'abc' as any }] }),
+          { tenancy: SINGLE_TENANT },
+        ),
+      ).toThrow(/"in" predicate on column "product" requires an array value/);
+    });
+
+    it('throws when a "between" value is not an array', () => {
+      const { db } = createRecordingDb();
+      expect(() =>
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          descriptor({ filters: [{ column: 'amount', operator: 'between', value: 10 as any }] }),
+          { tenancy: SINGLE_TENANT },
+        ),
+      ).toThrow(/"between" predicate on column "amount" requires a two-element/);
+    });
+
+    it('throws when a "between" array does not have exactly two elements', () => {
+      const { db } = createRecordingDb();
+      expect(() =>
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          descriptor({ filters: [{ column: 'amount', operator: 'between', value: [10] as any }] }),
+          { tenancy: SINGLE_TENANT },
+        ),
+      ).toThrow(/two-element/);
+    });
   });
 
   describe('HAVING operator allowlist', () => {

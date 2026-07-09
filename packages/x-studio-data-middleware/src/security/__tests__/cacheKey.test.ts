@@ -140,6 +140,33 @@ describe('generateCacheKey', () => {
     expect(key).toMatch(/^studio:v1:acme:[0-9a-f]{16}:[0-9a-f]{16}$/);
   });
 
+  describe('colon-bearing tenantId (finding 3.2)', () => {
+    it('URL-encodes the tenant segment so a colon stays inside one segment', () => {
+      const key = generateCacheKey({ ...CLAIMS, tenantId: 'org:1234' }, DESCRIPTOR, SECRET);
+      // The colon becomes %3A, so splitting on ':' still yields exactly 5 segments
+      // (studio, v1, org%3A1234, securityHash, queryHash) — the tenant boundary is
+      // not shifted and prefix invalidation stays tenant-granular.
+      expect(key).toMatch(/^studio:v1:org%3A1234:[0-9a-f]{16}:[0-9a-f]{16}$/);
+      expect(key.split(':')).toHaveLength(5);
+      expect(key.split(':')[2]).toBe('org%3A1234');
+    });
+
+    it('gives two tenants that differ only after a colon distinct tenant segments', () => {
+      const a = generateCacheKey({ ...CLAIMS, tenantId: 'org:1' }, DESCRIPTOR, SECRET);
+      const b = generateCacheKey({ ...CLAIMS, tenantId: 'org:2' }, DESCRIPTOR, SECRET);
+      expect(a).not.toBe(b);
+      // Distinct encoded tenant segments — they do NOT collapse to a shared `org`.
+      expect(a.split(':')[2]).toBe('org%3A1');
+      expect(b.split(':')[2]).toBe('org%3A2');
+    });
+
+    it('leaves a colon-free tenantId byte-identical (backward compatible)', () => {
+      // `acme` has no reserved characters, so encoding is a no-op and existing keys
+      // are unchanged.
+      expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET)).toMatch(/^studio:v1:acme:/);
+    });
+  });
+
   describe('fail-closed HMAC secret', () => {
     it('throws when the effective secret is empty (would be forgeable)', () => {
       expect(() => generateCacheKey(CLAIMS, DESCRIPTOR, '')).toThrow(

@@ -262,6 +262,23 @@ describe('RedisCacheProvider', () => {
       expect(redis.store.has('k1')).toBe(false);
       expect(await provider.get('k1')).toEqual(ENTRY);
     });
+
+    // Regression (finding 3.4): the reverse key→tags index (`__ktag__:`) must be
+    // namespaced by `keyPrefix`, exactly like the forward tag→keys index
+    // (`__tag__:`). Two deployments sharing one Redis with different keyPrefixes
+    // otherwise collide their `__ktag__:` keys in a shared, un-prefixed namespace.
+    it('namespaces BOTH the forward (__tag__) and reverse (__ktag__) tag indexes with keyPrefix', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis, { keyPrefix: 'studio:prod:' });
+      await provider.set('k1', ENTRY, { tags: ['sales'] });
+
+      const indexKeys = [...redis.sets.keys()];
+      // Forward index carries the prefix (already did before the fix)…
+      expect(indexKeys).toContain('studio:prod:__tag__:sales');
+      // …and now the reverse index does too — no bare `__ktag__:` key exists.
+      expect(indexKeys.some((k) => k.startsWith('studio:prod:__ktag__:'))).toBe(true);
+      expect(indexKeys.some((k) => k.startsWith('__ktag__:'))).toBe(false);
+    });
   });
 
   describe('deleteByTag', () => {

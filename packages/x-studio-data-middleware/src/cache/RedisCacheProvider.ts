@@ -261,7 +261,7 @@ export class RedisCacheProvider implements CacheProvider {
 
   /** Redis key for the reverse key→tags index. */
   private keyTagsKey(key: string): string {
-    return `__ktag__:${key}`;
+    return `${this.prefix}__ktag__:${key}`;
   }
 
   /** `SET key value EX seconds`, adapted to the detected client convention. */

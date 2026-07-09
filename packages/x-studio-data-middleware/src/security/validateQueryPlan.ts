@@ -193,9 +193,15 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
  *   - No allowlist entry for the table → throw fail-closed, mirroring
  *     `checkColumnAgainstAllowlist`'s "has no entry" error (context `'columns'`).
  *     Today this shape silently returns `SELECT *` — the worst variant of the bug.
- *   - Entry is `['*']` → leave `plan.columns` empty; `SELECT *` is the host's
- *     explicit, documented opt-out (matches the wildcard semantics of
- *     `checkColumnAgainstAllowlist`).
+ *   - Entry is `['*']` → synthesize an explicit PRIMARY-TABLE wildcard projection
+ *     (`<table>.*`) rather than leaving `plan.columns` empty. `['*']` means "all
+ *     columns OF THIS TABLE", which SQL expresses as `orders.*`, NOT a bare `*`.
+ *     Leaving the projection empty made `executeForTier` skip `.select()` and emit
+ *     a bare `SELECT *`, which returns every column of every JOINed table too —
+ *     bypassing a joined table's own (stricter) allowlist entry. Qualifying the
+ *     wildcard to the primary table preserves the single-table `SELECT *` opt-out
+ *     while forcing joined-table columns to be named explicitly (which then route
+ *     back through `checkColumnAgainstAllowlist`).
  *   - Otherwise → project exactly the allowlisted physical columns, in allowlist
  *     order, with NO `outputAlias` (direct physical columns, not expression-field
  *     renames). `executeForTier`'s `qualify()` prefixes them with the primary
@@ -219,7 +225,13 @@ function synthesizeProjectionFromAllowlist(
     );
   }
   if (allowed.includes('*')) {
-    // Explicit opt-out — leave the projection empty so Knex keeps SELECT *.
+    // Explicit opt-out, but scoped to the PRIMARY table's columns only. `['*']`
+    // means "all columns of THIS table" → `<table>.*`, never a bare `*`. A bare
+    // `*` (empty projection) would leak every column of every JOINed table,
+    // bypassing that table's own allowlist entry — the Tier 1 finding. Qualifying
+    // the wildcard keeps single-table `SELECT *` semantics while forcing joined
+    // columns to be named explicitly (routed through `checkColumnAgainstAllowlist`).
+    plan.columns = [{ physical: asColumnRef(`${table}.*`) }];
     return;
   }
   plan.columns = allowed.map((col) => ({ physical: asColumnRef(col) }));

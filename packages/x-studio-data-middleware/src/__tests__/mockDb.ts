@@ -351,6 +351,13 @@ export function createMockDb(
                     ? col.physicalColumn.split('.')[1]
                     : col.physicalColumn;
                   projected[col.alias] = row[physKey];
+                } else if (col === '*' || col.endsWith('.*')) {
+                  // Wildcard projection: a bare `*` or a table-qualified `table.*`
+                  // selects EVERY column of the row (mirroring SQL). `executeForTier`
+                  // emits `table.*` for the `columnAllowlist[table] === ['*']` opt-out
+                  // (finding 1.1) — for a single-table query that returns the whole
+                  // row, exactly like the previous bare-SELECT-* behavior.
+                  Object.assign(projected, row);
                 } else {
                   // Handle "table.column" qualified names
                   const key = col.includes('.') ? col.split('.')[1] : col;

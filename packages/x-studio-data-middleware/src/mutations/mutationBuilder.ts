@@ -110,6 +110,19 @@ function validateSecurityColumnValues(
     Object.prototype.hasOwnProperty.call(values, cols.region)
   ) {
     const region = values[cols.region];
+    // Reject a non-scalar region value (array/object) fail-closed BEFORE the
+    // string comparison below. `String([5])` is `"5"` and `String(["5"])` is
+    // `"5"`, so an array value would coincidentally stringify-match a permitted
+    // `regionIds` entry and slip through the scope check — writing a non-scalar
+    // into the region column. A region is always a single scalar (number/string),
+    // so anything that stringifies from an object is not a valid region value.
+    if (region !== null && typeof region === 'object') {
+      throw new Error(
+        `MUI X Studio Server: Column "${cols.region}" value must be a scalar region identifier, but received ${Array.isArray(region) ? 'an array' : 'an object'}. ` +
+          `A non-scalar value cannot be validated against the caller's permitted regions and would corrupt row-level scoping. ` +
+          `Send a single number or string for "${cols.region}".`,
+      );
+    }
     // Compare as strings on both sides. `claims.regionIds` is typed `number[]`,
     // but a deployment whose region column is TEXT-typed sends a string region
     // value; a strict `Array.prototype.includes` (SameValueZero) comparison would

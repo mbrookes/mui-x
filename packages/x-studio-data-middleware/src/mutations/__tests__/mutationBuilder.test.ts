@@ -752,6 +752,64 @@ describe('write-path empty-region scope (regionIds: [])', () => {
   });
 });
 
+// ── Write-path region scope: non-scalar region value is rejected (finding 3.1) ──
+//
+// Regression: the region scope check compares `String(id) === String(region)`.
+// A non-scalar region value like `[5]` (or `["5"]`) coincidentally stringifies to
+// `"5"` and would satisfy the check against `regionIds: [5]`, letting an array/object
+// be written into the region column. A scalar-only guard rejects it fail-closed
+// BEFORE the string comparison.
+describe('write-path region scope — non-scalar region value (finding 3.1)', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+
+  it('REJECTS an insert whose region value is an array that stringify-matches a permitted region', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: [5] as any }, // String([5]) === "5" — would slip through
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/must be a scalar region identifier/);
+  });
+
+  it('REJECTS an object region value', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: { toString: () => '5' } as any },
+    };
+    expect(() =>
+      validateMutation(descriptor, REGION_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'region_id'] },
+      }),
+    ).toThrow(/must be a scalar region identifier/);
+  });
+
+  it('still ACCEPTS a scalar region value inside the permitted set (number or string)', () => {
+    for (const value of [5, '5']) {
+      const descriptor: MutationDescriptor = {
+        id: 'm1',
+        operation: 'insert',
+        table: 'orders',
+        values: { status: 'ok', region_id: value },
+      };
+      expect(() =>
+        validateMutation(descriptor, REGION_CLAIMS, {
+          policy: MT_POLICY,
+          writableColumns: { orders: ['status', 'region_id'] },
+        }),
+      ).not.toThrow();
+    }
+  });
+});
+
 // ── INSERT tenant stamping in multi-tenant mode ───────────────────────────────
 //
 // Regression for finding 1.1 (CRITICAL): a multi-tenant deployment must stamp the

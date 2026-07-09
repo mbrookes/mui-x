@@ -1,3 +1,16 @@
+/**
+ * Widget data-summary utilities.
+ *
+ * Despite the historical file name, this module no longer generates insights — the
+ * client no longer calls any `/insight` or `/title` endpoint. Insight generation now
+ * happens entirely server-side (in `x-studio-ai-middleware`); the client's only job is
+ * to build a compact, pipeline-filtered summary of a widget's data. This module owns:
+ *
+ * - `buildWidgetDataSummary` — a CSV-style sample + numeric stats block for a widget,
+ *   attached to AI chat requests (`studioBackendAdapter`) and text-widget generation
+ *   (`useTextWidgetAI`).
+ * - `numericStats` — min/max/mean/… over a numeric column (also used by `richContext`).
+ */
 import type { StudioKpiAggregation } from '../../models/baseTypes';
 import type { StudioState, StudioFilterState } from '../../models/stateTypes';
 import type { StudioWidget, StudioWidgetConfig } from '../../models/widgetTypes';

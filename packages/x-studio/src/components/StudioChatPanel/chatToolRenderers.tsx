@@ -17,6 +17,8 @@ import NoteAltIcon from '@mui/icons-material/NoteAlt';
 import StorageIcon from '@mui/icons-material/Storage';
 import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 
 // ── Per-tool icon map ─────────────────────────────────────────────────────────
 // Maps each Studio AI tool name to an MUI icon component for the tool call cards.
@@ -53,34 +55,36 @@ export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
   get_current_date: CalendarTodayIcon,
 };
 
-export const STUDIO_TOOL_LABELS: Record<string, string> = {
+// Maps each Studio AI tool name to the `StudioLocaleText` key holding its localized
+// tool-card title, so the labels flow through the package's `localeText` system.
+export const STUDIO_TOOL_LABEL_KEYS: Record<string, keyof StudioLocaleText> = {
   // Dashboard-level tools
-  get_dashboard_state: 'Get dashboard state',
-  set_dashboard_title: 'Set dashboard title',
+  get_dashboard_state: 'chatToolLabelGetDashboardState',
+  set_dashboard_title: 'chatToolLabelSetDashboardTitle',
   // Page tools
-  add_page: 'Add page',
-  rename_page: 'Rename page',
-  remove_page: 'Remove page',
-  set_active_page: 'Switch page',
+  add_page: 'chatToolLabelAddPage',
+  rename_page: 'chatToolLabelRenamePage',
+  remove_page: 'chatToolLabelRemovePage',
+  set_active_page: 'chatToolLabelSetActivePage',
   // Widget tools
-  add_widget: 'Add widget',
-  update_widget: 'Update widget',
-  remove_widget: 'Remove widget',
-  set_widget_layout: 'Set widget layout',
-  set_widget_width: 'Set widget width',
-  set_widget_forecast: 'Set widget forecast',
+  add_widget: 'chatToolLabelAddWidget',
+  update_widget: 'chatToolLabelUpdateWidget',
+  remove_widget: 'chatToolLabelRemoveWidget',
+  set_widget_layout: 'chatToolLabelSetWidgetLayout',
+  set_widget_width: 'chatToolLabelSetWidgetWidth',
+  set_widget_forecast: 'chatToolLabelSetWidgetForecast',
   // Filter tools
-  add_page_filter: 'Add page filter',
-  remove_page_filter: 'Remove page filter',
-  add_widget_filter: 'Add widget filter',
-  remove_widget_filter: 'Remove widget filter',
+  add_page_filter: 'chatToolLabelAddPageFilter',
+  remove_page_filter: 'chatToolLabelRemovePageFilter',
+  add_widget_filter: 'chatToolLabelAddWidgetFilter',
+  remove_widget_filter: 'chatToolLabelRemoveWidgetFilter',
   // Insight / utility tools
-  summarise_page: 'Summarise page',
-  apply_bulk_update: 'Apply bulk update',
-  rename_thread: 'Rename thread',
-  query_data_source: 'Query data source',
+  summarise_page: 'chatToolLabelSummarisePage',
+  apply_bulk_update: 'chatToolLabelApplyBulkUpdate',
+  rename_thread: 'chatToolLabelRenameThread',
+  query_data_source: 'chatToolLabelQueryDataSource',
   // Date / calendar tools
-  get_current_date: 'Get current date',
+  get_current_date: 'chatToolLabelGetCurrentDate',
 };
 
 function StudioToolTitle({
@@ -88,10 +92,10 @@ function StudioToolTitle({
   children,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & { ownerState?: ToolPartOwnerState }) {
-  const label =
-    ownerState?.toolName !== undefined
-      ? (STUDIO_TOOL_LABELS[ownerState.toolName] ?? children)
-      : children;
+  const localeText = useStudioLocaleText();
+  const localeKey =
+    ownerState?.toolName !== undefined ? STUDIO_TOOL_LABEL_KEYS[ownerState.toolName] : undefined;
+  const label = localeKey !== undefined ? (localeText[localeKey] as string) : children;
   return <div {...props}>{label}</div>;
 }
 

@@ -31,8 +31,7 @@ export interface StudioAIConfig {
    * Typically `http://localhost:3020/api/ai` when using `x-studio-dev-server`.
    * The following paths are appended automatically for each operation:
    * - `/chat` — streaming chat (SSE)
-   * - `/insight` — widget insight generation
-   * - `/title` — chat session title generation
+   * - `/approval` — tool-call approval responses
    * - `/widget` — widget creation from description
    */
   endpoint: string;
@@ -137,8 +136,9 @@ export function createBackendChatAdapter(
   const chatUrl = `${baseUrl}/chat`;
   const approvalUrl = `${baseUrl}/approval`;
 
-  // Skills are already in serializable form — the execute function (if present) is stripped
-  // by the caller (StudioAISkill satisfies SerializableSkill structurally).
+  // Strip any non-serializable fields (notably an `execute` function) by rebuilding
+  // each skill from only its serializable fields — `name`, `mode`, `promptFragment`,
+  // and the `tool` schema — before it is sent to the server.
   const serializableSkills = skills?.map((s) => ({
     name: s.name,
     mode: s.mode,
@@ -369,6 +369,20 @@ export function createBackendChatAdapter(
                   type: 'tool-input-delta',
                   toolCallId,
                   inputTextDelta: JSON.stringify(toolInput ?? {}),
+                });
+                // The `tool-input-delta` above only advances the invocation to
+                // `input-streaming` — x-chat's stream processor never parses its
+                // text back into `toolInvocation.input`. Emit a `tool-input-available`
+                // chunk carrying the already-parsed input object (mirroring the
+                // `tool-approval-request` path, which forwards `input` directly) so
+                // the tool card actually renders the call's arguments. The invocation
+                // was already created as a dynamic tool by the `tool-input-start`
+                // above, so the processor's update path just fills in `input` here.
+                streamController.enqueue({
+                  type: 'tool-input-available',
+                  toolCallId,
+                  toolName,
+                  input: toolInput ?? {},
                 });
               } else if (phase === 'complete') {
                 streamController.enqueue({

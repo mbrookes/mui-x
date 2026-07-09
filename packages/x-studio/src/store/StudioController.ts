@@ -449,8 +449,19 @@ export class StudioController {
     });
   };
 
-  setState = (state: StudioState) => {
-    this.commitState(state);
+  /**
+   * Replaces the whole state.
+   *
+   * `options.undoable` (default `true`) is forwarded to `commitState`, so system-
+   * initiated writes that touch `doc` but must NOT enter the authored-edit timeline
+   * (e.g. streaming AI chat-thread message write-backs, which fire on every token
+   * delta and would otherwise flood/evict the user's real undo history) can pass
+   * `{ undoable: false }`. A commit that only changes `session`/`runtime` never
+   * pushes an undo entry regardless of this flag; the flag matters only when `doc`
+   * changes by reference.
+   */
+  setState = (state: StudioState, options?: { undoable?: boolean }) => {
+    this.commitState(state, options);
   };
 
   /**

@@ -93,16 +93,24 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
             },
           ];
 
-      controller.setState({
-        ...state,
-        doc: {
-          ...state.doc,
-          ai: {
-            threads: updatedThreads,
-            activeThreadId: state.doc.ai?.activeThreadId ?? targetThreadId,
+      // Non-undoable: `onMessagesChange` fires on every streamed token delta
+      // (~every 16ms). A `{ undoable: true }` write here would push a fresh undo
+      // snapshot per delta — hundreds per response — flooding and evicting the
+      // user's real document-editing undo history. Chat-thread state lives in `doc`
+      // (it is persisted) but is not part of the authored-edit timeline.
+      controller.setState(
+        {
+          ...state,
+          doc: {
+            ...state.doc,
+            ai: {
+              threads: updatedThreads,
+              activeThreadId: state.doc.ai?.activeThreadId ?? targetThreadId,
+            },
           },
         },
-      });
+        { undoable: false },
+      );
     },
     [controller, localeText.chatNewConversationName],
   );
@@ -114,19 +122,24 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
     const now = new Date().toISOString();
     const state = controller.getState();
     const existingThreads = state.doc.ai?.threads ?? [];
-    controller.setState({
-      ...state,
-      doc: {
-        ...state.doc,
-        ai: {
-          threads: [
-            ...existingThreads,
-            { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
-          ],
-          activeThreadId: newId,
+    // Non-undoable: creating/switching chat threads is not an authored dashboard
+    // edit and must not consume the user's undo history (see handleMessagesChange).
+    controller.setState(
+      {
+        ...state,
+        doc: {
+          ...state.doc,
+          ai: {
+            threads: [
+              ...existingThreads,
+              { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
+            ],
+            activeThreadId: newId,
+          },
         },
       },
-    });
+      { undoable: false },
+    );
     // Update the stable ref so the next message goes to the new thread.
     defaultThreadId.current = newId;
   }, [controller, localeText.chatNewConversationName]);
@@ -134,13 +147,17 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   const handleSelectThread = React.useCallback(
     (threadId: string) => {
       const state = controller.getState();
-      controller.setState({
-        ...state,
-        doc: {
-          ...state.doc,
-          ai: { ...(state.doc.ai ?? { threads: [] }), activeThreadId: threadId },
+      // Non-undoable: switching the active chat thread is not an authored edit.
+      controller.setState(
+        {
+          ...state,
+          doc: {
+            ...state.doc,
+            ai: { ...(state.doc.ai ?? { threads: [] }), activeThreadId: threadId },
+          },
         },
-      });
+        { undoable: false },
+      );
       defaultThreadId.current = threadId;
       setThreadMenuAnchor(null);
     },

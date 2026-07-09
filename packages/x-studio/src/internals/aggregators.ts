@@ -3,6 +3,7 @@ import { sortLabels, type XGroupBy } from './temporalUtils';
 import { applyXGroupBy, isEmptyXValue, toXValue } from './chartValues';
 import {
   accumulateValue,
+  coerceAggregateValue,
   createAggregateAccumulator,
   finalizeAccumulator,
   type AggregateAccumulator,
@@ -140,12 +141,17 @@ export function applyRankToSeriesFieldData(
     score: (data.seriesData[name] ?? []).reduce<number>((acc, v) => acc + (v ?? 0), 0),
   }));
   scored.sort((a, b) => (dir === 'top' ? b.score - a.score : a.score - b.score));
-  const keepNames = new Set(scored.slice(0, n).map((s) => s.name));
+  // `seriesNames` may hold genuine numbers (numeric split-by values survive as numbers
+  // through `toXValue`), but `Object.entries(seriesData)` keys are always strings. Coerce
+  // both sides to a string before the membership test so a numeric `2024` matches its
+  // string `"2024"` `seriesData` key — otherwise the series' data column is dropped and the
+  // renderers crash reading `undefined` (finding 1.13).
+  const keepNames = new Set(scored.slice(0, n).map((s) => String(s.name)));
   return {
     labels: data.labels,
-    seriesNames: data.seriesNames.filter((name) => keepNames.has(name)),
+    seriesNames: data.seriesNames.filter((name) => keepNames.has(String(name))),
     seriesData: Object.fromEntries(
-      Object.entries(data.seriesData).filter(([name]) => keepNames.has(name as string | number)),
+      Object.entries(data.seriesData).filter(([name]) => keepNames.has(name)),
     ),
   };
 }
@@ -240,8 +246,10 @@ export function aggregateByField(
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): AggregatedData {
-  const grouped = new Map<string | number, number>();
+  // Row counts per x-value (drive the 'count' aggregation and define the label set).
   const counts = new Map<string | number, number>();
+  // Per-x-value streaming accumulators for sum/avg/min/max (shared null-skip policy).
+  const accumulators = new Map<string | number, CellAcc>();
 
   // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
   // count so callers that omit yAggregation don't get NaN in the chart.
@@ -264,40 +272,35 @@ export function aggregateByField(
     }
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
-    const count = (counts.get(xVal) ?? 0) + 1;
-    counts.set(xVal, count);
+    counts.set(xVal, (counts.get(xVal) ?? 0) + 1);
 
-    if (effectiveAggregation === 'count') {
-      grouped.set(xVal, count);
-    } else {
-      const yVal = Number(row[yField] ?? 0);
-      const prev = grouped.get(xVal) ?? 0;
-      if (effectiveAggregation === 'sum') {
-        grouped.set(xVal, prev + yVal);
-      } else if (effectiveAggregation === 'avg') {
-        // Store running sum; divide by count at the end
-        grouped.set(xVal, prev + yVal);
-      } else if (effectiveAggregation === 'min') {
-        grouped.set(xVal, count === 1 ? yVal : Math.min(prev, yVal));
-      } else if (effectiveAggregation === 'max') {
-        grouped.set(xVal, count === 1 ? yVal : Math.max(prev, yVal));
+    if (effectiveAggregation !== 'count') {
+      // Route through the shared coercion policy: null/undefined/non-numeric values
+      // are skipped (not coerced to 0), so they no longer inflate avg denominators or
+      // drag min toward 0 (finding 1.4). Booleans coerce to 0/1.
+      const coerced = coerceAggregateValue(row[yField]);
+      if (coerced !== null) {
+        accumulateCell(accumulators, xVal, coerced);
       }
     }
   }
 
-  if (effectiveAggregation === 'avg') {
-    for (const [key, sum] of grouped) {
-      grouped.set(key, sum / (counts.get(key) ?? 1));
+  const valueFor = (label: string | number): number => {
+    if (effectiveAggregation === 'count') {
+      return counts.get(label) ?? 0;
     }
-  }
+    return finalizeCell(accumulators.get(label), effectiveAggregation) ?? 0;
+  };
 
-  const labels = orderLabels(sortLabels(Array.from(grouped.keys())), {
+  // Labels come from every x-value that had at least one (non-empty-x) row, so an
+  // x-value whose measure is entirely null still renders (as 0), matching prior behaviour.
+  const labels = orderLabels(sortLabels(Array.from(counts.keys())), {
     sortBy,
     sortDirection,
     categoryOrder,
-    valueOf: (label) => grouped.get(label) ?? 0,
+    valueOf: (label) => valueFor(label),
   });
-  const values = labels.map((label) => grouped.get(label) ?? 0);
+  const values = labels.map((label) => valueFor(label));
 
   return { labels, values };
 }
@@ -330,7 +333,6 @@ export function aggregateByTwoFields(
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     const seriesVal = toXValue(row[seriesField]);
-    const yVal = Number(row[yField] ?? 0);
 
     xValuesSet.add(xVal);
     seriesValuesSet.add(seriesVal);
@@ -340,7 +342,18 @@ export function aggregateByTwoFields(
       seriesMap = new Map();
       dataMap.set(xVal, seriesMap);
     }
-    accumulateCell(seriesMap, seriesVal, yVal);
+    if (yAggregation === 'count') {
+      // 'count' tallies rows regardless of the measure value (null rows included),
+      // matching the KPI reference; the accumulated value is irrelevant.
+      accumulateCell(seriesMap, seriesVal, 1);
+    } else {
+      // Route through the shared coercion policy so null/undefined/non-numeric values
+      // are skipped rather than coerced to 0 (finding 1.4).
+      const coerced = coerceAggregateValue(row[yField]);
+      if (coerced !== null) {
+        accumulateCell(seriesMap, seriesVal, coerced);
+      }
+    }
   }
 
   const seriesNames = sortLabels(Array.from(seriesValuesSet));
@@ -404,6 +417,12 @@ export function aggregateMultipleSeries(
   const fieldAggregation = (fieldId: string): ChartAggFn =>
     useCount.has(fieldId) ? 'count' : configuredAggregation(fieldId);
 
+  // Resolve each field's aggregation once so the row loop can decide per field whether
+  // to count every row or to skip null/non-numeric values (finding 1.4).
+  const aggByField = new Map<string, ChartAggFn>(
+    yFields.map((fieldId) => [fieldId, fieldAggregation(fieldId)]),
+  );
+
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
   // Map: label → fieldId → per-cell accumulator (sum/count/min/max).
@@ -422,8 +441,16 @@ export function aggregateMultipleSeries(
     }
     const fieldMap = dataMap.get(xVal)!;
     for (const fieldId of yFields) {
-      // For count fields the value is irrelevant — accumulateCell only counts rows.
-      accumulateCell(fieldMap, fieldId, Number(row[fieldId] ?? 0));
+      if (aggByField.get(fieldId) === 'count') {
+        // 'count' tallies rows (null rows included); the value is irrelevant.
+        accumulateCell(fieldMap, fieldId, 1);
+      } else {
+        // Skip null/undefined/non-numeric values instead of coercing them to 0.
+        const coerced = coerceAggregateValue(row[fieldId]);
+        if (coerced !== null) {
+          accumulateCell(fieldMap, fieldId, coerced);
+        }
+      }
     }
   }
 

@@ -70,10 +70,13 @@ export function aggregateNumbers(values: number[], fn: AggregateFn): number {
   switch (fn) {
     case 'avg':
       return values.reduce((acc, v) => acc + v, 0) / values.length;
+    // `Math.min(...values)` / `Math.max(...values)` throw `RangeError: Maximum call
+    // stack size exceeded` once `values` is large enough (~125k+ args in Node 22),
+    // so reduce with a loop instead — mirrors `utils/gridSummary.ts`.
     case 'min':
-      return Math.min(...values);
+      return values.reduce((acc, v) => (v < acc ? v : acc));
     case 'max':
-      return Math.max(...values);
+      return values.reduce((acc, v) => (v > acc ? v : acc));
     case 'sum':
     default:
       return values.reduce((acc, v) => acc + v, 0);

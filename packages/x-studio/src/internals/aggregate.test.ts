@@ -52,6 +52,20 @@ describe('aggregateNumbers', () => {
     expect(aggregateNumbers([], 'count')).toBe(0);
     expect(aggregateNumbers([], 'count_distinct')).toBe(0);
   });
+
+  // Regression (finding 1.5): `Math.min(...values)` / `Math.max(...values)` throw
+  // `RangeError: Maximum call stack size exceeded` past ~125k args, so a KPI/map widget
+  // configured with min/max over a large filtered set crashed mid-render. The loop-based
+  // reduction handles arbitrarily large arrays.
+  it('computes min/max over a large array without a RangeError', () => {
+    const big = new Array<number>(200_000);
+    for (let i = 0; i < big.length; i += 1) {
+      big[i] = i;
+    }
+    expect(() => aggregateNumbers(big, 'min')).not.toThrow();
+    expect(aggregateNumbers(big, 'min')).toBe(0);
+    expect(aggregateNumbers(big, 'max')).toBe(big.length - 1);
+  });
 });
 
 describe('streaming accumulator', () => {

@@ -426,8 +426,8 @@ describe('Vega-Lite golden examples', () => {
     });
   });
 
-  // 12. Bubble-ish scatter (size field — expect partial gap) -----------------
-  describe('bubble-ish scatter (size field)', () => {
+  // 12. Bubble scatter (size field → per-point sizeValue + zAxis sizeMap) ----
+  describe('bubble scatter (size field)', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [
@@ -443,12 +443,20 @@ describe('Vega-Lite golden examples', () => {
       },
     };
 
-    it('still renders markers but reports a partial gap: per-point size-by-field is unsupported in MIT scatter', () => {
+    it('maps the size field to per-point sizeValue with a zAxis sizeMap', () => {
       const compiled = compileSpec(spec);
       const series = compiled.series[0] as ScatterSeries;
       expect(series.data).to.have.length(2);
-      const gap = compiled.gaps.find((entry) => entry.code === 'encoding:size-field');
-      expect(gap?.severity).to.equal('partial');
+      expect(
+        (series.data as ReadonlyArray<{ sizeValue?: number }>).map((point) => point.sizeValue),
+      ).to.deep.equal([3400, 3700]);
+      const sizeAxis = compiled.zAxis?.find(
+        (axis) => (axis as { sizeMap?: unknown }).sizeMap !== undefined,
+      );
+      expect(sizeAxis).to.not.equal(undefined);
+      expect(compiled.gaps.find((entry) => entry.code === 'encoding:size-field')).to.equal(
+        undefined,
+      );
     });
   });
 

@@ -850,6 +850,33 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatMessageCopiedTooltip: 'Copiado!',
   chatMessageCopyAriaLabel: 'Copiar mensagem',
   chatMessageRetryTooltip: 'Tentar novamente',
+  chatReasoningThinkingLabel: 'Pensando…',
+  chatReasoningSectionLabel: 'Raciocínio',
+  chatComposerStopGeneratingLabel: 'Parar geração',
+  chatComposerSendMessageLabel: 'Enviar mensagem',
+
+  // AI chat tool-call card titles
+  chatToolLabelGetDashboardState: 'Obter estado do painel',
+  chatToolLabelSetDashboardTitle: 'Definir título do painel',
+  chatToolLabelAddPage: 'Adicionar página',
+  chatToolLabelRenamePage: 'Renomear página',
+  chatToolLabelRemovePage: 'Remover página',
+  chatToolLabelSetActivePage: 'Alternar página',
+  chatToolLabelAddWidget: 'Adicionar widget',
+  chatToolLabelUpdateWidget: 'Atualizar widget',
+  chatToolLabelRemoveWidget: 'Remover widget',
+  chatToolLabelSetWidgetLayout: 'Definir layout do widget',
+  chatToolLabelSetWidgetWidth: 'Definir largura do widget',
+  chatToolLabelSetWidgetForecast: 'Definir previsão do widget',
+  chatToolLabelAddPageFilter: 'Adicionar filtro de página',
+  chatToolLabelRemovePageFilter: 'Remover filtro de página',
+  chatToolLabelAddWidgetFilter: 'Adicionar filtro de widget',
+  chatToolLabelRemoveWidgetFilter: 'Remover filtro de widget',
+  chatToolLabelSummarisePage: 'Resumir página',
+  chatToolLabelApplyBulkUpdate: 'Aplicar atualização em massa',
+  chatToolLabelRenameThread: 'Renomear conversa',
+  chatToolLabelQueryDataSource: 'Consultar fonte de dados',
+  chatToolLabelGetCurrentDate: 'Obter data atual',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

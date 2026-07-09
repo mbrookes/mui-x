@@ -857,6 +857,33 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chatMessageCopiedTooltip: 'Kopiert!',
   chatMessageCopyAriaLabel: 'Nachricht kopieren',
   chatMessageRetryTooltip: 'Erneut versuchen',
+  chatReasoningThinkingLabel: 'Denke nach…',
+  chatReasoningSectionLabel: 'Begründung',
+  chatComposerStopGeneratingLabel: 'Generierung stoppen',
+  chatComposerSendMessageLabel: 'Nachricht senden',
+
+  // AI chat tool-call card titles
+  chatToolLabelGetDashboardState: 'Dashboard-Status abrufen',
+  chatToolLabelSetDashboardTitle: 'Dashboard-Titel festlegen',
+  chatToolLabelAddPage: 'Seite hinzufügen',
+  chatToolLabelRenamePage: 'Seite umbenennen',
+  chatToolLabelRemovePage: 'Seite entfernen',
+  chatToolLabelSetActivePage: 'Seite wechseln',
+  chatToolLabelAddWidget: 'Widget hinzufügen',
+  chatToolLabelUpdateWidget: 'Widget aktualisieren',
+  chatToolLabelRemoveWidget: 'Widget entfernen',
+  chatToolLabelSetWidgetLayout: 'Widget-Layout festlegen',
+  chatToolLabelSetWidgetWidth: 'Widget-Breite festlegen',
+  chatToolLabelSetWidgetForecast: 'Widget-Prognose festlegen',
+  chatToolLabelAddPageFilter: 'Seitenfilter hinzufügen',
+  chatToolLabelRemovePageFilter: 'Seitenfilter entfernen',
+  chatToolLabelAddWidgetFilter: 'Widget-Filter hinzufügen',
+  chatToolLabelRemoveWidgetFilter: 'Widget-Filter entfernen',
+  chatToolLabelSummarisePage: 'Seite zusammenfassen',
+  chatToolLabelApplyBulkUpdate: 'Massenaktualisierung anwenden',
+  chatToolLabelRenameThread: 'Unterhaltung umbenennen',
+  chatToolLabelQueryDataSource: 'Datenquelle abfragen',
+  chatToolLabelGetCurrentDate: 'Aktuelles Datum abrufen',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

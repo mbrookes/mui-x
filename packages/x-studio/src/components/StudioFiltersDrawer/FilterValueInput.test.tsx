@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { FilterValueInput } from './FilterValueInput';
 
 const { render } = createRenderer();
@@ -53,16 +55,22 @@ describe('FilterValueInput', () => {
     // A between filter on a date field must expose two independent date inputs (from + to),
     // not a single-date picker that cannot express a range.
     render(
-      <FilterValueInput
-        fieldType="date"
-        operator="between"
-        value={{ from: '2024-01-01', to: '2024-02-01' }}
-        onChange={() => {}}
-      />,
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <FilterValueInput
+          fieldType="date"
+          operator="between"
+          value={{ from: '2024-01-01', to: '2024-02-01' }}
+          onChange={() => {}}
+        />
+      </LocalizationProvider>,
     );
-    // DateValueInput renders a mode toggle per bound; two "From/To"-labelled date pickers appear.
-    expect(screen.getByLabelText('From')).not.toBe(null);
-    expect(screen.getByLabelText('To')).not.toBe(null);
+    // DateValueInput renders a mode toggle per bound; two "From/To"-labelled date pickers
+    // appear. The sectioned date field exposes its label via an `aria-labelledby` group,
+    // not a plain labelled input, so `getByRole('group', { name })` is the unambiguous way
+    // to find it (`getByLabelText` matches both that group and the field's hidden native
+    // input — see `DateRangeControl.test.tsx`'s `getDateField` helper for the same pattern).
+    expect(screen.getByRole('group', { name: 'From' })).not.toBe(null);
+    expect(screen.getByRole('group', { name: 'To' })).not.toBe(null);
   });
 
   it('renders nothing for is_empty operator', () => {

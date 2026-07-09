@@ -106,13 +106,27 @@ export class StudioController {
     const isAutoSubtitle =
       widget.subtitleMode === 'auto' || (!widget.subtitleMode && !widget.subtitle);
 
-    return {
-      ...widget,
-      title: isAutoTitle ? inferred.title : widget.title,
-      titleMode: isAutoTitle ? 'auto' : widget.titleMode,
-      subtitle: isAutoSubtitle ? inferred.subtitle : widget.subtitle,
-      subtitleMode: isAutoSubtitle ? 'auto' : widget.subtitleMode,
-    };
+    const title = isAutoTitle ? inferred.title : widget.title;
+    const titleMode = isAutoTitle ? 'auto' : widget.titleMode;
+    const subtitle = isAutoSubtitle ? inferred.subtitle : widget.subtitle;
+    const subtitleMode = isAutoSubtitle ? 'auto' : widget.subtitleMode;
+
+    // Reference-stable when nothing user-visible actually changed, so a caller
+    // relying on this to detect "no real update happened" (e.g.
+    // `commitMutations`' no-op check) doesn't see a no-op re-infer as a real
+    // commit. Only the TEXT is compared — `titleMode`/`subtitleMode` are
+    // derived bookkeeping (e.g. normalizing an unset mode to `'auto'` the
+    // first time this runs on a widget that predates the auto/explicit split)
+    // and shouldn't by themselves count as a change when the displayed text is
+    // identical. `sameText` treats `undefined` and `''` as equivalent ("no
+    // title/subtitle") — inferring an empty subtitle for a widget whose
+    // `subtitle` field was simply never set is not a real change either.
+    const sameText = (a: string | undefined, b: string | undefined) => a === b || (!a && !b);
+    if (sameText(title, widget.title) && sameText(subtitle, widget.subtitle)) {
+      return widget;
+    }
+
+    return { ...widget, title, titleMode, subtitle, subtitleMode };
   }
 
   getState = () => this.store.state;
@@ -436,14 +450,22 @@ export class StudioController {
     },
   ) => {
     const next = mutations.reduce(applyMutation, this.store.state);
-    if (next === this.store.state) {
+    // `transform` must run even when the reducer fold itself was a no-op: some
+    // callers (e.g. `updateWidget` re-triggering title inference via an
+    // idempotent `changes` payload) rely on `transform` alone to produce a
+    // change. So the no-op check happens on `transform`'s OUTPUT, not on the
+    // reducer's raw result — checking `next === this.store.state` here would
+    // skip `transform` entirely once the reducer gained its own no-op
+    // fast path.
+    const transformed = options?.transform ? options.transform(next) : next;
+    if (transformed === this.store.state) {
       return;
     }
     const label =
       options?.label === null
         ? undefined
         : (options?.label ?? mutations.map(mutationLabel).join(' + '));
-    this.commitState(options?.transform ? options.transform(next) : next, {
+    this.commitState(transformed, {
       undoable: options?.undoable,
       label,
     });
@@ -669,13 +691,20 @@ export class StudioController {
     this.commitMutation(
       { type: 'addWidget', args: { widget, pageId: state.doc.dashboard.activePageId } },
       {
-        transform: (next) => ({
-          ...next,
-          session: {
-            ...next.session,
-            shell: { ...next.session.shell, selectedWidgetId: widget.id },
-          },
-        }),
+        // The reducer no-ops (same state reference) for an unknown page or an
+        // already-existing widget id — guard on the widget's actual presence so
+        // that case stays a true no-op instead of transform unconditionally
+        // manufacturing a new session object.
+        transform: (next) =>
+          Object.hasOwn(next.doc.widgets, widget.id)
+            ? {
+                ...next,
+                session: {
+                  ...next.session,
+                  shell: { ...next.session.shell, selectedWidgetId: widget.id },
+                },
+              }
+            : next,
       },
     );
   };
@@ -705,13 +734,19 @@ export class StudioController {
         // Matches `addWidget()`'s reducer-default label shape so the compose-drawer
         // insert is indistinguishable from a plain add in the recent-mutation log.
         label: `addWidget:${widget.kind}:${widget.id}`,
-        transform: (next) => ({
-          ...next,
-          session: {
-            ...next.session,
-            shell: { ...next.session.shell, selectedWidgetId: widget.id },
-          },
-        }),
+        // Guard on the widget's actual presence: the fold no-ops (same state
+        // reference) for an unknown page, and transform must not unconditionally
+        // manufacture a new session object in that case.
+        transform: (next) =>
+          Object.hasOwn(next.doc.widgets, widget.id)
+            ? {
+                ...next,
+                session: {
+                  ...next.session,
+                  shell: { ...next.session.shell, selectedWidgetId: widget.id },
+                },
+              }
+            : next,
       },
     );
   };
@@ -902,6 +937,9 @@ export class StudioController {
           : (next) => {
               const updated = next.doc.widgets[widgetId];
               const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+              if (withTitles === updated) {
+                return next;
+              }
               return {
                 ...next,
                 doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
@@ -999,6 +1037,9 @@ export class StudioController {
         transform: (next) => {
           const updated = next.doc.widgets[widgetId];
           const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+          if (withTitles === updated) {
+            return next;
+          }
           return {
             ...next,
             doc: { ...next.doc, widgets: { ...next.doc.widgets, [widgetId]: withTitles } },
@@ -1611,13 +1652,19 @@ export class StudioController {
     targetRows: string[][],
   ) => {
     this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows, {
-      transform: (next) => ({
-        ...next,
-        session: {
-          ...next.session,
-          shell: { ...next.session.shell, selectedWidgetId: widgetId },
-        },
-      }),
+      // Guard on the widget's continued existence, mirroring `addWidget`/
+      // `insertWidgetAt`: if the fold no-op'd, transform must not unconditionally
+      // manufacture a new session object.
+      transform: (next) =>
+        Object.hasOwn(next.doc.widgets, widgetId)
+          ? {
+              ...next,
+              session: {
+                ...next.session,
+                shell: { ...next.session.shell, selectedWidgetId: widgetId },
+              },
+            }
+          : next,
     });
   };
 

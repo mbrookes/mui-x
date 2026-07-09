@@ -861,6 +861,33 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatMessageCopiedTooltip: 'Copié\u00a0!',
   chatMessageCopyAriaLabel: 'Copier le message',
   chatMessageRetryTooltip: 'Réessayer',
+  chatReasoningThinkingLabel: 'Réflexion en cours…',
+  chatReasoningSectionLabel: 'Raisonnement',
+  chatComposerStopGeneratingLabel: 'Arrêter la génération',
+  chatComposerSendMessageLabel: 'Envoyer le message',
+
+  // AI chat tool-call card titles
+  chatToolLabelGetDashboardState: 'Obtenir l’état du tableau de bord',
+  chatToolLabelSetDashboardTitle: 'Définir le titre du tableau de bord',
+  chatToolLabelAddPage: 'Ajouter une page',
+  chatToolLabelRenamePage: 'Renommer la page',
+  chatToolLabelRemovePage: 'Supprimer la page',
+  chatToolLabelSetActivePage: 'Changer de page',
+  chatToolLabelAddWidget: 'Ajouter un widget',
+  chatToolLabelUpdateWidget: 'Mettre à jour le widget',
+  chatToolLabelRemoveWidget: 'Supprimer le widget',
+  chatToolLabelSetWidgetLayout: 'Définir la disposition du widget',
+  chatToolLabelSetWidgetWidth: 'Définir la largeur du widget',
+  chatToolLabelSetWidgetForecast: 'Définir la prévision du widget',
+  chatToolLabelAddPageFilter: 'Ajouter un filtre de page',
+  chatToolLabelRemovePageFilter: 'Supprimer le filtre de page',
+  chatToolLabelAddWidgetFilter: 'Ajouter un filtre de widget',
+  chatToolLabelRemoveWidgetFilter: 'Supprimer le filtre de widget',
+  chatToolLabelSummarisePage: 'Résumer la page',
+  chatToolLabelApplyBulkUpdate: 'Appliquer une mise à jour groupée',
+  chatToolLabelRenameThread: 'Renommer la conversation',
+  chatToolLabelQueryDataSource: 'Interroger la source de données',
+  chatToolLabelGetCurrentDate: 'Obtenir la date actuelle',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

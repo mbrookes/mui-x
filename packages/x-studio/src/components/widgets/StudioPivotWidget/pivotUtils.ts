@@ -78,6 +78,14 @@ export function buildPivotMatrix(
     rowSet.add(rv);
     colSet.add(cv);
 
+    // The row's cell-map entry is membership too — a caller doing
+    // `matrix.cells.get(rv)` for a row/column pair that occurred in the input
+    // should get an (possibly empty) Map, not undefined, even when every
+    // measure value for that row turned out to be unusable.
+    if (!cells.has(rv)) {
+      cells.set(rv, new Map());
+    }
+
     if (v === null) {
       // Unusable measure value (null/undefined/NaN/non-numeric/object) — skip
       // it, don't zero it, mirroring `coerceAggregateValue`'s policy.
@@ -85,9 +93,6 @@ export function buildPivotMatrix(
     }
 
     // cell
-    if (!cells.has(rv)) {
-      cells.set(rv, new Map());
-    }
     const rowCells = cells.get(rv)!;
     if (!rowCells.has(cv)) {
       rowCells.set(cv, emptyAgg());

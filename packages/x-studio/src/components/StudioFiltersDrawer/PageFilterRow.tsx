@@ -82,7 +82,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
     [allPageFilters, filter.id, fields],
   );
 
-  const fieldValues = useFieldValues(filter.field, fieldType, parentFilters);
+  const fieldValues = useFieldValues(filter.field, fieldType, filter.filterSourceId, parentFilters);
   const fieldLabel = currentField?.label ?? filter.field;
   const filters = useStudioSelector(selectFilters);
   const pages = useStudioSelector(selectPages);
@@ -101,16 +101,25 @@ export function PageFilterRow(props: PageFilterRowProps) {
   // keeps applying the stale stored operator. Repair the doc to match what the UI shows.
   // Non-undoable, matching `KpiSetupPanel`'s `kpiAggregation` self-repair (finding 2.4):
   // the write fires from rendering, not a user gesture, and self-terminates once valid.
+  // 1.15: the SECOND condition's `operator2` (`activeOperator2` above) needs the same
+  // display-fallback + self-repair as the primary `operator`, otherwise a stored invalid
+  // `operator2` renders `operators[0]` while the engine keeps applying the stale one.
   const currentModeForRepair = filter.filterMode ?? 'condition';
   React.useEffect(() => {
-    if (
-      currentModeForRepair === 'condition' &&
-      filter.operator &&
-      !operators.some((o) => o.value === filter.operator)
-    ) {
-      controller.updateFilter(filter.id, { operator: operators[0].value }, { undoable: false });
+    if (currentModeForRepair !== 'condition') {
+      return;
     }
-  }, [currentModeForRepair, filter.operator, filter.id, operators, controller]);
+    const repair: Partial<StudioFilterState> = {};
+    if (filter.operator && !operators.some((o) => o.value === filter.operator)) {
+      repair.operator = operators[0].value;
+    }
+    if (filter.operator2 && !operators.some((o) => o.value === filter.operator2)) {
+      repair.operator2 = operators[0].value;
+    }
+    if (repair.operator !== undefined || repair.operator2 !== undefined) {
+      controller.updateFilter(filter.id, repair, { undoable: false });
+    }
+  }, [currentModeForRepair, filter.operator, filter.operator2, filter.id, operators, controller]);
 
   const handleModeChange = (newMode: FilterMode) => {
     if (newMode === 'rank' && disableRankMode) {

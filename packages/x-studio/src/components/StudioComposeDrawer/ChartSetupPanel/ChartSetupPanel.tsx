@@ -411,6 +411,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           config={chartConfig}
           allFields={allFields}
           widgetSourceId={widgetSourceId}
+          allFilters={allFilters}
+          relationships={relationships}
         />
       )}
 

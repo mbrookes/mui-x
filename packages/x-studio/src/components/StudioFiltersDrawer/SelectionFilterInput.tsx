@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { FIELD_VALUES_CAP } from './useFieldValues';
 
 export function SelectionFilterInput({
   values,
@@ -24,6 +25,10 @@ export function SelectionFilterInput({
   const localeText = useStudioLocaleText();
   const [search, setSearch] = React.useState('');
   const filtered = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
+  // Finding 2.15: `useFieldValues` caps distinct values at `FIELD_VALUES_CAP`. A length equal
+  // to the cap means the field is high-cardinality and the list is truncated — nudge the user
+  // to type in the search box to narrow it, since the truncated tail isn't shown otherwise.
+  const isCapped = values.length >= FIELD_VALUES_CAP;
 
   const toggle = (v: string) => {
     if (selected.includes(v)) {
@@ -70,6 +75,17 @@ export function SelectionFilterInput({
           },
         }}
       />
+      {isCapped && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          data-testid="selection-filter-cap-hint"
+        >
+          {/* Hardcoded English (localeText.ts is out of this change's scope); a follow-up
+              localization pass should route this through a `filterSelection*` locale key. */}
+          {`Showing the first ${FIELD_VALUES_CAP} values. Type to narrow the list.`}
+        </Typography>
+      )}
       <Box
         sx={{
           maxHeight: 180,

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioFilterState } from '../../models';
 import { FilterRow, type FieldOption } from './FilterRow';
@@ -18,6 +18,7 @@ function makeFilter(overrides: Partial<StudioFilterState> = {}): StudioFilterSta
 }
 
 const numberField: FieldOption = { id: 'amount', label: 'Amount', type: 'number' };
+const dateField: FieldOption = { id: 'created', label: 'Created', type: 'date' };
 
 describe('FilterRow', () => {
   it('renders the "Between" operator label for a between filter on a number field', () => {
@@ -91,6 +92,57 @@ describe('FilterRow', () => {
     fireEvent.change(fromInput, { target: { value: '15' } });
     fireEvent.blur(fromInput);
     expect(onUpdate).toHaveBeenCalledWith({ value: { from: '15', to: '20' } });
+  });
+
+  it('does NOT reset a RelativeDateValue when the operator switches between scalar operators (1.14)', async () => {
+    // Regression for finding 1.14: a `RelativeDateValue` is a non-array object but a valid
+    // scalar date value. The edit dialog's reset predicate used to also fire for it, so
+    // switching operator silently discarded the relative-date configuration.
+    const onUpdate = vi.fn();
+    const { user } = render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'created',
+          fieldType: 'date',
+          operator: 'equals',
+          value: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+        })}
+        fieldOptions={[dateField]}
+        onRemove={() => {}}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    // combobox[0] is the field selector; combobox[1] is the operator selector.
+    const operatorSelect = screen.getAllByRole('combobox')[1];
+    await user.click(operatorSelect);
+    const listbox = screen.getByRole('listbox');
+    await user.click(within(listbox).getByText('Before'));
+
+    // Only the operator changes — the relative value is preserved (no `value` key).
+    expect(onUpdate).toHaveBeenCalledWith({ operator: 'less_than' });
+  });
+
+  it('falls back to a valid operator for display when the stored operator is invalid for the field type (2.16)', () => {
+    // Regression for finding 2.16: an invalid stored operator (here a string `contains` on a
+    // number field) used to render raw into the operator Select — an out-of-range value that
+    // shows blank and logs a MUI dev warning. The dialog now mirrors the drawer's
+    // `activeOperator` fallback and displays `operators[0]` (`=`) instead.
+    render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'amount',
+          fieldType: 'number',
+          operator: 'contains',
+          value: 'x',
+        })}
+        fieldOptions={[numberField]}
+        onRemove={() => {}}
+        onUpdate={() => {}}
+      />,
+    );
+    const operatorSelect = screen.getAllByRole('combobox')[1];
+    expect(operatorSelect.textContent).toBe('=');
   });
 
   it('calls onRemove when the delete button is clicked', () => {

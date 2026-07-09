@@ -19,6 +19,7 @@ import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
 import { useStudioLocaleText } from '../../context';
 import { SecondCondition } from './SecondCondition';
+import { isRelativeDateValue } from './filterDrawerUtils';
 
 interface FilterBodyProps {
   filter: StudioFilterState;
@@ -91,10 +92,17 @@ export function FilterBody({
                 // value input render "[object Object]". Reset the value when the new operator
                 // is shape-incompatible. (The reverse, scalar → `between`, is handled in
                 // FilterValueInput's between branch — finding 1.10.)
+                //
+                // 1.14: a `RelativeDateValue` (`{ relative: true, amount, unit, direction }`)
+                // is ALSO a non-array object, but it's a fully-supported scalar date value —
+                // not a `between`-shaped one — so it must be excluded from the reset predicate,
+                // otherwise switching operator (e.g. "On" → "Before") silently discards a
+                // configured relative date.
                 const valueIsBetweenShape =
                   filter.value !== null &&
                   typeof filter.value === 'object' &&
-                  !Array.isArray(filter.value);
+                  !Array.isArray(filter.value) &&
+                  !isRelativeDateValue(filter.value);
                 onChange(
                   nextOperator !== 'between' && valueIsBetweenShape
                     ? { operator: nextOperator, value: '' }

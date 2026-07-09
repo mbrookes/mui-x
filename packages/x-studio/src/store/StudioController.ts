@@ -53,6 +53,8 @@ import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 import { hasConflictingRankFilter } from '../internals/rankFilterScope';
 import { hasExpressionCycle } from '../utils/expressionEvaluator';
+import { collectSelectFields } from '../internals/queryDescriptor';
+import { collectExpressionRefs } from '../internals/expressionRefs';
 import * as docTransforms from './docTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
@@ -775,8 +777,69 @@ export class StudioController {
     this.commitDocPatch({ expressionFields: nextFields });
   };
 
-  removeExpressionField = (fieldId: string) => {
+  /**
+   * Count the widgets, filters, and other expression fields that reference the given
+   * calculated field (2.14). Deleting a referenced field otherwise silently strands every
+   * dependent (a widget's xField/yField/column, a filter's field, or another expression's
+   * input) with no indication why the dependent then renders blank. Exposed so the UI layer
+   * (`DataSourceSection`) can surface a "used by N places — delete anyway?" confirmation.
+   */
+  getExpressionFieldReferenceCount = (fieldId: string): number => {
     const state = this.store.state;
+    const target = state.doc.expressionFields.find(
+      (ef: StudioExpressionField) => ef.id === fieldId,
+    );
+    if (!target) {
+      return 0;
+    }
+    let count = 0;
+    // Widgets that select this field anywhere in their config (xField/yField/columns/…).
+    for (const widget of Object.values(state.doc.widgets) as StudioWidget[]) {
+      if (collectSelectFields(widget).includes(fieldId)) {
+        count += 1;
+      }
+    }
+    // Filters (page/widget/cross) whose target field is this expression field.
+    for (const filter of state.doc.filters as StudioFilterState[]) {
+      if (filter.field === fieldId) {
+        count += 1;
+      }
+    }
+    // Other same-source expression fields that reference this one in their formula.
+    for (const ef of state.doc.expressionFields as StudioExpressionField[]) {
+      if (
+        ef.id !== fieldId &&
+        ef.sourceId === target.sourceId &&
+        collectExpressionRefs(ef.expression).includes(fieldId)
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  };
+
+  /**
+   * Removes a calculated (expression) field.
+   *
+   * Returns the number of widgets/filters/expressions that still referenced the field at
+   * deletion time (2.14). Deletion is still performed even when references exist
+   * (guard-and-continue, mirroring `addExpressionField`'s cycle guard — enrichment and
+   * `evaluateMeasure` already tolerate a missing field id via the 2.8 missing-ref guards, so
+   * nothing downstream crashes); the count is surfaced (dev warning + return value) so the
+   * caller can confirm first or a future UI pass can gate on it.
+   */
+  removeExpressionField = (fieldId: string): number => {
+    const state = this.store.state;
+    // Reference check BEFORE the filter-out (2.14): warn in dev when live references remain.
+    const referenceCount = this.getExpressionFieldReferenceCount(fieldId);
+    if (referenceCount > 0 && process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: Calculated field '${fieldId}' was deleted while still referenced by ` +
+          `${referenceCount} widget(s)/filter(s)/expression(s). Those references now resolve ` +
+          'to no value and their widgets may render blank. Remove or repoint them, or confirm ' +
+          'the deletion via the data drawer before deleting a referenced field.',
+      );
+    }
     // Identity-preserving no-op (1.6): `.filter` always builds a new array, so an
     // unknown id would otherwise commit a fresh-but-identical `expressionFields`
     // as an undoable, logged step. Pass the ORIGINAL array when nothing was removed
@@ -788,6 +851,7 @@ export class StudioController {
       expressionFields:
         next.length === state.doc.expressionFields.length ? state.doc.expressionFields : next,
     });
+    return referenceCount;
   };
 
   addWidget = (widget: StudioWidget) => {

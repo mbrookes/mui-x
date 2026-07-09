@@ -110,9 +110,14 @@ describe('compilePointMark', () => {
     expect(gap?.severity).to.equal('partial');
   });
 
-  it('reports a partial gap for a quantitative size field encoding (no per-point size in MIT scatter)', () => {
+  it('maps a quantitative size field to per-point sizeValue + a zAxis sizeMap (bubble chart), with no gap', () => {
     const spec: VegaLiteSpec = {
-      data: { values: [{ x: 1, y: 1, weight: 5 }] },
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 5 },
+          { x: 2, y: 2, weight: 15 },
+        ],
+      },
       mark: 'point',
       encoding: {
         x: { field: 'x', type: 'quantitative' },
@@ -121,10 +126,42 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:size-field');
-    expect(gap?.severity).to.equal('partial');
-    // The layer still renders (degrade gracefully, not drop the mark).
+    // Fully supported now — no partial gap for the quantitative case.
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:size-field');
     expect(compiled.series).to.have.length(1);
+    const series = compiled.series[0] as unknown as {
+      data: Array<{ x: number; y: number; sizeValue?: number }>;
+    };
+    expect(series.data.map((datum) => datum.sizeValue)).to.deep.equal([5, 15]);
+    expect(compiled.zAxis).to.have.length(1);
+    const zAxis = compiled.zAxis![0] as unknown as {
+      min?: number;
+      max?: number;
+      sizeMap?: { type: string; size: [number, number]; interpolator?: string };
+    };
+    expect(zAxis.min).to.equal(5);
+    expect(zAxis.max).to.equal(15);
+    expect(zAxis.sizeMap?.type).to.equal('continuous');
+    expect(zAxis.sizeMap?.size).to.deep.equal([4, 20]);
+  });
+
+  it('reports a partial gap for a non-quantitative size field (no x-charts size-scale equivalent)', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1, tier: 'gold' }] },
+      mark: 'point',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: { field: 'tier', type: 'nominal' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'encoding:size-field-non-quantitative',
+    );
+    expect(gap?.severity).to.equal('partial');
+    expect(compiled.series).to.have.length(1);
+    expect(compiled.zAxis).to.equal(undefined);
   });
 
   it('reports an ignored gap for the shape encoding', () => {
@@ -157,9 +194,14 @@ describe('compilePointMark', () => {
     expect(compiled.plots).to.include('scatter');
   });
 
-  it('reports a partial gap for the tick mark and renders it as scatter points', () => {
+  it('renders the tick mark as a segments overlay instead of a scatter series', () => {
     const spec: VegaLiteSpec = {
-      data: { values: [{ x: 1, y: 1 }] },
+      data: {
+        values: [
+          { x: 1, y: 1 },
+          { x: 2, y: 1 },
+        ],
+      },
       mark: 'tick',
       encoding: {
         x: { field: 'x', type: 'quantitative' },
@@ -167,9 +209,46 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:point-tick');
-    expect(gap?.severity).to.equal('partial');
-    expect(compiled.plots).to.include('scatter');
+    // Tick no longer falls back to circular scatter markers.
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:point-tick');
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.plots).not.to.include('scatter');
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0];
+    expect(overlay.kind).to.equal('segments');
+    const items = (
+      overlay as { items: Array<{ x1: unknown; y1: unknown; x2: unknown; y2: unknown }> }
+    ).items;
+    expect(items).to.have.length(2);
+    // Degenerate segments (x1 === x2, y1 === y2) — see src/overlays/Segments.tsx.
+    items.forEach((item) => {
+      expect(item.x1).to.equal(item.x2);
+      expect(item.y1).to.equal(item.y2);
+    });
+  });
+
+  it('colors tick segments per color-field group using the palette/domain order, without creating scatter series', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, region: 'east' },
+          { x: 2, y: 1, region: 'west' },
+        ],
+      },
+      mark: 'tick',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        color: { field: 'region', type: 'nominal' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(0);
+    const overlay = compiled.overlays[0] as { items: Array<{ style?: { stroke?: string } }> };
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0].style?.stroke).to.be.a('string');
+    expect(overlay.items[1].style?.stroke).to.be.a('string');
+    expect(overlay.items[0].style?.stroke).not.to.equal(overlay.items[1].style?.stroke);
   });
 
   it('reports separate ignored gaps for filled:false and opacity styling', () => {

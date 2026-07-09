@@ -49,7 +49,7 @@ describe('compileRuleMark', () => {
     expect(gap?.severity).to.equal('partial');
   });
 
-  it('reports an unsupported gap for x2/y2 segment rules and drops the segment', () => {
+  it('drops an x/x2 span with no y anchor and reports an unsupported gap (no data-space way to express a full-height segment)', () => {
     const compiled = compileSpec({
       data: { values: [{ xStart: 1, xEnd: 5 }] },
       mark: 'rule',
@@ -59,8 +59,121 @@ describe('compileRuleMark', () => {
       },
     });
     const codes = compiled.gaps.map((entry) => entry.code);
-    expect(codes).to.include('mark:rule-segment-x');
+    expect(codes).to.include('mark:rule-segment-x-no-anchor');
     expect(compiled.referenceLines).to.have.length(0);
+    expect(compiled.overlays).to.have.length(0);
+  });
+
+  it('drops a y/y2 span with no x anchor and reports an unsupported gap', () => {
+    const compiled = compileSpec({
+      data: { values: [{ yStart: 1, yEnd: 5 }] },
+      mark: 'rule',
+      encoding: {
+        y: { field: 'yStart', type: 'quantitative' },
+        y2: { field: 'yEnd' },
+      },
+    });
+    const codes = compiled.gaps.map((entry) => entry.code);
+    expect(codes).to.include('mark:rule-segment-y-no-anchor');
+    expect(compiled.overlays).to.have.length(0);
+  });
+
+  it('builds a horizontal segments overlay per row from x/x2 anchored at the row y', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { xStart: 1, xEnd: 5, y: 10 },
+          { xStart: 2, xEnd: 3, y: 20 },
+        ],
+      },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'xStart', type: 'quantitative' },
+        x2: { field: 'xEnd' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    });
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0];
+    expect(overlay.kind).to.equal('segments');
+    expect((overlay as { items: unknown[] }).items).to.deep.equal([
+      { x1: 1, x2: 5, y1: 10, y2: 10, style: undefined },
+      { x1: 2, x2: 3, y1: 20, y2: 20, style: undefined },
+    ]);
+    // No reference lines/point-approximation gap should fire for the
+    // segment case.
+    expect(compiled.referenceLines).to.have.length(0);
+  });
+
+  it('builds a vertical segments overlay per row from y/y2 anchored at the row x', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [{ x: 7, yStart: 1, yEnd: 9 }],
+      },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'yStart', type: 'quantitative' },
+        y2: { field: 'yEnd' },
+      },
+    });
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0];
+    expect((overlay as { items: unknown[] }).items).to.deep.equal([
+      { x1: 7, x2: 7, y1: 1, y2: 9, style: undefined },
+    ]);
+  });
+
+  it('builds a diagonal segments overlay per row when x, y, x2 and y2 are all set', () => {
+    const compiled = compileSpec({
+      data: { values: [{ x1: 1, y1: 2, x2: 3, y2: 4 }] },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'x1', type: 'quantitative' },
+        y: { field: 'y1', type: 'quantitative' },
+        x2: { field: 'x2' },
+        y2: { field: 'y2' },
+      },
+    });
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0];
+    expect((overlay as { items: unknown[] }).items).to.deep.equal([
+      { x1: 1, x2: 3, y1: 2, y2: 4, style: undefined },
+    ]);
+  });
+
+  it('applies mark color/strokeWidth/strokeDash to segment items', () => {
+    const compiled = compileSpec({
+      data: { values: [{ xStart: 1, xEnd: 5, y: 10 }] },
+      mark: { type: 'rule', color: 'red', strokeWidth: 2, strokeDash: [4, 2] },
+      encoding: {
+        x: { field: 'xStart', type: 'quantitative' },
+        x2: { field: 'xEnd' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    });
+    const overlay = compiled.overlays[0] as { items: Array<{ style?: unknown }> };
+    expect(overlay.items[0].style).to.deep.equal({
+      stroke: 'red',
+      strokeWidth: 2,
+      strokeDasharray: '4 2',
+    });
+  });
+
+  it('reports a partial gap for a literal `value` x2 endpoint and approximates it as a data value', () => {
+    const compiled = compileSpec({
+      data: { values: [{ x: 1, y: 10 }] },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        x2: { value: 200 },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:rule-x2-value-position');
+    expect(gap?.severity).to.equal('partial');
+    const overlay = compiled.overlays[0] as { items: Array<{ x2: unknown }> };
+    expect(overlay.items[0].x2).to.equal(200);
   });
 
   it('maps mark color/strokeWidth/strokeDash to lineStyle', () => {

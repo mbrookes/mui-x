@@ -85,6 +85,7 @@ function ConditionalFormatStringValueInput(props: {
   onCommit: (next: string) => void;
 }) {
   const { value, ariaLabel, onCommit } = props;
+  const localeText = useStudioLocaleText();
   const initialText = value !== undefined && value !== null ? String(value) : '';
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
@@ -107,7 +108,7 @@ function ConditionalFormatStringValueInput(props: {
     <TextField
       size="small"
       value={text}
-      placeholder="value"
+      placeholder={localeText.gridSetupCFValuePlaceholder}
       slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
       onChange={(event) => {
         setText(event.target.value);

@@ -14,9 +14,18 @@ import type { TabbedSidebarPanel } from './TabbedSidebar';
 interface TabbedSidebarActivePanelProps {
   panel: TabbedSidebarPanel;
   side?: 'left' | 'right';
+  /** DOM id for this tabpanel, referenced by the active tab's `aria-controls`. */
+  id?: string;
+  /** Id of the tab that controls this panel (APG tabs pattern). */
+  'aria-labelledby'?: string;
 }
 
-export function TabbedSidebarActivePanel({ panel, side = 'left' }: TabbedSidebarActivePanelProps) {
+export function TabbedSidebarActivePanel({
+  panel,
+  side = 'left',
+  id,
+  'aria-labelledby': ariaLabelledBy,
+}: TabbedSidebarActivePanelProps) {
   const localeText = useStudioLocaleText();
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
   const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
@@ -27,6 +36,10 @@ export function TabbedSidebarActivePanel({ panel, side = 'left' }: TabbedSidebar
   return (
     <DrawerSubheaderContext.Provider value={ctxValue}>
       <Box
+        role="tabpanel"
+        id={id}
+        aria-labelledby={ariaLabelledBy}
+        tabIndex={0}
         sx={{
           width: DRAWER_WIDTH,
           flexShrink: 0,

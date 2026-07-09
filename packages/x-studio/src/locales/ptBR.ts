@@ -76,6 +76,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetEditDialogTabFormat: 'Formatar',
   widgetEditDialogCloseAriaLabel: 'Fechar diálogo de edição',
   widgetUntitledLabel: (kindLabel) => `${kindLabel} sem título`,
+  widgetEditDialogPreviewLabel: (kindLabel) => `Pré-visualização de ${kindLabel.toLowerCase()}`,
 
   // AI assistant
   aiAssistantOpenTooltip: 'Abrir assistente de IA',
@@ -359,6 +360,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   expressionPrecisionLabel: 'Precisão',
   expressionPrecisionHelperText:
     'Casas decimais (0\u201310) usadas na formatação deste campo calculado',
+  expressionBuilderSectionLabel: 'Expressão',
 
   // Expression builder: operator picker
   exprOpAdd: 'Somar (+)',
@@ -604,6 +606,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Amarelo',
   gridSetupCFStyleBlue: 'Azul',
   gridSetupCFStyleBold: 'Negrito',
+  gridSetupCFValuePlaceholder: 'valor',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Tipo de mapa',
@@ -784,6 +787,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Limpar ${label.toLowerCase()}`,
+  colorInputPickerAriaLabel: (label) => `Seletor de cor de ${label.toLowerCase()}`,
 
   // KPI widget
   kpiTrendNewLabel: 'Novo',
@@ -863,6 +867,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Obter estado do painel',
+  chatToolLabelListPages: 'Listar páginas',
   chatToolLabelSetDashboardTitle: 'Definir título do painel',
   chatToolLabelAddPage: 'Adicionar página',
   chatToolLabelRenamePage: 'Renomear página',
@@ -882,7 +887,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Aplicar atualização em massa',
   chatToolLabelRenameThread: 'Renomear conversa',
   chatToolLabelQueryDataSource: 'Consultar fonte de dados',
-  chatToolLabelGetCurrentDate: 'Obter data atual',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

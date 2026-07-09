@@ -80,6 +80,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetEditDialogTabFormat: 'Format',
   widgetEditDialogCloseAriaLabel: 'Bearbeitungsdialog schließen',
   widgetUntitledLabel: (kindLabel) => `${kindLabel} ohne Titel`,
+  widgetEditDialogPreviewLabel: (kindLabel) => `${kindLabel}-Vorschau`,
 
   // AI assistant
   aiAssistantOpenTooltip: 'KI-Assistent öffnen',
@@ -362,6 +363,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   expressionPrecisionLabel: 'Präzision',
   expressionPrecisionHelperText:
     'Dezimalstellen (0–10), die bei der Formatierung dieses berechneten Felds verwendet werden',
+  expressionBuilderSectionLabel: 'Ausdruck',
 
   // Expression builder: operator picker
   exprOpAdd: 'Addieren (+)',
@@ -612,6 +614,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Gelb',
   gridSetupCFStyleBlue: 'Blau',
   gridSetupCFStyleBold: 'Deutlich',
+  gridSetupCFValuePlaceholder: 'Wert',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Kartentyp',
@@ -792,6 +795,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `${label.toLowerCase()} löschen`,
+  colorInputPickerAriaLabel: (label) => `${label}-Farbwähler`,
 
   // KPI widget
   kpiTrendNewLabel: 'Neu',
@@ -871,6 +875,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Dashboard-Status abrufen',
+  chatToolLabelListPages: 'Seiten auflisten',
   chatToolLabelSetDashboardTitle: 'Dashboard-Titel festlegen',
   chatToolLabelAddPage: 'Seite hinzufügen',
   chatToolLabelRenamePage: 'Seite umbenennen',
@@ -890,7 +895,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Massenaktualisierung anwenden',
   chatToolLabelRenameThread: 'Unterhaltung umbenennen',
   chatToolLabelQueryDataSource: 'Datenquelle abfragen',
-  chatToolLabelGetCurrentDate: 'Aktuelles Datum abrufen',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

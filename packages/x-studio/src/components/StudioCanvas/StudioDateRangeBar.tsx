@@ -25,6 +25,8 @@ export function StudioDateRangeBar() {
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
+  // Unique per-mount id so multiple Studio instances on the same page don't collide.
+  const presetLabelId = React.useId();
 
   const dateRangePresetGroups = React.useMemo(
     () => [
@@ -155,11 +157,11 @@ export function StudioDateRangeBar() {
       <CalendarMonthIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
 
       <FormControl size="small" sx={{ minWidth: 170 }}>
-        <InputLabel id="date-range-preset-label" sx={{ fontSize: '0.8rem' }}>
+        <InputLabel id={presetLabelId} sx={{ fontSize: '0.8rem' }}>
           {localeText.dateRangeBarFieldLabel}
         </InputLabel>
         <Select
-          labelId="date-range-preset-label"
+          labelId={presetLabelId}
           label={localeText.dateRangeBarFieldLabel}
           value={activePreset}
           onChange={(event) => handlePresetChange(event.target.value)}

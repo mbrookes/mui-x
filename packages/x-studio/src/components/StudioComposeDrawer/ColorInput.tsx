@@ -48,7 +48,11 @@ export function ColorInput({
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <ColorSwatch value={value} onChange={onChange} label={`${label} color picker`} />
+      <ColorSwatch
+        value={value}
+        onChange={onChange}
+        label={localeText.colorInputPickerAriaLabel(label)}
+      />
       <TextField
         size="small"
         label={label}

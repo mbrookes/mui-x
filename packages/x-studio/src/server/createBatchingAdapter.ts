@@ -28,13 +28,14 @@ import type {
   StudioExpressionField,
   StudioFilterNode,
   StudioFilterOperator,
+  StudioFilterState,
   StudioQueryDescriptor,
   StudioQueryResult,
   StudioRelationship,
   ClientMutationDescriptor,
   ClientMutationResult,
 } from '../models';
-import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
+import { applyFilters, isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
@@ -120,6 +121,43 @@ function getBatchingEndpoint(adapter: StudioDataSourceAdapter | undefined): stri
     return undefined;
   }
   return (adapter as unknown as Record<symbol, unknown>)[BATCHING_ENDPOINT] as string | undefined;
+}
+
+/**
+ * Stable per-request wire id for a batch entry (finding 2.14).
+ *
+ * The server echoes the descriptor `id` we send straight back onto its result
+ * (`handler.ts` → `WidgetQueryResult.id`). Keying batch entries by `widgetId` alone
+ * meant two getRows() calls for the SAME widget with DIFFERENT descriptors (e.g. a page
+ * filter changed twice inside the 50ms window, both cache misses) collapsed to the same
+ * `id`, so `results.find(r => r.id === widgetId)` handed BOTH callers the first result —
+ * and `StudioRequestCache.addInflight` then cached those stale rows under the second
+ * descriptor's cacheKey for a fresh 30s TTL. Folding the descriptor's `cacheKey`
+ * (a stable hash of every other descriptor field) into the wire id makes each distinct
+ * request route to its own result.
+ */
+function batchEntryId(d: StudioQueryDescriptor): string {
+  return `${d.widgetId}::${d.cacheKey}`;
+}
+
+/**
+ * Route a server result back to its descriptor by the stable wire id (finding 2.14),
+ * falling back to the bare `widgetId` ONLY when exactly one result carries it (back-compat
+ * with any server/mock that echoes just the widgetId). With duplicate widgetIds in a batch
+ * the fallback is intentionally skipped so the ambiguous case surfaces as a missing result
+ * rather than silently returning the wrong (first) rows.
+ */
+function findBatchResult<T extends { id: string }>(
+  results: T[],
+  d: StudioQueryDescriptor,
+): T | undefined {
+  const wireId = batchEntryId(d);
+  const exact = results.find((r) => r.id === wireId);
+  if (exact) {
+    return exact;
+  }
+  const byWidget = results.filter((r) => r.id === d.widgetId);
+  return byWidget.length === 1 ? byWidget[0] : undefined;
 }
 
 /**
@@ -298,7 +336,7 @@ export function createBatchingAdapter(
       // DataLoader invariant: results must be same length and same order as keys
       return Promise.all(
         descriptors.map(async (d, i) => {
-          const result = json.results.find((r) => r.id === d.widgetId);
+          const result = findBatchResult(json.results, d);
           if (!result) {
             return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
           }
@@ -306,10 +344,7 @@ export function createBatchingAdapter(
             return /* minify-error-disabled */ new Error(result.error);
           }
 
-          const { crossEndpointEnrichments } = builtDescriptors[i];
-          if (crossEndpointEnrichments.length === 0) {
-            return { rows: result.rows };
-          }
+          const { crossEndpointEnrichments, clientFilter } = builtDescriptors[i];
 
           // Apply cross-endpoint enrichments: fetch each join source once, then enrich rows.
           let rows = result.rows;
@@ -328,6 +363,16 @@ export function createBatchingAdapter(
               const enrichedValue = joinRow?.[enr.joinFieldId] ?? null;
               return { ...row, [enr.logicalFieldId]: enrichedValue };
             });
+          }
+
+          // Client-side residual filters (findings 1.4 / 1.5): predicates the server's query
+          // protocol cannot express faithfully (OR-combined conditions, or operators with no
+          // SQL equivalent / a case-sensitivity mismatch) were withheld from the request and
+          // are enforced here — against the SAME evaluator in-memory sources use — so the
+          // adapter path produces the same rows instead of silently over- or under-filtering.
+          // Only attached for raw-row (non-server-aggregated) queries; see buildBatchWidgetDescriptor.
+          if (clientFilter && clientFilter.length > 0) {
+            rows = applyFilters(rows, clientFilter) as Record<string, unknown>[];
           }
 
           return { rows };
@@ -741,6 +786,14 @@ interface CrossEndpointEnrichment {
 interface BuiltBatchDescriptor {
   requestBody: object;
   crossEndpointEnrichments: CrossEndpointEnrichment[];
+  /**
+   * Filters that could NOT be faithfully sent to the server (OR-combined conditions or
+   * operators with no equivalent / a case-sensitivity mismatch on the wire protocol) and
+   * must be re-applied to the returned raw rows client-side (findings 1.4 / 1.5). Only set
+   * for raw-row queries — when the server aggregates, the predicate is dropped with a warning
+   * instead, since it cannot be re-applied to pre-aggregated rows.
+   */
+  clientFilter?: StudioFilterState[];
 }
 
 /**
@@ -765,6 +818,8 @@ function buildBatchWidgetDescriptor(
   expressionFields?: StudioExpressionField[],
 ): BuiltBatchDescriptor {
   const tableName = d.tableName ?? d.sourceId;
+  // Per-build set so each divergence warning fires at most once per fetch, never per row.
+  const warnDedupe = new Set<string>();
 
   // ── Simple mode (no relationship info) ────────────────────────────────────
   if (!dataSources || !relationships) {
@@ -772,26 +827,44 @@ function buildBatchWidgetDescriptor(
     // client/server-tier raw rows contain the measure columns Studio needs for
     // client-side aggregation. The db-tier query builder excludes aggregate
     // fields from groupBy via aggregations[*].column.
-    const columns = d.select;
+    const columns = [...d.select];
     const aggregations: AggregationSpec[] | undefined =
       d.aggregations && d.aggregations.length > 0
         ? d.aggregations.map((a) => ({
             column: a.field,
-            func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
+            // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
+            func: mapAggFn(a.fn, d.sourceId, warnDedupe),
             alias: a.alias,
           }))
         : undefined;
 
+    // Split the filter into server-executable predicates and a client-side residual
+    // (OR conditions / unmappable operators) so neither is silently mistranslated (1.4 / 1.5).
+    const partition = partitionFilterNode(d.filter);
+    const clientFilter = resolveClientResidual(
+      partition,
+      Boolean(aggregations),
+      d.sourceId,
+      warnDedupe,
+      (fieldId) => {
+        if (!columns.includes(fieldId)) {
+          columns.push(fieldId);
+        }
+        return true;
+      },
+    );
+
     return {
       requestBody: {
-        id: d.widgetId,
+        id: batchEntryId(d),
         table: tableName,
         columns,
         aggregations,
-        filters: d.filter ? flattenFilterNode(d.filter) : undefined,
+        filters: partition.predicates.length > 0 ? partition.predicates : undefined,
         orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
       },
       crossEndpointEnrichments: [],
+      clientFilter,
     };
   }
 
@@ -870,7 +943,8 @@ function buildBatchWidgetDescriptor(
       return [
         {
           column: r.column,
-          func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
+          // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
+          func: mapAggFn(a.fn, d.sourceId, warnDedupe),
           alias: a.alias,
         },
       ];
@@ -878,12 +952,14 @@ function buildBatchWidgetDescriptor(
     return aggs.length > 0 ? aggs : undefined;
   })();
 
-  // Filters — resolve cross-source filter column references, and use the physical
-  // column name (not the logical alias) so the server WHERE clause references a real column.
-  // Filters whose field cannot be resolved to any column in this source (unresolved: true)
-  // are silently dropped — applying them would produce "no such column" SQL errors.
-  const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
-  const filters = rawFilters.flatMap((pred) => {
+  // Filters — split into server-executable predicates and a client-side residual (OR
+  // conditions / unmappable operators, findings 1.4 / 1.5), then resolve the server predicates'
+  // cross-source column references, using the physical column name (not the logical alias) so
+  // the server WHERE clause references a real column. Predicates whose field cannot be resolved
+  // to any column in this source (unresolved: true) are dropped — applying them would produce
+  // "no such column" SQL errors.
+  const partition = partitionFilterNode(d.filter);
+  const filters = partition.predicates.flatMap((pred) => {
     const r = resolve(pred.column);
     if (r.skip || r.unresolved) {
       return [];
@@ -894,13 +970,39 @@ function buildBatchWidgetDescriptor(
     return [{ ...pred, column: physicalColumn }];
   });
 
+  // Client-side residual: re-applied to returned raw rows when the query is NOT aggregated
+  // server-side. A leaf's field is only usable client-side if it comes back under its logical
+  // id (a plain primary-source column) — a cross-source/expression field would arrive under an
+  // aliased/physical key, so those are dropped with a warning instead. The primary/expression
+  // membership check is deliberately side-effect-free (unlike `resolve`, which would register a
+  // spurious JOIN for a cross-source field before we reject it).
+  const clientFilter = resolveClientResidual(
+    partition,
+    Boolean(aggregations),
+    d.sourceId,
+    warnDedupe,
+    (fieldId) => {
+      const isExpressionField = expressionFields?.some((f) => f.id === fieldId) ?? false;
+      const isPlainPrimaryField =
+        !isExpressionField &&
+        Boolean(dataSources[d.sourceId]?.fields.some((f) => f.id === fieldId));
+      if (!isPlainPrimaryField) {
+        return false;
+      }
+      if (!columns.includes(fieldId)) {
+        columns.push(fieldId);
+      }
+      return true;
+    },
+  );
+
   // ORDER BY — use physical column for expression fields (server sees physical name).
   // When groupBy is cross-endpoint, orderBy is already suppressed via groupByIsCrossEndpoint.
   const orderByColumn = groupByIsCrossEndpoint ? undefined : groupByResolved;
 
   return {
     requestBody: {
-      id: d.widgetId,
+      id: batchEntryId(d),
       table: tableName,
       columns: columns.length > 0 ? columns : undefined,
       columnAliases: Object.keys(columnAliases).length > 0 ? columnAliases : undefined,
@@ -918,9 +1020,22 @@ function buildBatchWidgetDescriptor(
           : undefined,
     },
     crossEndpointEnrichments: enrichments,
+    clientFilter,
   };
 }
 
+/**
+ * Operators the data-middleware queryBuilder can execute server-side (its `SAFE_OPERATORS`
+ * allowlist). Every `StudioFilterOperator` NOT in this map has no faithful translation on the
+ * wire protocol and is therefore handled client-side (see `partitionFilterNode`):
+ *  - there is no `NOT IN`, `NOT LIKE`, or `IS (NOT) NULL` operator, so `not_in`,
+ *    `does_not_contain`, `not_starts_with`, `not_ends_with`, `is_empty`, `is_not_empty` have
+ *    no equivalent;
+ *  - `starts_with` / `ends_with` could be approximated with `LIKE 'x%'` / `LIKE '%x'`, but the
+ *    server's `LIKE` is case-SENSITIVE while Studio's in-memory evaluator is case-INSENSITIVE,
+ *    so pushing them down would DIVERGE from in-memory results (trading one silent-wrong-data
+ *    bug for a subtler one). They are evaluated client-side to stay byte-for-byte consistent.
+ */
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
   equals: 'eq',
   not_equals: 'neq',
@@ -937,20 +1052,53 @@ function mapOperator(op: StudioFilterOperator): FilterPredicate['operator'] | nu
   return OPERATOR_MAP[op] ?? null;
 }
 
+type StudioFilterLeaf = Extract<StudioFilterNode, { type: 'leaf' }>;
+
 /**
- * Flatten a StudioFilterNode tree into an array of FilterPredicates.
- * Group nodes are flattened (AND logic only — OR groups are skipped server-side
- * and will fall back to showing all rows, which is safe/conservative).
+ * Warn (at most once per widget-descriptor build — `dedupe` is a per-build Set, so never once
+ * per row) that a filter/aggregation could not be executed faithfully server-side and how it
+ * was handled, so the divergence from in-memory behaviour is never silent (findings 1.4 / 1.5 /
+ * 2.11). Fires in every environment because the harm (wrong data) is most visible against a
+ * real db-tier source in production.
  */
-function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
-  if (node.type === 'group') {
-    return node.children.flatMap(flattenFilterNode);
+function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
+  if (dedupe.has(message)) {
+    return;
   }
-  const operator = mapOperator(node.op);
-  if (!operator) {
-    return [];
+  dedupe.add(message);
+  // eslint-disable-next-line no-console
+  console.warn(`MUI X Studio: ${message}`);
+}
+
+/**
+ * True when a leaf can be sent to the server with EXACTLY the same semantics as the in-memory
+ * evaluator: its operator(s) map to the wire protocol AND, when it carries a second condition,
+ * the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
+ */
+function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
+  if (mapOperator(leaf.op) === null) {
+    return false;
   }
-  let value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
+  const hasSecondCondition = leaf.op2 !== undefined && leaf.value2 !== undefined;
+  if (!hasSecondCondition) {
+    return true;
+  }
+  // A second condition combined with OR ("x < 5 OR x > 100") cannot be expressed as two
+  // AND-ed predicates — the server would AND them and return zero rows (finding 1.4).
+  if (leaf.conjunction === 'or') {
+    return false;
+  }
+  return mapOperator(leaf.op2!) !== null;
+}
+
+/**
+ * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
+ * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
+ * conversion and the AND-combined second condition (`op2` / `value2`).
+ */
+function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
+  const operator = mapOperator(leaf.op)!;
+  let value = isRelativeDateValue(leaf.value) ? resolveRelativeDate(leaf.value) : leaf.value;
   // setDashboardDateRange / setWidgetDateRange store between values as { from, to } objects.
   // Convert to the [lo, hi] tuple that the server's queryBuilder expects.
   if (
@@ -962,17 +1110,167 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
     const range = value as { from?: unknown; to?: unknown };
     value = [range.from, range.to] as unknown;
   }
-  const predicate: FilterPredicate = { column: node.field, operator, value };
-  const predicates: FilterPredicate[] = [predicate];
-  // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds
-  if (node.op2 && node.value2 !== undefined) {
-    const op2 = mapOperator(node.op2);
-    if (op2) {
-      const value2 = isRelativeDateValue(node.value2)
-        ? resolveRelativeDate(node.value2)
-        : node.value2;
-      predicates.push({ column: node.field, operator: op2, value: value2 });
-    }
+  const predicates: FilterPredicate[] = [{ column: leaf.field, operator, value }];
+  // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds.
+  if (leaf.op2 && leaf.value2 !== undefined) {
+    const op2 = mapOperator(leaf.op2)!;
+    const value2 = isRelativeDateValue(leaf.value2)
+      ? resolveRelativeDate(leaf.value2)
+      : leaf.value2;
+    predicates.push({ column: leaf.field, operator: op2, value: value2 });
   }
   return predicates;
+}
+
+interface PartitionedFilter {
+  /** Predicates safe to send to the server (it AND-combines them). */
+  predicates: FilterPredicate[];
+  /** Leaves that must be evaluated client-side to preserve in-memory semantics. */
+  clientLeaves: StudioFilterLeaf[];
+  /**
+   * True when an OR `group` node was encountered. The AND-only wire protocol cannot express
+   * it, and the client-side `applyFilters` array form is also AND-combined, so it is dropped
+   * with a warning rather than mis-evaluated. Producers only build `logic: 'and'` groups today
+   * (`queryDescriptor.filtersToFilterNode`), so this is defensive.
+   */
+  droppedOrGroup: boolean;
+}
+
+/**
+ * Split a `StudioFilterNode` into the parts that can be executed faithfully server-side
+ * (`predicates`, AND-combined) and the parts that must fall back to client-side evaluation
+ * (`clientLeaves`) so the adapter path matches the in-memory evaluator exactly.
+ *
+ * Was previously an unconditional AND flatten (`flattenFilterNode`) that silently:
+ *  - turned an intra-leaf OR into an AND (finding 1.4), and
+ *  - dropped any leaf whose operator did not map (finding 1.5).
+ *
+ * Now:
+ *  - AND group → children partitioned recursively (AND distributes, so each child is
+ *    independently server- or client-side);
+ *  - OR group  → whole group dropped from the request, `droppedOrGroup` flagged (defensive);
+ *  - leaf      → server-side when `isLeafServerTranslatable`, else evaluated client-side.
+ */
+function partitionFilterNode(node: StudioFilterNode | undefined): PartitionedFilter {
+  const result: PartitionedFilter = { predicates: [], clientLeaves: [], droppedOrGroup: false };
+  if (!node) {
+    return result;
+  }
+  const visit = (n: StudioFilterNode): void => {
+    if (n.type === 'group') {
+      if (n.logic === 'or') {
+        result.droppedOrGroup = true;
+        return;
+      }
+      n.children.forEach(visit);
+      return;
+    }
+    if (isLeafServerTranslatable(n)) {
+      result.predicates.push(...leafToPredicates(n));
+    } else {
+      result.clientLeaves.push(n);
+    }
+  };
+  visit(node);
+  return result;
+}
+
+/**
+ * Convert an un-sendable leaf into a `StudioFilterState` so the shared client evaluator
+ * (`filterUtils.applyFilters`) enforces it against the returned rows with identical semantics.
+ * The `id` / `scope` fields are unused by the evaluator; only field/operator/value(2) matter.
+ */
+function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
+  return {
+    id: `_adapter_client_${leaf.field}`,
+    field: leaf.field,
+    operator: leaf.op,
+    value: leaf.value,
+    operator2: leaf.op2,
+    value2: leaf.value2,
+    conjunction: leaf.conjunction,
+    fieldType: leaf.fieldType,
+    filterMode: 'condition',
+  } as unknown as StudioFilterState;
+}
+
+/**
+ * Resolve the client-side residual of a partitioned filter into the `StudioFilterState[]` to
+ * re-apply after fetching, warning (never silently) for anything that cannot be recovered.
+ *
+ * @param aggregated - whether the server will aggregate. When true the returned rows are
+ *   pre-aggregated and a raw-field predicate cannot be re-applied, so it is dropped with a
+ *   warning instead of a (wrong) client-side pass.
+ * @param tryProjectField - ensures the leaf's field will be present (by its logical id) in the
+ *   returned raw rows; returns false when the column cannot be projected (e.g. a cross-source
+ *   field whose row key would not be the logical id), in which case the leaf is dropped+warned.
+ */
+function resolveClientResidual(
+  partition: PartitionedFilter,
+  aggregated: boolean,
+  sourceId: string,
+  dedupe: Set<string>,
+  tryProjectField: (fieldId: string) => boolean,
+): StudioFilterState[] | undefined {
+  if (partition.droppedOrGroup) {
+    warnAdapterDivergence(
+      dedupe,
+      `An OR filter group could not be executed by the data adapter for source "${sourceId}" ` +
+        `and was dropped, so results may include rows the filter should exclude. ` +
+        `OR groups work correctly on in-memory sources.`,
+    );
+  }
+  if (partition.clientLeaves.length === 0) {
+    return undefined;
+  }
+  if (aggregated) {
+    for (const leaf of partition.clientLeaves) {
+      warnAdapterDivergence(
+        dedupe,
+        `Filter on "${leaf.field}" (operator "${leaf.op}"${
+          leaf.conjunction === 'or' ? ' with an OR condition' : ''
+        }) cannot be executed by the data adapter for source "${sourceId}", and the widget ` +
+          `aggregates server-side, so it cannot be re-applied to the pre-aggregated rows. ` +
+          `The filter was dropped for this source; it works correctly on in-memory sources.`,
+      );
+    }
+    return undefined;
+  }
+  const states: StudioFilterState[] = [];
+  for (const leaf of partition.clientLeaves) {
+    if (tryProjectField(leaf.field)) {
+      states.push(leafToClientFilterState(leaf));
+    } else {
+      warnAdapterDivergence(
+        dedupe,
+        `Filter on "${leaf.field}" (operator "${leaf.op}") could not be executed by the data ` +
+          `adapter for source "${sourceId}" and its column could not be projected for ` +
+          `client-side evaluation, so it was dropped. It works correctly on in-memory sources.`,
+      );
+    }
+  }
+  return states.length > 0 ? states : undefined;
+}
+
+/**
+ * Map an aggregation function to its wire form, warning once when `count_distinct` is
+ * downgraded to a plain `count` (finding 2.11): the wire protocol has no DISTINCT aggregation,
+ * so a "distinct count of X" would otherwise silently render the TOTAL row count on a db-tier
+ * source. In-memory sources are unaffected.
+ */
+function mapAggFn(
+  fn: NonNullable<StudioQueryDescriptor['aggregations']>[number]['fn'],
+  sourceId: string,
+  dedupe: Set<string>,
+): AggregationSpec['func'] {
+  if (fn === 'count_distinct') {
+    warnAdapterDivergence(
+      dedupe,
+      `count_distinct is not supported by the data adapter's query protocol for source ` +
+        `"${sourceId}" and was executed as a plain count (total rows, not distinct values). ` +
+        `Distinct counts work correctly on in-memory sources.`,
+    );
+    return 'count';
+  }
+  return fn;
 }

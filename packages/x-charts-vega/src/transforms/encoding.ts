@@ -52,6 +52,10 @@ export function applyEncodingTransforms(
   encoding: VegaEncoding,
   gaps: GapCollector,
   path: string,
+  // Accepted for signature parity with `applyTransforms`; no calculate/filter
+  // expressions run here, so signals are not consumed (yet). Prefixed with `_`
+  // per the unused-arg lint rule — a worker wiring expressions here renames it.
+  _signals?: Readonly<Record<string, unknown>>,
 ): EncodingTransformResult {
   let workingRows = rows;
   const workingEncoding: VegaEncoding = { ...encoding };
@@ -196,8 +200,11 @@ export function applyEncodingTransforms(
     for (const { channel, def, as } of aggregateChannels) {
       const values =
         def.field == null ? group.rows : group.rows.map((row) => row[def.field as string]);
-      const result = evaluateAggregate(def.aggregate as never, values);
-      if (result === undefined) {
+      const result = evaluateAggregate(def.aggregate as never, values, group.rows);
+      // A non-scalar result (the whole row returned by argmin/argmax) can't be
+      // consumed as a positional/quantitative channel value, so it is treated
+      // like an unimplemented op here — the encoding channel needs a scalar.
+      if (result === undefined || (result !== null && typeof result !== 'number')) {
         gaps.add({
           code: `aggregate:${String(def.aggregate)}`,
           message: `Aggregate op "${String(def.aggregate)}" is not implemented; the channel value is null.`,

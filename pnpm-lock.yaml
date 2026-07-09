@@ -1389,6 +1389,9 @@ importers:
       '@mui/x-charts-pro':
         specifier: workspace:*
         version: link:../x-charts-pro/build
+      '@mui/x-charts-vendor':
+        specifier: workspace:*
+        version: link:../x-charts-vendor/build
       '@mui/x-internals':
         specifier: workspace:*
         version: link:../x-internals/build

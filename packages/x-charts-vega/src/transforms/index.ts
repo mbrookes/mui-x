@@ -42,14 +42,15 @@ export function applyTransforms(
   transforms: readonly VegaTransform[],
   gaps: GapCollector,
   path: string,
+  signals?: Readonly<Record<string, unknown>>,
 ): readonly DatasetRow[] {
   let current = rows;
   transforms.forEach((transform, index) => {
     const transformPath = `${path}.transform[${index}]`;
     if ('filter' in transform) {
-      current = applyFilterTransform(current, transform as never, gaps, transformPath);
+      current = applyFilterTransform(current, transform as never, gaps, transformPath, signals);
     } else if ('calculate' in transform) {
-      current = applyCalculateTransform(current, transform as never, gaps, transformPath);
+      current = applyCalculateTransform(current, transform as never, gaps, transformPath, signals);
     } else if ('aggregate' in transform) {
       current = applyAggregateTransform(current, transform as never, gaps, transformPath);
     } else if ('bin' in transform) {

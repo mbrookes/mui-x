@@ -34,7 +34,7 @@ export function applyAggregateTransform(
     const outRow: DatasetRow = { ...group.key };
     for (const { op, field, as } of transform.aggregate) {
       const values = field == null ? group.rows : group.rows.map((row) => row[field]);
-      const result = evaluateAggregate(op, values);
+      const result = evaluateAggregate(op, values, group.rows);
       if (result === undefined) {
         gaps.add({
           code: `aggregate:${op}`,

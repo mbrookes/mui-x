@@ -439,7 +439,11 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   date: (args) => toDate(args[0])?.getDate() ?? null,
 };
 
-function evaluateNode(node: Node, datum: DatasetRow): unknown {
+function evaluateNode(
+  node: Node,
+  datum: DatasetRow,
+  signals?: Readonly<Record<string, unknown>>,
+): unknown {
   switch (node.kind) {
     case 'literal':
       return node.value;
@@ -447,11 +451,16 @@ function evaluateNode(node: Node, datum: DatasetRow): unknown {
       if (node.name === 'datum') {
         return datum;
       }
+      // A bound signal/param value resolves as a bare identifier (e.g. a
+      // variable param referenced from a `calculate` expression).
+      if (signals && Object.prototype.hasOwnProperty.call(signals, node.name)) {
+        return signals[node.name];
+      }
       throw new UnsupportedExpressionError(`Unsupported identifier "${node.name}"`);
     case 'member': {
-      const object = evaluateNode(node.object, datum);
+      const object = evaluateNode(node.object, datum, signals);
       const property = node.computed
-        ? evaluateNode(node.property, datum)
+        ? evaluateNode(node.property, datum, signals)
         : (node.property as { value: string }).value;
       if (object == null) {
         return undefined;
@@ -463,10 +472,10 @@ function evaluateNode(node: Node, datum: DatasetRow): unknown {
       if (!fn) {
         throw new UnsupportedExpressionError(`Unsupported function "${node.callee}"`);
       }
-      return fn(node.args.map((arg) => evaluateNode(arg, datum)));
+      return fn(node.args.map((arg) => evaluateNode(arg, datum, signals)));
     }
     case 'unary': {
-      const value = evaluateNode(node.arg, datum);
+      const value = evaluateNode(node.arg, datum, signals);
       if (node.op === '!') {
         return !isTruthy(value);
       }
@@ -479,21 +488,21 @@ function evaluateNode(node: Node, datum: DatasetRow): unknown {
       throw new UnsupportedExpressionError(`Unsupported unary operator "${node.op}"`);
     }
     case 'logical': {
-      const left = evaluateNode(node.left, datum);
+      const left = evaluateNode(node.left, datum, signals);
       if (node.op === '&&') {
-        return isTruthy(left) ? evaluateNode(node.right, datum) : left;
+        return isTruthy(left) ? evaluateNode(node.right, datum, signals) : left;
       }
-      return isTruthy(left) ? left : evaluateNode(node.right, datum);
+      return isTruthy(left) ? left : evaluateNode(node.right, datum, signals);
     }
     case 'conditional': {
-      const test = evaluateNode(node.test, datum);
+      const test = evaluateNode(node.test, datum, signals);
       return isTruthy(test)
-        ? evaluateNode(node.consequent, datum)
-        : evaluateNode(node.alternate, datum);
+        ? evaluateNode(node.consequent, datum, signals)
+        : evaluateNode(node.alternate, datum, signals);
     }
     case 'binary': {
-      const left = evaluateNode(node.left, datum);
-      const right = evaluateNode(node.right, datum);
+      const left = evaluateNode(node.left, datum, signals);
+      const right = evaluateNode(node.right, datum, signals);
       switch (node.op) {
         case '+':
           if (typeof left === 'string' || typeof right === 'string') {
@@ -551,7 +560,10 @@ function evaluateNode(node: Node, datum: DatasetRow): unknown {
  * reachable via a particular row's data (e.g. an unsupported function called
  * from inside an untaken ternary branch for most rows).
  */
-export function compileExpression(source: string): (datum: DatasetRow) => unknown {
+export function compileExpression(
+  source: string,
+  signals?: Readonly<Record<string, unknown>>,
+): (datum: DatasetRow) => unknown {
   let ast: Node;
   try {
     ast = new Parser(tokenize(source)).parseProgram();
@@ -561,7 +573,7 @@ export function compileExpression(source: string): (datum: DatasetRow) => unknow
     }
     throw err;
   }
-  return (datum: DatasetRow) => evaluateNode(ast, datum);
+  return (datum: DatasetRow) => evaluateNode(ast, datum, signals);
 }
 
 function errorMessage(err: unknown): string {
@@ -589,10 +601,11 @@ export function applyCalculateTransform(
   transform: VegaCalculateTransform,
   gaps: GapCollector,
   path: string,
+  signals?: Readonly<Record<string, unknown>>,
 ): readonly DatasetRow[] {
   let evaluator: (datum: DatasetRow) => unknown;
   try {
-    evaluator = compileExpression(transform.calculate);
+    evaluator = compileExpression(transform.calculate, signals);
   } catch (err) {
     if (!(err instanceof UnsupportedExpressionError)) {
       throw err;

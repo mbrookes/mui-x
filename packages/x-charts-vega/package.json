@@ -26,6 +26,7 @@
     "@mui/x-charts": "workspace:*",
     "@mui/x-charts-premium": "workspace:*",
     "@mui/x-charts-pro": "workspace:*",
+    "@mui/x-charts-vendor": "workspace:*",
     "@mui/x-internals": "workspace:*",
     "topojson-client": "^3.1.0"
   },

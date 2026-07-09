@@ -342,8 +342,10 @@ function SingleViewChart(props: VegaLiteChartProps) {
             />
           )}
           {compiled.plots.includes('heatmap') && <HeatmapPlot />}
-          {compiled.plots.includes('bar') && <BarPlot />}
-          {compiled.plots.includes('rangeBar') && <RangeBarPlot />}
+          {compiled.plots.includes('bar') && <BarPlot borderRadius={compiled.barBorderRadius} />}
+          {compiled.plots.includes('rangeBar') && (
+            <RangeBarPlot borderRadius={compiled.barBorderRadius} />
+          )}
           {compiled.plots.includes('area') && <AreaPlot />}
           {compiled.plots.includes('line') && <LinePlot />}
           {compiled.plots.includes('scatter') && <ScatterPlot />}

@@ -101,6 +101,8 @@ export interface VegaAxis {
   grid?: boolean;
   orient?: 'top' | 'bottom' | 'left' | 'right';
   format?: string;
+  /** Explicit formatter kind override (`'number' | 'time' | 'utc'`). */
+  formatType?: string;
   tickCount?: number;
   values?: unknown[];
   labelAngle?: number;
@@ -135,6 +137,8 @@ export interface VegaFieldDef {
   sort?: VegaSort;
   stack?: 'zero' | 'normalize' | 'center' | null | boolean;
   format?: string;
+  /** Explicit formatter kind override (`'number' | 'time' | 'utc'`). */
+  formatType?: string;
   bandPosition?: number;
   impute?: unknown;
   condition?: unknown;
@@ -308,6 +312,53 @@ export interface VegaLookupTransform {
   /** Value used for non-matching rows. Defaults to `null`. */
   default?: unknown;
 }
+export interface VegaWindowTransform {
+  window: Array<{ op: string; field?: string; param?: number; as: string }>;
+  frame?: [number | null, number | null];
+  ignorePeers?: boolean;
+  groupby?: string[];
+  sort?: Array<{ field: string; order?: 'ascending' | 'descending' }>;
+}
+export interface VegaJoinAggregateTransform {
+  joinaggregate: Array<{ op: VegaAggregateOp; field?: string; as: string }>;
+  groupby?: string[];
+}
+export interface VegaRegressionTransform {
+  regression: string;
+  on: string;
+  groupby?: string[];
+  method?: 'linear' | 'log' | 'exp' | 'pow' | 'quad' | 'poly';
+  order?: number;
+  extent?: [number, number];
+  params?: boolean;
+  as?: [string, string];
+}
+export interface VegaLoessTransform {
+  loess: string;
+  on: string;
+  groupby?: string[];
+  bandwidth?: number;
+  as?: [string, string];
+}
+export interface VegaQuantileTransform {
+  quantile: string;
+  groupby?: string[];
+  probs?: number[];
+  step?: number;
+  as?: [string, string];
+}
+export interface VegaDensityTransform {
+  density: string;
+  groupby?: string[];
+  cumulative?: boolean;
+  counts?: boolean;
+  bandwidth?: number;
+  extent?: [number, number];
+  steps?: number;
+  minsteps?: number;
+  maxsteps?: number;
+  as?: [string, string];
+}
 export type VegaTransform =
   | VegaAggregateTransform
   | VegaBinTransform
@@ -316,6 +367,12 @@ export type VegaTransform =
   | VegaTimeUnitTransform
   | VegaFoldTransform
   | VegaLookupTransform
+  | VegaWindowTransform
+  | VegaJoinAggregateTransform
+  | VegaRegressionTransform
+  | VegaLoessTransform
+  | VegaQuantileTransform
+  | VegaDensityTransform
   | Record<string, unknown>;
 
 export interface VegaData {
@@ -348,6 +405,25 @@ export interface VegaSelectionDef {
   [key: string]: unknown;
 }
 
+/**
+ * An input-widget binding for a variable/selection param
+ * (`bind: {input: 'range', min, max, step}` and friends).
+ */
+export interface VegaBindInput {
+  input: 'range' | 'select' | 'checkbox' | 'radio' | (string & {});
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: unknown[];
+  labels?: string[];
+  name?: string;
+  debounce?: number;
+  [key: string]: unknown;
+}
+
+/** A param binding: scale/legend interaction, an input widget, or a raw record. */
+export type VegaBind = 'scales' | 'legend' | VegaBindInput | Record<string, unknown>;
+
 export interface VegaParam {
   name?: string;
   /** Selection params only; absent for plain variable params. */
@@ -355,7 +431,7 @@ export interface VegaParam {
   /** Initial value: a selection's initial state, or a variable param's value. */
   value?: unknown;
   /** Input widget / scale / legend binding. */
-  bind?: unknown;
+  bind?: VegaBind;
   [key: string]: unknown;
 }
 
@@ -400,7 +476,42 @@ export interface VegaFacetMapping {
   type?: VegaFieldType;
   row?: VegaFieldDef;
   column?: VegaFieldDef;
+  sort?: VegaSort;
   [key: string]: unknown;
+}
+
+/**
+ * The `repeat` operator's field mapping. A bare `string[]` wraps into a grid;
+ * `row`/`column` (and `layer`) build a matrix / layered repeat.
+ */
+export interface VegaRepeatMapping {
+  row?: string[];
+  column?: string[];
+  layer?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * A `{repeat: 'row' | 'column' | 'layer' | 'repeat'}` field reference used
+ * inside a repeated sub-spec's encoding to point at the current repeat value.
+ */
+export interface VegaRepeatRef {
+  repeat: 'row' | 'column' | 'layer' | 'repeat';
+}
+
+/**
+ * Narrows a channel `field` value to a `{repeat}` reference.
+ * @param {unknown} value The candidate field value.
+ * @returns {value is VegaRepeatRef} True when it is a single-key `{repeat: string}`.
+ */
+export function isRepeatRef(value: unknown): value is VegaRepeatRef {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    typeof (value as VegaRepeatRef).repeat === 'string'
+  );
 }
 
 /**
@@ -421,7 +532,7 @@ export type VegaLiteSpec = (VegaUnitSpec | VegaLayerSpec) & {
   hconcat?: VegaLiteSpec[];
   vconcat?: VegaLiteSpec[];
   concat?: VegaLiteSpec[];
-  repeat?: unknown;
+  repeat?: string[] | VegaRepeatMapping;
   facet?: VegaFacetMapping;
-  spec?: VegaLiteSpec;
+  spec?: unknown;
 };

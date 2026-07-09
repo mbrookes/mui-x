@@ -178,7 +178,18 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     let hi = -Infinity;
     for (const row of rows) {
       const raw = row[fieldId];
-      const v = isDateField ? dayjs(raw as string).valueOf() : Number(raw);
+      // For date fields, floor to local midnight (finding 3.4): the committed filter
+      // value is always persisted as a 'YYYY-MM-DD' string (`managedOnApply` below),
+      // which re-parses to local midnight. If min/max instead kept the raw row
+      // timestamp's time-of-day, the round-tripped `currentValue` the sync effect
+      // receives after a commit would differ from wherever the user released the
+      // slider, snapping the handles to a new position ~immediately after release.
+      // Aligning min/max to the same date precision the store persists closes that gap.
+      const v = isDateField
+        ? dayjs(raw as string)
+            .startOf('day')
+            .valueOf()
+        : Number(raw);
       if (Number.isFinite(v)) {
         if (v < lo) {
           lo = v;

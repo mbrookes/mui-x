@@ -25,13 +25,27 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     currentValue?.to ? dayjs(currentValue.to) : null,
   );
 
+  // Whether each field currently has local, uncommitted edits (finding 3.4). While
+  // typing a "From" date, an intermediate invalid state (e.g. an incomplete section)
+  // debounce-applies `{ from: undefined, to }` to the store; that round-trips back
+  // through `currentValue` ~300ms later, and without this guard the sync effect below
+  // would unconditionally clear the field the user is still mid-editing. Tracked via
+  // focus rather than a "dirty" flag so the guard releases naturally once the user
+  // tabs/clicks away, letting external updates (e.g. programmatic clear) resync then.
+  const fromFocusedRef = React.useRef(false);
+  const toFocusedRef = React.useRef(false);
+
   // Sync when external value changes (e.g. filter cleared programmatically)
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- external sync is intentional; local state buffers UI interaction
   React.useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-derived-state -- date pickers use local state to avoid re-render on every keystroke
-    setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
-    // react-doctor-disable-next-line react-doctor/no-derived-state -- same as above
-    setTo(currentValue?.to ? dayjs(currentValue.to) : null);
+    if (!fromFocusedRef.current) {
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- date pickers use local state to avoid re-render on every keystroke
+      setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
+    }
+    if (!toFocusedRef.current) {
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- same as above
+      setTo(currentValue?.to ? dayjs(currentValue.to) : null);
+    }
   }, [currentValue?.from, currentValue?.to]);
 
   // Debounce onApply so that typing a date character-by-character (e.g. in the text field
@@ -97,14 +111,36 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
           label={localeText.filterWidgetDateFromLabel}
           value={from}
           onChange={handleFromChange}
-          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+          slotProps={{
+            textField: {
+              size: 'small',
+              fullWidth: true,
+              onFocus: () => {
+                fromFocusedRef.current = true;
+              },
+              onBlur: () => {
+                fromFocusedRef.current = false;
+              },
+            },
+          }}
           data-field={fieldId}
         />
         <DatePicker
           label={localeText.filterWidgetDateToLabel}
           value={to}
           onChange={handleToChange}
-          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+          slotProps={{
+            textField: {
+              size: 'small',
+              fullWidth: true,
+              onFocus: () => {
+                toFocusedRef.current = true;
+              },
+              onBlur: () => {
+                toFocusedRef.current = false;
+              },
+            },
+          }}
         />
       </Stack>
     </Stack>

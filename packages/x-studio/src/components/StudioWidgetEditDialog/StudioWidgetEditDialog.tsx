@@ -172,7 +172,10 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           </Box>
           <IconButton
             size="small"
-            onClick={onClose}
+            // 3.8: use the component's own `handleClose` (which resets `tab` to 0), not the
+            // raw `onClose` — otherwise closing via X on a later tab and reopening for a kind
+            // with fewer tabs leaves `Tabs value` pointing past the rendered tab list.
+            onClick={handleClose}
             aria-label={localeText.widgetEditDialogCloseAriaLabel}
             sx={{ ml: 1 }}
           >

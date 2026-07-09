@@ -83,9 +83,24 @@ export function FilterBody({
             <Select
               label={localeText.filterOperatorLabel}
               value={activeOperator}
-              onChange={(event) =>
-                onChange({ operator: event.target.value as StudioFilterOperator })
-              }
+              onChange={(event) => {
+                const nextOperator = event.target.value as StudioFilterOperator;
+                // 1.6: `between` carries a `{ from, to }` object value; every other operator
+                // carries a scalar. Switching AWAY from `between` while leaving the object in
+                // place makes `toComparable` yield NaN (silently matching nothing) and the
+                // value input render "[object Object]". Reset the value when the new operator
+                // is shape-incompatible. (The reverse, scalar → `between`, is handled in
+                // FilterValueInput's between branch — finding 1.10.)
+                const valueIsBetweenShape =
+                  filter.value !== null &&
+                  typeof filter.value === 'object' &&
+                  !Array.isArray(filter.value);
+                onChange(
+                  nextOperator !== 'between' && valueIsBetweenShape
+                    ? { operator: nextOperator, value: '' }
+                    : { operator: nextOperator },
+                );
+              }}
             >
               {operators.map((op) => (
                 <MenuItem key={op.value} value={op.value}>

@@ -79,13 +79,36 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
 
   const handleFilterChange = (changes: Partial<StudioFilterState>) => {
-    const merged = { ...filter, ...changes };
-    // Auto-wire field for chart rank filters so isFilterComplete passes
-    if (merged.filterMode === 'rank' && chartXField && !merged.field) {
-      merged.field = chartXField;
-    }
-    controller.updateFilter(filter.id, merged);
+    // 1.4: commit ONLY the delta. `controller.updateFilter` already merges the patch into
+    // the CURRENT store filter, so passing the whole render-time `filter` snapshot let a
+    // debounced value commit (FilterValueInput captures a stale `filter` closure) overwrite
+    // a concurrent operator/conjunction edit that landed in between. `PageFilterRow` already
+    // passes the delta; the only extra the widget row needs is the rank field auto-wire.
+    const nextMode = changes.filterMode ?? filter.filterMode;
+    const nextField = 'field' in changes ? changes.field : filter.field;
+    const delta: Partial<StudioFilterState> =
+      nextMode === 'rank' && chartXField && !nextField
+        ? { ...changes, field: chartXField }
+        : changes;
+    controller.updateFilter(filter.id, delta);
   };
+
+  // 2.12: `activeOperator` above is a DISPLAY-ONLY fallback — when the stored operator is
+  // invalid for the current field type (e.g. a legacy/AI/host-authored filter, or a field
+  // switched under it), the row renders `operators[0]` while the engine keeps applying the
+  // stale stored operator. Repair the doc to match what the UI shows. Non-undoable, matching
+  // `KpiSetupPanel`'s `kpiAggregation` self-repair (finding 2.4): the write fires from
+  // rendering, not a user gesture, and self-terminates once the operator is valid.
+  const currentModeForRepair = filter.filterMode ?? 'condition';
+  React.useEffect(() => {
+    if (
+      currentModeForRepair === 'condition' &&
+      filter.operator &&
+      !operators.some((o) => o.value === filter.operator)
+    ) {
+      controller.updateFilter(filter.id, { operator: operators[0].value }, { undoable: false });
+    }
+  }, [currentModeForRepair, filter.operator, filter.id, operators, controller]);
 
   const handleModeChange = (newMode: FilterMode) => {
     if (newMode === 'rank' && disableRankMode) {

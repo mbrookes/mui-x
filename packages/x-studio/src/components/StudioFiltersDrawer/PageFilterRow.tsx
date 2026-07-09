@@ -89,6 +89,22 @@ export function PageFilterRow(props: PageFilterRowProps) {
     controller.updateFilter(filter.id, changes);
   };
 
+  // 2.12: `activeOperator` above is a DISPLAY-ONLY fallback — when the stored operator is
+  // invalid for the current field type, the row renders `operators[0]` while the engine
+  // keeps applying the stale stored operator. Repair the doc to match what the UI shows.
+  // Non-undoable, matching `KpiSetupPanel`'s `kpiAggregation` self-repair (finding 2.4):
+  // the write fires from rendering, not a user gesture, and self-terminates once valid.
+  const currentModeForRepair = filter.filterMode ?? 'condition';
+  React.useEffect(() => {
+    if (
+      currentModeForRepair === 'condition' &&
+      filter.operator &&
+      !operators.some((o) => o.value === filter.operator)
+    ) {
+      controller.updateFilter(filter.id, { operator: operators[0].value }, { undoable: false });
+    }
+  }, [currentModeForRepair, filter.operator, filter.id, operators, controller]);
+
   const handleModeChange = (newMode: FilterMode) => {
     if (newMode === 'rank' && disableRankMode) {
       return;

@@ -46,6 +46,26 @@ import { FilterSection, WidgetFilterSection } from './FilterSection';
 import { InteractiveFilterSection } from './InteractiveFilterSection';
 import { CrossFilterSection } from './CrossFilterSection';
 
+/**
+ * Content-comparison of a filter, ignoring the fields `applyFilterPreset` rewrites when it
+ * materializes a preset: the re-minted `id` and the page-rescoped `scope`. Used to decide
+ * whether the live page filters still equal a saved view (finding 3.10).
+ */
+function normalizeFilterForCompare(filter: StudioFilterState): string {
+  const { id, scope, ...rest } = filter;
+  return JSON.stringify(rest);
+}
+
+/** True when two filter lists are content-equivalent regardless of order/id/scope. */
+function filtersEquivalent(a: StudioFilterState[], b: StudioFilterState[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const sortedA = a.map(normalizeFilterForCompare).sort();
+  const sortedB = b.map(normalizeFilterForCompare).sort();
+  return sortedA.every((value, index) => value === sortedB[index]);
+}
+
 export interface StudioFiltersDrawerProps {
   /**
    * System prop that allows defining system overrides and additional CSS styles applied to the
@@ -78,8 +98,6 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const [renamingPresetId, setRenamingPresetId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
-
-  const [activePresetId, setActivePresetId] = React.useState<string | null>(null);
 
   const handleRenameStart = (presetId: string, currentName: string) => {
     setRenamingPresetId(presetId);
@@ -188,6 +206,22 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   const interactiveFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope.kind === 'interactive',
   );
+
+  // 3.10: derive the active saved-view from the doc rather than tracking it as component
+  // state. A separate local `activePresetId` desynced from the filters it described — Ctrl+Z
+  // restored the filters but left the preset chip "active"/disabled, and drawer unmount/remount
+  // forgot it while the filters remained. `isDefaultViewActive` is the cleared-filters view;
+  // `activePresetId` is the preset whose snapshot matches the live page filters (if any).
+  const isDefaultViewActive = pageFilters.length === 0;
+  const activePresetId = React.useMemo(() => {
+    if (pageFilters.length === 0) {
+      return null;
+    }
+    const match = filterPresets.find(
+      (preset) => preset.filters.length > 0 && filtersEquivalent(pageFilters, preset.filters),
+    );
+    return match ? match.id : null;
+  }, [filterPresets, pageFilters]);
 
   // Build a map of field id → label for search matching
   const fieldLabelMap = React.useMemo(() => buildFieldLabelMap(dataSources), [dataSources]);
@@ -394,17 +428,10 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                   icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
                   label={localeText.filtersDefaultViewLabel}
                   size="small"
-                  color={activePresetId === null ? 'primary' : 'default'}
-                  disabled={activePresetId === null}
-                  clickable={activePresetId !== null}
-                  onClick={
-                    activePresetId !== null
-                      ? () => {
-                          controller.clearPageFilters();
-                          setActivePresetId(null);
-                        }
-                      : undefined
-                  }
+                  color={isDefaultViewActive ? 'primary' : 'default'}
+                  disabled={isDefaultViewActive}
+                  clickable={!isDefaultViewActive}
+                  onClick={!isDefaultViewActive ? () => controller.clearPageFilters() : undefined}
                   sx={{ justifyContent: 'flex-start' }}
                 />
               )}
@@ -445,12 +472,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                         disabled={isActive}
                         clickable={!isActive}
                         onClick={
-                          isActive
-                            ? undefined
-                            : () => {
-                                controller.applyFilterPreset(preset.id);
-                                setActivePresetId(preset.id);
-                              }
+                          isActive ? undefined : () => controller.applyFilterPreset(preset.id)
                         }
                         sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
                       />

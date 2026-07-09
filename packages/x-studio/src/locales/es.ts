@@ -78,6 +78,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetEditDialogTabFormat: 'Formato',
   widgetEditDialogCloseAriaLabel: 'Cerrar el cuadro de diálogo de edición',
   widgetUntitledLabel: (kindLabel) => `${kindLabel} sin título`,
+  widgetEditDialogPreviewLabel: (kindLabel) => `Vista previa de ${kindLabel.toLowerCase()}`,
 
   // AI assistant
   aiAssistantOpenTooltip: 'Abrir asistente de IA',
@@ -356,6 +357,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   expressionPrecisionLabel: 'Precisión',
   expressionPrecisionHelperText:
     'Lugares decimales (0–10) utilizados para dar formato a este campo calculado',
+  expressionBuilderSectionLabel: 'Expresión',
 
   // Expression builder: operator picker
   exprOpAdd: 'Sumar (+)',
@@ -604,6 +606,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Amarillo',
   gridSetupCFStyleBlue: 'Azul',
   gridSetupCFStyleBold: 'Atrevido',
+  gridSetupCFValuePlaceholder: 'valor',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Tipo de mapa',
@@ -786,6 +789,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Borrar ${label.toLowerCase()}`,
+  colorInputPickerAriaLabel: (label) => `Selector de color de ${label.toLowerCase()}`,
 
   // KPI widget
   kpiTrendNewLabel: 'Nuevo',
@@ -866,6 +870,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Obtener estado del panel',
+  chatToolLabelListPages: 'Listar páginas',
   chatToolLabelSetDashboardTitle: 'Establecer título del panel',
   chatToolLabelAddPage: 'Añadir página',
   chatToolLabelRenamePage: 'Renombrar página',
@@ -885,7 +890,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Aplicar actualización masiva',
   chatToolLabelRenameThread: 'Renombrar conversación',
   chatToolLabelQueryDataSource: 'Consultar fuente de datos',
-  chatToolLabelGetCurrentDate: 'Obtener fecha actual',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

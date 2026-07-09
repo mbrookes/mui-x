@@ -114,7 +114,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
             color="text.secondary"
             sx={{ display: 'block', lineHeight: 1.2 }}
           >
-            {kindLabel} preview
+            {localeText.widgetEditDialogPreviewLabel(kindLabel)}
           </Typography>
         </Stack>
 

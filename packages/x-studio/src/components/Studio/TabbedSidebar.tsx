@@ -56,9 +56,27 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
+  // Unique per-mount id prefix so tab/panel ids never collide across multiple
+  // mounted Studio instances on the same page.
+  const baseId = React.useId();
 
   const activePanel = panels.find((p) => shell.openDrawers[p.drawer]) ?? null;
   const activeDrawer = activePanel?.drawer ?? null;
+  const activeIndex = panels.findIndex((p) => p.drawer === activeDrawer);
+
+  // Roving tabindex (APG tabs pattern): only one tab is in the Tab sequence at a
+  // time; Left/Right/Home/End move focus (and DOM focus) among the rest without
+  // necessarily activating them.
+  const [focusedIndex, setFocusedIndex] = React.useState(0);
+  const tabRefs = React.useRef<Array<HTMLElement | null>>([]);
+
+  // Keep the roving tabindex in sync with whichever panel is actually open, so
+  // e.g. re-entering the rail with Tab always lands on the active tab first.
+  React.useEffect(() => {
+    if (activeIndex >= 0) {
+      setFocusedIndex(activeIndex);
+    }
+  }, [activeIndex]);
 
   // Announce panel open/close to assistive technology — opening a side panel
   // does not move focus, so without a live region the change is silent.
@@ -99,11 +117,51 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
     }
   };
 
+  const moveFocus = (nextIndex: number) => {
+    const clamped = (nextIndex + panels.length) % panels.length;
+    setFocusedIndex(clamped);
+    tabRefs.current[clamped]?.focus();
+  };
+
+  const handleTabKeyDown = (index: number) => (event: React.KeyboardEvent<HTMLDivElement>) => {
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault();
+        moveFocus(index + 1);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault();
+        moveFocus(index - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        moveFocus(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        moveFocus(panels.length - 1);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const getTabId = (drawer: StudioDrawer) => `${baseId}-tab-${drawer}`;
+  const getPanelId = (drawer: StudioDrawer) => `${baseId}-panel-${drawer}`;
+
   return (
     <Box sx={{ display: 'flex', flexShrink: 0, height: '100%' }}>
       {/* Active panel content — rendered before tab rail when on the right */}
       {side === 'right' && activePanel && (
-        <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+        <TabbedSidebarActivePanel
+          key={activePanel.drawer}
+          panel={activePanel}
+          side={side}
+          id={getPanelId(activePanel.drawer)}
+          aria-labelledby={getTabId(activePanel.drawer)}
+        />
       )}
 
       {/* Tab rail */}
@@ -121,19 +179,32 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
           alignItems: 'stretch',
         }}
       >
-        {panels.map((panel) => (
+        {panels.map((panel, index) => (
           <TabbedSidebarTabEntry
             key={panel.drawer}
+            ref={(el) => {
+              tabRefs.current[index] = el;
+            }}
             panel={panel}
             isActive={panel.drawer === activeDrawer}
+            tabIndex={index === focusedIndex ? 0 : -1}
+            id={getTabId(panel.drawer)}
+            aria-controls={getPanelId(panel.drawer)}
             onClick={() => handleTabClick(panel.drawer)}
+            onKeyDown={handleTabKeyDown(index)}
           />
         ))}
       </Box>
 
       {/* Active panel content — rendered after tab rail when on the left (default) */}
       {side === 'left' && activePanel && (
-        <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+        <TabbedSidebarActivePanel
+          key={activePanel.drawer}
+          panel={activePanel}
+          side={side}
+          id={getPanelId(activePanel.drawer)}
+          aria-labelledby={getTabId(activePanel.drawer)}
+        />
       )}
     </Box>
   );

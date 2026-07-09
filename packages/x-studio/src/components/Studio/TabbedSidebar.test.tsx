@@ -161,4 +161,76 @@ describe('TabbedSidebar', () => {
     expect(screen.getByText('Filters content')).toBeVisible();
     expect(screen.queryByText('Data content')).toBeNull();
   });
+
+  it('wires the active panel as a labelled tabpanel for its tab (APG tabs pattern)', () => {
+    controller = new StudioController({
+      session: {
+        shell: {
+          openDrawers: { data: false, compose: false, filters: true },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
+      },
+    });
+    syncState();
+    renderSidebar();
+
+    const tab = screen.getByRole('tab', { name: /Close Filters panel/i });
+    const panel = screen.getByRole('tabpanel');
+    expect(tab.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tab.id);
+  });
+
+  it('only the active tab is in the Tab sequence; others are roving-tabindex -1', () => {
+    controller = new StudioController({
+      session: {
+        shell: {
+          openDrawers: { data: false, compose: true, filters: false },
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
+      },
+    });
+    syncState();
+    renderSidebar();
+
+    const tabs = screen.getAllByRole('tab');
+    tabs.forEach((tab) => {
+      const expectedTabIndex = /Close Config panel/i.test(tab.getAttribute('aria-label') ?? '')
+        ? '0'
+        : '-1';
+      expect(tab.getAttribute('tabindex')).toBe(expectedTabIndex);
+    });
+  });
+
+  it('moves roving focus to the next tab on ArrowRight without changing the open panel', () => {
+    renderSidebar();
+
+    const tabs = screen.getAllByRole('tab');
+    tabs[0].focus();
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
+
+    expect(tabs[1]).toHaveFocus();
+    expect(tabs[1].getAttribute('tabindex')).toBe('0');
+    expect(tabs[0].getAttribute('tabindex')).toBe('-1');
+    // Navigation alone must not open a panel.
+    expect(controller.getState().session.shell.openDrawers.compose).toBe(false);
+  });
+
+  it('wraps roving focus from the last tab to the first on ArrowRight, and moves focus with Home/End', () => {
+    renderSidebar();
+
+    const tabs = screen.getAllByRole('tab');
+    tabs[tabs.length - 1].focus();
+    fireEvent.keyDown(tabs[tabs.length - 1], { key: 'ArrowRight' });
+    expect(tabs[0]).toHaveFocus();
+
+    fireEvent.keyDown(tabs[0], { key: 'End' });
+    expect(tabs[tabs.length - 1]).toHaveFocus();
+
+    fireEvent.keyDown(tabs[tabs.length - 1], { key: 'Home' });
+    expect(tabs[0]).toHaveFocus();
+  });
 });

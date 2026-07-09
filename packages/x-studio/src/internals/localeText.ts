@@ -115,6 +115,11 @@ export interface StudioLocaleText {
    * @param {string} kindLabel The localized widget-kind name (e.g. "Chart").
    */
   widgetUntitledLabel: (kindLabel: string) => string;
+  /**
+   * Returns the preview-panel header label, e.g. "Chart preview".
+   * @param {string} kindLabel The localized widget-kind name (e.g. "Chart").
+   */
+  widgetEditDialogPreviewLabel: (kindLabel: string) => string;
 
   // ── AI assistant ───────────────────────────────────────────────────────────
   aiAssistantOpenTooltip: string;
@@ -407,6 +412,8 @@ export interface StudioLocaleText {
   expressionDescriptionPlaceholder: string;
   expressionPrecisionLabel: string;
   expressionPrecisionHelperText: string;
+  /** Section heading above the expression builder */
+  expressionBuilderSectionLabel: string;
 
   // ── Expression builder: operator picker ────────────────────────────────────
   exprOpAdd: string;
@@ -689,6 +696,8 @@ export interface StudioLocaleText {
   gridSetupCFStyleYellow: string;
   gridSetupCFStyleBlue: string;
   gridSetupCFStyleBold: string;
+  /** Placeholder for the conditional-format rule's comparison value input. */
+  gridSetupCFValuePlaceholder: string;
 
   // ── Map setup panel ────────────────────────────────────────────────────────
   mapSetupMapTypeLabel: string;
@@ -877,6 +886,8 @@ export interface StudioLocaleText {
   // ── Color input ───────────────────────────────────────────────────────────
   /** Returns e.g. "Clear background color" */
   colorInputClearAriaLabel: (label: string) => string;
+  /** Returns the aria-label for the color-swatch picker button, e.g. "Background color color picker" */
+  colorInputPickerAriaLabel: (label: string) => string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
   /** Label shown when the trend delta is infinite (no previous data) */
@@ -979,6 +990,7 @@ export interface StudioLocaleText {
 
   // ── AI chat tool-call card titles ─────────────────────────────────────────
   chatToolLabelGetDashboardState: string;
+  chatToolLabelListPages: string;
   chatToolLabelSetDashboardTitle: string;
   chatToolLabelAddPage: string;
   chatToolLabelRenamePage: string;
@@ -998,7 +1010,6 @@ export interface StudioLocaleText {
   chatToolLabelApplyBulkUpdate: string;
   chatToolLabelRenameThread: string;
   chatToolLabelQueryDataSource: string;
-  chatToolLabelGetCurrentDate: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -1297,6 +1308,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetEditDialogTabFormat: 'Format',
   widgetEditDialogCloseAriaLabel: 'Close edit dialog',
   widgetUntitledLabel: (kindLabel) => `Untitled ${kindLabel}`,
+  widgetEditDialogPreviewLabel: (kindLabel) => `${kindLabel} preview`,
 
   // AI assistant
   aiAssistantOpenTooltip: 'Open AI assistant',
@@ -1573,6 +1585,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   expressionPrecisionLabel: 'Precision',
   expressionPrecisionHelperText:
     'Decimal places (0\u201310) used when formatting this calculated field',
+  expressionBuilderSectionLabel: 'Expression',
 
   // Expression builder: operator picker
   exprOpAdd: 'Add (+)',
@@ -1851,6 +1864,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupCFStyleYellow: 'Yellow',
   gridSetupCFStyleBlue: 'Blue',
   gridSetupCFStyleBold: 'Bold',
+  gridSetupCFValuePlaceholder: 'value',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Map type',
@@ -2035,6 +2049,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Clear ${label.toLowerCase()}`,
+  colorInputPickerAriaLabel: (label) => `${label} color picker`,
 
   // KPI widget
   kpiTrendNewLabel: 'New',
@@ -2098,6 +2113,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Get dashboard state',
+  chatToolLabelListPages: 'List pages',
   chatToolLabelSetDashboardTitle: 'Set dashboard title',
   chatToolLabelAddPage: 'Add page',
   chatToolLabelRenamePage: 'Rename page',
@@ -2117,7 +2133,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatToolLabelApplyBulkUpdate: 'Apply bulk update',
   chatToolLabelRenameThread: 'Rename thread',
   chatToolLabelQueryDataSource: 'Query data source',
-  chatToolLabelGetCurrentDate: 'Get current date',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

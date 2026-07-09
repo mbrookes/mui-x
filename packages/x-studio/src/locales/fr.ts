@@ -79,6 +79,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetEditDialogTabFormat: 'Format',
   widgetEditDialogCloseAriaLabel: "Fermer la boîte de dialogue d'édition",
   widgetUntitledLabel: (kindLabel) => `${kindLabel} sans titre`,
+  widgetEditDialogPreviewLabel: (kindLabel) => `Aperçu ${kindLabel.toLowerCase()}`,
 
   // AI assistant
   aiAssistantOpenTooltip: "Ouvrir l'assistant IA",
@@ -358,6 +359,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   expressionPrecisionLabel: 'Précision',
   expressionPrecisionHelperText:
     'Nombre de décimales (0 à 10) utilisées pour formater ce champ calculé',
+  expressionBuilderSectionLabel: 'Expression',
 
   // Expression builder: operator picker
   exprOpAdd: 'Additionner (+)',
@@ -606,6 +608,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Jaune',
   gridSetupCFStyleBlue: 'Bleu',
   gridSetupCFStyleBold: 'Audacieux',
+  gridSetupCFValuePlaceholder: 'valeur',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Type de carte',
@@ -788,6 +791,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Effacer ${label.toLowerCase()}`,
+  colorInputPickerAriaLabel: (label) => `Sélecteur de couleur ${label.toLowerCase()}`,
 
   // KPI widget
   kpiTrendNewLabel: 'Nouveau',
@@ -869,6 +873,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Obtenir l’état du tableau de bord',
+  chatToolLabelListPages: 'Lister les pages',
   chatToolLabelSetDashboardTitle: 'Définir le titre du tableau de bord',
   chatToolLabelAddPage: 'Ajouter une page',
   chatToolLabelRenamePage: 'Renommer la page',
@@ -888,7 +893,6 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Appliquer une mise à jour groupée',
   chatToolLabelRenameThread: 'Renommer la conversation',
   chatToolLabelQueryDataSource: 'Interroger la source de données',
-  chatToolLabelGetCurrentDate: 'Obtenir la date actuelle',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

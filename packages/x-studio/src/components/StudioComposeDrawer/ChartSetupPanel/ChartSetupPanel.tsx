@@ -32,7 +32,7 @@ import {
 } from '../../../context';
 import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../../../utils/fieldCapabilities';
-import { analyzeChartSupport, getChartSupportMessage } from '../../../internals/chartAggregation';
+import { analyzeChartSupport } from '../../../internals/chartAggregation';
 import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../../internals/fieldCatalog';
 import type {
@@ -392,7 +392,22 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       {!chartSupport.supported && chartSupport.reason ? (
-        <Alert severity="warning">{getChartSupportMessage(chartSupport.reason)}</Alert>
+        <Alert severity="warning">
+          {(() => {
+            // Mirror the canvas renderer's reason → locale-key mapping
+            // (StudioChartWidget.tsx) instead of the raw English `getChartSupportMessage`.
+            switch (chartSupport.reason) {
+              case 'field_not_found_or_not_direct':
+                return localeText.chartUnsupportedFieldNotFound;
+              case 'mixed_cross_source_fields':
+                return localeText.chartUnsupportedMixedCrossSource;
+              case 'scatter_cross_source_not_supported':
+                return localeText.chartUnsupportedScatterCrossSource;
+              default:
+                return localeText.chartUnsupportedDefault;
+            }
+          })()}
+        </Alert>
       ) : null}
 
       {/* Chart type icon picker */}

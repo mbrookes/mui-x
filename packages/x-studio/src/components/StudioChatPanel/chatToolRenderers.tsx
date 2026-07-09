@@ -6,11 +6,11 @@ import { createToolPartRenderer } from '@mui/x-chat/headless';
 // Tool icons — each Studio AI tool gets a recognisable MUI icon in the tool call cards
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import BarChartIcon from '@mui/icons-material/BarChart';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import LayersIcon from '@mui/icons-material/Layers';
 import NoteAltIcon from '@mui/icons-material/NoteAlt';
@@ -28,6 +28,7 @@ import type { StudioLocaleText } from '../../internals/localeText';
 export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
   // Dashboard-level tools
   get_dashboard_state: InfoOutlinedIcon,
+  list_pages: FormatListBulletedIcon,
   set_dashboard_title: TitleIcon,
   // Page tools
   add_page: LayersIcon,
@@ -51,8 +52,6 @@ export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
   apply_bulk_update: AutoFixHighIcon,
   rename_thread: EditNoteIcon,
   query_data_source: StorageIcon,
-  // Date / calendar tools
-  get_current_date: CalendarTodayIcon,
 };
 
 // Maps each Studio AI tool name to the `StudioLocaleText` key holding its localized
@@ -60,6 +59,7 @@ export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
 export const STUDIO_TOOL_LABEL_KEYS: Record<string, keyof StudioLocaleText> = {
   // Dashboard-level tools
   get_dashboard_state: 'chatToolLabelGetDashboardState',
+  list_pages: 'chatToolLabelListPages',
   set_dashboard_title: 'chatToolLabelSetDashboardTitle',
   // Page tools
   add_page: 'chatToolLabelAddPage',
@@ -83,8 +83,6 @@ export const STUDIO_TOOL_LABEL_KEYS: Record<string, keyof StudioLocaleText> = {
   apply_bulk_update: 'chatToolLabelApplyBulkUpdate',
   rename_thread: 'chatToolLabelRenameThread',
   query_data_source: 'chatToolLabelQueryDataSource',
-  // Date / calendar tools
-  get_current_date: 'chatToolLabelGetCurrentDate',
 };
 
 function StudioToolTitle({

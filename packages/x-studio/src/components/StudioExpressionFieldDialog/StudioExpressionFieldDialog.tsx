@@ -284,7 +284,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
           {/* Expression builder */}
           <div>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Expression
+              {localeText.expressionBuilderSectionLabel}
             </Typography>
             <ExpressionBuilder
               expression={expression}

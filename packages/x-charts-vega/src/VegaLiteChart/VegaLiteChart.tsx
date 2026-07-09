@@ -35,6 +35,7 @@ import { collectBindInputs } from '../compile/params';
 import { VegaOverlays, ArcLabelsPlot } from '../overlays';
 import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 import { ParamInputs } from './ParamInputs';
+import { OverlayLegend } from './OverlayLegend';
 
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
@@ -417,6 +418,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
     >
       <ChartsWrapper>
         {compiled.hasLegend && <ChartsLegend />}
+        {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
         <ChartsSurface title={compiled.title}>
           {compiled.chartKind === 'cartesian' && (
             <ChartsGrid

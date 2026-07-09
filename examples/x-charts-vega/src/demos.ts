@@ -1,3 +1,5 @@
+import { feature as topojsonFeature } from 'topojson-client';
+import worldTopology from 'visionscarto-world-atlas/world/110m.json';
 import type { DatasetRow, VegaLiteSpec } from '@mui/x-charts-vega';
 
 /**
@@ -69,57 +71,52 @@ export const temperatureRows: DatasetRow[] = [
   { day: 'Fri', low: 6, high: 14 },
 ];
 
+/** Planar (shoelace) area of a single lon/lat ring, in square degrees. */
+function ringArea(ring: number[][]): number {
+  let sum = 0;
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    sum += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+  }
+  return Math.abs(sum) / 2;
+}
+
+/** Rough relative area of a Polygon / MultiPolygon geometry (exterior rings). */
+function geometryArea(geometry: { type: string; coordinates: unknown }): number {
+  if (geometry.type === 'Polygon') {
+    const rings = geometry.coordinates as number[][][];
+    return rings.length > 0 ? ringArea(rings[0]) : 0;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    const polys = geometry.coordinates as number[][][][];
+    return polys.reduce((total, poly) => total + (poly.length > 0 ? ringArea(poly[0]) : 0), 0);
+  }
+  return 0;
+}
+
 /**
- * An inline GeoJSON FeatureCollection for the choropleth demo: six named
- * regions tiling a 3×2 grid (no topojson fetching in the demo app), each with
- * a distinct population so the sequential color scale reads as a real map.
+ * Real-world choropleth data: the 110m world-atlas countries (converted from
+ * TopoJSON via `topojson-client`, exactly as the Charts docs do), each tagged
+ * with a rough `area` metric baked into `feature.properties`. Coloring every
+ * country by its relative land area needs no external dataset and fills the
+ * whole map, so the result reads unmistakably as a world map. `Math.sqrt`
+ * compresses the enormous area range (Russia vs. a small island) into a
+ * legible color spread.
  */
-export const regionFeatures: DatasetRow[] = (() => {
-  const cols: Array<[number, number]> = [
-    [-30, -10],
-    [-10, 10],
-    [10, 30],
-  ];
-  const rows: Array<[number, number]> = [
-    [10, 40],
-    [-20, 10],
-  ];
-  const names = [
-    ['Northwest', 'North', 'Northeast'],
-    ['Southwest', 'South', 'Southeast'],
-  ];
-  // Wide, spatially-graded values so the six cells read as clearly distinct
-  // shades (a narrow range collapses them into one indistinct blob).
-  const populations = [
-    [120, 520, 900],
-    [300, 700, 1100],
-  ];
-  const features: DatasetRow[] = [];
-  rows.forEach(([lat0, lat1], ri) => {
-    cols.forEach(([lon0, lon1], ci) => {
-      features.push({
-        type: 'Feature',
-        properties: { name: names[ri][ci], population: populations[ri][ci] },
-        geometry: {
-          type: 'Polygon',
-          // Clockwise ring: d3-geo (the Map's projection engine) reads a
-          // counter-clockwise exterior ring as "the whole globe minus this
-          // hole", which floods the map with one feature's color. Winding the
-          // ring clockwise keeps each rectangle a small, self-contained cell.
-          coordinates: [
-            [
-              [lon0, lat0],
-              [lon0, lat1],
-              [lon1, lat1],
-              [lon1, lat0],
-              [lon0, lat0],
-            ],
-          ],
-        },
-      });
-    });
-  });
-  return features;
+export const worldFeatures: DatasetRow[] = (() => {
+  const collection = topojsonFeature(worldTopology as never, 'countries' as never) as unknown as {
+    features: Array<{
+      type: 'Feature';
+      properties: Record<string, unknown>;
+      geometry: { type: string; coordinates: unknown };
+    }>;
+  };
+  return collection.features.map((feature) => ({
+    ...feature,
+    properties: {
+      ...feature.properties,
+      area: Math.round(Math.sqrt(geometryArea(feature.geometry))),
+    },
+  })) as unknown as DatasetRow[];
 })();
 
 /**
@@ -317,16 +314,17 @@ export const demos: Demo[] = [
   },
   {
     id: 'geoshape',
-    title: 'Choropleth map (geoshape mark — Premium tier)',
+    title: 'Choropleth world map (geoshape mark — Premium tier)',
     description:
-      'mark: "geoshape" over an inline GeoJSON FeatureCollection with a quantitative color ' +
-      'field — translates to the x-charts-premium Map (renders watermarked without a license key).',
-    data: regionFeatures,
+      'mark: "geoshape" over the 110m world-atlas countries (GeoJSON), colored by each country’s ' +
+      'relative land area — translates to the x-charts-premium Map (renders watermarked without a ' +
+      'license key).',
+    data: worldFeatures,
     spec: {
       projection: { type: 'naturalEarth1' },
       mark: 'geoshape',
       encoding: {
-        color: { field: 'properties.population', type: 'quantitative' },
+        color: { field: 'properties.area', type: 'quantitative' },
       },
     },
   },

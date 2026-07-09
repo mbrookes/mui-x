@@ -83,4 +83,36 @@ describe('<VegaLiteChart /> line/area marks (render)', () => {
     );
     expect(container.querySelectorAll(`.${lineClasses.line}`)).to.have.length(2);
   });
+
+  it('spaces irregular dates proportionally to elapsed time on the continuous time scale', () => {
+    const { container } = render(
+      <VegaLiteChart
+        width={400}
+        height={300}
+        spec={{
+          data: {
+            values: [
+              { day: '2020-01-01', temp: 10 },
+              { day: '2020-01-02', temp: 14 },
+              { day: '2020-01-11', temp: 9 },
+            ],
+          },
+          mark: 'line',
+          encoding: {
+            x: { field: 'day', type: 'temporal' },
+            y: { field: 'temp', type: 'quantitative' },
+          },
+        }}
+        onGaps={() => {}}
+      />,
+    );
+    const d = container.querySelector(`.${lineClasses.line}`)?.getAttribute('d') ?? '';
+    const xs = Array.from(d.matchAll(/[ML]\s*(-?\d+(?:\.\d+)?)[ ,]/g)).map((m) => Number(m[1]));
+    expect(xs.length).to.be.at.least(3);
+    const [x1, x2, x3] = xs;
+    // A 1-day gap then a 9-day gap: on a continuous time scale the first
+    // segment is far shorter than the second. A uniform point scale (the old
+    // behavior) would have placed the middle date exactly halfway.
+    expect(x2 - x1).to.be.lessThan(x3 - x2);
+  });
 });

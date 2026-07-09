@@ -85,7 +85,7 @@ describe('<VegaLiteChart /> point/scatter marks', () => {
     expect(reported.map((gap) => gap.code)).not.to.include('mark:point-not-implemented');
   });
 
-  it('renders scatter markers positioned against a temporal (point-scale) x axis', () => {
+  it('renders scatter markers positioned against a temporal (continuous time-scale) x axis', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [

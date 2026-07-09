@@ -14,8 +14,12 @@ import { isFieldDef } from '../types';
  * - `area` → `area: true` + plots `['area', 'line']`; `line` → `['line']`;
  *   `trail` → treated as `line` + a `partial` gap (stroke-width-by-field is
  *   unsupported).
- * - series `data` is index-aligned to `ctx.x.categories` (band/point/temporal
- *   axes all resolve discrete in this wrapper); missing cells are `null`.
+ * - series `data` is index-aligned to `ctx.x.categories`; missing cells are
+ *   `null`. This holds for every axis shape the wrapper produces: band/point
+ *   (nominal/ordinal, or a forced-discrete temporal channel) AND the
+ *   continuous `scaleType: 'time'` axis — x-charts positions line/area points
+ *   by indexing into `xAxis.data` (the ordered Date[]), so `categories` stays
+ *   populated on the time-scale path and no functional change is needed here.
  * - color-field splitting into one series per group via `resolveColor`;
  *   static color via `staticColor`/`mark.color`/`mark.stroke`.
  * - `mark.interpolate` → series `curve`, exact mapping where one exists,
@@ -126,10 +130,14 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const xField = x?.field;
 
   if (!x || !x.categories || !x.categoryKeys) {
+    // Never fires for a temporal x: even the continuous `scaleType: 'time'`
+    // path keeps `categories`/`categoryKeys` populated (see scales.ts). It only
+    // trips on a genuinely continuous *quantitative* x axis, which has no
+    // index-aligned category domain to plot a line/area series against.
     gaps.add({
       code: 'mark:line-continuous-x',
       message:
-        'Line/area marks need a discrete (nominal/ordinal/temporal) x axis in this wrapper — a continuous quantitative x axis has no index-aligned category domain to plot the series against. The layer was dropped.',
+        'Line/area marks need a discrete (nominal/ordinal) or temporal x axis in this wrapper — a continuous quantitative x axis has no index-aligned category domain to plot the series against. The layer was dropped.',
       severity: 'unsupported',
       path,
     });
@@ -310,8 +318,9 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const series: CompiledSeries[] = groups.map((group) => {
     const data: Array<number | null> = new Array(categories.length).fill(null);
     for (const row of rowsByGroup.get(group.key) ?? []) {
-      // Temporal axis categories are Date objects (see scales.ts), so the raw
-      // row value (often an ISO string) must be coerced before the lookup —
+      // Temporal axis categories are Date objects (see scales.ts) — on both the
+      // continuous `scaleType: 'time'` path and the discrete fallback — so the
+      // raw row value (often an ISO string) must be coerced before the lookup,
       // same as point.ts's resolveAxisValue.
       const rawX = x.fieldType === 'temporal' ? toDate(row[xField]) : row[xField];
       const idx = ctx.categoryIndex(x, rawX);

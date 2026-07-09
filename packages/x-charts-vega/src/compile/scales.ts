@@ -1,11 +1,12 @@
 import type { XAxis, YAxis } from '@mui/x-charts/models';
-import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaSort } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaFieldType, VegaSort } from '../types';
 import { isFieldDef } from '../types';
 import type { GapCollector } from '../gaps';
 import type { NormalizedSpec, NormalizedUnit } from '../normalize';
 import type { AxisResolution } from './context';
 import { categoryKey } from './context';
 import { resolveFieldType, toDate } from './fieldTypes';
+import { createValueFormatter } from '../format';
 
 /*
  * Positional-scale resolution: turns the x/y channel definitions of all
@@ -18,14 +19,21 @@ import { resolveFieldType, toDate } from './fieldTypes';
  *   - discrete-axis `sort` (ascending/descending/array/null; field/op → gap);
  *   - quantitative `scale.domain` / `zero` / `nice` / `reverse` / log-family;
  *   - axis-config enrichment (`title`, `labelAngle`, `tickCount`, `values`,
- *     `grid`, `labels`, `format`, `orient`) from the field def's `axis`;
- *   - temporal channels rendered as a discrete band/point scale over sorted
- *     Dates (recorded as a `partial` gap — continuous time scales are not
- *     used);
+ *     `grid`, `labels`, `format`, `orient`) from the field def's `axis`, with
+ *     the `format` d3 pattern compiled to a `valueFormatter` (see ../format)
+ *     when it can be translated, and reported as a gap otherwise;
+ *   - temporal channels rendered as a *continuous* time/utc scale over the
+ *     ordered Dates by default (native x-charts time-tick formatting), and as
+ *     a discrete band/point scale over those Dates only when a per-category
+ *     mark (bar/rect/boxplot/errorbar), an explicit discrete `scale.type`, or
+ *     an unsupported `sort` forces it (that fallback records a `partial` gap);
  *   - `resolve.scale` independence + `x2`/`y2` reported as gaps (no multi-axis).
  *
- * The band/point domain is collected in data order (unless `sort` reorders it)
- * so mark compilers can index-align their series `data` to `categories`.
+ * The domain (`categories`) is collected in data order (unless `sort` reorders
+ * it) so mark compilers can index-align their series `data` to `categories` —
+ * this holds on the continuous-temporal path too, since x-charts still
+ * positions line/area/scatter points by indexing into `xAxis.data` (the
+ * ordered Date[]) even on a `scaleType: 'time'` axis.
  */
 
 export interface ResolvedAxes {
@@ -46,6 +54,8 @@ interface AxisExtras {
   tickInterval?: unknown[];
   tickLabelStyle?: { angle?: number; display?: string };
   position?: 'top' | 'bottom' | 'left' | 'right' | 'none';
+  // Compiled from `axis.format` (d3-format / d3-time-format) — feeds ticks and tooltips.
+  valueFormatter?: (value: unknown) => string;
 }
 
 function fieldOf(def: VegaChannelDef | undefined): string | undefined {
@@ -98,12 +108,15 @@ function mapOrient(channel: 'x' | 'y', orient: string): AxisExtras['position'] |
 
 /**
  * Translates the field def's `axis` config into x-charts axis props. `title`
- * is handled separately by `axisTitle`; everything else is mapped here, with
- * unmappable pieces (`format` d3 strings) recorded as gaps.
+ * is handled separately by `axisTitle`; everything else is mapped here. A
+ * `format` d3 pattern is compiled to a `valueFormatter` via `../format` when it
+ * can be translated (quantitative/temporal, or any type with an explicit
+ * `formatType`); patterns that cannot be translated are recorded as gaps.
  */
 function buildAxisExtras(
   def: VegaChannelDef | undefined,
   channel: 'x' | 'y',
+  fieldType: VegaFieldType,
   gaps: GapCollector,
   path: string,
 ): AxisExtras {
@@ -137,14 +150,24 @@ function buildAxisExtras(
     extras.tickLabelStyle = tickLabelStyle;
   }
   if (typeof axis.format === 'string') {
-    gaps.add({
-      code: 'scale:axis-format',
-      message:
-        `Axis \`format\` string "${axis.format}" (d3-format / d3-time-format) is not translated; ` +
-        'x-charts applies its default number/date formatting. Pass a `valueFormatter` on the axis for custom output.',
-      severity: 'partial',
-      path: `${path}.encoding.${channel}.axis.format`,
-    });
+    const formatter = createValueFormatter(
+      axis.format,
+      fieldType,
+      typeof axis.formatType === 'string' ? axis.formatType : undefined,
+    );
+    if (formatter) {
+      extras.valueFormatter = formatter;
+    } else {
+      gaps.add({
+        code: 'scale:axis-format',
+        message:
+          `Axis \`format\` string "${axis.format}" could not be translated to a value formatter ` +
+          `(a d3-format / d3-time-format pattern needs a quantitative or temporal field, or an explicit \`formatType\`); ` +
+          'x-charts applies its default number/date formatting instead. Pass a `valueFormatter` on the axis for custom output.',
+        severity: 'partial',
+        path: `${path}.encoding.${channel}.axis.format`,
+      });
+    }
   }
   if (typeof axis.orient === 'string') {
     const position = mapOrient(channel, axis.orient);
@@ -240,6 +263,20 @@ function channelHasBarMark(occurrences: ChannelOccurrence[]): boolean {
 }
 
 /**
+ * Marks that force a temporal channel onto a discrete band/point scale instead
+ * of a continuous time scale: bar/rect derive their width from a band, and
+ * boxplot/errorbar group their summary geometry per category. Generalizes the
+ * plain bar/rect check — any of these on a temporal channel opts out of the
+ * continuous-time path.
+ */
+const DISCRETE_TEMPORAL_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar']);
+
+/** `true` when any occurrence of the channel is drawn with a per-category (band-requiring) mark. */
+function channelHasDiscreteTemporalMark(occurrences: ChannelOccurrence[]): boolean {
+  return occurrences.some((occurrence) => DISCRETE_TEMPORAL_MARKS.has(occurrence.unit.mark.type));
+}
+
+/**
  * An explicit categorical `scale.type` (`band`/`point`/`ordinal`) on any
  * occurrence overrides band-vs-point inference. Vega's `ordinal` position
  * scale maps to x-charts' `band`.
@@ -282,7 +319,7 @@ function resolveChannelAxis(
 
   const field = fieldOf(def);
   const scale = scaleOf(def);
-  const extras = buildAxisExtras(def, channel, gaps, first.unit.path);
+  const extras = buildAxisExtras(def, channel, fieldType, gaps, first.unit.path);
   // Axis props shared by the discrete and quantitative branches — assembled in
   // one place so new props cannot drift between the two.
   const commonConfig = {
@@ -319,25 +356,11 @@ function resolveChannelAxis(
 
     const sort = isFieldDef(def) ? def.sort : undefined;
 
-    if (isTemporal) {
-      // Vega-Lite's default temporal order is chronological, but only when no
-      // `sort` is given: `sort: null` explicitly asks for data order, and the
-      // other sort forms establish their own order in `applySort` below.
-      if (sort === undefined) {
-        pairs.sort((a, b) => (a.value as Date).getTime() - (b.value as Date).getTime());
-      }
-      // Temporal channels use a discrete band/point scale over the ordered
-      // Dates rather than a continuous time scale: the mark compilers' index-
-      // alignment contract needs a discrete domain.
-      gaps.add({
-        code: 'scale:temporal-point-approximation',
-        message:
-          'Temporal channels are rendered as a discrete band/point scale over the ordered dates, ' +
-          'not a continuous time scale, so tick spacing reflects data order rather than elapsed time. ' +
-          'The category domain stays index-aligned with the series data.',
-        severity: 'partial',
-        path: `${first.unit.path}.encoding.${channel}`,
-      });
+    // Vega-Lite's default temporal order is chronological, but only when no
+    // `sort` is given: `sort: null` explicitly asks for data order, and the
+    // other sort forms establish their own order in `applySort` below.
+    if (isTemporal && sort === undefined) {
+      pairs.sort((a, b) => (a.value as Date).getTime() - (b.value as Date).getTime());
     }
 
     const ordered = applySort(
@@ -350,16 +373,84 @@ function resolveChannelAxis(
     const categories = ordered.map((pair) => pair.value);
     const keys = ordered.map((pair) => pair.key);
 
-    // Bars need a band scale to derive their width — temporal included, since
-    // the temporal domain is discrete here anyway.
+    // `axis.values` are literal tick placements. On a continuous time scale
+    // x-charts' `useTicks` treats a `tickInterval` array as literal tick
+    // *values*, so ISO-string / number entries must be coerced to Dates; the
+    // discrete path compares them against the Date category domain and needs
+    // Dates too (fixing a latent ISO-string-vs-Date mismatch there).
+    const temporalTickInterval = extras.tickInterval?.map((entry) => toDate(entry) ?? entry);
+
+    if (isTemporal) {
+      // A temporal channel maps to a *continuous* time/utc scale unless a
+      // per-category mark (bar/rect/boxplot/errorbar), an explicit discrete
+      // `scale.type`, or a non-chronological `sort` forces a band/point domain.
+      const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences);
+      const explicitDiscrete = explicitDiscreteScaleType(occurrences);
+      const chronologicalSort = sort === undefined || sort === 'ascending';
+      if (!forcedDiscreteMark && explicitDiscrete === undefined && chronologicalSort) {
+        // Continuous time scale. `categories`/`categoryKeys` stay populated so
+        // the mark compilers' index-alignment contract is unchanged: x-charts
+        // still positions line/area/scatter points via `xAxis.data[index]`
+        // even on a `scaleType: 'time'` axis.
+        const temporalDomain = Array.isArray(scale?.domain) ? scale?.domain : undefined;
+        // Built through a generic so `scaleType` is a single literal at each
+        // call site — a `'time' | 'utc'` union would not collapse to one member
+        // of the discriminated `XAxis`/`YAxis` union once Date min/max pin it.
+        const buildTimeConfig = <S extends 'time' | 'utc'>(scaleType: S) => {
+          const timeConfig = {
+            ...commonConfig,
+            scaleType,
+            data: categories /* Date[] */,
+            tickInterval: temporalTickInterval,
+            min: toDate(temporalDomain?.[0]) ?? undefined,
+            max: toDate(temporalDomain?.[1]) ?? undefined,
+            // Leave x-charts' native time-tick formatting in place; only
+            // override it when the spec provides a translatable `axis.format`.
+            ...(extras.valueFormatter ? { valueFormatter: extras.valueFormatter } : {}),
+          };
+          assignPosition(timeConfig, extras.position);
+          return timeConfig;
+        };
+        const config = scale?.type === 'utc' ? buildTimeConfig('utc') : buildTimeConfig('time');
+        return { config, fieldType, categories, categoryKeys: keys, channel: def, field };
+      }
+      // Discrete fallback — record why the continuous-time path was declined.
+      let reason = 'a non-chronological `sort` (null / descending / array / by-field)';
+      if (forcedDiscreteMark) {
+        reason = 'a per-category mark (bar/rect/boxplot/errorbar)';
+      } else if (explicitDiscrete !== undefined) {
+        reason = `an explicit discrete \`scale.type\` ("${scale?.type}")`;
+      }
+      gaps.add({
+        code: 'scale:temporal-point-approximation',
+        message:
+          `The temporal channel falls back to a discrete band/point scale over the ordered dates because of ${reason}, ` +
+          'so tick spacing reflects data order rather than elapsed time. ' +
+          'The category domain stays index-aligned with the series data.',
+        severity: 'partial',
+        path: `${first.unit.path}.encoding.${channel}`,
+      });
+    }
+
+    // Discrete band/point domain: nominal/ordinal channels, or a temporal
+    // channel forced discrete above. Bars need a band scale to derive width.
     const scaleType =
       explicitDiscreteScaleType(occurrences) ?? (channelHasBarMark(occurrences) ? 'band' : 'point');
+
+    // A temporal discrete axis defaults to a locale date string (unless a
+    // translatable `axis.format` overrides it); nominal/ordinal axes only carry
+    // a formatter when `axis.format` produced one (e.g. via `formatType`).
+    let discreteValueFormatter = extras.valueFormatter;
+    if (isTemporal && discreteValueFormatter === undefined) {
+      discreteValueFormatter = (value) => (value as Date).toLocaleDateString();
+    }
 
     const config = {
       ...commonConfig,
       scaleType,
       data: categories,
-      ...(isTemporal ? { valueFormatter: (value: Date) => value.toLocaleDateString() } : {}),
+      ...(isTemporal ? { tickInterval: temporalTickInterval } : {}),
+      ...(discreteValueFormatter ? { valueFormatter: discreteValueFormatter } : {}),
     };
     assignPosition(config, extras.position);
     return {
@@ -402,6 +493,9 @@ function resolveChannelAxis(
     min: typeof domain?.[0] === 'number' ? domain[0] : undefined,
     max: typeof domain?.[1] === 'number' ? domain[1] : undefined,
     domainLimit,
+    // A translatable `axis.format` d3 pattern (see ../format) feeds both ticks
+    // and tooltips; left undefined when the axis has no format.
+    valueFormatter: extras.valueFormatter,
   };
   assignPosition(config, extras.position);
   return {

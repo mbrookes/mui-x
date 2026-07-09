@@ -379,19 +379,6 @@ describe('scales & axes', () => {
       expect(compiled.xAxis?.config.tickLabelStyle).to.deep.equal({ display: 'none' });
     });
 
-    it('records a partial gap for an axis.format string', () => {
-      const compiled = compileSpec({
-        data: { values: [{ c: 'A', v: 1 }] },
-        mark: 'bar',
-        encoding: {
-          x: { field: 'c', type: 'nominal' },
-          y: { field: 'v', type: 'quantitative', axis: { format: '.2f' } },
-        },
-      });
-      const gap = compiled.gaps.find((g) => g.code === 'scale:axis-format');
-      expect(gap?.severity).to.equal('partial');
-    });
-
     it('maps axis.orient to the axis position', () => {
       const compiled = compileSpec({
         data: { values: [{ c: 'A', v: 1 }] },
@@ -449,8 +436,9 @@ describe('scales & axes', () => {
       { d: new Date('2020-01-01'), v: 1 },
       { d: new Date('2020-02-01'), v: 2 },
     ];
+    const sortedDates = [new Date('2020-01-01'), new Date('2020-02-01'), new Date('2020-03-01')];
 
-    it('renders a point scale over chronologically sorted dates and records a partial gap', () => {
+    it('renders a continuous time scale over chronologically sorted dates with no fallback gap', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'line',
@@ -459,17 +447,50 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
-      expect(compiled.xAxis?.categories).to.deep.equal([
-        new Date('2020-01-01'),
-        new Date('2020-02-01'),
-        new Date('2020-03-01'),
-      ]);
-      const gap = compiled.gaps.find((g) => g.code === 'scale:temporal-point-approximation');
-      expect(gap?.severity).to.equal('partial');
+      expect(compiled.xAxis?.config.scaleType).to.equal('time');
+      // The axis `data` (which x-charts indexes into to position points) is the
+      // chronologically sorted Date domain.
+      expect((compiled.xAxis?.config as { data?: unknown[] }).data).to.deep.equal(sortedDates);
+      // categories/categoryKeys stay populated + index-aligned for the marks.
+      expect(compiled.xAxis?.categories).to.deep.equal(sortedDates);
+      expect(compiled.xAxis?.categoryKeys).to.have.length(3);
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        false,
+      );
     });
 
-    it('uses a band scale for bars over a temporal channel', () => {
+    it('maps scale.type "utc" to a utc scale (no fallback gap)', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'd', type: 'temporal', scale: { type: 'utc' } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect(compiled.xAxis?.config.scaleType).to.equal('utc');
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        false,
+      );
+    });
+
+    it('coerces scale.domain date strings to Date min/max on the continuous scale', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'd', type: 'temporal', scale: { domain: ['2020-01-01', '2020-04-01'] } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const config = compiled.xAxis?.config as { min?: Date; max?: Date };
+      expect(config.min).to.be.instanceOf(Date);
+      expect(config.max).to.be.instanceOf(Date);
+      expect(config.min?.getTime()).to.equal(new Date('2020-01-01').getTime());
+      expect(config.max?.getTime()).to.equal(new Date('2020-04-01').getTime());
+    });
+
+    it('falls back to a band scale (with a gap) for bars over a temporal channel', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'bar',
@@ -479,9 +500,56 @@ describe('scales & axes', () => {
         },
       });
       expect(compiled.xAxis?.config.scaleType).to.equal('band');
+      const gap = compiled.gaps.find((g) => g.code === 'scale:temporal-point-approximation');
+      expect(gap?.severity).to.equal('partial');
     });
 
-    it('keeps data order for temporal sort: null instead of sorting chronologically', () => {
+    it('falls back to discrete (with a gap) when any layer draws bars over the temporal channel', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        encoding: { x: { field: 'd', type: 'temporal' } },
+        layer: [
+          { mark: 'line', encoding: { y: { field: 'v', type: 'quantitative' } } },
+          { mark: 'bar', encoding: { y: { field: 'v', type: 'quantitative' } } },
+        ],
+      });
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        true,
+      );
+    });
+
+    it('falls back to a discrete scale (with a gap) for a boxplot over a temporal channel', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'boxplot',
+        encoding: {
+          x: { field: 'd', type: 'temporal' },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect(compiled.xAxis?.config.scaleType).to.not.equal('time');
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        true,
+      );
+    });
+
+    it('lets an explicit scale.type "point" force the discrete fallback (with a gap)', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'd', type: 'temporal', scale: { type: 'point' } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        true,
+      );
+    });
+
+    it('keeps data order (discrete fallback + gap) for temporal sort: null', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'line',
@@ -490,14 +558,18 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
+      expect(compiled.xAxis?.config.scaleType).to.equal('point');
       expect(compiled.xAxis?.categories).to.deep.equal([
         new Date('2020-03-01'),
         new Date('2020-01-01'),
         new Date('2020-02-01'),
       ]);
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        true,
+      );
     });
 
-    it('applies sort: descending to reverse the temporal domain', () => {
+    it('applies sort: descending as a discrete fallback (with a gap)', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'line',
@@ -506,11 +578,75 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
+      expect(compiled.xAxis?.config.scaleType).to.equal('point');
       expect(compiled.xAxis?.categories).to.deep.equal([
         new Date('2020-03-01'),
         new Date('2020-02-01'),
         new Date('2020-01-01'),
       ]);
+      expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
+        true,
+      );
+    });
+  });
+
+  describe('axis format (d3-format / d3-time-format)', () => {
+    it('compiles a quantitative axis.format into a valueFormatter (no gap)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', axis: { format: '.2f' } },
+        },
+      });
+      const fmt = (compiled.yAxis?.config as { valueFormatter?: (v: unknown) => string })
+        .valueFormatter;
+      expect(fmt).to.be.a('function');
+      expect(fmt!(1.234)).to.equal('1.23');
+      expect(compiled.gaps.some((g) => g.code === 'scale:axis-format')).to.equal(false);
+    });
+
+    it('compiles a temporal axis.format into a valueFormatter (no gap)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ d: new Date(2020, 4, 1), v: 1 }] },
+        mark: 'line',
+        encoding: {
+          x: { field: 'd', type: 'temporal', axis: { format: '%Y-%m' } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const fmt = (compiled.xAxis?.config as { valueFormatter?: (v: unknown) => string })
+        .valueFormatter;
+      expect(fmt).to.be.a('function');
+      expect(fmt!(new Date(2020, 4, 1))).to.equal('2020-05');
+      expect(compiled.gaps.some((g) => g.code === 'scale:axis-format')).to.equal(false);
+    });
+
+    it('keeps the scale:axis-format gap for a nominal axis.format (untranslatable)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', axis: { format: '.2f' } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const gap = compiled.gaps.find((g) => g.code === 'scale:axis-format');
+      expect(gap?.severity).to.equal('partial');
+    });
+
+    it('keeps the scale:axis-format gap for an invalid d3 pattern', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', axis: { format: '.f' } },
+        },
+      });
+      const gap = compiled.gaps.find((g) => g.code === 'scale:axis-format');
+      expect(gap?.severity).to.equal('partial');
     });
   });
 

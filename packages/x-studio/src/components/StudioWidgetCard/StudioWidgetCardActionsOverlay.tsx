@@ -38,6 +38,14 @@ export interface StudioWidgetCardActionsOverlayProps {
   mode: 'edit' | 'view';
   canExport: boolean;
   isChart: boolean;
+  /**
+   * Whether this widget's def declares `capabilities.expand === true` (finding 3.13).
+   * Gates the Expand button the same way `StudioWidgetCard` gates the expand dialog
+   * itself. Previously the button here was shown behind `isChart` alone — latent today
+   * because only the chart def sets `expand: true`, but it hides the button for any
+   * custom widget that declares the capability without also being a chart.
+   */
+  canExpand: boolean;
   exportLabel: string;
   showEditActions: boolean;
   /** Whether the view-mode toolbar should be revealed (widget hovered or selected). */
@@ -285,6 +293,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     mode,
     canExport,
     isChart,
+    canExpand,
     exportLabel,
     showEditActions,
     showViewActions,
@@ -369,7 +378,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           {canExport && (
             <ExportAction label={exportLabel} tabIndex={editTabIndex} onExport={onExport} />
           )}
-          {isChart && (
+          {canExpand && (
             <ExpandAction
               label={localeText.widgetExpandTooltip}
               tabIndex={editTabIndex}
@@ -593,7 +602,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
 
   if (
     mode === 'view' &&
-    (canExport || isChart || onInsightRequest || onAnomalyToggle || onAiRefresh)
+    (canExport || canExpand || onInsightRequest || onAnomalyToggle || onAiRefresh)
   ) {
     // Only reveal the toolbar when the widget is hovered/selected. The presence of AI
     // action handlers (insight/anomaly/refresh) must NOT force it visible, otherwise the
@@ -624,7 +633,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             onExport={onExport}
           />
         )}
-        {isChart && (
+        {canExpand && (
           <ExpandAction
             label={localeText.widgetExpandTooltip}
             tabIndex={showViewExpand ? 0 : -1}

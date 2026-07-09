@@ -979,6 +979,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   dateRangePresetThisQuarter: 'Dieses Quartal',
   dateRangePresetLastQuarter: 'Letztes Quartal',
   dateRangePresetThisAndLastQuarter: 'Dieses & letztes Quartal',
+  dateRangePresetCustom: 'Benutzerdefiniert',
   dateRangePresetGroupRolling: 'Gleitend',
   dateRangePresetGroupCalendarYear: 'Kalenderjahr',
   dateRangePresetGroupQuarter: 'Quartal',

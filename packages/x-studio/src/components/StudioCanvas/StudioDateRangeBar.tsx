@@ -175,6 +175,17 @@ export function StudioDateRangeBar() {
               </MenuItem>
             )),
           ])}
+          {/* Finding 3.12: `activePreset` can be `'custom'` (set by a host or the AI via
+              an explicit customFrom/customTo range), but this Select previously had no
+              matching item — an out-of-range value rendered blank with a dev warning.
+              This keeps the Select in range; there's no UI here to author the custom
+              bounds themselves, so selecting it is a deliberate no-op
+              (`handlePresetChange` already special-cases `'custom'`). */}
+          {activePreset === 'custom' && (
+            <MenuItem value="custom" sx={{ fontSize: '0.8rem' }}>
+              {localeText.dateRangePresetCustom}
+            </MenuItem>
+          )}
         </Select>
       </FormControl>
     </Box>

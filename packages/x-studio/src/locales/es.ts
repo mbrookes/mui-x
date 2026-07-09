@@ -980,6 +980,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   dateRangePresetThisQuarter: 'Este trimestre',
   dateRangePresetLastQuarter: 'Trimestre pasado',
   dateRangePresetThisAndLastQuarter: 'Este trimestre y el anterior',
+  dateRangePresetCustom: 'Personalizado',
   dateRangePresetGroupRolling: 'Móvil',
   dateRangePresetGroupCalendarYear: 'Año calendario',
   dateRangePresetGroupQuarter: 'Trimestre',

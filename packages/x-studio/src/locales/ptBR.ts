@@ -972,6 +972,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dateRangePresetThisQuarter: 'Este trimestre',
   dateRangePresetLastQuarter: 'Trimestre passado',
   dateRangePresetThisAndLastQuarter: 'Este e o trimestre passado',
+  dateRangePresetCustom: 'Personalizado',
   dateRangePresetGroupRolling: 'Móvel',
   dateRangePresetGroupCalendarYear: 'Ano civil',
   dateRangePresetGroupQuarter: 'Trimestre',

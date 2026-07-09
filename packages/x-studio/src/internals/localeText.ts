@@ -30,6 +30,14 @@ export interface StudioLocaleText {
   dateRangePresetThisQuarter: string;
   dateRangePresetLastQuarter: string;
   dateRangePresetThisAndLastQuarter: string;
+  /**
+   * Label for the `'custom'` preset (finding 3.12): `activePreset` can be `'custom'`
+   * (set by a host or the AI via an explicit `customFrom`/`customTo` range), but the
+   * preset `Select` previously had no matching menu item — an out-of-range value
+   * rendered blank with a dev warning. This item keeps the Select in range; selecting
+   * it is a no-op (there's no UI here to author the custom bounds themselves).
+   */
+  dateRangePresetCustom: string;
   /** Group header labels inside the preset Select */
   dateRangePresetGroupRolling: string;
   dateRangePresetGroupCalendarYear: string;
@@ -1221,6 +1229,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dateRangePresetThisQuarter: 'This quarter',
   dateRangePresetLastQuarter: 'Last quarter',
   dateRangePresetThisAndLastQuarter: 'This & last quarter',
+  dateRangePresetCustom: 'Custom',
   dateRangePresetGroupRolling: 'Rolling',
   dateRangePresetGroupCalendarYear: 'Calendar year',
   dateRangePresetGroupQuarter: 'Quarter',

@@ -27,6 +27,7 @@ const controller = {
   removeFilter: vi.fn(),
   toggleFilter: vi.fn(),
   clearCrossFilter: vi.fn(),
+  updateState: vi.fn(),
 };
 
 const BASE_FEATURES: ResolvedStudioFeatures = {
@@ -138,6 +139,7 @@ describe('StudioQuickFilterBar', () => {
     controller.removeFilter.mockClear();
     controller.toggleFilter.mockClear();
     controller.clearCrossFilter.mockClear();
+    controller.updateState.mockClear();
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
@@ -400,5 +402,100 @@ describe('StudioQuickFilterBar', () => {
     chip.focus();
     fireEvent.keyUp(chip, { key: 'Backspace' });
     expect(controller.clearCrossFilter).toHaveBeenCalledWith('w9');
+  });
+
+  // Regression coverage for architecture-review finding 2.10: "Clear all" used to call
+  // `controller.removeFilter`/`clearCrossFilter` in a loop — one undoable commit per
+  // filter — so a single click pushed N undo entries for one user gesture. It must now
+  // batch everything into exactly one `controller.updateState` call (a single undo
+  // step), and must never fall back to the old per-filter methods.
+  describe('Clear all (finding 2.10)', () => {
+    it('clears multiple page filters in a single updateState commit, not N removeFilter calls', () => {
+      mockState = createDefaultStudioState({
+        doc: {
+          filters: [makePageFilter('f1', 'country'), makePageFilter('f2', 'region')],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Source',
+              fields: [
+                { id: 'country', label: 'Country', type: 'string' as const },
+                { id: 'region', label: 'Region', type: 'string' as const },
+              ],
+              rows: [],
+            },
+          },
+        },
+      });
+      render(<StudioQuickFilterBar />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+
+      expect(controller.removeFilter).not.toHaveBeenCalled();
+      expect(controller.updateState).toHaveBeenCalledTimes(1);
+      const [patch] = controller.updateState.mock.calls[0];
+      expect(patch.doc.filters).toEqual([]);
+    });
+
+    it('clears page filters and cross-filters together in one commit', () => {
+      mockState = createDefaultStudioState({
+        doc: {
+          filters: [
+            makePageFilter('f1', 'country'),
+            makeCrossFilter('cf1', 'region', 'EMEA', { sourceWidgetId: 'w9' }),
+          ],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Source',
+              fields: [
+                { id: 'country', label: 'Country', type: 'string' as const },
+                { id: 'region', label: 'Region', type: 'string' as const },
+              ],
+              rows: [],
+            },
+          },
+        },
+      });
+      render(<StudioQuickFilterBar />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+
+      expect(controller.removeFilter).not.toHaveBeenCalled();
+      expect(controller.clearCrossFilter).not.toHaveBeenCalled();
+      expect(controller.updateState).toHaveBeenCalledTimes(1);
+      const [patch] = controller.updateState.mock.calls[0];
+      expect(patch.doc.filters).toEqual([]);
+    });
+
+    it('is a no-op (no commit) when there is nothing to clear beyond a single filter (button hidden)', () => {
+      mockState = createDefaultStudioState({
+        doc: {
+          filters: [makePageFilter('f1', 'country')],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Source',
+              fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+              rows: [],
+            },
+          },
+        },
+      });
+      render(<StudioQuickFilterBar />);
+
+      // "Clear all" is only rendered once there's more than one filter/cross-filter.
+      expect(screen.queryByRole('button', { name: 'Clear all filters' })).toBeNull();
+      expect(controller.updateState).not.toHaveBeenCalled();
+    });
   });
 });

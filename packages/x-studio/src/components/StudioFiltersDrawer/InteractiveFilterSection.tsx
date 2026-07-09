@@ -24,7 +24,8 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
       ) : (
         <Stack spacing={1} sx={{ pb: 0.5 }}>
           {filters.map((filter: StudioFilterState) => {
-            const sourceWidgetId = filter.scope.kind === 'interactive' ? filter.scope.sourceWidgetId : undefined;
+            const sourceWidgetId =
+              filter.scope.kind === 'interactive' ? filter.scope.sourceWidgetId : undefined;
             const widgetTitle = sourceWidgetId
               ? (widgets[sourceWidgetId]?.title ?? sourceWidgetId)
               : null;
@@ -63,7 +64,22 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
                 <Tooltip title={localeText.filterClearFilter}>
                   <IconButton
                     size="small"
-                    onClick={() => controller.removeFilter(filter.id)}
+                    onClick={() => {
+                      // Finding 3.9: interactive filters are deliberately non-undoable
+                      // everywhere else (`applyInteractiveFilter`/`clearInteractiveFilter`,
+                      // and the widget-pill path via `SliderFilterPill`). This drawer row
+                      // used to remove them via the undoable `controller.removeFilter`, so
+                      // an unrelated Ctrl+Z could resurrect an "ephemeral" interactive
+                      // filter. Route through `clearInteractiveFilter` for consistency,
+                      // falling back to `removeFilter` only for a non-interactive scope
+                      // (defensive; this section is only ever populated with interactive
+                      // filters).
+                      if (sourceWidgetId) {
+                        controller.clearInteractiveFilter(sourceWidgetId);
+                      } else {
+                        controller.removeFilter(filter.id);
+                      }
+                    }}
                     aria-label={localeText.filterClearInteractiveAriaLabel}
                     sx={{ position: 'absolute', top: 2, right: 2 }}
                   >

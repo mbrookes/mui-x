@@ -149,17 +149,30 @@ export function StudioQuickFilterBar() {
   // Build a flat field-id → label map across all sources
   const fieldLabelMap = buildFieldLabelMap(dataSources);
 
+  // Finding 2.10: this used to call `controller.removeFilter`/`clearCrossFilter` in a
+  // loop — each is its own undoable commit, so one click on "Clear all" with N filters
+  // pushed N separate undo entries, and a single Ctrl+Z only restored the last-removed
+  // one. Batch the whole gesture into a single undo step by computing the final
+  // `filters` array up front and committing it once via `controller.updateState` (a
+  // partition-aware single-commit primitive already used elsewhere in the codebase),
+  // instead of the private per-mutation `commitMutations` helper.
   const handleClearAll = (event: React.MouseEvent) => {
     event.stopPropagation();
-    for (const f of pageFilters) {
-      controller.removeFilter(f.id);
-    }
-    const clearedWidgets = new Set<string>();
-    for (const f of crossFilters) {
-      if (f.scope.sourceWidgetId && !clearedWidgets.has(f.scope.sourceWidgetId)) {
-        clearedWidgets.add(f.scope.sourceWidgetId);
-        controller.clearCrossFilter(f.scope.sourceWidgetId);
+    const removedFilterIds = new Set(pageFilters.map((f) => f.id));
+    const clearedWidgetIds = new Set(
+      crossFilters.map((f) => f.scope.sourceWidgetId).filter((id): id is string => Boolean(id)),
+    );
+    const nextFilters = (filters as StudioFilterState[]).filter((f) => {
+      if (removedFilterIds.has(f.id)) {
+        return false;
       }
+      if (f.scope.kind === 'cross-filter' && clearedWidgetIds.has(f.scope.sourceWidgetId)) {
+        return false;
+      }
+      return true;
+    });
+    if (nextFilters.length !== filters.length) {
+      controller.updateState({ doc: { filters: nextFilters } });
     }
   };
 

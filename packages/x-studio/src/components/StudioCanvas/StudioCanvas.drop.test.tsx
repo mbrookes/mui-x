@@ -423,4 +423,112 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
       expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['a', 'c', 'b']]);
     });
   });
+
+  // Regression tests for finding 2.11: an empty page (`widgetRows: []`, or reached by
+  // deleting the last widget of a page) had no registered drop target at all — neither
+  // `StudioPageRows` nor its `InsertionPoint`/`WidgetGap` children are rendered when
+  // `widgetRows.length === 0`, yet the edit-mode empty-state copy explicitly invites
+  // dropping ("...or drag them here") and `WidgetTypeCard` registers a real
+  // `DRAG_TYPE_COMPOSE_WIDGET` draggable. `StudioCanvas` now registers a drop target
+  // directly on the empty-state `Paper`.
+  describe('empty-page drop target (finding 2.11)', () => {
+    it('registers exactly one drop target on the empty-state Paper', () => {
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+        },
+      });
+      render(<StudioCanvas />, { wrapper });
+
+      expect(registry.size).toBe(1);
+    });
+
+    it('dropping a compose widget type on an empty page inserts it into a fresh single row', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+          runtime: { dataSources: { s1: makeSource('s1') } },
+        },
+      });
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      const widgetIdsBefore = new Set(Object.keys(controller.getState().doc.widgets));
+      const [target] = Array.from(registry.values());
+      act(() => {
+        const dropped = fireDrop(target, composeItem('text'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).toHaveBeenCalledTimes(1);
+      const newId = Object.keys(controller.getState().doc.widgets).find(
+        (id) => !widgetIdsBefore.has(id),
+      );
+      expect(newId).toBeDefined();
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([[newId]]);
+    });
+
+    it('moving an existing widget from another page onto an empty page places it in a fresh single row', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            dashboard: { id: 'd', title: 'D', activePageId: 'page-2' },
+            pages: {
+              'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['x']] },
+              'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+            },
+            widgets: { x: makeWidget('x') },
+          },
+        },
+      });
+      const moveWidgetSpy = vi.spyOn(controller, 'moveWidget');
+      render(<StudioCanvas />, { wrapper });
+
+      const [target] = Array.from(registry.values());
+      act(() => {
+        const dropped = fireDrop(target, canvasMoveItem('x', 'page-1'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(moveWidgetSpy).toHaveBeenCalledWith('x', 'page-1', 'page-2', [['x']]);
+      expect(controller.getState().doc.pages['page-2'].widgetRows).toEqual([['x']]);
+    });
+
+    it('a data-requiring compose kind with zero data sources is a no-op on an empty page', () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+          runtime: { dataSources: {} },
+        },
+      });
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      const widgetsBefore = controller.getState().doc.widgets;
+      const [target] = Array.from(registry.values());
+      act(() => {
+        // canDrop is true (data-source gating happens inside the drop handler, not
+        // canDrop) but the drop must still be a no-op.
+        const dropped = fireDrop(target, composeItem('kpi'));
+        expect(dropped).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).not.toHaveBeenCalled();
+      expect(controller.getState().doc.widgets).toEqual(widgetsBefore);
+    });
+
+    it('is not a drop target in view mode', () => {
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          session: { mode: 'view' },
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+        },
+      });
+      render(<StudioCanvas />, { wrapper });
+
+      const [target] = Array.from(registry.values());
+      const dropped = fireDrop(target, composeItem('text'));
+      expect(dropped).toBe(false);
+    });
+  });
 });

@@ -98,6 +98,15 @@ export interface StudioHandle {
    * @param dataSource - The full data source definition to upsert.
    */
   upsertDataSource(dataSource: StudioDataSource): void;
+  /**
+   * Removes a data source by id (rows, fields, adapter, and cached rows). No-op when the
+   * source is absent. Use it to prune a source that a reloaded `config`/`serializeState`
+   * no longer contains, since {@link StudioHandle.loadSerializedState} preserves the
+   * *previous* state's data sources (they are never part of the persisted shape).
+   *
+   * @param sourceId - The ID of the data source to remove.
+   */
+  removeDataSource(sourceId: string): void;
 }
 
 // ── Slots / Props ─────────────────────────────────────────────────────────────
@@ -321,6 +330,7 @@ export const Studio = React.memo(
           controller.setDataSourceAdapter(sourceId, adapter),
         setDataSourceRows: (sourceId, rows) => controller.setDataSourceRows(sourceId, rows),
         upsertDataSource: (dataSource) => controller.upsertDataSource(dataSource),
+        removeDataSource: (sourceId) => controller.removeDataSource(sourceId),
       }),
       [controller],
     );

@@ -116,6 +116,36 @@ describe('docTransforms.setDashboardDateRange', () => {
     const next = docTransforms.setDashboardDateRange(doc, 'page-1', null, null, null, null);
     expect(next.filters.filter((f) => f.scope.kind === 'dashboard-date-range')).toHaveLength(0);
   });
+
+  it('returns the ORIGINAL doc when clearing an already-clear date range (2.3)', () => {
+    // Identity preservation: clearing when there is nothing to clear must not allocate a fresh
+    // `filters` array — otherwise `commitDocPatch` sees a changed reference and commits a
+    // phantom undoable no-op that clears the redo stack.
+    const doc = makeDoc();
+    expect(docTransforms.setDashboardDateRange(doc, 'page-1', null, null, null, null)).toBe(doc);
+  });
+
+  it('returns the ORIGINAL doc when re-applying an identical date range (2.3)', () => {
+    const doc = makeDoc();
+    const withRange = docTransforms.setDashboardDateRange(
+      doc,
+      'page-1',
+      'orderDate',
+      'sales',
+      'date',
+      'last_3_months',
+    );
+    // Re-running with identical args rebuilds a content-identical filter → no logical change.
+    const again = docTransforms.setDashboardDateRange(
+      withRange,
+      'page-1',
+      'orderDate',
+      'sales',
+      'date',
+      'last_3_months',
+    );
+    expect(again).toBe(withRange);
+  });
 });
 
 describe('docTransforms.setDashboardDateRangeAll', () => {
@@ -137,6 +167,32 @@ describe('docTransforms.setDashboardDateRangeAll', () => {
       'dashboard-date-range-page-1-s2',
     ]);
   });
+
+  it('returns the ORIGINAL doc when re-applying an identical multi-source date range (2.3)', () => {
+    const doc = makeDoc();
+    const fields = [
+      { fieldId: 'd1', sourceId: 's1', fieldType: 'date' as const },
+      { fieldId: 'd2', sourceId: 's2', fieldType: 'datetime' as const },
+    ];
+    const withRange = docTransforms.setDashboardDateRangeAll(
+      doc,
+      'page-1',
+      fields,
+      'last_3_months',
+    );
+    const again = docTransforms.setDashboardDateRangeAll(
+      withRange,
+      'page-1',
+      fields,
+      'last_3_months',
+    );
+    expect(again).toBe(withRange);
+  });
+
+  it('returns the ORIGINAL doc for a no-source, no-existing call (2.3)', () => {
+    const doc = makeDoc();
+    expect(docTransforms.setDashboardDateRangeAll(doc, 'page-1', [], 'last_3_months')).toBe(doc);
+  });
 });
 
 describe('docTransforms.setWidgetDateRange', () => {
@@ -149,6 +205,18 @@ describe('docTransforms.setWidgetDateRange', () => {
 
     const cleared = docTransforms.setWidgetDateRange(next, 'w1', null, null, null, null);
     expect(cleared.filters.find((x) => x.id === 'widget-date-range-w1')).toBeUndefined();
+  });
+
+  it('returns the ORIGINAL doc when clearing an already-clear widget date range (2.3)', () => {
+    const doc = makeDoc();
+    expect(docTransforms.setWidgetDateRange(doc, 'w1', null, null, null, null)).toBe(doc);
+  });
+
+  it('returns the ORIGINAL doc when re-applying an identical widget date range (2.3)', () => {
+    const doc = makeDoc();
+    const withRange = docTransforms.setWidgetDateRange(doc, 'w1', 'd', 's', 'date', 'this_month');
+    const again = docTransforms.setWidgetDateRange(withRange, 'w1', 'd', 's', 'date', 'this_month');
+    expect(again).toBe(withRange);
   });
 });
 

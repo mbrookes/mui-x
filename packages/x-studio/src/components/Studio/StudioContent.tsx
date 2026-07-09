@@ -73,6 +73,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   } = props;
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
   const filterBarRegionRef = React.useRef<HTMLDivElement>(null);
   const features = useStudioFeatures();
@@ -124,7 +125,9 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
-  useStudioKeyboardShortcuts();
+  // Scope the undo/redo keyboard shortcuts to THIS instance's root DOM node (1.3), so two
+  // Studio instances mounted on the same page don't both react to a single Ctrl+Z.
+  useStudioKeyboardShortcuts(rootRef);
 
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pendingInsight, setPendingInsight] = React.useState<{
@@ -270,6 +273,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   return (
     <StudioLiveRegionProvider>
       <Box
+        ref={rootRef}
         sx={{
           display: 'flex',
           flexDirection: 'column',

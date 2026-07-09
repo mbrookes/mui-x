@@ -296,10 +296,12 @@ export class StudioController {
     // the id blindly would leave `activePageId` dangling at a page absent from
     // `incomingDoc.pages` (a page selector / canvas lookup would then resolve to
     // nothing). When the carried id is gone, fall back to the incoming doc's first
-    // available page id (or `undefined` when it has no pages at all).
+    // available page id — or `''` when it has no pages at all, matching the reducer's
+    // empty-string `activePageId` convention (never `undefined`, which would type-mismatch
+    // the `string` field and read differently from a freshly built empty doc).
     const carriedActivePageId = Object.hasOwn(incomingDoc.pages, currentDoc.dashboard.activePageId)
       ? currentDoc.dashboard.activePageId
-      : Object.keys(incomingDoc.pages)[0];
+      : (Object.keys(incomingDoc.pages)[0] ?? '');
     const dashboardChanged =
       incomingDoc.dashboard.globalCrossFilterMode !== currentDoc.dashboard.globalCrossFilterMode ||
       incomingDoc.dashboard.crossFilterAllPages !== currentDoc.dashboard.crossFilterAllPages ||
@@ -353,7 +355,11 @@ export class StudioController {
     // here additionally avoids rebuilding the `doc` object (whose reference would
     // otherwise change) for a patch that changes nothing.
     const keys = Object.keys(patch) as (keyof StudioDoc)[];
-    if (keys.length > 0 && keys.every((key) => patch[key] === state.doc[key])) {
+    // `keys.every(...)` is vacuously true for an empty patch, so `commitDocPatch({})` is
+    // guarded as a no-op too (1.6) — the previous `keys.length > 0 &&` prefix let an empty
+    // patch fall through and rebuild the `doc` object (and, if reference-equal overall, only
+    // `commitState` would catch it) for no reason.
+    if (keys.every((key) => patch[key] === state.doc[key])) {
       return;
     }
     this.commitState({ ...state, doc: { ...state.doc, ...patch } }, options);
@@ -564,7 +570,32 @@ export class StudioController {
     runtime?: Partial<StudioRuntime>;
   }) => {
     const state = this.store.state;
+
+    // Key-wise reference no-op guard, mirroring `commitDocPatch` (2.4): if every key in every
+    // supplied partition patch is already reference-equal to the current partition's value,
+    // there is nothing to commit — skip so a content-identical update never pushes a
+    // redo-clearing undo entry or rebuilds a partition object.
+    const isPartitionNoop = <T extends object>(patch: Partial<T> | undefined, current: T) => {
+      if (!patch) {
+        return true;
+      }
+      const keys = Object.keys(patch) as (keyof T)[];
+      return keys.every((key) => patch[key] === current[key]);
+    };
+    if (
+      isPartitionNoop(changes.doc, state.doc) &&
+      isPartitionNoop(changes.session, state.session) &&
+      isPartitionNoop(changes.runtime, state.runtime)
+    ) {
+      return;
+    }
+
+    // Spread `...state` (2.4) so top-level tags other callers depend on — notably the
+    // `__cacheKey__` reselect-memoization marker `createSelectorMemoized` stamps onto the
+    // state object — survive this commit instead of being dropped by rebuilding a bare
+    // `{ doc, session, runtime }` object.
     this.commitState({
+      ...state,
       doc: changes.doc ? { ...state.doc, ...changes.doc } : state.doc,
       session: changes.session ? { ...state.session, ...changes.session } : state.session,
       runtime: changes.runtime ? { ...state.runtime, ...changes.runtime } : state.runtime,
@@ -678,11 +709,43 @@ export class StudioController {
    * @param adapter - The adapter implementation, or `undefined` to remove it.
    */
   setDataSourceAdapter = (sourceId: string, adapter: StudioDataSourceAdapter | undefined) => {
-    if (!this.store.state.runtime.dataSources[sourceId]) {
+    const existing = this.store.state.runtime.dataSources[sourceId];
+    if (!existing) {
+      return;
+    }
+    // Same-adapter guard (1.2): re-registering the identical adapter reference must be a
+    // clean no-op. `StudioDashboard` re-runs this for every entry whenever its `dataAdapters`
+    // prop changes by identity (a host passing an inline `{ orders: adapter }` map is a new
+    // object every render), so without this guard an unchanged adapter would still invalidate
+    // the request cache and commit a new source object on every render — an unbounded
+    // refetch/update loop when paired with an `onStateChange` that stores the committed state.
+    if (existing.adapter === adapter) {
       return;
     }
     studioRequestCache.invalidateSource(sourceId);
     this.commitDataSourcePatch(sourceId, { adapter });
+  };
+
+  /**
+   * Removes a runtime data source by id (2.1). Non-undoable — data-source injection and
+   * removal is host infrastructure, not an authored edit — and invalidates the request
+   * cache for the removed id so a later re-registration under the same id cannot serve its
+   * pre-removal rows. No-ops when the source is absent. Used by `StudioDashboard` to prune
+   * sources that a new `config` prop dropped (`loadSerializedState` preserves the previous
+   * controller's entire `runtime.dataSources`, so a removed source would otherwise survive).
+   */
+  removeDataSource = (sourceId: string) => {
+    const state = this.store.state;
+    if (!state.runtime.dataSources[sourceId]) {
+      return;
+    }
+    studioRequestCache.invalidateSource(sourceId);
+    const nextDataSources = { ...state.runtime.dataSources };
+    delete nextDataSources[sourceId];
+    this.commitState(
+      { ...state, runtime: { ...state.runtime, dataSources: nextDataSources } },
+      { undoable: false },
+    );
   };
 
   /**
@@ -1260,7 +1323,16 @@ export class StudioController {
     // from `newId` so they are collision-resistant; a managed date-range filter keeps
     // the exact `widget-date-range-${newId}` id so `setWidgetDateRange(newId, …)` on
     // the duplicate can find and replace it rather than stacking a second one.
-    const clone = { ...existing, id: newId, title: `${existing.title} (copy)` };
+    // Stamp the title as explicit (`titleMode: 'manual'`) so the "(copy)" suffix survives:
+    // an auto-titled source widget would otherwise clone `titleMode: 'auto'`, and the next
+    // title re-inference (`applyInferredTitles`) would recompute the auto title and silently
+    // drop "(copy)".
+    const clone = {
+      ...existing,
+      id: newId,
+      title: `${existing.title} (copy)`,
+      titleMode: 'manual' as const,
+    };
     const clonedFilters = state.doc.filters
       .filter((f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId)
       .map((f: StudioFilterState) => ({
@@ -1995,6 +2067,14 @@ export class StudioController {
     // across undo/redo history — the per-snapshot `mode` field is retained only for
     // on-disk backward compatibility.
     const { mode } = this.store.state.session;
+    // Known limitation (3.x): `serializeDoc` strips cross-filter entries at the persistence
+    // boundary (they are runtime-scoped selection, not authored content). Cross-filters are
+    // undoable by design, so two adjacent history snapshots that differ ONLY by a cross-filter
+    // serialize to identical docs. After `restoreSession`, a redo (or undo) that time-travels
+    // across such a step consumes a history entry yet produces no visible change. A clean fix
+    // would drop now-identical adjacent snapshots here, but doing so safely across the
+    // past/present/future ordering is out of proportion to the impact, so it is left as a
+    // documented limitation rather than risk mis-indexing the restored undo/redo stacks.
     const toSnapshot = (doc: StudioDoc): SerializedStudioSnapshot => ({
       mode,
       state: serializeDoc(doc),

@@ -1014,6 +1014,23 @@ describe('StudioController.duplicateWidget', () => {
     expect(controller.getState().session.shell.selectedWidgetId).toBe(copyId);
   });
 
+  it("stamps titleMode: 'manual' on the copy so the '(copy)' suffix survives re-inference (3.x)", () => {
+    const controller = new StudioController();
+    // An AUTO-titled source widget: without an explicit title mode, the clone would inherit
+    // `titleMode: 'auto'` and the next title re-inference would recompute the auto title,
+    // silently dropping "(copy)".
+    controller.addWidget(makeWidget('w1', { title: 'Revenue', titleMode: 'auto' }));
+    controller.duplicateWidget('w1');
+    const copyId = Object.keys(controller.getState().doc.widgets).find((id) => id !== 'w1')!;
+    const copy = controller.getState().doc.widgets[copyId];
+    expect(copy.title).toBe('Revenue (copy)');
+    expect(copy.titleMode).toBe('manual');
+
+    // A subsequent unrelated config update triggers title re-inference; "(copy)" must remain.
+    controller.updateWidget(copyId, { config: { kpiAggregation: 'avg' } });
+    expect(controller.getState().doc.widgets[copyId].title).toBe('Revenue (copy)');
+  });
+
   it('adds the copy to widgetRows', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
@@ -2410,6 +2427,146 @@ describe('StudioController.upsertDataSource — adapter preservation (1.8)', () 
       spy.mockRestore();
     }
   });
+});
+
+describe('StudioController.setDataSourceAdapter — same-adapter guard (1.2)', () => {
+  const makeAdapter = (rows: StudioQueryResult['rows']): StudioDataSourceAdapter => ({
+    getRows: async () => ({ rows, totalCount: rows.length }),
+  });
+
+  function makeControllerWithSource() {
+    const controller = new StudioController();
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+    return controller;
+  }
+
+  it('re-registering the identical adapter reference is a clean no-op (no cache invalidation, no commit)', () => {
+    // Regression (1.2): `StudioDashboard` re-runs `setDataSourceAdapter` for every entry
+    // whenever its `dataAdapters` prop changes by identity. Without a same-adapter guard,
+    // an unchanged adapter still invalidated the request cache and committed a new source
+    // object every render — an unbounded refetch/update loop paired with `onStateChange`.
+    const controller = makeControllerWithSource();
+    const adapter = makeAdapter([{ amount: 99 }]);
+    controller.setDataSourceAdapter('orders', adapter);
+
+    const stateBefore = controller.getState();
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      controller.setDataSourceAdapter('orders', adapter);
+      // No cache invalidation and no new state object for an unchanged adapter reference.
+      expect(spy).not.toHaveBeenCalled();
+      expect(controller.getState()).toBe(stateBefore);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a different adapter reference invalidates the cache and commits', () => {
+    const controller = makeControllerWithSource();
+    const first = makeAdapter([{ amount: 1 }]);
+    controller.setDataSourceAdapter('orders', first);
+
+    const stateBefore = controller.getState();
+    const second = makeAdapter([{ amount: 2 }]);
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      controller.setDataSourceAdapter('orders', second);
+      expect(spy).toHaveBeenCalledWith('orders');
+      expect(controller.getState()).not.toBe(stateBefore);
+      expect(controller.getState().runtime.dataSources.orders.adapter).toBe(second);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('is a no-op on a missing source', () => {
+    const controller = new StudioController();
+    const stateBefore = controller.getState();
+    controller.setDataSourceAdapter('nope', makeAdapter([]));
+    expect(controller.getState()).toBe(stateBefore);
+  });
+});
+
+describe('StudioController.removeDataSource (2.1)', () => {
+  function makeControllerWith(ids: string[]) {
+    const controller = new StudioController();
+    for (const id of ids) {
+      controller.upsertDataSource({
+        id,
+        label: id,
+        fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+        rows: [{ amount: 1 }],
+      });
+    }
+    return controller;
+  }
+
+  it('removes the source, invalidates its cache, and is not undoable', () => {
+    const controller = makeControllerWith(['orders', 'customers']);
+    expect(controller.canUndo()).toBe(false);
+
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      controller.removeDataSource('orders');
+      expect(spy).toHaveBeenCalledWith('orders');
+    } finally {
+      spy.mockRestore();
+    }
+
+    const sources = controller.getState().runtime.dataSources;
+    expect(sources.orders).toBeUndefined();
+    expect(sources.customers).toBeDefined();
+    // Data-source removal is host infrastructure — never an undoable authored edit.
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('is a no-op on a missing source', () => {
+    const controller = makeControllerWith(['orders']);
+    const stateBefore = controller.getState();
+    controller.removeDataSource('nope');
+    expect(controller.getState()).toBe(stateBefore);
+  });
+});
+
+describe('StudioController.updateState — spread + no-op guard (2.4)', () => {
+  it('a content-identical update is a no-op (no new state, no redo-clearing commit)', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Original');
+    // Establish a redo entry to prove a no-op update does not clear it.
+    controller.setDashboardTitle('Second');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    const stateBefore = controller.getState();
+    // Re-supplying the CURRENT dashboard reference (reference-equal) must not commit.
+    controller.updateState({ doc: { dashboard: stateBefore.doc.dashboard } });
+    expect(controller.getState()).toBe(stateBefore);
+    // The redo stack survived (a phantom commit would have cleared it).
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  /* eslint-disable no-underscore-dangle */ // __cacheKey__ is the reselect memoization tag
+  it('preserves the top-level __cacheKey__ reselect-memoization tag across a real update', () => {
+    const controller = new StudioController();
+    // Simulate `createSelectorMemoized` stamping its per-store cache key onto the state.
+    const marker = { id: 1 };
+    const before = controller.getState();
+    (before as unknown as { __cacheKey__?: unknown }).__cacheKey__ = marker;
+
+    // A genuine doc change (new `dashboard` reference) so the commit actually runs.
+    controller.updateState({ doc: { dashboard: { ...before.doc.dashboard, title: 'Renamed' } } });
+
+    expect(controller.getState().doc.dashboard.title).toBe('Renamed');
+    expect((controller.getState() as unknown as { __cacheKey__?: unknown }).__cacheKey__).toBe(
+      marker,
+    );
+  });
+  /* eslint-enable no-underscore-dangle */
 });
 
 describe('StudioController.setDashboardDateRangeAll — undoable option (1.7)', () => {

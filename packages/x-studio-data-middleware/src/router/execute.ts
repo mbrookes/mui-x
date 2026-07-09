@@ -79,7 +79,9 @@ export async function executeForTier(
       // as-is (matches the db tier).
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
-    if (queryPlan.limit) {
+    // `!== undefined` (not truthiness) — `limit: 0` is a legitimate "return zero
+    // rows" request and must not be treated the same as "no limit" (finding 3.1).
+    if (queryPlan.limit !== undefined) {
       query.limit(queryPlan.limit);
     }
     return query as Promise<Record<string, unknown>[]>;
@@ -103,7 +105,8 @@ export async function executeForTier(
     for (const ob of queryPlan.orderBy) {
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
-    if (queryPlan.limit) {
+    // `!== undefined` (not truthiness) — see finding 3.1 above.
+    if (queryPlan.limit !== undefined) {
       query.limit(queryPlan.limit);
     }
     return query as Promise<Record<string, unknown>[]>;
@@ -171,7 +174,8 @@ export async function executeForTier(
     // fall back to it as-is.
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
-  if (queryPlan.limit) {
+  // `!== undefined` (not truthiness) — see finding 3.1 above.
+  if (queryPlan.limit !== undefined) {
     query.limit(queryPlan.limit);
   }
 

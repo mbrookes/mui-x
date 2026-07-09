@@ -7,9 +7,11 @@ import { normalizeSpec } from '../normalize';
 import { applyTransforms, applyEncodingTransforms } from '../transforms';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';
 import { resolveAxes } from './scales';
+import { resolveParams } from './params';
 import type {
   AxisResolution,
   CompiledGeo,
+  CompiledOverlay,
   CompiledReferenceLine,
   CompiledSeries,
   CompiledZAxis,
@@ -37,6 +39,8 @@ export interface CompiledChart {
   geo?: CompiledGeo;
   plots: PlotKind[];
   referenceLines: CompiledReferenceLine[];
+  /** Custom-drawn output for marks with no x-charts series equivalent. */
+  overlays: CompiledOverlay[];
   grid: { vertical?: boolean; horizontal?: boolean };
   hasLegend: boolean;
   colors: readonly string[];
@@ -72,6 +76,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
+  const overlays: CompiledOverlay[] = [];
   const zAxis: CompiledZAxis[] = [];
   let geo: CompiledGeo | undefined;
 
@@ -103,6 +108,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     series.push(...compiled.series);
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));
+    overlays.push(...(compiled.overlays ?? []));
     zAxis.push(...(compiled.zAxis ?? []));
     if (compiled.geo) {
       if (geo) {
@@ -147,6 +153,18 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
   }
 
+  // Point-selection params map onto x-charts' controlled item highlighting;
+  // apply the resolved scope to every series that doesn't set its own.
+  const params = resolveParams(spec, gaps);
+  if (params.highlightScope) {
+    series.forEach((entry) => {
+      const scoped = entry as { highlightScope?: unknown };
+      if (scoped.highlightScope === undefined) {
+        scoped.highlightScope = params.highlightScope;
+      }
+    });
+  }
+
   // Pie series carry their labels per-slice (`data[i].label`) rather than on
   // the series object, so both locations must count toward showing a legend.
   const hasLegend = series.some((entry) => {
@@ -180,6 +198,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     geo,
     plots: Array.from(plots),
     referenceLines,
+    overlays,
     grid: axes.grid,
     hasLegend,
     colors: palette,

@@ -29,6 +29,7 @@ import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import type { DatasetRow, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
+import { VegaOverlays, ArcLabelsPlot } from '../overlays';
 
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
@@ -175,6 +176,8 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           {compiled.plots.includes('marks') && <MarkPlot />}
           {compiled.plots.includes('lineHighlight') && <LineHighlightPlot />}
           {compiled.plots.includes('pie') && <PiePlot />}
+          {compiled.plots.includes('pieLabels') && <ArcLabelsPlot />}
+          <VegaOverlays overlays={compiled.overlays} />
           {compiled.chartKind === 'cartesian' && xAxis && <ChartsXAxis />}
           {compiled.chartKind === 'cartesian' && yAxis && <ChartsYAxis />}
           {compiled.chartKind === 'cartesian' && <ChartsAxisHighlight />}

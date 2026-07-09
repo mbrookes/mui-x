@@ -27,6 +27,7 @@ import {
   selectDataSources,
   selectExpressionFields,
   selectRelationships,
+  selectFilters,
   useStudioLocaleText,
 } from '../../../context';
 import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
@@ -43,6 +44,7 @@ import type {
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
 import { CrossFilterModeSection } from '../CrossFilterModeSection';
+import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
 import { GaugeConfigSection } from './GaugeConfigSection';
 import { ScatterConfigSection } from './ScatterConfigSection';
 import { FunnelConfigSection } from './FunnelConfigSection';
@@ -77,6 +79,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const expressionFields = useStudioSelector(selectExpressionFields);
 
   const relationships = useStudioSelector(selectRelationships);
+  const allFilters = useStudioSelector(selectFilters);
 
   const allFields = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
@@ -434,11 +437,29 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // commit so the source-switch gesture is a single undo step (finding 2.2);
               // a lone Ctrl+Z otherwise lands on a torn state (new sourceId, old xField)
               // the UI never produced. Without a source switch it's already one commit.
+              //
+              // Also fold in the removal of any widget-scoped filter that no longer
+              // resolves against the new source (finding 1.5) — left in place, a stale
+              // filter's field would be absent from the new source's rows and the
+              // `between`/`gte` date branches in `filterUtils.ts` would then exclude
+              // every row, silently blanking the chart.
               if (sourceId && sourceId !== widget?.sourceId) {
-                controller.updateWidget(widgetId, {
-                  sourceId,
-                  config: { ...config, ...configUpdate } as StudioChartWidgetConfig,
-                });
+                controller.updateWidget(
+                  widgetId,
+                  {
+                    sourceId,
+                    config: { ...config, ...configUpdate } as StudioChartWidgetConfig,
+                  },
+                  {
+                    removeFilterIds: collectStaleWidgetFilterIds(
+                      allFilters,
+                      widgetId,
+                      sourceId,
+                      allFields,
+                      relationships,
+                    ),
+                  },
+                );
               } else {
                 controller.updateWidgetConfig(widgetId, configUpdate);
               }

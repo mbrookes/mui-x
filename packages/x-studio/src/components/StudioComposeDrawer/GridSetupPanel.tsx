@@ -41,14 +41,20 @@ import {
   selectDataSources,
   selectRelationships,
   selectExpressionFields,
+  selectFilters,
   useStudioLocaleText,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { buildSourceFieldEntries, type FieldCatalogEntry } from '../../internals/fieldCatalog';
+import {
+  buildFieldCatalog,
+  buildSourceFieldEntries,
+  type FieldCatalogEntry,
+} from '../../internals/fieldCatalog';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { CrossFilterModeSection } from './CrossFilterModeSection';
+import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
@@ -118,6 +124,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const allFilters = useStudioSelector(selectFilters);
   const { tableSourceMode } = React.use(StudioUIConfigContext);
   const localeText = useStudioLocaleText();
   const aggLabels: Record<StudioGridSummaryAggregation, string> = {
@@ -285,11 +292,32 @@ export function GridSetupPanel(props: { widgetId: string }) {
     }));
   }, [primaryFields, source, widget?.sourceId]);
 
+  // Full cross-source field catalog, used to detect widget-scoped filters that no longer
+  // resolve after a source switch (finding 1.5).
+  const fieldCatalog = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
+
+  // Widget-scoped filters (created via `WidgetFiltersPanel`) reference their own field
+  // ids, which no longer resolve once the grid points at a different source — a stale
+  // filter would then silently exclude every row (finding 1.5), the same rationale
+  // `clearFieldBoundGridConfig` applies to field-bound config keys. Fold the removal of
+  // those filters into the SAME `updateWidget` commit as the source switch so the whole
+  // change is a single undo step.
+  const staleFilterIdsForSource = (newSourceId: string | undefined) =>
+    collectStaleWidgetFilterIds(allFilters, widgetId, newSourceId, fieldCatalog, relationships);
+
   const handleSourceChange = (_: React.SyntheticEvent, selected: { id: string } | null) => {
-    controller.updateWidget(widgetId, {
-      sourceId: selected?.id ?? undefined,
-      config: clearFieldBoundGridConfig(config),
-    });
+    const nextSourceId = selected?.id ?? undefined;
+    controller.updateWidget(
+      widgetId,
+      {
+        sourceId: nextSourceId,
+        config: clearFieldBoundGridConfig(config),
+      },
+      { removeFilterIds: staleFilterIdsForSource(nextSourceId) },
+    );
   };
 
   const handleColumnRemove = (col: StudioGridColumn) => {
@@ -298,10 +326,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
     );
     if (tableSourceMode === 'implicit' && next.length === 0) {
       // Reset source when the last column is removed so the user can switch sources
-      controller.updateWidget(widgetId, {
-        sourceId: undefined,
-        config: clearFieldBoundGridConfig(config),
-      });
+      controller.updateWidget(
+        widgetId,
+        {
+          sourceId: undefined,
+          config: clearFieldBoundGridConfig(config),
+        },
+        { removeFilterIds: staleFilterIdsForSource(undefined) },
+      );
     } else {
       controller.updateWidgetConfig(widgetId, { columns: next });
     }
@@ -314,10 +346,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
       : { fieldId: field.fieldId, sourceId: field.sourceId };
     if (tableSourceMode === 'implicit' && !widget?.sourceId) {
       // Infer source from the first column added
-      controller.updateWidget(widgetId, {
-        sourceId: field.sourceId,
-        config: { ...widget?.config, columns: [newCol] },
-      });
+      controller.updateWidget(
+        widgetId,
+        {
+          sourceId: field.sourceId,
+          config: { ...widget?.config, columns: [newCol] },
+        },
+        { removeFilterIds: staleFilterIdsForSource(field.sourceId) },
+      );
     } else {
       controller.updateWidgetConfig(widgetId, { columns: [...configColumns, newCol] });
     }

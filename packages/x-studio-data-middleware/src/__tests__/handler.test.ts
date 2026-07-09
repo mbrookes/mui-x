@@ -484,6 +484,57 @@ describe('handleBatchQuery — empty-region scope (regionIds: []) is fail-closed
   });
 });
 
+// ─── handleBatchQuery — TEXT-typed region column (finding 2.1) ────────────────
+//
+// `validateSecurityColumnValues` (mutations/mutationBuilder.ts) has always
+// tolerated a TEXT-typed region column by comparing a client-supplied region
+// value against `claims.regionIds` (`number[]`) as strings (see
+// mutationBuilder.test.ts's "allows an insert whose string region_id matches a
+// numeric caller region", finding 3.3). But the row-level-security WHERE
+// predicate shared by reads and writes (`applySecurityPredicates` in
+// `shared/predicates.ts`) used to `whereIn` the raw numeric claim only, so the
+// exact TEXT-region deployment the value-validator accommodates would have its
+// scoped READS silently under-match (fail closed, but inconsistently with the
+// write path). This regression pins that a row whose region column is stored
+// as a STRING is now returned for a caller with a NUMERIC `regionIds` claim,
+// bringing the read predicate in line with the write-side tolerance.
+describe('handleBatchQuery — TEXT-typed region column matches a numeric regionIds claim (finding 2.1)', () => {
+  const TEXT_REGION_ROWS = [
+    { id: 1, tenant_id: 'acme', region_id: '5', product: 'a' },
+    { id: 2, tenant_id: 'acme', region_id: '6', product: 'b' },
+  ];
+  const body: BatchQueryRequest = {
+    pageId: 'p1',
+    widgets: [{ id: 'w1', table: 'orders', columns: ['id', 'product'] }],
+  };
+
+  it('returns the row whose STRING region_id matches a caller scoped to the equivalent NUMBER', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS, regionIds: [5] },
+      {
+        db: createMockDb({ orders: TEXT_REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenancy: MULTI_TENANT,
+      },
+    );
+    expect(res.results[0].rows).toEqual([{ id: 1, product: 'a' }]);
+  });
+
+  it('still excludes a STRING region_id outside the caller regions', async () => {
+    const res = await handleBatchQuery(
+      body,
+      { ...ACME_CLAIMS, regionIds: [5] },
+      {
+        db: createMockDb({ orders: TEXT_REGION_ROWS }),
+        schemaAllowlist: ['orders'],
+        tenancy: MULTI_TENANT,
+      },
+    );
+    expect(res.results[0].rows.map((r: any) => r.id)).not.toContain(2);
+  });
+});
+
 // ─── handleBatchQuery — allowlist ─────────────────────────────────────────────
 
 describe('handleBatchQuery — schema allowlist enforcement', () => {
@@ -878,6 +929,23 @@ describe('handleBatchQuery — cache', () => {
     // Cache hit: rows still truncated, but rowCount stays the preflight total.
     expect(second.results[0].rows).toHaveLength(2);
     expect(second.results[0].rowCount).toBe(4);
+  });
+
+  // Regression (finding 3.1): `router/execute.ts` used to gate the LIMIT clause
+  // on truthiness (`if (queryPlan.limit) { query.limit(...) }`), so `limit: 0`
+  // — a plausible "return zero rows" request — was treated the same as "no
+  // limit" and returned every scoped row instead. Fixed to `!== undefined`.
+  it('returns ZERO rows for "limit: 0" instead of treating it as unlimited', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', limit: 0 }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+    });
+    expect(result.results[0].rows).toEqual([]);
   });
 });
 

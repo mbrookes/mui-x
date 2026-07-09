@@ -108,7 +108,14 @@ describe('buildSecureQuery', () => {
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1, 2] }, descriptor(), {
         tenancy: SINGLE_TENANT,
       });
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1, 2]] });
+      // Both the numeric claim and its string form are included (finding 2.1) so
+      // this predicate matches a TEXT-typed region column the same way
+      // `validateSecurityColumnValues` already tolerates one on the write path —
+      // see `shared/predicates.ts`'s `applySecurityPredicates` doc comment.
+      expect(calls).toContainEqual({
+        method: 'whereIn',
+        args: ['sales.region_id', [1, '1', 2, '2']],
+      });
     });
 
     it('does not apply a region predicate when regionIds is undefined (no region scoping)', () => {
@@ -537,7 +544,7 @@ describe('buildSecureQuery', () => {
         tenancy: SINGLE_TENANT,
         securityColumns: { region: 'sales_region' },
       });
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', [7]] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', [7, '7']] });
     });
 
     it('uses a custom department column name from securityColumns', () => {
@@ -554,7 +561,7 @@ describe('buildSecureQuery', () => {
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1], department: 'ops' }, descriptor(), {
         tenancy: SINGLE_TENANT,
       });
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1]] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1, '1']] });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
     });
 
@@ -605,7 +612,10 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: MULTI_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['customers.region_id', [1, 2]] });
+      expect(calls).toContainEqual({
+        method: 'whereIn',
+        args: ['customers.region_id', [1, '1', 2, '2']],
+      });
       expect(calls).toContainEqual({ method: 'where', args: ['customers.department', '=', 'ops'] });
     });
 

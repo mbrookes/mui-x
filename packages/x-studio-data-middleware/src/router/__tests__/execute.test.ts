@@ -133,4 +133,46 @@ describe('executeForTier — "db" tier', () => {
     expect(calls).toContainEqual({ method: 'groupBy', args: [['sales.category']] });
     expect(calls.some((c) => c.method === 'sum')).toBe(true);
   });
+
+  // Regression (finding 3.1): all three tier branches used to gate `.limit()` on
+  // truthiness (`if (queryPlan.limit) {...}`), so `limit: 0` — a legitimate
+  // "return zero rows" request — was silently treated as "no limit" and never
+  // reached `query.limit()` at all. Fixed to `!== undefined` in every branch.
+  it('applies .limit(0) for a non-aggregation descriptor routed to the db tier (no false-y skip)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(db, BASE_CLAIMS, descriptor({ columns: ['category'], limit: 0 }), 'db', {
+      tenancy: SINGLE_TENANT,
+    });
+    expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
+
+  it('applies .limit(0) for an aggregation descriptor on the db tier (no false-y skip)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        limit: 0,
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
+});
+
+describe('executeForTier — "client"/"server" tiers', () => {
+  it('applies .limit(0) instead of treating it as "no limit" (finding 3.1)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ columns: ['category'], limit: 0 }),
+      'server',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
 });

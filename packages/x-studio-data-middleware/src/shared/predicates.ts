@@ -124,6 +124,22 @@ export function resolveJoinSecurityColumns(
  *         `1 = 0` (matches no rows) — NOT dropped, which would fail OPEN.
  *       - `mode: 'write'` → throw; silently dropping the scope would widen the
  *         UPDATE/DELETE beyond the caller's (empty) region set.
+ *
+ * Region VALUE type (finding 2.1) — `claims.regionIds` is typed `number[]`, but
+ * `validateSecurityColumnValues` (`mutations/mutationBuilder.ts`) already treats
+ * a TEXT-typed region column as a supported deployment shape: it compares a
+ * client-supplied region value to `claims.regionIds` as strings so a legitimate
+ * `"5"` isn't rejected against `[5]`. This predicate — the actual row-level-
+ * security WHERE clause, shared by reads AND writes — used to `whereIn` the raw
+ * numbers only, so that same TEXT-typed deployment would error (PostgreSQL:
+ * `operator does not exist: text = integer`) or coerce inconsistently
+ * (MySQL/SQLite) at the enforcement site even though the value-validator
+ * explicitly accommodates it. Both the number and its string form are now
+ * included in the `whereIn` list so a NUMERIC region column matches exactly as
+ * before (the original numbers are still present) while a TEXT-typed one also
+ * matches, reconciling this predicate with the value-validator's existing,
+ * already-tested tolerance rather than picking one type and rejecting the
+ * other's deployment shape.
  */
 export function applySecurityPredicates(
   query: any,
@@ -153,7 +169,14 @@ export function applySecurityPredicates(
     }
     // Read path (or write with a non-empty set): an empty list renders as
     // `1 = 0` in Knex, matching zero rows instead of failing open.
-    query.whereIn(`${table}.${securityColumns.region}`, claims.regionIds);
+    //
+    // Include both the numeric claim and its string form (finding 2.1) so this
+    // predicate matches a TEXT-typed region column exactly the way
+    // `validateSecurityColumnValues` already does for mutation `values` — see
+    // the doc comment above. `[].flatMap(...)` stays `[]`, so the empty-scope
+    // `1 = 0` behavior above is unaffected.
+    const regionMatchValues = claims.regionIds.flatMap((id) => [id, String(id)]);
+    query.whereIn(`${table}.${securityColumns.region}`, regionMatchValues);
   }
 
   if (securityColumns.department && claims.department) {
@@ -233,6 +256,10 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.whereBetween(column, [lo, hi]);
       break;
     }
+    // Every reachable `operator` is a member of `SAFE_OPERATORS` (checked above,
+    // throwing otherwise) and has an explicit `case` here, so this arm is
+    // unreachable in practice (finding 3.2). Kept only to satisfy the `eslint`
+    // `default-case` rule, which requires an explicit default.
     default:
       break;
   }

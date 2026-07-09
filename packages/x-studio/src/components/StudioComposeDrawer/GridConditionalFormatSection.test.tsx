@@ -174,6 +174,7 @@ describe('GridConditionalFormatSection string value input (finding 2.3)', () => 
     mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'grid',
+      title: 'Widget 1',
       sourceId: 'orders',
       config: {
         gridConditionalFormats: [makeRule({ fieldId: 'id', value: 'Pending' })],

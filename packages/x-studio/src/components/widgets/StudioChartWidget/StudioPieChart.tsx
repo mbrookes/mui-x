@@ -53,7 +53,7 @@ export interface StudioPieChartProps {
   /** Configured measure aggregation for the grouped-ring slices (mirrors the primary ring). */
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /** Period grouping applied to the ring category (xField) — mirrors the primary ring. */
-  xGroupBy: StudioChartConfig['xGroupBy'];
+  xGroupBy?: StudioChartConfig['xGroupBy'];
   /** Place the legend below the chart with a custom percentage legend instead of the built-in one. */
   pieLegendBelow: boolean;
   /** Arc label mode: formatted value, percent of total, or none. */

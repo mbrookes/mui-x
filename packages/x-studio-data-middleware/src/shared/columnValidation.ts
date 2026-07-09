@@ -199,8 +199,17 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
   }
 }
 
-/** Safe identifier charset for aggregation aliases (letters, digits, underscore). */
-const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
+/**
+ * Safe identifier charset for aggregation aliases and expression-field output
+ * aliases (letters, digits, underscore).
+ *
+ * Exported (finding 3.4) — this used to be duplicated verbatim in
+ * `security/validateQueryPlan.ts` (which interpolates the SAME class of
+ * client-controlled identifier token, an expression-field output alias, via
+ * `?? as ??`). A single shared constant means a future charset tightening
+ * can't land in one file but not the other.
+ */
+export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
 
 /**
  * Validate every aggregation alias in a read descriptor against a safe-identifier

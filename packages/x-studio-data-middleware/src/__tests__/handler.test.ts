@@ -1322,6 +1322,97 @@ describe('handleBatchQuery — aggregation push-down', () => {
   });
 });
 
+// ─── handleBatchQuery — non-aggregation db-tier caching (finding 3.2) ────────
+
+describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', () => {
+  // Forcing both thresholds to 0 routes ANY non-empty non-aggregation result to
+  // the 'db' tier (same COUNT(*)-driven path a huge real table would take),
+  // without needing to seed thousands of rows.
+  const FORCE_DB_TIER = { clientTier: 0, serverMemoryTier: 0 };
+
+  it('routes a plain (non-aggregation) query to the db tier under tiny thresholds', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      thresholds: FORCE_DB_TIER,
+      // Fresh data + tier cache providers — this same (claims, descriptor) pair
+      // is reused by other tests in this file (under the default thresholds),
+      // which would otherwise collide with the shared module-level default
+      // caches and serve a stale cached tier/result instead of exercising
+      // FORCE_DB_TIER.
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+      tierCacheProvider: new MapTierCacheProvider(),
+    });
+
+    expect(result.results[0].tier).toBe('db');
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it('caches a non-aggregation db-tier result — a second call is a cache hit (no re-execution)', async () => {
+    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      thresholds: FORCE_DB_TIER,
+      cacheProvider: cache,
+      // Fresh tier cache — see the comment in the previous test for why.
+      tierCacheProvider: new MapTierCacheProvider(),
+    };
+
+    const r1 = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    expect(r1.results[0].tier).toBe('db');
+
+    const cacheKey = generateCacheKey(ACME_CLAIMS, body.widgets[0]);
+    const cached = await cache.get(cacheKey);
+    expect(cached).toBeDefined();
+    expect(cached?.tier).toBe('db');
+    expect(cached?.rows).toEqual(r1.results[0].rows);
+
+    // A second call is served straight from the cache — same rows, same tier —
+    // rather than re-running the (potentially huge) raw-row query.
+    const r2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    expect(r2.results[0].tier).toBe('db');
+    expect(r2.results[0].rows).toEqual(r1.results[0].rows);
+  });
+
+  it('still does NOT cache an aggregation result even though it is also forced to the db tier', async () => {
+    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: cache,
+    });
+
+    expect(result.results[0].tier).toBe('db');
+    const cacheKey = generateCacheKey(ACME_CLAIMS, body.widgets[0]);
+    expect(await cache.get(cacheKey)).toBeUndefined();
+  });
+});
+
 // ─── handleBatchQuery — HAVING predicates ────────────────────────────────────
 
 describe('handleBatchQuery — HAVING predicates', () => {

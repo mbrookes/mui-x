@@ -73,6 +73,43 @@ describe('LRUCacheProvider', () => {
     });
   });
 
+  describe('ttlMs: 0 (finding 2.1 — parity with the Redis providers)', () => {
+    // `lru-cache` treats `{ ttl: 0 }` as "no TTL" (immortal) — the OPPOSITE of
+    // what `ttlMs: 0` means on `RedisCacheProvider`/`RedisTierCacheProvider`,
+    // which floor it to a 1-second expiry (see the "ttlMs: 0 (finding 10)"
+    // parity suite in `RedisCacheProvider.test.ts`). This locks in that
+    // `LRUCacheProvider` now floors a per-call `ttlMs: 0` to `MIN_TTL_MS`
+    // instead of storing the entry forever. See also
+    // `ttlZeroCrossProviderParity.test.ts` for the full four-provider check.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('floors a per-call ttlMs: 0 to a finite TTL instead of "never expires"', async () => {
+      const cache = new LRUCacheProvider();
+      await cache.set('k1', entry(), { ttlMs: 0 });
+
+      expect(await cache.get('k1')).toBeDefined();
+      vi.advanceTimersByTime(1_100);
+      expect(await cache.get('k1')).toBeUndefined();
+    });
+
+    it('floors a constructor-level ttlMs: 0 default to a finite TTL', async () => {
+      const cache = new LRUCacheProvider({ ttlMs: 0 });
+      await cache.set('k1', entry());
+
+      expect(await cache.get('k1')).toBeDefined();
+      vi.advanceTimersByTime(1_100);
+      expect(await cache.get('k1')).toBeUndefined();
+    });
+  });
+
   describe('invalidatePrefix — prefix index (tenant isolation)', () => {
     it('drops every key for the targeted tenant and leaves other tenants intact', async () => {
       const cache = new LRUCacheProvider();

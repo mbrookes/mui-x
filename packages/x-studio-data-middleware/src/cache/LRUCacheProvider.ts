@@ -16,6 +16,7 @@
  */
 import { LRUCache } from 'lru-cache';
 import type { CacheEntry, CacheProvider, CacheSetOpts } from './types';
+import { floorTtlMs } from './ttl';
 
 interface LRUCacheProviderOptions {
   /**
@@ -64,7 +65,10 @@ export class LRUCacheProvider implements CacheProvider {
 
     this.cache = new LRUCache<string, CacheEntry>({
       maxSize: maxSizeBytes,
-      ttl: ttlMs,
+      // Floor an explicit `ttlMs: 0` to 1s — `lru-cache` otherwise treats
+      // `ttl: 0` as "never expires" (see `./ttl.ts`), the opposite of what
+      // `ttlMs: 0` means on the Redis-backed providers (finding 2.1).
+      ttl: floorTtlMs(ttlMs),
       allowStale: false,
       // Do NOT refresh TTL on read: `ttlMs` is a staleness bound, not an idle
       // timeout. A key read more often than `ttlMs` must still expire on schedule
@@ -109,7 +113,11 @@ export class LRUCacheProvider implements CacheProvider {
   }
 
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
-    this.cache.set(key, value, opts?.ttlMs !== undefined ? { ttl: opts.ttlMs } : undefined);
+    // Floor an explicit `ttlMs: 0` to 1s (finding 2.1) — see `./ttl.ts`. Any
+    // other value, including `undefined` (use the constructor default), is
+    // passed through unchanged.
+    const ttlMs = floorTtlMs(opts?.ttlMs);
+    this.cache.set(key, value, ttlMs !== undefined ? { ttl: ttlMs } : undefined);
 
     // Register in prefix index
     const prefix = this.extractPrefix(key);

@@ -131,8 +131,12 @@ async function processMutation(
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
-      default:
-        rowsAffected = 0;
+      // No `default` arm (finding 3.5): `descriptor.operation` is validated
+      // against exactly ['insert', 'update', 'delete'] above, before this
+      // switch is ever reached (an unknown operation throws and returns early
+      // via the catch block below) — and the three cases above are the
+      // complete `MutationDescriptor['operation']` union, so a default arm
+      // here was dead code.
     }
 
     // ── Post-mutation cache invalidation ──────────────────────────────────

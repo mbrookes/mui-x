@@ -1320,3 +1320,87 @@ describe('qualified values keys are rejected (finding 1.2)', () => {
     ).not.toThrow();
   });
 });
+
+// ── Empty-string department claim no longer fails open (finding 3.3) ─────────
+//
+// `claims.department === ''` used to be indistinguishable from "not
+// department-scoped" (both falsy), so a caller with an empty-string department
+// claim could write/stamp ANY department value unchecked. Gating on
+// `!== undefined` instead means an empty-string claim is a real (if unusual)
+// scope: writes outside it are rejected, and an omitted department on insert is
+// auto-stamped with `''` rather than left to the DB default.
+
+describe('empty-string department claim is scoped, not ignored (finding 3.3)', () => {
+  const EMPTY_DEPT_CLAIMS = {
+    tenantId: 'acme',
+    userId: 'u1',
+    roleIds: ['editor'],
+    department: '',
+  };
+
+  it('rejects an UPDATE value that writes a non-empty department for an empty-string-scoped caller', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { department: 'Finance' },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() =>
+      validateMutation(descriptor, EMPTY_DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).toThrow(/outside the caller's department/);
+  });
+
+  it('accepts an UPDATE value that explicitly writes the empty-string department', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { department: '' },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() =>
+      validateMutation(descriptor, EMPTY_DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['*'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('auto-stamps the empty-string department on insert when omitted', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok' },
+    };
+    await buildInsertMutation(db, EMPTY_DEPT_CLAIMS, descriptor, MT_POLICY);
+    expect(db.snapshot().orders[0].department).toBe('');
+  });
+
+  it('emits a real (non-skipped) department predicate on UPDATE for an empty-string claim', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, tenant_id: 'acme', department: '', status: 'pending' },
+        { id: 2, tenant_id: 'acme', department: 'Sales', status: 'pending' },
+      ],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+    };
+    await buildUpdateMutation(db, EMPTY_DEPT_CLAIMS, descriptor, MT_POLICY);
+    // Only the row whose department matches the empty-string claim is updated —
+    // the predicate was NOT skipped (which would have updated both rows).
+    const snapshot = db.snapshot().orders;
+    expect(snapshot.find((r) => r.id === 1)?.status).toBe('shipped');
+    expect(snapshot.find((r) => r.id === 2)?.status).toBe('pending');
+  });
+});

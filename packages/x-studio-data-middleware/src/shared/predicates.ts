@@ -214,7 +214,16 @@ export function applySecurityPredicates(
     query.whereIn(`${table}.${securityColumns.region}`, regionMatchValues);
   }
 
-  if (securityColumns.department && claims.department) {
+  // `!== undefined` (not truthiness) — finding 3.3. `claims.department === ''`
+  // used to be indistinguishable from "no department scoping" (both falsy),
+  // silently FAILING OPEN: a caller whose department claim happened to be an
+  // empty string saw/affected every department in its tenant, the opposite of
+  // what a department-restricted claim should mean. Mirroring the region
+  // dimension's `undefined`-vs-`[]` distinction above, only `undefined` means
+  // "not department-scoped" now; a defined (even empty-string) department
+  // always emits a real predicate, which — for a table with no literal
+  // empty-string department value — matches no rows rather than every row.
+  if (securityColumns.department && claims.department !== undefined) {
     query.where(`${table}.${securityColumns.department}`, '=', claims.department);
   }
 }

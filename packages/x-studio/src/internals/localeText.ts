@@ -888,6 +888,10 @@ export interface StudioLocaleText {
   chartMixedRequiresFieldsHint: string;
   /** Fallback series label when no field label is available */
   chartDefaultSeriesLabel: string;
+  /** Bucket label for a null/undefined x-axis category value, e.g. "(empty)" */
+  chartEmptyCategoryLabel: string;
+  /** Label for the "everything else" slice/bar when small categories are grouped, e.g. "Other" */
+  chartOtherBucketLabel: string;
   /** Hint shown when a heatmap chart is missing required fields */
   chartHeatmapRequiresFieldsHint: string;
   /** Hint shown when a funnel chart is missing required fields */
@@ -2001,6 +2005,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Chart widget
   chartMixedRequiresFieldsHint: 'Mixed chart requires 2 or more measure fields.',
   chartDefaultSeriesLabel: 'Value',
+  chartEmptyCategoryLabel: '(empty)',
+  chartOtherBucketLabel: 'Other',
   chartHeatmapRequiresFieldsHint: 'Heatmap requires column axis, row axis, and value fields.',
   chartFunnelRequiresFieldsHint: 'Funnel chart requires a stage field and a value field.',
   chartSankeyRequiresFieldsHint: 'Sankey chart requires source, target, and value fields.',

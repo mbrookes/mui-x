@@ -800,6 +800,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Chart widget
   chartMixedRequiresFieldsHint: 'Le graphique mixte nécessite 2 champs de mesure ou plus.',
   chartDefaultSeriesLabel: 'Valeur',
+  chartEmptyCategoryLabel: '(vide)',
+  chartOtherBucketLabel: 'Autre',
   chartHeatmapRequiresFieldsHint:
     "La carte thermique nécessite des champs pour l'axe des colonnes, l'axe des lignes et la valeur.",
   chartFunnelRequiresFieldsHint:
@@ -946,6 +948,149 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Map widget legend
   mapLegendAriaLabel: (fieldLabel, min, max) =>
     `Échelle de couleurs de ${fieldLabel} de ${min} à ${max}`,
+
+  // Date range presets (calendar year / quarter)
+  dateRangePresetThisCalendarYear: 'Cette année',
+  dateRangePresetLastCalendarYear: "L'année dernière",
+  dateRangePresetLast2CalendarYears: 'Les 2 dernières années',
+  dateRangePresetThisQuarter: 'Ce trimestre',
+  dateRangePresetLastQuarter: 'Le trimestre dernier',
+  dateRangePresetThisAndLastQuarter: 'Ce trimestre et le précédent',
+  dateRangePresetGroupRolling: 'Glissant',
+  dateRangePresetGroupCalendarYear: 'Année civile',
+  dateRangePresetGroupQuarter: 'Trimestre',
+
+  // Filters drawer (default view)
+  filtersDefaultViewLabel: 'Vue par défaut',
+
+  // Quick filter bar
+  quickFilterBarEnableFilter: 'Activer le filtre',
+  quickFilterBarDisableFilter: 'Désactiver le filtre',
+  quickFilterBarRemoveFilter: 'Supprimer le filtre',
+
+  // Cross-filter mode bar
+  crossFilterBarModeFilter: 'Filtre',
+  crossFilterBarModeHighlight: 'Surligner',
+  crossFilterBarModePerChart: 'Par graphique',
+  crossFilterBarAllPages: 'Toutes les pages',
+
+  // Chart setup panel
+  aggregationLockedHelperText:
+    'Compte les lignes — choisissez un champ de valeur pour additionner, faire la moyenne, etc.',
+
+  // Funnel setup
+  chartSetupFunnelLabelFormatLabel: "Format d'étiquette",
+  chartSetupFunnelLabelFormatValue: 'Valeur',
+  chartSetupFunnelLabelFormatPercent: '% du total',
+  chartSetupFunnelLabelFormatConversion: 'Taux de conversion',
+  chartSetupFunnelLabelPlacementLabel: "Position de l'étiquette",
+  chartSetupFunnelLabelPlacementInside: 'Intérieur',
+  chartSetupFunnelLabelPlacementOutsideStart: 'Extérieur gauche',
+  chartSetupFunnelLabelPlacementOutsideEnd: 'Extérieur droit',
+  chartSetupFunnelGapLabel: 'Espacement des sections (px)',
+  chartSetupFunnelShapeLabel: 'Forme',
+  chartSetupFunnelShapeLinear: 'Linéaire',
+  chartSetupFunnelShapeBump: 'Courbe (bombée)',
+  chartSetupFunnelShapeStep: 'Palier',
+  chartSetupFunnelShapePyramid: 'Pyramide',
+  chartSetupFunnelStyleLabel: 'Style',
+  chartSetupFunnelStyleFilled: 'Rempli',
+  chartSetupFunnelStyleOutlined: 'Contour',
+
+  // Sankey setup
+  chartSetupSankeySourceLabel: 'Champ source (origine)',
+  chartSetupSankeySourceHelperText: 'Champ catégoriel pour le nœud de départ de chaque flux',
+  chartSetupSankeyTargetLabel: 'Champ cible (destination)',
+  chartSetupSankeyTargetHelperText: "Champ catégoriel pour le nœud d'arrivée de chaque flux",
+  chartSetupSankeyValueHelperText: 'Champ numérique additionné par lien source → cible',
+  chartSetupSankeyLinkColorLabel: 'Couleur du lien',
+  chartSetupSankeyLinkColorSource: 'Depuis le nœud source',
+  chartSetupSankeyLinkColorTarget: 'Depuis le nœud cible',
+  chartSetupSankeyShowValuesLabel: 'Afficher les valeurs sur les liens',
+
+  // Pie/donut & funnel category fields
+  chartSetupXFieldPieDonutLabel: 'Catégorie des tranches',
+  chartSetupXFieldPieDonutHelperText: 'Chaque valeur unique devient une tranche',
+  chartSetupXFieldFunnelLabel: "Champ d'étape",
+  chartSetupXFieldFunnelHelperText: "Champ catégoriel définissant chaque étape de l'entonnoir",
+  chartSetupYMeasurePieDonutLabel: 'Valeur des tranches',
+  chartSetupFieldlessCountSplitByTooltip:
+    'Choisissez un champ de mesure pour activer la division par',
+  chartSetupSplitByFieldlessCountHelperText:
+    "Non disponible pour un comptage sans champ — choisissez d'abord un champ de mesure",
+
+  // KPI setup panel
+  kpiSetupDateRangePresetLabel: 'Plage',
+
+  // Map setup panel
+  mapSetupValueFieldHelperText: 'Laissez vide pour compter les lignes',
+  mapSetupInteractionsTitle: 'Interactions',
+  mapSetupInteractionsDescription: "Lorsque vous cliquez sur d'autres widgets, cette carte…",
+
+  // Text setup panel
+  textSetupPromptLabel: 'Invite',
+  textSetupPromptHelper:
+    "Décrivez ce que l'IA doit écrire — elle peut interroger les sources de données de cette page",
+  textSetupAiModeLabel: 'Mode IA',
+  textSetupAiModeHelper: 'Utilisez votre texte comme invite pour générer du contenu IA',
+
+  // Accessible names for otherwise-unlabeled form controls
+  exprNodeKindAriaLabel: "Type d'entrée",
+  exprFieldAriaLabel: 'Champ',
+  exprAggregationAriaLabel: 'Agrégation',
+  exprLiteralTypeAriaLabel: 'Type littéral',
+  exprBooleanValueAriaLabel: 'Valeur booléenne',
+  filterRankDirectionAriaLabel: 'Sens du classement',
+  filterRankCountLabel: "Nombre d'éléments",
+  filterRelativeDateUnitAriaLabel: 'Unité de temps',
+  filterRelativeDateDirectionAriaLabel: 'Direction',
+  filterDateModeAriaLabel: 'Type de valeur de date',
+  formulaOperatorAriaLabel: 'Opérateur',
+  chartAnnotationAxisAriaLabel: 'Axe de la ligne de référence',
+  gridConditionFieldAriaLabel: 'Champ de condition',
+  gridConditionOperatorAriaLabel: 'Opérateur de condition',
+  gridConditionStyleAriaLabel: 'Style de condition',
+  gridConditionValueAriaLabel: 'Valeur de condition',
+
+  // KPI trend sentiment (screen-reader only)
+  kpiTrendFavorableLabel: 'favorable',
+  kpiTrendUnfavorableLabel: 'défavorable',
+  kpiTrendNoChangeLabel: 'aucun changement',
+
+  // Canvas accessibility
+  canvasResizeColumnsAriaLabel: 'Redimensionner les colonnes',
+  canvasMoveWidgetUpAriaLabel: 'Déplacer le widget vers le haut',
+  canvasMoveWidgetDownAriaLabel: 'Déplacer le widget vers le bas',
+  canvasMoveWidgetLeftAriaLabel: 'Déplacer le widget vers la gauche',
+  canvasMoveWidgetRightAriaLabel: 'Déplacer le widget vers la droite',
+  gridColumnMoveUpAriaLabel: 'Déplacer la colonne vers le haut',
+  gridColumnMoveDownAriaLabel: 'Déplacer la colonne vers le bas',
+  canvasRegionAriaLabel: 'Zone du tableau de bord',
+  sidebarPanelOpenedAnnouncement: (label) => `Panneau ${label} ouvert`,
+  sidebarPanelClosedAnnouncement: 'Panneau fermé',
+  canvasResizeAnnouncement: (span, total) => `Colonne redimensionnée à ${span} sur ${total}`,
+  canvasWidgetMovedAnnouncement: 'Widget déplacé',
+  canvasWidgetAddedAnnouncement: 'Widget ajouté',
+
+  // Chart / KPI / map text alternatives
+  ganttChartAriaLabel: (itemCount, from, to, details) =>
+    `Diagramme de Gantt avec ${itemCount} ${itemCount === 1 ? 'élément' : 'éléments'} du ${from} au ${to}. ${details}.`,
+  sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
+    `Diagramme de flux Sankey avec ${nodeCount} ${nodeCount === 1 ? 'nœud' : 'nœuds'} et ${linkCount} ${linkCount === 1 ? 'lien' : 'liens'}. ${details}.`,
+  kpiGaugeAriaLabel: (value, max, percent) => `Jauge : ${value} sur ${max} (${percent} %).`,
+  kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
+    let trendText = 'stable';
+    if (trend === 'up') {
+      trendText = 'en hausse';
+    } else if (trend === 'down') {
+      trendText = 'en baisse';
+    }
+    return `Sparkline avec ${pointCount} points, ${trendText}, du ${from} au ${to}.`;
+  },
+  mapChartAriaLabel: (measure, regionCount, min, max) =>
+    `Carte choroplèthe${measure ? ` de ${measure}` : ''} avec ${regionCount} ${regionCount === 1 ? 'région' : 'régions'}, valeurs de ${min} à ${max}.`,
+  lineageGraphAriaLabel: (sourceCount, relationshipCount) =>
+    `Graphique des relations de données avec ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'} et ${relationshipCount} ${relationshipCount === 1 ? 'relation' : 'relations'}.`,
 };
 
 export const fr: Localization = getStudioLocalization(frLocaleText);

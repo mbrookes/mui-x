@@ -3,6 +3,10 @@ import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AggregatedData } from '../../../internals/chartAggregation';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 import { PieHighlightContext } from './PieCrossHighlightContext';
 
 const pieSpy = vi.fn();
@@ -191,6 +195,30 @@ describe('StudioPieChart', () => {
     const otherSlice = props.series[0].data.find((d) => d.label === 'Other');
     // c (5) folds into the existing Other (5) → 10.
     expect(otherSlice?.value).toBe(10);
+  });
+
+  it('localizes the "Other" bucket label via localeText.chartOtherBucketLabel (finding 3.2)', () => {
+    const chartData: AggregatedData = {
+      labels: ['a', 'b', 'c', 'd', 'e'],
+      values: [100, 80, 60, 40, 20],
+    };
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, chartOtherBucketLabel: 'Autre' },
+          }}
+        >
+          <StudioPieChart {...baseProps({ chartData, pieMaxSlices: 3 })} />
+        </StudioUIConfigContext.Provider>
+      </ThemeProvider>,
+    );
+    const props = lastPieProps();
+    const labels = props.series[0].data.map((d) => d.label);
+    expect(labels).toEqual(['a', 'b', 'Autre']);
+    expect(labels).not.toContain('Other');
   });
 
   it('computes selectedDataIndices against the rendered displayLabels order (ghost reorder active)', () => {

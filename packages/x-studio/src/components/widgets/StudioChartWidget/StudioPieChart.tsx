@@ -6,6 +6,7 @@ import type { HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
 import type { AggregatedData } from '../../../internals/chartAggregation';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { computeControlledHighlight } from './chartWidgetHelpers';
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
@@ -124,6 +125,8 @@ export function StudioPieChart({
   slotProps,
 }: StudioPieChartProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
+  const otherBucketLabel = localeText.chartOtherBucketLabel;
 
   // Pre-compute grouped-ring pie data: one ring per xField category, each ring
   // divided into slices by seriesField — like grouped bars but as concentric rings.
@@ -353,16 +356,16 @@ export function StudioPieChart({
     }
     const otherValue = grouped.reduce((sum, p) => sum + p.value, 0);
     if (otherValue > 0 || grouped.length > 0) {
-      const existingOtherIdx = kept.findIndex((p) => p.label === 'Other');
+      const existingOtherIdx = kept.findIndex((p) => p.label === otherBucketLabel);
       if (existingOtherIdx >= 0) {
         kept[existingOtherIdx] = {
-          label: 'Other',
+          label: otherBucketLabel,
           value: kept[existingOtherIdx].value + otherValue,
         };
         displayLabels = kept.map((p) => p.label);
         displayValues = kept.map((p) => p.value);
       } else {
-        displayLabels = [...kept.map((p) => p.label), 'Other'];
+        displayLabels = [...kept.map((p) => p.label), otherBucketLabel];
         displayValues = [...kept.map((p) => p.value), otherValue];
       }
       otherIsSynthetic = true;
@@ -379,7 +382,7 @@ export function StudioPieChart({
     if (label === undefined) {
       return;
     }
-    if (otherIsSynthetic && String(label) === 'Other') {
+    if (otherIsSynthetic && String(label) === otherBucketLabel) {
       return;
     }
     onItemClick(label, Boolean(event?.shiftKey));
@@ -399,9 +402,11 @@ export function StudioPieChart({
   // (handles "Other" grouping by summing filtered values of ungrouped labels)
   let filteredDisplayValues: number[] | null = null;
   if (isPieHighlightActive && pieFilteredValueByLabel.size > 0) {
-    const keepSet = new Set(displayLabels.filter((l) => String(l) !== 'Other').map(String));
+    const keepSet = new Set(
+      displayLabels.filter((l) => String(l) !== otherBucketLabel).map(String),
+    );
     filteredDisplayValues = displayLabels.map((label) => {
-      if (String(label) === 'Other') {
+      if (String(label) === otherBucketLabel) {
         let sum = 0;
         for (const [lbl, fv] of pieFilteredValueByLabel) {
           if (!keepSet.has(lbl)) {

@@ -72,13 +72,24 @@ describe('summarizeFilter — condition mode', () => {
     expect(summarizeFilter(makeFilter({ operator: 'equals', value: 'foo' }))).toBe('Equals: foo');
   });
 
-  it('is_empty — no value shown', () => {
-    expect(summarizeFilter(makeFilter({ operator: 'is_empty', value: '' }))).toBe('is empty');
+  it('is_empty — no value shown, routed through the localized operator label', () => {
+    // Was hardcoded lowercase 'is empty'; now reuses the same
+    // `filterOperator_string_is_empty` locale key as the operator picker (finding 3.2).
+    expect(summarizeFilter(makeFilter({ operator: 'is_empty', value: '' }))).toBe('Is empty');
   });
 
-  it('is_not_empty — no value shown', () => {
+  it('is_not_empty — no value shown, routed through the localized operator label', () => {
     expect(summarizeFilter(makeFilter({ operator: 'is_not_empty', value: '' }))).toBe(
-      'is not empty',
+      'Is not empty',
+    );
+  });
+
+  it('is_empty / is_not_empty summaries translate via localeText', () => {
+    expect(summarizeFilter(makeFilter({ operator: 'is_empty', value: '' }), frLocaleText)).toBe(
+      'Est vide',
+    );
+    expect(summarizeFilter(makeFilter({ operator: 'is_not_empty', value: '' }), frLocaleText)).toBe(
+      "N'est pas vide",
     );
   });
 

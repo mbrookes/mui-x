@@ -1,10 +1,18 @@
 /**
  * Locale completeness tests — verify that each non-English locale bundle
- * defines every key that exists in the reference ptBR bundle.
+ * defines every key that exists in `DEFAULT_STUDIO_LOCALE_TEXT`.
  *
- * ptBR is used as the reference rather than enUS because it is the only
- * non-English bundle that existed before the fr/de/es bundles were added,
- * and its token set is known-complete.
+ * This used to compare fr/de/es against the ptBR bundle as a stand-in
+ * "known-complete" reference instead of the actual default. That missed an
+ * entire class of regressions: ptBR itself was quietly missing 97 keys that
+ * existed on `DEFAULT_STUDIO_LOCALE_TEXT` (a coherent, feature-shaped set —
+ * funnel/Sankey chart setup labels, calendar-year/quarter date-range presets,
+ * cross-filter-bar mode labels, a dozen-plus accessibility strings, and KPI
+ * trend labels), and because every non-English bundle was missing the exact
+ * same 97 keys, comparing them against each other never caught it (see
+ * architecture-review finding 3.1). Comparing directly against the default
+ * text's key set is the only check that can catch "all locales are missing
+ * the same key."
  */
 import { describe, it, expect } from 'vitest';
 import { ptBRLocaleText } from './ptBR';
@@ -13,22 +21,28 @@ import { deLocaleText } from './de';
 import { esLocaleText } from './es';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../internals/StudioUIConfigContext';
 
-const REFERENCE_KEYS = Object.keys(ptBRLocaleText) as Array<keyof typeof ptBRLocaleText>;
+const DEFAULT_KEYS = Object.keys(DEFAULT_STUDIO_LOCALE_TEXT) as Array<
+  keyof typeof DEFAULT_STUDIO_LOCALE_TEXT
+>;
 
-const BUNDLES: Array<{ name: string; locale: Partial<typeof ptBRLocaleText> }> = [
+const BUNDLES: Array<{ name: string; locale: Partial<typeof DEFAULT_STUDIO_LOCALE_TEXT> }> = [
   { name: 'fr', locale: frLocaleText },
   { name: 'de', locale: deLocaleText },
   { name: 'es', locale: esLocaleText },
+  { name: 'ptBR', locale: ptBRLocaleText },
 ];
 
 describe('locale completeness', () => {
-  it.each(BUNDLES)('$name defines all keys present in ptBR', ({ name, locale }) => {
-    const missing = REFERENCE_KEYS.filter((key) => !(key in locale));
-    expect(
-      missing,
-      `${name} is missing ${missing.length} key(s): ${missing.join(', ')}`,
-    ).toHaveLength(0);
-  });
+  it.each(BUNDLES)(
+    '$name defines every key present in DEFAULT_STUDIO_LOCALE_TEXT',
+    ({ name, locale }) => {
+      const missing = DEFAULT_KEYS.filter((key) => !(key in locale));
+      expect(
+        missing,
+        `${name} is missing ${missing.length} key(s) relative to the default locale text: ${missing.join(', ')}`,
+      ).toHaveLength(0);
+    },
+  );
 
   it.each(BUNDLES)('$name has no empty string values', ({ name, locale }) => {
     const empty = Object.entries(locale)
@@ -42,73 +56,5 @@ describe('locale completeness', () => {
       .filter(([, v]) => v == null)
       .map(([k]) => k);
     expect(nullish, `${name} has null/undefined values for: ${nullish.join(', ')}`).toHaveLength(0);
-  });
-
-  // `ptBR` predates several `DEFAULT_STUDIO_LOCALE_TEXT` sections (it's the reference for
-  // the *other* bundles above, not a guaranteed 1:1 mirror of every default key), so a
-  // blanket "every default key is in ptBR" check would fail today on ~100 pre-existing,
-  // unrelated gaps. Scope the regression guard to the keys this change actually added,
-  // so a future accidental default-only key in one of *these* tokens still fails CI.
-  const NEW_LOCALE_KEYS: Array<keyof typeof DEFAULT_STUDIO_LOCALE_TEXT> = [
-    'widgetAiRefreshTooltip',
-    'widgetInsightTypeSummary',
-    'widgetInsightTypeAnalysis',
-    'widgetInsightTypeForecast',
-    'aiAssistantPanelTitle',
-    'chartHeatmapRequiresFieldsHint',
-    'chartFunnelRequiresFieldsHint',
-    'chartSankeyRequiresFieldsHint',
-    'chartGanttRequiresFieldsHint',
-    'chatNoConversationsLabel',
-    'chatComposerPlaceholder',
-    'chatEmptyStateTitle',
-    'chatEmptyStateSubtitle',
-    'canvasEmptyTitle',
-    'canvasEmptyEditModeHint',
-    'canvasEmptyViewModeHint',
-    'mapLegendAriaLabel',
-    'exprOpAdd',
-    'exprOpSubtract',
-    'exprOpMultiply',
-    'exprOpDivide',
-    'exprOpModulo',
-    'exprOpNegate',
-    'exprOpEquals',
-    'exprOpNotEqual',
-    'exprOpLessThan',
-    'exprOpGreaterThan',
-    'exprOpLessThanOrEqual',
-    'exprOpGreaterThanOrEqual',
-    'exprOpAnd',
-    'exprOpOr',
-    'exprOpNot',
-    'exprOpIsTrue',
-    'exprOpIsFalse',
-    'exprOpIsNull',
-    'exprOpIsNotNull',
-    'exprOpIf',
-    'exprOpIn',
-    'exprOpDatediff',
-    'exprGroupArithmetic',
-    'exprGroupComparison',
-    'exprGroupLogical',
-    'exprGroupConditional',
-    'exprGroupDate',
-    'exprInputLabelUnit',
-    'exprInputLabelCondition',
-    'exprInputLabelThen',
-    'exprInputLabelElse',
-    'exprInputLabelGeneric',
-    'exprAddInputButton',
-    'exprOutputTypeLabel',
-    'kpiTrendVsLabel',
-  ];
-
-  it('every newly-added locale key is present in the ptBR reference bundle', () => {
-    const missing = NEW_LOCALE_KEYS.filter((key) => !(key in ptBRLocaleText));
-    expect(
-      missing,
-      `ptBR is missing ${missing.length} newly-added key(s): ${missing.join(', ')}`,
-    ).toHaveLength(0);
   });
 });

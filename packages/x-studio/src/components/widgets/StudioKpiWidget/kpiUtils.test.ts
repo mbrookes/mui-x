@@ -316,6 +316,26 @@ describe('getBucketKey', () => {
     const thursday = new Date(2026, 2, 5);
     expect(getBucketKey(monday, 'week')).toBe(getBucketKey(thursday, 'week'));
   });
+
+  it('formats week buckets as an ISO year-week key (finding 1.11)', () => {
+    // 5 Mar 2026 falls in ISO week 10 of 2026 — the key must be `{year}-W{week}`,
+    // NOT the old `{year}-W{dayOfMonth}-{month}` shape, so it sorts chronologically.
+    expect(getBucketKey(date, 'week')).toBe('2026-W10');
+  });
+
+  it('sorts week buckets chronologically across a month boundary', () => {
+    // Monday 2026-01-26 (ISO week 5) and Monday 2026-02-02 (ISO week 6). The old
+    // `{year}-W{dayOfMonth}-{month}` key produced "2026-W26-01" and "2026-W02-02" —
+    // lexicographically the February week sorted first. The new key must sort
+    // the January week first.
+    const janMonday = new Date(2026, 0, 26);
+    const febMonday = new Date(2026, 1, 2);
+    const janKey = getBucketKey(janMonday, 'week');
+    const febKey = getBucketKey(febMonday, 'week');
+    expect(janKey).toBe('2026-W05');
+    expect(febKey).toBe('2026-W06');
+    expect([febKey, janKey].sort()).toEqual([janKey, febKey]);
+  });
 });
 
 describe('computeSparklineData', () => {
@@ -332,6 +352,18 @@ describe('computeSparklineData', () => {
 
   it('returns a running total when cumulative', () => {
     expect(computeSparklineData(rows, 't', 'v', 'sum', 'month', true)).toEqual([15, 35]);
+  });
+
+  it('sorts weekly buckets in true chronological order across a month boundary (finding 1.11)', () => {
+    // Week granularity is the auto-selected default for 14–90 day ranges. A row in
+    // the week of Mon 2026-01-26 and a row in the week of Mon 2026-02-02 must
+    // aggregate with January's value first, even though the old
+    // `{year}-W{dayOfMonth}-{month}` key would have sorted February first.
+    const weekRows = [
+      { t: '2026-01-27', v: 100 }, // week of 2026-01-26 (ISO week 5)
+      { t: '2026-02-03', v: 200 }, // week of 2026-02-02 (ISO week 6)
+    ];
+    expect(computeSparklineData(weekRows, 't', 'v', 'sum', 'week', false)).toEqual([100, 200]);
   });
 });
 

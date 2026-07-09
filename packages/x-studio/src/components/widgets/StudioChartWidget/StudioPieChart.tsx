@@ -6,6 +6,8 @@ import type { HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
 import type { AggregatedData } from '../../../internals/chartAggregation';
+import { applyXGroupBy, isEmptyXValue, toXValue } from '../../../internals/chartValues';
+import type { StudioChartConfig } from '../../../models';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { computeControlledHighlight } from './chartWidgetHelpers';
 import { PieHighlightContext } from './PieCrossHighlightContext';
@@ -48,6 +50,10 @@ export interface StudioPieChartProps {
   yField?: string;
   /** Resolved active y-fields — fallback measure for the ring aggregation. */
   activeYFields: string[];
+  /** Configured measure aggregation for the grouped-ring slices (mirrors the primary ring). */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /** Period grouping applied to the ring category (xField) — mirrors the primary ring. */
+  xGroupBy: StudioChartConfig['xGroupBy'];
   /** Place the legend below the chart with a custom percentage legend instead of the built-in one. */
   pieLegendBelow: boolean;
   /** Arc label mode: formatted value, percent of total, or none. */
@@ -104,6 +110,8 @@ export function StudioPieChart({
   xField,
   yField,
   activeYFields,
+  yAggregation,
+  xGroupBy,
   pieLegendBelow,
   pieArcLabel,
   pieArcLabelMinAngle,
@@ -136,36 +144,66 @@ export function StudioPieChart({
     }
     const sliceField = seriesField;
     const ringYField = yField ?? activeYFields[0] ?? '';
+    // Mirror the primary ring's aggregation (built by `useChartWidgetData`'s `aggregateByField`):
+    // use the configured measure aggregation instead of a hardcoded 'sum', and period-group the
+    // ring categories by `xGroupBy` (so a temporal xField groups by day/week/month/… like the
+    // single-ring pie) rather than treating every raw x value as its own ring (finding 2.25).
+    const ringAggregation = yAggregation ?? 'sum';
+    const categoryKeyOf = (r: Record<string, unknown>): string | null => {
+      const rawX = r[xField];
+      if (isEmptyXValue(rawX)) {
+        return null;
+      }
+      return String(applyXGroupBy(toXValue(rawX), xGroupBy));
+    };
 
     // Always use baseline rows so cross-filters dim rather than remove slices.
     const baseRows = allEnrichedRows.length > 0 ? allEnrichedRows : enrichedRows;
 
-    // Get unique category values (xField) in stable order.
-    const categories = [...new Set(baseRows.map((r) => String(r[xField] ?? '')))].filter(Boolean);
+    // Get unique category values (period-grouped xField) in stable order.
+    const categories = [...new Set(baseRows.map(categoryKeyOf))].filter(
+      (c): c is string => c != null,
+    );
 
     // For each category, aggregate by sliceField within that category's rows.
     const rings = categories.map((category) => {
-      const catRows = baseRows.filter((r) => String(r[xField] ?? '') === category);
-      const agg = aggregateByField(catRows, sliceField, ringYField);
+      const catRows = baseRows.filter((r) => categoryKeyOf(r) === category);
+      const agg = aggregateByField(catRows, sliceField, ringYField, undefined, ringAggregation);
       return { id: `ring-${category}`, label: category, slices: agg };
     });
 
     // Filtered label sets for dimming when cross-filters are active.
     const filteredCategories = shouldShowGhost
-      ? new Set(enrichedRows.map((r) => String(r[xField] ?? '')))
+      ? new Set(enrichedRows.map(categoryKeyOf).filter((c): c is string => c != null))
       : null;
     const filteredSlicesByCategory = shouldShowGhost
       ? new Map(
           categories.map((cat) => {
-            const catRows = enrichedRows.filter((r) => String(r[xField] ?? '') === cat);
-            const agg = aggregateByField(catRows, sliceField, ringYField);
+            const catRows = enrichedRows.filter((r) => categoryKeyOf(r) === cat);
+            const agg = aggregateByField(
+              catRows,
+              sliceField,
+              ringYField,
+              undefined,
+              ringAggregation,
+            );
             return [cat, new Set(agg.labels.map(String))];
           }),
         )
       : null;
 
     return { rings, filteredCategories, filteredSlicesByCategory };
-  }, [seriesField, xField, yField, activeYFields, enrichedRows, allEnrichedRows, shouldShowGhost]);
+  }, [
+    seriesField,
+    xField,
+    yField,
+    activeYFields,
+    enrichedRows,
+    allEnrichedRows,
+    shouldShowGhost,
+    xGroupBy,
+    yAggregation,
+  ]);
 
   // ── Pie cross-highlight context ──────────────────────────────────────────────
   const isPieHighlightActive = Boolean(shouldShowGhost && allChartData && preserveXFieldBaseline);

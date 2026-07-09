@@ -140,7 +140,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
 
   const isGeo = geo !== undefined;
   const isPolar = !isGeo && plots.has('pie');
-  const exclusiveKinds: PlotKind[] = ['geoBase', 'mapShape', 'pie'];
+  const exclusiveKinds: PlotKind[] = ['geoBase', 'mapShape', 'pie', 'pieLabels'];
   if ((isPolar || isGeo) && plots.size > (isGeo ? 2 : 1)) {
     const kind = isGeo ? 'geo/map' : 'pie/arc';
     if (Array.from(plots).some((plot) => !exclusiveKinds.includes(plot))) {

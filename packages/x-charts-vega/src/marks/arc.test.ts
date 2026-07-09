@@ -130,7 +130,7 @@ describe('compileArcMark', () => {
     expect(compiled.series).to.have.length(0);
   });
 
-  it('reports gaps for theta2/radius/radius2 and text/order channels', () => {
+  it('reports gaps for theta2/radius/radius2/order channels', () => {
     const compiled = compileSpec({
       data: { values: rows },
       mark: 'arc',
@@ -140,7 +140,10 @@ describe('compileArcMark', () => {
         theta2: { field: 'amount' },
         radius: { field: 'amount' },
         radius2: { field: 'amount' },
-        text: { field: 'category' },
+        // A `text` field matching the `color` field maps cleanly onto
+        // `arcLabel: 'label'` (see the dedicated arc-label tests) — it
+        // reports no gap of its own, so it isn't part of this "unsupported
+        // channel" test.
         order: { field: 'amount' },
       },
     });
@@ -148,7 +151,7 @@ describe('compileArcMark', () => {
     expect(codes).to.include('encoding:arc-theta2');
     expect(codes).to.include('encoding:arc-radius');
     expect(codes).to.include('encoding:arc-radius2');
-    expect(codes).to.include('encoding:arc-text-label');
+    expect(codes).not.to.include('encoding:arc-text-label');
     const orderGap = compiled.gaps.find((entry) => entry.code === 'encoding:arc-order');
     expect(orderGap?.severity).to.equal('ignored');
   });

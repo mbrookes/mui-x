@@ -106,8 +106,20 @@ function createLoader<K, V>(
   };
 }
 
-/** Registry of loaders — one per endpoint URL */
-const loaderRegistry = new Map<string, BatchLoader<StudioQueryDescriptor, StudioQueryResult>>();
+/**
+ * Mutable per-endpoint config the shared simple-mode loader reads on every batch dispatch.
+ * Keeping `fetchFn` / `batchDelayMs` behind a live reference (rather than baking them into the
+ * loader's closure at creation time) lets a recreated adapter refresh them — e.g. a rotated auth
+ * token in a new `fetchFn` — instead of silently pinning the FIRST adapter instance's closure
+ * forever (finding 3.14).
+ */
+interface LoaderRegistryEntry {
+  loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
+  config: { fetchFn: typeof fetch; batchDelayMs: number };
+}
+
+/** Registry of simple-mode loaders — one per endpoint URL, with a refreshable config. */
+const loaderRegistry = new Map<string, LoaderRegistryEntry>();
 
 /**
  * Private symbol used to tag a batching adapter with its endpoint URL.
@@ -264,7 +276,12 @@ export function createBatchingAdapter(
     mutationEndpoint,
   } = options;
 
-  function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
+  // `getFetch` is read on every dispatch so a shared simple-mode loader always uses the LATEST
+  // adapter instance's fetch (finding 3.14). Relationship-aware mode passes its own instance
+  // `fetchFn` directly (dedicated loader — no staleness possible).
+  function createBatchFn(
+    getFetch: () => typeof fetch,
+  ): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
     return async (descriptors) => {
       const builtDescriptors = descriptors.map((d) =>
         buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields),
@@ -275,7 +292,7 @@ export function createBatchingAdapter(
         widgets: builtDescriptors.map((b) => b.requestBody),
       };
 
-      const response = await fetchFn(endpoint, {
+      const response = await getFetch()(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -391,17 +408,32 @@ export function createBatchingAdapter(
     // Relationship-aware mode: create a dedicated loader that captures the
     // dataSources/relationships closure. Don't use the shared registry because
     // the resolver is specific to this adapter instance's state snapshot.
-    loader = createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs));
+    loader = createLoader(
+      createBatchFn(() => fetchFn),
+      (cb) => setTimeout(cb, batchDelayMs),
+    );
   } else {
     // Simple mode: use shared registry so multiple adapter instances pointing
     // at the same endpoint share one DataLoader (batching still works across instances).
-    if (!loaderRegistry.has(endpoint)) {
-      loaderRegistry.set(
-        endpoint,
-        createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs)),
-      );
+    let entry = loaderRegistry.get(endpoint);
+    if (!entry) {
+      const config = { fetchFn, batchDelayMs };
+      entry = {
+        // Both the batch fn and the schedule fn read the live `config`, so a later adapter
+        // recreated at the same endpoint (e.g. rotated token) is honoured (finding 3.14).
+        loader: createLoader(
+          createBatchFn(() => config.fetchFn),
+          (cb) => setTimeout(cb, config.batchDelayMs),
+        ),
+        config,
+      };
+      loaderRegistry.set(endpoint, entry);
+    } else {
+      // Refresh the shared loader's config instead of pinning the first instance's closure.
+      entry.config.fetchFn = fetchFn;
+      entry.config.batchDelayMs = batchDelayMs;
     }
-    loader = loaderRegistry.get(endpoint)!;
+    loader = entry.loader;
   }
 
   const adapter: StudioDataSourceAdapter = {
@@ -828,19 +860,34 @@ function buildBatchWidgetDescriptor(
     // client-side aggregation. The db-tier query builder excludes aggregate
     // fields from groupBy via aggregations[*].column.
     const columns = [...d.select];
-    const aggregations: AggregationSpec[] | undefined =
-      d.aggregations && d.aggregations.length > 0
-        ? d.aggregations.map((a) => ({
-            column: a.field,
-            // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
-            func: mapAggFn(a.fn, d.sourceId, warnDedupe),
-            alias: a.alias,
-          }))
-        : undefined;
+    // A `count` aggregation is routed client-side (2.16d): the wire protocol's count becomes
+    // SQL `COUNT(column)` (skips NULL measures), but Studio's count means row-count including
+    // nulls (COUNT(*) semantics, matching KPI/chart/grid). We can't express COUNT(*) on the wire
+    // without editing the middleware, so we return raw rows (aggregations stripped) and let the
+    // widget aggregate client-side — exactly like the cross-endpoint-groupBy path already does.
+    // `columns` already carries every select field (group-by + measure), so raw rows are complete.
+    let aggregations: AggregationSpec[] | undefined;
+    if (hasCountAggregation(d.aggregations)) {
+      warnCountRoutedClientSide(d.sourceId, warnDedupe);
+      aggregations = undefined;
+    } else if (d.aggregations && d.aggregations.length > 0) {
+      aggregations = d.aggregations.map((a) => ({
+        column: a.field,
+        // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
+        func: mapAggFn(a.fn, d.sourceId, warnDedupe),
+        alias: a.alias,
+      }));
+    } else {
+      aggregations = undefined;
+    }
 
     // Split the filter into server-executable predicates and a client-side residual
     // (OR conditions / unmappable operators) so neither is silently mistranslated (1.4 / 1.5).
-    const partition = partitionFilterNode(d.filter);
+    // Leaves we DO push down are checked for null/date divergence via warnServerLeafDivergence
+    // (finding 2.16 a/b).
+    const partition = partitionFilterNode(d.filter, (leaf) =>
+      warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
+    );
     const clientFilter = resolveClientResidual(
       partition,
       Boolean(aggregations),
@@ -935,6 +982,13 @@ function buildBatchWidgetDescriptor(
       // Can't group server-side — return raw rows for client-side enrichment + aggregation.
       return undefined;
     }
+    // A `count` aggregation is routed client-side (2.16d) — SQL COUNT(column) skips NULLs while
+    // Studio counts every row (COUNT(*) semantics). Strip ALL aggregations so the server returns
+    // raw rows the widget can count client-side (the select columns already carry the measures).
+    if (hasCountAggregation(d.aggregations)) {
+      warnCountRoutedClientSide(d.sourceId, warnDedupe);
+      return undefined;
+    }
     const aggs = (d.aggregations ?? []).flatMap((a) => {
       const r = resolve(a.field);
       if (r.skip) {
@@ -958,7 +1012,9 @@ function buildBatchWidgetDescriptor(
   // the server WHERE clause references a real column. Predicates whose field cannot be resolved
   // to any column in this source (unresolved: true) are dropped — applying them would produce
   // "no such column" SQL errors.
-  const partition = partitionFilterNode(d.filter);
+  const partition = partitionFilterNode(d.filter, (leaf) =>
+    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
+  );
   const filters = partition.predicates.flatMap((pred) => {
     const r = resolve(pred.column);
     if (r.skip || r.unresolved) {
@@ -1009,8 +1065,13 @@ function buildBatchWidgetDescriptor(
       joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
       aggregations,
       filters: filters.length > 0 ? filters : undefined,
+      // Drop the ORDER BY when the groupBy field is `skip` (server-incompatible expression) OR
+      // `unresolved` (resolvable to no column in this source). `resolveField`'s contract requires
+      // callers to drop an unresolved field from SELECT/WHERE — which they do — but the ORDER BY
+      // emission previously checked only `.skip`, so an unresolved groupBy (a field 2+ hops away)
+      // would emit `ORDER BY <nonexistent column>` and fail the whole batch entry (finding 2.19).
       orderBy:
-        orderByColumn && !orderByColumn.skip
+        orderByColumn && !orderByColumn.skip && !orderByColumn.unresolved
           ? [
               {
                 column: columnAliases[orderByColumn.column] ?? orderByColumn.column,
@@ -1031,10 +1092,14 @@ function buildBatchWidgetDescriptor(
  *  - there is no `NOT IN`, `NOT LIKE`, or `IS (NOT) NULL` operator, so `not_in`,
  *    `does_not_contain`, `not_starts_with`, `not_ends_with`, `is_empty`, `is_not_empty` have
  *    no equivalent;
- *  - `starts_with` / `ends_with` could be approximated with `LIKE 'x%'` / `LIKE '%x'`, but the
- *    server's `LIKE` is case-SENSITIVE while Studio's in-memory evaluator is case-INSENSITIVE,
- *    so pushing them down would DIVERGE from in-memory results (trading one silent-wrong-data
- *    bug for a subtler one). They are evaluated client-side to stay byte-for-byte consistent.
+ *  - `contains` / `starts_with` / `ends_with` could be approximated with `LIKE '%x%'` /
+ *    `LIKE 'x%'` / `LIKE '%x'`, but the server's `LIKE` is case-SENSITIVE while Studio's
+ *    in-memory evaluator is case-INSENSITIVE, so pushing them down would DIVERGE from
+ *    in-memory results (trading one silent-wrong-data bug for a subtler one). `contains` was
+ *    even worse: it mapped to `'like'` and forwarded the raw needle WITHOUT `%` wildcards, so
+ *    the server's `whereLike(col, value)` behaved as a case-sensitive EXACT match — silently
+ *    returning only rows equal to the needle instead of every row containing it (finding 1.7).
+ *    All three substring operators are evaluated client-side to stay byte-for-byte consistent.
  */
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
   equals: 'eq',
@@ -1044,7 +1109,6 @@ const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operat
   less_than: 'lt',
   greater_than_or_equal: 'gte',
   less_than_or_equal: 'lte',
-  contains: 'like',
   between: 'between',
 };
 
@@ -1071,12 +1135,53 @@ function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
 }
 
 /**
+ * True when a `{ from, to }` (or `[lo, hi]`) `between` value has BOTH bounds set. Mirrors the
+ * in-memory evaluator's truthy-bound semantics (`filterUtils.ts`: `range.from ? … : null`), so
+ * an empty string counts as "unset". An open-ended between ({ from } or { to } only) is NOT
+ * fully bounded — the wire path would send `whereBetween(col, [value, undefined])`, a binding
+ * error on Postgres / a silent wrong result on SQLite/MySQL (finding 2.15). Single-bound
+ * betweens are therefore kept client-side, where a missing bound is treated as unbounded.
+ */
+function isFullyBoundedBetween(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 2 && Boolean(value[0]) && Boolean(value[1]);
+  }
+  const range = value as { from?: unknown; to?: unknown };
+  return Boolean(range.from) && Boolean(range.to);
+}
+
+/**
+ * True when a single (op, value) pair can be sent to the server with EXACTLY the same semantics
+ * as the in-memory evaluator. Beyond the operator mapping, two value-shaped cases must stay
+ * client-side because their wire translation inverts or corrupts the in-memory result:
+ *  - an empty `in` array matches NOTHING in-memory (`filterVal.some(...)` over `[]`), but the
+ *    middleware DROPS an empty-`in` predicate on reads — matching EVERYTHING (finding 2.16c);
+ *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
+ *    malformed two-arg `whereBetween` on the wire (finding 2.15).
+ */
+function isOpValueServerTranslatable(op: StudioFilterOperator, value: unknown): boolean {
+  if (mapOperator(op) === null) {
+    return false;
+  }
+  if (op === 'in' && Array.isArray(value) && value.length === 0) {
+    return false;
+  }
+  if (op === 'between' && !isFullyBoundedBetween(value)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * True when a leaf can be sent to the server with EXACTLY the same semantics as the in-memory
- * evaluator: its operator(s) map to the wire protocol AND, when it carries a second condition,
- * the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
+ * evaluator: its operator(s) + value(s) map to the wire protocol AND, when it carries a second
+ * condition, the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
  */
 function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
-  if (mapOperator(leaf.op) === null) {
+  if (!isOpValueServerTranslatable(leaf.op, leaf.value)) {
     return false;
   }
   const hasSecondCondition = leaf.op2 !== undefined && leaf.value2 !== undefined;
@@ -1088,7 +1193,47 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
   if (leaf.conjunction === 'or') {
     return false;
   }
-  return mapOperator(leaf.op2!) !== null;
+  return isOpValueServerTranslatable(leaf.op2!, leaf.value2);
+}
+
+/**
+ * Warn (once per widget-descriptor build) about the null-handling / date-normalization drift of
+ * a leaf that IS pushed to the server but whose semantics differ subtly from the in-memory
+ * evaluator (finding 2.16 a/b). Unlike the operators routed to the client residual, these stay
+ * server-side because their pushdown is essential (`not_equals`, date range bounds are common,
+ * high-selectivity filters and routing them client-side would defeat the query pushdown and, for
+ * aggregated widgets, drop the filter entirely). The divergence is surfaced loudly instead of
+ * silently:
+ *  - `not_equals` (any type): SQL three-valued logic excludes NULL rows server-side, but the
+ *    in-memory evaluator KEEPS them (`row[field] != value` is true for null).
+ *  - `equals` on a `date`/`datetime` field: the server compares the raw column to a bare
+ *    `'YYYY-MM-DD'` string while in-memory normalizes both sides — so an equality against a
+ *    DATETIME/timestamp column can match zero rows server-side yet match that day in-memory.
+ */
+function warnServerLeafDivergence(
+  leaf: StudioFilterLeaf,
+  sourceId: string,
+  dedupe: Set<string>,
+): void {
+  if (leaf.op === 'not_equals' || leaf.op2 === 'not_equals') {
+    warnAdapterDivergence(
+      dedupe,
+      `A "not_equals" filter on "${leaf.field}" for source "${sourceId}" is executed server-side, ` +
+        `where SQL three-valued logic excludes rows whose value is NULL. In-memory sources keep ` +
+        `those NULL rows, so the adapter may return fewer rows. Add an explicit "is empty" ` +
+        `condition if NULL rows should be included.`,
+    );
+  }
+  const isDateField = leaf.fieldType === 'date' || leaf.fieldType === 'datetime';
+  if (isDateField && (leaf.op === 'equals' || leaf.op2 === 'equals')) {
+    warnAdapterDivergence(
+      dedupe,
+      `An "equals" filter on the ${leaf.fieldType} field "${leaf.field}" for source "${sourceId}" ` +
+        `compares raw column values server-side but normalized values in-memory. On a ` +
+        `DATETIME/timestamp column an equality against a plain date can match zero rows ` +
+        `server-side while matching that day's rows in-memory. Use a "between" range instead.`,
+    );
+  }
 }
 
 /**
@@ -1151,7 +1296,10 @@ interface PartitionedFilter {
  *  - OR group  → whole group dropped from the request, `droppedOrGroup` flagged (defensive);
  *  - leaf      → server-side when `isLeafServerTranslatable`, else evaluated client-side.
  */
-function partitionFilterNode(node: StudioFilterNode | undefined): PartitionedFilter {
+function partitionFilterNode(
+  node: StudioFilterNode | undefined,
+  onServerLeaf?: (leaf: StudioFilterLeaf) => void,
+): PartitionedFilter {
   const result: PartitionedFilter = { predicates: [], clientLeaves: [], droppedOrGroup: false };
   if (!node) {
     return result;
@@ -1166,6 +1314,9 @@ function partitionFilterNode(node: StudioFilterNode | undefined): PartitionedFil
       return;
     }
     if (isLeafServerTranslatable(n)) {
+      // Surface any null-handling / date-normalization drift for leaves we DO push down
+      // (finding 2.16 a/b) before emitting the predicate.
+      onServerLeaf?.(n);
       result.predicates.push(...leafToPredicates(n));
     } else {
       result.clientLeaves.push(n);
@@ -1250,6 +1401,29 @@ function resolveClientResidual(
     }
   }
   return states.length > 0 ? states : undefined;
+}
+
+/**
+ * True when any aggregation uses `count`. A `count` aggregation is deliberately NOT pushed to the
+ * server (finding 2.16d): the wire protocol's `count` becomes SQL `COUNT(column)`, which skips
+ * rows whose measure value is NULL, whereas Studio's `count` means row-count including nulls
+ * (`COUNT(*)` semantics — the policy the KPI / chart / grid client aggregators follow). Since the
+ * wire protocol cannot express `COUNT(*)` and the middleware is owned elsewhere, count-aggregated
+ * queries are routed through the raw-rows-then-client-aggregate path instead.
+ */
+function hasCountAggregation(aggregations: StudioQueryDescriptor['aggregations']): boolean {
+  return (aggregations ?? []).some((a) => a.fn === 'count');
+}
+
+/** Warn (once per build) that a `count` aggregation was routed client-side (finding 2.16d). */
+function warnCountRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
+  warnAdapterDivergence(
+    dedupe,
+    `A "count" aggregation for source "${sourceId}" was computed client-side instead of pushed ` +
+      `to the data adapter: the adapter's SQL count skips rows with a NULL measure value, while ` +
+      `Studio counts every row (COUNT(*) semantics, consistent with in-memory sources). Raw rows ` +
+      `are fetched for this widget and aggregated client-side.`,
+  );
 }
 
 /**

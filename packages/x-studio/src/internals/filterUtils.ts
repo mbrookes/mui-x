@@ -342,8 +342,24 @@ function compileSingleCondition(
           return true;
         };
       }
+      // Generic / non-date, non-number field types (e.g. a `between` filter authored on a
+      // `string` field via a host-constructed StudioFilterState or an AI tool call — the UI's
+      // per-field-type operator allowlist is not enforced at the mutation boundary). `between`
+      // is only meaningful for orderable comparables. `toComparable` coerces a non-ISO string
+      // to `Number(...)` → NaN, and every NaN comparison is `false`, so without these guards
+      // the range checks below would never fire and the filter would silently keep EVERY row —
+      // a no-op that matches everything (finding 2.14). Fail closed instead: an un-orderable
+      // bound (NaN) or row value cannot be "within" a range, so exclude rather than include it.
+      const fromInvalid = typeof from === 'number' && Number.isNaN(from);
+      const toInvalid = typeof to === 'number' && Number.isNaN(to);
+      if (fromInvalid || toInvalid) {
+        return () => false;
+      }
       return (row) => {
         const cmp = toComparable(row[field], fieldType);
+        if (typeof cmp === 'number' && Number.isNaN(cmp)) {
+          return false;
+        }
         if (from !== null && cmp < from) {
           return false;
         }

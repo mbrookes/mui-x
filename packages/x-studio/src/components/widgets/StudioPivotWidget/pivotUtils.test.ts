@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { resolveAgg, buildPivotMatrix, pivotToCsv, type PivotMatrix } from './pivotUtils';
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import {
+  resolveAgg,
+  buildPivotMatrix,
+  pivotToCsv,
+  downloadCsv,
+  type PivotMatrix,
+} from './pivotUtils';
 
 const ROWS = [
   { region: 'EMEA', product: 'A', amount: 10 },
@@ -64,6 +70,78 @@ describe('buildPivotMatrix', () => {
     expect(matrix.colValues).toEqual(['']);
     expect(resolveAgg(matrix.cells.get('EMEA')!.get(''), 'sum')).toBe(4);
   });
+
+  // ─── Shared aggregation policy via `coerceAggregateValue` (finding 1.4) ─────
+
+  it('skips null/undefined measure values instead of coercing them to 0', () => {
+    // A hand-rolled `Number(v ?? 0)` would count these as 0, inflating `avg`'s
+    // denominator and dragging `min` toward 0. `coerceAggregateValue` skips them.
+    const matrix = buildPivotMatrix(
+      [
+        { r: 'x', c: 'y', v: 10 },
+        { r: 'x', c: 'y', v: null },
+        { r: 'x', c: 'y', v: undefined },
+        { r: 'x', c: 'y', v: 20 },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    const cell = matrix.cells.get('x')!.get('y');
+    expect(resolveAgg(cell, 'sum')).toBe(30);
+    expect(resolveAgg(cell, 'count')).toBe(2);
+    expect(resolveAgg(cell, 'avg')).toBe(15);
+    expect(resolveAgg(cell, 'min')).toBe(10);
+  });
+
+  it('skips non-numeric string measure values instead of letting them poison the sum with NaN', () => {
+    const matrix = buildPivotMatrix(
+      [
+        { r: 'x', c: 'y', v: 10 },
+        { r: 'x', c: 'y', v: 'not-a-number' },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    // A hand-rolled `Number('not-a-number' ?? 0)` is `NaN`, and `sum += NaN`
+    // poisons the cell's sum, its row/column totals, and the grand total.
+    expect(resolveAgg(matrix.cells.get('x')!.get('y'), 'sum')).toBe(10);
+    expect(resolveAgg(matrix.rowTotals.get('x'), 'sum')).toBe(10);
+    expect(resolveAgg(matrix.colTotals.get('y'), 'sum')).toBe(10);
+    expect(resolveAgg(matrix.grandTotal, 'sum')).toBe(10);
+  });
+
+  it('still records a row/column category even when every measure value in it is unusable', () => {
+    const matrix = buildPivotMatrix([{ r: 'x', c: 'y', v: null }], 'r', 'c', 'v');
+    // The category exists (membership), it just has no aggregate to show.
+    expect(matrix.rowValues).toEqual(['x']);
+    expect(matrix.colValues).toEqual(['y']);
+    expect(resolveAgg(matrix.cells.get('x')!.get('y'), 'sum')).toBe(null);
+  });
+
+  // ─── Natural sort of row/column categories (finding 3.4) ────────────────────
+
+  it('sorts numeric-looking row/column category strings numerically, not lexicographically', () => {
+    const matrix = buildPivotMatrix(
+      [
+        { r: '2', c: 'x', v: 1 },
+        { r: '10', c: 'x', v: 1 },
+        { r: '1', c: 'x', v: 1 },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    // Lexicographic order would be ['1', '10', '2'].
+    expect(matrix.rowValues).toEqual(['1', '2', '10']);
+  });
+
+  it('falls back to lexicographic order for non-numeric category strings', () => {
+    const matrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
+    expect(matrix.rowValues).toEqual(['APAC', 'EMEA']);
+    expect(matrix.colValues).toEqual(['A', 'B']);
+  });
 });
 
 describe('pivotToCsv', () => {
@@ -124,5 +202,45 @@ describe('pivotToCsv', () => {
     const negMatrix = buildPivotMatrix([{ r: 'x', c: 'y', v: -5 }], 'r', 'c', 'v');
     // Numeric cell stays a bare -5, not quoted or prefixed.
     expect(pivotToCsv(negMatrix, 'sum', false)).toContain(',-5');
+  });
+
+  // ─── Locale-aware "Total" caption (finding 3.2) ──────────────────────────────
+
+  it('defaults the totals caption to the English literal "Total" when no label is passed', () => {
+    const csv = pivotToCsv(matrix, 'sum', true);
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('"","A","B","Total"');
+    expect(lines[lines.length - 1].startsWith('"Total"')).toBe(true);
+  });
+
+  it('uses a caller-supplied totals label (e.g. a localized string) instead of the hardcoded "Total"', () => {
+    const csv = pivotToCsv(matrix, 'sum', true, 'Gesamt');
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('"","A","B","Gesamt"');
+    expect(lines[lines.length - 1].startsWith('"Gesamt"')).toBe(true);
+    expect(csv).not.toContain('Total');
+  });
+});
+
+// ─── Shared CSV download plumbing (architecture review 3.3) ───────────────────
+
+describe('downloadCsv (re-exported from internals/widgetUtils)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('triggers a browser download via the shared helper', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((el) => el);
+    vi.spyOn(document.body, 'removeChild').mockImplementation((el) => el);
+
+    downloadCsv('a,b\n1,2', 'my pivot.csv');
+
+    expect(appendSpy).toHaveBeenCalledOnce();
+    const link = appendSpy.mock.calls[0][0] as unknown as HTMLAnchorElement;
+    // Sanitized the same way the grid's CSV export is (finding 3.3) — the pivot
+    // path previously downloaded `widget.title` completely unsanitized.
+    expect(link.download).toBe('my_pivot.csv');
   });
 });

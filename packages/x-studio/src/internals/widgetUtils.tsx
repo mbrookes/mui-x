@@ -511,9 +511,16 @@ export function buildCsvContent(
   const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));
   // Header labels always come from user-configured field labels — always text,
   // so always escaped via `escapeCsvCell` (formula-injection neutralization,
-  // finding 1.8). Row cells are escaped the same way UNLESS the field is
-  // `number`-typed: escaping a numeric cell would corrupt a legitimate leading
-  // `-` (e.g. `-5`) into a quoted text literal.
+  // finding 1.8). Row cells are escaped the same way UNLESS the cell's RUNTIME
+  // value is a genuine `number` (finding 1.3 — a "number"-typed column can still
+  // hold a non-numeric runtime value from dirty data or a misbehaving adapter,
+  // and that value must go through the full formula-injection guard, not skip it
+  // based on the column's declared type). A numeric cell is still wrapped in
+  // quotes (finding 1.2 — `Intl.NumberFormat`'s default thousands separator, e.g.
+  // `1,234.50`, would otherwise split the row into an extra unquoted column) but
+  // is exempt from `escapeCsvCell`'s leading-apostrophe rewrite: a genuine number
+  // can never itself be interpreted as a spreadsheet formula, and the apostrophe
+  // would corrupt a legitimate leading `-` (e.g. `-5`).
   const headers = visibleColumns.map((col) => escapeCsvCell(fieldMap.get(col)?.label ?? col));
 
   const csvRows = rows.map((row) =>
@@ -522,8 +529,8 @@ export function buildCsvContent(
         const value = row[col];
         const field = fieldMap.get(col);
         const strVal = formatFieldValue(value, field);
-        if (field?.type === 'number') {
-          return strVal;
+        if (typeof value === 'number') {
+          return quoteNumericCsvCell(strVal);
         }
         return escapeCsvCell(strVal);
       })
@@ -531,6 +538,55 @@ export function buildCsvContent(
   );
 
   return [headers.join(','), ...csvRows].join('\n');
+}
+
+/**
+ * Quote a CSV cell known to come from a genuine runtime `number` value, without
+ * applying `escapeCsvCell`'s leading formula-injection apostrophe (see the
+ * comment in {@link buildCsvContent} — findings 1.2 & 1.3).
+ */
+function quoteNumericCsvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Sanitize a filename for download: strips every non-alphanumeric character from
+ * the name (collapsing each to `_`), preserving the final `.ext` untouched. This
+ * is the "safer" of the two filename-sanitization behaviors previously found
+ * across the two CSV export call sites — the grid path stripped non-alphanumeric
+ * characters from its filename, the pivot path didn't sanitize `widget.title` at
+ * all (finding 3.3). Applying it once inside the shared {@link downloadCsv}
+ * keeps every current and future caller consistent without each one having to
+ * remember to sanitize its own title.
+ */
+function sanitizeDownloadFilename(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return filename.replace(/[^a-z0-9]/gi, '_');
+  }
+  return `${filename.slice(0, dotIndex).replace(/[^a-z0-9]/gi, '_')}${filename.slice(dotIndex)}`;
+}
+
+/**
+ * Trigger a browser download of `csv` as a file named `filename` (sanitized via
+ * {@link sanitizeDownloadFilename}).
+ *
+ * Shared by grid CSV export ({@link exportGridToCsv}) and the pivot widget's CSV
+ * export (`StudioPivotWidget/pivotUtils.ts`'s `downloadCsv` re-export) — the
+ * Blob/`createObjectURL`/anchor-click dance was previously duplicated
+ * near-line-for-line in both places, with inconsistent filename sanitization
+ * between the two (finding 3.3).
+ */
+export function downloadCsv(csv: string, filename: string): void {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = sanitizeDownloadFilename(filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export function exportGridToCsv(
@@ -543,17 +599,7 @@ export function exportGridToCsv(
   }
 
   const csvContent = buildCsvContent(widget, dataSource, rows);
-
-  // Download the file
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${widget.title.replace(/[^a-z0-9]/gi, '_')}_export.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadCsv(csvContent, `${widget.title}_export.csv`);
 }
 
 /**

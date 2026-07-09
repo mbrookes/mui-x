@@ -419,6 +419,56 @@ describe('buildWidgetDataSummary', () => {
       expect(lines[0]).toBe('Data sample (5 of 12 rows (including anomaly points)):');
       expect(result).toContain('cat7,7');
     });
+
+    it('still includes a late-dataset anomaly when the stride sample alone would already fill maxRows (regression for 3.17)', () => {
+      // 20 rows, maxRows 5: a pure stride pass produces indices 0,4,8,12,16 — exactly
+      // maxRows entries — so merging stride-first and slicing to maxRows would silently
+      // drop an anomaly located at the tail of the dataset (index 19). Anomaly indices
+      // must be reserved before the stride fill for the "guarantees anomaly rows" claim
+      // to hold.
+      const manyRows = Array.from({ length: 20 }, (_, i) => ({ region: `cat${i}`, amount: i }));
+      const source = makeSource({ fields, rows: manyRows });
+      const state = makeState({ dataSources: { orders: source } });
+      const widget = makeWidget({
+        kind: 'chart',
+        config: { chartType: 'scatter', xField: 'region', yField: 'amount' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state, {
+        maxRows: 5,
+        sampling: 'anomaly',
+        anomalyAxisValues: ['cat19'],
+      });
+      expect(result).toContain('cat19,19');
+    });
+
+    it('caps reserved anomaly slots at maxRows when there are more anomalies than budget', () => {
+      // 6 anomalies but only 5 slots: the anomaly reservation itself must not overflow
+      // maxRows, and no stride rows should be added once the budget is exhausted.
+      const manyRows = Array.from({ length: 30 }, (_, i) => ({ region: `cat${i}`, amount: i }));
+      const source = makeSource({ fields, rows: manyRows });
+      const state = makeState({ dataSources: { orders: source } });
+      const widget = makeWidget({
+        kind: 'chart',
+        config: { chartType: 'scatter', xField: 'region', yField: 'amount' },
+      });
+
+      const anomalyAxisValues = ['cat1', 'cat5', 'cat10', 'cat15', 'cat20', 'cat25'];
+      const result = buildWidgetDataSummary(widget, state, {
+        maxRows: 5,
+        sampling: 'anomaly',
+        anomalyAxisValues,
+      });
+      const lines = result.split('\n');
+      expect(lines[0]).toBe('Data sample (5 of 30 rows (including anomaly points)):');
+      // Only the first 5 anomaly indices (in row order) are kept.
+      expect(result).toContain('cat1,1');
+      expect(result).toContain('cat5,5');
+      expect(result).toContain('cat10,10');
+      expect(result).toContain('cat15,15');
+      expect(result).toContain('cat20,20');
+      expect(result).not.toContain('cat25,25');
+    });
   });
 
   // ─── Cross-filter mode opt-in ──────────────────────────────────────────────
@@ -536,6 +586,38 @@ describe('buildWidgetDataSummary', () => {
       const noneResult = buildWidgetDataSummary(noneModeWidget, state);
       expect(noneResult).toMatch(/Previous period \([^)]+\): 50/);
       expect(noneResult).toContain('Trend:');
+    });
+  });
+
+  // ─── Numeric-type predicate alignment (regression for 3.18) ────────────────
+  //
+  // `aggregateRows`'s bucket-aggregation numeric check only ever recognised
+  // `type === 'number'`. `buildNumericStats` used to also accept a `'integer'`
+  // branch, but `'integer'` isn't (and never was) a member of `StudioDataField['type']`
+  // — that branch was unreachable dead code. Both predicates now agree on 'number' only;
+  // a field whose declared type is anything else (including a hypothetical/invalid
+  // 'integer' value smuggled in via a loose cast) is treated as non-numeric everywhere.
+  describe('numeric-type predicate alignment', () => {
+    it('does not compute stats for a field whose type is not "number" (e.g. a stray "integer" value)', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        // `as any` simulates a value outside the StudioDataField['type'] union, since
+        // 'integer' is not actually assignable there.
+        { id: 'amount', label: 'Amount', type: 'integer' as any },
+      ];
+      const rows = [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 200 },
+      ];
+      const source = makeSource({ fields, rows });
+      const state = makeState({ dataSources: { orders: source } });
+      const widget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'region' }, { fieldId: 'amount' }] },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+      expect(result).not.toContain('Stats:');
     });
   });
 

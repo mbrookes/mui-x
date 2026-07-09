@@ -77,18 +77,28 @@ function selectSampleRows(
   const { sampling = 'stride', anomalyAxisValues = [] } = options;
 
   if (sampling === 'anomaly' && xFieldId && anomalyAxisValues.length > 0) {
-    // Build a stride-based index set, then merge in anomaly row indices so
-    // the anomalous data points are always present in the sample.
+    // Reserve slots for anomaly row indices FIRST (up to maxRows), then fill any
+    // remaining budget with a stride-based sample. Reserving anomalies first is
+    // required for the "guarantees anomaly rows are included" contract to actually
+    // hold: a stride sample alone already numbers close to maxRows, so merging
+    // stride-first and slicing to maxRows would silently drop anomalies that land
+    // late in the dataset.
     const anomalySet = new Set(anomalyAxisValues.map(String));
-    const stride = Math.ceil(total / maxRows);
-    const strideIndices = rows.flatMap((_, i) => (i % stride === 0 ? [i] : []));
-    const anomalyIndices = rows.reduce<number[]>((acc, r, i) => {
-      if (anomalySet.has(String(r[xFieldId] ?? ''))) {
-        acc.push(i);
-      }
-      return acc;
-    }, []);
-    const allIndices = [...new Set([...strideIndices, ...anomalyIndices])]
+    const anomalyIndices = rows
+      .reduce<number[]>((acc, r, i) => {
+        if (anomalySet.has(String(r[xFieldId] ?? ''))) {
+          acc.push(i);
+        }
+        return acc;
+      }, [])
+      .slice(0, maxRows);
+    const remaining = maxRows - anomalyIndices.length;
+    let strideIndices: number[] = [];
+    if (remaining > 0) {
+      const stride = Math.ceil(total / remaining);
+      strideIndices = rows.flatMap((_, i) => (i % stride === 0 ? [i] : []));
+    }
+    const allIndices = [...new Set([...anomalyIndices, ...strideIndices])]
       .toSorted((a, b) => a - b)
       .slice(0, maxRows);
     return {
@@ -208,7 +218,7 @@ function buildNumericStats(
   const parts: string[] = [];
   for (const id of fieldIds) {
     const field = fieldById.get(id);
-    if (field?.type !== 'number' && field?.type !== 'integer') {
+    if (field?.type !== 'number') {
       continue;
     }
     const values = rows

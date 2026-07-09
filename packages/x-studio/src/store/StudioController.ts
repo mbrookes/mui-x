@@ -633,9 +633,23 @@ export class StudioController {
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
-    if (dataSource.adapter) {
-      studioRequestCache.invalidateSource(dataSource.id);
-    }
+    const existing = state.runtime.dataSources[dataSource.id];
+    // Preserve an adapter that was registered separately (via `setDataSourceAdapter` /
+    // the `dataAdapters` prop) when the incoming source carries none. A config produced by
+    // `serializeState()`/JSON never has an `adapter` field, so a config-swap reload
+    // (`StudioDashboard`) would otherwise silently wipe every registered adapter and make
+    // adapter-backed sources fall back to (usually absent) static rows. If the incoming
+    // source brings its own adapter, it wins.
+    const nextDataSource =
+      dataSource.adapter || !existing?.adapter
+        ? dataSource
+        : { ...dataSource, adapter: existing.adapter };
+    // Replacing the source entry means any rows the old entry cached under its id are now
+    // stale, regardless of whether the old or new entry carries an adapter — always
+    // invalidate so a config-swap cannot serve pre-swap rows for the new source. (The
+    // previous `if (dataSource.adapter)` guard skipped exactly this case: an adapter-less
+    // incoming source replacing an adapter-backed one, which is the config-swap path.)
+    studioRequestCache.invalidateSource(dataSource.id);
     // Host-driven data injection (e.g. a periodic refresh or a config-swap reload)
     // is infrastructure, not an authored edit — it must not create an undo-stack
     // entry (a user pressing Ctrl+Z should never revert live data to stale rows or
@@ -647,7 +661,7 @@ export class StudioController {
           ...state.runtime,
           dataSources: {
             ...state.runtime.dataSources,
-            [dataSource.id]: dataSource,
+            [dataSource.id]: nextDataSource,
           },
         },
       },

@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyMutation } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
-import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../models';
+import { studioRequestCache } from '../internals/StudioRequestCache';
+import type {
+  StudioDataSourceAdapter,
+  StudioFilterState,
+  StudioQueryResult,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../models';
 import { resolveDateRangePreset } from '../internals/filterUtils';
 import { GRID_COLS, MIN_SPAN } from '../components/StudioCanvas/canvasGridConstants';
 
@@ -2322,6 +2329,86 @@ describe('StudioController — commit*Patch routing (2.3)', () => {
     const before = controller.getState();
     controller.setDataSourceAdapter('nope', undefined);
     expect(controller.getState()).toBe(before);
+  });
+});
+
+describe('StudioController.upsertDataSource — adapter preservation (1.8)', () => {
+  const makeAdapter = (rows: StudioQueryResult['rows']): StudioDataSourceAdapter => ({
+    getRows: async () => ({ rows, totalCount: rows.length }),
+  });
+
+  it('preserves a separately-registered adapter when the incoming source has none', () => {
+    // Regression (1.8): the documented embed flow registers adapters via `dataAdapters`
+    // (→ `setDataSourceAdapter`), then a `config` prop swap re-injects sources parsed from
+    // `serializeState()`/JSON — which never carry an `adapter` field. `upsertDataSource`
+    // replaced the whole entry, silently wiping the registered adapter so the source fell
+    // back to (usually absent) static rows and widgets went blank with no error.
+    const controller = new StudioController();
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+    const adapter = makeAdapter([{ amount: 99 }]);
+    controller.setDataSourceAdapter('orders', adapter);
+    expect(controller.getState().runtime.dataSources.orders.adapter).toBe(adapter);
+
+    // Config-swap reload: a source with the SAME id but no adapter (as it came from JSON).
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 2 }],
+    });
+
+    // The adapter survives the swap; the new static rows are applied.
+    expect(controller.getState().runtime.dataSources.orders.adapter).toBe(adapter);
+    expect(controller.getState().runtime.dataSources.orders.rows).toEqual([{ amount: 2 }]);
+  });
+
+  it('lets an incoming adapter override the existing one', () => {
+    const controller = new StudioController();
+    const first = makeAdapter([{ amount: 1 }]);
+    const second = makeAdapter([{ amount: 2 }]);
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      adapter: first,
+    });
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      adapter: second,
+    });
+    expect(controller.getState().runtime.dataSources.orders.adapter).toBe(second);
+  });
+
+  it('invalidates the request cache on a replacement even when neither entry carries an adapter here', () => {
+    // Regression (1.8): the old `if (dataSource.adapter)` guard skipped cache invalidation
+    // when an adapter-less source replaced an existing one — so the swap could serve
+    // pre-swap cached rows for the "new" source. Replacing an entry always invalidates now.
+    const controller = new StudioController();
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      controller.upsertDataSource({
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+        rows: [{ amount: 2 }],
+      });
+      expect(spy).toHaveBeenCalledWith('orders');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

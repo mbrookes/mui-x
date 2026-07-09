@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRenderer, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '../../models';
-import type { StudioDataSource, StudioState } from '../../models';
+import type { StudioDataSource, StudioDataSourceAdapter, StudioState } from '../../models';
 import type { StudioHandle } from './Studio';
 import { StudioDashboard } from './StudioDashboard';
 
@@ -109,5 +109,40 @@ describe('StudioDashboard', () => {
     // The new config's data source must be present …
     expect(stateAfter.runtime.dataSources.customers).toBeTruthy();
     expect(stateAfter.runtime.dataSources.customers.rows).toEqual([{ value: 'b' }]);
+  });
+
+  it('preserves adapters registered via `dataAdapters` across a `config` prop swap (1.8)', async () => {
+    // Regression (1.8): adapters registered through the `dataAdapters` prop
+    // (→ `setDataSourceAdapter`) were silently wiped when the `config` prop changed. The
+    // swap effect re-injects each source from `config.runtime.dataSources` — sources parsed
+    // from `serializeState()`/JSON that never carry an `adapter` field — and `upsertDataSource`
+    // replaced the whole entry, so adapter-backed sources fell back to static rows and widgets
+    // went blank. The adapter-registration effect (deps `[dataAdapters]`) does not re-run on a
+    // `config` change, so nothing re-attached them.
+    const adapter: StudioDataSourceAdapter = {
+      getRows: async () => ({ rows: [{ value: 'live' }], totalCount: 1 }),
+    };
+    // Both configs describe the same 'orders' source but WITHOUT an adapter (JSON has none).
+    const configA = makeConfig('A', { orders: makeSource('orders', [{ value: 'a' }]) });
+    const configB = makeConfig('B', { orders: makeSource('orders', [{ value: 'b' }]) });
+
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(
+      <StudioDashboard ref={ref} config={configA} dataAdapters={{ orders: adapter }} />,
+    );
+    expect(await screen.findByText('A')).not.toBe(null);
+    // The adapter was attached to the 'orders' source on mount.
+    expect(ref.current!.getState().runtime.dataSources.orders.adapter).toBe(adapter);
+
+    await act(async () => {
+      setProps({ config: configB });
+    });
+
+    expect(await screen.findByText('B')).not.toBe(null);
+    const stateAfter = ref.current!.getState();
+    // The adapter survives the config swap (was previously wiped), and the new static rows
+    // from config B are applied.
+    expect(stateAfter.runtime.dataSources.orders.adapter).toBe(adapter);
+    expect(stateAfter.runtime.dataSources.orders.rows).toEqual([{ value: 'b' }]);
   });
 });

@@ -106,6 +106,33 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(gap?.message).to.contain('counties');
   });
 
+  it('seeds continuous-axis domains from overlay geometry for overlay-only charts', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { cat: 'A', v: 10 },
+          { cat: 'A', v: 20 },
+          { cat: 'A', v: 30 },
+          { cat: 'B', v: 15 },
+          { cat: 'B', v: 25 },
+          { cat: 'B', v: 60 },
+        ],
+      },
+      mark: 'boxplot',
+      encoding: {
+        x: { field: 'cat', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.overlays[0]?.kind).to.equal('boxes');
+    const config = compiled.yAxis?.config as { min?: number; max?: number };
+    expect(config.min).to.be.a('number');
+    expect(config.max).to.be.a('number');
+    expect(config.min!).to.be.at.most(10);
+    expect(config.max!).to.be.at.least(60);
+  });
+
   it('reports facet/concat compositions as gaps', () => {
     const compiled = compileSpec({
       hconcat: [{ mark: 'bar' }],

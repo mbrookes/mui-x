@@ -256,17 +256,70 @@ export const demos: Demo[] = [
     },
   },
   {
-    id: 'unsupported-boxplot',
-    title: 'Unsupported mark: boxplot',
+    id: 'boxplot',
+    title: 'Box plot (custom overlay)',
     description:
-      'mark: "boxplot" has no x-charts equivalent in any tier. The chart renders with no marks ' +
-      'and the gap is reported as "unsupported" through onGaps instead of throwing.',
+      'mark: "boxplot" — quartiles, 1.5×IQR whiskers, and outliers drawn by a custom SVG overlay ' +
+      'composed with the public useXScale/useYScale hooks (no x-charts series involved).',
     data: distributionRows,
     spec: {
       mark: 'boxplot',
       encoding: {
         x: { field: 'category', type: 'nominal' },
         y: { field: 'revenue', type: 'quantitative' },
+      },
+    },
+  },
+  {
+    id: 'errorband-line',
+    title: 'Line with error band (custom overlay)',
+    description:
+      'A layer of mark: "errorband" (stderr extent) under a mean line — the band is a custom ' +
+      'overlay path; the line is a regular LinePlot series.',
+    data: salesRows,
+    spec: {
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'revenue', type: 'quantitative' },
+      },
+      layer: [
+        { mark: { type: 'errorband', extent: 'stdev' } },
+        { mark: 'line', encoding: { y: { field: 'revenue', aggregate: 'mean' } } },
+      ],
+    },
+  },
+  {
+    id: 'bar-labels',
+    title: 'Bar chart with text value labels',
+    description:
+      'A layer of mark: "text" over bars — value labels drawn as a custom SVG overlay, dy-offset ' +
+      'above each bar.',
+    data: shareRows,
+    spec: {
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'share', type: 'quantitative' },
+      },
+      layer: [
+        { mark: 'bar' },
+        { mark: { type: 'text', dy: -8 }, encoding: { text: { field: 'share' } } },
+      ],
+    },
+  },
+  {
+    id: 'faceted-bars',
+    title: 'Faceted bar chart (column facet)',
+    description:
+      'A "column" facet channel — the wrapper partitions the data and renders a grid of ' +
+      'sub-charts with shared y domains and facet headers.',
+    data: salesRows,
+    spec: {
+      mark: 'bar',
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
+        color: { field: 'category', type: 'nominal' },
+        column: { field: 'region', type: 'nominal' },
       },
     },
   },

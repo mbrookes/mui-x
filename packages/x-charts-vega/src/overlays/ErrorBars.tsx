@@ -2,7 +2,8 @@
 import * as React from 'react';
 import { useXScale, useYScale } from '@mui/x-charts/hooks';
 import type { CompiledOverlay, OverlayBandPoint, OverlayErrorBarItem } from '../compile/context';
-import { scalePosition, type AnyScale } from './scaleUtils';
+import { scalePosition  } from './scaleUtils';
+import type {AnyScale} from './scaleUtils';
 
 /*
  * OWNERSHIP: the "errorbar/errorband" work unit owns this file.
@@ -115,7 +116,7 @@ function ErrorBarsGroup(props: {
     <g className="MuiVegaOverlay-errorBars">
       {overlay.items.map((item, index) => (
         <ErrorBarWhisker
-          // eslint-disable-next-line react/no-array-index-key
+           
           key={index}
           item={item}
           horizontal={horizontal}

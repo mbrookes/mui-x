@@ -1,9 +1,11 @@
 import * as React from 'react';
 
 import type {
+  StudioDataField,
   StudioDataSource,
   StudioChartConfig,
   StudioDateRangePreset,
+  StudioExpressionField,
   StudioFilterState,
   StudioGridColumn,
   StudioKpiAggregation,
@@ -502,11 +504,20 @@ export function inferWidgetTitles(
  * `runWidgetExport`) — this function has no knowledge of relationships/data sources and simply
  * reads `row[col]` for each configured column, so a caller that forgets to enrich will silently
  * export an empty column for any cross-source field (finding 2.19).
+ *
+ * `expressionFields` (the widget's own-source calculated columns) are folded into the same
+ * field-id → field-def lookup `dataSource.fields` uses, matching the on-screen grid's resolution
+ * (`StudioGridWidget.tsx`'s column builder reads `dataSource.fields.find(...) ?? expressionFields.find(...)`).
+ * Without this an expression-field column's CSV header fell back to the raw field id and its
+ * values skipped number/currency/precision formatting entirely — the exported file silently
+ * drifted from what the grid actually rendered (architecture review finding — grid CSV export
+ * drifts from on-screen rendering for expression-field columns).
  */
 export function buildCsvContent(
   widget: StudioWidget,
   dataSource: StudioDataSource,
   rows: Record<string, unknown>[],
+  expressionFields: StudioExpressionField[] = [],
 ): string {
   // CSV export is a grid concern, but the param is typed as the broad
   // `StudioWidget`; read `columns` through the flat cross-kind config type.
@@ -515,7 +526,25 @@ export function buildCsvContent(
     ? columnFieldIds(config.columns)
     : dataSource.fields.map((f) => f.id);
 
-  const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));
+  const fieldMap = new Map<string, StudioDataField>(dataSource.fields.map((f) => [f.id, f]));
+  // Physical fields take priority (the `has` guard below only fills gaps) — an
+  // expression-field id colliding with a real field id should never happen, but this
+  // keeps the physical definition authoritative if it does. Expression fields are
+  // normalized to the `StudioDataField` shape (defaulting the type-inference-only
+  // `type` to `'string'` when absent) rather than widening the map's value type, so
+  // this stays a drop-in extension of the existing `fieldMap.get(col)` call sites below.
+  for (const ef of expressionFields) {
+    if (!fieldMap.has(ef.id)) {
+      fieldMap.set(ef.id, {
+        id: ef.id,
+        label: ef.label,
+        type: ef.type ?? 'string',
+        format: ef.format,
+        precision: ef.precision,
+        currencyCode: ef.currencyCode,
+      });
+    }
+  }
   // Header labels always come from user-configured field labels — always text,
   // so always escaped via `escapeCsvCell` (formula-injection neutralization,
   // finding 1.8). Row cells are escaped the same way UNLESS the cell's RUNTIME
@@ -600,12 +629,13 @@ export function exportGridToCsv(
   widget: StudioWidget,
   dataSource: StudioDataSource | undefined,
   rows: Record<string, unknown>[],
+  expressionFields: StudioExpressionField[] = [],
 ): void {
   if (!dataSource) {
     return;
   }
 
-  const csvContent = buildCsvContent(widget, dataSource, rows);
+  const csvContent = buildCsvContent(widget, dataSource, rows, expressionFields);
   downloadCsv(csvContent, `${widget.title}_export.csv`);
 }
 

@@ -2,11 +2,15 @@
 import * as React from 'react';
 import { Box, Skeleton, Typography } from '@mui/material';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
-import { useStudioLocaleText } from '../../../context';
+import {
+  useStudioLocaleText,
+  useStudioSelector,
+  makeSelectExpressionFieldsForSource,
+} from '../../../context';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import { PivotTable } from './PivotTable';
-import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
+import { buildPivotMatrix, pivotToCsv, downloadCsv, type PivotMeasureContext } from './pivotUtils';
 
 export interface StudioPivotWidgetProps {
   widget: StudioWidgetOf<'pivot'>;
@@ -32,19 +36,53 @@ export function StudioPivotWidget({
     pivotShowTotals = true,
   } = config;
 
-  const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(
-    widget,
-    dataSource,
-    pageId,
-  );
+  // `effectiveRows` (not `filteredRows`) so the pivot honours `config.crossFilterMode` the
+  // same way Map/KPI do: `'none'` shows the grand total (chart cross-filters ignored),
+  // anything else (the default) respects the active cross-filter. Pivot has no per-row
+  // visual to "dim" (its cells are already aggregated), so — like the Map widget — there is
+  // no separate cross-highlight ghost overlay; `'cross-highlight'` behaves the same as
+  // `'cross-filter'` here (architecture review: pivot ignored crossFilterMode entirely).
+  const {
+    effectiveRows: filteredRows,
+    isLoading,
+    isError,
+    errorMessage,
+  } = useWidgetRows(widget, dataSource, pageId);
   const localeText = useStudioLocaleText();
+
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
+  const expressionFields = useStudioSelector(selectExpressionFields);
+
+  // A measure expression (e.g. `sum(total)/count()`) aggregates itself over a row set —
+  // it has no per-row value, so `row[pivotValueField]` is always `undefined` for one.
+  // Previously pivot had no `evaluateMeasure` path at all (unlike KPI's handling of the
+  // same case), so a measure-expression `pivotValueField` silently rendered every cell
+  // empty. Detect it here and route through `buildMeasurePivotMatrix` instead.
+  const measureExprField = React.useMemo(
+    () => expressionFields.find((f) => f.id === pivotValueField && f.isMeasure) ?? null,
+    [expressionFields, pivotValueField],
+  );
+
+  const measureContext: PivotMeasureContext | undefined = React.useMemo(
+    () => (measureExprField ? { measureField: measureExprField, expressionFields } : undefined),
+    [measureExprField, expressionFields],
+  );
 
   const matrix = React.useMemo(() => {
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
       return null;
     }
-    return buildPivotMatrix(filteredRows, pivotRowField, pivotColField, pivotValueField);
-  }, [filteredRows, pivotRowField, pivotColField, pivotValueField]);
+    return buildPivotMatrix(
+      filteredRows,
+      pivotRowField,
+      pivotColField,
+      pivotValueField,
+      measureContext,
+    );
+  }, [filteredRows, pivotRowField, pivotColField, pivotValueField, measureContext]);
 
   const handleExport = React.useCallback(() => {
     if (!matrix) {

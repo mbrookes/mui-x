@@ -484,6 +484,112 @@ describe('<StudioMapWidget /> legend aria-label localization', () => {
   });
 });
 
+// ─── mapValueField lookup: expression fields + cross-source fields (architecture
+// review: the lookup only ever checked `dataSource.fields`, unlike the row-
+// enrichment pipeline (`useWidgetRows.ts`), which already explicitly resolves a
+// cross-source `mapValueField`/`mapCountryField`) ──────────────────────────────
+
+describe('<StudioMapWidget /> value-field lookup — expression + cross-source fields', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    continuousColorLegendSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+  });
+
+  function latestLegendAriaLabel() {
+    const props = continuousColorLegendSpy.mock.calls.at(-1)?.[0] as {
+      'aria-label'?: string;
+    };
+    return props?.['aria-label'];
+  }
+
+  it('resolves format/currency from an own-source expression (calculated) field', async () => {
+    rows = [
+      { country: 'United States', revenue: 1234.5 },
+      { country: 'France', revenue: 500 },
+    ];
+    const widget: StudioWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapValueField: 'revenue' },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      // `revenue` is NOT a physical field on the data source — only reachable via
+      // expressionFields, mirroring a calculated column.
+      dataSources: { sales: dataSource },
+      expressionFields: [
+        {
+          id: 'revenue',
+          label: 'Revenue',
+          sourceId: 'sales',
+          isMeasure: false,
+          expression: { type: 'number', value: 0 },
+          // The field's own output-type override (distinct from `expression.type`,
+          // which describes the literal expression node) — `formatMapValueCompact`
+          // gates currency formatting on this.
+          type: 'number',
+          format: 'currency',
+        },
+      ] as unknown as StudioState['doc']['expressionFields'],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widget);
+
+    // Before the fix, an unresolved `fieldDef` meant `formatMapValueCompact` never
+    // applied currency formatting — the aria-label's min/max would be plain numbers
+    // with no currency symbol.
+    expect(latestLegendAriaLabel()).toMatch(/\$/);
+  });
+
+  it('resolves format/currency from a cross-source field via mapValueSourceId', async () => {
+    rows = [
+      { country: 'United States', lifetimeValue: 9999.99 },
+      { country: 'France', lifetimeValue: 42 },
+    ];
+    const widget: StudioWidget = {
+      ...baseWidget,
+      config: {
+        ...baseWidget.config,
+        mapValueField: 'lifetimeValue',
+        mapValueSourceId: 'customers',
+      },
+    } as StudioWidget;
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'lifetimeValue', label: 'Lifetime Value', type: 'number', format: 'currency' },
+      ],
+      rows: [],
+    };
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource, customers: customersSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widget);
+
+    expect(latestLegendAriaLabel()).toMatch(/\$/);
+  });
+});
+
 // Regression coverage for finding 1.4: the map used to hand-roll
 // `parseFloat(String(rawValue ?? 0))`, which coerced null/undefined to 0 (inflating avg
 // denominators / dragging min) and dropped booleans via `parseFloat("true") → NaN`. It now

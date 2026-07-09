@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
+import type { StudioExpressionField } from '../../../models';
 import {
   resolveAgg,
   buildPivotMatrix,
@@ -176,6 +177,87 @@ describe('buildPivotMatrix', () => {
     const matrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
     expect(matrix.rowValues).toEqual(['APAC', 'EMEA']);
     expect(matrix.colValues).toEqual(['A', 'B']);
+  });
+});
+
+// ─── Measure-expression `pivotValueField` (architecture review: pivot had no
+// `evaluateMeasure` path — a measure aggregates itself over a row set and has no
+// per-row value, so `row[valueField]` always read `undefined`) ────────────────
+
+describe('buildPivotMatrix — measureContext', () => {
+  const avgAmount: StudioExpressionField = {
+    id: 'avgAmount',
+    label: 'Avg Amount',
+    sourceId: 'sales',
+    isMeasure: true,
+    expression: { id: 'amount', aggregation: 'avg' },
+  };
+
+  it('evaluates the measure over each cell bucket instead of reading the raw field per row', () => {
+    const rows = [
+      { region: 'EMEA', product: 'A', amount: 10 },
+      { region: 'EMEA', product: 'A', amount: 20 },
+      { region: 'APAC', product: 'A', amount: 100 },
+    ];
+    const matrix = buildPivotMatrix(rows, 'region', 'product', 'avgAmount', {
+      measureField: avgAmount,
+      expressionFields: [avgAmount],
+    });
+
+    // avg(10, 20) = 15 for the EMEA/A cell; a single 100 for APAC/A.
+    expect(resolveAgg(matrix.cells.get('EMEA')!.get('A'), 'sum')).toBe(15);
+    expect(resolveAgg(matrix.cells.get('APAC')!.get('A'), 'sum')).toBe(100);
+  });
+
+  it('resolves to the same value regardless of the caller-selected aggregation fn (a measure self-aggregates)', () => {
+    const rows = [
+      { region: 'EMEA', product: 'A', amount: 10 },
+      { region: 'EMEA', product: 'A', amount: 20 },
+    ];
+    const matrix = buildPivotMatrix(rows, 'region', 'product', 'avgAmount', {
+      measureField: avgAmount,
+      expressionFields: [avgAmount],
+    });
+
+    const cell = matrix.cells.get('EMEA')!.get('A');
+    // sum/avg/min/max of a single evaluated number are all that same number —
+    // `pivotAggregation` never re-derives a different answer for a measure.
+    expect(resolveAgg(cell, 'sum')).toBe(15);
+    expect(resolveAgg(cell, 'avg')).toBe(15);
+    expect(resolveAgg(cell, 'min')).toBe(15);
+    expect(resolveAgg(cell, 'max')).toBe(15);
+  });
+
+  it('count still means COUNT(*) over the bucket, not the evaluated measure value', () => {
+    const rows = [
+      { region: 'EMEA', product: 'A', amount: 10 },
+      { region: 'EMEA', product: 'A', amount: 20 },
+      { region: 'EMEA', product: 'A', amount: 30 },
+    ];
+    const matrix = buildPivotMatrix(rows, 'region', 'product', 'avgAmount', {
+      measureField: avgAmount,
+      expressionFields: [avgAmount],
+    });
+
+    expect(resolveAgg(matrix.cells.get('EMEA')!.get('A'), 'count')).toBe(3);
+  });
+
+  it('still records row/column totals and the grand total via the measure', () => {
+    const rows = [
+      { region: 'EMEA', product: 'A', amount: 10 },
+      { region: 'EMEA', product: 'B', amount: 30 },
+      { region: 'APAC', product: 'A', amount: 100 },
+    ];
+    const matrix = buildPivotMatrix(rows, 'region', 'product', 'avgAmount', {
+      measureField: avgAmount,
+      expressionFields: [avgAmount],
+    });
+
+    expect(resolveAgg(matrix.rowTotals.get('EMEA'), 'sum')).toBe(20); // avg(10, 30)
+    expect(resolveAgg(matrix.colTotals.get('A'), 'sum')).toBe(55); // avg(10, 100)
+    expect(resolveAgg(matrix.grandTotal, 'sum')).toBe(
+      (10 + 30 + 100) / 3, // avg over all three rows
+    );
   });
 });
 

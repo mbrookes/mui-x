@@ -2,16 +2,19 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StudioController } from '../../store/StudioController';
 import type {
   StudioDataSource,
+  StudioExpressionField,
   StudioRelationship,
   StudioWidget,
   StudioWidgetConfig,
 } from '../../models';
-import { exportGridToCsv, exportChartToPng } from '../../internals/widgetUtils';
+import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
+import { buildQueryDescriptor } from '../../internals/queryDescriptor';
+import { studioRequestCache } from '../../internals/StudioRequestCache';
 import { runWidgetExport } from './widgetExport';
 
 vi.mock('../../internals/widgetUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
-  return { ...actual, exportGridToCsv: vi.fn(), exportChartToPng: vi.fn() };
+  return { ...actual, exportGridToCsv: vi.fn(), exportChartToPng: vi.fn(), downloadCsv: vi.fn() };
 });
 
 const source: StudioDataSource = {
@@ -32,6 +35,8 @@ describe('runWidgetExport', () => {
   beforeEach(() => {
     vi.mocked(exportGridToCsv).mockClear();
     vi.mocked(exportChartToPng).mockClear();
+    vi.mocked(downloadCsv).mockClear();
+    studioRequestCache.clear();
   });
 
   it('dispatches a grid widget to CSV export with cross-filter-resolved rows', () => {
@@ -170,6 +175,167 @@ describe('runWidgetExport', () => {
     // irrelevant to this assertion, which only cares about the joined `company` value.
     expect(rows[0]).toMatchObject({ id: 'o1', customerId: 'c1', total: 100, company: 'Acme' });
     expect(rows[1]).toMatchObject({ id: 'o2', customerId: 'c2', total: 50, company: 'Globex' });
+  });
+
+  // ─── Adapter-backed grid CSV export (finding 2.9) ─────────────────────────────
+  //
+  // An adapter-backed source never populates `source.rows` — fetched rows live only
+  // in the on-screen grid's local `useAdapterRows` state, seeded from (and written
+  // back to) the module-singleton `studioRequestCache`. `runWidgetExport` must read
+  // from that same cache entry instead of unconditionally reading `source.rows` (an
+  // always-empty array for an adapter source).
+
+  it('reads adapter-backed rows from the request cache instead of exporting an empty file', () => {
+    const adapterSource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      // No `rows` — adapter-backed sources never populate this in-memory.
+      adapter: { getRows: vi.fn() },
+    };
+    const widget: StudioWidget = {
+      id: 'w5',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const controller = makeController(widget, { s1: adapterSource });
+    const state = controller.getState();
+    const descriptor = buildQueryDescriptor(widget, state.doc.filters, 'page-1', undefined, []);
+    studioRequestCache.set(descriptor.cacheKey, { rows: [{ status: 'active' }] }, 's1');
+
+    runWidgetExport({
+      widget,
+      source: adapterSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    expect(downloadCsv).not.toHaveBeenCalled();
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , rows] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(rows).toEqual([{ status: 'active' }]);
+  });
+
+  it('downloads an explanatory message instead of a silently empty file on an adapter cache miss', () => {
+    const adapterSource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      adapter: { getRows: vi.fn() },
+    };
+    const widget: StudioWidget = {
+      id: 'w6',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const controller = makeController(widget, { s1: adapterSource });
+
+    runWidgetExport({
+      widget,
+      source: adapterSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    // No cached rows yet (cold cache) — must not silently export an empty CSV.
+    expect(exportGridToCsv).not.toHaveBeenCalled();
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    const [message, filename] = vi.mocked(downloadCsv).mock.calls[0];
+    expect(message).toMatch(/no data available/i);
+    expect(filename).toBe('Grid_export.csv');
+  });
+
+  it('a genuinely empty query result (cache hit, zero rows) still exports normally, not the cache-miss message', () => {
+    const adapterSource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      adapter: { getRows: vi.fn() },
+    };
+    const widget: StudioWidget = {
+      id: 'w7',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const controller = makeController(widget, { s1: adapterSource });
+    const state = controller.getState();
+    const descriptor = buildQueryDescriptor(widget, state.doc.filters, 'page-1', undefined, []);
+    studioRequestCache.set(descriptor.cacheKey, { rows: [] }, 's1');
+
+    runWidgetExport({
+      widget,
+      source: adapterSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    expect(downloadCsv).not.toHaveBeenCalled();
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , rows] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(rows).toEqual([]);
+  });
+
+  // ─── CSV export folds in own-source expression fields (grid CSV header/format drift) ──
+
+  it("passes the widget's own-source expression fields through to exportGridToCsv", () => {
+    const widget: StudioWidget = {
+      id: 'w8',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const ownField: StudioExpressionField = {
+      id: 'margin',
+      label: 'Margin',
+      sourceId: 's1',
+      isMeasure: false,
+      expression: { type: 'number', value: 0 },
+      format: 'currency',
+    };
+    const otherSourceField: StudioExpressionField = {
+      id: 'unrelated',
+      label: 'Unrelated',
+      sourceId: 'other-source',
+      isMeasure: false,
+      expression: { type: 'number', value: 0 },
+    };
+    const controller = new StudioController({
+      doc: {
+        widgets: { [widget.id]: widget },
+        expressionFields: [ownField, otherSourceField],
+      },
+      runtime: { dataSources: { s1: source } },
+    });
+
+    runWidgetExport({
+      widget,
+      source,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , , passedExpressionFields] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(passedExpressionFields).toEqual([ownField]);
   });
 
   it('delegates pivot and custom-kind widgets to their imperative export handler', () => {

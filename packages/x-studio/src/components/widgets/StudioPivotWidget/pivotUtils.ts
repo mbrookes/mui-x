@@ -7,6 +7,8 @@ import {
 } from '../../../internals/aggregate';
 import { escapeCsvCell } from '../../../internals/csvUtils';
 import { downloadCsv } from '../../../internals/widgetUtils';
+import { evaluateMeasure } from '../../../utils/expressionEvaluator';
+import type { StudioExpressionField } from '../../../models';
 
 // Re-exported so existing importers of `./pivotUtils` keep working unchanged —
 // the Blob/`createObjectURL`/anchor-click download plumbing now lives in one
@@ -63,12 +65,29 @@ export interface PivotMatrix {
   grandTotal: AggState;
 }
 
+/**
+ * Passed to {@link buildPivotMatrix} when `pivotValueField` resolves to a MEASURE
+ * expression field (`isMeasure: true`) rather than a plain data-source field — a
+ * measure aggregates itself (e.g. `sum(total)/count()`) and must be evaluated once
+ * over the FULL set of rows in each cell/row-total/col-total/grand-total bucket via
+ * `evaluateMeasure`, not read per-row via `row[valueField]` (which is always
+ * `undefined` for a measure, since a measure has no per-row value at all).
+ */
+export interface PivotMeasureContext {
+  measureField: StudioExpressionField;
+  expressionFields: StudioExpressionField[];
+}
+
 export function buildPivotMatrix(
   rows: Record<string, unknown>[],
   rowField: string,
   colField: string,
   valueField: string | undefined,
+  measureContext?: PivotMeasureContext,
 ): PivotMatrix {
+  if (measureContext) {
+    return buildMeasurePivotMatrix(rows, rowField, colField, measureContext);
+  }
   const rowSet = new Set<string>();
   const colSet = new Set<string>();
   const cells = new Map<string, Map<string, AggState>>();
@@ -151,6 +170,99 @@ export function buildPivotMatrix(
     rowTotals,
     colTotals,
     grandTotal,
+  };
+}
+
+/**
+ * Measure-expression variant of {@link buildPivotMatrix} (see {@link PivotMeasureContext}).
+ * Row/column categories are bucketed by MEMBERSHIP first — mirroring the streaming
+ * variant above, a row/column exists once any row lands in it, even if the measure
+ * later evaluates to `null` for that bucket — then each bucket's full row list is
+ * reduced to a single number via `evaluateMeasure` (which self-aggregates; the caller's
+ * chosen `pivotAggregation` fn does not apply, matching the KPI widget's handling of a
+ * measure-expression value field). The single evaluated number is folded into an
+ * `AggState`'s accumulator exactly once, so `resolveAgg`'s `sum`/`avg`/`min`/`max`
+ * branches all resolve to that same number (a single-value sum/avg/min/max are
+ * identical) with no change required to `resolveAgg`, `PivotTable`, or `pivotToCsv`.
+ * `count` still means COUNT(*) over the bucket's raw row count (`rowCount`), matching
+ * every other cell's `count` semantics.
+ */
+function buildMeasurePivotMatrix(
+  rows: Record<string, unknown>[],
+  rowField: string,
+  colField: string,
+  { measureField, expressionFields }: PivotMeasureContext,
+): PivotMatrix {
+  const rowSet = new Set<string>();
+  const colSet = new Set<string>();
+  const cellRows = new Map<string, Map<string, Record<string, unknown>[]>>();
+  const rowTotalRows = new Map<string, Record<string, unknown>[]>();
+  const colTotalRows = new Map<string, Record<string, unknown>[]>();
+  const grandTotalRows: Record<string, unknown>[] = [];
+
+  for (const row of rows) {
+    const rv = String(row[rowField] ?? '');
+    const cv = String(row[colField] ?? '');
+    rowSet.add(rv);
+    colSet.add(cv);
+
+    if (!cellRows.has(rv)) {
+      cellRows.set(rv, new Map());
+    }
+    const rowCellMap = cellRows.get(rv)!;
+    if (!rowCellMap.has(cv)) {
+      rowCellMap.set(cv, []);
+    }
+    rowCellMap.get(cv)!.push(row);
+
+    if (!rowTotalRows.has(rv)) {
+      rowTotalRows.set(rv, []);
+    }
+    rowTotalRows.get(rv)!.push(row);
+
+    if (!colTotalRows.has(cv)) {
+      colTotalRows.set(cv, []);
+    }
+    colTotalRows.get(cv)!.push(row);
+
+    grandTotalRows.push(row);
+  }
+
+  const toAgg = (bucketRows: Record<string, unknown>[]): AggState => {
+    const acc = createAggregateAccumulator();
+    const value = evaluateMeasure(measureField, bucketRows, expressionFields);
+    if (value !== null) {
+      accumulateValue(acc, value);
+    }
+    return { acc, rowCount: bucketRows.length };
+  };
+
+  const cells = new Map<string, Map<string, AggState>>();
+  for (const [rv, colMap] of cellRows) {
+    const outMap = new Map<string, AggState>();
+    for (const [cv, bucketRows] of colMap) {
+      outMap.set(cv, toAgg(bucketRows));
+    }
+    cells.set(rv, outMap);
+  }
+
+  const rowTotals = new Map<string, AggState>();
+  for (const [rv, bucketRows] of rowTotalRows) {
+    rowTotals.set(rv, toAgg(bucketRows));
+  }
+
+  const colTotals = new Map<string, AggState>();
+  for (const [cv, bucketRows] of colTotalRows) {
+    colTotals.set(cv, toAgg(bucketRows));
+  }
+
+  return {
+    rowValues: [...rowSet].sort(naturalCompare),
+    colValues: [...colSet].sort(naturalCompare),
+    cells,
+    rowTotals,
+    colTotals,
+    grandTotal: toAgg(grandTotalRows),
   };
 }
 

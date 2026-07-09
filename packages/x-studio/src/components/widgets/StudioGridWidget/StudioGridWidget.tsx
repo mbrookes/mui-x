@@ -13,7 +13,9 @@ import {
 
 import type {
   StudioConditionalFormat,
+  StudioDataField,
   StudioDataSource,
+  StudioExpressionField,
   StudioWidgetConfig,
   StudioWidgetOf,
 } from '../../../models';
@@ -22,6 +24,7 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   selectFilters,
+  selectDataSources,
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
@@ -55,6 +58,101 @@ export function computeOrderedFieldIds(
   const configuredSet = new Set(configuredIds);
   const remaining = allFieldIds.filter((id) => !configuredSet.has(id));
   return [...configuredIds, ...remaining];
+}
+
+/**
+ * Resolves the field definition for every CROSS-SOURCE configured column (a
+ * `config.columns` entry whose `sourceId` differs from the widget's own source) by
+ * looking it up on `dataSources[c.sourceId]` — the exact same resolution
+ * `useWidgetRows.ts`'s row enrichment already performs for the VALUES of these
+ * columns (see `enrichWithCrossSourceFields`).
+ *
+ * Before this, `computeOrderedFieldIds` only ever saw the widget's own source's
+ * field ids plus expression-field ids (`allFieldIds`), so a configured cross-source
+ * column's id never appeared there and was silently filtered out — the column had
+ * a real, enriched value on every row, but no `GridColDef` was ever built for it and
+ * it never rendered (architecture review finding 1.1). Exported so both the
+ * component and its tests exercise the identical resolution.
+ */
+export function resolveCrossSourceFieldDefs(
+  configColumns: StudioWidgetConfig['columns'],
+  ownSourceId: string | undefined,
+  dataSources: Record<string, StudioDataSource>,
+): Map<string, StudioDataField> {
+  const map = new Map<string, StudioDataField>();
+  for (const c of configColumns ?? []) {
+    if (!c.sourceId || c.sourceId === ownSourceId) {
+      continue;
+    }
+    const field = dataSources[c.sourceId]?.fields.find((f) => f.id === c.fieldId);
+    if (field) {
+      map.set(c.fieldId, field);
+    }
+  }
+  return map;
+}
+
+/**
+ * Builds the grid's `GridColDef[]` for the given (already-ordered) field ids,
+ * resolving each field's definition from — in priority order — the widget's own
+ * data source, its (own-source) expression fields, and finally
+ * `crossSourceFieldDefs` (see {@link resolveCrossSourceFieldDefs}).
+ *
+ * Exported so a test can assert the production column-def path actually produces a
+ * `GridColDef` for a configured cross-source column, without bypassing it via a
+ * `slotProps.dataGrid.columns` override (architecture review finding 1.1's
+ * regression-test gap).
+ */
+export function buildGridColumnDefs(
+  orderedFieldIds: string[],
+  dataSource: StudioDataSource | undefined,
+  expressionFields: StudioExpressionField[],
+  crossSourceFieldDefs: Map<string, StudioDataField>,
+  isEditable: boolean,
+  pkField: string | undefined,
+): GridColDef[] {
+  return orderedFieldIds.map((fieldName) => {
+    const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
+    const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
+    const crossSourceField =
+      !field && !expressionField ? crossSourceFieldDefs.get(fieldName) : undefined;
+    const fieldType = field?.type ?? expressionField?.type ?? crossSourceField?.type;
+    const fieldFormat = field?.format ?? expressionField?.format ?? crossSourceField?.format;
+    const fieldPrecision =
+      field?.precision ?? expressionField?.precision ?? crossSourceField?.precision;
+
+    return {
+      field: fieldName,
+      flex: 1,
+      headerName: field?.label ?? expressionField?.label ?? crossSourceField?.label ?? fieldName,
+      minWidth: 140,
+      type: fieldType === 'number' ? 'number' : 'string',
+      // Enable editing for non-PK columns when write-back is configured. Cross-source
+      // display columns are never editable — write-back only targets the widget's own
+      // (primary) table via `gridPkField`, and a cross-source column's value lives on a
+      // different table entirely.
+      editable: isEditable && fieldName !== pkField && !crossSourceField,
+      valueFormatter:
+        fieldType === 'number' && fieldFormat
+          ? (value: unknown) => {
+              // Summary row cells contain pre-formatted strings (e.g. "Total: $1,234").
+              // Pass them through as-is; only apply numeric formatting to actual numbers.
+              if (typeof value === 'string') {
+                return value;
+              }
+              return formatFieldValue(value, {
+                type: 'number',
+                format: fieldFormat,
+                precision: fieldPrecision,
+                currencyCode:
+                  field?.currencyCode ??
+                  expressionField?.currencyCode ??
+                  crossSourceField?.currencyCode,
+              });
+            }
+          : undefined,
+    };
+  });
 }
 
 type EnrichedMutationError = Error & { gridRowId: string; gridField: string };
@@ -176,54 +274,52 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const [mutationError, setMutationError] = React.useState<string | null>(null);
   const apiRef = useGridApiRef();
 
-  // Build column defs for ALL data source fields so any field can be used for
+  // Full data-source map — needed to resolve cross-source configured columns'
+  // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
+  // enrichment resolves their VALUES.
+  const dataSources = useStudioSelector(selectDataSources);
+
+  const crossSourceFieldDefs = React.useMemo(
+    () => resolveCrossSourceFieldDefs(widget.config.columns, widget.sourceId, dataSources),
+    [widget.config.columns, widget.sourceId, dataSources],
+  );
+
+  // Build column defs for ALL data source fields (own source + expression fields +
+  // resolvable cross-source configured columns) so any field can be used for
   // grouping without dynamically adding/removing column definitions (which causes
   // DataGridPremium to pollute its internal column visibility state).
-  const allFieldIds = React.useMemo(
-    () => [...(dataSource?.fields.map((f) => f.id) ?? []), ...expressionFields.map((f) => f.id)],
-    [dataSource?.fields, expressionFields],
-  );
+  const allFieldIds = React.useMemo(() => {
+    const ids = [
+      ...(dataSource?.fields.map((f) => f.id) ?? []),
+      ...expressionFields.map((f) => f.id),
+    ];
+    const seen = new Set(ids);
+    for (const id of crossSourceFieldDefs.keys()) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    return ids;
+  }, [dataSource?.fields, expressionFields, crossSourceFieldDefs]);
 
   const orderedFieldIds = React.useMemo(
     () => computeOrderedFieldIds(widget.config.columns, allFieldIds),
     [widget.config.columns, allFieldIds],
   );
 
-  const columns = React.useMemo<GridColDef[]>(() => {
-    return orderedFieldIds.map((fieldName) => {
-      const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
-      const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
-      const fieldType = field?.type ?? expressionField?.type;
-      const fieldFormat = field?.format ?? expressionField?.format;
-      const fieldPrecision = field?.precision ?? expressionField?.precision;
-
-      return {
-        field: fieldName,
-        flex: 1,
-        headerName: field?.label ?? expressionField?.label ?? fieldName,
-        minWidth: 140,
-        type: fieldType === 'number' ? 'number' : 'string',
-        // Enable editing for non-PK columns when write-back is configured
-        editable: isEditable && fieldName !== pkField,
-        valueFormatter:
-          fieldType === 'number' && fieldFormat
-            ? (value: unknown) => {
-                // Summary row cells contain pre-formatted strings (e.g. "Total: $1,234").
-                // Pass them through as-is; only apply numeric formatting to actual numbers.
-                if (typeof value === 'string') {
-                  return value;
-                }
-                return formatFieldValue(value, {
-                  type: 'number',
-                  format: fieldFormat,
-                  precision: fieldPrecision,
-                  currencyCode: field?.currencyCode ?? expressionField?.currencyCode,
-                });
-              }
-            : undefined,
-      };
-    });
-  }, [dataSource, expressionFields, orderedFieldIds, isEditable, pkField]);
+  const columns = React.useMemo<GridColDef[]>(
+    () =>
+      buildGridColumnDefs(
+        orderedFieldIds,
+        dataSource,
+        expressionFields,
+        crossSourceFieldDefs,
+        isEditable,
+        pkField,
+      ),
+    [dataSource, expressionFields, orderedFieldIds, crossSourceFieldDefs, isEditable, pkField],
+  );
 
   const {
     filteredRows,

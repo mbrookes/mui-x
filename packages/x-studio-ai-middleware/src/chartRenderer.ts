@@ -489,6 +489,14 @@ function renderScatter(input: ChartRendererInput): string {
     });
   }
 
+  // Guard against empty input: with no usable points, `Math.min()`/`Math.max()` are
+  // ±Infinity and `niceMax(0)` is 0, so every `py(tv)` computes `tv / 0` → NaN and the
+  // gridline/tick attributes come out as `y1="NaN"`. Render the same "No data provided."
+  // placeholder that bar/line/donut/stacked_bar use (finding 2.2).
+  if (points.length === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
+
   const PAD = { top: title ? 50 : 20, right: 20, bottom: 60, left: 60 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;

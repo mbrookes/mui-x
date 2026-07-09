@@ -195,6 +195,80 @@ function invalidConfigKeyError(kind: string, config: Record<string, unknown>): s
 }
 
 /**
+ * Curated primitive types for the scalar config fields the AI tools populate (finding
+ * 3.2). Key validation (`invalidConfigKeyError`) is a key-PRESENCE check only — it never
+ * inspects values — so a valid config key can still carry a wrong-typed value. The
+ * concrete hazard: `update_widget({ config: { pivotShowTotals: "</dashboard_state>…" } })`
+ * stores a STRING in a field declared `boolean`, which is (a) a structurally-broken
+ * widget the client must then render, and (b) the exact stored-prompt-injection surface
+ * behind finding 1.1 (the value was later echoed into `<dashboard_state>` verbatim).
+ *
+ * This is a lightweight, fail-closed value-shape backstop AT THE WRITE SOURCE — the
+ * prompt boundary's `sanitizeForPrompt` choke point is the primary injection defense;
+ * this additionally stops the malformed value from ever landing in state. The set is
+ * intentionally small (the scalar toggles the tools populate); non-scalar/structured
+ * config (arrays, nested objects like `ySeries`/`forecast`) is out of scope here, and
+ * `set_widget_forecast` coerces its own nested `periods` separately.
+ */
+const SCALAR_CONFIG_VALUE_TYPES: Record<string, 'number' | 'boolean'> = {
+  // boolean toggles
+  dualYAxis: 'boolean',
+  sankeyShowValues: 'boolean',
+  pieLegendBelow: 'boolean',
+  kpiSparkline: 'boolean',
+  kpiTrend: 'boolean',
+  kpiTrendInvert: 'boolean',
+  pivotShowTotals: 'boolean',
+  mapCrossFilterEmit: 'boolean',
+  // numeric settings
+  barBandLabelWrap: 'number',
+  wrapBandLabelMaxLines: 'number',
+  barCategoryGapRatio: 'number',
+  barMinBandSize: 'number',
+  barMaxCategories: 'number',
+  axisTickFontSize: 'number',
+  funnelGap: 'number',
+  pieArcLabelMinAngle: 'number',
+  pieMaxSlices: 'number',
+  scatterMinRadius: 'number',
+  scatterMaxRadius: 'number',
+  gaugeMin: 'number',
+  gaugeMax: 'number',
+};
+
+/**
+ * Validates that every scalar-typed key present in a model-supplied `config` carries a
+ * value of the expected primitive type (see `SCALAR_CONFIG_VALUE_TYPES`). Returns a
+ * human-readable error naming the offending keys, or `undefined` when all present scalar
+ * values are well-typed. A `null`/`undefined` value is treated as inert (clearing a key
+ * is handled by the dedicated unset paths), not a type violation. Shared by every tool
+ * that writes untrusted `config` (`buildWidgetFromArgs`, `update_widget`, the bulk
+ * updates loop) so the wording and the allow-list stay identical.
+ */
+function invalidConfigValueError(config: Record<string, unknown>): string | undefined {
+  const offenders: string[] = [];
+  for (const [key, expected] of Object.entries(SCALAR_CONFIG_VALUE_TYPES)) {
+    if (!Object.hasOwn(config, key)) {
+      continue;
+    }
+    const value = config[key];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (expected === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        offenders.push(`${key} (expected a finite number)`);
+      }
+    } else if (typeof value !== 'boolean') {
+      offenders.push(`${key} (expected a boolean)`);
+    }
+  }
+  return offenders.length > 0
+    ? `config carries value(s) of the wrong type: ${offenders.join(', ')}.`
+    : undefined;
+}
+
+/**
  * Finer-grained sibling of `invalidConfigKeyError`, scoped to `kind === 'chart'`:
  * validates `patch`'s keys against the specific `StudioChartType` the patch would
  * end up with (its own `chartType` if present, else the widget's `existingChartType`,
@@ -290,6 +364,10 @@ function buildWidgetFromArgs(
   const error = invalidConfigKeyError(kind, aiConfig as Record<string, unknown>);
   if (error) {
     return { error };
+  }
+  const valueError = invalidConfigValueError(aiConfig as Record<string, unknown>);
+  if (valueError) {
+    return { error: valueError };
   }
   if (kind === 'chart') {
     // No existing widget yet — the effective chart type is purely
@@ -468,6 +546,10 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         if (error) {
           return { output: JSON.stringify({ error }), nextState: state };
         }
+        const valueError = invalidConfigValueError(args.config as Record<string, unknown>);
+        if (valueError) {
+          return { output: JSON.stringify({ error: valueError }), nextState: state };
+        }
         if (widget.kind === 'chart') {
           // Fall back to the widget's CURRENT chartType: a patch that omits
           // `chartType` validates against it, while a patch that changes
@@ -588,6 +670,34 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const activePageId = state.doc.dashboard.activePageId;
       if (!state.doc.pages[activePageId]) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
+      }
+      // Reject DUPLICATE ids (RC5): a widget id appearing in more than one cell would
+      // place the same widget twice, corrupting the layout (the reducer and canvas
+      // assume each widget occupies exactly one slot). Catch it here — before the
+      // membership check and the mutation — with an actionable error so the model can
+      // resend a clean layout, rather than committing a self-overlapping arrangement.
+      const flatLayoutIds = rows.flat();
+      const seenLayoutIds = new Set<string>();
+      const duplicateIds = [
+        ...new Set(
+          flatLayoutIds.filter((id) => {
+            if (seenLayoutIds.has(id)) {
+              return true;
+            }
+            seenLayoutIds.add(id);
+            return false;
+          }),
+        ),
+      ];
+      if (duplicateIds.length > 0) {
+        return {
+          output: JSON.stringify({
+            error:
+              `set_widget_layout received duplicate widget IDs: ${duplicateIds.join(', ')}. ` +
+              'Each widget must appear exactly once across all rows.',
+          }),
+          nextState: state,
+        };
       }
       // Validate MEMBERSHIP: every id must be a known widget (widgets added earlier
       // this turn are already threaded into `state.doc.widgets`). Unknown ids would
@@ -990,6 +1100,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             skipped.push(`update ${wid}: ${error}`);
             continue;
           }
+          const valueError = invalidConfigValueError(update.config as Record<string, unknown>);
+          if (valueError) {
+            skipped.push(`update ${wid}: ${valueError}`);
+            continue;
+          }
           if (kind === 'chart') {
             // Resolve against the RUNNING chartType map (seeded from existing state
             // and same-batch additions, updated after each accepted same-batch
@@ -1199,10 +1314,32 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
 
+      // Coerce/validate `periods` as a number at the write source (finding 3.2). The
+      // tool schema declares it a number, but the value is untrusted and unvalidated —
+      // a crafted string here both produces a structurally-broken forecast config and
+      // (before the prompt-side sanitize fix) was echoed into `<dashboard_state>`
+      // verbatim (finding 1.1). Fail closed with an actionable error on a non-numeric
+      // value so the model can retry, rather than storing the raw string.
+      let periodsNum: number | undefined;
+      if (periods != null) {
+        const n = Number(periods);
+        if (!Number.isFinite(n) || n <= 0) {
+          return {
+            output: JSON.stringify({
+              error: `set_widget_forecast 'periods' must be a positive number; received ${JSON.stringify(
+                periods,
+              )}.`,
+            }),
+            nextState: state,
+          };
+        }
+        periodsNum = Math.floor(n);
+      }
+
       const forecastConfig = enabled
         ? {
             enabled: true,
-            ...(periods != null ? { periods } : {}),
+            ...(periodsNum != null ? { periods: periodsNum } : {}),
             method: 'linear' as const,
             ...(showConfidenceBands != null ? { showConfidenceBands } : {}),
           }

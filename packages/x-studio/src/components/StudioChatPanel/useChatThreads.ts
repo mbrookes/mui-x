@@ -67,6 +67,26 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   // See the module doc comment above for how these two refs cooperate.
   const isStreamingRef = React.useRef(false);
   const writeTargetThreadIdRef = React.useRef(activeThreadId);
+  // Holds the current `useChat().stopStreaming` action, mirrored out of the ChatBox
+  // context by `StreamThreadPin`, so the thread-switch handlers below (which live
+  // outside that context) can abort an in-flight stream before switching (finding 2.15).
+  const stopStreamRef = React.useRef<(() => void) | null>(null);
+
+  // Abort any in-flight stream that belongs to the thread we're leaving. On a thread
+  // switch, ChatBox's controlled `messages` prop resyncs its internal store to the new
+  // thread, after which the still-running stream's writes target an assistant message
+  // id that no longer exists in the active thread — they silently no-op and the
+  // remaining tokens are dropped with no error or warning, leaving the user with a
+  // truncated response and no indication anything went wrong (and the underlying fetch
+  // still running). Aborting first mirrors the explicit stop-streaming path (the same
+  // `stopStreaming` action the stop button uses), so the partial response already
+  // written to the previous thread is cleanly terminated and preserved instead of
+  // silently truncated.
+  const abortInFlightStream = React.useCallback(() => {
+    if (isStreamingRef.current) {
+      stopStreamRef.current?.();
+    }
+  }, []);
 
   const handleMessagesChange = React.useCallback(
     (messages: ChatMessageType[]) => {
@@ -118,6 +138,7 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   const [threadMenuAnchor, setThreadMenuAnchor] = React.useState<HTMLElement | null>(null);
 
   const handleNewThread = React.useCallback(() => {
+    abortInFlightStream();
     const newId = createThreadId();
     const now = new Date().toISOString();
     const state = controller.getState();
@@ -142,10 +163,11 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
     );
     // Update the stable ref so the next message goes to the new thread.
     defaultThreadId.current = newId;
-  }, [controller, localeText.chatNewConversationName]);
+  }, [controller, localeText.chatNewConversationName, abortInFlightStream]);
 
   const handleSelectThread = React.useCallback(
     (threadId: string) => {
+      abortInFlightStream();
       const state = controller.getState();
       // Non-undoable: switching the active chat thread is not an authored edit.
       controller.setState(
@@ -161,7 +183,7 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
       defaultThreadId.current = threadId;
       setThreadMenuAnchor(null);
     },
-    [controller],
+    [controller, abortInFlightStream],
   );
 
   const sortedThreads = React.useMemo(
@@ -187,7 +209,12 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
     handleMessagesChange,
     handleNewThread,
     handleSelectThread,
-    streamThreadPinProps: { activeThreadIdRef, writeTargetThreadIdRef, isStreamingRef },
+    streamThreadPinProps: {
+      activeThreadIdRef,
+      writeTargetThreadIdRef,
+      isStreamingRef,
+      stopStreamRef,
+    },
   };
 }
 
@@ -197,6 +224,7 @@ interface StreamThreadPinProps {
   activeThreadIdRef: React.RefObject<string>;
   writeTargetThreadIdRef: React.RefObject<string>;
   isStreamingRef: React.RefObject<boolean>;
+  stopStreamRef: React.RefObject<(() => void) | null>;
 }
 
 /**
@@ -205,14 +233,24 @@ interface StreamThreadPinProps {
  * `writeTargetThreadIdRef` to whichever thread is active right now — the thread
  * this response's messages must be written back to, regardless of any thread
  * switch that happens before the response finishes.
+ *
+ * Also mirrors `useChat().stopStreaming` out to `stopStreamRef` so the thread-switch
+ * handlers (which live outside the `useChat` context) can abort an in-flight stream
+ * before switching threads (finding 2.15).
  */
 export function StreamThreadPin({
   activeThreadIdRef,
   writeTargetThreadIdRef,
   isStreamingRef,
+  stopStreamRef,
 }: StreamThreadPinProps) {
-  const { isStreaming } = useChat();
+  const { isStreaming, stopStreaming } = useChat();
   const wasStreamingRef = React.useRef(false);
+
+  // Keep the exposed stop-streaming action current (latest-ref pattern). Assigning a
+  // ref during render is side-effect-free and is the same pattern `useChatThreads`
+  // uses for `activeThreadIdRef`.
+  stopStreamRef.current = stopStreaming;
 
   React.useEffect(() => {
     if (isStreaming && !wasStreamingRef.current) {

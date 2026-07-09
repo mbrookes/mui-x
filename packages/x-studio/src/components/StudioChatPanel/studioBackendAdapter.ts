@@ -201,39 +201,48 @@ export function createBackendChatAdapter(
         }
       };
 
-      // Build a per-widget data snapshot from the active page so the server-side
-      // summarise_page handler has live pipeline-filtered row data to work with.
       const state = controller.getState();
-      const activePage = state.doc.pages[state.doc.dashboard.activePageId];
-      const pageWidgetIds = (activePage?.widgetRows ?? []).flat() as string[];
-      const pageSnapshotParts = pageWidgetIds.flatMap((id) => {
-        const w = state.doc.widgets[id];
-        if (!w) {
-          return [];
-        }
-        // Cap at 15 rows per widget to keep the total snapshot small enough for the
-        // model to have room to generate a text response. Stats (min/max/avg) are
-        // always included from the full filtered dataset regardless of this limit.
-        const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride', maxRows: 15 });
-        if (!dataSummary) {
-          return []; // skip non-data widgets (text, filter, alert-banner, etc.)
-        }
-        return [`### ${w.title} (${w.kind})\n${dataSummary}`];
-      });
-      const pageSnapshot =
-        pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
 
-      // Richer, purely-additive context (field stats, layout + cross-filter graph,
-      // recent mutations) to give the model more signal. Never sent in private mode
-      // since field statistics expose real data values.
-      const richContext = privateMode
-        ? undefined
-        : buildRichContext(state, controller, { budgetTokens: contextBudgetTokens });
+      // Private mode: the client must genuinely NOT send real row values, widget
+      // configurations, field names, or layout data (as the `privateMode` doc above
+      // promises) — not merely rely on the server-side middleware honouring the flag.
+      // So `pageSnapshot` (sampled row values), `dashboardState` (full serialized
+      // state), and `richContext` (field stats) are ALL gated behind the same check.
+      // In private mode the server builds a schema-only prompt and never reads these.
+      let pageSnapshot: string | undefined;
+      let serializableState: ReturnType<typeof serializeDashboardState> | undefined;
+      let richContext: ReturnType<typeof buildRichContext> | undefined;
 
-      // Strip raw data rows and adapter instances before sending state to the server.
-      // The pageSnapshot (built above from live client-side pipeline rows) is the server's
-      // source of truth for data analysis via the summarise_page tool.
-      const serializableState = serializeDashboardState(state);
+      if (!privateMode) {
+        // Build a per-widget data snapshot from the active page so the server-side
+        // summarise_page handler has live pipeline-filtered row data to work with.
+        const activePage = state.doc.pages[state.doc.dashboard.activePageId];
+        const pageWidgetIds = (activePage?.widgetRows ?? []).flat() as string[];
+        const pageSnapshotParts = pageWidgetIds.flatMap((id) => {
+          const w = state.doc.widgets[id];
+          if (!w) {
+            return [];
+          }
+          // Cap at 15 rows per widget to keep the total snapshot small enough for the
+          // model to have room to generate a text response. Stats (min/max/avg) are
+          // always included from the full filtered dataset regardless of this limit.
+          const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride', maxRows: 15 });
+          if (!dataSummary) {
+            return []; // skip non-data widgets (text, filter, alert-banner, etc.)
+          }
+          return [`### ${w.title} (${w.kind})\n${dataSummary}`];
+        });
+        pageSnapshot = pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
+
+        // Strip raw data rows and adapter instances before sending state to the server.
+        // The pageSnapshot (built above from live client-side pipeline rows) is the server's
+        // source of truth for data analysis via the summarise_page tool.
+        serializableState = serializeDashboardState(state);
+
+        // Richer, purely-additive context (field stats, layout + cross-filter graph,
+        // recent mutations) to give the model more signal.
+        richContext = buildRichContext(state, controller, { budgetTokens: contextBudgetTokens });
+      }
 
       return new ReadableStream<ChatMessageChunk>({
         async start(streamController) {

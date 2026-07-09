@@ -27,6 +27,9 @@ import {
   aggregateByTwoFields,
   aggregateMultipleSeries,
   aggregateHeatmap,
+  applyRankToAggregated,
+  applyRankToMultiSeries,
+  applyRankToSeriesFieldData,
   resolveChartRowsForAggregation,
   type AggregatedData,
   type MultiSeriesData,
@@ -180,8 +183,15 @@ export function numericStats(
   if (values.length === 0) {
     return null;
   }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // Reduce with a loop instead of `Math.min(...values)` / `Math.max(...values)`:
+  // spreading a large array as call arguments throws `RangeError: Maximum call
+  // stack size exceeded` once it exceeds ~65k–125k elements (finding 2.13). This
+  // function receives ALL filtered rows (no sampling cap), so a 100k+-row source
+  // would otherwise crash every chat send synchronously in the pageSnapshot build.
+  // Mirrors `aggregateNumbers` in `internals/aggregate.ts`, which avoids the spread
+  // for exactly this reason.
+  const min = values.reduce((acc, v) => (v < acc ? v : acc));
+  const max = values.reduce((acc, v) => (v > acc ? v : acc));
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -337,15 +347,36 @@ function buildChartWidgetSummary(
     return '';
   }
 
+  type ChartAggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
   const chartType: string = cfg.chartType ?? 'bar';
   const seriesField: string | undefined = cfg.seriesField;
   const yField: string | undefined = cfg.yField;
-  const ySeries: Array<{ fieldId: string; sourceId?: string }> = cfg.ySeries ?? [];
-  const yAggregation: string = cfg.yAggregation ?? 'sum';
+  const ySeries: Array<{ fieldId: string; sourceId?: string; yAggregation?: ChartAggFn }> =
+    cfg.ySeries ?? [];
   const xGroupBy = cfg.xGroupBy;
   const sortBy = cfg.chartSortBy;
   const sortDir = cfg.chartSortDirection;
   const xOrder = source.fields.find((f) => f.id === xField)?.orderedValues;
+
+  // Mirror the live chart's data path (`useChartWidgetData.ts`) so the insight text
+  // describes the SAME numbers the chart actually shows (finding 2.12):
+  //  - `singleSeriesYAggregation`: the single-series / split-by measure honours its
+  //    own per-series `yAggregation` with precedence over the widget-level default.
+  //  - `yAggregationByField`: per-field aggregation map for the multi-Y path.
+  //  - `rankFilter`: the widget's Top-N rank filter, applied post-aggregation.
+  const singleSeriesYAggregation: ChartAggFn = (ySeries[0]?.yAggregation ??
+    cfg.yAggregation ??
+    'sum') as ChartAggFn;
+  const yAggregationByField: Record<string, ChartAggFn> = {};
+  for (const s of ySeries) {
+    if (s.fieldId && s.yAggregation) {
+      yAggregationByField[s.fieldId] = s.yAggregation;
+    }
+  }
+  const rankFilter =
+    state.doc.filters.find(
+      (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id && f.filterMode === 'rank',
+    ) ?? null;
 
   let activeYFields: string[] = [];
   if (ySeries.length > 0) {
@@ -386,11 +417,11 @@ function buildChartWidgetSummary(
       heatY,
       heatValue,
       xGroupBy,
-      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
+      singleSeriesYAggregation,
     );
     const xSlice = result.xLabels.slice(0, maxRows);
     lines.push(
-      `Heatmap (${yAggregation} of ${yFieldLabel(heatValue)} by ${xField} × ${heatY}):`,
+      `Heatmap (${singleSeriesYAggregation} of ${yFieldLabel(heatValue)} by ${xField} × ${heatY}):`,
       `${result.xLabels.length} x-values × ${result.yLabels.length} y-values${
         result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''
       }`,
@@ -403,20 +434,24 @@ function buildChartWidgetSummary(
       lines.push([xLabel, ...row].join(','));
     }
   } else if (seriesField && activeYFields.length === 1) {
-    const result: MultiSeriesData = aggregateByTwoFields(
-      enrichedRows,
-      xField,
-      seriesField,
-      activeYFields[0],
-      xGroupBy,
-      sortBy,
-      sortDir,
-      xOrder,
+    const result: MultiSeriesData = applyRankToSeriesFieldData(
+      aggregateByTwoFields(
+        enrichedRows,
+        xField,
+        seriesField,
+        activeYFields[0],
+        xGroupBy,
+        sortBy,
+        sortDir,
+        xOrder,
+        singleSeriesYAggregation,
+      ),
+      rankFilter,
     );
     const total = result.labels.length;
     const slice = result.labels.slice(0, maxRows);
     lines.push(
-      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} × ${seriesField} (sum of ${yFieldLabel(activeYFields[0])})`,
+      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} × ${seriesField} (${singleSeriesYAggregation} of ${yFieldLabel(activeYFields[0])})`,
       `${total} x-values${total > maxRows ? `, showing first ${maxRows}` : ''}`,
       [xField, ...result.seriesNames].join(','),
     );
@@ -425,14 +460,18 @@ function buildChartWidgetSummary(
       lines.push([slice[i], ...vals].join(','));
     }
   } else if (activeYFields.length > 1 && !seriesField) {
-    const result: MultiYSeriesData = aggregateMultipleSeries(
-      enrichedRows,
-      xField,
-      activeYFields,
-      xGroupBy,
-      sortBy,
-      sortDir,
-      xOrder,
+    const result: MultiYSeriesData = applyRankToMultiSeries(
+      aggregateMultipleSeries(
+        enrichedRows,
+        xField,
+        activeYFields,
+        xGroupBy,
+        sortBy,
+        sortDir,
+        xOrder,
+        yAggregationByField,
+      ),
+      rankFilter,
     );
     const total = result.labels.length;
     const slice = result.labels.slice(0, maxRows);
@@ -447,20 +486,23 @@ function buildChartWidgetSummary(
     }
   } else {
     const yF = activeYFields[0] ?? '';
-    const result: AggregatedData = aggregateByField(
-      enrichedRows,
-      xField,
-      yF,
-      xGroupBy,
-      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
-      sortBy,
-      sortDir,
-      xOrder,
+    const result: AggregatedData = applyRankToAggregated(
+      aggregateByField(
+        enrichedRows,
+        xField,
+        yF,
+        xGroupBy,
+        singleSeriesYAggregation,
+        sortBy,
+        sortDir,
+        xOrder,
+      ),
+      rankFilter,
     );
     const total = result.labels.length;
     const slice = result.labels.slice(0, maxRows);
     lines.push(
-      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} (${yAggregation} of ${yF ? yFieldLabel(yF) : 'rows'})`,
+      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} (${singleSeriesYAggregation} of ${yF ? yFieldLabel(yF) : 'rows'})`,
       `${total} categories${total > maxRows ? `, showing first ${maxRows}` : ''}`,
       [xField, yF ? yFieldLabel(yF) : 'count'].join(','),
     );
@@ -478,15 +520,21 @@ function buildChartWidgetSummary(
 
   if (canDetectAnomalies(widget) && activeYFields.length > 0) {
     const yF = activeYFields[0];
-    const aggResult = aggregateByField(
-      enrichedRows,
-      xField,
-      yF,
-      xGroupBy,
-      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
-      sortBy,
-      sortDir,
-      xOrder,
+    // Detect anomalies over the same rank-applied, configured-aggregation data the
+    // live chart renders (`StudioChartWidget.tsx` runs `detectChartDataAnomalies` on
+    // `chartData`, which is `applyRankToAggregated(aggregateByField(...))`).
+    const aggResult = applyRankToAggregated(
+      aggregateByField(
+        enrichedRows,
+        xField,
+        yF,
+        xGroupBy,
+        singleSeriesYAggregation,
+        sortBy,
+        sortDir,
+        xOrder,
+      ),
+      rankFilter,
     );
     const anomalies = detectChartDataAnomalies(widget.id, aggResult.labels, aggResult.values, true);
     if (anomalies.length > 0) {

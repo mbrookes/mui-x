@@ -51,6 +51,16 @@ export function FilterRow(props: {
   );
   const operators = getOperatorsForFieldType(fieldMeta?.type);
   const noValue = NO_VALUE_OPERATORS.has(filter.operator);
+  const isBetween = filter.operator === 'between';
+  // A `between` filter's value is a `{ from, to }` object. Read the bounds defensively —
+  // the value may be `null`/`undefined` or a legacy scalar if the filter was authored
+  // under a different operator before switching to `between`.
+  const betweenValue =
+    filter.value !== null && typeof filter.value === 'object' && !Array.isArray(filter.value)
+      ? (filter.value as { from?: unknown; to?: unknown })
+      : {};
+  const betweenInputType = fieldMeta?.type === 'number' ? 'number' : 'text';
+  const toBoundString = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
   const currentValue = filter.filterSourceId
     ? `${filter.filterSourceId}::${filter.field}`
@@ -141,7 +151,33 @@ export function FilterRow(props: {
       </FormControl>
 
       {/* Value input */}
-      {!noValue && (
+      {!noValue && isBetween && (
+        // Dedicated from/to editor: a `between` value is a `{ from, to }` object, so the
+        // generic single-value TextField would stringify it to `[object Object]` and the
+        // first keystroke would clobber it into a plain string (1.10). This dialog is the
+        // lower-fidelity surface (finding 2.3), so a from/to pair of plain inputs — number
+        // inputs for numeric fields — is the appropriately-scoped fix; a full date-range
+        // picker unification is out of scope here.
+        <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 80 }}>
+          <TextField
+            size="small"
+            type={betweenInputType}
+            placeholder={localeText.filterWidgetDateFromLabel}
+            value={toBoundString(betweenValue.from)}
+            onChange={(evt) => onUpdate({ value: { ...betweenValue, from: evt.target.value } })}
+            sx={{ flex: 1, minWidth: 60 }}
+          />
+          <TextField
+            size="small"
+            type={betweenInputType}
+            placeholder={localeText.filterWidgetDateToLabel}
+            value={toBoundString(betweenValue.to)}
+            onChange={(evt) => onUpdate({ value: { ...betweenValue, to: evt.target.value } })}
+            sx={{ flex: 1, minWidth: 60 }}
+          />
+        </Stack>
+      )}
+      {!noValue && !isBetween && (
         <TextField
           size="small"
           placeholder={localeText.filterValueLabel}

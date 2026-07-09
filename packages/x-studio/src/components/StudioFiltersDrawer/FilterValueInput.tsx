@@ -1,6 +1,14 @@
 'use client';
 import * as React from 'react';
-import { Autocomplete, FormControl, InputLabel, MenuItem, Select, TextField } from '@mui/material';
+import {
+  Autocomplete,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+} from '@mui/material';
 import type { StudioFilterOperator } from '../../models';
 import type { FieldType } from './filterDrawerTypes';
 import { useStudioLocaleText } from '../../context';
@@ -49,6 +57,62 @@ export function FilterValueInput(props: {
 
   if (OPERATORS_NO_VALUE.has(operator)) {
     return null;
+  }
+
+  // `between` carries a `{ from, to }` object, so it needs a dedicated two-input editor:
+  // the generic single-value paths below would stringify it to `[object Object]` and the
+  // first keystroke would clobber the object into a scalar (1.10). Date/datetime fields
+  // reuse the same `DateValueInput` picker twice (from + to); numeric fields get a pair of
+  // number inputs.
+  if (operator === 'between') {
+    const betweenValue =
+      value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as { from?: unknown; to?: unknown })
+        : {};
+    const setBound = (key: 'from' | 'to') => (v: unknown) =>
+      onChange({ ...betweenValue, [key]: v });
+    if (fieldType === 'date' || fieldType === 'datetime') {
+      return (
+        <Stack direction="row" spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
+          <DateValueInput
+            value={betweenValue.from}
+            onChange={setBound('from')}
+            label={localeText.filterWidgetDateFromLabel}
+          />
+          <DateValueInput
+            value={betweenValue.to}
+            onChange={setBound('to')}
+            label={localeText.filterWidgetDateToLabel}
+          />
+        </Stack>
+      );
+    }
+    return (
+      <Stack direction="row" spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
+        <TextField
+          size="small"
+          type="number"
+          label={localeText.filterWidgetDateFromLabel}
+          value={
+            betweenValue.from === undefined || betweenValue.from === null
+              ? ''
+              : String(betweenValue.from)
+          }
+          onChange={(event) => setBound('from')(event.target.value)}
+          sx={{ minWidth: 80, flexGrow: 1 }}
+        />
+        <TextField
+          size="small"
+          type="number"
+          label={localeText.filterWidgetDateToLabel}
+          value={
+            betweenValue.to === undefined || betweenValue.to === null ? '' : String(betweenValue.to)
+          }
+          onChange={(event) => setBound('to')(event.target.value)}
+          sx={{ minWidth: 80, flexGrow: 1 }}
+        />
+      </Stack>
+    );
   }
 
   if (fieldType === 'date' || fieldType === 'datetime') {

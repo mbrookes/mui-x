@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, useTheme } from '@mui/material';
 import { formatNumber } from '../../../internals/numberFormat';
-import { type PivotMatrix, resolveAgg } from './pivotUtils';
+import { type PivotMatrix, resolveAgg, roundPivotValue } from './pivotUtils';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 const CELL_W = 90;
@@ -20,7 +20,9 @@ const fmt = (v: number | null) => {
   if (v === null) {
     return '—';
   }
-  return formatNumber(Math.round(v * 100) / 100, 'decimal');
+  // Shared rounding helper with the CSV export (`pivotToCsv`/`formatCell`) so an
+  // exported cell never differs from the displayed cell (finding 3.2).
+  return formatNumber(roundPivotValue(v), 'decimal');
 };
 
 export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {

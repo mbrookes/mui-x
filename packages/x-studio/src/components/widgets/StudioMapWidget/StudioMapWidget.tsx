@@ -209,6 +209,12 @@ export function StudioMapWidget({
       return [new Map(), new Map()];
     }
     const groups = new Map<string, number[]>();
+    // 'count' means COUNT(*) semantics — every row for a region counts, regardless
+    // of whether its measure value is null/non-numeric (finding 2.7), so this is
+    // incremented unconditionally, independent of the null-skipped `groups` bucket
+    // used by sum/avg/min/max below. Without it, a region whose values are all
+    // null/non-numeric disappeared from the map entirely under 'count'.
+    const rowCounts = new Map<string, number>();
     const rawKeys = new Map<string, unknown[]>();
     for (const row of rows) {
       const id = normalize(row[countryField]);
@@ -222,6 +228,9 @@ export function StudioMapWidget({
       } else if (!existingRawKeys.some((v) => crossFilterValueEquals(v, rawCountryValue))) {
         existingRawKeys.push(rawCountryValue);
       }
+
+      rowCounts.set(id, (rowCounts.get(id) ?? 0) + 1);
+
       const rawValue = valueField != null ? row[valueField] : 1;
       // Shared null-skip + boolean-coercion policy (finding 1.4): null/undefined/NaN and
       // non-numeric values are skipped (not coerced to 0), booleans become 0/1 — matching
@@ -238,8 +247,14 @@ export function StudioMapWidget({
       }
     }
     const result = new Map<string, number>();
-    for (const [id, values] of groups) {
-      result.set(id, aggregateValues(values, aggFn));
+    if (aggFn === 'count') {
+      for (const [id, count] of rowCounts) {
+        result.set(id, count);
+      }
+    } else {
+      for (const [id, values] of groups) {
+        result.set(id, aggregateValues(values, aggFn));
+      }
     }
     return [result, rawKeys];
   }, [rows, countryField, valueField, aggFn, normalize]);

@@ -4,6 +4,7 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type StudioLocaleText,
 } from '../internals/StudioUIConfigContext';
+import { coerceAggregateValue } from '../internals/aggregate';
 
 interface GridSummaryConfig {
   /** Map of fieldId → aggregation function. Only listed fields get a summary cell. */
@@ -39,9 +40,13 @@ export function computeGridSummary(
         ? 'count'
         : aggregation;
 
+    // Route through the shared null-skip + boolean/numeric-string coercion policy
+    // (finding 2.13) so a grid's footer total agrees with KPI/Chart/Pivot over the
+    // same field — a raw `typeof v === 'number'` check silently excluded numeric
+    // strings (`"12"`) and booleans instead of coercing them.
     const numericValues = rows
-      .map((row) => row[fieldId])
-      .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+      .map((row) => coerceAggregateValue(row[fieldId]))
+      .filter((v): v is number => v !== null);
 
     let raw: number | null;
 

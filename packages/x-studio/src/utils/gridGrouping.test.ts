@@ -185,4 +185,75 @@ describe('buildGroupedGridRows', () => {
     );
     expect(result[0].total).toBe(150); // 100 (order 1, once) + 50 (order 2)
   });
+
+  // ─── Shared `coerceAggregateValue` policy (finding 2.13) ───────────────────────
+
+  it('coerces numeric strings and booleans instead of silently excluding them from the aggregate', () => {
+    // A raw `typeof v === 'number'` check drops numeric strings ("12") and booleans
+    // entirely, undercounting sum/skewing avg's denominator — coerceAggregateValue
+    // parses/coerces them instead, matching KPI/Chart/Pivot over the same field.
+    const rows = [
+      { company: 'Alpha', total: '10' },
+      { company: 'Alpha', total: 20 },
+      { company: 'Alpha', total: true }, // boolean → 1
+    ];
+
+    const result = buildGroupedGridRows(
+      rows,
+      'company',
+      ['company', 'total'],
+      { total: 'sum' },
+      'widget-1',
+    );
+
+    // Old behaviour (raw typeof check) would sum only the plain `20` -> 20.
+    expect(result[0].total).toBe(31);
+  });
+
+  it('avg over an all-null/non-numeric group returns null, not 0 (matches min/max and gridSummary)', () => {
+    const rows = [
+      { company: 'Alpha', total: null },
+      { company: 'Alpha', total: 'not-a-number' },
+    ];
+
+    const result = buildGroupedGridRows(
+      rows,
+      'company',
+      ['company', 'total'],
+      { total: 'avg' },
+      'widget-1',
+    );
+
+    expect(result[0].total).toBe(null);
+  });
+
+  // ─── `min`/`max` reduce loop instead of argument-spread (finding 2.17) ─────────
+
+  it('computes min/max over a large group without a RangeError (argument-spread crash)', () => {
+    const LARGE = 150_000;
+    const rows = Array.from({ length: LARGE }, (_, i) => ({
+      company: 'Alpha',
+      total: i, // 0..LARGE-1
+    }));
+
+    const result = buildGroupedGridRows(
+      rows,
+      'company',
+      ['company', 'total'],
+      { total: 'min' },
+      'widget-1',
+    );
+
+    expect(result[0].total).toBe(0);
+
+    const resultMax = buildGroupedGridRows(
+      rows,
+      'company',
+      ['company', 'total'],
+      { total: 'max' },
+      'widget-1',
+    );
+
+    expect(resultMax[0].total).toBe(LARGE - 1);
+  });
 });

@@ -112,6 +112,46 @@ describe('computeGridSummary', () => {
     expect(result.amount).toBe('Total: 200');
   });
 
+  // ─── Shared `coerceAggregateValue` policy (finding 2.13) ───────────────────────
+
+  it('coerces numeric strings into the sum instead of excluding them', () => {
+    // Old behaviour: `typeof v === 'number'` excludes "50" entirely (not just NaN
+    // strings like 'n/a'). coerceAggregateValue parses it so grid agrees with
+    // KPI/Chart/Pivot over the same field.
+    const rows = [
+      { id: '1', amount: '50' },
+      { id: '2', amount: 150 },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [numField('amount')], {
+      fields: { amount: 'sum' },
+    });
+    expect(result.amount).toBe('Total: 200');
+  });
+
+  it('coerces booleans to 0/1 instead of excluding them', () => {
+    const rows = [
+      { id: '1', flag: true },
+      { id: '2', flag: false },
+      { id: '3', flag: true },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [numField('flag')], {
+      fields: { flag: 'avg' },
+    });
+    // (1 + 0 + 1) / 3 = 0.6666… -> formatted with the default 2-fraction-digit format.
+    expect(result.flag).toBe('Avg: 0.67');
+  });
+
+  it('avg over an all-null/non-numeric field is omitted, not shown as 0 (finding 2.13)', () => {
+    const rows = [
+      { id: '1', amount: null },
+      { id: '2', amount: 'not-a-number' },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [numField('amount')], {
+      fields: { amount: 'avg' },
+    });
+    expect(result.amount).toBeUndefined();
+  });
+
   it('handles empty rows array gracefully', () => {
     const result = computeGridSummary([], [numField('amount')], {
       fields: { amount: 'sum' },

@@ -1,6 +1,6 @@
-import { enrichRowsWithExpressions, isJoinFieldExpression } from '../utils/expressionEvaluator';
+import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
-import { collectExpressionRefs } from './expressionRefs';
+import { collectExpressionRefs, collectJoinSourceIds } from './expressionRefs';
 
 type Row = Record<string, unknown>;
 
@@ -141,6 +141,10 @@ function expandWithDependencies(
  *
  * @param usedFieldIds  The set of expression field IDs this widget references.
  *   Pass `undefined` to enrich all relevant fields (backward-compatible, source-scoped).
+ * @param collectJoinedSourceIds  Optional out-param: every foreign source id whose rows this
+ *   enrichment reads (via a `JoinFieldExpression`, including nested ones) is added to it, so a
+ *   caller building its own dependency-tracking cache (e.g. the L4 `rcfaCache`) can invalidate
+ *   when those foreign rows change.
  */
 export function getCachedEnrichedRows(
   rows: Row[],
@@ -149,6 +153,7 @@ export function getCachedEnrichedRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   usedFieldIds?: ReadonlySet<string>,
+  collectJoinedSourceIds?: Set<string>,
 ): Row[] {
   if (!sourceId) {
     return rows;
@@ -174,12 +179,14 @@ export function getCachedEnrichedRows(
     .sort()
     .join(',');
 
-  // Collect the joined source IDs used by JoinFieldExpression fields.
+  // Collect the joined source IDs used by JoinFieldExpression fields — walking the FULL
+  // expression tree, not just the top-level node, so a join nested inside e.g.
+  // `if(customers.country == 'US', 1, 0)` is tracked as a dependency (finding 2.18).
   const joinedSourceIds = new Set<string>();
   for (const ef of relevantFields) {
-    if (isJoinFieldExpression(ef.expression)) {
-      const { joinSourceId } = ef.expression;
+    for (const joinSourceId of collectJoinSourceIds(ef.expression)) {
       joinedSourceIds.add(joinSourceId);
+      collectJoinedSourceIds?.add(joinSourceId);
     }
   }
 

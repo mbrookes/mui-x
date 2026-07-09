@@ -1,3 +1,5 @@
+import { coerceAggregateValue } from '../aggregate';
+
 type Row = Record<string, unknown>;
 
 /** One stage of a cumulative ("reached") funnel. */
@@ -177,10 +179,15 @@ export function buildFunnelStages(
     if (!label) {
       continue;
     }
+    const prev = stageMap.get(label) ?? 0;
     if (useCount) {
-      stageMap.set(label, (stageMap.get(label) ?? 0) + 1);
+      stageMap.set(label, prev + 1);
     } else {
-      stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[valueField] ?? 0));
+      // Coerce via the shared `coerceAggregateValue` policy rather than raw `Number(...)`:
+      // an empty-string cell coerces to `null` (skipped, contributing 0) instead of `Number('')
+      // === 0` inflating the sum. The label is still registered unconditionally so a stage whose
+      // measures are all null/empty stays present (at 0) rather than disappearing (finding 2.17).
+      stageMap.set(label, prev + (coerceAggregateValue(row[valueField]) ?? 0));
     }
   }
   // Sort: 'natural' = insertion order; 'category' = orderedValues order (pre-sort, pass

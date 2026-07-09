@@ -182,7 +182,15 @@ export function buildQueryDescriptor(
     activePageId,
     include: 'no-cross',
   });
-  const filter = filtersToFilterNode(serverFilters);
+  // Rank-mode filters (top/bottom-N) have no wire representation: `filterStateToLeaf` drops
+  // `filterMode`, so a page-scoped rank filter would serialize as a bogus `field = <rankValue>`
+  // predicate (the leaf's `value` is the N, e.g. 10) and the actual top-N reduction would never
+  // run server-side. Strip them from the server filter tree; the rank reduction is applied
+  // client-side after the fetch via `applyFilters` (the same `compileRowTest`/`applyFilters` path
+  // the in-memory/sync path uses) — see `useWidgetRows`' adapter branch (finding 1.6).
+  const filter = filtersToFilterNode(
+    serverFilters.filter((f) => (f.filterMode ?? 'condition') !== 'rank'),
+  );
 
   // Expression columns are expanded to the native columns they depend on — the server
   // returns the raw inputs and the expression is re-derived client-side.

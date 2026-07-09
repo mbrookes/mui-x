@@ -1,5 +1,12 @@
 import { sortLabels, type XGroupBy } from '../temporalUtils';
 import { applyXGroupBy, toXValue } from '../chartValues';
+import {
+  accumulateValue,
+  coerceAggregateValue,
+  createAggregateAccumulator,
+  finalizeAccumulator,
+  type AggregateAccumulator,
+} from '../aggregate';
 
 type Row = Record<string, unknown>;
 
@@ -52,8 +59,16 @@ export function aggregateHeatmap(
 ): HeatmapData {
   const xSet = new Set<string>();
   const ySet = new Set<string>();
-  const cellSum = new Map<string, number>();
-  const cellCount = new Map<string, number>();
+  // Per-cell streaming accumulator for sum/avg/min/max (advances only on coerced-numeric
+  // measures), kept separate from an unconditional per-cell row count. This mirrors the
+  // package-wide aggregate policy (map/pivot/KPI): `'count'` is COUNT(*) — every row that
+  // lands in a cell, including null/non-numeric-measure rows — while sum/avg/min/max skip
+  // non-numeric values via `coerceAggregateValue` (finding 2.17). Previously the heatmap
+  // skipped null/NaN-measure rows BEFORE counting (undercounting `count` and making a cell
+  // whose measures are all null vanish) and used raw `Number(...)` (turning an empty-string
+  // cell into 0, inflating sum/avg).
+  const cellAcc = new Map<string, AggregateAccumulator>();
+  const cellRowCount = new Map<string, number>();
 
   for (const row of rows) {
     const raw = toXValue(row[xField]);
@@ -62,37 +77,31 @@ export function aggregateHeatmap(
     if (!xVal || !yVal) {
       continue;
     }
-    const numVal = Number(row[valueField]);
-    // Skip rows where the value field is null/undefined/NaN (e.g. in-transit
-    // shipments with no actual delivery date produce a null datediff)
-    if (Number.isNaN(numVal) || row[valueField] == null) {
-      continue;
-    }
     xSet.add(xVal);
     ySet.add(yVal);
     const key = `${xVal}\x00${yVal}`;
-    const prev = cellSum.get(key) ?? 0;
-    const count = (cellCount.get(key) ?? 0) + 1;
-    cellCount.set(key, count);
+    cellRowCount.set(key, (cellRowCount.get(key) ?? 0) + 1);
 
-    if (yAggregation === 'count') {
-      cellSum.set(key, count);
-    } else if (yAggregation === 'sum' || yAggregation === 'avg') {
-      cellSum.set(key, prev + numVal);
-    } else if (yAggregation === 'min') {
-      cellSum.set(key, count === 1 ? numVal : Math.min(prev, numVal));
-    } else if (yAggregation === 'max') {
-      cellSum.set(key, count === 1 ? numVal : Math.max(prev, numVal));
+    const numVal = coerceAggregateValue(row[valueField]);
+    if (numVal !== null) {
+      let acc = cellAcc.get(key);
+      if (!acc) {
+        acc = createAggregateAccumulator();
+        cellAcc.set(key, acc);
+      }
+      accumulateValue(acc, numVal);
     }
   }
 
-  // Finalise averages
+  // Every cell that occurred (by row count) gets a value: `'count'` reads the unconditional
+  // row count; sum/avg/min/max read the accumulator (a cell with only null measures finalises
+  // to `null` → shown as 0 rather than disappearing).
   const cellMap = new Map<string, number>();
-  for (const [key, sum] of cellSum) {
-    if (yAggregation === 'avg') {
-      cellMap.set(key, sum / (cellCount.get(key) ?? 1));
+  for (const [key, rowCount] of cellRowCount) {
+    if (yAggregation === 'count') {
+      cellMap.set(key, rowCount);
     } else {
-      cellMap.set(key, sum);
+      cellMap.set(key, finalizeAccumulator(cellAcc.get(key), yAggregation) ?? 0);
     }
   }
 

@@ -217,6 +217,52 @@ describe('getCachedEnrichedRows', () => {
     expect(result2).not.toBe(result1);
   });
 
+  it('tracks a join source nested inside a function expression (finding 2.18)', () => {
+    const ordersRows = makeRows(3).map((r, i) => ({ ...r, customerId: i }));
+    const customersV1 = [
+      { id: 0, country: 'US' },
+      { id: 1, country: 'DE' },
+      { id: 2, country: 'US' },
+    ];
+    const customersV2 = [
+      { id: 0, country: 'FR' }, // changed value, new array ref
+      { id: 1, country: 'DE' },
+      { id: 2, country: 'US' },
+    ];
+    // A join nested INSIDE a function expression: if(customers.country, 1, 0). The top-level node
+    // is a FunctionExpression, not a JoinFieldExpression, so the previous top-level-only check
+    // missed the `customers` dependency entirely.
+    const nestedJoinField: StudioExpressionField = {
+      id: 'expr-flag',
+      label: 'Flag',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { joinSourceId: 'customers', fieldId: 'country' },
+          { type: 'number', value: 1 },
+          { type: 'number', value: 0 },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+    const rel: StudioRelationship = {
+      sourceId: 'orders',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+    } as StudioRelationship;
+
+    const ds1 = makeDataSources(ordersRows, customersV1);
+    const ds2 = makeDataSources(ordersRows, customersV2); // orders SAME ref, customers CHANGED
+
+    const r1 = getCachedEnrichedRows(ordersRows, 'orders', [nestedJoinField], ds1, [rel]);
+    const r2 = getCachedEnrichedRows(ordersRows, 'orders', [nestedJoinField], ds2, [rel]);
+
+    // The nested join source is now tracked → a customers rows change invalidates the entry.
+    expect(r2).not.toBe(r1);
+  });
+
   // ─── Cross-source isolation ───────────────────────────────────────────────
 
   it('does NOT invalidate orders cache when customers rows change', () => {

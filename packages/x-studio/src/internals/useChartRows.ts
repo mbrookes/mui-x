@@ -27,18 +27,25 @@ type Row = Record<string, unknown>;
  * @param activeYFields  Resolved y-field IDs (prefer ySeries, fall back to yField).
  * @param chartSupport   Result of `analyzeChartSupport`; used to short-circuit when
  *   the chart configuration is not yet valid.
+ * @param extraFields    Non-xy dimension fields (heatmap `heatYField`, funnel
+ *   `funnelReachedField`, sankey `sankeyTargetField`, `gantt*`) that must be enriched onto
+ *   the returned rows so a one-hop cross-source extra dimension isn't read as `undefined`
+ *   (finding 1.9). Defaults to `[]` for the xy families that don't use it.
  */
 export function useChartRows(
   filteredRows: Row[],
   widget: StudioWidgetOf<'chart'>,
   activeYFields: string[],
   chartSupport: ChartSupportResult,
+  extraFields: (string | undefined)[] = [],
 ): Row[] {
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   // Flat-widen: reads xField/seriesField across chart families.
   const config: StudioChartConfig = widget.config;
+  // Stable dep key for the extra-fields array (its identity isn't guaranteed across renders).
+  const extraFieldsKey = extraFields.join(',');
 
   return React.useMemo((): Row[] => {
     if (!chartSupport.supported) {
@@ -53,7 +60,9 @@ export function useChartRows(
       dataSources,
       relationships,
       expressionFields,
+      extraFields,
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     chartSupport.supported,
     filteredRows,
@@ -64,5 +73,6 @@ export function useChartRows(
     dataSources,
     relationships,
     expressionFields,
+    extraFieldsKey,
   ]);
 }

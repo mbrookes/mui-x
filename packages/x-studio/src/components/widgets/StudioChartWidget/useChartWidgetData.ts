@@ -219,11 +219,26 @@ export function useChartWidgetData(
     ],
   );
 
-  // Resolve chart rows at the right grain for direct related fields used by x/series/y.
-  const enrichedRows = useChartRows(effectiveRows, widget, activeYFields, chartSupport);
+  // Resolve chart rows at the right grain for direct related fields used by x/series/y, plus the
+  // non-xy families' extra dimension fields (heatY/funnelReached/sankeyTarget/gantt*) so a
+  // one-hop cross-source extra dimension is enriched onto the rows the renderers read from
+  // (`enrichedRows`) instead of resolving to `undefined` (finding 1.9).
+  const enrichedRows = useChartRows(
+    effectiveRows,
+    widget,
+    activeYFields,
+    chartSupport,
+    chartTypeExtraFields,
+  );
 
   // Enriched rows from non-cross-filtered data — used to compute stable series names.
-  const allEnrichedRows = useChartRows(filteredRowsNoCross, widget, activeYFields, chartSupport);
+  const allEnrichedRows = useChartRows(
+    filteredRowsNoCross,
+    widget,
+    activeYFields,
+    chartSupport,
+    chartTypeExtraFields,
+  );
 
   const isMultiSeries = activeYFields.length > 1;
 
@@ -261,13 +276,19 @@ export function useChartWidgetData(
     if (inputs.length === 0) {
       return null;
     }
-    return aggregateBlendedSeries(
-      inputs,
-      xField,
-      xGroupBy,
-      chartSortBy,
-      chartSortDirection,
-      xFieldOrderedValues,
+    // Apply the widget rank filter post-aggregation, mirroring the non-blended `multiYData`
+    // path — a blended mixed chart under a Top-N widget rank filter previously ignored it
+    // entirely (finding 2.7).
+    return applyRankToMultiSeries(
+      aggregateBlendedSeries(
+        inputs,
+        xField,
+        xGroupBy,
+        chartSortBy,
+        chartSortDirection,
+        xFieldOrderedValues,
+      ),
+      widgetRankFilter,
     );
   }, [
     isBlended,
@@ -280,6 +301,7 @@ export function useChartWidgetData(
     chartSortBy,
     chartSortDirection,
     xFieldOrderedValues,
+    widgetRankFilter,
   ]);
 
   // seriesField data: one line per unique value of the series field
@@ -561,6 +583,12 @@ export function useChartWidgetData(
     if (!shouldShowGhost) {
       return null;
     }
+    // Blended mixed charts have no single-grain baseline to aggregate here (each series lives in
+    // its own source); a non-blended `aggregateMultipleSeries` over `allEnrichedRows` would be a
+    // wrong ghost that nothing consumes. Bail out exactly as `multiYData` does (finding 2.7).
+    if (isBlended) {
+      return null;
+    }
     const xField = config.xField;
     if (!xField || activeYFields.length < 2 || allEnrichedRows.length === 0) {
       return null;
@@ -585,6 +613,7 @@ export function useChartWidgetData(
     );
   }, [
     shouldShowGhost,
+    isBlended,
     allEnrichedRows,
     config.xField,
     activeYFields,

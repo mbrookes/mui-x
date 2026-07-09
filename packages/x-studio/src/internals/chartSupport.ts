@@ -305,12 +305,35 @@ export function analyzeChartSupport(
 // `relationships` array ref and the object refs of the expression fields relevant
 // to this call (those owned by the widget/anchor/field-owner sources), and is
 // invalidated when either changes.
+//
+// The widgetRows (outer key) and anchorRows (inner key) cover only the widget source and the
+// grain anchor, but `resolveRowsAtGrain` also reads rows from OTHER foreign sources —
+// display/dimension-field enrichment joins, the many-to-many remote endpoint, and
+// join-field-expression targets — none of which is captured by the two WeakMap keys. Their
+// rows changing would otherwise serve a stale re-anchored result (finding 1.5). The entry
+// therefore records the rows ref of every such foreign source (reported by `resolveRowsAtGrain`
+// via its `collectReadSourceIds` out-param) and invalidates when any of them changes.
 interface RcfaEntry {
   relationships: StudioRelationship[];
   exprFields: StudioExpressionField[];
+  /** Rows ref of every foreign (non-widget, non-anchor) source this result read; `null` = absent. */
+  readSourceRows: Map<string, Row[] | null>;
   result: Row[];
 }
 const rcfaCache = new WeakMap<Row[], WeakMap<Row[], Map<string, RcfaEntry>>>();
+
+/** True when every foreign source recorded in the entry still has the same rows ref. */
+function readSourceRowsUnchanged(
+  entry: RcfaEntry,
+  dataSources: Record<string, StudioDataSource>,
+): boolean {
+  for (const [sourceId, rowsRef] of entry.readSourceRows) {
+    if ((dataSources[sourceId]?.rows ?? null) !== rowsRef) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** Non-measure expression fields owned by any of `sourceIds`, in declaration order. */
 function collectRelevantExprFields(
@@ -342,9 +365,18 @@ export function resolveChartRowsForAggregation(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
+  /**
+   * Dimension-like fields a non-xy chart family reads but that aren't expressed via x/y/series
+   * (heatmap `heatYField`, funnel `funnelReachedField`, sankey `sankeyTargetField`, the `gantt*`
+   * fields). They must be threaded into the L4 requested-field set (and cache key) so a
+   * one-hop cross-source extra dimension is enriched onto the returned rows instead of reading
+   * `undefined` — the guard already reports such a field as SUPPORTED (finding 1.9).
+   */
+  extraFields: (string | undefined)[] = [],
 ): Row[] {
-  const requestedFields = [xField, ...yFields, seriesField].filter((field): field is string =>
-    Boolean(field),
+  const cleanExtraFields = extraFields.filter((field): field is string => Boolean(field));
+  const requestedFields = [xField, ...yFields, seriesField, ...cleanExtraFields].filter(
+    (field): field is string => Boolean(field),
   );
 
   if (!widgetSourceId || widgetRows.length === 0 || requestedFields.length === 0) {
@@ -353,6 +385,7 @@ export function resolveChartRowsForAggregation(
 
   // Determine anchor source first (cheap — O(fields × relationships)).
   // This must happen before the cache lookup so we know the second WeakMap key.
+  // `extraFields` are passed so their owners land in `fieldOwners` and are grain-resolved.
   const support = analyzeChartSupport(
     widgetSourceId,
     xField,
@@ -362,6 +395,9 @@ export function resolveChartRowsForAggregation(
     dataSources,
     relationships,
     expressionFields,
+    undefined,
+    undefined,
+    extraFields,
   );
 
   if (!support.supported) {
@@ -400,19 +436,23 @@ export function resolveChartRowsForAggregation(
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
 
-  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}`;
+  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}|${cleanExtraFields.join(',')}`;
   const cached = byKey.get(configKey);
   if (
     cached &&
     cached.relationships === relationships &&
-    exprFieldsRefEqual(cached.exprFields, relevantExprFields)
+    exprFieldsRefEqual(cached.exprFields, relevantExprFields) &&
+    readSourceRowsUnchanged(cached, dataSources)
   ) {
     return cached.result;
   }
 
   // Re-anchor the row set to the fan-out anchor's grain (shared L4 core, see
   // internals/grainResolution.ts) so a plain per-row aggregation cannot
-  // double-count from a fan-out join.
+  // double-count from a fan-out join. `resolveRowsAtGrain` reports (via the out-param) every
+  // foreign source whose rows it read that is NOT the widget/anchor source, so those row refs
+  // can be folded into the cache-validity check above (finding 1.5).
+  const readSourceIds = new Set<string>();
   const result = resolveRowsAtGrain(
     widgetRows,
     widgetSourceId,
@@ -422,8 +462,24 @@ export function resolveChartRowsForAggregation(
     dataSources,
     relationships,
     expressionFields,
+    readSourceIds,
   );
 
-  byKey.set(configKey, { relationships, exprFields: relevantExprFields, result });
+  const readSourceRows = new Map<string, Row[] | null>();
+  for (const sourceId of readSourceIds) {
+    // The widget/anchor sources are already tracked by the two WeakMap keys — skip them.
+    if (sourceId === widgetSourceId || sourceId === anchorSourceId) {
+      continue;
+    }
+    // Record absence as null so a later data load invalidates the entry.
+    readSourceRows.set(sourceId, dataSources[sourceId]?.rows ?? null);
+  }
+
+  byKey.set(configKey, {
+    relationships,
+    exprFields: relevantExprFields,
+    readSourceRows,
+    result,
+  });
   return result;
 }

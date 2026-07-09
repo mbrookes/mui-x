@@ -826,6 +826,162 @@ describe('resolveChartRowsForAggregation', () => {
     expect(r2[0]['expr-margin']).toBe(100); // price only
     expect(r2).not.toBe(r1);
   });
+
+  // ─── L4 cache invalidation on a NON-anchor related source (finding 1.5) ────────
+
+  it('invalidates the L4 cache when a non-anchor related source rows change', () => {
+    // Chart on `orders` (widget source, also the grain anchor since Y=orders.total), split by
+    // `customers.segment` (a many-to-one related dimension). The widgetRows (orders) and the
+    // anchorRows (orders) are BOTH unchanged, but `customers` rows change — the two WeakMap keys
+    // don't move, so only the readSourceRows tracking catches it.
+    const ordersRows = [
+      { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+      { id: 'ORD-2', customerId: 'CUS-2', total: 70 },
+    ];
+    const customersV1 = [
+      { id: 'CUS-1', segment: 'Enterprise' },
+      { id: 'CUS-2', segment: 'SMB' },
+    ];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-o-c',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const dsV1: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: ordersRows,
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'segment', label: 'Segment', type: 'string' },
+        ],
+        rows: customersV1,
+      },
+    };
+
+    const r1 = resolveChartRowsForAggregation(
+      ordersRows,
+      'orders',
+      undefined,
+      ['total'],
+      'segment',
+      dsV1,
+      rels,
+      [],
+    );
+    expect(r1.map((r) => r.segment)).toEqual(['Enterprise', 'SMB']);
+
+    // customers gets a new rows ref with a renamed segment; orders rows are untouched.
+    const customersV2 = [
+      { id: 'CUS-1', segment: 'Consumer' }, // changed
+      { id: 'CUS-2', segment: 'SMB' },
+    ];
+    const dsV2: Record<string, StudioDataSource> = {
+      ...dsV1,
+      customers: { ...dsV1.customers, rows: customersV2 },
+    };
+
+    const r2 = resolveChartRowsForAggregation(
+      ordersRows, // same orders (widget + anchor) rows ref
+      'orders',
+      undefined,
+      ['total'],
+      'segment',
+      dsV2,
+      rels,
+      [],
+    );
+    // Old cache (keyed only on widgetRows × anchorRows) served the stale 'Enterprise'.
+    expect(r2).not.toBe(r1);
+    expect(r2.map((r) => r.segment)).toEqual(['Consumer', 'SMB']);
+  });
+
+  // ─── extraFields threading for non-xy chart families (finding 1.9) ────────────
+
+  it('enriches a cross-source extra-dimension field passed via extraFields', () => {
+    const ordersRows = [
+      { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+      { id: 'ORD-2', customerId: 'CUS-2', total: 70 },
+    ];
+    const customersRows = [
+      { id: 'CUS-1', region: 'EU' },
+      { id: 'CUS-2', region: 'US' },
+    ];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-o-c',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const ds: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: ordersRows,
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+        rows: customersRows,
+      },
+    };
+
+    // heatmap-shaped: x=orders.id, value=orders.total, extra dimension = customers.region.
+    const resolved = resolveChartRowsForAggregation(
+      ordersRows,
+      'orders',
+      'id',
+      ['total'],
+      undefined,
+      ds,
+      rels,
+      [],
+      ['region'], // extraFields
+    );
+    // The cross-source dimension is enriched onto every row (guard reports it supported).
+    expect(resolved.map((r) => r.region)).toEqual(['EU', 'US']);
+
+    // Without extraFields it is NOT requested → reads undefined (the pre-fix blank-bucket bug).
+    const withoutExtra = resolveChartRowsForAggregation(
+      ordersRows,
+      'orders',
+      'id',
+      ['total'],
+      undefined,
+      ds,
+      rels,
+      [],
+    );
+    expect(withoutExtra.every((r) => r.region === undefined)).toBe(true);
+  });
 });
 
 describe('analyzeChartSupport', () => {
@@ -2284,5 +2440,81 @@ describe('buildGanttItems', () => {
     const result = buildGanttItems([], 'task', 'start', 'end', 'team');
     expect(result.items).toEqual([]);
     expect(result.categories).toEqual([]);
+  });
+});
+
+// ─── Heatmap aggregation policy (finding 2.17) ────────────────────────────────
+
+describe('aggregateHeatmap aggregation policy', () => {
+  it("counts every row per cell for 'count' — including rows with a null measure", () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: 10 },
+      { x: 'Jan', y: 'EU', v: null }, // null measure must still be counted
+      { x: 'Jan', y: 'EU', v: '' }, // empty-string measure must still be counted
+    ];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'count');
+    expect(data.cells.get('Jan\x00EU')).toBe(3);
+  });
+
+  it('keeps a cell whose measures are all null (shows 0 for sum, not vanish)', () => {
+    const rows = [{ x: 'Jan', y: 'EU', v: null }];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    expect(data.xLabels).toContain('Jan');
+    expect(data.yLabels).toContain('EU');
+    expect(data.cells.get('Jan\x00EU')).toBe(0);
+  });
+
+  it("does not inflate 'sum'/'avg' with an empty-string cell coerced to 0", () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: 10 },
+      { x: 'Jan', y: 'EU', v: '' }, // must be skipped, not treated as 0
+    ];
+    // sum stays 10 (empty skipped), and avg is 10 (denominator 1), not 5 (denominator 2).
+    expect(aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum').cells.get('Jan\x00EU')).toBe(10);
+    expect(aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'avg').cells.get('Jan\x00EU')).toBe(10);
+  });
+
+  it('coerces numeric-string measures for sum (CSV/JSON sources)', () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: '10' },
+      { x: 'Jan', y: 'EU', v: '5' },
+    ];
+    expect(aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum').cells.get('Jan\x00EU')).toBe(15);
+  });
+});
+
+// ─── Funnel aggregation policy (finding 2.17) ─────────────────────────────────
+
+describe('buildFunnelStages aggregation policy', () => {
+  it('does not inflate a stage sum with an empty-string measure coerced to 0', () => {
+    const rows = [
+      { stage: 'Lead', v: 100 },
+      { stage: 'Lead', v: '' }, // must be skipped, not summed as 0
+    ];
+    const { stages } = buildFunnelStages(
+      rows,
+      'stage',
+      'v',
+      'sum',
+      'natural',
+      undefined,
+      undefined,
+    );
+    const lead = stages.find((s) => s.label === 'Lead');
+    expect(lead?.value).toBe(100);
+  });
+
+  it('keeps a stage present (value 0) when all its measures are null', () => {
+    const rows = [{ stage: 'Lead', v: null }];
+    const { stages } = buildFunnelStages(
+      rows,
+      'stage',
+      'v',
+      'sum',
+      'natural',
+      undefined,
+      undefined,
+    );
+    expect(stages.find((s) => s.label === 'Lead')?.value).toBe(0);
   });
 });

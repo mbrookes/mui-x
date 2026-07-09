@@ -809,4 +809,183 @@ describe('createBatchingAdapter — cross-endpoint join enrichment', () => {
 
     expect(result.rows[0]['customer-segment']).toBeNull();
   });
+
+  it('probes the cross-endpoint join with the normalized key policy (numeric FK vs string PK)', async () => {
+    // Primary rows carry a NUMERIC FK; the join source's PK arrives as a STRING. Keying/probing
+    // the join index by the raw value would fail to match; normalizeJoinKey coerces both (2.20).
+    const ordersFetch = makeOkFetch([{ id: 'w1', rows: [{ id: 101, customerId: 1, total: 500 }] }]);
+    const customersFetch = makeOkFetch([
+      { id: '_xjoin_source-customers', rows: [{ id: '1', segment: 'Corporate', country: 'US' }] },
+    ]);
+
+    const { mainAdapter } = buildHarness({
+      ordersFetch,
+      customersFetch,
+      relationships: defaultRelationships,
+      expressionFields: [
+        {
+          id: 'customer-segment',
+          label: 'Customer Segment',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+        },
+      ],
+    });
+
+    const result = await mainAdapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        widgetId: 'w1',
+        select: ['id', 'customerId', 'total', 'customer-segment'],
+      }),
+    );
+
+    expect(result.rows[0]).toMatchObject({ id: 101, 'customer-segment': 'Corporate' });
+  });
+});
+
+// ── Aggregation push-down policy (findings 1.8 / 2.25 / 1.7) ──────────────────
+
+describe('createBatchingAdapter — aggregation & filter push-down policy', () => {
+  it('routes avg + xGroupBy to raw rows client-side (no server avg-of-averages)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['date', 'total'],
+        groupBy: 'date',
+        xGroupBy: 'month',
+        aggregations: [{ field: 'total', fn: 'avg', alias: 'total' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown; columns: string[] }>;
+    };
+    // Aggregations stripped → server returns raw rows; the widget averages client-side per bucket.
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(body.widgets[0].columns).toContain('total');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still pushes avg down when there is no xGroupBy re-bucketing', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'total'],
+        groupBy: 'category',
+        aggregations: [{ field: 'total', fn: 'avg', alias: 'total' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: Array<{ func: string }> }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'total', func: 'avg', alias: 'total' },
+    ]);
+  });
+
+  it('pushes a fully-bounded between whose lower bound is a genuine 0 (not treated as unset)', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        filter: {
+          type: 'leaf',
+          field: 'total',
+          op: 'between',
+          value: { from: 0, to: 100 },
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // A truthiness bound check treated `from: 0` as unset → the whole between stayed client-side
+    // (absent from server filters). It must be pushed as a two-bound between (finding 2.25).
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'total', operator: 'between', value: [0, 100] },
+    ]);
+  });
+
+  it('warns (never silently drops) a filter on an arithmetic expression field', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: makeOkFetch([{ id: 'w1', rows: [] }]) as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [field('id', 'number'), field('price', 'number'), field('cost', 'number')],
+        adapter: sharedAdapter,
+      },
+    };
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships: [],
+      expressionFields: [
+        {
+          id: 'expr-margin',
+          label: 'Margin',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { operator: 'subtract', inputs: [{ id: 'price' }, { id: 'cost' }] },
+        },
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'price', 'cost'],
+        filter: {
+          type: 'leaf',
+          field: 'expr-margin',
+          op: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    // The predicate on the arithmetic expression field is dropped from the server query...
+    expect(body.widgets[0].filters).toBeUndefined();
+    // ...but never silently: a divergence warning fires (honouring the module's contract).
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });

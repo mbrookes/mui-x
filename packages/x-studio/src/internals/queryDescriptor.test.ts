@@ -252,6 +252,44 @@ describe('buildQueryDescriptor', () => {
     expect(desc.filter).toMatchObject({ type: 'leaf', field: 'region', value: 'EU' });
   });
 
+  it('strips a page-scoped rank filter from the server descriptor (finding 1.6)', () => {
+    // A page rank filter has no wire form: `filterStateToLeaf` drops `filterMode`, so it would
+    // serialize as a bogus `field = <rankValue>` predicate. It must be excluded from the server
+    // filter tree (the rank reduction is re-applied client-side after the fetch).
+    const rankFilter = makeFilter({
+      scope: { kind: 'page' },
+      field: 'total',
+      filterMode: 'rank',
+      value: 10,
+      rankDirection: 'top',
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [rankFilter], PAGE_ID);
+    // No bogus `total = 10` predicate reaches the server.
+    expect(desc.filter).toBeUndefined();
+  });
+
+  it('keeps non-rank page filters while stripping a co-scoped rank filter', () => {
+    const rankFilter = makeFilter({
+      id: 'rank',
+      scope: { kind: 'page' },
+      field: 'total',
+      filterMode: 'rank',
+      value: 5,
+    });
+    const regionFilter = makeFilter({
+      id: 'region',
+      scope: { kind: 'page' },
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [rankFilter, regionFilter], PAGE_ID);
+    // Only the non-rank predicate survives.
+    expect(desc.filter).toMatchObject({ type: 'leaf', field: 'region', value: 'EU' });
+  });
+
   it('includes widget-scoped filters for this widget only', () => {
     const widgetFilter = makeFilter({
       scope: { kind: 'widget', widgetId: 'w1' },

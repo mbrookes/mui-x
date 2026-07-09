@@ -1,5 +1,9 @@
 import type { StudioExpression } from '../models';
-import { isFieldExpression, isFunctionExpression } from '../utils/expressionEvaluator';
+import {
+  isFieldExpression,
+  isFunctionExpression,
+  isJoinFieldExpression,
+} from '../utils/expressionEvaluator';
 
 /**
  * Walks a StudioExpression tree and collects all field IDs it references.
@@ -20,4 +24,28 @@ export function collectExpressionRefs(expr: StudioExpression): string[] {
   };
   walk(expr);
   return refs;
+}
+
+/**
+ * Walks the FULL expression tree and collects every foreign `joinSourceId` a
+ * `JoinFieldExpression` node references — including nested ones, e.g. the
+ * `customers` join inside `if(customers.country == 'US', 1, 0)`.
+ *
+ * Checking only the top-level node (the previous behaviour) missed a join nested
+ * inside a `FunctionExpression`, so the joined foreign source's rows were not tracked
+ * as a dependency (stale cache) and the evaluator fell back to a slow per-row
+ * linear scan (finding 2.18).
+ */
+export function collectJoinSourceIds(expr: StudioExpression): string[] {
+  const ids: string[] = [];
+  const walk = (node: StudioExpression): void => {
+    if (isJoinFieldExpression(node)) {
+      ids.push(node.joinSourceId);
+    } else if (isFunctionExpression(node)) {
+      node.inputs.forEach(walk);
+    }
+    // FieldExpression / ValueExpression reference no foreign join source.
+  };
+  walk(expr);
+  return ids;
 }

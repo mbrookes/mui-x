@@ -36,6 +36,7 @@ import type {
   ClientMutationResult,
 } from '../models';
 import { applyFilters, isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
+import { normalizeJoinKey } from '../internals/joinKeys';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
@@ -334,11 +335,13 @@ export function createBatchingAdapter(
             const promise = joinSource.adapter
               .getRows(lookupDescriptor)
               .then((result) => {
+                // Key the join index through the shared `normalizeJoinKey` policy (finding 2.20)
+                // so a numeric FK matches a string PK etc. — matching every other join path.
                 const lookup = new Map<unknown, Record<string, unknown>>();
                 for (const row of result.rows) {
-                  const pkVal = row[joinPkField];
-                  if (pkVal != null && !lookup.has(pkVal)) {
-                    lookup.set(pkVal, row as Record<string, unknown>);
+                  const pkKey = normalizeJoinKey(row[joinPkField]);
+                  if (pkKey !== null && !lookup.has(pkKey)) {
+                    lookup.set(pkKey, row as Record<string, unknown>);
                   }
                 }
                 return lookup;
@@ -375,8 +378,9 @@ export function createBatchingAdapter(
               if (enr.logicalFieldId in row) {
                 return row; // Already set — don't overwrite (consistent with enrichRowsWithExpressions)
               }
-              const fkValue = row[enr.fkField];
-              const joinRow = fkValue != null ? lookup.get(fkValue) : undefined;
+              // Probe with the SAME normalized key policy the lookup was built with (finding 2.20).
+              const fkKey = normalizeJoinKey(row[enr.fkField]);
+              const joinRow = fkKey !== null ? lookup.get(fkKey) : undefined;
               const enrichedValue = joinRow?.[enr.joinFieldId] ?? null;
               return { ...row, [enr.logicalFieldId]: enrichedValue };
             });
@@ -870,6 +874,10 @@ function buildBatchWidgetDescriptor(
     if (hasCountAggregation(d.aggregations)) {
       warnCountRoutedClientSide(d.sourceId, warnDedupe);
       aggregations = undefined;
+    } else if (d.xGroupBy && hasAvgAggregation(d.aggregations)) {
+      // avg + xGroupBy: raw rows + client-side aggregation (finding 1.8) — see helper.
+      warnAvgXGroupByRoutedClientSide(d.sourceId, warnDedupe);
+      aggregations = undefined;
     } else if (d.aggregations && d.aggregations.length > 0) {
       aggregations = d.aggregations.map((a) => ({
         column: a.field,
@@ -989,6 +997,12 @@ function buildBatchWidgetDescriptor(
       warnCountRoutedClientSide(d.sourceId, warnDedupe);
       return undefined;
     }
+    // avg + xGroupBy is routed client-side too (finding 1.8): the adapter can't transmit the
+    // bucket granularity, so a pushed-down avg would be re-bucketed into an average of averages.
+    if (d.xGroupBy && hasAvgAggregation(d.aggregations)) {
+      warnAvgXGroupByRoutedClientSide(d.sourceId, warnDedupe);
+      return undefined;
+    }
     const aggs = (d.aggregations ?? []).flatMap((a) => {
       const r = resolve(a.field);
       if (r.skip) {
@@ -1017,7 +1031,22 @@ function buildBatchWidgetDescriptor(
   );
   const filters = partition.predicates.flatMap((pred) => {
     const r = resolve(pred.column);
-    if (r.skip || r.unresolved) {
+    if (r.skip) {
+      // A `skip` predicate targets a computed (arithmetic `FunctionExpression`) field with no
+      // server-side column — the raw inputs come back and the expression is re-derived
+      // client-side, but this predicate cannot be re-applied at the adapter's raw-row residual
+      // stage (the expression column isn't materialised there). Warn rather than drop it
+      // silently, honouring the module's "degrades to client-side, never silently dropped"
+      // contract (finding 1.7).
+      warnAdapterDivergence(
+        warnDedupe,
+        `A filter on the computed field "${pred.column}" for source "${d.sourceId}" targets an ` +
+          `arithmetic expression with no server-side column, so it was dropped from the query. ` +
+          `Computed-field filters work correctly on in-memory sources.`,
+      );
+      return [];
+    }
+    if (r.unresolved) {
       return [];
     }
     // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
@@ -1146,11 +1175,15 @@ function isFullyBoundedBetween(value: unknown): boolean {
   if (value === null || typeof value !== 'object') {
     return false;
   }
+  // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
+  // "between 0 and 100") counts as SET — a truthiness check treated `0` as unset and kept
+  // the whole predicate client-side, mirroring the in-memory bug this pairs with (finding 2.25).
+  const hasBound = (v: unknown): boolean => v != null && v !== '';
   if (Array.isArray(value)) {
-    return value.length === 2 && Boolean(value[0]) && Boolean(value[1]);
+    return value.length === 2 && hasBound(value[0]) && hasBound(value[1]);
   }
   const range = value as { from?: unknown; to?: unknown };
-  return Boolean(range.from) && Boolean(range.to);
+  return hasBound(range.from) && hasBound(range.to);
 }
 
 /**
@@ -1415,6 +1448,11 @@ function hasCountAggregation(aggregations: StudioQueryDescriptor['aggregations']
   return (aggregations ?? []).some((a) => a.fn === 'count');
 }
 
+/** True when any aggregation uses `avg`. */
+function hasAvgAggregation(aggregations: StudioQueryDescriptor['aggregations']): boolean {
+  return (aggregations ?? []).some((a) => a.fn === 'avg');
+}
+
 /** Warn (once per build) that a `count` aggregation was routed client-side (finding 2.16d). */
 function warnCountRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
   warnAdapterDivergence(
@@ -1423,6 +1461,24 @@ function warnCountRoutedClientSide(sourceId: string, dedupe: Set<string>): void 
       `to the data adapter: the adapter's SQL count skips rows with a NULL measure value, while ` +
       `Studio counts every row (COUNT(*) semantics, consistent with in-memory sources). Raw rows ` +
       `are fetched for this widget and aggregated client-side.`,
+  );
+}
+
+/**
+ * Warn (once per build) that an `avg` aggregation combined with an `xGroupBy` bucketing was
+ * routed to raw-rows-then-client-aggregate (finding 1.8). The adapter cannot transmit `xGroupBy`,
+ * so a pushed-down `avg` is computed at the RAW x-grain; the client then re-buckets by
+ * month/quarter/etc. and would average those per-grain averages — an unweighted average of
+ * averages, correct only when every bucket has an equal row count. Fetching raw rows and letting
+ * the widget compute the average client-side (exactly as `count` already does) is exact.
+ */
+function warnAvgXGroupByRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
+  warnAdapterDivergence(
+    dedupe,
+    `An "avg" aggregation with time bucketing (xGroupBy) for source "${sourceId}" was computed ` +
+      `client-side instead of pushed to the data adapter: the adapter cannot transmit the bucket ` +
+      `granularity, so a server-side average would be re-bucketed into an (incorrect) unweighted ` +
+      `average of averages. Raw rows are fetched for this widget and averaged client-side.`,
   );
 }
 

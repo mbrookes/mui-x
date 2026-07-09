@@ -12,9 +12,13 @@
  * built the same way `studioBackendAdapter.test.ts` builds one.
  */
 import * as React from 'react';
-import { renderHook, waitFor } from '@mui/internal-test-utils';
+import { renderHook, waitFor, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { StudioState } from '../../../models';
+import type {
+  CreateDefaultStudioStateOverrides,
+  StudioState,
+  StudioWidgetOf,
+} from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
 import {
   StudioUIConfigContext,
@@ -27,19 +31,35 @@ function makeSseBody(events: object[]): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
-function mockFetch(ssePayload: Uint8Array) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      body: new ReadableStream({
-        start(ctrl) {
-          ctrl.enqueue(ssePayload);
-          ctrl.close();
-        },
-      }),
+function sseResponse(ssePayload: Uint8Array) {
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(ssePayload);
+        ctrl.close();
+      },
     }),
-  );
+  };
+}
+
+function mockFetch(ssePayload: Uint8Array) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(ssePayload)));
+}
+
+/**
+ * Stubs `fetch` to return a fresh single-use SSE stream on each call, in order —
+ * needed for tests that expect the hook to issue more than one `/chat` request
+ * (a plain `mockResolvedValue` would hand out the same already-consumed
+ * `ReadableStream` reference to every call).
+ */
+function mockFetchSequence(ssePayloads: Uint8Array[]) {
+  const fn = vi.fn();
+  for (const payload of ssePayloads) {
+    fn.mockResolvedValueOnce(sseResponse(payload));
+  }
+  vi.stubGlobal('fetch', fn);
+  return fn;
 }
 
 function setup(initialState: Partial<StudioState> = {}) {
@@ -64,6 +84,31 @@ function setup(initialState: Partial<StudioState> = {}) {
     );
   }
   return wrapper;
+}
+
+/**
+ * Like {@link setup}, but also returns the backing `StudioController` so a test
+ * can drive mutations (`updateWidget`, `setDataSourceRows`, ...) after the hook
+ * has already rendered — needed to prove the snapshot memo reacts to them.
+ */
+function setupWithController(initialState: CreateDefaultStudioStateOverrides = {}) {
+  const { controller, wrapper: StudioWrapper } = createStudioHarness({ initialState });
+  const uiConfigValue = {
+    tableSourceMode: 'explicit' as const,
+    featureFlags: {},
+    localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    aiConfig: { endpoint: 'https://fake.test/api/ai' },
+  };
+  function wrapper(props: { children?: React.ReactNode }) {
+    return (
+      <StudioWrapper>
+        <StudioUIConfigContext.Provider value={uiConfigValue}>
+          {props.children}
+        </StudioUIConfigContext.Provider>
+      </StudioWrapper>
+    );
+  }
+  return { controller, wrapper };
 }
 
 beforeEach(() => {
@@ -216,5 +261,228 @@ describe('useTextWidgetAI', () => {
     ).not.toBe(null);
     const freshKey = cacheKeys.find((k) => k.includes('text-1'));
     expect(freshKey).toBeDefined();
+  });
+
+  // ─── Snapshot memo reactivity (finding 3.15) ────────────────────────────────
+  //
+  // The memo computing `snapshot`/`hash`/`cacheKey` used to depend only on
+  // `activePage`/`dashboard` identity — but `buildPageSnapshot` actually reads
+  // sibling widget configs from `doc.widgets` and row data from
+  // `runtime.dataSources`, neither of which changes `activePage`/`dashboard`
+  // identity. So a sibling-widget config edit or a `setDataSourceRows`/
+  // `upsertDataSource` call left the memo (and its cached markdown) stale until a
+  // manual `refresh()`. These tests drive real controller mutations after the
+  // hook has rendered and assert a second `/chat` request goes out reflecting
+  // the change.
+  function makeGridWidget(title: string): StudioWidgetOf<'grid'> {
+    return {
+      id: 'grid-1',
+      kind: 'grid',
+      title,
+      sourceId: 'src1',
+      config: { columns: [{ fieldId: 'amount' }] },
+    };
+  }
+
+  describe('snapshot memo reactivity to widget/data changes', () => {
+    it('recomputes the page snapshot when a sibling widget config changes', async () => {
+      const { controller, wrapper } = setupWithController({
+        doc: {
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] },
+          },
+          widgets: {
+            'grid-1': makeGridWidget('Original Title'),
+          },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Src1',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 100 }],
+            },
+          },
+        },
+      });
+
+      const fetchMock = mockFetchSequence([
+        makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+        makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+      ]);
+
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('First');
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as {
+        pageSnapshot?: string;
+      };
+      expect(firstBody.pageSnapshot).toContain('Original Title');
+
+      act(() => {
+        controller.updateWidget('grid-1', { title: 'Renamed Title' });
+      });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Second');
+      });
+      const secondBody = JSON.parse(String(fetchMock.mock.calls[1][1].body)) as {
+        pageSnapshot?: string;
+      };
+      expect(secondBody.pageSnapshot).toContain('Renamed Title');
+      expect(secondBody.pageSnapshot).not.toBe(firstBody.pageSnapshot);
+    });
+
+    it('recomputes the page snapshot when runtime data-source rows change', async () => {
+      const { controller, wrapper } = setupWithController({
+        doc: {
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] },
+          },
+          widgets: {
+            'grid-1': makeGridWidget('Grid'),
+          },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Src1',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 100 }],
+            },
+          },
+        },
+      });
+
+      const fetchMock = mockFetchSequence([
+        makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+        makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+      ]);
+
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('First');
+      });
+      const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as {
+        pageSnapshot?: string;
+      };
+      expect(firstBody.pageSnapshot).toContain('100');
+
+      act(() => {
+        controller.setDataSourceRows('src1', [{ amount: 999 }]);
+      });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Second');
+      });
+      const secondBody = JSON.parse(String(fetchMock.mock.calls[1][1].body)) as {
+        pageSnapshot?: string;
+      };
+      expect(secondBody.pageSnapshot).toContain('999');
+      expect(secondBody.pageSnapshot).not.toContain('100');
+    });
+  });
+
+  // ─── Tool-approval auto-approve guard (finding 3.15) ────────────────────────
+  //
+  // The hook has no approval UI (unlike the main chat panel's confirmation card),
+  // so it used to blindly POST `{ approved: true }` for ANY `tool-approval-request`
+  // event — safe only as long as the server itself enforces the `allowedTools`
+  // restriction the request declared. These tests assert the client-side guard:
+  // approve only when the request's own `toolName` is in the read-only allowlist
+  // this hook actually sent, and withhold approval otherwise.
+  describe('tool-approval-request auto-approve guard', () => {
+    it('approves a tool-approval-request for an allowed read-only tool', async () => {
+      const approvalFetchCalls: [string, RequestInit][] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init: RequestInit) => {
+          if (url.endsWith('/approval')) {
+            approvalFetchCalls.push([url, init]);
+            return Promise.resolve({ ok: true, body: null });
+          }
+          return Promise.resolve(
+            sseResponse(
+              makeSseBody([
+                {
+                  type: 'tool-approval-request',
+                  toolCallId: 'call-1',
+                  toolName: 'query_data_source',
+                },
+                { type: 'text-delta', delta: 'Done' },
+                { type: 'finish' },
+              ]),
+            ),
+          );
+        }),
+      );
+      const wrapper = setup();
+
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Done');
+      });
+      expect(approvalFetchCalls).toHaveLength(1);
+      const [, init] = approvalFetchCalls[0];
+      const body = JSON.parse(String(init.body)) as { id: string; approved: boolean };
+      expect(body).toEqual({ id: 'call-1', approved: true });
+    });
+
+    it('withholds approval for a tool-approval-request naming a tool outside the read-only allowlist', async () => {
+      const approvalFetchCalls: [string, RequestInit][] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init: RequestInit) => {
+          if (url.endsWith('/approval')) {
+            approvalFetchCalls.push([url, init]);
+            return Promise.resolve({ ok: true, body: null });
+          }
+          return Promise.resolve(
+            sseResponse(
+              makeSseBody([
+                {
+                  type: 'tool-approval-request',
+                  toolCallId: 'call-2',
+                  // Not in the hook's own `allowedTools` — a server that (by bug or
+                  // drift) asks approval for a mutating tool must NOT get an
+                  // unconditional rubber stamp from this headless caller.
+                  toolName: 'remove_widget',
+                },
+                { type: 'text-delta', delta: 'Done' },
+                { type: 'finish' },
+              ]),
+            ),
+          );
+        }),
+      );
+      const wrapper = setup();
+
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Done');
+      });
+      expect(approvalFetchCalls).toHaveLength(1);
+      const [, init] = approvalFetchCalls[0];
+      const body = JSON.parse(String(init.body)) as { id: string; approved: boolean };
+      expect(body).toEqual({ id: 'call-2', approved: false });
+    });
   });
 });

@@ -6,12 +6,28 @@ import {
   useStudioSelector,
   selectActivePage,
   selectDashboard,
+  selectWidgets,
+  selectDataSources,
 } from '../../../context';
 import { useStudioUIConfig } from '../../../internals/StudioUIConfigContext';
 import { buildWidgetDataSummary } from '../../StudioChatPanel/generateInsight';
 import { parseSSEStream, serializeDashboardState } from '../../StudioChatPanel/sseUtils';
 
 const CACHE_PREFIX = 'studio:textAI:v1';
+
+/**
+ * The only tools this hook's chat request declares via `allowedTools` — this widget
+ * runs headless (no chat UI, so no human can review a `tool-approval-request` card
+ * the way the main `StudioChatPanel` lets a user do). The SSE `tool-approval-request`
+ * handler below auto-approves ONLY requests whose own `toolName` is in this list,
+ * as a client-side guard against a server that (whether by bug or by an
+ * out-of-sync deploy) sends an approval request for a tool outside the restriction
+ * this request itself asked for — see finding 3.15. This is defense in depth, not a
+ * replacement for the server enforcing `allowedTools`: a compromised/buggy server
+ * could still lie about `toolName` on the wire. Kept as a single source shared with
+ * the request body so the two can't drift apart.
+ */
+const READ_ONLY_TOOL_NAMES = ['query_data_source', 'summarise_page'] as const;
 
 /**
  * Cap on the number of cached AI responses kept in `localStorage` under
@@ -143,6 +159,14 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
   const controller = useStudioController();
   const activePage = useStudioSelector(selectActivePage);
   const dashboard = useStudioSelector(selectDashboard);
+  // `buildPageSnapshot` (via `buildWidgetDataSummary`) reads sibling widget configs
+  // from `doc.widgets` and row data from `runtime.dataSources` — neither changes
+  // `activePage`/`dashboard` identity (finding 3.15), so both must be subscribed to
+  // directly or `setDataSourceRows`/`upsertDataSource`/a sibling-widget config edit
+  // would leave this memo (and the cached markdown it feeds) stale until a manual
+  // `refresh()`.
+  const widgets = useStudioSelector(selectWidgets);
+  const dataSources = useStudioSelector(selectDataSources);
 
   const { snapshot, hash, cacheKey } = React.useMemo(() => {
     const state = controller.getState();
@@ -150,8 +174,11 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     const h = djb2Hash(`${prompt}\n${snap}`);
     const key = `${CACHE_PREFIX}:${dashboard.id}:${dashboard.activePageId}:${widgetId}:${h}`;
     return { snapshot: snap, hash: h, cacheKey: key };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activePage is the reactive dependency that covers widget/data changes
-  }, [activePage, dashboard, widgetId, controller, prompt]);
+    // `widgets`/`dataSources` are read only to force recomputation when the state
+    // `buildPageSnapshot` reads changes identity — the memo body itself re-derives
+    // everything from `controller.getState()` rather than from these values directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgets/dataSources are used as reactive triggers only, see comment above
+  }, [activePage, dashboard, widgetId, controller, prompt, widgets, dataSources]);
 
   const [markdown, setMarkdown] = React.useState<string | null>(() => readCache(cacheKey));
   const [loading, setLoading] = React.useState(false);
@@ -197,7 +224,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
             dashboardState: serializableState,
             pageSnapshot: snapshot || undefined,
             // Restrict to read-only tools so no dashboard state mutations occur
-            allowedTools: ['query_data_source', 'summarise_page'],
+            allowedTools: [...READ_ONLY_TOOL_NAMES],
           }),
         });
 
@@ -210,11 +237,22 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
           if (sseEvent.type === 'text-delta') {
             content += String(sseEvent.delta ?? '');
           } else if (sseEvent.type === 'tool-approval-request') {
-            // Auto-approve: text widget AI only runs read-only tools, but guard just in case
+            // Client-side guard (finding 3.15): this widget has no approval UI for a
+            // human to review, so only auto-approve when the request's own `toolName`
+            // is actually within the read-only allowlist this request declared above.
+            // Blindly approving every request here would be safe only as long as the
+            // server itself enforces `allowedTools` — this guard means a server that
+            // (by bug, or drift between this endpoint and its `allowedTools` handling)
+            // asks approval for e.g. a mutating tool gets no approval from this headless
+            // caller, instead of an unconditional rubber stamp.
+            const requestedToolName = String((sseEvent as { toolName?: unknown }).toolName ?? '');
+            const approved = (READ_ONLY_TOOL_NAMES as readonly string[]).includes(
+              requestedToolName,
+            );
             fetch(approvalUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
-              body: JSON.stringify({ id: sseEvent.toolCallId, approved: true }),
+              body: JSON.stringify({ id: sseEvent.toolCallId, approved }),
             }).catch(() => {});
           } else if (sseEvent.type === 'finish') {
             return false;

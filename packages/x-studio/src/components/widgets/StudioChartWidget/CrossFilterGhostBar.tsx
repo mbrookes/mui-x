@@ -28,6 +28,7 @@ export function CrossFilterGhostBar(props: BarProps) {
     layout,
     ownerState,
     onClick,
+    skipAnimation: _skipAnimation,
     ...rest
   } = props;
 

@@ -65,4 +65,46 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
     const forged = `${headerB64}.${bodyB64}.`;
     expect(() => extractSecurityClaims(`Bearer ${forged}`, SECRET)).toThrow();
   });
+
+  describe('regionIds shape validation (finding 3.1)', () => {
+    it('passes an omitted regionIds through as undefined', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET);
+      const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
+      expect(claims.regionIds).toBeUndefined();
+    });
+
+    it('passes a well-formed number[] regionIds through unchanged', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [5, 6] }, SECRET);
+      const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
+      expect(claims.regionIds).toEqual([5, 6]);
+    });
+
+    it('coerces numeric-string regionIds entries to numbers', () => {
+      // Coercing (rather than merely tolerating) numeric strings means
+      // `computeSecurityHash`'s `(a, b) => a - b` sort — a no-op on strings —
+      // now sorts correctly, so two callers with the same regions in a
+      // different order share a cache key instead of fragmenting.
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: ['5', '6'] }, SECRET);
+      const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
+      expect(claims.regionIds).toEqual([5, 6]);
+    });
+
+    it('rejects a non-array regionIds claim', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: 'not-an-array' }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be an array/i);
+    });
+
+    it('rejects a regionIds array containing a non-numeric entry', () => {
+      const token = makeJwt(
+        { sub: 'u1', tenantId: 'acme', regionIds: [5, 'not-a-number'] },
+        SECRET,
+      );
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+
+    it('rejects a regionIds array containing an object entry', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [{ id: 5 }] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+  });
 });

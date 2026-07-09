@@ -41,6 +41,7 @@ import type {
 } from './types';
 import {
   resolveAlias,
+  SAFE_ALIAS_PATTERN,
   validateAggregationAliases,
   validateDescriptorColumns,
   validateHavingAliases,
@@ -184,15 +185,12 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
- * Safe identifier charset for interpolated aliases — the SAME pattern
- * `validateAggregationAliases` applies to aggregation aliases in
- * `shared/columnValidation.ts` (kept as a module-private literal here rather than
- * a cross-file import, matching how `SAFE_ORDER_BY_DIRECTION` is defined locally).
- */
-const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
-
-/**
  * Validate every expression-field OUTPUT ALIAS against the safe-identifier charset.
+ *
+ * Uses the SAME shared `SAFE_ALIAS_PATTERN` (`shared/columnValidation.ts`) that
+ * `validateAggregationAliases` applies to aggregation aliases — previously this
+ * was a byte-identical module-private duplicate (finding 3.4); now there is one
+ * definition to keep in sync if the charset is ever tightened.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), closing the finding-3.4 gap: an

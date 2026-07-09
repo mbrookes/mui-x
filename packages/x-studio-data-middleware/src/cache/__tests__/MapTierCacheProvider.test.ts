@@ -7,7 +7,7 @@
  * cover the basic get/set/TTL/invalidatePrefix contract plus the new
  * size-bounded eviction behavior.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MapTierCacheProvider } from '../MapTierCacheProvider';
 
 describe('MapTierCacheProvider', () => {
@@ -31,6 +31,41 @@ describe('MapTierCacheProvider', () => {
       setTimeout(r, 10);
     });
     expect(await cache.get('key1')).toBeUndefined();
+  });
+
+  describe('ttlMs: 0 (finding 2.1 — parity with the Redis providers)', () => {
+    // `lru-cache` treats `{ ttl: 0 }` as "no TTL" (immortal) — the OPPOSITE of
+    // what `ttlMs: 0` means on `RedisCacheProvider`/`RedisTierCacheProvider`,
+    // which floor it to a 1-second expiry (see the "ttlMs: 0 (finding 10)"
+    // parity suite in `RedisCacheProvider.test.ts`). This locks in that
+    // `MapTierCacheProvider` now floors a per-call `ttlMs: 0` to `MIN_TTL_MS`
+    // instead of storing the entry forever. See also
+    // `ttlZeroCrossProviderParity.test.ts` for the full four-provider check.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('floors a per-call ttlMs: 0 to a finite TTL instead of "never expires"', async () => {
+      const cache = new MapTierCacheProvider();
+      await cache.set('k1', { tier: 'server', rowCount: 1 }, 0);
+      expect(await cache.get('k1')).toBeDefined();
+      vi.advanceTimersByTime(1_100);
+      expect(await cache.get('k1')).toBeUndefined();
+    });
+
+    it('floors a constructor-level ttlMs: 0 default to a finite TTL', async () => {
+      const cache = new MapTierCacheProvider({ ttlMs: 0 });
+      await cache.set('k1', { tier: 'server', rowCount: 1 });
+      expect(await cache.get('k1')).toBeDefined();
+      vi.advanceTimersByTime(1_100);
+      expect(await cache.get('k1')).toBeUndefined();
+    });
   });
 
   it('invalidates entries by prefix', async () => {

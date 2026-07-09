@@ -42,6 +42,7 @@
  */
 import { LRUCache } from 'lru-cache';
 import type { TierEntry, TierCacheProvider } from './types';
+import { floorTtlMs } from './ttl';
 
 interface MapTierCacheProviderOptions {
   /**
@@ -67,7 +68,10 @@ export class MapTierCacheProvider implements TierCacheProvider {
     const { maxEntries = 10_000, ttlMs = 300_000 } = options;
     this.cache = new LRUCache<string, TierEntry>({
       max: maxEntries,
-      ttl: ttlMs,
+      // Floor an explicit `ttlMs: 0` to 1s — `lru-cache` otherwise treats
+      // `ttl: 0` as "never expires" (see `./ttl.ts`), the opposite of what
+      // `ttlMs: 0` means on the Redis-backed providers (finding 2.1).
+      ttl: floorTtlMs(ttlMs),
       allowStale: false,
     });
   }
@@ -77,7 +81,11 @@ export class MapTierCacheProvider implements TierCacheProvider {
   }
 
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {
-    this.cache.set(key, value, ttlMs !== undefined ? { ttl: ttlMs } : undefined);
+    // Floor an explicit `ttlMs: 0` to 1s (finding 2.1) — see `./ttl.ts`. Any
+    // other value, including `undefined` (use the constructor default), is
+    // passed through unchanged.
+    const floored = floorTtlMs(ttlMs);
+    this.cache.set(key, value, floored !== undefined ? { ttl: floored } : undefined);
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {

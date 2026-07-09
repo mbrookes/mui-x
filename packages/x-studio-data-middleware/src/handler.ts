@@ -199,13 +199,23 @@ async function processWidget(
       rowCount = rows.length;
     }
 
-    // ── 5. Populate data cache for client + server tiers ──────────────────
-    // DB push-down returns aggregated rows — not suitable for re-filtering.
+    // ── 5. Populate data cache ──────────────────────────────────────────────
+    // Aggregation queries are ALWAYS routed to the 'db' tier (step 2 above) and
+    // return grouped/aggregated rows keyed by the aggregation shape — left
+    // uncached here (unchanged, historical behavior). A NON-aggregation 'db'-tier
+    // result (finding 3.2), in contrast, is a plain RAW row slice — the exact
+    // same shape `executeForTier` returns for 'client'/'server' — routed to 'db'
+    // only because its preflight COUNT(*) exceeded `serverMemoryTier`. It is just
+    // as reusable as a 'client'/'server' result, so it is cached the same way;
+    // leaving it uncached (the historical behavior, and what the stale comment
+    // here used to claim for ALL 'db'-tier results) meant a query too large for
+    // the server tier re-ran on every request and re-shipped a potentially
+    // >100k-row slice on every hit.
     // Tag with the primary table AND every joined table so a mutation to any of
     // them invalidates this cached (joined) result — tagging only the primary
     // table would leave joined rows stale until TTL. Persist `rowCount` so a
     // later cache hit reports the same total as the cold miss.
-    if (tier !== 'db') {
+    if (tier !== 'db' || !hasAggregations) {
       await cacheProvider.set(
         cacheKey,
         { rows, cachedAt: Date.now(), tier, rowCount },

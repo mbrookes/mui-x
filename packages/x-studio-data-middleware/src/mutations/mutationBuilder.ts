@@ -139,9 +139,16 @@ function validateSecurityColumnValues(
     }
   }
 
+  // `!== undefined` (not truthiness) — finding 3.3, mirrors the region
+  // `undefined`-vs-`[]` distinction above. `claims.department === ''` used to
+  // be indistinguishable from "no department scoping" (both falsy), so a
+  // caller with an empty-string department claim could stamp ANY department
+  // value into `values` unchecked — fail OPEN. Gating on `undefined` instead
+  // means a defined (even empty-string) department claim always enforces the
+  // scope check below.
   if (
     cols.department &&
-    claims.department &&
+    claims.department !== undefined &&
     Object.prototype.hasOwnProperty.call(values, cols.department) &&
     values[cols.department] !== claims.department
   ) {
@@ -204,7 +211,10 @@ function resolveInsertScopeStamps(
     }
   }
 
-  if (cols.department && claims.department) {
+  // `!== undefined` (not truthiness) — finding 3.3. An empty-string department
+  // claim is a defined (if unusual) scope, not "unscoped"; auto-stamping it is
+  // just as valid as stamping any other single-valued department.
+  if (cols.department && claims.department !== undefined) {
     const present = Object.prototype.hasOwnProperty.call(values, cols.department);
     if (!present) {
       // Department is single-valued — the caller's own department is always the

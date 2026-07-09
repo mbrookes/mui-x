@@ -28,7 +28,13 @@ type RoutingTier = 'client' | 'server' | 'db';
  *
  * - 'client': return raw rows (client filters in-browser)
  * - 'server': return raw rows (middleware caches for re-use)
- * - 'db': return aggregated rows (DB push-down, no caching of raw data)
+ * - 'db': for an AGGREGATION descriptor, returns aggregated/grouped rows
+ *   (DB push-down; `handler.ts` does not cache these). For a NON-aggregation
+ *   descriptor whose preflight COUNT(*) exceeded `serverMemoryTier`, falls back
+ *   to the SAME plain select/orderBy/limit shape as 'client'/'server' — those
+ *   raw rows ARE cached by `handler.ts`, exactly like the other two tiers
+ *   (finding 3.2 — this used to say "no caching of raw data" for every 'db'
+ *   result, which was only ever true for the aggregation branch).
  *
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path, threaded from the handler). Direct
  *   callers omit it; a plan is then resolved on the spot from `descriptor`, reproducing the pre-refactor

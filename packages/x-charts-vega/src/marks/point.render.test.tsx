@@ -113,12 +113,12 @@ describe('<VegaLiteChart /> point/scatter marks', () => {
     expect(xPositions.size).to.equal(3);
   });
 
-  it('reports a translation gap for the size field encoding while still rendering markers', () => {
+  it('renders bubble markers with per-point radii driven by the quantitative size field, and no gap', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [
           { x: 1, y: 1, weight: 3 },
-          { x: 2, y: 2, weight: 9 },
+          { x: 2, y: 2, weight: 90 },
         ],
       },
       mark: 'point',
@@ -139,7 +139,48 @@ describe('<VegaLiteChart /> point/scatter marks', () => {
         }}
       />,
     );
-    expect(container.querySelectorAll('.MuiScatterChart-marker').length).to.equal(2);
-    expect(reported.map((gap) => gap.code)).to.include('encoding:size-field');
+    const markers = container.querySelectorAll('.MuiScatterChart-marker');
+    expect(markers.length).to.equal(2);
+    expect(reported.map((gap) => gap.code)).not.to.include('encoding:size-field');
+    const radii = Array.from(markers).map((marker) => Number(marker.getAttribute('r')));
+    expect(radii[0]).not.to.equal(radii[1]);
+    // The row with the larger `weight` gets the larger marker.
+    expect(radii[1]).to.be.greaterThan(radii[0]);
+  });
+
+  it('renders tick marks as <line> segments instead of scatter circles', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { horsepower: 130, cylinders: '4' },
+          { horsepower: 165, cylinders: '4' },
+          { horsepower: 220, cylinders: '8' },
+        ],
+      },
+      mark: 'tick',
+      encoding: {
+        // `x` has no other layer contributing a series, so its continuous
+        // domain (usually auto-computed from series data) is given
+        // explicitly here — see the "rule/tick segment overlays have no
+        // series to drive an automatic continuous-axis domain" gap.
+        x: { field: 'horsepower', type: 'quantitative', scale: { domain: [100, 250] } },
+        y: { field: 'cylinders', type: 'nominal' },
+      },
+    };
+    let reported: TranslationGap[] = [];
+    const { container } = render(
+      <VegaLiteChart
+        width={400}
+        height={300}
+        spec={spec}
+        onGaps={(gaps) => {
+          reported = gaps;
+        }}
+      />,
+    );
+    expect(container.querySelectorAll('.MuiScatterChart-marker').length).to.equal(0);
+    const lines = container.querySelectorAll('.MuiVegaOverlay-segments line');
+    expect(lines.length).to.equal(3);
+    expect(reported.map((gap) => gap.code)).not.to.include('mark:point-tick');
   });
 });

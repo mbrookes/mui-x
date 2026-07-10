@@ -266,6 +266,25 @@ describe('compileGeoshapeMark', () => {
       expect(zAxisEntry?.colorMap?.thresholds).to.have.length.greaterThan(0);
     });
 
+    it('honors a `legend.format` on the color field for the continuous legend', () => {
+      const compiled = compileSpec({
+        data: { values: [square('A', 0, { rate: 0.012 }), square('B', 20, { rate: 0.301 })] },
+        mark: 'geoshape',
+        encoding: {
+          color: { field: 'properties.rate', type: 'quantitative', legend: { format: '.1%' } },
+        },
+      } as VegaLiteSpec);
+      // The format is compiled to a legend formatter (percent, one decimal)...
+      const format = compiled.geo?.colorLegendFormat;
+      expect(format).to.be.a('function');
+      expect(format!(0.012)).to.equal('1.2%');
+      expect(format!(0.301)).to.equal('30.1%');
+      // ...and it is not reported as an ignored legend key.
+      expect(compiled.gaps.map((gap) => gap.code)).not.to.include(
+        'encoding:color-legend-config-ignored',
+      );
+    });
+
     it('reads the color field via a bare property name', () => {
       const compiled = compileSpec({
         data: { values: [featureA, featureB] },

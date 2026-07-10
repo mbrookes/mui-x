@@ -2,10 +2,12 @@ import type { CompiledSeries, CompiledUnit, UnitContext } from '../compile/conte
 import type { ContinuousColorMapConfig, PiecewiseColorMapConfig } from '../compile/color';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
+import { createValueFormatter } from '../format';
 import type {
   DatasetRow,
   VegaEncoding,
   VegaFieldDef,
+  VegaFieldType,
   VegaLookupTransform,
   VegaTransform,
 } from '../types';
@@ -389,6 +391,7 @@ function buildChoroplethEntries(
     // does not apply here.
     const { colorMap } = resolveColor(patchedEncoding, flatRows, ctx.gaps, ctx.unit.path, {
       colorMapConsumed: true,
+      legendFormatHonored: true,
     });
 
     const entries: MapShapeEntry[] = raw.map((entry) => {
@@ -417,6 +420,31 @@ function buildChoroplethEntries(
     return { name: entry.name, colorValue: entry.value, color, label: key };
   });
   return { entries };
+}
+
+/**
+ * Compile the color channel's `legend.format` (a d3 number/time pattern, e.g.
+ * `.1%`) into a value formatter for the continuous color legend. Only applies
+ * when the field surfaced a `colorMap` (quantitative/temporal); returns
+ * `undefined` when there is no translatable format.
+ */
+function resolveColorLegendFormat(
+  channel: VegaFieldDef,
+  hasColorMap: boolean,
+): ((value: unknown) => string) | undefined {
+  if (!hasColorMap || !channel.legend || typeof channel.legend !== 'object') {
+    return undefined;
+  }
+  const { format, formatType } = channel.legend as { format?: unknown; formatType?: unknown };
+  if (typeof format !== 'string') {
+    return undefined;
+  }
+  const formatter = createValueFormatter(
+    format,
+    channel.type as VegaFieldType | undefined,
+    typeof formatType === 'string' ? formatType : undefined,
+  );
+  return formatter ?? undefined;
 }
 
 /** Pick the color/fill channel that carries a field encoding, if any. */
@@ -561,10 +589,17 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     label: color.field,
   } as unknown as CompiledSeries;
 
+  // A `legend.format` on a quantitative/temporal color field (e.g. `.1%` for an
+  // unemployment rate) formats the continuous legend's min/max labels. x-charts
+  // ignores a z-axis valueFormatter for that legend, so it's surfaced on `geo`
+  // for the shell to apply via the legend's `minLabel`/`maxLabel`.
+  const legendFormat = resolveColorLegendFormat(color.channel, Boolean(colorMap));
+  const geoWithLegend = legendFormat ? { ...geo, colorLegendFormat: legendFormat } : geo;
+
   return {
     series: [series],
     plots: ['geoBase', 'mapShape'],
-    geo,
+    geo: geoWithLegend,
     // A quantitative/temporal color field surfaces a real color axis, keyed
     // so the shell can pick the matching (continuous vs. piecewise) legend.
     ...(colorMap ? { zAxis: [{ id: 'vega-geo-color', colorMap }] as CompiledUnit['zAxis'] } : {}),

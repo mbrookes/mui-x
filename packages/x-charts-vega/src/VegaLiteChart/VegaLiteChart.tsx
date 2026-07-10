@@ -384,11 +384,23 @@ function SingleViewChart(props: VegaLiteChartProps) {
     // outline maps) have no color axis and fall back to the series legend.
     const geoColorMap = (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)
       ?.colorMap;
+    // A `legend.format` on the color field (e.g. `.1%` for a rate) formats the
+    // continuous legend's min/max labels. x-charts ignores a z-axis
+    // valueFormatter for this legend, so apply it via `minLabel`/`maxLabel`.
+    const geoColorFormat = compiled.geo?.colorLegendFormat;
+    const geoColorLabel = geoColorFormat
+      ? ({ value }: { value: number | Date }) => geoColorFormat(value)
+      : undefined;
     let geoLegend: React.ReactNode;
     if (geoColorMap?.type === 'piecewise') {
       geoLegend = <PiecewiseColorLegend axisDirection="z" />;
     } else if (geoColorMap) {
-      geoLegend = <ContinuousColorLegend axisDirection="z" />;
+      geoLegend = (
+        <ContinuousColorLegend
+          axisDirection="z"
+          {...(geoColorLabel ? { minLabel: geoColorLabel, maxLabel: geoColorLabel } : {})}
+        />
+      );
     } else {
       geoLegend = compiled.hasLegend && <ChartsLegend />;
     }

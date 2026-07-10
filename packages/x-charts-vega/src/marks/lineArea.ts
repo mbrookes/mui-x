@@ -362,6 +362,9 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     strokeStyle.strokeWidth = mark.strokeWidth;
   }
   if (Array.isArray(mark.strokeDash) && mark.strokeDash.length > 0) {
+    // NOTE: x-charts animates a line's `stroke-dasharray` to reveal the path,
+    // so this dash pattern is honored on non-animated marks but can be overridden
+    // by the line draw-animation on a plain line series (see GAPS.md).
     strokeStyle.strokeDasharray = mark.strokeDash.join(' ');
   }
   const hasStrokeStyle = Object.keys(strokeStyle).length > 0;

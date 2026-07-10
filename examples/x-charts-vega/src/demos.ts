@@ -614,4 +614,96 @@ export const demos: Demo[] = [
       },
     },
   },
+  {
+    id: 'errorbar-dodged',
+    title: 'Dodged error bars (color split)',
+    description:
+      'mark: "errorbar" with a nominal color channel — one stderr interval per region within each ' +
+      'category, dodged side-by-side with a legend (custom overlay).',
+    data: distributionRows,
+    spec: {
+      mark: 'errorbar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'revenue', type: 'quantitative' },
+        color: { field: 'region', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'area-continuous',
+    title: 'Area over a continuous x axis (custom overlay)',
+    description:
+      'mark: "area" with a quantitative x — with no index-aligned category domain the filled band ' +
+      'renders as a custom overlay from the zero baseline (like the continuous-x line).',
+    data: spendRows,
+    spec: {
+      mark: 'area',
+      encoding: {
+        x: { field: 'spend', type: 'quantitative' },
+        y: { field: 'conversions', type: 'quantitative' },
+      },
+    },
+  },
+  {
+    id: 'segment-rule',
+    title: 'Span rules (rule x→x2, custom overlay)',
+    description:
+      'mark: "rule" spanning x→x2 per row, anchored on a categorical y — Gantt-style bars rendered ' +
+      'via the segments overlay (previously dropped as unsupported).',
+    data: [
+      { task: 'Design', start: 0, end: 3 },
+      { task: 'Build', start: 3, end: 8 },
+      { task: 'Test', start: 7, end: 10 },
+      { task: 'Ship', start: 10, end: 12 },
+    ],
+    spec: {
+      mark: { type: 'rule', strokeWidth: 10 },
+      encoding: {
+        x: { field: 'start', type: 'quantitative' },
+        x2: { field: 'end' },
+        y: { field: 'task', type: 'nominal' },
+        color: { field: 'task', type: 'nominal' },
+      },
+    },
+  },
+  {
+    id: 'styled-marks',
+    title: 'Mark styling: opacity + stroke width',
+    description:
+      'A translucent area (mark.opacity baked into the color alpha) under a thicker line ' +
+      '(mark.strokeWidth via series sx) — style properties x-charts has no direct prop for. ' +
+      '(mark.strokeDash is also applied but the line draw-animation can override the dash pattern.)',
+    data: salesRows,
+    spec: {
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
+      },
+      layer: [
+        { mark: { type: 'area', opacity: 0.25 } },
+        { mark: { type: 'line', strokeWidth: 4, strokeDash: [6, 4] } },
+      ],
+    },
+  },
+  {
+    id: 'tooltip-channel',
+    title: 'Custom tooltip fields (hover)',
+    description:
+      'encoding.tooltip lists the fields fed to a custom tooltip; hover a bar to see it. Also uses ' +
+      'legend.orient: "bottom" to reposition the legend.',
+    data: salesRows,
+    spec: {
+      mark: 'bar',
+      encoding: {
+        x: { field: 'month', type: 'ordinal' },
+        y: { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
+        color: { field: 'category', type: 'nominal', legend: { orient: 'bottom' } },
+        tooltip: [
+          { field: 'category', type: 'nominal' },
+          { field: 'revenue', type: 'quantitative', aggregate: 'sum' },
+        ],
+      },
+    },
+  },
 ];

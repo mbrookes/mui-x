@@ -50,6 +50,26 @@ import type { StudioDataSource, StudioRelationship } from '../../models';
  *    (`gridGrouping.symmetricAggregate`). See grainResolution.ts's JSDoc for the full
  *    rationale. So scenarios 1 and 2 still capture the current (unmigrated) grid
  *    behavior on purpose.
+ *
+ * CORRECTION (architecture review finding 2.7): `buildGroupedGridRows`/
+ * `symmetricAggregate` — exercised by scenario 1 below — had ZERO non-test callers
+ * in production. The on-screen `StudioGridWidget` never routed through this module;
+ * it groups/aggregates via DataGridPremium's own native `rowGroupingModel`/
+ * `aggregationModel`, applied over rows already fanned out by per-widget-row
+ * cross-source enrichment (`useWidgetRows.ts`) — so the exact scenario-1 double-
+ * counting this file's grid assertions prove `gridGrouping.ts` avoids was, until
+ * this fix, still reachable through the live widget. The fix makes the NATIVE
+ * aggregation path itself fan-out-safe: `StudioGridWidget.tsx`'s
+ * `makeFanoutSafeAggregationFunction`, registered via DataGridPremium's
+ * `aggregationFunctions` prop, dedupes a many-to-one joined column by its FK before
+ * reducing — reusing the exact same value reducer (`gridGrouping.ts`'s
+ * `aggregateValues`, extracted from `aggregateGridValue`) that `symmetricAggregate`
+ * calls here. `buildGroupedGridRows` itself remains unreached by the live widget
+ * (its topology restriction is real and still documented above), but the reducer it
+ * shares with the fix is no longer dead in production. See
+ * `StudioGridWidget.fanoutAggregation.test.tsx` for the regression test that
+ * exercises the real, live (native-grouping) code path end to end — this file only
+ * ever exercised the helper in isolation.
  */
 
 describe('fan-out golden fixtures — chart vs grid (current, pre-unification behavior)', () => {

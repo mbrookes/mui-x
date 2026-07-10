@@ -8,27 +8,37 @@ import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
 import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
 
-function aggregateGridValue(
-  rows: Record<string, unknown>[],
-  fieldId: string,
+/**
+ * Aggregates an array of already-extracted cell values for one field/aggregation
+ * combination — the core reducer shared by the row-based grid-grouping path below
+ * (`aggregateGridValue`/`buildGroupedGridRows`) and DataGridPremium's native
+ * per-column aggregation functions (`StudioGridWidget.tsx`'s `aggregationFunctions`),
+ * which extract a `(dedupeKey, value)` pair per row via `getCellValue` and dedupe
+ * fanned-out cross-source values by key before calling this on the deduped value
+ * list — see `StudioGridWidget.tsx` for why the native grouping path needs the same
+ * fan-out-safe dedup this module's `symmetricAggregate` already implements
+ * (architecture review finding 2.7).
+ */
+export function aggregateValues(
+  values: unknown[],
   aggregation: StudioGridSummaryAggregation,
-) {
+): number | null {
   if (aggregation === 'count') {
-    return rows.length;
+    return values.length;
   }
 
   if (aggregation === 'count_distinct') {
     // Shared distinct-count policy (excludes null/undefined) so a grid group-by aggregate
     // agrees with the KPI and measure-expression paths over the same field (finding 2.23).
-    return countDistinct(rows.map((row) => row[fieldId]));
+    return countDistinct(values);
   }
 
   // Route through the shared null-skip + boolean/numeric-string coercion policy
   // (finding 2.13) so a grid's group-by aggregate agrees with KPI/Chart/Pivot over
   // the same field — a raw `typeof v === 'number'` check silently excluded numeric
   // strings (`"12"`) and booleans instead of coercing them.
-  const numericValues = rows
-    .map((row) => coerceAggregateValue(row[fieldId]))
+  const numericValues = values
+    .map((value) => coerceAggregateValue(value))
     .filter((value): value is number => value !== null);
 
   switch (aggregation) {
@@ -54,6 +64,17 @@ function aggregateGridValue(
     default:
       return null;
   }
+}
+
+function aggregateGridValue(
+  rows: Record<string, unknown>[],
+  fieldId: string,
+  aggregation: StudioGridSummaryAggregation,
+) {
+  return aggregateValues(
+    rows.map((row) => row[fieldId]),
+    aggregation,
+  );
 }
 
 /**

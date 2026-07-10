@@ -6,6 +6,7 @@ import {
   useGridApiRef,
   type GridColDef,
   type GridCellParams,
+  type GridAggregationFunction,
   type GridAggregationModel,
   type GridRowClassNameParams,
   type GridValidRowModel,
@@ -16,6 +17,8 @@ import type {
   StudioDataField,
   StudioDataSource,
   StudioExpressionField,
+  StudioGridSummaryAggregation,
+  StudioRelationship,
   StudioWidgetConfig,
   StudioWidgetOf,
 } from '../../../models';
@@ -25,13 +28,18 @@ import {
   useStudioLocaleText,
   selectFilters,
   selectDataSources,
+  selectRelationships,
+  selectGlobalCrossFilterMode,
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
 import { computeGridSummary } from '../../../utils/gridSummary';
+import { aggregateValues } from '../../../utils/gridGrouping';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { getRowIdentity } from '../../../internals/rowIdentity';
+import { buildManyToOneRelationshipIndex } from '../../../internals/dataSourceGraph';
+import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
@@ -39,6 +47,128 @@ import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers'
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
   return fn === 'count' ? 'size' : fn;
+}
+
+/**
+ * `config.gridSummaryFields`/`config.gridAggregations` are keyed by
+ * `GridSetupPanel`'s composite column key (`sourceId/fieldId` for a cross-source
+ * column, bare `fieldId` for a primary one — see `GridSetupPanel.tsx`'s
+ * `columnAggKey`), so that two selected columns sharing a bare field id across
+ * sources get independent aggregation-menu entries instead of silently colliding
+ * (architecture review: per-column aggregation collision). Aggregating an actual
+ * row only ever needs the bare field id though — every row's cell lives under the
+ * plain field name regardless of which source it was cross-source-enriched from,
+ * and DataGridPremium's own `GridColDef.field`/pinned-summary-row keys are always
+ * the bare field id too — so translate composite keys back to their bare field id
+ * here, at the single point both the native `aggregationModel` and the
+ * summary-row computation read from `config.gridAggregations`/
+ * `config.gridSummaryFields`.
+ */
+export function resolveAggregationFieldKeys<T>(
+  aggregations: Record<string, T> | undefined,
+): Record<string, T> {
+  if (!aggregations) {
+    return {};
+  }
+  const result: Record<string, T> = {};
+  for (const [key, value] of Object.entries(aggregations)) {
+    const slashIndex = key.indexOf('/');
+    const fieldId = slashIndex === -1 ? key : key.slice(slashIndex + 1);
+    result[fieldId] = value;
+  }
+  return result;
+}
+
+/**
+ * fieldId → FK field (on the widget's own source) for every configured column that
+ * is cross-source (many-to-one related) AND fanned out by row enrichment
+ * (`useWidgetRows.ts`'s `enrichWithCrossSourceFields`) — i.e. the exact set of
+ * columns whose value is duplicated across every row sharing the same FK. Mirrors
+ * `utils/gridGrouping.ts`'s `crossSourceMeta` construction in `buildGroupedGridRows`.
+ *
+ * Used by `makeFanoutSafeAggregationFunction` below to dedupe by FK before reducing,
+ * so grouping+aggregating a fanned-out column (e.g. summing `orders.total` on an
+ * `order_items` grid grouped by category) counts each linked one-side record once,
+ * not once per many-side row (architecture review finding 2.7).
+ */
+export function resolveCrossSourceFkFields(
+  configColumns: StudioWidgetConfig['columns'],
+  widgetSourceId: string | undefined,
+  relationships: StudioRelationship[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!widgetSourceId) {
+    return map;
+  }
+  const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
+  for (const c of configColumns ?? []) {
+    if (!c.sourceId || c.sourceId === widgetSourceId) {
+      continue;
+    }
+    const rel = relIndex.get(c.sourceId);
+    if (rel) {
+      map.set(c.fieldId, rel.sourceField);
+    }
+  }
+  return map;
+}
+
+/**
+ * A `GridAggregationFunction` that dedupes fanned-out cross-source values before
+ * reducing, so the native DataGridPremium `rowGroupingModel`/`aggregationModel`
+ * path no longer double-counts a many-to-one joined column the way a naive per-row
+ * sum would (architecture review finding 2.7). Also used for the widget's OWN
+ * (non-cross-source) fields — for those, `crossSourceFkFields` has no entry, so the
+ * dedupe key falls back to the row's own (always-unique, see the `rows` memo
+ * below) id, making the dedupe pass a no-op and preserving prior behaviour exactly.
+ *
+ * `getCellValue` extracts a `(dedupeKey, value)` pair per row instead of the raw
+ * cell value (DataGridPremium's supported extensibility point for aggregating from
+ * more than one row field — see `GridAggregationFunction.getCellValue`); `apply`
+ * dedupes by that key using the same join-key coercion policy as the rest of the
+ * pipeline (`normalizeJoinKey`) before delegating to the shared reducer
+ * (`utils/gridGrouping.ts`'s `aggregateValues`, the same one `symmetricAggregate`
+ * uses) — a missing FK contributes nothing, matching `symmetricAggregate`.
+ */
+export function makeFanoutSafeAggregationFunction(
+  fn: StudioGridSummaryAggregation,
+  crossSourceFkFields: Map<string, string>,
+  columnTypes?: string[],
+): GridAggregationFunction<{ dedupeKey: unknown; value: unknown }, number | null> {
+  return {
+    getCellValue: ({ row, field }) => {
+      const fkField = crossSourceFkFields.get(field);
+      const record = row as Record<string, unknown>;
+      return {
+        dedupeKey: fkField ? record[fkField] : record.id,
+        value: record[field],
+      };
+    },
+    apply: ({ values }) => {
+      const seen = new Set<string>();
+      const deduped: unknown[] = [];
+      for (const entry of values) {
+        if (!entry) {
+          continue;
+        }
+        // A missing/unlinked FK never joins (matches `symmetricAggregate`'s
+        // null-FK-drops-nothing policy) — contribute nothing rather than guess.
+        const key = normalizeJoinKey(entry.dedupeKey);
+        if (key === null || seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        deduped.push(entry.value);
+      }
+      return aggregateValues(deduped, fn);
+    },
+    columnTypes,
+    // Aggregated count/distinct-count values aren't in the same unit as the
+    // underlying field (e.g. a currency column's count is a plain integer), so
+    // the column's own value formatter must not apply — mirrors DataGridPremium's
+    // native `size` function.
+    hasCellUnit: fn !== 'count' && fn !== 'count_distinct',
+  };
 }
 
 /**
@@ -278,10 +408,47 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
   // enrichment resolves their VALUES.
   const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
 
   const crossSourceFieldDefs = React.useMemo(
     () => resolveCrossSourceFieldDefs(widget.config.columns, widget.sourceId, dataSources),
     [widget.config.columns, widget.sourceId, dataSources],
+  );
+
+  // fieldId → FK field, for every configured cross-source column that is fanned out
+  // by row enrichment — used to dedupe fan-out double-counting in the native
+  // grouping aggregation below (finding 2.7).
+  const crossSourceFkFields = React.useMemo(
+    () => resolveCrossSourceFkFields(widget.config.columns, widget.sourceId, relationships),
+    [widget.config.columns, widget.sourceId, relationships],
+  );
+
+  const aggregationFunctions = React.useMemo<Record<string, GridAggregationFunction>>(
+    () => ({
+      sum: makeFanoutSafeAggregationFunction('sum', crossSourceFkFields, ['number']),
+      avg: makeFanoutSafeAggregationFunction('avg', crossSourceFkFields, ['number']),
+      min: makeFanoutSafeAggregationFunction('min', crossSourceFkFields, [
+        'number',
+        'date',
+        'dateTime',
+      ]),
+      max: makeFanoutSafeAggregationFunction('max', crossSourceFkFields, [
+        'number',
+        'date',
+        'dateTime',
+      ]),
+      // `toGridAggFn` maps our 'count' to the DataGridPremium built-in name 'size'.
+      size: makeFanoutSafeAggregationFunction('count', crossSourceFkFields),
+      // Not a DataGridPremium built-in — registering it here also fixes the
+      // separate (previously silent) gap where `count_distinct` passed through
+      // `toGridAggFn` unchanged but had no matching aggregation function, so a
+      // `count_distinct` group aggregation rendered nothing.
+      count_distinct: {
+        ...makeFanoutSafeAggregationFunction('count_distinct', crossSourceFkFields),
+        label: localeText.gridSummaryLabelCountDistinct,
+      },
+    }),
+    [crossSourceFkFields, localeText.gridSummaryLabelCountDistinct],
   );
 
   // Build column defs for ALL data source fields (own source + expression fields +
@@ -323,6 +490,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const {
     filteredRows,
+    filteredRowsNoCross,
     filteredRowsNoChartCross,
     hasChartCrossFilters,
     isLoading,
@@ -331,16 +499,32 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   } = useWidgetRows(widget, dataSource, pageId);
 
   // `crossFilterMode` is a cross-kind key (declared on the chart config but honored
-  // by grids too), so it is read via the flat cross-kind `StudioWidgetConfig`.
+  // by grids too), so it is read via the flat cross-kind `StudioWidgetConfig`. The
+  // dashboard-wide `globalCrossFilterMode` override takes precedence over the
+  // widget's own config, mirroring the exact precedence `useWidgetRows` already
+  // applies internally to compute `effectiveRows` (finding 1.6) — every other
+  // widget kind (chart/KPI/map/pivot) is global-mode-aware; the grid used to
+  // resolve its mode locally and ignore both the 'none' setting and the
+  // dashboard-wide toggle.
+  const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
   const crossFilterMode =
-    (widget.config as StudioWidgetConfig).crossFilterMode ?? 'cross-highlight';
+    globalCrossFilterMode ??
+    (widget.config as StudioWidgetConfig).crossFilterMode ??
+    'cross-highlight';
 
-  // In cross-highlight mode, show all baseline rows (hard-filtered by page/widget/interactive)
-  // and dim the non-matching ones. In cross-filter or none mode, use the appropriate row set.
-  const baseRows =
-    hasChartCrossFilters && crossFilterMode === 'cross-highlight'
-      ? filteredRowsNoChartCross
-      : filteredRows;
+  // In 'none' mode, cross-filters (chart-click and dashboard-wide) must be fully
+  // ignored — use the baseline with no cross-filters applied at all, matching
+  // `useWidgetRows`'s `effectiveRows` resolution. In cross-highlight mode, show all
+  // baseline rows (hard-filtered by page/widget/interactive) and dim the
+  // non-matching ones. In cross-filter mode, use the fully filtered rows.
+  let baseRows: typeof filteredRows;
+  if (crossFilterMode === 'none') {
+    baseRows = filteredRowsNoCross;
+  } else if (hasChartCrossFilters && crossFilterMode === 'cross-highlight') {
+    baseRows = filteredRowsNoChartCross;
+  } else {
+    baseRows = filteredRows;
+  }
 
   // Per-row match keys for the chart cross-filter — used to decide which rows to highlight.
   //
@@ -392,11 +576,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   );
 
   const aggregationModel = React.useMemo<GridAggregationModel>(() => {
-    if (!widget.config.gridAggregations) {
-      return {};
-    }
+    const resolved = resolveAggregationFieldKeys(widget.config.gridAggregations);
     return Object.fromEntries(
-      Object.entries(widget.config.gridAggregations).map(([field, fn]) => [field, toGridAggFn(fn)]),
+      Object.entries(resolved).map(([field, fn]) => [field, toGridAggFn(fn)]),
     );
   }, [widget.config.gridAggregations]);
 
@@ -548,7 +730,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // totals agree with what the user is focusing on. In all other modes use `rows` directly.
   const summaryConfig = widget.config.gridGroupByField
     ? undefined
-    : widget.config.gridSummaryFields;
+    : resolveAggregationFieldKeys(widget.config.gridSummaryFields);
   const summaryBasisRows =
     hasChartCrossFilters && crossFilterMode === 'cross-highlight' ? filteredRows : rows;
   const summaryValues = React.useMemo(() => {
@@ -601,6 +783,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         onRowGroupingModelChange={() => {}}
         aggregationModel={aggregationModel}
         onAggregationModelChange={() => {}}
+        aggregationFunctions={aggregationFunctions}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={() => {}}
         sx={{

@@ -1,6 +1,6 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioWidgetConfig } from '../../models';
+import type { StudioRelationship, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -25,7 +25,7 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [],
+    relationships: [] as StudioRelationship[],
     expressionFields: [],
   },
   runtime: {
@@ -214,6 +214,76 @@ describe('GridSetupPanel', () => {
       expect(screen.queryByText('Columns')).toBeNull();
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
+    }
+  });
+
+  // ─── Per-column aggregation collision (architecture review) ──────────────────
+  //
+  // `gridSummaryFields`/`gridAggregations` used to be keyed by bare `fieldId`, so a
+  // related-source column whose field id happens to match a primary column's (e.g.
+  // both have an `id` field) shared the exact same map entry — configuring one
+  // column's per-column aggregation silently overwrote the other's. The fix keys
+  // these maps by the same composite `sourceId/fieldId` convention (`columnAggKey`)
+  // already used for the column list's own React keys / menu-anchor identity.
+
+  it("keys per-column summary aggregation by composite sourceId/fieldId so a primary and a cross-source column sharing a bare field id ('id') don't collide", async () => {
+    controller.updateWidgetConfig.mockClear();
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousRelationships = mockState.doc.relationships;
+    const previousCustomers = mockState.runtime.dataSources.customers;
+
+    try {
+      mockState.doc.relationships = [
+        {
+          id: 'rel-orders-customers',
+          type: 'many-to-one',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+        },
+      ] as StudioRelationship[];
+      mockState.runtime.dataSources.customers = {
+        ...previousCustomers,
+        fields: [...previousCustomers.fields, { id: 'id', label: 'Customer ID', type: 'string' }],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: {
+          // Both columns share the bare fieldId 'id' — one from the primary
+          // (orders) source, one from the related (customers) source.
+          columns: [{ fieldId: 'id' }, { fieldId: 'id', sourceId: 'customers' }],
+        } as StudioWidgetConfig,
+      };
+
+      const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+
+      // Configure the PRIMARY orders.id column's summary aggregation to Count.
+      await user.click(screen.getByRole('button', { name: 'Options for Order ID' }));
+      const countItem = await screen.findByRole('menuitem', { name: 'Count' });
+      await user.click(countItem);
+
+      expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
+        gridSummaryFields: { id: 'count' },
+      });
+
+      // Configure the CROSS-SOURCE customers.id column's summary aggregation to
+      // Unique (count_distinct). Before the fix, since both columns' aggregation
+      // was keyed by the bare fieldId 'id', this call would have silently
+      // overwritten the primary column's entry above instead of creating an
+      // independent one.
+      controller.updateWidgetConfig.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Options for Customer ID' }));
+      const uniqueItem = await screen.findByRole('menuitem', { name: 'Unique' });
+      await user.click(uniqueItem);
+
+      expect(controller.updateWidgetConfig).toHaveBeenLastCalledWith('widget-1', {
+        gridSummaryFields: { 'customers/id': 'count_distinct' },
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.doc.relationships = previousRelationships;
+      mockState.runtime.dataSources.customers = previousCustomers;
     }
   });
 });

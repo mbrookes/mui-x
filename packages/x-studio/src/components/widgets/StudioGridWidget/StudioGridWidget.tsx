@@ -42,7 +42,6 @@ import {
   buildManyToOneRelationshipIndex,
   getReachableSourceIds,
 } from '../../../internals/dataSourceGraph';
-import { enrichWithCrossSourceFields } from '../../../internals/crossSourceEnrichment';
 import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
@@ -475,40 +474,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.columns, widget.sourceId, relationships],
   );
 
-  // Related-source EXPRESSION columns (finding 2.3): `useWidgetRows`'s cross-source
-  // enrichment reads the related source's RAW rows, so a related-source *calculated*
-  // column resolves to `undefined`. Supplementally L2-enrich just those columns here,
-  // reusing the shared (now L2-aware) `enrichWithCrossSourceFields`, so their value both
-  // renders on screen and feeds the footer summary. Physical cross-source columns are
-  // already enriched upstream, so they are deliberately excluded here to avoid a second
-  // clone pass. A no-op (reference-stable) when the widget has no such columns.
-  const relatedExpressionColumnRefs = React.useMemo(() => {
-    const ownSourceId = widget.sourceId;
-    return (widget.config.columns ?? []).flatMap((c) => {
-      if (!c.sourceId || c.sourceId === ownSourceId) {
-        return [];
-      }
-      const isRelatedExpression = allExpressionFields.some(
-        (ef) => ef.id === c.fieldId && ef.sourceId === c.sourceId && !ef.isMeasure,
-      );
-      return isRelatedExpression ? [{ fieldId: c.fieldId, sourceId: c.sourceId }] : [];
-    });
-  }, [widget.config.columns, widget.sourceId, allExpressionFields]);
-
-  const enrichRelatedExpressionColumns = React.useCallback(
-    (input: Record<string, unknown>[]): Record<string, unknown>[] =>
-      relatedExpressionColumnRefs.length > 0
-        ? enrichWithCrossSourceFields(
-            input,
-            widget.sourceId,
-            relatedExpressionColumnRefs,
-            dataSources,
-            relationships,
-            allExpressionFields,
-          )
-        : input,
-    [relatedExpressionColumnRefs, widget.sourceId, dataSources, relationships, allExpressionFields],
-  );
+  // Related-source EXPRESSION columns (finding 1.1): the shared `useWidgetRows` cross-source
+  // enrichment now threads `expressionFields`, so a related-source *calculated* column is
+  // L2-enriched and joined onto the widget rows on the shared path — no widget-local
+  // supplemental pass is needed here. (This module previously carried its own
+  // `enrichRelatedExpressionColumns` pass to patch the gap the shared call left; it was
+  // removed once the shared path covered it, to avoid redundant sibling-drift.)
 
   const aggregationFunctions = React.useMemo<Record<string, GridAggregationFunction>>(
     () => ({
@@ -643,9 +614,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   }, [hasChartCrossFilters, crossFilterMode, filteredRows, rowMatchKey]);
 
   const rows = React.useMemo(() => {
-    // Resolve related-source calculated columns before building grid rows (finding 2.3);
-    // reference-stable no-op when the widget has none.
-    return enrichRelatedExpressionColumns(baseRows).map((row, index) => ({
+    // `baseRows` already carries related-source calculated columns — the shared `useWidgetRows`
+    // enrichment now L2-enriches and joins them (finding 1.1), so no local pass is needed here.
+    return baseRows.map((row, index) => ({
       ...row,
       // Spread `row` FIRST, then set `id`, so the synthetic-id fallback always wins when the
       // row carries an `id` property that is null/undefined (a nullable database id column).
@@ -656,7 +627,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // `getRowClassName` below never needs to re-derive matching from `row.id`.
       __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
     }));
-  }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey, enrichRelatedExpressionColumns]);
+  }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey]);
 
   // Native DataGridPremium row grouping
   const rowGroupingModel = React.useMemo(
@@ -823,9 +794,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const summaryBasisRows = React.useMemo(
     () =>
       hasChartCrossFilters && crossFilterMode === 'cross-highlight'
-        ? enrichRelatedExpressionColumns(filteredRows)
+        ? // `filteredRows` already carries related-source calculated columns via the shared
+          // `useWidgetRows` enrichment (finding 1.1) — no local pass needed.
+          filteredRows
         : rows,
-    [hasChartCrossFilters, crossFilterMode, filteredRows, rows, enrichRelatedExpressionColumns],
+    [hasChartCrossFilters, crossFilterMode, filteredRows, rows],
   );
 
   // Field defs the footer summary resolves against — the widget's own physical fields,

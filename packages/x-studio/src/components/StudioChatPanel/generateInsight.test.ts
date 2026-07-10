@@ -442,6 +442,81 @@ describe('buildWidgetDataSummary', () => {
         ].join('\n'),
       );
     });
+
+    // finding 1.1: a related-source *calculated* value field must be L2-enriched before the
+    // cross-source join, or the AI-facing map summary sums `undefined` (→ 0) for every region,
+    // diverging from the (now-fixed) rendered map. `buildMapWidgetSummary` threads
+    // `state.doc.expressionFields` into its `enrichWithCrossSourceFields` call so the value resolves.
+    it('resolves a related-source calculated value field (bonus = spend * 2) instead of summing 0', () => {
+      const ordersFields = [
+        { id: 'country', label: 'Country', type: 'string' as const },
+        { id: 'customerId', label: 'Customer ID', type: 'string' as const },
+      ];
+      const customersFields = [
+        { id: 'id', label: 'Customer ID', type: 'string' as const },
+        { id: 'spend', label: 'Spend', type: 'number' as const },
+      ];
+      const ordersRows = [
+        { country: 'US', customerId: 'c1' },
+        { country: 'FR', customerId: 'c2' },
+      ];
+      const customersRows = [
+        { id: 'c1', spend: 100 },
+        { id: 'c2', spend: 50 },
+      ];
+      const relationship: StudioRelationship = {
+        id: 'r1',
+        sourceId: 'orders',
+        targetId: 'customers',
+        sourceField: 'customerId',
+        targetField: 'id',
+        type: 'many-to-one',
+      };
+      // customers.bonus = spend * 2 — a calculated column owned by the related source.
+      const bonusField: StudioExpressionField = {
+        id: 'bonus',
+        label: 'Bonus',
+        type: 'number',
+        isMeasure: false,
+        sourceId: 'customers',
+        expression: {
+          operator: 'multiply',
+          inputs: [{ id: 'spend' }, { type: 'number', value: 2 }],
+        },
+      };
+      const state = createDefaultStudioState({
+        doc: { relationships: [relationship], expressionFields: [bonusField] },
+        runtime: {
+          dataSources: {
+            orders: makeSource({ id: 'orders', fields: ordersFields, rows: ordersRows }),
+            customers: makeSource({
+              id: 'customers',
+              label: 'Customers',
+              fields: customersFields,
+              rows: customersRows,
+            }),
+          },
+        },
+      });
+      const widget = makeWidget({
+        sourceId: 'orders',
+        kind: 'map',
+        config: {
+          mapCountryField: 'country',
+          mapValueField: 'bonus',
+          mapValueSourceId: 'customers',
+          mapAggregation: 'sum',
+        },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: `bonus` was `undefined` on every enriched row (the related source's RAW rows
+      // carry no calculated value), so each region summed to 0. Post-fix it resolves.
+      expect(result).toContain('US,200');
+      expect(result).toContain('FR,100');
+      expect(result).not.toContain('US,0');
+    });
   });
 
   // ─── Grid widgets (raw-row path) ────────────────────────────────────────────

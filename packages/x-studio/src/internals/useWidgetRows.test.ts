@@ -813,6 +813,177 @@ describe('sync vs async parity', () => {
   });
 });
 
+// ── Widget-scoped rank filters are applied on the shared path (finding 2.1) ──
+//
+// `selectFiltersForWidget` used to unconditionally drop `filterMode === 'rank'` from the
+// widget scope, and only the chart hook re-applied it post-aggregation. So a widget-scoped
+// rank filter authored on a NON-chart widget (grid / KPI / map / pivot / filter) was applied
+// by no data path — silently ignored. `useWidgetRows` now opts non-chart kinds into the L3
+// rank reduction (`includeWidgetRank`), so it actually limits the widget's rows.
+describe('widget-scoped rank filters (finding 2.1)', () => {
+  const rankRows: Row[] = [
+    { id: 1, region: 'EU', amount: 100 },
+    { id: 2, region: 'US', amount: 300 },
+    { id: 3, region: 'APAC', amount: 200 },
+    { id: 4, region: 'LATAM', amount: 50 },
+  ];
+
+  function makeWidgetRankFilter(): StudioFilterState {
+    return {
+      id: 'f-rank',
+      field: 'amount',
+      filterMode: 'rank',
+      value: 2,
+      rankDirection: 'top',
+      scope: { kind: 'widget', widgetId: 'w1' },
+    } as unknown as StudioFilterState;
+  }
+
+  it('limits a non-chart (KPI) widget to the top-N rows instead of ignoring the rank filter', () => {
+    mockState = createState({ filters: [makeWidgetRankFilter()] });
+    // Default `makeWidget` has no `kind` → treated as non-chart → rank applied at L3.
+    const widget = makeWidget({ id: 'w1' });
+    const { result } = renderHook(() => useWidgetRows(widget, makeDataSource(rankRows), 'page-1'));
+
+    // Top 2 by amount: US (300) and APAC (200).
+    expect(result.current.filteredRows).toHaveLength(2);
+    expect(result.current.filteredRows.map((r) => r.id).sort()).toEqual([2, 3]);
+  });
+
+  it('does NOT apply a widget-scoped rank filter at L3 for a chart widget (it re-ranks post-aggregation)', () => {
+    mockState = createState({ filters: [makeWidgetRankFilter()] });
+    // A chart widget must keep all rows here — `useChartWidgetData` applies its own
+    // post-aggregation rank; applying it at L3 too would double-reduce.
+    const chartWidget = {
+      id: 'w1',
+      kind: 'chart',
+      sourceId: 'src1',
+      title: 'Chart',
+      config: {},
+    } as unknown as StudioWidget;
+    const { result } = renderHook(() =>
+      useWidgetRows(chartWidget, makeDataSource(rankRows), 'page-1'),
+    );
+
+    expect(result.current.filteredRows).toHaveLength(rankRows.length);
+  });
+
+  it('a DISABLED widget-scoped rank filter does not limit rows', () => {
+    mockState = createState({
+      filters: [{ ...makeWidgetRankFilter(), disabled: true } as unknown as StudioFilterState],
+    });
+    const widget = makeWidget({ id: 'w1' });
+    const { result } = renderHook(() => useWidgetRows(widget, makeDataSource(rankRows), 'page-1'));
+
+    expect(result.current.filteredRows).toHaveLength(rankRows.length);
+  });
+});
+
+// ── Related-source calculated value field enrichment on the shared path (finding 1.1) ──
+//
+// A related-source *calculated* (expression) column used as a map's `mapValueField` (or a
+// grid column) must be L2-enriched before the cross-source join, otherwise the shared
+// enrichment indexes the related source's RAW rows and copies `undefined` onto every widget
+// row (blank map / spurious "No data"). `useWidgetRows` now threads `expressionFields` into
+// the shared `enrichWithCrossSourceFields` call, so the calculated value resolves for every
+// widget kind (map + grid) through the one shared path.
+describe('related-source calculated cross-source field enrichment (finding 1.1)', () => {
+  const relationship = {
+    id: 'rel-orders-customers',
+    type: 'many-to-one',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+  } as unknown as StudioState['doc']['relationships'][number];
+
+  // customers.bonus = spend * 2 — a calculated column owned by the related source.
+  const bonusExpr = {
+    id: 'bonus',
+    label: 'Bonus',
+    sourceId: 'customers',
+    isMeasure: false,
+    expression: { operator: 'multiply', inputs: [{ id: 'spend' }, { type: 'number', value: 2 }] },
+  } as unknown as StudioState['doc']['expressionFields'][number];
+
+  const ordersSource = makeDataSource(
+    [
+      { id: 'o1', customerId: 'c1', region: 'EU' },
+      { id: 'o2', customerId: 'c2', region: 'US' },
+    ],
+    {
+      id: 'orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+        { id: 'region', label: 'Region', type: 'string' },
+      ],
+    },
+  );
+  const customersSource = makeDataSource(
+    [
+      { id: 'c1', spend: 100 },
+      { id: 'c2', spend: 50 },
+    ],
+    {
+      id: 'customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'spend', label: 'Spend', type: 'number' },
+      ],
+    },
+  );
+
+  function makeMapWidget(): StudioWidget {
+    return {
+      id: 'map-1',
+      kind: 'map',
+      sourceId: 'orders',
+      title: 'Map',
+      config: {
+        mapGeography: 'world',
+        mapCountryField: 'region',
+        mapValueField: 'bonus',
+        mapValueSourceId: 'customers',
+      },
+    } as unknown as StudioWidget;
+  }
+
+  it('resolves a related-source calculated map value field (bonus = spend * 2) instead of undefined', () => {
+    mockState = createState({
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [relationship],
+      expressionFields: [bonusExpr],
+    });
+    const { result } = renderHook(() => useWidgetRows(makeMapWidget(), ordersSource, 'page-1'));
+
+    const byId = new Map(result.current.filteredRows.map((r) => [r.id, r.bonus]));
+    // o1 → c1 spend 100 → bonus 200; o2 → c2 spend 50 → bonus 100.
+    expect(byId.get('o1')).toBe(200);
+    expect(byId.get('o2')).toBe(100);
+  });
+
+  it('also resolves the same related-source calculated column when used as a grid column', () => {
+    const gridWidget = {
+      id: 'grid-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Grid',
+      config: { columns: [{ fieldId: 'id' }, { fieldId: 'bonus', sourceId: 'customers' }] },
+    } as unknown as StudioWidget;
+    mockState = createState({
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [relationship],
+      expressionFields: [bonusExpr],
+    });
+    const { result } = renderHook(() => useWidgetRows(gridWidget, ordersSource, 'page-1'));
+
+    const byId = new Map(result.current.filteredRows.map((r) => [r.id, r.bonus]));
+    expect(byId.get('o1')).toBe(200);
+    expect(byId.get('o2')).toBe(100);
+  });
+});
+
 // ── usedFieldIds cache-key scoping (Tier 3 #5 / architecture review item 4) ──
 //
 // `usedFieldIds` must be derived only from filters that can actually reach this

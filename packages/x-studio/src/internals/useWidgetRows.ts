@@ -305,6 +305,13 @@ export function useWidgetRows(
     (widget.config as StudioWidgetConfig)?.crossFilterMode ??
     'cross-highlight';
 
+  // Widget-scoped rank (Top-N) filters are applied at L3 as a dataset-level reduction for
+  // every widget kind EXCEPT chart (finding 2.1). The chart widget re-ranks its own
+  // widget-scoped rank filter post-aggregation in `useChartWidgetData`, so applying it here
+  // too would double-reduce it — grid / KPI / map / pivot / filter have no such post-agg
+  // path, so their authorable widget rank was previously enforced by nothing.
+  const includeWidgetRank = !isWidgetOfKind(widget, 'chart');
+
   // Ghost overlay should only render when:
   // 1. The widget is in 'cross-highlight' mode (default)
   // 2. There is a chart-click cross-filter active (never for interactive/filter-widget filters)
@@ -370,14 +377,31 @@ export function useWidgetRows(
         const pageRankFilters = deferredPartitioned.page.filter(
           (f) => (f.filterMode ?? 'condition') === 'rank',
         );
+        // Widget-scoped rank filters are stripped from the server descriptor (the wire
+        // protocol can't express a rank reduction) and, for non-chart kinds, are applied by
+        // no other path — so re-apply them here client-side exactly like page-scoped rank
+        // filters (finding 2.1). Only the RANK ones are re-added: non-rank widget filters were
+        // already enforced server-side and must not be double-applied. Empty for chart widgets
+        // (they re-rank post-aggregation), gated by `includeWidgetRank`.
+        const widgetRankFilters = includeWidgetRank
+          ? (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
+              (f) => (f.filterMode ?? 'condition') === 'rank',
+            )
+          : [];
         const scoped = selectFiltersForWidget(
-          [...pageRankFilters, ...deferredPartitioned.cross, ...deferredPartitioned.interactive],
+          [
+            ...pageRankFilters,
+            ...widgetRankFilters,
+            ...deferredPartitioned.cross,
+            ...deferredPartitioned.interactive,
+          ],
           {
             widgetId: widget.id,
             widgetSourceId: widget.sourceId,
             activePageId: pageId,
             include,
             crossFilterAllPages,
+            includeWidgetRank,
           },
         );
         if (scoped.length === 0) {
@@ -410,6 +434,7 @@ export function useWidgetRows(
           activePageId: pageId,
           include,
           crossFilterAllPages,
+          includeWidgetRank,
         },
       );
       return resolveRowsCached(
@@ -434,6 +459,7 @@ export function useWidgetRows(
       widget.sourceId,
       pageId,
       crossFilterAllPages,
+      includeWidgetRank,
       usedFieldIds,
     ],
   );
@@ -504,6 +530,16 @@ export function useWidgetRows(
   // Shared cross-source enrichment: join FK-referenced columns from related sources
   // onto the primary rows. A no-op (returns the input reference) when the widget has
   // no cross-source columns, preserving reference stability for downstream memos.
+  //
+  // `expressionFields` is threaded through so this SHARED pass performs the L2 enrichment
+  // that gates a related-source *calculated* (expression) column referenced by a grid
+  // column or a map's `mapCountryField`/`mapValueField` (finding 1.1). Without it the
+  // related source's RAW rows are indexed and the calculated column copies `undefined`
+  // onto every widget row — a blank map / spurious "No data" while the setup panel reports
+  // the config is valid. `enrichWithCrossSourceFields` scopes the L2 pass to only the
+  // requested calculated-column ids, so passing the full (own + related) list here is cheap,
+  // and physical cross-source columns are unaffected. This is the single fix point every
+  // widget kind routes through — it replaces the former grid-only supplemental pass.
   const enrichIfNeeded = React.useCallback(
     (rows: Row[]): Row[] =>
       hasCrossSourceColumns
@@ -513,9 +549,17 @@ export function useWidgetRows(
             allCrossSourceFieldRefs,
             dataSources,
             relationships,
+            expressionFields,
           )
         : rows,
-    [hasCrossSourceColumns, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
+    [
+      hasCrossSourceColumns,
+      widget.sourceId,
+      allCrossSourceFieldRefs,
+      dataSources,
+      relationships,
+      expressionFields,
+    ],
   );
 
   const enrichedFilteredRows = React.useMemo(

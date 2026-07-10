@@ -588,6 +588,59 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
 
     expect(latestLegendAriaLabel()).toMatch(/\$/);
   });
+
+  it('resolves format/currency from a cross-source CALCULATED (expression) field via mapValueSourceId (finding 1.1)', async () => {
+    rows = [
+      { country: 'United States', bonus: 9999.99 },
+      { country: 'France', bonus: 42 },
+    ];
+    const widget: StudioWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapValueField: 'bonus', mapValueSourceId: 'customers' },
+    } as StudioWidget;
+    // `bonus` is NOT a physical field on customers — only reachable via that source's
+    // expression fields. Pre-fix, the cross-source `fieldDef` branch checked only
+    // `dataSources[valueSourceId].fields` (never the source's expression fields), so a
+    // related-source *calculated* value field lost its currency format and the aria-label's
+    // min/max rendered as plain numbers with no currency symbol.
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [{ id: 'id', label: 'ID', type: 'string' }],
+      rows: [],
+    };
+    // A relationship is required so the map subscribes to the related source's expression
+    // fields (`getReachableSourceIds` + `makeSelectExpressionFieldsForSources`).
+    const relationship = {
+      id: 'r1',
+      sourceId: 'sales',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+      type: 'many-to-one',
+    } as unknown as StudioState['doc']['relationships'][number];
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource, customers: customersSource },
+      relationships: [relationship],
+      expressionFields: [
+        {
+          id: 'bonus',
+          label: 'Bonus',
+          sourceId: 'customers',
+          isMeasure: false,
+          expression: { type: 'number', value: 0 },
+          type: 'number',
+          format: 'currency',
+        },
+      ] as unknown as StudioState['doc']['expressionFields'],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widget);
+
+    expect(latestLegendAriaLabel()).toMatch(/\$/);
+  });
 });
 
 // Regression coverage for finding 1.4: the map used to hand-roll

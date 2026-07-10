@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { selectFiltersForWidget } from './filterScoping';
 import type { StudioFilterState } from '../models';
 
-function makeFilter(overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] }): StudioFilterState {
+function makeFilter(
+  overrides: Partial<StudioFilterState> & { scope: StudioFilterState['scope'] },
+): StudioFilterState {
   return {
     id: 'f1',
     field: 'value',
@@ -105,11 +107,15 @@ describe("selectFiltersForWidget — scope: 'widget'", () => {
   });
 
   it('excludes widget filter for a different widget', () => {
-    const f = makeFilter({ id: 'w', scope: { kind: 'widget', widgetId: 'other-widget' }, value: 'x' });
+    const f = makeFilter({
+      id: 'w',
+      scope: { kind: 'widget', widgetId: 'other-widget' },
+      value: 'x',
+    });
     expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
   });
 
-  it('excludes rank-mode widget filters', () => {
+  it('excludes rank-mode widget filters by default (chart re-ranks post-aggregation)', () => {
     const f = makeFilter({
       id: 'r',
       scope: { kind: 'widget', widgetId: WIDGET_ID },
@@ -117,6 +123,28 @@ describe("selectFiltersForWidget — scope: 'widget'", () => {
       value: 5,
     });
     expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  // finding 2.1: non-chart widget kinds opt into applying their widget-scoped rank filter at
+  // L3 via `includeWidgetRank`, since they have no post-aggregation rank path of their own.
+  it('includes rank-mode widget filters when includeWidgetRank is true', () => {
+    const f = makeFilter({
+      id: 'r',
+      scope: { kind: 'widget', widgetId: WIDGET_ID },
+      filterMode: 'rank',
+      value: 5,
+    });
+    expect(selectFiltersForWidget([f], { ...baseOpts, includeWidgetRank: true })).toHaveLength(1);
+  });
+
+  it('with includeWidgetRank true, still excludes a rank filter belonging to a DIFFERENT widget', () => {
+    const f = makeFilter({
+      id: 'r',
+      scope: { kind: 'widget', widgetId: 'other-widget' },
+      filterMode: 'rank',
+      value: 5,
+    });
+    expect(selectFiltersForWidget([f], { ...baseOpts, includeWidgetRank: true })).toHaveLength(0);
   });
 
   it('includes selection-mode widget filters', () => {
@@ -232,7 +260,11 @@ describe("selectFiltersForWidget — scope: 'interactive'", () => {
 
 describe('selectFiltersForWidget — include variants', () => {
   const page = makeFilter({ id: 'page', scope: { kind: 'page' }, value: 'x' });
-  const widget = makeFilter({ id: 'widget', scope: { kind: 'widget', widgetId: WIDGET_ID }, value: 'y' });
+  const widget = makeFilter({
+    id: 'widget',
+    scope: { kind: 'widget', widgetId: WIDGET_ID },
+    value: 'y',
+  });
   const cross = makeFilter({
     id: 'cross',
     scope: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },

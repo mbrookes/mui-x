@@ -679,6 +679,11 @@ function buildMapWidgetSummary(
           crossSourceFieldRefs,
           state.runtime.dataSources,
           state.doc.relationships,
+          // Thread the expression fields so a related-source *calculated* country/value field is
+          // L2-enriched before the join, matching the fixed shared render path (finding 1.1) —
+          // without this the AI-facing map summary keeps the identical blind spot the render had,
+          // and the two silently diverge once the render is fixed.
+          state.doc.expressionFields,
         )
       : filteredRows;
 

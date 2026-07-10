@@ -8,6 +8,7 @@
  * the join types, and the "security predicates first" invariant are covered.
  */
 import { describe, it, expect } from 'vitest';
+import Knex from 'knex';
 import { buildSecureQuery } from '../queryBuilder';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
@@ -169,7 +170,7 @@ describe('buildSecureQuery', () => {
       );
 
       const securityIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.tenant_id');
-      const userFilterIdx = indexOf(calls, 'where', (c) => c.args[0] === 'status');
+      const userFilterIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.status');
       expect(securityIdx).toBeGreaterThanOrEqual(0);
       expect(userFilterIdx).toBeGreaterThanOrEqual(0);
       expect(securityIdx).toBeLessThan(userFilterIdx);
@@ -192,7 +193,9 @@ describe('buildSecureQuery', () => {
         descriptor({ filters: [{ column: 'amount', operator, value }] }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'where', args: ['amount', sqlOp, value] });
+      // Table-qualified with the primary table (finding 2.1) — see the
+      // "read-path filter column qualification" describe block below.
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.amount', sqlOp, value] });
     });
 
     it('maps "in" to whereIn', () => {
@@ -205,7 +208,7 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['product', ['a', 'b']] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.product', ['a', 'b']] });
     });
 
     it('skips an empty "in" list (autoRemove) rather than emitting WHERE x IN ()', () => {
@@ -231,7 +234,7 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'whereLike', args: ['name', 'Ac%'] });
+      expect(calls).toContainEqual({ method: 'whereLike', args: ['sales.name', 'Ac%'] });
     });
 
     it('maps "between" to whereBetween with a [lo, hi] tuple', () => {
@@ -244,7 +247,7 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'whereBetween', args: ['amount', [10, 20]] });
+      expect(calls).toContainEqual({ method: 'whereBetween', args: ['sales.amount', [10, 20]] });
     });
 
     it('throws on an unsupported operator (allowlist guard)', () => {
@@ -277,8 +280,8 @@ describe('buildSecureQuery', () => {
       );
       const whereCalls = calls.filter((c) => c.method === 'where');
       expect(whereCalls).toEqual([
-        { method: 'where', args: ['status', '=', 'active'] },
-        { method: 'where', args: ['amount', '>', 0] },
+        { method: 'where', args: ['sales.status', '=', 'active'] },
+        { method: 'where', args: ['sales.amount', '>', 0] },
       ]);
     });
   });
@@ -302,8 +305,9 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      // The WHERE clause targets the validated physical column `amount`…
-      expect(calls).toContainEqual({ method: 'whereLike', args: ['amount', '123%'] });
+      // The WHERE clause targets the validated physical column `amount`,
+      // table-qualified with the primary table (finding 2.1)…
+      expect(calls).toContainEqual({ method: 'whereLike', args: ['sales.amount', '123%'] });
       // …and never the raw, non-allowlisted logical name `ssn`.
       expect(calls.some((c) => c.method === 'whereLike' && c.args[0] === 'ssn')).toBe(false);
     });
@@ -326,7 +330,7 @@ describe('buildSecureQuery', () => {
       expect(calls.some((c) => c.method === 'where' && c.args[0] === 'region')).toBe(false);
     });
 
-    it('leaves a filter column unchanged when it has no alias entry', () => {
+    it('leaves a filter column unchanged (other than table-qualification) when it has no alias entry', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
@@ -337,7 +341,7 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'where', args: ['status', '=', 'active'] });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.status', '=', 'active'] });
     });
 
     // Regression for finding 2.4: an EMPTY `columnAliases` object still inherits
@@ -359,11 +363,12 @@ describe('buildSecureQuery', () => {
           }),
           { tenancy: SINGLE_TENANT },
         );
-        // The literal string column name reaches `.where(...)` as the first arg —
-        // never a function (which would signal Knex's grouped-where form instead).
+        // The literal string column name (table-qualified per finding 2.1) reaches
+        // `.where(...)` as the first arg — never a function (which would signal
+        // Knex's grouped-where form instead).
         const whereCall = calls.find((c) => c.method === 'where' && c.args[2] === 'x');
         expect(whereCall).toBeDefined();
-        expect(whereCall!.args[0]).toBe(column);
+        expect(whereCall!.args[0]).toBe(`sales.${column}`);
         expect(typeof whereCall!.args[0]).toBe('string');
       },
     );
@@ -574,6 +579,58 @@ describe('buildSecureQuery', () => {
       expect(
         calls.some((c) => c.method === 'whereIn' && String(c.args[0]).startsWith('customers.')),
       ).toBe(false);
+    });
+  });
+
+  describe('empty regionIds ([]) on the outer-join ON-clause path (Tier3 finding 3.1)', () => {
+    // Regression (coverage-only — see ARCHITECTURE_REVIEW.md finding 3.1): the
+    // WHERE-clause `regionIds: []` case is pinned above ("applies a
+    // match-nothing region predicate when regionIds is an empty array"), and the
+    // outer-join ON-clause path was previously only pinned with a NON-empty
+    // region set ("LEFT JOIN: region/department predicates on the joined table
+    // also move to ON"). The empty-array + ON-clause combination — which routes
+    // through `andOnIn(col, [])` — was untested. If a future Knex version ever
+    // rendered an empty `onIn` as a no-op (dropped) instead of a match-nothing
+    // `1 = 0`, a zero-region caller's LEFT/RIGHT join would fail OPEN and pull in
+    // same-tenant rows from unauthorized regions on the nullable side. Pinning
+    // the exact `andOnIn(col, [])` call here (mirroring the WHERE-path pin) turns
+    // that silent regression into a failing test.
+    it('LEFT JOIN: regionIds: [] emits andOnIn(col, []) in the joined table ON clause', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [] },
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'andOnIn', args: ['customers.region_id', []] });
+      // Never dropped, and never emitted as a WHERE predicate against the joined
+      // (nullable) side, which would degrade the LEFT JOIN to an INNER JOIN.
+      expect(
+        calls.some((c) => c.method === 'whereIn' && String(c.args[0]).startsWith('customers.')),
+      ).toBe(false);
+    });
+
+    it('RIGHT JOIN: regionIds: [] emits andOnIn(col, []) in the primary table ON clause', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [] },
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'right', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'andOnIn', args: ['sales.region_id', []] });
+      expect(calls.some((c) => c.method === 'whereIn' && c.args[0] === 'sales.region_id')).toBe(
+        false,
+      );
     });
   });
 
@@ -809,6 +866,8 @@ describe('buildSecureQuery', () => {
   describe('non-array in/between values are rejected fail-closed (finding 3.1)', () => {
     it('throws when an "in" value is not an array (e.g. a bare string)', () => {
       const { db } = createRecordingDb();
+      // The error message reports the table-qualified column (finding 2.1
+      // qualification happens before `applyPredicate` runs its runtime guards).
       expect(() =>
         buildSecureQuery(
           db,
@@ -818,7 +877,7 @@ describe('buildSecureQuery', () => {
           descriptor({ filters: [{ column: 'product', operator: 'in', value: 'abc' as any }] }),
           { tenancy: SINGLE_TENANT },
         ),
-      ).toThrow(/"in" predicate on column "product" requires an array value/);
+      ).toThrow(/"in" predicate on column "sales.product" requires an array value/);
     });
 
     it('throws when a "between" value is not an array', () => {
@@ -830,7 +889,7 @@ describe('buildSecureQuery', () => {
           descriptor({ filters: [{ column: 'amount', operator: 'between', value: 10 as any }] }),
           { tenancy: SINGLE_TENANT },
         ),
-      ).toThrow(/"between" predicate on column "amount" requires a two-element/);
+      ).toThrow(/"between" predicate on column "sales.amount" requires a two-element/);
     });
 
     it('throws when a "between" array does not have exactly two elements', () => {
@@ -945,5 +1004,140 @@ describe('buildSecureQuery', () => {
     const result = buildSecureQuery(db, BASE_CLAIMS, descriptor(), { tenancy: SINGLE_TENANT });
     expect(calls[0]).toEqual({ method: 'from', args: ['sales'] });
     expect(typeof result.where).toBe('function');
+  });
+
+  describe('read-path filter column qualification (finding 2.1)', () => {
+    // Regression: every OTHER read-path column reference (SELECT / GROUP BY /
+    // ORDER BY / aggregations in `execute.ts`, and all three security-predicate
+    // dimensions in `shared/predicates.ts`) is table-qualified to avoid
+    // "ambiguous column" errors under a join. User filter predicates were the
+    // sole exception — `applyPredicate` emitted a bare `where('<col>', ...)`,
+    // which Postgres/MySQL reject outright once a joined table shares the
+    // column name (e.g. `region_id`). `buildSecureQuery` now qualifies an
+    // unqualified resolved filter column with the PRIMARY table before handing
+    // it to `applyPredicates`.
+    it('qualifies an unqualified filter column with the primary table under a join', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+          // `region_id` exists on both `sales` and `customers` — the classic
+          // ambiguous-column scenario.
+          filters: [{ column: 'region_id', operator: 'eq', value: 5 }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.region_id', '=', 5] });
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'region_id')).toBe(false);
+    });
+
+    it('leaves a client-qualified filter column (containing a dot) untouched', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+          filters: [{ column: 'customers.region_id', operator: 'eq', value: 5 }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      // The client explicitly named the joined table — respected as-is, not
+      // re-qualified against the primary table.
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.region_id', '=', 5] });
+    });
+
+    // Real-Knex render pin: the mock `createRecordingDb` above (like the rest of
+    // the suite) only asserts the Knex CALL contract, not the actual rendered
+    // SQL string. This section renders through the real `knex` package (a
+    // `peerDependency`/`devDependency` of this package — no native driver
+    // needed, since `.toString()`/`.toSQL()` only build the SQL text) to pin the
+    // literal SQL, so a Knex upgrade that changed how an unqualified/qualified
+    // WHERE column renders would fail this test instead of silently
+    // reintroducing an ambiguous-column error.
+    describe('real Knex SQL rendering', () => {
+      const realDb = Knex({ client: 'pg' });
+
+      it('renders an unambiguous, fully-qualified WHERE clause under a join with a shared column name', () => {
+        const query = buildSecureQuery(
+          realDb,
+          BASE_CLAIMS,
+          descriptor({
+            joins: [
+              { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+            ],
+            filters: [{ column: 'region_id', operator: 'eq', value: 5 }],
+          }),
+          { tenancy: MULTI_TENANT },
+        );
+        expect(query.toString()).toBe(
+          'select * from "sales" left join "customers" on "sales"."customer_id" = "customers"."id" ' +
+            'and "customers"."tenant_id" = \'acme\' where "sales"."tenant_id" = \'acme\' and "sales"."region_id" = 5',
+        );
+      });
+
+      it('demonstrates the pre-fix shape (bare column) is what Postgres rejects as ambiguous', () => {
+        // Sanity check for the bug this fix closes: a bare, unqualified
+        // `region_id` reference under a join where BOTH `sales` and `customers`
+        // carry that column name is exactly the SQL Postgres/MySQL reject with
+        // "column reference \"region_id\" is ambiguous". This test renders that
+        // shape directly via Knex (bypassing `buildSecureQuery`, which no longer
+        // produces it) purely to document/pin what the bug looked like.
+        const buggyQuery = realDb('sales')
+          .leftJoin('customers', 'sales.customer_id', 'customers.id')
+          .where('sales.tenant_id', '=', 'acme')
+          .where('region_id', '=', 5);
+        expect(buggyQuery.toString()).toBe(
+          'select * from "sales" left join "customers" on "sales"."customer_id" = "customers"."id" ' +
+            'where "sales"."tenant_id" = \'acme\' and "region_id" = 5',
+        );
+      });
+    });
+  });
+
+  describe('real Knex SQL rendering (Tier3 finding 3.1)', () => {
+    // Pins the exact rendered SQL for the previously-untested `regionIds: []` +
+    // outer-join ON-clause combination, so a future Knex version that changed
+    // how an empty `onIn` renders (e.g. dropping the predicate instead of
+    // `1 = 0`) would fail this test rather than silently fail OPEN.
+    const realDb = Knex({ client: 'pg' });
+
+    it('LEFT JOIN + regionIds: [] renders "and 1 = 0" inside the JOIN ON clause', () => {
+      const query = buildSecureQuery(
+        realDb,
+        { ...BASE_CLAIMS, regionIds: [] },
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT, securityColumns: { region: 'region_id' } },
+      );
+      expect(query.toString()).toBe(
+        'select * from "sales" left join "customers" on "sales"."customer_id" = "customers"."id" ' +
+          'and "customers"."tenant_id" = \'acme\' and 1 = 0 where "sales"."tenant_id" = \'acme\' and 1 = 0',
+      );
+    });
+
+    it('RIGHT JOIN + regionIds: [] renders "and 1 = 0" inside the JOIN ON clause', () => {
+      const query = buildSecureQuery(
+        realDb,
+        { ...BASE_CLAIMS, regionIds: [] },
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'right', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT, securityColumns: { region: 'region_id' } },
+      );
+      expect(query.toString()).toBe(
+        'select * from "sales" right join "customers" on "sales"."customer_id" = "customers"."id" ' +
+          'and "sales"."tenant_id" = \'acme\' and 1 = 0 where "customers"."tenant_id" = \'acme\' and 1 = 0',
+      );
+    });
   });
 });

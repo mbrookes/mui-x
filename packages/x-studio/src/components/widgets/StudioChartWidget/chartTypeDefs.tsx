@@ -395,7 +395,6 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
       multiYData={multiYData}
       ySeries={config.ySeries ?? []}
       dualYAxis={config.dualYAxis}
-      isBlended={ctx.isBlended}
       resolvedChartColors={ctx.resolvedChartColors}
       widgetSourceId={ctx.widgetSourceId}
       dataSources={ctx.dataSources}

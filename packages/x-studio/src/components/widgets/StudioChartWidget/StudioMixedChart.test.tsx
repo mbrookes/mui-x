@@ -78,7 +78,6 @@ function baseProps(overrides: Partial<StudioMixedChartProps> = {}): StudioMixedC
       { fieldId: 'revenue', seriesType: 'bar' },
       { fieldId: 'count', seriesType: 'line' },
     ],
-    isBlended: false,
     resolvedChartColors: ['#111', '#222'],
     widgetSourceId: 'orders',
     dataSources: { orders: dataSource },
@@ -146,7 +145,6 @@ describe('StudioMixedChart', () => {
           { fieldId: 'revenue', seriesType: 'line' },
           { fieldId: 'count', seriesType: 'bar' },
         ],
-        isBlended: true,
       }),
     );
     const props = lastProps();
@@ -190,7 +188,6 @@ describe('StudioMixedChart', () => {
         dataSources: { orders: ordersSource, refunds: refundsSource },
         dataSource: ordersSource,
         widgetSourceId: 'orders',
-        isBlended: true,
       }),
     );
     const props = lastProps();
@@ -224,7 +221,6 @@ describe('StudioMixedChart', () => {
           { seriesType: 'line' } as unknown as StudioMixedChartProps['ySeries'][number], // fieldless, mid-configuration
           { fieldId: 'count', seriesType: 'line', sourceId: 'orders' },
         ],
-        isBlended: true,
       }),
     );
     const props = lastProps();

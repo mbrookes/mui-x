@@ -25,16 +25,6 @@ export interface StudioMixedChartProps {
   ySeries: YSeriesConfig[];
   /** Route line series to a right-hand y-axis. */
   dualYAxis?: boolean;
-  /**
-   * Whether the chart blends series from independent sources. When blended,
-   * `multiYData.series` entries carry a `sourceId` and the series config is matched
-   * by the `(fieldId, sourceId)` pair (see the `mixedSeries` comment below) so two
-   * series sharing a field id across different sources aren't config-matched to the
-   * same `ySeries` entry (finding 2.12). This flag is also used elsewhere (e.g. the
-   * support-guard call site) to decide whether the usual xField/yField support
-   * validation applies.
-   */
-  isBlended: boolean;
   resolvedChartColors: string[];
   /** The widget's primary source id (fallback when a series omits `sourceId`). */
   widgetSourceId?: string;
@@ -62,7 +52,6 @@ export function StudioMixedChart({
   multiYData,
   ySeries,
   dualYAxis,
-  isBlended,
   resolvedChartColors,
   widgetSourceId,
   dataSources,

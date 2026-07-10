@@ -371,6 +371,96 @@ describe('renderChartSvg — empty / non-positive data guards', () => {
   });
 });
 
+// ── NaN/Infinity geometry guards for line/stacked_bar/scatter/pie/donut (T2-2) ──
+//
+// finding 2.2: the all-non-positive guard existed for bar/donut, but line (both
+// paths), stacked_bar, and scatter divided by a 0 max → NaN coordinates, and
+// pie/donut summed negatives into `total` → Infinity/negative arcs for mixed-sign
+// data. None of these are an injection risk, but NaN/Infinity attributes dead-end
+// the render (image viewers reject the SVG).
+
+describe('renderChartSvg — NaN/Infinity geometry guards (T2-2)', () => {
+  it('renders a "No data" placeholder for a multi-series line chart with all-zero values', () => {
+    const svg = renderChartSvg({
+      type: 'line',
+      xLabels: ['Jan', 'Feb'],
+      series: [{ name: 'delta', values: [0, 0] }],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('renders a "No data" placeholder for a single-series line chart with all-non-positive values', () => {
+    const svg = renderChartSvg({
+      type: 'line',
+      data: [
+        { label: 'Jan', value: 0 },
+        { label: 'Feb', value: -3 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('renders a "No data" placeholder for a stacked_bar chart with all-non-positive values', () => {
+    const svg = renderChartSvg({
+      type: 'stacked_bar',
+      xLabels: ['Q1', 'Q2'],
+      series: [
+        { name: 'A', values: [0, 0] },
+        { name: 'B', values: [-1, -2] },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('renders a "No data" placeholder for a scatter chart with all-non-positive y values', () => {
+    const svg = renderChartSvg({
+      type: 'scatter',
+      data: [
+        { label: '1', value: 0 },
+        { label: '2', value: -4 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('does not emit Infinity/NaN arc geometry for a mixed-sign pie chart', () => {
+    const svg = renderChartSvg({
+      type: 'pie',
+      data: [
+        { label: 'A', value: 10 },
+        { label: 'B', value: -5 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).not.toContain('NaN');
+    expect(svg).not.toContain('Infinity');
+    // Only the positive slice is drawn.
+    expect(countTag(svg, 'path')).toBe(1);
+  });
+
+  it('does not emit Infinity/NaN arc geometry for a mixed-sign donut chart', () => {
+    const svg = renderChartSvg({
+      type: 'donut',
+      data: [
+        { label: 'A', value: 10 },
+        { label: 'B', value: -5 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).not.toContain('NaN');
+    expect(svg).not.toContain('Infinity');
+    expect(countTag(svg, 'path')).toBe(1);
+  });
+});
+
 // ── Non-string text field coercion (finding T2-5) ────────────────────────────
 //
 // `xLabels` entries and series/`data` `name`/`label` values are declared

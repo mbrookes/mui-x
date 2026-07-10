@@ -10,6 +10,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDataToolHandlers, createSummarisePageHandler, resolveSource } from './dataTools';
 import type { DataToolDeps } from './dataTools';
+import { EXTRA_TOOL_DEFINITIONS } from './toolMetadata';
+import { renderChartSvg } from '../chartRenderer';
 import { createDefaultStudioState } from '../models/studioTypes';
 import type { StudioDataSource, StudioState } from '../models/studioTypes';
 import type { StudioDataQueryParams, StudioDataQueryResult } from './types';
@@ -343,6 +345,74 @@ describe('createDataToolHandlers', () => {
       expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
+
+    // Regression for T2-1: `limit` was clamped on the upper bound only
+    // (`Math.min(fieldLimit ?? 50, 200)`), so a NaN/negative/zero/fractional
+    // value reached the host's `queryDataSource` unclamped (e.g. `LIMIT NaN`),
+    // mirroring the T2-6 gap already fixed for `query_data_source`.
+    describe('limit clamping (T2-1)', () => {
+      const emptyQuery = () =>
+        vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+
+      it('clamps a NaN-producing limit (non-numeric string) to the default instead of forwarding NaN', async () => {
+        const queryDataSource = emptyQuery();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.get_field_values({
+          sourceId: 'source-orders',
+          fieldId: 'status',
+          limit: 'many' as any,
+        });
+        const forwarded = queryDataSource.mock.calls[0][0].limit;
+        expect(Number.isFinite(forwarded)).toBe(true);
+        expect(forwarded).toBe(50);
+      });
+
+      it('coerces a negative limit to a positive value instead of forwarding it untouched', async () => {
+        const queryDataSource = emptyQuery();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.get_field_values({
+          sourceId: 'source-orders',
+          fieldId: 'status',
+          limit: -3,
+        });
+        const forwarded = queryDataSource.mock.calls[0][0].limit;
+        expect(forwarded).toBeGreaterThanOrEqual(1);
+      });
+
+      it('replaces a zero limit with the default instead of forwarding LIMIT 0', async () => {
+        const queryDataSource = emptyQuery();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.get_field_values({ sourceId: 'source-orders', fieldId: 'status', limit: 0 });
+        expect(queryDataSource.mock.calls[0][0].limit).toBe(50);
+      });
+
+      it('truncates a fractional limit to an integer', async () => {
+        const queryDataSource = emptyQuery();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.get_field_values({
+          sourceId: 'source-orders',
+          fieldId: 'status',
+          limit: 25.9,
+        });
+        expect(queryDataSource.mock.calls[0][0].limit).toBe(25);
+      });
+
+      it('still enforces the upper bound of 200 for an excessively large limit', async () => {
+        const queryDataSource = emptyQuery();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.get_field_values({
+          sourceId: 'source-orders',
+          fieldId: 'status',
+          limit: 5000,
+        });
+        expect(queryDataSource.mock.calls[0][0].limit).toBe(200);
+      });
+    });
   });
 
   describe('compute_field_stats', () => {
@@ -418,6 +488,36 @@ describe('createDataToolHandlers', () => {
       expect(view.content[0].mimeType).toBe('image/svg+xml');
       expect(view.content[1].type).toBe('text');
       expect(view.content[1].text).toContain('<svg');
+    });
+
+    // Regression for T2-4: the render_chart description advertised a scatter mode
+    // ("two series where series[0] = x-values and series[1] = y-values") that
+    // `renderScatter` never implemented — calling it that way yields a wrong chart
+    // (both series plotted as y against xLabels) or, with no xLabels, an empty
+    // placeholder. The description was corrected to match the real behavior.
+    describe('render_chart scatter description matches renderScatter (T2-4)', () => {
+      const renderChartDef = EXTRA_TOOL_DEFINITIONS.find((d) => d.name === 'render_chart');
+
+      it('no longer advertises the unimplemented series[0]=x / series[1]=y scatter mode', () => {
+        expect(renderChartDef).toBeDefined();
+        const description = renderChartDef!.description;
+        expect(description).not.toMatch(/series\[0\]/);
+        expect(description).not.toMatch(/series\[1\]/);
+      });
+
+      it('two series without xLabels produce the placeholder, confirming the removed claim was false', () => {
+        // The advertised mode said this would zip series[0]/series[1] as x/y. It does
+        // not: with two series and no xLabels the scatter branch is skipped, `data` is
+        // absent, and no points are produced.
+        const view = renderChartSvg({
+          type: 'scatter',
+          series: [
+            { name: 'x', values: [1, 2, 3] },
+            { name: 'y', values: [10, 20, 30] },
+          ],
+        });
+        expect(view).toContain('No data provided');
+      });
     });
   });
 

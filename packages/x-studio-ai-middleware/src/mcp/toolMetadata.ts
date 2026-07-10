@@ -250,8 +250,9 @@ export const EXTRA_TOOL_DEFINITIONS: McpToolDefinition[] = [
       'Supported types: "bar", "line", "pie", "scatter", "donut", "stacked_bar". ' +
       'For bar/pie/donut charts provide `data` as an array of { label, value } objects. ' +
       'For single-series line charts use `data`; for multi-series lines/stacked_bar use `xLabels` + `series`. ' +
-      'For scatter charts use `xLabels` (x values as strings) and a single series of y-values, or supply ' +
-      'two series where series[0] = x-values and series[1] = y-values. ' +
+      'For scatter charts use `xLabels` (numeric x values as strings) with one or more `series` of ' +
+      'y-values (each series is plotted as its own set of points against those x values), or provide ' +
+      '`data` as { label, value } points where a numeric `label` is the x position and `value` is the y. ' +
       'The SVG is returned as a base64-encoded image/svg+xml content item.',
     inputSchema: {
       type: 'object',

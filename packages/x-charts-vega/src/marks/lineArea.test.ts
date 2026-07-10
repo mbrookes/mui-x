@@ -252,22 +252,49 @@ describe('compileLineAreaMark', () => {
     expect(first.stack).to.equal(undefined);
   });
 
-  it('records ignored gaps for strokeDash, strokeWidth and opacity', () => {
+  it('wires mark.strokeWidth and mark.strokeDash onto the series sx and emits no gap', () => {
     const compiled = compileSpec({
       data: { values: [{ day: 'A', temp: 1 }] },
-      mark: { type: 'line', strokeDash: [4, 2], strokeWidth: 5, opacity: 0.5 },
+      mark: { type: 'line', strokeDash: [4, 2], strokeWidth: 5 },
       encoding: {
         x: { field: 'day', type: 'nominal' },
         y: { field: 'temp', type: 'quantitative' },
       },
     });
     const codes = compiled.gaps.map((gap) => gap.code);
-    expect(codes).to.include('mark:strokeDash');
-    expect(codes).to.include('mark:strokeWidth');
-    expect(codes).to.include('mark:opacity');
-    compiled.gaps
-      .filter((gap) => ['mark:strokeDash', 'mark:strokeWidth', 'mark:opacity'].includes(gap.code))
-      .forEach((gap) => expect(gap.severity).to.equal('ignored'));
+    expect(codes).not.to.include('mark:strokeDash');
+    expect(codes).not.to.include('mark:strokeWidth');
+    const series = compiled.series[0] as unknown as { id: string; sx: Record<string, unknown> };
+    const selector = `.MuiLineElement-root[data-series-id="${series.id}"]`;
+    expect(series.sx[selector]).to.deep.equal({ strokeWidth: 5, strokeDasharray: '4 2' });
+  });
+
+  it('does not set an sx or report an opacity gap when no stroke styling is present', () => {
+    const compiled = compileSpec({
+      data: { values: [{ day: 'A', temp: 1 }] },
+      mark: { type: 'line', opacity: 0.5 },
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+      },
+    });
+    const codes = compiled.gaps.map((gap) => gap.code);
+    expect(codes).not.to.include('mark:opacity');
+    expect(codes).not.to.include('encoding:opacity');
+    expect((compiled.series[0] as { sx?: unknown }).sx).to.equal(undefined);
+  });
+
+  it('still reports strokeOpacity as an ignored gap (no separate stroke alpha)', () => {
+    const compiled = compileSpec({
+      data: { values: [{ day: 'A', temp: 1 }] },
+      mark: { type: 'line', strokeOpacity: 0.4 },
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+      },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:opacity');
+    expect(gap?.severity).to.equal('ignored');
   });
 
   it('always sets connectNulls: false and reports impute as an unsupported gap', () => {
@@ -326,12 +353,13 @@ describe('compileLineAreaMark', () => {
     expect(segments.items[0]).to.include({ x1: 1, y1: 2, x2: 2, y2: 4 });
   });
 
-  it('still drops an area mark over a continuous quantitative x axis with a gap', () => {
+  it('renders an area mark over a continuous quantitative x axis as a band overlay', () => {
     const compiled = compileSpec({
       data: {
         values: [
-          { a: 1, b: 2 },
           { a: 2, b: 4 },
+          { a: 1, b: 2 },
+          { a: 3, b: 9 },
         ],
       },
       mark: 'area',
@@ -340,7 +368,55 @@ describe('compileLineAreaMark', () => {
         y: { field: 'b', type: 'quantitative' },
       },
     });
+    // No area series (no index-aligned category domain) and no gap: the layer
+    // becomes a filled band overlay instead of being dropped.
     expect(compiled.series).to.have.length(0);
+    expect(compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x')).to.equal(
+      undefined,
+    );
+    const band = compiled.overlays.find((overlay) => overlay.kind === 'band');
+    if (!band || band.kind !== 'band') {
+      throw new Error('expected a band overlay');
+    }
+    // Upper edge is the y value, lower edge is the zero baseline; x-sorted.
+    expect(band.orientation).to.equal('vertical');
+    expect(band.points).to.deep.equal([
+      { x: 1, lower: 0, upper: 2 },
+      { x: 2, lower: 0, upper: 4 },
+      { x: 3, lower: 0, upper: 9 },
+    ]);
+  });
+
+  it('splits a continuous-x area into one band overlay per color group', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { a: 1, b: 2, city: 'NY' },
+          { a: 2, b: 4, city: 'NY' },
+          { a: 1, b: 3, city: 'LA' },
+          { a: 2, b: 6, city: 'LA' },
+        ],
+      },
+      mark: 'area',
+      encoding: {
+        x: { field: 'a', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+        color: { field: 'city', type: 'nominal' },
+      },
+    });
+    const bands = compiled.overlays.filter((overlay) => overlay.kind === 'band');
+    expect(bands).to.have.length(2);
+  });
+
+  it('drops a continuous-x area with fewer than two points per group with a gap', () => {
+    const compiled = compileSpec({
+      data: { values: [{ a: 1, b: 2 }] },
+      mark: 'area',
+      encoding: {
+        x: { field: 'a', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+      },
+    });
     expect(compiled.overlays).to.have.length(0);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x');
     expect(gap?.severity).to.equal('unsupported');

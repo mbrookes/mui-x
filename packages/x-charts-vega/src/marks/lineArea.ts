@@ -9,7 +9,7 @@ import type {
 } from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { toDate, toNumber } from '../compile/fieldTypes';
-import type { DatasetRow, VegaFieldDef, VegaMarkDef } from '../types';
+import type { DatasetRow, VegaFieldDef } from '../types';
 import { isFieldDef } from '../types';
 
 /*
@@ -35,8 +35,12 @@ import { isFieldDef } from '../types';
  *   objects are `ignored`.
  * - stacking on the y field def's `stack`; area + color split defaults to
  *   `'zero'` per Vega-Lite; lines default to unstacked.
- * - `strokeDash`/opacity/`strokeWidth` have no x-charts line-series
- *   equivalent → `ignored` gaps.
+ * - `mark.strokeWidth`/`strokeDash` are wired onto the produced line series via
+ *   an `sx` that targets the series' `.MuiLineElement-root[data-series-id=…]`
+ *   (x-charts stamps `data-series-id` on each line path). Static opacity
+ *   (`mark.opacity`/`fillOpacity`/value-def `opacity`) is handled centrally in
+ *   `compile/index.ts` — it's baked into the resolved series color — so this
+ *   compiler no longer reports an opacity gap.
  * - `connectNulls` is always `false` (Vega-Lite's default invalid-value
  *   behavior breaks the line at gaps); `impute` is reported `unsupported`.
  */
@@ -126,31 +130,33 @@ function formatGroupLabel(value: unknown): string {
   return String(value);
 }
 
+interface ContinuousPoint {
+  x: number;
+  y: number;
+}
+
+interface ContinuousGroups {
+  /** The color-split field, or `undefined` for a single implicit group. */
+  colorField: string | undefined;
+  /** First-appearance order of the group keys. */
+  order: string[];
+  /** Numeric (x, y) points bucketed by color-group key. */
+  groups: Map<string, ContinuousPoint[]>;
+}
+
 /**
- * Builds a polyline (segments overlay) for a `line`/`trail` mark whose x is a
- * continuous quantitative axis — the one axis shape with no index-aligned
- * category domain to hang an x-charts line series on. Each color group becomes
- * one x-sorted polyline; endpoints are data-space and get positioned by the
- * continuous x/y scales at render time. Returns `null` when fewer than two
- * numeric points survive (nothing to connect).
+ * Buckets rows into per-color-group numeric (x, y) points, dropping any row
+ * whose x or y isn't a finite number. Shared by the continuous-x line and area
+ * overlay builders (both need the same grouping, only the drawn shape differs).
  */
-function buildContinuousLineOverlay(
-  ctx: UnitContext,
-  xField: string,
-  yField: string,
-): CompiledOverlay | null {
-  const { rows, encoding, palette } = ctx;
-  const mark = ctx.unit.mark as VegaMarkDef & { stroke?: unknown };
+function groupContinuousPoints(ctx: UnitContext, xField: string, yField: string): ContinuousGroups {
+  const { rows, encoding } = ctx;
   const colorDef = [encoding.color, encoding.fill, encoding.stroke].find((def) =>
     isFieldDef(def),
   ) as VegaFieldDef | undefined;
   const colorField = colorDef?.field;
-  const staticStroke =
-    (typeof mark.color === 'string' && mark.color) ||
-    (typeof mark.stroke === 'string' && mark.stroke) ||
-    undefined;
 
-  const groups = new Map<string, Array<{ x: number; y: number }>>();
+  const groups = new Map<string, ContinuousPoint[]>();
   const order: string[] = [];
   rows.forEach((row) => {
     const xv = toNumber(row[xField]);
@@ -167,6 +173,30 @@ function buildContinuousLineOverlay(
     }
     points.push({ x: xv, y: yv });
   });
+
+  return { colorField, order, groups };
+}
+
+/**
+ * Builds a polyline (segments overlay) for a `line`/`trail` mark whose x is a
+ * continuous quantitative axis — the one axis shape with no index-aligned
+ * category domain to hang an x-charts line series on. Each color group becomes
+ * one x-sorted polyline; endpoints are data-space and get positioned by the
+ * continuous x/y scales at render time. Returns `null` when fewer than two
+ * numeric points survive (nothing to connect).
+ */
+function buildContinuousLineOverlay(
+  ctx: UnitContext,
+  xField: string,
+  yField: string,
+): CompiledOverlay | null {
+  const { palette } = ctx;
+  const mark = ctx.unit.mark;
+  const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
+  const staticStroke =
+    (typeof mark.color === 'string' && mark.color) ||
+    (typeof mark.stroke === 'string' && mark.stroke) ||
+    undefined;
 
   const items: OverlaySegment[] = [];
   order.forEach((key, groupIndex) => {
@@ -189,6 +219,49 @@ function buildContinuousLineOverlay(
   return items.length > 0 ? { kind: 'segments', items } : null;
 }
 
+/**
+ * Builds one filled band overlay per color group for an `area` mark whose x is
+ * a continuous quantitative axis (the axis shape with no index-aligned category
+ * domain for an x-charts area series). Each band traces the y value as its upper
+ * edge and the zero baseline as its lower edge, x-sorted; positions are
+ * data-space and get scaled at render time. Groups with fewer than two points
+ * (nothing to fill) are skipped; returns an empty array when none survive.
+ */
+function buildContinuousAreaOverlay(
+  ctx: UnitContext,
+  xField: string,
+  yField: string,
+): CompiledOverlay[] {
+  const { palette } = ctx;
+  const mark = ctx.unit.mark;
+  const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
+  const staticFill =
+    (typeof mark.fill === 'string' && mark.fill) ||
+    (typeof mark.color === 'string' && mark.color) ||
+    (typeof mark.stroke === 'string' && mark.stroke) ||
+    undefined;
+
+  const overlays: CompiledOverlay[] = [];
+  order.forEach((key, groupIndex) => {
+    const points = groups
+      .get(key)!
+      .slice()
+      .sort((a, b) => a.x - b.x);
+    if (points.length < 2) {
+      return;
+    }
+    const color = colorField ? palette[groupIndex % palette.length] : (staticFill ?? palette[0]);
+    overlays.push({
+      kind: 'band',
+      orientation: 'vertical',
+      color,
+      points: points.map((point) => ({ x: point.x, lower: 0, upper: point.y })),
+    });
+  });
+
+  return overlays;
+}
+
 export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const { unit, rows, encoding, x, gaps } = ctx;
   const path = unit.path;
@@ -201,11 +274,11 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
 
   if (!x || !x.categories || !x.categoryKeys) {
     // Continuous *quantitative* x has no index-aligned category domain for an
-    // x-charts line series (a temporal x doesn't reach here — the continuous
-    // `scaleType: 'time'` path still populates `categories`/`categoryKeys`, see
-    // scales.ts). For `line`/`trail` we render a polyline through the segments
-    // overlay instead of dropping the layer (trend/regression/function lines);
-    // `area` (which needs a filled polygon) is still dropped.
+    // x-charts line/area series (a temporal x doesn't reach here — the
+    // continuous `scaleType: 'time'` path still populates
+    // `categories`/`categoryKeys`, see scales.ts). We render the layer as an
+    // overlay instead of dropping it: `line`/`trail` as a polyline (segments),
+    // `area` as one filled band per color group.
     const contXField = x?.field;
     if ((markType === 'line' || markType === 'trail') && contXField && yField) {
       const overlay = buildContinuousLineOverlay(ctx, contXField, yField);
@@ -213,12 +286,16 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
         return { series: [], plots: [], overlays: [overlay] };
       }
     }
+    if (markType === 'area' && contXField && yField) {
+      const overlays = buildContinuousAreaOverlay(ctx, contXField, yField);
+      if (overlays.length > 0) {
+        return { series: [], plots: [], overlays };
+      }
+    }
     gaps.add({
       code: 'mark:line-continuous-x',
       message:
-        markType === 'area'
-          ? 'Area marks need a discrete (nominal/ordinal) or temporal x axis in this wrapper — a filled area band over a continuous quantitative x axis is not built as an overlay. The layer was dropped.'
-          : 'A line/trail mark over a continuous quantitative x axis needs numeric `x` and `y` field values on at least two rows to draw a polyline; none survived, so the layer was dropped.',
+        'A line/area/trail mark over a continuous quantitative x axis needs numeric `x` and `y` field values on at least two rows to draw a polyline or band; none survived, so the layer was dropped.',
       severity: 'unsupported',
       path,
     });
@@ -276,44 +353,31 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
-  if (mark.strokeDash !== undefined) {
-    gaps.add({
-      code: 'mark:strokeDash',
-      message:
-        'Dashed strokes (`mark.strokeDash`) are not configurable on x-charts line series; the line renders solid.',
-      severity: 'ignored',
-      path: `${path}.mark.strokeDash`,
-    });
+  // `mark.strokeWidth`/`strokeDash` are wired onto each produced series via an
+  // `sx` targeting its line path (see below). Constant opacity is applied
+  // centrally in compile/index.ts (baked into the series color), so no opacity
+  // gap is reported here.
+  const strokeStyle: Record<string, number | string> = {};
+  if (typeof mark.strokeWidth === 'number') {
+    strokeStyle.strokeWidth = mark.strokeWidth;
   }
-  if (mark.strokeWidth !== undefined) {
-    gaps.add({
-      code: 'mark:strokeWidth',
-      message:
-        'Custom stroke width (`mark.strokeWidth`) has no x-charts line-series equivalent and is ignored.',
-      severity: 'ignored',
-      path: `${path}.mark.strokeWidth`,
-    });
+  if (Array.isArray(mark.strokeDash) && mark.strokeDash.length > 0) {
+    strokeStyle.strokeDasharray = mark.strokeDash.join(' ');
   }
-  if (
-    mark.opacity !== undefined ||
-    mark.fillOpacity !== undefined ||
-    mark.strokeOpacity !== undefined
-  ) {
-    gaps.add({
-      code: 'mark:opacity',
-      message:
-        'Opacity (`mark.opacity`/`fillOpacity`/`strokeOpacity`) is not configurable per line/area series on x-charts and is ignored.',
-      severity: 'ignored',
-      path: `${path}.mark.opacity`,
-    });
-  }
-  if (encoding.opacity !== undefined) {
+  const hasStrokeStyle = Object.keys(strokeStyle).length > 0;
+
+  // `mark.opacity`/`fillOpacity` (and value-def `opacity`) are baked into the
+  // series color centrally (see `staticMarkOpacity` in compile/index.ts). A
+  // separate stroke alpha (`strokeOpacity`) has no equivalent on that single
+  // color, so — mirroring point.ts — it stays an ignored gap.
+  if (mark.strokeOpacity !== undefined) {
     gaps.add({
       code: 'encoding:opacity',
       message:
-        'The `opacity` encoding channel has no x-charts line/area series equivalent and is ignored.',
+        'x-charts line/area series have a single color with no separate stroke alpha; ' +
+        '"strokeOpacity" on the mark is ignored (mark/fill opacity IS applied via the series color).',
       severity: 'ignored',
-      path: `${path}.encoding.opacity`,
+      path: `${path}.mark.strokeOpacity`,
     });
   }
 
@@ -410,9 +474,10 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       }
       data[idx] = toNumber(row[yField]);
     }
+    const id = `${path}:${group.key}`;
     return {
       type: 'line',
-      id: `${path}:${group.key}`,
+      id,
       label: group.label,
       data,
       area: markType === 'area',
@@ -421,6 +486,12 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       connectNulls: false,
       color: group.color,
       ...stackMode,
+      // Stroke width/dash have no dedicated x-charts line-series prop, so style
+      // the series' own line path by id. x-charts stamps `data-series-id` on
+      // each `.MuiLineElement-root`, letting one series' `sx` scope to it.
+      ...(hasStrokeStyle
+        ? { sx: { [`.MuiLineElement-root[data-series-id="${id}"]`]: strokeStyle } }
+        : {}),
     } as CompiledSeries;
   });
 

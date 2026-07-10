@@ -129,17 +129,35 @@ describe('compileErrorBarMark', () => {
     ]);
   });
 
-  it('uses a static mark/value color and drops a color-field split with a partial gap', () => {
+  it('uses a static mark/value color for a single interval per category (no color split)', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      mark: { type: 'errorbar', color: '#ff0000' },
+    });
+    const overlay = compiled.overlays[0];
+    if (overlay.kind !== 'errorBars') {
+      throw new Error('expected errorBars overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items.every((item) => item.color === '#ff0000')).to.equal(true);
+    expect(compiled.overlayLegend).to.have.length(0);
+  });
+
+  it('dodges a color-field split into one interval per category per color group with a legend', () => {
     const compiled = compileSpec({
       data: {
         values: [
           { day: 'Mon', temp: 10, region: 'east' },
+          { day: 'Mon', temp: 12, region: 'east' },
           { day: 'Mon', temp: 14, region: 'west' },
+          { day: 'Mon', temp: 16, region: 'west' },
           { day: 'Tue', temp: 20, region: 'east' },
+          { day: 'Tue', temp: 22, region: 'east' },
           { day: 'Tue', temp: 24, region: 'west' },
+          { day: 'Tue', temp: 26, region: 'west' },
         ],
       },
-      mark: { type: 'errorbar', color: '#ff0000' },
+      mark: 'errorbar',
       encoding: {
         x: { field: 'day', type: 'nominal' },
         y: { field: 'temp', type: 'quantitative' },
@@ -150,10 +168,55 @@ describe('compileErrorBarMark', () => {
     if (overlay.kind !== 'errorBars') {
       throw new Error('expected errorBars overlay');
     }
-    expect(overlay.items).to.have.length(2);
-    expect(overlay.items.every((item) => item.color === '#ff0000')).to.equal(true);
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:errorbar-color-split');
-    expect(gap?.severity).to.equal('partial');
+    // 2 color groups × 2 categories = 4 dodged intervals.
+    expect(overlay.items).to.have.length(4);
+    expect(overlay.items.every((item: OverlayErrorBarItem) => item.groupCount === 2)).to.equal(
+      true,
+    );
+    // Each group's items share a groupIndex (0 for east, 1 for west) and color.
+    const eastItems = overlay.items.filter((item: OverlayErrorBarItem) => item.groupIndex === 0);
+    const westItems = overlay.items.filter((item: OverlayErrorBarItem) => item.groupIndex === 1);
+    expect(eastItems).to.have.length(2);
+    expect(westItems).to.have.length(2);
+    expect(eastItems[0].color).to.not.equal(westItems[0].color);
+
+    // The color split is now rendered, not dropped.
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:errorbar-color-split');
+    // Legend swatches describe the two groups.
+    expect(compiled.overlayLegend.map((entry) => entry.label)).to.deep.equal(['east', 'west']);
+    expect(compiled.overlayLegend.every((entry) => typeof entry.color === 'string')).to.equal(true);
+  });
+
+  it('errorband: a color-field split draws one band overlay per color group with a legend', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { day: 'Mon', temp: 10, region: 'east' },
+          { day: 'Mon', temp: 12, region: 'east' },
+          { day: 'Mon', temp: 14, region: 'west' },
+          { day: 'Mon', temp: 16, region: 'west' },
+          { day: 'Tue', temp: 20, region: 'east' },
+          { day: 'Tue', temp: 22, region: 'east' },
+          { day: 'Tue', temp: 24, region: 'west' },
+          { day: 'Tue', temp: 26, region: 'west' },
+        ],
+      },
+      mark: 'errorband',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+        color: { field: 'region', type: 'nominal' },
+      },
+    });
+    const bands = compiled.overlays.filter((overlay) => overlay.kind === 'band');
+    expect(bands).to.have.length(2);
+    expect(bands[0].kind === 'band' && bands[1].kind === 'band').to.equal(true);
+    if (bands[0].kind !== 'band' || bands[1].kind !== 'band') {
+      throw new Error('expected band overlays');
+    }
+    expect(bands[0].color).to.not.equal(bands[1].color);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:errorbar-color-split');
+    expect(compiled.overlayLegend.map((entry) => entry.label)).to.deep.equal(['east', 'west']);
   });
 
   it('reports an unsupported gap and renders nothing when a positional channel is missing', () => {

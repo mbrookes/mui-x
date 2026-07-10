@@ -4,6 +4,7 @@ import type {
   CompiledUnit,
   OverlayBandPoint,
   OverlayErrorBarItem,
+  OverlayLegendItem,
   UnitContext,
 } from '../compile/context';
 import { resolveColor } from '../compile/color';
@@ -11,6 +12,33 @@ import { toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
 import type { DatasetRow, VegaChannelDef, VegaMarkDef } from '../types';
 import { isFieldDef } from '../types';
+import { groupRowsByField } from './bar';
+
+/*
+ * A color-field split dodges error bars side-by-side within each category
+ * (mirroring boxplot.ts). `OverlayErrorBarItem` lives in the shared
+ * compile/context.ts, which this work unit must not edit, so the two optional
+ * dodge fields are contributed here through declaration merging — they only
+ * ADD optional properties, so no existing consumer is affected.
+ * `OverlayBoxItem` already carries the equivalent `groupIndex` for dodged
+ * boxes; the boxplot overlay object carries `groupCount`, but the `errorBars`
+ * overlay is a union member (not an interface) and cannot be merged, so
+ * `groupCount` rides on the item instead — every item in a dodged overlay
+ * carries the same value.
+ */
+declare module '../compile/context' {
+  interface OverlayErrorBarItem {
+    /** Sub-group index within the category (for grouped/dodged error bars). */
+    groupIndex?: number;
+    /** Number of sub-groups sharing each category (for grouped/dodged error bars). */
+    groupCount?: number;
+  }
+}
+
+/** Formats a color-group value for a legend swatch label (locale date for temporal groups). */
+function formatLegendLabel(value: unknown): string {
+  return value instanceof Date ? value.toLocaleDateString() : String(value);
+}
 
 /*
  * OWNERSHIP: the "errorbar/errorband" work unit owns this file.
@@ -31,7 +59,10 @@ import { isFieldDef } from '../types';
  *   `orientation: 'horizontal'` and stores the y-category in `point.x` (see
  *   `OverlayBandPoint`'s JSDoc in compile/context.ts) for the renderer to
  *   transpose;
- * - color from static mark/value color; color-field split → 'partial' gap;
+ * - color from static mark/value color; a color-field split dodges the mark
+ *   into one interval/band per color group per category (side-by-side for
+ *   errorbar; one overlaid band per group for errorband) and emits
+ *   `overlayLegend` swatches — mirroring boxplot.ts;
  * - these marks are usually LAYERED with line/point marks — the pipeline
  *   already flattens layers, nothing special needed;
  * - return { series: [], plots: [], overlays: [...] }.
@@ -190,35 +221,76 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   }
 
   const color = resolveColor(encoding, rows, gaps, path);
-  if (color.splitField) {
-    gaps.add({
-      code: 'mark:errorbar-color-split',
-      message:
-        'A color-field encoding on an errorbar/errorband mark would draw one interval per category per color group; this wrapper renders a single interval per category instead, so the color split is dropped.',
-      severity: 'partial',
-      path: `${path}.encoding.color`,
-    });
-  }
   const staticColor = color.staticColor ?? mark.color;
 
-  const groups = groupValuesByCategory(ctx, rows, categoryAxis, categoryField, valueField);
-  const intervals = groups.map((values) => computeInterval(values, extent));
+  /** Computes the per-category intervals for one set of rows, index-aligned to `categoryAxis.categories`. */
+  const intervalsForRows = (groupRows: readonly DatasetRow[]): (Interval | null)[] =>
+    groupValuesByCategory(ctx, groupRows, categoryAxis, categoryField, valueField).map((values) =>
+      computeInterval(values, extent),
+    );
+
+  // The color of a dodged group: deliberately does NOT fall back to
+  // `staticColor` (see boxplot.ts) — reusing a static `mark.color` for every
+  // group would paint all dodged groups identically, defeating the split.
+  const groupColorAt = (gi: number): string =>
+    color.range?.[gi] ?? ctx.palette[gi % ctx.palette.length];
 
   if (markType === 'errorbar') {
     const items: OverlayErrorBarItem[] = [];
-    categoryAxis.categories.forEach((category, index) => {
-      const interval = intervals[index];
-      if (!interval) {
-        return;
-      }
-      items.push({
-        category,
-        center: interval.mean,
-        lower: interval.lower,
-        upper: interval.upper,
-        color: staticColor,
+    const overlayLegend: OverlayLegendItem[] = [];
+
+    if (color.splitField) {
+      // Dodged error bars: one interval per category per color group, drawn
+      // side-by-side (the renderer offsets each item by its groupIndex within
+      // the category band). Same shape as boxplot.ts's grouped boxes.
+      const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
+      // Every group reserves a dodge slot (groupCount = groups.length) so the
+      // side-by-side positions stay stable even when a group is empty in some
+      // categories.
+      const groupCount = groups.length;
+      groups.forEach((group, gi) => {
+        const groupColor = groupColorAt(gi);
+        const intervals = intervalsForRows(group.rows);
+        let rendered = false;
+        categoryAxis.categories!.forEach((category, index) => {
+          const interval = intervals[index];
+          if (!interval) {
+            return;
+          }
+          rendered = true;
+          items.push({
+            category,
+            center: interval.mean,
+            lower: interval.lower,
+            upper: interval.upper,
+            color: groupColor,
+            groupIndex: gi,
+            groupCount,
+          });
+        });
+        // Only legend a group that actually drew at least one interval — mirrors
+        // the errorband branch below (a swatch with nothing drawn is misleading).
+        if (rendered) {
+          overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
+        }
       });
-    });
+    } else {
+      const intervals = intervalsForRows(rows);
+      categoryAxis.categories.forEach((category, index) => {
+        const interval = intervals[index];
+        if (!interval) {
+          return;
+        }
+        items.push({
+          category,
+          center: interval.mean,
+          lower: interval.lower,
+          upper: interval.upper,
+          color: staticColor,
+        });
+      });
+    }
+
     if (items.length === 0) {
       gaps.add({
         code: 'mark:errorbar-no-data',
@@ -230,7 +302,12 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
       return { series: [], plots: [] };
     }
     const overlay: CompiledOverlay = { kind: 'errorBars', orientation, items };
-    return { series: [], plots: [], overlays: [overlay] };
+    return {
+      series: [],
+      plots: [],
+      overlays: [overlay],
+      ...(overlayLegend.length > 0 ? { overlayLegend } : {}),
+    };
   }
 
   // errorband: the category-axis order (x for vertical, y for horizontal —
@@ -238,14 +315,62 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   // path order. `point.x` carries the category value regardless of
   // orientation; the `horizontal` flag on the overlay tells the renderer to
   // transpose (draw the category on the y axis, lower/upper on x).
-  const points: OverlayBandPoint[] = [];
-  categoryAxis.categories.forEach((category, index) => {
-    const interval = intervals[index];
-    if (!interval) {
-      return;
+  /** Builds the band points for one set of rows (empty when no category had enough data). */
+  const pointsForRows = (groupRows: readonly DatasetRow[]): OverlayBandPoint[] => {
+    const intervals = intervalsForRows(groupRows);
+    const points: OverlayBandPoint[] = [];
+    categoryAxis.categories!.forEach((category, index) => {
+      const interval = intervals[index];
+      if (!interval) {
+        return;
+      }
+      points.push({ x: category, lower: interval.lower, upper: interval.upper });
+    });
+    return points;
+  };
+
+  if (color.splitField) {
+    // A color-field split draws one band per color group. Unlike dodged error
+    // bars, bands are continuous filled areas: Vega-Lite overlays one
+    // semi-transparent band per group (they can overlap) rather than dodging
+    // them side-by-side, so each group becomes its own `band` overlay.
+    const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
+    const overlays: CompiledOverlay[] = [];
+    const overlayLegend: OverlayLegendItem[] = [];
+    groups.forEach((group, gi) => {
+      const points = pointsForRows(group.rows);
+      if (points.length === 0) {
+        return;
+      }
+      const groupColor = groupColorAt(gi);
+      overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
+      overlays.push({
+        kind: 'band',
+        points,
+        color: groupColor,
+        opacity: 0.3,
+        ...(horizontal ? { orientation: 'horizontal' as const } : {}),
+      });
+    });
+    if (overlays.length === 0) {
+      gaps.add({
+        code: 'mark:errorband-no-data',
+        message:
+          'No category group had enough rows to compute an interval for the requested extent; no error band was rendered.',
+        severity: 'unsupported',
+        path,
+      });
+      return { series: [], plots: [] };
     }
-    points.push({ x: category, lower: interval.lower, upper: interval.upper });
-  });
+    return {
+      series: [],
+      plots: [],
+      overlays,
+      ...(overlayLegend.length > 0 ? { overlayLegend } : {}),
+    };
+  }
+
+  const points = pointsForRows(rows);
   if (points.length === 0) {
     gaps.add({
       code: 'mark:errorband-no-data',

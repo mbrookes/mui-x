@@ -161,6 +161,18 @@ export function useBlendedSeriesRows(
       // against a field that only exists on the widget's primary source (or some other
       // source entirely) must stay fully unconstrained here rather than being evaluated
       // against `undefined` and spuriously filtering out every row (finding 2.3).
+      //
+      // A field's mere existence on this source is not sufficient on its own: a filter
+      // with an explicit `filterSourceId` names the exact source it was authored against
+      // (`PageFilterRow.tsx`), and L3 treats `filterSourceId !== widgetSourceId` as a
+      // cross-source semi-join hint, never a native predicate to evaluate directly
+      // (`dataSourceGraph.ts`). Two sources can share a field name by coincidence
+      // (`status`, `date`, `total`, ...), so without this check a filter authored against
+      // source A would be matched purely by field-name collision and hard-filtered
+      // against source B's same-named column here — silently disagreeing with the primary
+      // series' relationship-aware scoping (finding 2.4). The expression branch already
+      // implies ownership via `ef.sourceId === sid`, so only the physical-field branch
+      // needs the guard.
       const applicable = selectFiltersForWidget(filters, {
         widgetId: `${widget.id}::blend::${sid}`,
         widgetSourceId: sid,
@@ -169,7 +181,8 @@ export function useBlendedSeriesRows(
       }).filter(
         (f) =>
           f.field &&
-          (src.fields.some((fl) => fl.id === f.field) ||
+          (((!f.filterSourceId || f.filterSourceId === sid) &&
+            src.fields.some((fl) => fl.id === f.field)) ||
             sourceExpressionFields.some((ef) => ef.id === f.field && !ef.isMeasure)),
       );
       specs.push({

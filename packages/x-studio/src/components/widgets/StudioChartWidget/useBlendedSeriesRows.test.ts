@@ -329,6 +329,104 @@ describe('useBlendedSeriesRows — page-scoped filters must not leak across page
   });
 });
 
+describe('useBlendedSeriesRows — a filterSourceId-scoped filter must not apply by field-name collision (finding 2.4)', () => {
+  it('does NOT apply a filter with filterSourceId pointing at a DIFFERENT source to a foreign series sharing the same field name', () => {
+    // Both `orders` and `inventory` have a field literally named `category` — a filter
+    // authored against `orders` (filterSourceId: 'orders') must stay unconstrained on
+    // the foreign `inventory` series, even though `category` also exists there.
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-orders-scoped',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            filterSourceId: 'orders',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    // Before the fix, the gate matched purely by field-name existence on `inventory`, so
+    // this orders-scoped filter incorrectly hard-filtered the foreign series down to a
+    // single row. After the fix it stays fully unconstrained (both inventory rows).
+    expect(result.current.foreignRowsBySource.get('inventory')).toHaveLength(2);
+  });
+
+  it('DOES apply a filter whose filterSourceId matches the foreign source (contrast case)', () => {
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-inventory-scoped',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            filterSourceId: 'inventory',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].category).toBe('Electronics');
+  });
+
+  it('DOES apply a filter with no filterSourceId at all to a foreign series matching by field name (unscoped filters still apply)', () => {
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-unscoped',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].category).toBe('Electronics');
+  });
+});
+
 describe('useBlendedSeriesRows — dashboard date-range presets must be resolved, not skipped (finding 2.2, facet b)', () => {
   it('resolves a dashboard-date-range preset filter and applies it to a foreign sync source', () => {
     const today = new Date().toISOString().slice(0, 10);

@@ -16,6 +16,10 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 import type { KpiTrendProps } from './KpiTrend';
 import type { KpiValueProps } from './KpiValue';
 import type { KpiSparklineProps } from './KpiSparkline';
@@ -707,6 +711,133 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     await user.hover(wrapperSpan);
     const tooltip = await screen.findByRole('tooltip');
     expect(tooltip.textContent).toContain('Date');
+  });
+
+  it('finding 2.5: threads crossFilterAllPages into the hover subtitle so a cross-page cross-filter appears (5th call site, matching the other 4)', async () => {
+    // A cross-filter emitted by a widget on ANOTHER page (page-2). With the dashboard
+    // "cross-filter across all pages" toggle on, `useWidgetRows` already narrows the
+    // KPI's rendered headline by this filter — the hover subtitle listing "which
+    // filters apply" must agree, exactly as the other 4 `selectFiltersForWidget` call
+    // sites in this file already do (fixed in iteration 9).
+    rowsHolder.current = salesRows;
+    const crossPageCrossFilter: StudioFilterState = {
+      id: 'f-cross-amount',
+      field: 'amount',
+      fieldType: 'number',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+      operator: 'greater_than',
+      value: 50,
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'cross-filter' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [crossPageCrossFilter],
+    });
+    mockState.doc.dashboard.crossFilterAllPages = true;
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+
+    // Before the fix, `crossFilterAllPages` was never passed to this call site, so
+    // `selectFiltersForWidget` defaulted it to `false` and excluded the page-2
+    // cross-filter (`sv2.pageId !== activePageId`) — `filterSubtitle` was `''`, which
+    // disables the tooltip's hover listener entirely, and no tooltip would open.
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain('Amount');
+  });
+
+  it('finding 2.5: does NOT show a cross-page cross-filter in the hover subtitle when crossFilterAllPages is off (contrast case)', async () => {
+    rowsHolder.current = salesRows;
+    const crossPageCrossFilter: StudioFilterState = {
+      id: 'f-cross-amount',
+      field: 'amount',
+      fieldType: 'number',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+      operator: 'greater_than',
+      value: 50,
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'cross-filter' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [crossPageCrossFilter],
+    });
+    mockState.doc.dashboard.crossFilterAllPages = false;
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    // With the toggle off, the cross-page filter is excluded, so `filterSubtitle` is
+    // '' and the tooltip's hover listener stays disabled — no tooltip opens.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('finding 2.5: routes the hover subtitle text through summarizeFilter with the active localeText (no locale bypass)', async () => {
+    // A `selection`-mode filter with an empty `value` array summarizes via the
+    // `filterSummaryAnyValue` locale token. Overriding it through
+    // `StudioUIConfigContext` and asserting the override appears verbatim in the
+    // tooltip proves the subtitle is routed through the active `localeText` rather
+    // than always rendering `summarizeFilter`'s English default.
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const selectionFilter: StudioFilterState = {
+      id: 'f-selection',
+      field: 'amount',
+      filterMode: 'selection',
+      operator: 'in',
+      value: [],
+      scope: { kind: 'page', pageId: 'page-1' },
+    } as unknown as StudioFilterState;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [selectionFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const CUSTOM_ANY_VALUE_TEXT = 'CUALQUIER VALOR';
+    const { container, user } = render(
+      <ThemeProvider theme={createTheme()}>
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: {
+              ...DEFAULT_STUDIO_LOCALE_TEXT,
+              filterSummaryAnyValue: CUSTOM_ANY_VALUE_TEXT,
+            },
+          }}
+        >
+          <StudioKpiWidget
+            widget={widget}
+            dataSource={salesSource}
+            pageId="page-1"
+            slots={{ trend: TrendSpy, value: ValueSpy, sparkline: SparklineSpy }}
+          />
+        </StudioUIConfigContext.Provider>
+      </ThemeProvider>,
+    );
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+
+    // Before the fix, `summarizeFilter(f)` was called with no `localeText` argument, so
+    // it always fell back to `DEFAULT_STUDIO_LOCALE_TEXT`'s English 'any value' text
+    // regardless of the active locale.
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain(CUSTOM_ANY_VALUE_TEXT);
   });
 });
 

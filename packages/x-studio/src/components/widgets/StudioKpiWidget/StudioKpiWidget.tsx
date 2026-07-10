@@ -1090,12 +1090,17 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // Route through the same widget-scoped filter selection the trend/sparkline paths
     // use (`selectFiltersForWidget`) instead of a raw `scope.kind === 'page'` match with
     // no pageId check — otherwise the hover tooltip lists another page's (or a disabled)
-    // filter as if it were applied to this KPI (finding 2.5).
+    // filter as if it were applied to this KPI (finding 2.5). `crossFilterAllPages` is
+    // threaded through here too, matching every sibling `selectFiltersForWidget` call in
+    // this file (:265-271, :614-620, :787-793, :1009-1015) — otherwise, with the
+    // dashboard-level all-pages toggle on, the headline is narrowed by a cross-page
+    // cross-filter (via `useWidgetRows`) while this hover summary silently omits it.
     const relevant = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+      crossFilterAllPages,
     });
     if (relevant.length === 0) {
       return '';
@@ -1104,7 +1109,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     return relevant
       .map((f) => {
         const label = fieldLabelMap.get(f.field) ?? f.field;
-        return `${label}: ${summarizeFilter(f)}`;
+        return `${label}: ${summarizeFilter(f, localeText)}`;
       })
       .join(' · ');
   }, [
@@ -1116,6 +1121,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     widget.sourceId,
     pageId,
     crossFilterMode,
+    crossFilterAllPages,
+    localeText,
   ]);
 
   const showSparkline = (config.kpiSparkline ?? false) && hasData;

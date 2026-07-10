@@ -119,6 +119,99 @@ describe('createDataToolHandlers', () => {
         columns: ['id', 'total'],
       });
     });
+
+    // Regression for T2-6: `limit` was clamped on the upper bound only
+    // (`Math.min(limit ?? maxQueryRows, maxQueryRows)`), so a negative or NaN
+    // `limit` — and any `offset` at all — passed straight through to the host.
+    describe('limit/offset clamping (T2-6)', () => {
+      it('clamps a negative limit instead of forwarding it untouched', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', limit: -5 });
+        const forwardedLimit = queryDataSource.mock.calls[0][0].limit;
+        expect(forwardedLimit).not.toBeLessThan(0);
+        expect(Number.isFinite(forwardedLimit)).toBe(true);
+      });
+
+      it('clamps a NaN-producing limit (e.g. a non-numeric string) instead of forwarding NaN', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', limit: 'all' as any });
+        const forwardedLimit = queryDataSource.mock.calls[0][0].limit;
+        expect(Number.isFinite(forwardedLimit)).toBe(true);
+        expect(forwardedLimit).toBe(1000); // falls back to maxQueryRows
+      });
+
+      it('still respects the upper bound for an excessively large limit', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', limit: 1_000_000 });
+        expect(queryDataSource.mock.calls[0][0].limit).toBe(1000);
+      });
+
+      it('coerces a negative offset to 0 instead of forwarding it untouched', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', offset: -10 });
+        expect(queryDataSource.mock.calls[0][0].offset).toBe(0);
+      });
+
+      it('coerces a NaN-producing offset to 0', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', offset: 'many' as any });
+        expect(queryDataSource.mock.calls[0][0].offset).toBe(0);
+      });
+
+      it('does not forward an offset key at all when offset is omitted', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders' });
+        expect('offset' in queryDataSource.mock.calls[0][0]).toBe(false);
+      });
+
+      it('forwards a valid positive integer offset unchanged', async () => {
+        const queryDataSource = vi.fn(
+          async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+            rows: [],
+            rowCount: 0,
+          }),
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        await handlers.query_data_source({ sourceId: 'source-orders', offset: 20 });
+        expect(queryDataSource.mock.calls[0][0].offset).toBe(20);
+      });
+    });
   });
 
   describe('describe_data_source', () => {

@@ -1183,6 +1183,37 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
   });
 
+  // T3-A: a colSpans ref that is an `Object.prototype` member name and matches
+  // no added-widget title must be skipped with the LITERAL ref in the message —
+  // not a stringified inherited function (`function Object() { [native code] }`).
+  // Resolution goes through a `Map`, so `.get("constructor")` is `undefined` and
+  // the `?? ref` fallthrough keeps the raw model string.
+  for (const protoRef of ['constructor', 'toString', '__proto__']) {
+    it(`skips a prototype-named colSpans ref "${protoRef}" with the literal ref (no stringified function)`, () => {
+      const state = makeState();
+      const result = executeToolOnState(
+        'apply_bulk_update',
+        { colSpans: { [protoRef]: 12 } },
+        state,
+      );
+      const out = parseOutput(result.output);
+      expect(out.skipped).toEqual([`colSpan ${protoRef}: widget not found.`]);
+      expect(JSON.stringify(out.skipped)).not.toMatch(/native code|function Object/);
+    });
+
+    it(`skips a prototype-named layout ref "${protoRef}" with the literal ref (no stringified function)`, () => {
+      const state = makeState();
+      const result = executeToolOnState('apply_bulk_update', { layout: [[protoRef]] }, state);
+      const out = parseOutput(result.output);
+      expect(out.skipped).toEqual([
+        `layout: unknown or removed widget IDs: ${protoRef}. ` +
+          'Reference only widgets that exist after this update (added-widget titles ' +
+          'are resolved to their new IDs).',
+      ]);
+      expect(JSON.stringify(out.skipped)).not.toMatch(/native code|function Object/);
+    });
+  }
+
   it('omits widgetRows/widgetColSpans when every op in the batch was skipped (no real change)', () => {
     const state = makeState();
     const result = executeToolOnState(
@@ -1793,6 +1824,20 @@ describe('executeToolOnState: unknown tool', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
   });
+
+  // A `toolName` that is an `Object.prototype` member must fall through to the
+  // same `Unknown tool` error, not resolve `TOOL_IMPLS[name]` through the
+  // prototype chain to an inherited value (T2-A sibling hardening).
+  for (const protoName of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    it(`treats prototype-member name "${protoName}" as an unknown tool`, () => {
+      const state = makeState();
+      const result = executeToolOnState(protoName, {}, state);
+      const out = parseOutput(result.output);
+      expect(out.error).toBe(`Unknown tool: ${protoName}`);
+      expect(result.mutation).toBeUndefined();
+      expect(result.nextState).toBe(state);
+    });
+  }
 });
 
 // ── nextState chaining ────────────────────────────────────────────────────────

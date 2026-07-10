@@ -424,13 +424,25 @@ export function buildStudioMcpServer(
         return errorResult(`Unknown tool: ${toolName}`);
       }
 
+      // Resolve the special-cased handler with an `Object.hasOwn` guard so a
+      // model/client-supplied name that is an `Object.prototype` member
+      // ("constructor", "toString", "valueOf", "__proto__", …) resolves to
+      // `undefined` instead of an inherited prototype value that would then be
+      // invoked as `handler(args)`. Then reject any name that is neither a
+      // special-cased handler nor a registered mutation tool BEFORE either
+      // dispatch branch, so every unrecognized name — prototype member or not —
+      // receives the same clean `Unknown tool` error uniformly.
+      const handler = Object.hasOwn(toolHandlers, toolName) ? toolHandlers[toolName] : undefined;
+      if (!handler && !registeredToolNames.has(toolName)) {
+        return errorResult(`Unknown tool: ${toolName}`);
+      }
+
       // Special-cased read-only / side-effectful tools (data queries, chart render,
       // recent-changes, and — when data is configured — summarise_page). These
       // previously bypassed the policy entirely; now they pass an ARGS-ONLY
       // authorization consult (they never mutate dashboard state, so `mayMutate` is
       // omitted) and, on require-approval, bridge to the host's approvalHandler exactly
       // like the mutation path. Only on allow/approved does the handler run.
-      const handler = toolHandlers[toolName];
       if (handler) {
         const gate = await consultToolPolicyArgsOnly(toolName, args ?? {}, stateBox.current, {
           policy: sessionToolPolicy,
@@ -450,10 +462,9 @@ export function buildStudioMcpServer(
       }
 
       // ── dashboard-mutation tools ──────────────────────────────────────────
-
-      if (!registeredToolNames.has(toolName)) {
-        return errorResult(`Unknown tool: ${toolName}`);
-      }
+      // (`registeredToolNames.has(toolName)` is guaranteed true here: any name
+      // that is neither a handler nor a registered mutation tool was already
+      // rejected as unknown above.)
 
       // Serialize the mutating branch per session (see `mutationChain`): capturing the
       // snapshot inside the chained critical section makes cross-call staleness

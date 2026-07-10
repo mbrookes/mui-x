@@ -949,6 +949,38 @@ describe('buildStudioMcpServer — tools/call allowedTools gating (T1-3)', () =>
   });
 });
 
+describe('buildStudioMcpServer — tools/call prototype-name dispatch hardening (T2-A)', () => {
+  // A model/client-supplied tool name that is an `Object.prototype` member must
+  // receive the SAME clean `Unknown tool` error every other unrecognized name
+  // gets — not resolve `toolHandlers[name]` through the prototype chain to an
+  // inherited value that is then invoked as `handler(args)` (which would produce
+  // a malformed result / caught TypeError / SDK serialization error instead).
+  for (const protoName of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    it(`rejects tools/call name="${protoName}" as unknown (allow-all default)`, async () => {
+      const stateBox = { current: makeStableState() };
+      const onStateChange = vi.fn();
+      // Default config: allowedTools omitted → isToolAllowed returns true for
+      // every name, so the prototype-member guard is the only thing standing
+      // between the untrusted name and a prototype-chain dispatch.
+      const server = buildStudioMcpServer(stateBox, { onStateChange });
+
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: protoName, arguments: {} },
+        method: CALL_TOOL,
+      })) as any;
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/unknown tool/i);
+      expect(result.content[0].text).toContain(protoName);
+      // Nothing was dispatched or mutated.
+      expect(onStateChange).not.toHaveBeenCalled();
+    });
+  }
+});
+
 describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
   it('deny leaves stateBox untouched, records no change, and does not fire onStateChange', async () => {
     const stateBox = { current: makeStableState() };

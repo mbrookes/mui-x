@@ -1148,7 +1148,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
 
       // 2. Additions
-      const addedTitleToId: Record<string, string> = {};
+      // A `Map` (not a plain object) so a model-chosen widget `title` that is an
+      // `Object.prototype` member ("constructor", "toString", "__proto__", …)
+      // can't resolve a title ref to an inherited value: `.get(ref)` returns
+      // `undefined` for an unmatched ref, so the `?? ref` fallthrough always
+      // reaches the raw model string and skip messages read back the exact ref.
+      const addedTitleToId = new Map<string, string>();
       // Kind of each widget added THIS batch, keyed by id — so the updates loop below
       // can resolve the kind of a same-batch addition (not yet present in
       // `state.doc.widgets`) for its own config-key validation.
@@ -1194,7 +1199,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         const { widget } = built;
         addedWidgets.push(widget);
         liveWidgetIds.add(widget.id);
-        addedTitleToId[widget.title] = widget.id;
+        addedTitleToId.set(widget.title, widget.id);
         addedWidgetKinds[widget.id] = widget.kind;
         if (isWidgetOfKind(widget, 'chart')) {
           currentChartTypes.set(widget.id, widget.config.chartType);
@@ -1296,7 +1301,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           );
         } else {
           const mappedRows = (rawLayout as string[][])
-            .map((row) => row.map((ref) => addedTitleToId[ref] ?? ref))
+            .map((row) => row.map((ref) => addedTitleToId.get(ref) ?? ref))
             .filter((row) => row.length > 0);
           // Reject DUPLICATE ids with the SAME rigor as `set_widget_layout`: an id
           // appearing in more than one cell would place one widget twice. The reducer's
@@ -1364,7 +1369,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         // above: a widget added earlier in this same batch is only known to the model by
         // title (its id is server-minted), so keying `colSpans` strictly by id would
         // silently drop a same-batch add-then-resize.
-        const wid = addedTitleToId[ref] ?? ref;
+        const wid = addedTitleToId.get(ref) ?? ref;
         if (!liveWidgetIds.has(wid)) {
           skipped.push(`colSpan ${ref}: widget not found.`);
           continue;
@@ -1628,9 +1633,13 @@ export function executeToolOnState(
   pageSnapshot?: string,
 ): ToolExecutionResult {
   const args = (input ?? {}) as Record<string, unknown>;
-  const impl = (TOOL_IMPLS as Record<string, PureToolImpl | ExternalToolImpl | undefined>)[
-    toolName
-  ];
+  // `Object.hasOwn`-guard the lookup so a model-supplied `toolName` that is an
+  // `Object.prototype` member ("constructor", "toString", "__proto__", …)
+  // resolves to `undefined` instead of an inherited value, and falls through to
+  // the same `Unknown tool` error every other unregistered name receives.
+  const impl = Object.hasOwn(TOOL_IMPLS, toolName)
+    ? (TOOL_IMPLS as Record<string, PureToolImpl | ExternalToolImpl | undefined>)[toolName]
+    : undefined;
 
   if (impl?.effect === 'pure') {
     return impl.plan(args, { state, customWidgets, pageSnapshot });

@@ -90,8 +90,50 @@ function resolveTopojsonRows(
     });
     return undefined;
   }
-  const collection = topojsonFeature(topology as never, featureName as never);
-  return [collection as unknown as DatasetRow];
+  const collection = topojsonFeature(topology as never, featureName as never) as unknown as {
+    type: string;
+    features: GeoFeatureLike[];
+  };
+  return [
+    { ...collection, features: dedupeFeaturesById(collection.features) } as unknown as DatasetRow,
+  ];
+}
+
+interface GeoFeatureLike {
+  id?: string | number;
+  geometry?: unknown;
+}
+
+/**
+ * Collapse GeoJSON features to one per `id`. TopoJSON `feature()` can yield
+ * several features sharing an `id` — commonly a null-geometry placeholder plus
+ * the real polygon (and, in malformed topologies, two real polygons). Duplicate
+ * ids are ambiguous both for join-by-id and for the map renderer, which keys
+ * each shape by feature id and warns on collisions ("two children with the same
+ * key"). Keep the first feature per id, but let a real geometry replace a
+ * previously-kept null-geometry placeholder so no visible shape is lost.
+ * Features without an `id` are never merged (they carry no join/key identity).
+ */
+function dedupeFeaturesById(features: GeoFeatureLike[]): GeoFeatureLike[] {
+  const positionById = new Map<string, number>();
+  const out: GeoFeatureLike[] = [];
+  for (const feat of features) {
+    const id = feat?.id;
+    if (id == null) {
+      out.push(feat);
+      continue;
+    }
+    const key = String(id);
+    const existing = positionById.get(key);
+    if (existing === undefined) {
+      positionById.set(key, out.length);
+      out.push(feat);
+    } else if (out[existing].geometry == null && feat.geometry != null) {
+      // Upgrade a placeholder (null-geometry) feature to the real polygon.
+      out[existing] = feat;
+    }
+  }
+  return out;
 }
 
 function resolveRows(

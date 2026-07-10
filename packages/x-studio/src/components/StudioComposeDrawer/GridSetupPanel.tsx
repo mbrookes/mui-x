@@ -103,6 +103,22 @@ function clearFieldBoundGridConfig(
   return next as StudioWidgetConfigForKind<'grid'>;
 }
 
+/**
+ * Composite key identifying a configured column for its per-column aggregation
+ * (summary/group) menu entry: bare `fieldId` for a primary-source column,
+ * `sourceId/fieldId` for a cross-source one. Matches the exact same convention the
+ * column list below already uses for React keys / menu-anchor identity (`colKey`).
+ *
+ * `gridSummaryFields`/`gridAggregations` used to be keyed by bare `fieldId` alone, so
+ * a related-source column whose field id happens to match a primary column's (e.g.
+ * both have an `id` or `name` field) shared the exact same map entry — configuring
+ * one column's aggregation silently overwrote the other's (architecture review:
+ * per-column aggregation collision).
+ */
+function columnAggKey(col: Pick<StudioGridColumn, 'fieldId' | 'sourceId'>): string {
+  return col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
+}
+
 /** A selectable field entry with its source context */
 interface SelectableField {
   fieldId: string;
@@ -370,12 +386,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setAddMenuAnchor(null);
   };
 
-  const handleSummaryChange = (fieldId: string, value: StudioGridSummaryAggregation | '') => {
+  // Keyed by the SAME composite convention as `colKey` below (bare `fieldId` for a
+  // primary-source column, `sourceId/fieldId` for a cross-source one) — NOT by bare
+  // `fieldId` alone. A related-source column whose field id happens to match a
+  // primary column's (e.g. both have an `id` field) used to share the exact same
+  // `gridSummaryFields`/`gridAggregations` entry, so configuring one column's
+  // per-column aggregation silently overwrote the other's (architecture review:
+  // per-column aggregation collision).
+  const handleSummaryChange = (col: StudioGridColumn, value: StudioGridSummaryAggregation | '') => {
+    const key = columnAggKey(col);
     const next = { ...summaryFields };
     if (value === '') {
-      delete next[fieldId];
+      delete next[key];
     } else {
-      next[fieldId] = value;
+      next[key] = value;
     }
     controller.updateWidgetConfig(widgetId, {
       gridSummaryFields: Object.keys(next).length > 0 ? next : undefined,
@@ -383,12 +407,16 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setMenuAnchor(null);
   };
 
-  const handleGroupAggChange = (fieldId: string, value: StudioGridSummaryAggregation | '') => {
+  const handleGroupAggChange = (
+    col: StudioGridColumn,
+    value: StudioGridSummaryAggregation | '',
+  ) => {
+    const key = columnAggKey(col);
     const next = { ...groupAggregations };
     if (value === '') {
-      delete next[fieldId];
+      delete next[key];
     } else {
-      next[fieldId] = value;
+      next[key] = value;
     }
     controller.updateWidgetConfig(widgetId, {
       gridAggregations: Object.keys(next).length > 0 ? next : undefined,
@@ -463,13 +491,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
           {/* Selected columns list */}
           {configColumns.map((col, index) => {
-            const colKey = col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
+            const colKey = columnAggKey(col);
             const fieldInfo = fieldLookup.get(colKey) ?? fieldLookup.get(col.fieldId);
             const isNumeric = fieldInfo?.type === 'number';
             const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-            const currentAgg = groupByField
-              ? groupAggregations[col.fieldId]
-              : summaryFields[col.fieldId];
+            const currentAgg = groupByField ? groupAggregations[colKey] : summaryFields[colKey];
             const isGroupByField = col.fieldId === groupByField && !col.sourceId;
             const isDraggingOver = dragOverIndex === index && dragIndex !== index;
             let aggregationTooltipTitle = localeText.gridSetupColumnAggSummaryTooltip;
@@ -590,9 +616,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   {!isGroupByField && (
                     <MenuItem
                       onClick={() =>
-                        groupByField
-                          ? handleGroupAggChange(col.fieldId, '')
-                          : handleSummaryChange(col.fieldId, '')
+                        groupByField ? handleGroupAggChange(col, '') : handleSummaryChange(col, '')
                       }
                       selected={currentAgg == null}
                     >
@@ -612,8 +636,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
                         key={agg}
                         onClick={() =>
                           groupByField
-                            ? handleGroupAggChange(col.fieldId, agg)
-                            : handleSummaryChange(col.fieldId, agg)
+                            ? handleGroupAggChange(col, agg)
+                            : handleSummaryChange(col, agg)
                         }
                         selected={currentAgg === agg}
                       >

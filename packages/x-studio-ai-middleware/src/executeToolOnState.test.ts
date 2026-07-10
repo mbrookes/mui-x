@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
-import { createDefaultStudioState, createWidgetId, isWidgetOfKind } from './models/studioTypes';
-import type { StudioChartConfig, StudioState } from './models/studioTypes';
+import {
+  createDefaultStudioState,
+  createWidgetId,
+  isStudioFilterOperator,
+  isWidgetOfKind,
+  STUDIO_FILTER_OPERATORS,
+} from './models/studioTypes';
+import type { StudioChartConfig, StudioCustomWidgetDef, StudioState } from './models/studioTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -2049,6 +2055,274 @@ function deepFreeze<T>(obj: T): T {
   }
   return obj;
 }
+
+// ── Finding T2-1: prototype-member entity ids must not pass truthy existence checks ──
+
+describe('executeToolOnState: T2-1 prototype-member entity ids', () => {
+  // A bare `state.doc.widgets[id]` / `state.doc.pages[id]` resolves a prototype-member
+  // key (`"constructor"`, `"__proto__"`, `"toString"`) to a truthy inherited function via
+  // the prototype chain, so the executor's existence checks would pass and report
+  // `success: true` while the `Object.hasOwn`-hardened reducer no-ops (a model/actual-state
+  // desync) — or, for `add_widget_filter`, actually COMMIT a dangling filter. Every
+  // model-supplied id lookup now goes through `Object.hasOwn`, so these must all be rejected.
+  const PROTO_KEYS = ['constructor', '__proto__', 'toString', 'hasOwnProperty'] as const;
+
+  const widgetIdTools: Array<{ tool: string; makeArgs: (id: string) => Record<string, unknown> }> =
+    [
+      { tool: 'update_widget', makeArgs: (id) => ({ widgetId: id, title: 'X' }) },
+      { tool: 'remove_widget', makeArgs: (id) => ({ widgetId: id }) },
+      { tool: 'set_widget_width', makeArgs: (id) => ({ widgetId: id, columns: 12 }) },
+      {
+        tool: 'add_widget_filter',
+        makeArgs: (id) => ({
+          widgetId: id,
+          field: 'revenue',
+          sourceId: 'src1',
+          operator: 'equals',
+          value: 1,
+        }),
+      },
+      { tool: 'set_widget_forecast', makeArgs: (id) => ({ widgetId: id, enabled: true }) },
+    ];
+
+  for (const { tool, makeArgs } of widgetIdTools) {
+    for (const key of PROTO_KEYS) {
+      it(`${tool} rejects a prototype-member widgetId "${key}" (no mutation, no phantom success)`, () => {
+        const state = makeState();
+        const result = executeToolOnState(tool, makeArgs(key), state);
+        const out = parseOutput(result.output);
+        expect(out.success).toBeUndefined();
+        expect(out.error).toBeDefined();
+        expect(result.mutation).toBeUndefined();
+        expect(result.nextState).toBe(state);
+      });
+    }
+  }
+
+  const pageIdTools: Array<{ tool: string; makeArgs: (id: string) => Record<string, unknown> }> = [
+    { tool: 'rename_page', makeArgs: (id) => ({ pageId: id, title: 'X' }) },
+    { tool: 'remove_page', makeArgs: (id) => ({ pageId: id }) },
+    { tool: 'set_active_page', makeArgs: (id) => ({ pageId: id }) },
+  ];
+
+  for (const { tool, makeArgs } of pageIdTools) {
+    for (const key of PROTO_KEYS) {
+      it(`${tool} rejects a prototype-member pageId "${key}" (no mutation, no phantom success)`, () => {
+        const state = makeState();
+        const result = executeToolOnState(tool, makeArgs(key), state);
+        const out = parseOutput(result.output);
+        expect(out.success).toBeUndefined();
+        expect(out.error).toBeDefined();
+        expect(result.mutation).toBeUndefined();
+        expect(result.nextState).toBe(state);
+        // The active page must never be corrupted into a prototype-member id.
+        expect(result.nextState.doc.dashboard.activePageId).toBe('page-1');
+      });
+    }
+  }
+
+  it('add_widget_filter does NOT commit a dangling filter for a prototype-member widgetId (the worst case)', () => {
+    const state = makeState();
+    const before = state.doc.filters?.length ?? 0;
+    const result = executeToolOnState(
+      'add_widget_filter',
+      { widgetId: 'constructor', field: 'x', sourceId: 'src1', operator: 'equals', value: 1 },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/not found/i);
+    // No filter was committed — the reducer applies addFilter verbatim, so the guard is
+    // the ONLY thing preventing a persisted `{ kind: 'widget', widgetId: 'constructor' }`.
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState.doc.filters?.length ?? 0).toBe(before);
+  });
+
+  it('set_widget_layout rejects a prototype-member id in its membership check', () => {
+    const state = makeState();
+    const result = executeToolOnState('set_widget_layout', { rows: [['constructor']] }, state);
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/unknown widget/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('apply_bulk_update skips a prototype-member widget update rather than resolving it via the prototype chain', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: '__proto__', title: 'X' }] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const applied = out.applied as { updated: number };
+    expect(applied.updated).toBe(0);
+    expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/not found/i)]));
+  });
+});
+
+// ── Finding T2-3: `fieldType` filter arg is validated, not trusted at its declared type ──
+
+describe('executeToolOnState: T2-3 fieldType validation', () => {
+  const filterTools: Array<{ tool: string; base: Record<string, unknown> }> = [
+    {
+      tool: 'add_page_filter',
+      base: { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 1 },
+    },
+    {
+      tool: 'add_widget_filter',
+      base: {
+        widgetId: 'widget-1',
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'equals',
+        value: 1,
+      },
+    },
+  ];
+
+  for (const { tool, base } of filterTools) {
+    it(`${tool} rejects an invalid fieldType string (no mutation)`, () => {
+      const state = makeState();
+      // "text" is a classic LLM slip for the real type "string".
+      const result = executeToolOnState(tool, { ...base, fieldType: 'text' }, state);
+      const out = parseOutput(result.output);
+      expect(out.error).toMatch(/invalid fieldType/i);
+      expect(out.error as string).toContain('string');
+      expect(result.mutation).toBeUndefined();
+      expect(result.nextState).toBe(state);
+    });
+
+    it(`${tool} rejects a non-string fieldType (no mutation)`, () => {
+      const state = makeState();
+      const result = executeToolOnState(tool, { ...base, fieldType: { $x: 1 } }, state);
+      const out = parseOutput(result.output);
+      expect(out.error).toMatch(/invalid fieldType/i);
+      expect(result.mutation).toBeUndefined();
+      expect(result.nextState).toBe(state);
+    });
+
+    it(`${tool} accepts a valid fieldType and stores it on the filter`, () => {
+      const state = makeState();
+      const result = executeToolOnState(tool, { ...base, fieldType: 'number' }, state);
+      expect(result.mutation?.type).toBe('addFilter');
+      const mut = result.mutation as { args: { filter: { fieldType?: string } } };
+      expect(mut.args.filter.fieldType).toBe('number');
+    });
+
+    it(`${tool} accepts an omitted fieldType (optional hint)`, () => {
+      const state = makeState();
+      const result = executeToolOnState(tool, base, state);
+      const out = parseOutput(result.output);
+      expect(out.success).toBe(true);
+    });
+  }
+});
+
+// ── Finding T2-4: unknown widget `kind` is rejected, not silently minted ──
+
+describe('executeToolOnState: T2-4 widget kind validation', () => {
+  it('add_widget rejects a capitalization slip like "Chart" (no mutation)', () => {
+    const state = makeState();
+    const result = executeToolOnState('add_widget', { kind: 'Chart', title: 'Revenue' }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/unknown widget kind/i);
+    expect(out.error as string).toContain('Chart');
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('add_widget rejects an unregistered kind like "table" (no mutation)', () => {
+    const state = makeState();
+    const result = executeToolOnState('add_widget', { kind: 'table', title: 'T' }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/unknown widget kind/i);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('add_widget accepts every built-in kind', () => {
+    for (const kind of ['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map']) {
+      const state = makeState();
+      const result = executeToolOnState('add_widget', { kind, title: 'W' }, state);
+      const out = parseOutput(result.output);
+      expect(out.success, `kind ${kind} should be accepted`).toBe(true);
+    }
+  });
+
+  it('add_widget accepts a host-registered custom kind', () => {
+    const state = makeState();
+    const customWidgets: StudioCustomWidgetDef[] = [{ kind: 'acme-weather', label: 'Weather' }];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'acme-weather', title: 'Forecast' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+  });
+
+  it('apply_bulk_update skips an addition with an unknown kind (rest of the batch still applies)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetAdditions: [
+          { kind: 'Chart', title: 'Bad' },
+          { kind: 'chart', title: 'Good' },
+        ],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const applied = out.applied as { added: number };
+    expect(applied.added).toBe(1);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/unknown widget kind/i)]),
+    );
+  });
+});
+
+// ── Schema T2-1 (consumer half): operator validation goes through the shared export ──
+
+describe('executeToolOnState: filter operators use the shared schema export (wire/AI-boundary agreement)', () => {
+  it('accepts exactly the operators the schema exports in STUDIO_FILTER_OPERATORS', () => {
+    const state = makeState();
+    for (const operator of STUDIO_FILTER_OPERATORS) {
+      const out = parseOutput(
+        executeToolOnState(
+          'add_page_filter',
+          { field: 'revenue', sourceId: 'src1', operator, value: 1 },
+          state,
+        ).output,
+      );
+      expect(out.success, `operator ${operator} should be accepted`).toBe(true);
+      // The same guard the schema-side addFilter wire boundary uses.
+      expect(isStudioFilterOperator(operator)).toBe(true);
+    }
+  });
+
+  it('rejects an operator the schema guard rejects, naming the valid operators', () => {
+    const state = makeState();
+    const bogus = 'equal'; // not a member of STUDIO_FILTER_OPERATORS
+    expect(isStudioFilterOperator(bogus)).toBe(false);
+    const out = parseOutput(
+      executeToolOnState(
+        'add_widget_filter',
+        { widgetId: 'widget-1', field: 'revenue', sourceId: 'src1', operator: bogus, value: 1 },
+        state,
+      ).output,
+    );
+    expect(out.error).toMatch(/invalid filter operator/i);
+    // Error lists the real exported operators.
+    expect(out.error as string).toContain(STUDIO_FILTER_OPERATORS[0]);
+    expect(out.success).toBeUndefined();
+  });
+});
 
 describe('executeToolOnState: purity (never mutates the input state in place)', () => {
   // Representative args per built-in tool, pointing at entities in `makeState()` so

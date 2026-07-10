@@ -440,7 +440,10 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           throw new Error(denied);
         }
       }
-      const source = stateBox.current.runtime.dataSources[sourceId];
+      // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
+      // must not resolve an inherited value via the prototype chain.
+      const dataSources = stateBox.current.runtime.dataSources;
+      const source = Object.hasOwn(dataSources, sourceId) ? dataSources[sourceId] : undefined;
       if (!source || !source.tableName) {
         throw new Error(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,

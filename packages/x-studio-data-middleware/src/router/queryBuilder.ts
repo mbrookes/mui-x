@@ -111,8 +111,22 @@ export function buildSecureQuery(
     const joinedSecurity = policy.forJoinedTable(join.table);
     const primarySecurity = policy.forPrimaryTable(queryPlan.table);
     query[joinMethod](join.table, function joinOn(this: any) {
+      // TABLE-QUALIFICATION (finding 2.1, iter9): the join `on` pair is the last
+      // read-path column reference to reach raw SQL unqualified — every other one
+      // (SELECT/GROUP BY/ORDER BY/aggregations via `execute.ts`'s `qualify()`,
+      // security predicates, and user filter columns just below) is already
+      // qualified. `JoinDescriptor.on` deliberately accepts unqualified columns
+      // (`validateDescriptorColumns` checks the left side against the primary
+      // table and the right side against `join.table`), so an unqualified `on`
+      // column shared by both joined tables (`id`, `tenant_id`, `region_id`, …)
+      // renders an ambiguous identifier Postgres/MySQL reject outright. Qualify
+      // each side with the table it's validated against — left with the primary
+      // table, right with `join.table` — leaving an already-dotted (client-
+      // qualified) column untouched, mirroring the filter qualify-if-no-dot pass.
       for (const [left, right] of join.on) {
-        this.on(left, '=', right);
+        const qualifiedLeft = left.includes('.') ? left : `${queryPlan.table}.${left}`;
+        const qualifiedRight = right.includes('.') ? right : `${join.table}.${right}`;
+        this.on(qualifiedLeft, '=', qualifiedRight);
       }
       if (join.type === 'left') {
         // The joined (right) side is nullable — scope it in ON so genuinely

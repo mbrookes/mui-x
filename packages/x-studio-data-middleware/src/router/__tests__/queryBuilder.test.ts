@@ -482,6 +482,114 @@ describe('buildSecureQuery', () => {
     });
   });
 
+  describe('join on-pair column qualification (finding 2.1, iter9)', () => {
+    // Regression: every OTHER read-path column reference (SELECT / GROUP BY /
+    // ORDER BY / aggregations in `execute.ts`, all three security-predicate
+    // dimensions, and user filter columns — the two prior rounds' fixes) is
+    // table-qualified to avoid "ambiguous column" errors under joins. The join
+    // `on` pair was the sole remaining exception: `JoinDescriptor.on` deliberately
+    // accepts unqualified columns (`validateDescriptorColumns` checks the left
+    // side against the primary table and the right side against `join.table`),
+    // so `buildSecureQuery` emitted `this.on(left, '=', right)` verbatim. An
+    // unqualified `on` column shared by both joined tables (`region_id`, `id`,
+    // `tenant_id`, …) renders an ambiguous identifier Postgres/MySQL reject
+    // outright. `buildSecureQuery` now qualifies an unqualified `on` column —
+    // left with the PRIMARY table, right with `join.table` — before handing it
+    // to `.on()`.
+    it('qualifies both sides of an unqualified on pair with the primary/joined table', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          // `region_id` exists on both `sales` and `customers` — the classic
+          // ambiguous-column scenario, this time on the JOIN's `on` pair.
+          joins: [{ table: 'customers', on: [['region_id', 'region_id']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.region_id', '=', 'customers.region_id'],
+      });
+      expect(calls.some((c) => c.method === 'on' && c.args[0] === 'region_id')).toBe(false);
+      expect(calls.some((c) => c.method === 'on' && c.args[2] === 'region_id')).toBe(false);
+    });
+
+    it('leaves an already client-qualified on pair (containing a dot) untouched', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      // The client explicitly named both tables — respected as-is, not
+      // re-qualified.
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+    });
+
+    it('qualifies a mixed pair (one side unqualified) independently per side', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'id']] }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'on',
+        args: ['sales.customer_id', '=', 'customers.id'],
+      });
+    });
+
+    // Real-Knex render pin, mirroring the filter-qualification sub-suite above:
+    // the mock `createRecordingDb` only asserts the Knex CALL contract, not the
+    // actual rendered SQL. This section renders through the real `knex` package
+    // to pin the literal SQL, so a Knex upgrade that changed how an
+    // unqualified/qualified ON column renders would fail this test instead of
+    // silently reintroducing an ambiguous-column error.
+    describe('real Knex SQL rendering', () => {
+      const realDb = Knex({ client: 'pg' });
+
+      it('renders an unambiguous, fully-qualified JOIN ON clause for a shared unqualified column name', () => {
+        const query = buildSecureQuery(
+          realDb,
+          BASE_CLAIMS,
+          descriptor({
+            joins: [{ table: 'customers', on: [['region_id', 'region_id']] }],
+          }),
+          { tenancy: SINGLE_TENANT },
+        );
+        expect(query.toString()).toBe(
+          'select * from "sales" inner join "customers" on "sales"."region_id" = "customers"."region_id"',
+        );
+      });
+
+      it('demonstrates the pre-fix shape (bare on columns) is what Postgres rejects as ambiguous', () => {
+        // Sanity check for the bug this fix closes: bare, unqualified `on`
+        // columns sharing a name on both joined tables is exactly the SQL
+        // Postgres/MySQL reject with "column reference \"region_id\" is
+        // ambiguous". This test renders that shape directly via Knex (bypassing
+        // `buildSecureQuery`, which no longer produces it) purely to
+        // document/pin what the bug looked like.
+        const buggyQuery = realDb('sales').join('customers', function joinOn(this: any) {
+          this.on('region_id', '=', 'region_id');
+        });
+        expect(buggyQuery.toString()).toBe(
+          'select * from "sales" inner join "customers" on "region_id" = "region_id"',
+        );
+      });
+    });
+  });
+
   describe('outer-join security predicate placement (finding 2.3 — no INNER-join degradation)', () => {
     // Regression: a joined-table (or, for RIGHT joins, primary-table) security
     // predicate placed in WHERE silently drops every NULL-extended row an outer

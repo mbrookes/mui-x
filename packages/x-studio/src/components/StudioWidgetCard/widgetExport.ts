@@ -2,6 +2,7 @@ import type { StudioController } from '../../store/StudioController';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
+import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
 import { buildQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
@@ -130,6 +131,10 @@ export function runWidgetExport({
             crossSourceFieldRefs,
             state.runtime.dataSources,
             state.doc.relationships,
+            // A related-source *calculated* column needs an L2 pass over the related
+            // source before its value exists (finding 2.3) — pass all expression fields so
+            // it resolves in the export exactly as it does on screen.
+            state.doc.expressionFields,
           )
         : rows;
 
@@ -141,7 +146,20 @@ export function runWidgetExport({
       (ef) => ef.sourceId === widget.sourceId,
     );
 
-    exportGridToCsv(widget, source, enrichedRows, ownExpressionFields);
+    // Resolve each cross-source column's field def (physical field, or the related
+    // source's calculated column) exactly as `StudioGridWidget` does on screen, so the
+    // CSV header label and number/currency formatting match the rendered grid instead of
+    // drifting to the raw field id (finding 2.6).
+    const crossSourceFieldDefs = Array.from(
+      resolveCrossSourceFieldDefs(
+        gridColumns,
+        widget.sourceId,
+        state.runtime.dataSources,
+        state.doc.expressionFields,
+      ).values(),
+    );
+
+    exportGridToCsv(widget, source, enrichedRows, ownExpressionFields, crossSourceFieldDefs);
   } else if (widget.kind === 'chart') {
     exportChartToPng(widget, chartContainer, chartBackgroundColor);
   } else if (widget.kind === 'pivot' || isCustomKind) {

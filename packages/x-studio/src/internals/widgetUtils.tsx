@@ -530,12 +530,20 @@ export function inferWidgetTitles(
  * values skipped number/currency/precision formatting entirely — the exported file silently
  * drifted from what the grid actually rendered (architecture review finding — grid CSV export
  * drifts from on-screen rendering for expression-field columns).
+ *
+ * `crossSourceFieldDefs` are the resolved field defs for the widget's cross-source columns
+ * (a related source's physical field OR its calculated column), produced by
+ * `StudioGridWidget.tsx`'s `resolveCrossSourceFieldDefs` — the SAME defs the on-screen grid's
+ * column builder uses. Folding them into the lookup makes a cross-source column's CSV header
+ * label and number/currency formatting match the rendered grid instead of drifting to the raw
+ * field id with no formatting (architecture review finding 2.6).
  */
 export function buildCsvContent(
   widget: StudioWidget,
   dataSource: StudioDataSource,
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[] = [],
+  crossSourceFieldDefs: StudioDataField[] = [],
 ): string {
   // CSV export is a grid concern, but the param is typed as the broad
   // `StudioWidget`; read `columns` through the flat cross-kind config type.
@@ -561,6 +569,13 @@ export function buildCsvContent(
         precision: ef.precision,
         currencyCode: ef.currencyCode,
       });
+    }
+  }
+  // Cross-source column defs (already normalized to `StudioDataField`) fill the remaining
+  // gaps so a cross-source column's header/format matches the rendered grid (finding 2.6).
+  for (const def of crossSourceFieldDefs) {
+    if (!fieldMap.has(def.id)) {
+      fieldMap.set(def.id, def);
     }
   }
   // Header labels always come from user-configured field labels — always text,
@@ -648,12 +663,19 @@ export function exportGridToCsv(
   dataSource: StudioDataSource | undefined,
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[] = [],
+  crossSourceFieldDefs: StudioDataField[] = [],
 ): void {
   if (!dataSource) {
     return;
   }
 
-  const csvContent = buildCsvContent(widget, dataSource, rows, expressionFields);
+  const csvContent = buildCsvContent(
+    widget,
+    dataSource,
+    rows,
+    expressionFields,
+    crossSourceFieldDefs,
+  );
   downloadCsv(csvContent, `${widget.title}_export.csv`);
 }
 

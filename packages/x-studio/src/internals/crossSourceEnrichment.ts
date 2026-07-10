@@ -1,5 +1,11 @@
-import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioGridColumn,
+  StudioRelationship,
+} from '../models';
 import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
+import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from './joinKeys';
 import { ensureRowIdentity } from './rowIdentity';
 
@@ -22,11 +28,23 @@ interface CrossSourceFieldRef {
  * Field refs whose related source has no in-memory rows (async sources) are silently
  * skipped — the field value stays `undefined` in the primary row.
  *
+ * When a requested related field is a **calculated column** (an expression field owned
+ * by the related source) rather than a physical field, the related source's rows carry
+ * no value for it until they run through the L2 pass. Passing `expressionFields` lets
+ * this function route the related source's rows through the shared, dependency-tracked
+ * L2 cache (`getCachedEnrichedRows`, scoped to only the requested field ids) before
+ * building the lookup index — the same pass `grainResolution.ts` applies to
+ * anchor/junction/remote rows — so a related-source expression column resolves to a real
+ * value instead of `undefined` (architecture review finding 2.3). Physical related-source
+ * fields are unaffected (their value is already present on the raw rows).
+ *
  * @param rows             Filtered primary-source rows
  * @param widgetSourceId   The widget's primary source ID
  * @param fieldRefs        Cross-source field references to enrich
  * @param dataSources      All data sources (keyed by ID)
  * @param relationships    Declared relationships
+ * @param expressionFields Expression fields (used to L2-enrich related sources whose
+ *                         requested field is a calculated column). Defaults to `[]`.
  */
 export function enrichWithCrossSourceFields(
   rows: Row[],
@@ -34,6 +52,7 @@ export function enrichWithCrossSourceFields(
   fieldRefs: CrossSourceFieldRef[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[] = [],
 ): Row[] {
   if (!widgetSourceId || !fieldRefs.length) {
     return rows;
@@ -43,6 +62,26 @@ export function enrichWithCrossSourceFields(
 
   if (crossFields.length === 0) {
     return rows;
+  }
+
+  // Requested calculated-column ids grouped by their related source. A related-source
+  // field is a calculated column when a non-measure expression field owns it there; such
+  // a field has no value on the related source's raw rows and needs an L2 pass first.
+  const exprIdsBySource = new Map<string, Set<string>>();
+  if (expressionFields.length > 0) {
+    for (const ref of crossFields) {
+      const isRelatedExpression = expressionFields.some(
+        (ef) => ef.id === ref.fieldId && ef.sourceId === ref.sourceId && !ef.isMeasure,
+      );
+      if (isRelatedExpression) {
+        let set = exprIdsBySource.get(ref.sourceId);
+        if (!set) {
+          set = new Set<string>();
+          exprIdsBySource.set(ref.sourceId, set);
+        }
+        set.add(ref.fieldId);
+      }
+    }
   }
 
   // Group by relatedSourceId to build each index only once
@@ -63,10 +102,26 @@ export function enrichWithCrossSourceFields(
     if (!rel) {
       continue;
     }
-    const relatedRows = dataSources[ref.sourceId]?.rows as Row[] | undefined;
-    if (!relatedRows) {
+    const rawRelatedRows = dataSources[ref.sourceId]?.rows as Row[] | undefined;
+    if (!rawRelatedRows) {
       continue;
     }
+    // If a calculated column owned by this related source is requested, L2-enrich the
+    // related source's rows (scoped to only the requested calculated-column ids) so the
+    // value exists before indexing. Cached and dependency-tracked, so repeated refs to the
+    // same source recompute nothing; a purely-physical related source uses its raw rows.
+    const exprIds = exprIdsBySource.get(ref.sourceId);
+    const relatedRows =
+      exprIds && exprIds.size > 0
+        ? (getCachedEnrichedRows(
+            rawRelatedRows,
+            ref.sourceId,
+            expressionFields,
+            dataSources,
+            relationships,
+            exprIds,
+          ) as Row[])
+        : rawRelatedRows;
     // Index related rows by their PK using the shared join-key policy so a numeric
     // PK matches a string FK etc. (see internals/joinKeys.ts).
     const relatedIndex = indexRowsByKey(relatedRows, rel.targetField);
@@ -115,6 +170,7 @@ export function enrichWithCrossSourceColumns(
   columns: StudioGridColumn[] | undefined,
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[] = [],
 ): Row[] {
   if (!widgetSourceId || !columns?.length) {
     return rows;
@@ -126,5 +182,12 @@ export function enrichWithCrossSourceColumns(
       : [],
   );
 
-  return enrichWithCrossSourceFields(rows, widgetSourceId, fieldRefs, dataSources, relationships);
+  return enrichWithCrossSourceFields(
+    rows,
+    widgetSourceId,
+    fieldRefs,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
 }

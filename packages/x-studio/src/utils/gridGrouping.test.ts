@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGroupedGridRows } from './gridGrouping';
-import type { StudioDataSource, StudioRelationship } from '../models';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 
 describe('buildGroupedGridRows', () => {
   it('returns one row per group with aggregated numeric fields', () => {
@@ -279,5 +279,95 @@ describe('buildGroupedGridRows', () => {
     );
 
     expect(resultMax[0].total).toBe(LARGE - 1);
+  });
+
+  // ─── Related-source EXPRESSION (calculated) cross-source column (finding 2.3) ───
+  //
+  // A cross-source column that is the related source's calculated column has no value on
+  // the raw related rows; it must be L2-enriched before the per-PK lookup map is built.
+  // `order_items` grouped by category, summing `orders.bonus` (bonus = total * 2).
+
+  it('aggregates a related-source calculated cross-source column after L2-enriching it', () => {
+    const orderItems = [
+      { id: 'i1', orderId: 'ord1', category: 'Electronics' },
+      { id: 'i2', orderId: 'ord1', category: 'Electronics' }, // same order → fan-out
+      { id: 'i3', orderId: 'ord2', category: 'Electronics' },
+    ];
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [
+          { id: 'ord1', total: 100 },
+          { id: 'ord2', total: 50 },
+        ],
+      },
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel1',
+        type: 'many-to-one',
+        sourceId: 'order_items',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+      },
+    ];
+    // bonus = total * 2 — a calculated column owned by the ORDERS (related) source.
+    const bonusExpr: StudioExpressionField = {
+      id: 'bonus',
+      label: 'Bonus',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'total' }, { type: 'number', value: 2 }],
+      },
+    } as unknown as StudioExpressionField;
+
+    const columns = [{ fieldId: 'category' }, { fieldId: 'bonus', sourceId: 'orders' }];
+
+    // Without expressionFields the related expression column resolves to nothing.
+    const blank = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'bonus'],
+      { bonus: 'sum' },
+      'widget-1',
+      columns,
+      dataSources,
+      relationships,
+      'order_items',
+    );
+    expect(blank[0].bonus).toBe(0); // no numeric values → sum of empty = 0
+
+    // With expressionFields the related source is L2-enriched first, then FK-deduped:
+    // bonus ord1 = 200 (once), ord2 = 100 → 300.
+    const result = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'bonus'],
+      { bonus: 'sum' },
+      'widget-1',
+      columns,
+      dataSources,
+      relationships,
+      'order_items',
+      [bonusExpr],
+    );
+    expect(result[0].bonus).toBe(300);
   });
 });

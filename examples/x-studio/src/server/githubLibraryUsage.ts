@@ -57,6 +57,9 @@ export const CHART_LIBRARIES: LibraryDef[] = [
   // rather than `ag-grid-community`), since this whole matrix is about React app choices.
   { id: 'chart-js', label: 'Chart.js', pkg: 'react-chartjs-2' },
   { id: 'victory', label: 'Victory', pkg: 'victory' },
+  // Same reasoning as Chart.js above: the React wrapper (`echarts-for-react`), not the
+  // framework-agnostic `echarts` core.
+  { id: 'echarts', label: 'ECharts', pkg: 'echarts-for-react' },
 ];
 
 const GITHUB_SEARCH_ENDPOINT = 'https://api.github.com/search/code';

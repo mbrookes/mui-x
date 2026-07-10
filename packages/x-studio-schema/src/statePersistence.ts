@@ -4,7 +4,7 @@ import { isSafeKey } from './unsafeKeys';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
-import type { StudioWidgetConfig } from './widgetTypes';
+import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import type { StudioAIState } from './aiTypes';
 
 // `CURRENT_SCHEMA_VERSION` is defined in `stateTypes.ts` (the single source of truth —
@@ -456,13 +456,43 @@ export function deserializeState(
           isSafeKey(id) && widget !== null && typeof widget === 'object' && !Array.isArray(widget),
       )
       .map(([id, widget]) => {
+        // Reconcile the widget's own `id` field with its record KEY (finding 2.1) and
+        // coerce a non-record `config` (finding 2.4) BEFORE the legacy-shape normalization
+        // below. Both are load-boundary invariants the reducer relies on but never gets a
+        // chance to enforce for a hand-edited/shared doc:
+        //  - The reducer's every id-keyed lookup/delete/cross-filter-cleanup keys off the
+        //    RECORD KEY, and BOTH the wire boundary and the reducer reject a `changes.id`
+        //    precisely to keep `widget.id` in sync with its key. A doc where the desync
+        //    ALREADY exists (`widgets: { "w-a": { "id": "w-b", … } }`) would otherwise load
+        //    verbatim and silently no-op every subsequent edit/delete of that widget (each
+        //    passes `widget.id` back, which no `Object.hasOwn(widgets, id)` guard matches),
+        //    and a cross-filter it emits could never be cleaned up. The KEY is the source of
+        //    truth, so re-stamp `id: key` (preserving the user's data, matching the
+        //    `activePageId` reconciliation style rather than dropping the widget).
+        //  - A record widget whose `config` is not a record (a hand-edited `config: null`)
+        //    passes the record-widget `.filter` above and, because the reads below use
+        //    optional chaining, installs a live widget whose first render throws
+        //    (`config.chartType` off `null`). `deserializeState` is a public, directly-
+        //    callable "total over nested-corrupt docs" surface, so coerce the junk config to
+        //    `{}` here — the gentler, relationships-style coercion — instead of shipping a
+        //    widget that crashes the canvas at first paint.
+        const rawConfig = (widget as { config?: unknown }).config;
+        const configIsRecord =
+          rawConfig !== null && typeof rawConfig === 'object' && !Array.isArray(rawConfig);
+        let base = widget;
+        if (base.id !== id) {
+          base = { ...base, id } as StudioWidget;
+        }
+        if (!configIsRecord) {
+          base = { ...base, config: {} } as StudioWidget;
+        }
         // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
         // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
         // `config` only when one is present; otherwise return the widget untouched
         // (keeping reference stability for the common case). This runs across kinds
         // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
         // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
-        const config = widget.config as StudioWidgetConfig;
+        const config = base.config as StudioWidgetConfig;
         const columns = config?.columns;
         const ySeries = config?.ySeries;
         // `Array.isArray` (not truthiness) with a non-empty guard: an empty
@@ -475,14 +505,14 @@ export function deserializeState(
         const hasColumns = Array.isArray(columns) && columns.length > 0;
         const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
         if (!hasColumns && !hasYSeries) {
-          return [id, widget];
+          return [id, base];
         }
         return [
           id,
           {
-            ...widget,
+            ...base,
             config: {
-              ...widget.config,
+              ...base.config,
               ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
               ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
             },

@@ -183,6 +183,43 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const seriesFieldDisabled = ySeries.length > 1 || isFieldlessCount;
 
   const isScatter = chartType === 'scatter';
+
+  // Dimension-like fields that the non-xy chart families (heatmap / funnel / sankey / gantt)
+  // actually read but that are not expressed via x / y / series. Mirrors
+  // `useChartWidgetData.ts`'s `chartTypeExtraFields` exactly so the panel's support check
+  // validates the same fields the canvas renderer does — otherwise picking an unresolvable
+  // cross-source `heatYField` (or another extra field) shows no warning here while the
+  // rendered widget falls back to the "unsupported chart configuration" overlay
+  // (finding 2.13).
+  const chartTypeExtraFields = React.useMemo((): (string | undefined)[] => {
+    switch (chartType) {
+      case 'heatmap':
+        return [config.heatYField];
+      case 'funnel':
+        return [config.funnelReachedField];
+      case 'sankey':
+        return [config.sankeyTargetField];
+      case 'gantt':
+        return [
+          config.ganttLabelField,
+          config.ganttStartField,
+          config.ganttEndField,
+          config.ganttColorField,
+        ];
+      default:
+        return [];
+    }
+  }, [
+    chartType,
+    config.heatYField,
+    config.funnelReachedField,
+    config.sankeyTargetField,
+    config.ganttLabelField,
+    config.ganttStartField,
+    config.ganttEndField,
+    config.ganttColorField,
+  ]);
+
   const chartSupport = React.useMemo(
     () =>
       analyzeChartSupport(
@@ -194,6 +231,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         dataSources,
         relationships,
         expressionFields,
+        config.scatterColorField,
+        config.scatterSizeField,
+        chartTypeExtraFields,
       ),
     [
       widgetSourceId,
@@ -205,6 +245,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       dataSources,
       relationships,
       expressionFields,
+      config.scatterColorField,
+      config.scatterSizeField,
+      chartTypeExtraFields,
     ],
   );
 
@@ -213,6 +256,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       xField?: string | undefined;
       yFields?: string[];
       seriesField?: string | undefined;
+      scatterColorField?: string | undefined;
+      scatterSizeField?: string | undefined;
+      extraFields?: (string | undefined)[];
     }) =>
       analyzeChartSupport(
         widgetSourceId ?? supportSourceId,
@@ -223,17 +269,23 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         dataSources,
         relationships,
         expressionFields,
+        overrides.scatterColorField ?? config.scatterColorField,
+        overrides.scatterSizeField ?? config.scatterSizeField,
+        overrides.extraFields ?? chartTypeExtraFields,
       ),
     [
       widgetSourceId,
       supportSourceId,
       config.xField,
       config.seriesField,
+      config.scatterColorField,
+      config.scatterSizeField,
       ySeries,
       chartType,
       dataSources,
       relationships,
       expressionFields,
+      chartTypeExtraFields,
     ],
   );
 

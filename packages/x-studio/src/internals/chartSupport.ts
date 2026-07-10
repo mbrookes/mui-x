@@ -49,16 +49,25 @@ function isSafeWidgetBridgeOwner(
       return true;
     }
     if (relationship.type === 'many-to-many') {
-      return true;
+      // A M:N relationship is only actually joinable through its junction table when BOTH
+      // junction fields are present — without them there's no way to resolve rows between
+      // the two endpoints, matching `findJoinPath`'s completeness check
+      // (`dataSourceGraph.ts:133`). Treating an incomplete junction as a safe bridge silently
+      // mis-resolves the owner's rows instead of failing closed (finding 2.12).
+      return Boolean(relationship.junctionSourceField) && Boolean(relationship.junctionTargetField);
     }
     return relationship.sourceId === widgetSourceId;
   }
 
-  // Also allow the junction source of a M:N relationship involving widgetSourceId
+  // Also allow the junction source of a M:N relationship involving widgetSourceId — but only
+  // when the junction is complete (both join fields present); an incomplete junction cannot
+  // actually be used to resolve rows, so it must not be treated as a safe bridge (finding 2.12).
   const viaJunction = relationships.some(
     (rel) =>
       rel.type === 'many-to-many' &&
       rel.junctionSourceId === ownerSourceId &&
+      Boolean(rel.junctionSourceField) &&
+      Boolean(rel.junctionTargetField) &&
       (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
   );
   return viaJunction;
@@ -80,12 +89,21 @@ function isManyToManyReachableOwner(
 ): boolean {
   const direct = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
   if (direct) {
-    return direct.type === 'many-to-many';
+    // Only a COMPLETE M:N relationship (both junction fields present) is actually reachable
+    // through the junction table — matching `findJoinPath`'s completeness check
+    // (`dataSourceGraph.ts:133`, finding 2.12).
+    return (
+      direct.type === 'many-to-many' &&
+      Boolean(direct.junctionSourceField) &&
+      Boolean(direct.junctionTargetField)
+    );
   }
   return relationships.some(
     (rel) =>
       rel.type === 'many-to-many' &&
       rel.junctionSourceId === ownerSourceId &&
+      Boolean(rel.junctionSourceField) &&
+      Boolean(rel.junctionTargetField) &&
       (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
   );
 }
@@ -127,7 +145,15 @@ function findDirectFieldOwner(
     if (relationship.type !== 'many-to-many') {
       continue;
     }
-    if (!relationship.junctionSourceId) {
+    // A M:N relationship is only usable as a two-hop bridge when BOTH junction fields are
+    // present — without them there's no way to join the junction table to either endpoint,
+    // matching `findJoinPath`'s completeness check (`dataSourceGraph.ts:133`). An incomplete
+    // junction must not be treated as resolving the field's owner (finding 2.12).
+    if (
+      !relationship.junctionSourceId ||
+      !relationship.junctionSourceField ||
+      !relationship.junctionTargetField
+    ) {
       continue;
     }
 
@@ -272,9 +298,15 @@ export function analyzeChartSupport(
         anchorIsPlainManyToOne = true;
       } else if (
         anchorRelationship.type === 'many-to-many' &&
-        anchorRelationship.junctionSourceId
+        anchorRelationship.junctionSourceId &&
+        anchorRelationship.junctionSourceField &&
+        anchorRelationship.junctionTargetField
       ) {
-        // many-to-many: anchor on the junction table — one row per (widget, target) pair
+        // many-to-many: anchor on the junction table — one row per (widget, target) pair.
+        // Both junction fields must be present to actually perform the join (finding 2.12);
+        // if either is missing, leave `anchorSourceId` at its default (widgetSourceId) so the
+        // per-field owner loop below fails closed with `mixed_cross_source_fields` instead of
+        // silently anchoring on a junction table with no usable join fields.
         anchorSourceId = anchorRelationship.junctionSourceId;
       }
     } else {
@@ -283,6 +315,8 @@ export function analyzeChartSupport(
         (rel) =>
           rel.type === 'many-to-many' &&
           rel.junctionSourceId === ySourceId &&
+          rel.junctionSourceField &&
+          rel.junctionTargetField &&
           (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
       );
       if (viaJunctionRel) {
@@ -306,10 +340,15 @@ export function analyzeChartSupport(
       if (yFieldSet.has(fieldId) || owner === widgetSourceId) {
         continue;
       }
+      // Both junction fields must be present to actually perform the join (finding 2.12) —
+      // an M:N relationship missing either field cannot resolve `owner`'s rows back to the
+      // widget grain, so it must not be selected as a usable junction anchor here.
       const mnRel = relationships.find(
         (rel) =>
           rel.type === 'many-to-many' &&
           !!rel.junctionSourceId &&
+          !!rel.junctionSourceField &&
+          !!rel.junctionTargetField &&
           ((rel.sourceId === widgetSourceId &&
             (rel.targetId === owner || rel.junctionSourceId === owner)) ||
             (rel.targetId === widgetSourceId &&

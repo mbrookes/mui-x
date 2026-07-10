@@ -1417,6 +1417,159 @@ describe('analyzeChartSupport', () => {
       expect(support.anchorSourceId).toBe('order_tags');
     });
   });
+
+  // ─── Finding 2.12 ────────────────────────────────────────────────────────────
+  // `mnDataSources`/`mnRelationships` (defined above) model a many-to-many `orders` ↔
+  // `tags` relationship bridged through the `order_tags` junction. When the junction is
+  // INCOMPLETE (missing `junctionSourceField` and/or `junctionTargetField`), the junction
+  // cannot actually be used to join rows — `findJoinPath` (`dataSourceGraph.ts:133`) already
+  // treats such a relationship as unusable. Before this fix, `analyzeChartSupport` only
+  // checked `junctionSourceId` at its junction-anchor selection sites (and in
+  // `isSafeWidgetBridgeOwner`/`findDirectFieldOwner`), so an incomplete junction was silently
+  // treated as usable: the widget-owned-measure case reported `supported: true` with
+  // `anchorSourceId: 'order_tags'`, even though `grainResolution.ts`'s M:N branch requires
+  // complete junction fields and would fall through to the first-match-only
+  // `enrichRowsWithRelatedFields` fallback — resolving the dimension to `undefined` (a blank
+  // bucket) instead of failing closed. The fix requires `junctionSourceField &&
+  // junctionTargetField` before treating any junction as usable, so these configurations must
+  // now report unsupported instead of silently falling through.
+  describe('finding 2.12 — incomplete junction (missing junction fields) fails closed', () => {
+    const ordersRows = [{ id: 'ORD-1' }, { id: 'ORD-2' }];
+    const mnDataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+        rows: ordersRows,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'Tag ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: [
+          { id: 't1', name: 'A' },
+          { id: 't2', name: 'B' },
+        ],
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order ID', type: 'string' },
+          { id: 'tagId', label: 'Tag ID', type: 'string' },
+          { id: 'weightClass', label: 'Weight Class', type: 'string' },
+        ],
+        rows: [
+          { orderId: 'ORD-1', tagId: 't1', weightClass: 'heavy' },
+          { orderId: 'ORD-1', tagId: 't2', weightClass: 'light' },
+          { orderId: 'ORD-2', tagId: 't2', weightClass: 'light' },
+        ],
+      },
+    };
+
+    // Missing `junctionSourceField` — the previous bug's trigger case.
+    const missingSourceFieldRelationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-tags',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'tags',
+        targetField: 'id',
+        type: 'many-to-many',
+        junctionSourceId: 'order_tags',
+        junctionTargetField: 'tagId',
+      } as unknown as StudioRelationship,
+    ];
+
+    // Missing `junctionTargetField` instead — the other half of the completeness check.
+    const missingTargetFieldRelationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-tags',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'tags',
+        targetField: 'id',
+        type: 'many-to-many',
+        junctionSourceId: 'order_tags',
+        junctionSourceField: 'orderId',
+      } as unknown as StudioRelationship,
+    ];
+
+    it.each([
+      ['missing junctionSourceField', missingSourceFieldRelationships],
+      ['missing junctionTargetField', missingTargetFieldRelationships],
+    ])(
+      'fails closed for a widget-owned-measure M:N REMOTE-endpoint dimension (%s)',
+      (_label, relationships) => {
+        const support = analyzeChartSupport(
+          'orders',
+          'name', // x owned by the M:N remote endpoint `tags`, reached only via the junction
+          [], // fieldless count — measure is (trivially) widget-owned
+          undefined,
+          'bar',
+          mnDataSources,
+          relationships,
+          [],
+        );
+        // The dimension field cannot be resolved through an incomplete junction at all, so the
+        // guard fails closed instead of the pre-fix `supported: true, anchorSourceId:
+        // 'order_tags'` (which silently produced a blank/undefined bucket downstream).
+        expect(support.supported).toBe(false);
+        expect(support.anchorSourceId).toBeUndefined();
+      },
+    );
+
+    it.each([
+      ['missing junctionSourceField', missingSourceFieldRelationships],
+      ['missing junctionTargetField', missingTargetFieldRelationships],
+    ])(
+      'fails closed for a widget-owned-measure JUNCTION-owned dimension (%s)',
+      (_label, relationships) => {
+        const support = analyzeChartSupport(
+          'orders',
+          'weightClass', // x owned by the junction source `order_tags` itself
+          [],
+          undefined,
+          'bar',
+          mnDataSources,
+          relationships,
+          [],
+        );
+        expect(support.supported).toBe(false);
+      },
+    );
+
+    it('still SUPPORTS the same M:N dimension when the junction is complete (control)', () => {
+      const completeRelationships: StudioRelationship[] = [
+        {
+          id: 'rel-orders-tags',
+          sourceId: 'orders',
+          sourceField: 'id',
+          targetId: 'tags',
+          targetField: 'id',
+          type: 'many-to-many',
+          junctionSourceId: 'order_tags',
+          junctionSourceField: 'orderId',
+          junctionTargetField: 'tagId',
+        } as unknown as StudioRelationship,
+      ];
+      const support = analyzeChartSupport(
+        'orders',
+        'name',
+        [],
+        undefined,
+        'bar',
+        mnDataSources,
+        completeRelationships,
+        [],
+      );
+      expect(support.supported).toBe(true);
+      expect(support.anchorSourceId).toBe('order_tags');
+    });
+  });
 });
 
 describe('resolveChartRowsForAggregation bridge case', () => {

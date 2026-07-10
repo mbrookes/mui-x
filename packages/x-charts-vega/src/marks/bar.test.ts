@@ -305,6 +305,58 @@ describe('compileBarMark', () => {
     expect(compiled.series).to.have.length(0);
   });
 
+  it('renders a quantitative category axis as a discrete band when the value is aggregated', () => {
+    // Trellis-style spec: `age` is numeric (quantitative) but is the category
+    // axis; the value channel carries the aggregate. x-charts draws bars over a
+    // band scale, so the numeric category axis must be discretized rather than
+    // left continuous (which produced no bars and a `mark:bar-missing-axes` gap).
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { age: 10, people: 5 },
+          { age: 5, people: 3 },
+          { age: 10, people: 2 },
+          { age: 0, people: 4 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'age' },
+        y: { aggregate: 'sum', field: 'people' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:bar-missing-axes');
+    expect(compiled.xAxis?.config.scaleType).to.equal('band');
+    // Numeric categories default to ascending order; duplicates are summed.
+    expect(compiled.xAxis?.categories).to.deep.equal([0, 5, 10]);
+    const series = compiled.series[0] as { data?: Array<number | null> };
+    expect(series.data).to.deep.equal([4, 3, 7]);
+  });
+
+  it('keeps a quantitative value axis continuous for horizontal bars', () => {
+    // The opposite (aggregated) channel must never be discretized: here `amount`
+    // is the quantitative value on x and `cat` is the nominal category on y.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { cat: 'A', amount: 3 },
+          { cat: 'B', amount: 5 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'amount', aggregate: 'sum', type: 'quantitative' },
+        y: { field: 'cat', type: 'nominal' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.xAxis?.config.scaleType).not.to.equal('band');
+    expect(compiled.yAxis?.config.scaleType).to.equal('band');
+    const series = compiled.series[0] as { layout?: string };
+    expect(series.layout).to.equal('horizontal');
+  });
+
   it('reports a partial gap for mark.cornerRadius and applies it chart-wide', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ category: 'A', amount: 1 }] },

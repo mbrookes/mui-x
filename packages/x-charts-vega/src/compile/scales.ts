@@ -289,6 +289,49 @@ function channelNeedsBandScale(occurrences: ChannelOccurrence[]): boolean {
 }
 
 /**
+ * `true` when a quantitative positional channel must nonetheless render as a
+ * discrete band because it is the **category** axis of a bar mark.
+ *
+ * x-charts draws bars over a band scale, never a linear one, so a bar needs one
+ * discrete positional channel. Vega-Lite reads an un-aggregated, un-binned
+ * quantitative field on a bar's discrete axis — e.g. a trellis `x: {field:
+ * "age"}` paired with `y: {aggregate: "sum", field: "people"}` — as one bar per
+ * distinct value. The channel is only forced discrete when the *opposite*
+ * positional channel carries the aggregate (the true value axis); that keeps
+ * horizontal bars (quantitative value on `x`, categorical `y`) and binned
+ * histograms untouched, and never discretizes the value axis itself.
+ */
+export function forcesDiscreteBarCategory(
+  channel: 'x' | 'y',
+  units: Array<{ unit: NormalizedUnit; rows: readonly DatasetRow[] }>,
+): boolean {
+  const other = channel === 'x' ? 'y' : 'x';
+  return units.some(({ unit, rows }) => {
+    if (unit.mark.type !== 'bar') {
+      return false;
+    }
+    const def = unit.encoding[channel];
+    const otherDef = unit.encoding[other];
+    if (!isFieldDef(def) || !isFieldDef(otherDef)) {
+      return false;
+    }
+    // The category candidate must be a raw quantitative field — an aggregate,
+    // bin, or timeUnit gets its own discrete handling elsewhere.
+    if (
+      def.aggregate !== undefined ||
+      def.bin !== undefined ||
+      def.timeUnit !== undefined ||
+      resolveFieldType(def, rows) !== 'quantitative'
+    ) {
+      return false;
+    }
+    // The opposite channel must be the aggregated value axis; without that
+    // disambiguation we could discretize the wrong (or both) channels.
+    return otherDef.aggregate !== undefined;
+  });
+}
+
+/**
  * `true` when any occurrence of the channel is drawn with a per-category mark
  * (`BAND_SCALE_MARKS`). On a temporal channel this also forces the discrete
  * band/point path instead of a continuous time scale (bar/rect derive their
@@ -320,6 +363,9 @@ function resolveChannelAxis(
   channel: 'x' | 'y',
   occurrences: ChannelOccurrence[],
   gaps: GapCollector,
+  // Forces a quantitative axis onto a discrete band (a bar's category axis —
+  // see `forcesDiscreteBarCategory`); ignored for non-quantitative types.
+  forceDiscrete = false,
 ): AxisResolution | undefined {
   const first = occurrences[0];
   if (!first) {
@@ -356,7 +402,13 @@ function resolveChannelAxis(
     disableLine: extras.disableLine,
   };
 
-  if (fieldType === 'nominal' || fieldType === 'ordinal' || fieldType === 'temporal') {
+  const forcedQuantitativeDiscrete = forceDiscrete && fieldType === 'quantitative';
+  if (
+    fieldType === 'nominal' ||
+    fieldType === 'ordinal' ||
+    fieldType === 'temporal' ||
+    forcedQuantitativeDiscrete
+  ) {
     const isTemporal = fieldType === 'temporal';
     const pairs: CategoryPair[] = [];
     const seen = new Set<string>();
@@ -386,6 +438,14 @@ function resolveChannelAxis(
     // other sort forms establish their own order in `applySort` below.
     if (isTemporal && sort === undefined) {
       pairs.sort((a, b) => (a.value as Date).getTime() - (b.value as Date).getTime());
+    }
+
+    // A quantitative field forced onto a discrete band (a bar's numeric
+    // category axis) has no nominal order to preserve; default to ascending
+    // numeric order like a Vega-Lite ordinal-quantitative axis, unless an
+    // explicit `sort` overrides it below.
+    if (forcedQuantitativeDiscrete && sort === undefined) {
+      pairs.sort((a, b) => compareValues(a.value, b.value));
     }
 
     const ordered = applySort(
@@ -662,6 +722,13 @@ export function resolveAxes(
   // `resolve:independent-scale` gap fires for layered specs. Until then it is
   // only exercised by direct resolveAxes callers/tests.
   resolve?: NormalizedSpec['resolve'],
+  // Forces a quantitative bar category axis onto a band scale (see
+  // `forcesDiscreteBarCategory`). The caller detects this from the
+  // **pre-transform** encoding because the encoding aggregate pass strips the
+  // `aggregate` marker before these `units` are prepared; when omitted the flag
+  // is derived from `units` directly (correct for callers that pass un-aggregated
+  // encodings, e.g. tests).
+  forceDiscreteBarCategory?: { x?: boolean; y?: boolean },
 ): ResolvedAxes {
   const xOccurrences: ChannelOccurrence[] = [];
   const yOccurrences: ChannelOccurrence[] = [];
@@ -724,8 +791,10 @@ export function resolveAxes(
     }
   }
 
-  let x = resolveChannelAxis('x', xOccurrences, gaps) as AxisResolution<XAxis> | undefined;
-  let y = resolveChannelAxis('y', yOccurrences, gaps) as AxisResolution<YAxis> | undefined;
+  const forceX = forceDiscreteBarCategory?.x ?? forcesDiscreteBarCategory('x', units);
+  const forceY = forceDiscreteBarCategory?.y ?? forcesDiscreteBarCategory('y', units);
+  let x = resolveChannelAxis('x', xOccurrences, gaps, forceX) as AxisResolution<XAxis> | undefined;
+  let y = resolveChannelAxis('y', yOccurrences, gaps, forceY) as AxisResolution<YAxis> | undefined;
 
   // Vega-Lite renders an aggregate-only bar (a value channel with no category
   // channel anywhere in the spec) as a single bar over an implicit "all"

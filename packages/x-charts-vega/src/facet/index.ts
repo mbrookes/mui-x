@@ -61,8 +61,10 @@ import type {
 } from '../types';
 import { isFieldDef, isRepeatRef } from '../types';
 import type { TranslationGap } from '../gaps';
+import { createGapCollector } from '../gaps';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
+import { applyTransforms } from '../transforms';
 import { titleText } from '../normalize';
 
 /** Maximum levels of nested faceting/concat the shell will expand (gap beyond). */
@@ -266,6 +268,30 @@ function resolveRootRows(spec: VegaLiteSpec, options: FacetOptions): readonly Da
     return datasets[data.name];
   }
   return [];
+}
+
+/**
+ * Resolves the root rows AND applies the spec's top-level `transform` array
+ * before faceting partitions them. This matches Vega-Lite's order (data
+ * transforms run on the whole dataset, then faceting splits the result), and is
+ * essential when the facet field itself is produced by a transform — e.g. a
+ * `row`/`column` field created by a `calculate`, or rows selected by a `filter`.
+ * Without it, partitioning by a derived field finds no values and every cell is
+ * empty. The transforms are applied once here (their gaps surface at the facet
+ * level) and stripped from each cell so they don't re-run per partition.
+ */
+function transformedRootRows(
+  spec: VegaLiteSpec,
+  options: FacetOptions,
+): { rows: readonly DatasetRow[]; gaps: TranslationGap[] } {
+  const raw = resolveRootRows(spec, options);
+  const transforms = spec.transform;
+  if (!transforms || transforms.length === 0) {
+    return { rows: raw, gaps: [] };
+  }
+  const collector = createGapCollector();
+  const rows = applyTransforms(raw, transforms, collector, '$');
+  return { rows, gaps: collector.list() };
 }
 
 /**
@@ -528,7 +554,7 @@ function hasFacetChannels(spec: VegaLiteSpec): boolean {
 
 /** Plan the `row`/`column`/`facet` encoding-channel form (unit spec + mark). */
 function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
-  const rows = resolveRootRows(spec, options);
+  const { rows, gaps: transformGaps } = transformedRootRows(spec, options);
   const encoding = spec.encoding ?? {};
   const rowField = fieldOf(encoding.row);
   const colField = fieldOf(encoding.column);
@@ -536,14 +562,16 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
   const facetFields = [rowField, colField, wrapField].filter(Boolean) as string[];
   const cellEncoding = stripFacetChannels(injectSharedScales(encoding, rows, facetFields));
   const makeCellSpec = (partition: readonly DatasetRow[]): VegaLiteSpec => {
-    // `encoding`/`title` are rest siblings: encoding is replaced per cell, and
-    // the facet-level title must not repeat inside every cell.
-    const { encoding, title, ...rest } = spec;
+    // `encoding`/`title`/`transform` are rest siblings: encoding is replaced per
+    // cell, the facet-level title must not repeat inside every cell, and the
+    // top-level transforms were already applied to `rows` above — the cell gets
+    // the transformed partition, so re-running them would be wrong.
+    const { encoding, title, transform, ...rest } = spec;
     return { ...rest, data: { values: partition }, encoding: cellEncoding } as VegaLiteSpec;
   };
   const sortOf = (def: VegaChannelDef | undefined): VegaSort | undefined =>
     isFieldDef(def) ? def.sort : undefined;
-  return buildFacetGrid({
+  const plan = buildFacetGrid({
     rows,
     rowField,
     colField,
@@ -555,11 +583,15 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     options,
     makeCellSpec,
   });
+  return { ...plan, gaps: [...transformGaps, ...plan.gaps] };
 }
 
 /** Plan the `facet` operator form (`facet: {row,column} | {field}` + `spec`). */
 function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
-  const rows = resolveRootRows(spec, options);
+  // Outer transforms run once on the whole dataset before partitioning; the
+  // cell is the inner `spec` (which carries its own per-cell transforms), so
+  // the outer transforms are naturally excluded from each cell.
+  const { rows, gaps: transformGaps } = transformedRootRows(spec, options);
   const facet = (spec.facet ?? {}) as {
     field?: string;
     row?: VegaFieldDef;
@@ -597,7 +629,7 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     }
     return cell;
   };
-  return buildFacetGrid({
+  const plan = buildFacetGrid({
     rows,
     rowField,
     colField,
@@ -609,6 +641,7 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     options,
     makeCellSpec,
   });
+  return { ...plan, gaps: [...transformGaps, ...plan.gaps] };
 }
 
 /** Plan `hconcat`/`vconcat`/`concat`: independent sub-specs, no partitioning. */

@@ -1,6 +1,7 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
+import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
@@ -166,6 +167,71 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
+ * The closed set of valid `StudioFilterScope` kinds (see `stateTypes.ts`), duplicated here
+ * as a small local list because the wire boundary's `FILTER_SCOPE_REQUIRED_IDS` table in
+ * `parseStateMutation.ts` is not exported. Used to membership-check a persisted filter's
+ * `scope.kind` at the load boundary (Finding 2), symmetric with the wire boundary's own
+ * `Object.hasOwn(FILTER_SCOPE_REQUIRED_IDS, kind)` check — a junk kind like `'pages'`
+ * would otherwise survive as a permanent inert entry that escapes `removePage` /
+ * `dropWidgetScopedFilters` cleanup (both key off the known kinds).
+ */
+const VALID_FILTER_SCOPE_KINDS = new Set<string>([
+  'page',
+  'widget',
+  'cross-filter',
+  'interactive',
+  'dashboard-date-range',
+]);
+
+/**
+ * Screen each ENTRY of a persisted array with `isRecord`, dropping non-record junk
+ * (Finding 1) — the same per-entry screen the `filters`/`ai.threads` load paths already
+ * apply, extended to `relationships` and `expressionFields`, whose entries the client
+ * iterates on hot paths (`ef.sourceId`, `r.sourceId`) with no optional chaining. A
+ * non-array coerces to `[]` (symmetric with the prior container-only coercion).
+ * Reference-STABLE: returns the SAME array when every entry survives, so a well-formed
+ * doc keeps its identity for cross-load memoization.
+ */
+const screenRecordArray = <T>(value: unknown): T[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const safe = value.filter((entry) => isRecord(entry));
+  return (safe.length === value.length ? value : safe) as T[];
+};
+
+/**
+ * Screen persisted `filterPresets` (Finding 1, nested sibling site): drop any entry that
+ * is not a record with an array `filters`, AND screen each preset's own `filters` array
+ * with `isRecord` — a well-formed preset carrying a `null` inner filter entry crashes
+ * `applyFilterPreset`'s id-remap loop (`idMap.set(f.id, …)`) the same way a top-level
+ * junk entry does. Reference-stable at both levels: returns the SAME outer array (and the
+ * SAME inner `filters` array on each surviving preset) when nothing is dropped.
+ */
+const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  let changed = false;
+  const safe: unknown[] = [];
+  for (const preset of value) {
+    if (!isRecord(preset) || !Array.isArray(preset.filters)) {
+      changed = true;
+      continue;
+    }
+    const innerFilters = preset.filters;
+    const safeInner = innerFilters.filter((entry) => isRecord(entry));
+    if (safeInner.length === innerFilters.length) {
+      safe.push(preset);
+    } else {
+      changed = true;
+      safe.push({ ...preset, filters: safeInner });
+    }
+  }
+  return (changed ? safe : value) as StudioDoc['filterPresets'];
+};
+
+/**
  * The fields a fully-migrated `SerializedStudioState` must carry, checked fail-closed
  * AFTER migration so a partial or nested-corrupt persisted doc is rejected cleanly here
  * (with a named field) instead of crashing later inside `deserializeState`. Returns the
@@ -222,6 +288,50 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     }
     if (!isRecord(filter.scope) || typeof filter.scope.kind !== 'string') {
       return `filters[${i}].scope`;
+    }
+  }
+  // Per-entry shape checks for the three optional collections (Finding 1), mirroring the
+  // `filters` screen above so `migrateState` rejects a junk entry by NAME rather than
+  // letting it load and crash the client on first use (and round-trip through every
+  // autosave). Each is absent-tolerant (the field is optional in the serialized shape)
+  // but, when present, must be an array of records — the client iterates all three on hot
+  // paths (`ef.sourceId`, `r.sourceId`, `preset.filters[*].id`) with no optional chaining.
+  // `deserializeState` ALSO drops these defensively for its direct-call surface; naming
+  // them here is the loud `migrateState` counterpart, exactly as `filters` is treated.
+  if (state.relationships !== undefined) {
+    if (!Array.isArray(state.relationships)) {
+      return 'relationships';
+    }
+    for (let i = 0; i < state.relationships.length; i += 1) {
+      if (!isRecord(state.relationships[i])) {
+        return `relationships[${i}]`;
+      }
+    }
+  }
+  if (state.expressionFields !== undefined) {
+    if (!Array.isArray(state.expressionFields)) {
+      return 'expressionFields';
+    }
+    for (let i = 0; i < state.expressionFields.length; i += 1) {
+      if (!isRecord(state.expressionFields[i])) {
+        return `expressionFields[${i}]`;
+      }
+    }
+  }
+  if (state.filterPresets !== undefined) {
+    if (!Array.isArray(state.filterPresets)) {
+      return 'filterPresets';
+    }
+    for (let i = 0; i < state.filterPresets.length; i += 1) {
+      const preset = state.filterPresets[i];
+      if (!isRecord(preset) || !Array.isArray(preset.filters)) {
+        return `filterPresets[${i}]`;
+      }
+      for (let j = 0; j < preset.filters.length; j += 1) {
+        if (!isRecord(preset.filters[j])) {
+          return `filterPresets[${i}].filters[${j}]`;
+        }
+      }
     }
   }
   return null;
@@ -504,20 +614,57 @@ export function deserializeState(
         // untouched instead (deep config validation is out of scope for this package).
         const hasColumns = Array.isArray(columns) && columns.length > 0;
         const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
-        if (!hasColumns && !hasYSeries) {
+        // Membership-check the closed `chartType` union at the load boundary (Finding 2),
+        // symmetric with the wire boundary's `isStudioChartType` gate. A hand-edited
+        // `chartType: 'trendline'` would otherwise render a blank/default chart AND wedge
+        // the next AI `update_widget` (the middleware hard-errors on an unknown stored
+        // chartType). Drop the offending key so `resolveChartType`'s `'bar'` fallback
+        // applies — the same "leave junk for the fallback/validation" treatment junk
+        // `columns` gets, not a widget-dropping coercion.
+        const hasBadChartType =
+          Object.hasOwn(config, 'chartType') &&
+          !(typeof config.chartType === 'string' && isStudioChartType(config.chartType));
+        if (!hasColumns && !hasYSeries && !hasBadChartType) {
           return [id, base];
         }
-        return [
-          id,
-          {
-            ...base,
-            config: {
-              ...base.config,
-              ...(hasColumns ? { columns: columns.map(normalizeGridColumn) } : {}),
-              ...(hasYSeries ? { ySeries: ySeries.map(normalizeChartSeries) } : {}),
-            },
-          },
-        ];
+        // Track whether any entry actually changed (the pattern `normalizeConfigChartSeries`
+        // uses in `applyMutation.ts`): a non-empty but already-canonical `columns`/`ySeries`
+        // — the common case for every configured grid/chart widget — must NOT mint a fresh
+        // array (and hence a fresh config and widget) on every load, or cross-load
+        // memoization is defeated (Finding 5). `.map(normalize…)` alone always allocates.
+        let changed = hasBadChartType;
+        let nextColumns = columns;
+        if (hasColumns) {
+          nextColumns = columns.map((column) => {
+            const normalized = normalizeGridColumn(column);
+            if (normalized !== column) {
+              changed = true;
+            }
+            return normalized;
+          });
+        }
+        let nextYSeries = ySeries;
+        if (hasYSeries) {
+          nextYSeries = ySeries.map((series) => {
+            const normalized = normalizeChartSeries(series);
+            if (normalized !== series) {
+              changed = true;
+            }
+            return normalized;
+          });
+        }
+        if (!changed) {
+          return [id, base];
+        }
+        const nextConfig = {
+          ...base.config,
+          ...(hasColumns ? { columns: nextColumns } : {}),
+          ...(hasYSeries ? { ySeries: nextYSeries } : {}),
+        } as StudioWidgetConfig;
+        if (hasBadChartType) {
+          delete nextConfig.chartType;
+        }
+        return [id, { ...base, config: nextConfig }];
       }),
   ) as StudioDoc['widgets'];
 
@@ -585,23 +732,56 @@ export function deserializeState(
       // surface), so a `filters: [null]` / `scope: null` entry must be defensively removed
       // here too — otherwise it installs into live `doc.filters` and then throws in
       // `serializeDoc` and the reducer on the next commit.
-      filters: serialized.filters.filter(
-        (f) =>
-          isRecord(f) &&
-          isRecord((f as { scope?: unknown }).scope) &&
-          (f as { scope: { kind?: unknown } }).scope.kind !== 'cross-filter' &&
-          (f as { scope: { kind?: unknown } }).scope.kind !== 'interactive',
+      filters: serialized.filters.filter((f) => {
+        if (!isRecord(f)) {
+          return false;
+        }
+        const scope = (f as { scope?: unknown }).scope;
+        if (!isRecord(scope) || typeof scope.kind !== 'string') {
+          return false;
+        }
+        // Membership-check the closed scope-kind union (Finding 2): an unknown kind like
+        // `'pages'` would otherwise load as a permanent inert entry that escapes
+        // `removePage`/`dropWidgetScopedFilters` cleanup (both key off the known kinds).
+        if (!VALID_FILTER_SCOPE_KINDS.has(scope.kind)) {
+          return false;
+        }
+        // Symmetric with `serializeDoc`'s strip: cross-filter/interactive entries are
+        // session-flavoured and never persisted, so an orphaned one hand-carried into a
+        // foreign doc must not install (it would permanently filter its page with no
+        // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
+        if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+          return false;
+        }
+        // Membership-check the closed `operator` union (Finding 2), symmetric with the
+        // wire boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'`
+        // (a plausible typo for `'equals'`) would otherwise install a chip that renders as
+        // ACTIVE while filtering nothing — a silent fail-open. A present `operator2` is
+        // held to the same membership check (absent stays legal).
+        const record = f as { operator?: unknown; operator2?: unknown };
+        if (!isStudioFilterOperator(record.operator)) {
+          return false;
+        }
+        if (record.operator2 !== undefined && !isStudioFilterOperator(record.operator2)) {
+          return false;
+        }
+        return true;
+      }),
+      // Defensive PER-ENTRY screening, symmetric with the pages/widgets/filters/ai.threads
+      // screens (Finding 1): the prior code coerced only the CONTAINER (`Array.isArray ?
+      // value : []`), so a hand-edited `relationships: [null]` / `expressionFields: [null]`
+      // installed verbatim and then crashed the client on first use — `ef.sourceId` /
+      // `r.sourceId` are read with NO optional chaining on hot paths — while `serializeDoc`
+      // re-persisted the junk forever (its `.length > 0` checks are also container-only).
+      // `screenRecordArray` drops non-record entries (and coerces a non-array to `[]`),
+      // reference-stable when every entry survives. `filterPresets` additionally requires
+      // each entry to carry an array `filters` and screens that nested array too — a
+      // well-formed preset with a `null` inner filter crashes `applyFilterPreset` the same way.
+      relationships: screenRecordArray<StudioDoc['relationships'][number]>(
+        serialized.relationships,
       ),
-      // Defensive container validation, symmetric with the pages/widgets/filters screening:
-      // `?? []` only defaults an ABSENT value, so a hand-edited `relationships: "junk"` /
-      // `{}` would install verbatim and then break any client code iterating it (and
-      // `serializeDoc`'s `.length > 0` would silently collapse a non-array to `undefined`,
-      // discarding it). Coerce a non-array to `[]`.
-      relationships: Array.isArray(serialized.relationships) ? serialized.relationships : [],
-      expressionFields: Array.isArray(serialized.expressionFields)
-        ? serialized.expressionFields
-        : [],
-      filterPresets: Array.isArray(serialized.filterPresets) ? serialized.filterPresets : [],
+      expressionFields: screenRecordArray<StudioExpressionField>(serialized.expressionFields),
+      filterPresets: screenFilterPresets(serialized.filterPresets),
       // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
       ai: normalizedAi,
     },

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { FilterValueInput } from './FilterValueInput';
@@ -111,5 +111,74 @@ describe('FilterValueInput', () => {
       <FilterValueInput fieldType="string" operator="is_empty" value="" onChange={() => {}} />,
     );
     expect(container.firstChild).toBe(null);
+  });
+
+  describe('Autocomplete reset echo (finding 2.16)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('does not schedule a commit when an external value change echoes back the same value', () => {
+      // Regression for finding 2.16: MUI's free-solo Autocomplete fires
+      // `onInputChange(value, 'reset')` whenever its controlled `value` changes externally
+      // (undo, redo, preset apply, AI mutation). The drawer's handler used to schedule its
+      // 150ms debounce unconditionally, eventually re-committing the content-identical value
+      // as a fresh, undoable, redo-clearing `updateFilter` commit.
+      vi.useFakeTimers();
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <FilterValueInput
+          fieldType="string"
+          operator="equals"
+          value="B"
+          onChange={onChange}
+          fieldValues={['A', 'B']}
+        />,
+      );
+
+      // Simulate an undo: the store's filter value reverts from the in-progress edit ('B')
+      // back to the pre-edit value ('A') — an EXTERNAL change, not a user keystroke.
+      rerender(
+        <FilterValueInput
+          fieldType="string"
+          operator="equals"
+          value="A"
+          onChange={onChange}
+          fieldValues={['A', 'B']}
+        />,
+      );
+
+      // Advance well past the 150ms debounce window.
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('still commits a genuine option pick after an external value change', () => {
+      // The fix must not swallow real edits — only the reset echo that redelivers the
+      // ALREADY-current value. Picking a different option must still commit.
+      vi.useFakeTimers();
+      const onChange = vi.fn();
+      render(
+        <FilterValueInput
+          fieldType="string"
+          operator="equals"
+          value="A"
+          onChange={onChange}
+          fieldValues={['A', 'B']}
+        />,
+      );
+
+      const input = screen.getByRole('combobox') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'B' } });
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(onChange).toHaveBeenCalledWith('B');
+    });
   });
 });

@@ -303,6 +303,7 @@ export interface StudioLocaleText {
   filterSelectionNoValues: string;
   filterSelectionAll: string;
   filterSelectionSelectedCount: (count: number) => string;
+  filterSelectionCapHint: (cap: number) => string;
   filterSectionNoInteractiveFilters: string;
   filterSectionNoCrossFilters: string;
   filterSectionSelectedCount: (count: number) => string;
@@ -1487,6 +1488,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterSelectionNoValues: 'No values found.',
   filterSelectionAll: 'All',
   filterSelectionSelectedCount: (count) => `${count} selected`,
+  filterSelectionCapHint: (cap) => `Showing the first ${cap} values. Type to narrow the list.`,
   filterSectionNoInteractiveFilters:
     'No interactive filters active. Use filter widgets on the canvas to set filters.',
   filterSectionNoCrossFilters:

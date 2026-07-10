@@ -81,9 +81,7 @@ export function SelectionFilterInput({
           color="text.secondary"
           data-testid="selection-filter-cap-hint"
         >
-          {/* Hardcoded English (localeText.ts is out of this change's scope); a follow-up
-              localization pass should route this through a `filterSelection*` locale key. */}
-          {`Showing the first ${FIELD_VALUES_CAP} values. Type to narrow the list.`}
+          {localeText.filterSelectionCapHint(FIELD_VALUES_CAP)}
         </Typography>
       )}
       <Box

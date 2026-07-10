@@ -298,9 +298,19 @@ export function defaultValueForMode(mode: FilterMode): StudioFilterState['value'
 /**
  * Returns the partial state changes needed when switching a filter's mode.
  * Clears all mode-specific fields and sets the appropriate default value.
+ *
+ * `currentFieldType` is the resolved type of the filter's current field (when it has one).
+ * 2.19: rank mode sorts rows by the NUMERIC value of `field`, so switching an existing filter
+ * that's configured on a non-numeric field into rank mode would compute `NaN` comparators (a
+ * silent no-op "Top N"). When switching to rank and the current field isn't numeric, clear the
+ * `field`/`fieldType`/`filterSourceId` so the row drops back to its numeric-only field picker.
+ * (Chart rank filters re-wire their `xField` back in the row's own change handler.)
  */
-export function buildModeReset(newMode: FilterMode): Partial<StudioFilterState> {
-  return {
+export function buildModeReset(
+  newMode: FilterMode,
+  currentFieldType?: FieldType,
+): Partial<StudioFilterState> {
+  const reset: Partial<StudioFilterState> = {
     filterMode: newMode,
     value: defaultValueForMode(newMode),
     rankDirection: newMode === 'rank' ? 'top' : undefined,
@@ -310,4 +320,10 @@ export function buildModeReset(newMode: FilterMode): Partial<StudioFilterState> 
     value2: undefined,
     conjunction: undefined,
   };
+  if (newMode === 'rank' && currentFieldType !== 'number') {
+    reset.field = undefined;
+    reset.fieldType = undefined;
+    reset.filterSourceId = undefined;
+  }
+  return reset;
 }

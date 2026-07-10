@@ -79,7 +79,13 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
         (f) =>
           f.scope.kind === 'widget' &&
           f.scope.widgetId === widgetId &&
-          f.dateRangePreset === undefined,
+          f.dateRangePreset === undefined &&
+          // 2.18: this dialog's `FilterRow` is a condition-only editor. A selection-mode
+          // filter's array value would render/commit as a joined string (a blur silently
+          // deactivating it), and a rank-mode filter would get a meaningless operator select
+          // that writes junk operator keys onto it. Surface only condition filters here, the
+          // same way the drawer dispatches to mode-appropriate editors elsewhere.
+          (f.filterMode === 'condition' || f.filterMode === undefined),
       ),
     [allFilters, widgetId],
   );

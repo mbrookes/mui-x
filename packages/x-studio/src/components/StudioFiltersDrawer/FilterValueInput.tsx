@@ -201,7 +201,19 @@ export function FilterValueInput(props: {
         size="small"
         options={fieldValues}
         value={localText}
-        onInputChange={(_, newVal) => handleTextChange(newVal)}
+        onInputChange={(_, newVal, reason) => {
+          // 2.16: MUI's Autocomplete fires `onInputChange(value, 'reset')` whenever the
+          // controlled `value` changes externally (undo, redo, preset apply, AI mutation).
+          // Scheduling the 150ms debounce for that echo would re-commit the content-identical
+          // value as a fresh, undoable, redo-clearing `updateFilter` commit ~150ms after the
+          // undo/redo. Ignore the reset echo when it merely re-delivers the already-committed
+          // value (an option pick — also `reason: 'reset'` — carries a DIFFERENT value and
+          // still commits).
+          if (reason === 'reset' && newVal === strVal) {
+            return;
+          }
+          handleTextChange(newVal);
+        }}
         renderInput={(params) => (
           <TextField
             {...params}

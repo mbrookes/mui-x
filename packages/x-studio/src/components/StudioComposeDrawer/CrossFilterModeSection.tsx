@@ -70,8 +70,17 @@ export function CrossFilterModeSection(props: CrossFilterModeSectionProps) {
         value={displayValue}
         exclusive
         onChange={(_e, next: StudioCrossFilterMode | null) => {
+          // An exclusive `ToggleButtonGroup` reports `null` when the user deselects the current
+          // button; resolve that (and any explicit pick) to a concrete mode. Guard against an
+          // undoable no-op: deselecting the already-default button (or re-picking the current
+          // mode) resolves to the value already in effect. `undefined` means "default", so
+          // compare against the resolved current value before committing a new config key.
+          const resolvedNext = next ?? defaultMode;
+          if (resolvedNext === (value ?? defaultMode)) {
+            return;
+          }
           controller.updateWidgetConfig(widgetId, {
-            crossFilterMode: next ?? defaultMode,
+            crossFilterMode: resolvedNext,
           });
         }}
         size="small"

@@ -108,3 +108,70 @@ describe('<StudioFiltersDrawer /> operator localization', () => {
     expect(screen.queryByText('Equals')).toBeNull();
   });
 });
+
+// Regression coverage for architecture-review Tier3 finding #7: the drawer used to list
+// interactive filters from EVERY page (no `pageId` check), while the filter engine
+// (`internals/filterScoping.ts`'s `interactive` case) correctly scopes them to the active
+// page — a cosmetic drawer/engine mismatch that shows "active" filters that affect nothing
+// on the current page.
+describe('<StudioFiltersDrawer /> interactive filter page scoping (Tier3 #7)', () => {
+  // `createDefaultStudioState`'s single default page always has id 'page-1'.
+  const ACTIVE_PAGE_ID = 'page-1';
+  const CHART_WIDGET: StudioWidget = {
+    id: 'chart-1',
+    kind: 'chart',
+    title: 'Revenue',
+    sourceId: 'src',
+    config: { chartType: 'bar', xField: 'region' },
+  };
+
+  function renderWithInteractiveFilter(filter: StudioFilterState) {
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: {
+          widgets: { [CHART_WIDGET.id]: CHART_WIDGET },
+          filters: [filter],
+        },
+        runtime: { dataSources: { src: SOURCE } },
+        session: {
+          shell: {
+            openDrawers: { data: false, compose: false, filters: true },
+            selectedWidgetId: CHART_WIDGET.id,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
+        },
+      },
+      providerProps: { featureFlags: { savedFilterViews: false } },
+    });
+    return render(<StudioFiltersDrawer />, { wrapper });
+  }
+
+  it('does not show an interactive filter scoped to a different page', () => {
+    renderWithInteractiveFilter({
+      id: 'if-other-page',
+      field: 'region',
+      operator: 'equals',
+      value: 'EMEA',
+      scope: { kind: 'interactive', sourceWidgetId: 'chart-1', pageId: `${ACTIVE_PAGE_ID}-other` },
+    });
+
+    // The whole "Interactive filters" section only renders when there's at least one
+    // filter scoped to the active page — it must not appear at all here.
+    expect(screen.queryByText('Interactive filters')).toBe(null);
+  });
+
+  it('shows an interactive filter scoped to the active page', () => {
+    renderWithInteractiveFilter({
+      id: 'if-same-page',
+      field: 'region',
+      operator: 'equals',
+      value: 'EMEA',
+      scope: { kind: 'interactive', sourceWidgetId: 'chart-1', pageId: ACTIVE_PAGE_ID },
+    });
+
+    expect(screen.getByText('Interactive filters')).not.toBe(null);
+    // "Revenue" is the source widget's title, rendered in the interactive filter row.
+    expect(screen.getByText('Revenue')).not.toBe(null);
+  });
+});

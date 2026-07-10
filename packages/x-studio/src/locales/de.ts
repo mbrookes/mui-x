@@ -256,6 +256,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   filterSelectionNoValues: 'Keine Werte gefunden.',
   filterSelectionAll: 'Alle',
   filterSelectionSelectedCount: (count) => `${count} ausgewählt`,
+  filterSelectionCapHint: (cap) =>
+    `Die ersten ${cap} Werte werden angezeigt. Tippen Sie, um die Liste einzugrenzen.`,
   filterSectionNoInteractiveFilters:
     'Keine aktiven interaktiven Filter. Verwenden Sie Filter-Widgets auf dem Bildschirm, um Filter festzulegen.',
   filterSectionNoCrossFilters:

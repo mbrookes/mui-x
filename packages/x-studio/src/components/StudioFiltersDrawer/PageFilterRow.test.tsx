@@ -71,4 +71,55 @@ describe('PageFilterRow', () => {
 
     expect(updateSpy).not.toHaveBeenCalled();
   });
+
+  // Regression for finding 2.17: the operator self-repair effect used to fire against
+  // `getOperators(fieldType)` even when `fieldType` was genuinely UNRESOLVED (e.g. the field's
+  // source hasn't been injected yet, so neither `filter.fieldType` nor a field-catalog lookup
+  // resolves a type). `getOperators(undefined)` falls back to STRING_OPERATORS, which does not
+  // contain `between` — a perfectly valid stored date/number operator — so it was permanently
+  // (and non-undoably) rewritten to `equals` purely because of a data-loading race.
+  it('does not repair a valid between operator when the field type has not resolved yet (2.17)', () => {
+    // No `fieldType` on the filter, and no matching entry in `fields` — the field catalog
+    // lookup also fails to resolve a type (simulating the source not injected yet).
+    const filter = makeFilter({ field: 'ship_date', fieldType: undefined, operator: 'between' });
+    const { controller, wrapper } = createStudioHarness({
+      initialState: { doc: { filters: [filter] } },
+    });
+    const updateSpy = vi.spyOn(controller, 'updateFilter');
+    render(
+      <PageFilterRow
+        filter={filter}
+        fields={[]}
+        fieldOptions={[]}
+        onRemove={() => {}}
+        allPageFilters={[filter]}
+      />,
+      { wrapper },
+    );
+
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('repairs once the field type resolves to a real type that invalidates the stored operator (2.17)', () => {
+    // Once the field catalog resolves a REAL type (here `string`, which doesn't support
+    // `between`), the repair should still fire — the fix only gates the UNRESOLVED case.
+    const stringFields: SimpleField[] = [{ id: 'name', label: 'Name', fieldType: 'string' }];
+    const filter = makeFilter({ field: 'name', fieldType: undefined, operator: 'between' });
+    const { controller, wrapper } = createStudioHarness({
+      initialState: { doc: { filters: [filter] } },
+    });
+    const updateSpy = vi.spyOn(controller, 'updateFilter');
+    render(
+      <PageFilterRow
+        filter={filter}
+        fields={stringFields}
+        fieldOptions={[]}
+        onRemove={() => {}}
+        allPageFilters={[filter]}
+      />,
+      { wrapper },
+    );
+
+    expect(updateSpy).toHaveBeenCalledWith('pf1', { operator: 'equals' }, { undoable: false });
+  });
 });

@@ -159,20 +159,35 @@ export class StudioController {
       this.undoStack = [];
       this.redoStack = [];
       this.mutationLog = [];
-    } else if (undoable && nextState.doc !== current.doc) {
-      // The undo entry is the OLD doc, pushed only when the doc actually changed by
-      // reference. A commit that only touches `session`/`runtime` (drawer toggle,
-      // data refresh, selection…) still takes effect immediately below, but creates
-      // NO undo entry — regardless of the `undoable` flag — because there is no
-      // authored-document change to revert. This is the core staleness fix.
-      this.undoStack.push(current.doc);
-      // Any new action clears the redo stack
-      this.redoStack = [];
+    } else if (nextState.doc !== current.doc) {
+      if (undoable) {
+        // The undo entry is the OLD doc, pushed only when the doc actually changed by
+        // reference AND the commit is undoable. A commit that only touches
+        // `session`/`runtime` (drawer toggle, data refresh, selection…) still takes effect
+        // immediately below, but creates NO undo entry — regardless of the `undoable`
+        // flag — because there is no authored-document change to revert. This is the core
+        // staleness fix.
+        this.undoStack.push(current.doc);
+        // Any new undoable action clears the redo stack
+        this.redoStack = [];
 
-      if (this.undoStack.length > MAX_UNDO_HISTORY) {
-        this.undoStack.shift();
+        if (this.undoStack.length > MAX_UNDO_HISTORY) {
+          this.undoStack.shift();
+        }
       }
 
+      // Recent-mutation log (2.11): record the label whenever the DOC changed, regardless
+      // of `undoable` — NOT only inside the undoable branch. Transient-only doc mutations
+      // that reach the controller through the AI wire path (`applyExternalMutation` →
+      // `setActivePage` / `renameAIThread`) commit NON-undoably (an undo entry for them can
+      // revert nothing — `carryTransientDocState` re-overlays their current value onto any
+      // swap), yet they ARE authored-visible changes the assistant's change log must
+      // surface. Gating this push on `undoable` silently dropped them, contradicting
+      // `applyExternalMutation`'s "logging/label behaviour is unchanged" contract and
+      // `setActivePage`'s "only the AI-driven path logs setActivePage" comment. The push
+      // stays OUT of the `resetHistory` branch (a history reset clears the log above), and a
+      // session/runtime-only commit never reaches here (guarded by `nextState.doc !==
+      // current.doc`), so drawer/selection/data-refresh writes are still never logged.
       if (label) {
         this.mutationLog.push({ label, at: new Date().toISOString() });
         if (this.mutationLog.length > MAX_MUTATION_LOG) {
@@ -450,7 +465,10 @@ export class StudioController {
     // still clear the redo stack, silently destroying a pending redo. The controller's own
     // `setActivePage` already special-cases `undoable: false` for exactly this reason; mirror
     // it here so the AI wire path (which reaches these mutations through `applyExternalMutation`)
-    // doesn't push dead, redo-destroying undo entries. Logging/label behaviour is unchanged.
+    // doesn't push dead, redo-destroying undo entries. Logging/label behaviour is unchanged:
+    // `commitState` records the label whenever the DOC changed regardless of `undoable` (2.11),
+    // so these non-undoable navigations/renames still land in the recent-mutation log the model
+    // reads back — the `label` passed below is intentionally NOT suppressed for them.
     const isTransientOnlyMutation =
       mutation.type === 'setActivePage' || mutation.type === 'renameAIThread';
     this.commitMutation(mutation, {
@@ -689,6 +707,18 @@ export class StudioController {
       dataSource.adapter || !existing?.adapter
         ? dataSource
         : { ...dataSource, adapter: existing.adapter };
+    // Same-reference guard (2.9): when the resolved entry is reference-identical to the one
+    // already stored (a host re-injecting the SAME source object from an effect/poller, no
+    // adapter carried over), invalidating the cache and committing would bump the source
+    // generation, evict every cached adapter result, and mark in-flight requests stale on every
+    // call — an unbounded refetch loop when paired with an `onStateChange`-driven re-render.
+    // `setDataSourceAdapter` (below) got exactly this guard for exactly this loop hazard; mirror
+    // it here so an unchanged re-injection is a clean no-op (no invalidation, no commit). The
+    // adapter-carry branch always builds a fresh object, so it is never reference-equal and
+    // still commits as before.
+    if (nextDataSource === existing) {
+      return;
+    }
     // Replacing the source entry means any rows the old entry cached under its id are now
     // stale, regardless of whether the old or new entry carries an adapter — always
     // invalidate so a config-swap cannot serve pre-swap rows for the new source. (The
@@ -1075,6 +1105,14 @@ export class StudioController {
     if (!activePage) {
       return;
     }
+    // Value-equality no-op guard (2.10): `{ ...activePage, ...changes }` always allocates a
+    // fresh page object, so `commitDocPatch`'s reference-equality guard can never fire even for
+    // a value-identical write — re-confirming the breakpoint the page already has would clear a
+    // pending redo stack and insert a no-op undo entry. Bail when the value is unchanged,
+    // matching the sibling writers (`setAdjacentWidgetColSpans`, `reorderPages`).
+    if (activePage.stackBreakpoint === breakpoint) {
+      return;
+    }
     this.commitDocPatch({
       pages: {
         ...state.doc.pages,
@@ -1444,6 +1482,35 @@ export class StudioController {
         scope: { kind: 'widget' as const, widgetId: newId },
       }));
 
+    // Rank-filter uniqueness guard (2.7): the duplicate lands on the ACTIVE page, so a cloned
+    // widget-scoped rank (Top-N) filter would resolve to the same page context as the source's
+    // own rank filter — two rank filters on one page, exactly the state `addFilter`/`updateFilter`
+    // reject and the filters drawer assumes cannot exist. The reducer's `addFilter` handler
+    // applies verbatim (no rank check), so committing the cloned rank mutation would persist the
+    // violated invariant into the saved doc and make subsequent rank edits fail. Drop any cloned
+    // rank filter that conflicts, guard-and-continue style, via the same shared
+    // `hasConflictingRankFilter` check both writers use. The new widget isn't in `widgetRows` at
+    // check time, so model the clone's page context as a page-scoped target on `activePage.id`
+    // (otherwise `resolveRankFilterPageId` would return `null` and over-reject).
+    const dedupedClonedFilters = clonedFilters.filter((f) => {
+      if (f.filterMode !== 'rank') {
+        return true;
+      }
+      const conflicts = hasConflictingRankFilter(
+        f.id,
+        { ...f, scope: { kind: 'page' as const, pageId: activePage.id } },
+        state.doc.filters,
+        state.doc.pages,
+      );
+      if (conflicts && process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+            "The duplicated widget's rank filter was dropped to preserve the invariant.",
+        );
+      }
+      return !conflicts;
+    });
+
     // One composed commit (2.1): `addWidget` + `setWidgetLayout` (which runs the
     // reducer's `enforceLayoutColSpans` — closing the old hand-assembly's
     // no-col-span-handling gap) + one `addFilter` per cloned filter, folded into a
@@ -1453,7 +1520,9 @@ export class StudioController {
       [
         { type: 'addWidget', args: { widget: clone, pageId: activePage.id } },
         { type: 'setWidgetLayout', args: { rows: newWidgetRows, pageId: activePage.id } },
-        ...clonedFilters.map((filter): StateMutation => ({ type: 'addFilter', args: { filter } })),
+        ...dedupedClonedFilters.map(
+          (filter): StateMutation => ({ type: 'addFilter', args: { filter } }),
+        ),
       ],
       {
         label: null,
@@ -1510,9 +1579,22 @@ export class StudioController {
   updateRelationship = (id: string, patch: Partial<import('../models').StudioRelationship>) => {
     const state = this.store.state;
     this.commitDocPatch({
-      relationships: mapPreservingIdentity(state.doc.relationships, (rel: StudioRelationship) =>
-        rel.id === id ? { ...rel, ...patch } : rel,
-      ),
+      relationships: mapPreservingIdentity(state.doc.relationships, (rel: StudioRelationship) => {
+        if (rel.id !== id) {
+          return rel;
+        }
+        // Value-equality no-op guard (2.10): `{ ...rel, ...patch }` always builds a fresh
+        // relationship object, so a value-identical patch would defeat `mapPreservingIdentity`
+        // (fresh array) and `commitDocPatch` (fresh `relationships`), committing a phantom
+        // redo-clearing undo entry. Return the SAME `rel` when every patched key already holds
+        // its incoming value so the original array reference survives and `commitDocPatch`
+        // no-ops it — matching the sibling value-equality writers.
+        const patchKeys = Object.keys(patch) as (keyof StudioRelationship)[];
+        if (patchKeys.every((key) => patch[key] === rel[key])) {
+          return rel;
+        }
+        return { ...rel, ...patch };
+      }),
     });
   };
 
@@ -1860,6 +1942,15 @@ export class StudioController {
     const pageId = state.doc.dashboard.activePageId;
     const page = state.doc.pages[pageId];
     if (!page) {
+      return;
+    }
+    // Value-equality no-op guard (2.10): `{ ...page, ...changes }` always allocates a fresh
+    // page object, so `commitDocPatch`'s reference-equality guard can never fire even for a
+    // value-identical write — re-confirming the theme the page already has would clear a pending
+    // redo stack and insert a no-op undo entry. Bail when every patched key already holds its
+    // incoming value, mirroring `commitDocPatch`/`updateState`'s key-wise no-op detection.
+    const changeKeys = Object.keys(changes) as (keyof typeof changes)[];
+    if (changeKeys.every((key) => changes[key] === page[key])) {
       return;
     }
     this.commitDocPatch({

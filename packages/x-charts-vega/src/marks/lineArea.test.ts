@@ -72,6 +72,35 @@ describe('compileLineAreaMark', () => {
     expect((compiled.series[0] as { area: boolean }).area).to.equal(true);
   });
 
+  it('approximates a gradient area fill by its last stop and reports an ignored gap', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { day: 'A', temp: 1 },
+          { day: 'B', temp: 3 },
+        ],
+      },
+      mark: {
+        type: 'area',
+        color: {
+          gradient: 'linear',
+          stops: [
+            { offset: 0, color: 'white' },
+            { offset: 1, color: 'darkgreen' },
+          ],
+        },
+      },
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+      },
+    } as never);
+    // The solid fill approximates the gradient with its highest-offset stop.
+    expect((compiled.series[0] as { color?: string }).color).to.equal('darkgreen');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:gradient-fill');
+    expect(gap?.severity).to.equal('ignored');
+  });
+
   it('mark "trail" behaves like a line and records a partial gap for width-by-field', () => {
     const compiled = compileSpec({
       data: { values: [{ day: 'A', temp: 1 }] },

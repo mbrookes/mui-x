@@ -1115,6 +1115,79 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(args.updatedWidgets).toEqual([]);
   });
 
+  // Regression for T2-4 (producer half): an updates-only batch must not carry a
+  // plan-time `widgetRows`/`widgetColSpans` snapshot — that snapshot would silently
+  // revert a concurrent client-side layout edit (e.g. a drag-reorder) that happens
+  // while this batch is in flight, since the reducer replaces the active page's layout
+  // whenever either field is present. The reducer/parser both treat true absence as
+  // "layout unchanged" (finding T2-4, reducer/parser halves), so the producer must
+  // actually omit both fields rather than defaulting them.
+  it('omits widgetRows/widgetColSpans from the mutation for an updates-only batch', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', title: 'Renamed' }] },
+      state,
+    );
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(false);
+  });
+
+  it('still attaches widgetRows/widgetColSpans when the batch contains a removal', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-1'] }, state);
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(true);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
+  });
+
+  it('still attaches widgetRows/widgetColSpans when the batch contains an addition', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetAdditions: [{ kind: 'chart', title: 'New Widget' }] },
+      state,
+    );
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(true);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
+  });
+
+  it('still attaches widgetRows/widgetColSpans when the batch contains an accepted layout op', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { layout: [['widget-1']] }, state);
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(true);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
+  });
+
+  it('still attaches widgetRows/widgetColSpans when the batch contains an accepted colSpan change', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { colSpans: { 'widget-1': 12 } }, state);
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(true);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
+  });
+
+  it('omits widgetRows/widgetColSpans when every op in the batch was skipped (no real change)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        // Mis-shaped layout (skipped), out-of-range colSpan (skipped), and an update
+        // targeting an unknown widget (skipped) — nothing in this batch actually lands.
+        layout: ['widget-1'],
+        colSpans: { 'widget-1': 100 },
+        widgetUpdates: [{ widgetId: 'no-such-widget', title: 'Nope' }],
+      },
+      state,
+    );
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(false);
+  });
+
   it('carries an update as a partial config patch (not a pre-merged widget snapshot)', () => {
     const state = makeState();
     const result = executeToolOnState(

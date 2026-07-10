@@ -7,6 +7,8 @@ import type {
   StudioWidget,
   StudioFilterState,
   StudioWidgetConfig,
+  StudioExpressionField,
+  StudioRelationship,
 } from '../../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -805,6 +807,300 @@ describe('buildWidgetDataSummary', () => {
       // All three rows fall within the January 2024 range, so none are filtered out.
       expect(result).toContain('2024-01-05,100');
       expect(result).toContain('2024-01-20,50');
+    });
+  });
+
+  // ─── Dashboard cross-filter settings forwarded to the pipeline snapshot
+  // (regression for finding 2.4) ──────────────────────────────────────────────
+  //
+  // `toPipelineState` previously omitted `globalCrossFilterMode` and
+  // `crossFilterAllPages`, so `resolveWidgetRows` (used to build `filteredRows` for
+  // every widget kind) always resolved the dashboard's cross-filter settings as unset,
+  // while `buildChartWidgetSummary`'s own `widgetFilters` read them directly off
+  // `state.doc.dashboard`. The two could therefore disagree within this one code path.
+  describe('dashboard cross-filter settings forwarded to the pipeline snapshot (finding 2.4)', () => {
+    it('honours a dashboard-level globalCrossFilterMode of "none" even when the widget has no override', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 200 },
+      ];
+      const source = makeSource({ fields, rows });
+      const crossFilter: StudioFilterState = {
+        id: 'cf1',
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      };
+      const state = createDefaultStudioState({
+        doc: {
+          filters: [crossFilter],
+          dashboard: {
+            id: 'dashboard-1',
+            title: 'Untitled Dashboard',
+            activePageId: 'page-1',
+            globalCrossFilterMode: 'none',
+          },
+        },
+        runtime: { dataSources: { orders: source } },
+      });
+      // No per-widget `crossFilterMode` override — the dashboard-level setting must be
+      // the one that decides whether the cross-filter is hard-applied.
+      const widget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'region' }, { fieldId: 'amount' }] },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: the dropped `globalCrossFilterMode` meant the effective mode fell back
+      // to 'cross-highlight', which hard-applies the cross-filter — only the EU row would
+      // survive. Post-fix: 'none' is honoured, so the cross-filter is excluded and both
+      // rows remain, matching a rendered widget that ignores cross-filters entirely.
+      expect(result).toBe(
+        [
+          'Data sample (2 rows):',
+          'Stats: Amount: min=100, max=200, mean=150, median=150',
+          'Region,Amount',
+          'EU,100',
+          'US,200',
+        ].join('\n'),
+      );
+    });
+
+    it('honours dashboard-level crossFilterAllPages so a cross-page cross-filter is applied', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 200 },
+      ];
+      const source = makeSource({ fields, rows });
+      // Scoped to a DIFFERENT page than the dashboard's active page — only applies when
+      // `crossFilterAllPages` is honoured.
+      const crossPageFilter: StudioFilterState = {
+        id: 'cf1',
+        field: 'region',
+        operator: 'equals',
+        value: 'EU',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+      };
+      const state = createDefaultStudioState({
+        doc: {
+          filters: [crossPageFilter],
+          dashboard: {
+            id: 'dashboard-1',
+            title: 'Untitled Dashboard',
+            activePageId: 'page-1',
+            crossFilterAllPages: true,
+          },
+        },
+        runtime: { dataSources: { orders: source } },
+      });
+      const widget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'region' }, { fieldId: 'amount' }] },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: the dropped `crossFilterAllPages` meant the pipeline snapshot always
+      // scoped cross-filters to the active page only, so the page-2 cross-filter was
+      // silently ignored and both rows would appear. Post-fix: `crossFilterAllPages: true`
+      // is honoured, so the cross-page cross-filter applies and only the EU row survives.
+      expect(result).toBe(
+        [
+          'Data sample (1 row):',
+          'Stats: Amount: min=100, max=100, mean=100, median=100',
+          'Region,Amount',
+          'EU,100',
+        ].join('\n'),
+      );
+    });
+  });
+
+  // ─── AI snapshot sampling: expression/cross-source columns + map normalization
+  // (regression for finding 2.5) ──────────────────────────────────────────────
+  describe('expression and cross-source columns are not dropped from the sample (finding 2.5)', () => {
+    it('includes an own-source expression (calculated) column in the grid raw-row sample and stats', () => {
+      const fields = [{ id: 'amount', label: 'Amount', type: 'number' as const }];
+      const rows = [{ amount: 100 }, { amount: 200 }];
+      const doubledField: StudioExpressionField = {
+        id: 'doubled',
+        label: 'Doubled',
+        type: 'number',
+        isMeasure: false,
+        sourceId: 'orders',
+        expression: {
+          operator: 'multiply',
+          inputs: [{ id: 'amount' }, { type: 'number', value: 2 }],
+        },
+      };
+      const source = makeSource({ fields, rows });
+      const state = createDefaultStudioState({
+        doc: { expressionFields: [doubledField] },
+        runtime: { dataSources: { orders: source } },
+      });
+      const widget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'amount' }, { fieldId: 'doubled' }] },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: the "exists in the data" membership check ran against raw (pre-L2) rows,
+      // which never carry `doubled` (only added by the pipeline's expression-field
+      // enrichment) — the column was silently dropped from both the sample and the stats.
+      expect(result).toBe(
+        [
+          'Data sample (2 rows):',
+          'Stats: Amount: min=100, max=200, mean=150, median=150 | Doubled: min=200, max=400, mean=300, median=300',
+          'Amount,Doubled',
+          '100,200',
+          '200,400',
+        ].join('\n'),
+      );
+    });
+
+    it('includes a cross-source grid column (from a related source) in the raw-row sample', () => {
+      const ordersFields = [
+        { id: 'id', label: 'Order ID', type: 'string' as const },
+        { id: 'customerId', label: 'Customer ID', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const customersFields = [
+        { id: 'id', label: 'Customer ID', type: 'string' as const },
+        { id: 'country', label: 'Country', type: 'string' as const },
+      ];
+      const ordersRows = [
+        { id: 'ORD-1', customerId: 'CUS-1', amount: 100 },
+        { id: 'ORD-2', customerId: 'CUS-2', amount: 200 },
+      ];
+      const customersRows = [
+        { id: 'CUS-1', country: 'Germany' },
+        { id: 'CUS-2', country: 'France' },
+      ];
+      const relationship: StudioRelationship = {
+        id: 'r1',
+        sourceId: 'orders',
+        targetId: 'customers',
+        sourceField: 'customerId',
+        targetField: 'id',
+        type: 'many-to-one',
+      };
+      const state = createDefaultStudioState({
+        doc: { relationships: [relationship] },
+        runtime: {
+          dataSources: {
+            orders: makeSource({ id: 'orders', fields: ordersFields, rows: ordersRows }),
+            customers: makeSource({
+              id: 'customers',
+              label: 'Customers',
+              fields: customersFields,
+              rows: customersRows,
+            }),
+          },
+        },
+      });
+      const widget = makeWidget({
+        sourceId: 'orders',
+        kind: 'grid',
+        config: {
+          columns: [{ fieldId: 'amount' }, { fieldId: 'country', sourceId: 'customers' }],
+        },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: this raw-row path never ran cross-source enrichment at all, so `country`
+      // was absent from every row and then dropped entirely by the "exists in the data"
+      // membership check — the AI never saw the joined column. (The header uses the raw
+      // field id, not the related source's field label — that label lookup is a separate,
+      // still-open gap shared with `widgetExport.ts`'s CSV export, tracked as finding 2.6.)
+      expect(result).toBe(
+        [
+          'Data sample (2 rows):',
+          'Stats: Amount: min=100, max=200, mean=150, median=150',
+          'Amount,country',
+          '100,Germany',
+          '200,France',
+        ].join('\n'),
+      );
+    });
+
+    it('recognizes an expression measure as numeric for the KPI stats line', () => {
+      const fields = [{ id: 'amount', label: 'Amount', type: 'number' as const }];
+      const rows = [{ amount: 100 }, { amount: 200 }, { amount: 300 }];
+      // A calculated column (not on `source.fields`) used as the KPI's value field.
+      const doubledField: StudioExpressionField = {
+        id: 'doubled',
+        label: 'Doubled Amount',
+        type: 'number',
+        isMeasure: false,
+        sourceId: 'orders',
+        expression: {
+          operator: 'multiply',
+          inputs: [{ id: 'amount' }, { type: 'number', value: 2 }],
+        },
+      };
+      const source = makeSource({ fields, rows });
+      const state = createDefaultStudioState({
+        doc: { expressionFields: [doubledField] },
+        runtime: { dataSources: { orders: source } },
+      });
+      const widget = makeWidget({
+        kind: 'kpi',
+        config: { kpiValueField: 'doubled', kpiAggregation: 'sum' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: `buildNumericStats` only ever looked up field metadata in `source.fields`,
+      // so `doubled` (found nowhere there) was never treated as numeric and got no stats
+      // line, even though it's exactly the field the KPI aggregates.
+      expect(result).toContain('Stats: Doubled Amount: min=200, max=600, mean=400, median=400');
+    });
+
+    it('merges country spelling variants in the map summary, matching the rendered map', () => {
+      const fields = [
+        { id: 'country', label: 'Country', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      // 'US', 'USA', and 'United States' all normalize to the same alpha-2 region ('US')
+      // via `normalizeToAlpha2` — the same normalizer `StudioMapWidget` itself uses.
+      const rows = [
+        { country: 'US', amount: 100 },
+        { country: 'USA', amount: 50 },
+        { country: 'United States', amount: 25 },
+        { country: 'FR', amount: 30 },
+      ];
+      const source = makeSource({ fields, rows });
+      const state = makeState({ dataSources: { orders: source } });
+      const widget = makeWidget({
+        kind: 'map',
+        config: { mapCountryField: 'country', mapValueField: 'amount', mapAggregation: 'sum' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: grouping by the raw field value reported 'US'/'USA'/'United States' as
+      // three separate countries; post-fix they merge into one ('US'), matching the map.
+      expect(result).toBe(
+        [
+          'Aggregated by country (sum of Amount)',
+          '2 countries',
+          'Country,Amount',
+          'US,175',
+          'FR,30',
+          'Stats: Amount: min=25, max=100, mean=51, median=40',
+        ].join('\n'),
+      );
     });
   });
 });

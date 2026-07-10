@@ -91,6 +91,16 @@ interface ComputePeriodValueParams {
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
+  /**
+   * The widget's fully resolved/scoped filter set, matching the row baseline `periodRows` was
+   * windowed from (see `useKpiTrend`'s `scopedFiltersForBadge`). Threaded into
+   * `resolveChartRowsForAggregation` below so a filter on the anchor source's own fields (e.g. a
+   * page filter `orders.status = 'paid'` while the value field is `orders.total`) is re-applied to
+   * the anchor rows during re-anchoring — without it, L3's semi-join is the only enforcement and
+   * the expansion join resurrects every anchor row (paid + unpaid) for each surviving widget row
+   * (finding 1.2).
+   */
+  widgetFilters: StudioFilterState[];
 }
 
 /**
@@ -118,6 +128,7 @@ function computePeriodValue(
     dataSources,
     relationships,
     expressionFields,
+    widgetFilters,
   } = params;
 
   if (measureExprField) {
@@ -136,6 +147,8 @@ function computePeriodValue(
       dataSources,
       relationships,
       expressionFields,
+      undefined,
+      widgetFilters,
     );
     return computeAggregate(anchoredRows, valueField, aggregation);
   }
@@ -344,17 +357,27 @@ function computeFilterBasedTrend(params: {
 /**
  * Grain-aware rows for KPI value and sparkline computation.
  *
- * When kpiValueField belongs to a related (parent) source — e.g. a KPI on order_items
- * using orders.revenue — calling computeAggregate over the widget's own rows inflates
- * the result because each parent-level value is repeated once per child row.
- * resolveChartRowsForAggregation re-anchors to the correct aggregation grain (the parent
- * source rows, filtered to those that have at least one matching child row).
+ * `analyzeChartSupport`'s single-y-field branch only anchors when the WIDGET is the "one"
+ * side of a many-to-one relationship and `kpiValueField` is owned by the related "many"
+ * (child) side — e.g. a KPI on `customers` using `orders.total`. In that topology the value
+ * field is not a column on the widget's own (parent-grain) rows at all, so aggregating over
+ * `currentRows` directly would read `undefined` for every row. `resolveChartRowsForAggregation`
+ * re-anchors to the value field's owning ("many"/child) source rows, restricted to those whose
+ * parent is present in the widget's own row set, so the aggregate is computed at the correct
+ * (child) grain instead.
+ *
+ * The reverse direction — the widget on the "many" (child) side aggregating a value field
+ * owned by the "one" (parent) side, e.g. a KPI on `order_items` using `orders.revenue` — is
+ * NOT anchored here: `analyzeChartSupport`'s many-to-one branch requires the value source to
+ * be the "many" side, so this configuration reports `mixed_cross_source_fields` and falls
+ * through to the unanchored `currentRows` below (doc note D.1 — this was previously
+ * mis-described as the supported direction).
  *
  * Measure expression fields handle their own aggregation via evaluateMeasure and are
  * excluded from re-anchoring.
  *
- * isGrainAnchored is true when the value field is on a different (parent) source and the
- * re-anchoring actually changed the row grain. Used to skip the redundant time-field join
+ * isGrainAnchored is true when the value field is on a different ("many"/child) source and
+ * the re-anchoring actually changed the row grain. Used to skip the redundant time-field join
  * in the sparkline path when the time field is also on the anchor source rows natively.
  */
 function useKpiGrainAnchoredRows(
@@ -364,6 +387,14 @@ function useKpiGrainAnchoredRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
+  /**
+   * The widget's fully resolved/scoped filter set, matching the scope `currentRows` was
+   * produced at (page + widget only, or all active scopes — see the caller). Threaded into
+   * `resolveChartRowsForAggregation` so an anchor-source-scoped filter L3 enforced as a
+   * semi-join isn't silently re-widened back to every anchor row during re-anchoring
+   * (finding 1.2).
+   */
+  widgetFilters: StudioFilterState[],
 ): { grainAnchoredRows: Record<string, unknown>[]; isGrainAnchored: boolean } {
   return React.useMemo(() => {
     const isMeasure = kpiValueField
@@ -395,10 +426,20 @@ function useKpiGrainAnchoredRows(
         dataSources,
         relationships,
         expressionFields,
+        undefined,
+        widgetFilters,
       ),
       isGrainAnchored: true,
     };
-  }, [currentRows, kpiValueField, sourceId, expressionFields, dataSources, relationships]);
+  }, [
+    currentRows,
+    kpiValueField,
+    sourceId,
+    expressionFields,
+    dataSources,
+    relationships,
+    widgetFilters,
+  ]);
 }
 
 /**
@@ -622,6 +663,11 @@ function useKpiSparkline(params: {
           dataSources,
           relationships,
           expressionFields,
+          undefined,
+          // `scopedFilters` (computed above) matches the scope `rows` (currentRows) was
+          // produced at, so an anchor-source-scoped filter L3 enforced as a semi-join isn't
+          // silently re-widened during this re-anchoring join (finding 1.2).
+          scopedFilters,
         );
       }
 
@@ -752,6 +798,10 @@ function useKpiTrend(params: {
       dataSources,
       relationships,
       expressionFields,
+      // `scopedFiltersForBadge` (computed above) matches the scope `currentRows` was produced
+      // at, so re-anchoring inside `computePeriodValue` re-applies the same anchor-scoped
+      // filters the headline value uses (finding 1.2).
+      widgetFilters: scopedFiltersForBadge,
     };
 
     let kpiTrend: KpiTrendResult | null = null;
@@ -790,6 +840,11 @@ function useKpiTrend(params: {
               dataSources,
               relationships,
               expressionFields,
+              undefined,
+              // `scopedFiltersForBadge` matches the scope `currentRows` was produced at, so an
+              // anchor-source-scoped filter L3 enforced as a semi-join isn't silently
+              // re-widened during this re-anchoring join (finding 1.2).
+              scopedFiltersForBadge,
             );
             kpiTrend = computeFixedPeriodTrend(
               fixedPeriodRows,
@@ -896,6 +951,22 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   );
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
+  // The widget's fully resolved/scoped filter set, matching the scope `currentRows` was
+  // produced at above ('no-cross' → filteredRowsNoCross, 'all' → effectiveRows). Threaded into
+  // `useKpiGrainAnchoredRows` so the headline value's L4 re-anchoring re-applies the same
+  // anchor-source-scoped filters L3 already enforced as a semi-join, instead of silently
+  // re-widening them back to every anchor row (finding 1.2).
+  const kpiWidgetFilters = React.useMemo(
+    () =>
+      selectFiltersForWidget(filters, {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+      }),
+    [filters, widget.id, widget.sourceId, pageId, crossFilterMode],
+  );
+
   // Grain-aware rows for KPI value and sparkline computation (see useKpiGrainAnchoredRows).
   const { grainAnchoredRows, isGrainAnchored } = useKpiGrainAnchoredRows(
     currentRows,
@@ -904,6 +975,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     dataSources,
     relationships,
     expressionFields,
+    kpiWidgetFilters,
   );
 
   const {

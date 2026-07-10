@@ -1001,3 +1001,322 @@ describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicat
     expect(screen.queryByTestId('InfoOutlinedIcon')).toBe(null);
   });
 });
+
+// ─── finding 1.2: KPI L4 anchor-filter re-application ────────────────────────────
+//
+// All four `resolveChartRowsForAggregation` call sites in StudioKpiWidget.tsx previously
+// omitted the trailing `widgetFilters` argument, so a page/widget filter scoped to the
+// anchor (or M:N remote-endpoint) source was enforced by L3's semi-join only — the L4
+// re-anchoring join then read every one of a surviving widget row's anchor rows straight
+// from the unfiltered store, resurrecting rows the filter excluded. Each sub-test below
+// exercises one call site and asserts the anchor-filtered (not resurrected) result.
+describe('<StudioKpiWidget /> KPI L4 anchor-filter re-application (finding 1.2)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('scopes the headline value to the anchor-filtered rows (useKpiGrainAnchoredRows, call site 2)', () => {
+    // Widget on `customers` (the "one" side); value field `total` owned by `orders` (the
+    // "many" side) — the topology `useKpiGrainAnchoredRows` actually anchors (doc note D.1).
+    // Customer C1 has two orders, one paid and one unpaid. The mocked `useWidgetRows`
+    // returns C1's row unconditionally, mirroring what L3's semi-join would keep (C1 has
+    // >= 1 matching order). Pre-fix, the L4 re-anchoring join read BOTH of C1's orders
+    // straight from the unfiltered store — summing 500 (300 + 200) instead of the correct
+    // paid-only 300.
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [{ id: 'id', label: 'ID', type: 'string' }],
+      rows: [],
+    } as unknown as StudioDataSource;
+    const ordersWithStatus: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+        { id: 'status', label: 'Status', type: 'string' },
+      ],
+      rows: [
+        { id: 'O1', customerId: 'C1', total: 300, status: 'paid' },
+        { id: 'O2', customerId: 'C1', total: 200, status: 'unpaid' },
+      ],
+    } as unknown as StudioDataSource;
+    const customerOrdersRelationship: StudioRelationship = {
+      id: 'rel-customer-orders',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    } as unknown as StudioRelationship;
+    const paidStatusFilter: StudioFilterState = {
+      id: 'f-status',
+      field: 'status',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: 'paid',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'C1' }];
+    const widget = makeWidget({ kpiValueField: 'total', kpiAggregation: 'sum' }, 'customers');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { customers: customersSource, orders: ordersWithStatus },
+      relationships: [customerOrdersRelationship],
+      filters: [paidStatusFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, customersSource);
+
+    expect(lastValue()).toBe('300');
+  });
+
+  it('scopes a fixed-period trend delta to the anchor-filtered rows (computePeriodValue, call site 1)', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+
+    // Same cross-source fixture as the "fixed-period trend for a cross-source (parent)
+    // value field" test above, plus a `status` field on `orders` and a page filter scoped
+    // to it. Current-window items point at O1 (paid); previous-window items point at O2
+    // (unpaid). `kpiSparklineField: 'oiDate'` is native to `order_items`, keeping this off
+    // the cross-source-date branch (call site 4) tested separately below.
+    const ordersWithStatus: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'status', label: 'Status', type: 'string' },
+      ],
+      rows: [
+        { id: 'O1', revenue: 300, status: 'paid' },
+        { id: 'O2', revenue: 200, status: 'unpaid' },
+      ],
+    } as unknown as StudioDataSource;
+    const paidStatusFilter: StudioFilterState = {
+      id: 'f-status',
+      field: 'status',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: 'paid',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = allOrderItems;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'oiDate',
+      },
+      'order_items',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { order_items: orderItemsSource, orders: ordersWithStatus },
+      relationships: [crossSourceRelationship],
+      filters: [paidStatusFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, orderItemsSource);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    // Pre-fix: previousValue was 200 (O2's unpaid revenue resurrected by the unfiltered
+    // anchor join). Post-fix: O2 is excluded by the anchor-scoped status filter, so the
+    // previous period has no matching anchor rows at all.
+    expect(trend!.previousValue).toBe(0);
+    expect(trend!.delta).toBe(Infinity);
+    // Headline stays the grain-anchored, anchor-filtered all-time total: only O1 (300).
+    expect(lastValue()).toBe('300');
+  });
+
+  it('scopes a fixed-period trend delta to the anchor-filtered rows when the date field is cross-source (call site 4)', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+
+    // Same cross-source-date fixture as the "finding 2.8" test above, plus a `status`
+    // field on `orders` and a page filter scoped to it.
+    const itemsSource = {
+      id: 'order_items',
+      label: 'Order items',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderId', label: 'Order', type: 'string' },
+      ],
+      rows: [],
+    } as unknown as StudioDataSource;
+    const ordersWithDateAndStatus = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderDate', label: 'Order date', type: 'date' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'status', label: 'Status', type: 'string' },
+      ],
+      rows: [
+        { id: 'O1', orderDate: '2026-07-01', revenue: 300, status: 'paid' }, // current window
+        { id: 'O2', orderDate: '2026-05-20', revenue: 200, status: 'unpaid' }, // previous window
+      ],
+    } as unknown as StudioDataSource;
+    const items = [
+      { id: 'oi1', orderId: 'O1' },
+      { id: 'oi2', orderId: 'O1' },
+      { id: 'oi3', orderId: 'O2' },
+      { id: 'oi4', orderId: 'O2' },
+    ];
+    const paidStatusFilter: StudioFilterState = {
+      id: 'f-status',
+      field: 'status',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: 'paid',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = items;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'orderDate',
+        kpiSparklineSourceId: 'orders',
+      },
+      'order_items',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: {
+        order_items: { ...itemsSource, rows: items } as StudioDataSource,
+        orders: ordersWithDateAndStatus,
+      },
+      relationships: [crossSourceRelationship],
+      filters: [paidStatusFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, { ...itemsSource, rows: items } as StudioDataSource);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    // Pre-fix: previousValue was 200 (O2's unpaid revenue resurrected before date
+    // windowing even runs). Post-fix: O2 is excluded by the anchor-scoped status filter.
+    expect(trend!.previousValue).toBe(0);
+    expect(trend!.delta).toBe(Infinity);
+    expect(lastValue()).toBe('300');
+  });
+
+  it('does not double-count a many-to-many sparkline dimension once the remote-endpoint filter is re-applied (call site 3)', () => {
+    // Widget on `orders` with a NATIVE yField (`amount`), so the headline/trend value
+    // paths are NOT grain-anchored (isGrainAnchored stays false — useKpiGrainAnchoredRows
+    // never sees the sparkline's time field). The sparkline's own time field
+    // (`createdDate`) lives on `tags`, reachable only via the M:N `order_tags` junction:
+    // `analyzeChartSupport`'s widget-owned-measure branch anchors on the junction purely
+    // to fan the dimension out (finding 1.1), which routes call site 3 through the M:N
+    // branch of `resolveRowsAtGrain` — the branch that consults `remoteScopedFilters`
+    // (finding 2.3), gated on the same `widgetFilters` argument this fix now threads.
+    const ordersSourceNative: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [{ id: 'o1', amount: 50 }],
+    } as unknown as StudioDataSource;
+    const tagsSource: StudioDataSource = {
+      id: 'tags',
+      label: 'Tags',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'createdDate', label: 'Created', type: 'date' },
+      ],
+      rows: [
+        { id: 't1', category: 'electronics', createdDate: '2026-07-01' },
+        { id: 't2', category: 'books', createdDate: '2026-07-05' },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsSource: StudioDataSource = {
+      id: 'order_tags',
+      label: 'Order Tags',
+      fields: [
+        { id: 'orderId', label: 'Order', type: 'string' },
+        { id: 'tagId', label: 'Tag', type: 'string' },
+      ],
+      rows: [
+        { orderId: 'o1', tagId: 't1' },
+        { orderId: 'o1', tagId: 't2' },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsRelationship: StudioRelationship = {
+      id: 'rel-order-tags',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const electronicsFilter: StudioFilterState = {
+      id: 'f-category',
+      field: 'category',
+      filterSourceId: 'tags',
+      fieldType: 'string',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: 'electronics',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'o1', amount: 50 }];
+    const widget = makeWidget(
+      {
+        kpiValueField: 'amount',
+        kpiAggregation: 'sum',
+        kpiSparkline: true,
+        kpiSparklineField: 'createdDate',
+        kpiSparklineSourceId: 'tags',
+        kpiSparklineGranularity: 'month',
+      },
+      'orders',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { orders: ordersSourceNative, tags: tagsSource, order_tags: orderTagsSource },
+      relationships: [orderTagsRelationship],
+      filters: [electronicsFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, ordersSourceNative);
+
+    const sparkline = lastSparkline();
+    // Pre-fix: both tag links ('electronics' + 'books') survive the join, double-counting
+    // the single order's amount into the same July bucket (50 + 50 = 100). Post-fix: the
+    // 'books' link is dropped by the remote-endpoint-scoped filter before the join, so the
+    // bucket reflects the order's amount exactly once.
+    expect(sparkline?.data).toEqual([50]);
+  });
+});

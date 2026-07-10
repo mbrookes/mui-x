@@ -274,25 +274,28 @@ function applySort(
   return pairs;
 }
 
-/** `true` when any occurrence of the channel is drawn with a bar/rect mark. */
-function channelHasBarMark(occurrences: ChannelOccurrence[]): boolean {
-  return occurrences.some(
-    (occurrence) => occurrence.unit.mark.type === 'bar' || occurrence.unit.mark.type === 'rect',
-  );
+/**
+ * Marks that need a discrete **band** scale (interior room per category) rather
+ * than a point scale: bar/rect derive their width from the band, and
+ * boxplot/errorbar center + dodge their per-category summary geometry inside it.
+ * On a point scale the first/last categories sit exactly on the drawing-area
+ * edges, so a dodged box/whisker (and its caps) spills outside the axis.
+ */
+const BAND_SCALE_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar']);
+
+/** `true` when any occurrence of the channel is drawn with a band-requiring mark. */
+function channelNeedsBandScale(occurrences: ChannelOccurrence[]): boolean {
+  return occurrences.some((occurrence) => BAND_SCALE_MARKS.has(occurrence.unit.mark.type));
 }
 
 /**
- * Marks that force a temporal channel onto a discrete band/point scale instead
- * of a continuous time scale: bar/rect derive their width from a band, and
- * boxplot/errorbar group their summary geometry per category. Generalizes the
- * plain bar/rect check — any of these on a temporal channel opts out of the
- * continuous-time path.
+ * `true` when any occurrence of the channel is drawn with a per-category mark
+ * (`BAND_SCALE_MARKS`). On a temporal channel this also forces the discrete
+ * band/point path instead of a continuous time scale (bar/rect derive their
+ * width from a band; boxplot/errorbar group their summary geometry per category).
  */
-const DISCRETE_TEMPORAL_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar']);
-
-/** `true` when any occurrence of the channel is drawn with a per-category (band-requiring) mark. */
 function channelHasDiscreteTemporalMark(occurrences: ChannelOccurrence[]): boolean {
-  return occurrences.some((occurrence) => DISCRETE_TEMPORAL_MARKS.has(occurrence.unit.mark.type));
+  return channelNeedsBandScale(occurrences);
 }
 
 /**
@@ -457,7 +460,8 @@ function resolveChannelAxis(
     // Discrete band/point domain: nominal/ordinal channels, or a temporal
     // channel forced discrete above. Bars need a band scale to derive width.
     const scaleType =
-      explicitDiscreteScaleType(occurrences) ?? (channelHasBarMark(occurrences) ? 'band' : 'point');
+      explicitDiscreteScaleType(occurrences) ??
+      (channelNeedsBandScale(occurrences) ? 'band' : 'point');
 
     // A temporal discrete axis defaults to a locale date string (unless a
     // translatable `axis.format` overrides it); nominal/ordinal axes only carry

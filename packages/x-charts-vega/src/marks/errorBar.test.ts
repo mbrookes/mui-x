@@ -21,6 +21,16 @@ describe('compileErrorBarMark', () => {
     },
   };
 
+  it('resolves a band (not point) category scale so dodged bars/caps stay inside the axis', () => {
+    // errorbar is a per-category mark (BAND_SCALE_MARKS): on a point scale the
+    // first/last categories sit on the drawing-area edges and the dodge + caps
+    // spill outside, so the category axis must be a band scale.
+    const compiled = compileSpec(baseSpec);
+    expect((compiled.xAxis?.config as { scaleType?: string } | undefined)?.scaleType).to.equal(
+      'band',
+    );
+  });
+
   it('defaults to extent "stderr": mean ± stderr per category', () => {
     const compiled = compileSpec(baseSpec);
     expect(compiled.plots).to.deep.equal([]);

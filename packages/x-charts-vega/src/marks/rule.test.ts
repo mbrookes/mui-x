@@ -186,6 +186,33 @@ describe('compileRuleMark', () => {
     expect(compiled.referenceLines).to.have.length(0);
   });
 
+  it('colors each segment by the color field on an x/x2 span (e.g. a Gantt by task)', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { task: 'Design', start: 0, end: 3 },
+          { task: 'Build', start: 3, end: 8 },
+        ],
+      },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'start', type: 'quantitative' },
+        x2: { field: 'end' },
+        y: { field: 'task', type: 'nominal' },
+        color: {
+          field: 'task',
+          type: 'nominal',
+          scale: { domain: ['Design', 'Build'], range: ['#111111', '#222222'] },
+        },
+      },
+    });
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'segments') as {
+      items: Array<{ style?: { stroke?: string } }>;
+    };
+    // Each segment carries its own color-group stroke (not one shared style).
+    expect(overlay.items.map((item) => item.style?.stroke)).to.deep.equal(['#111111', '#222222']);
+  });
+
   it('builds a vertical segments overlay per row from y/y2 anchored at the row x', () => {
     const compiled = compileSpec({
       data: {

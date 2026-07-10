@@ -1272,15 +1272,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         //    width would blank the page (T1-1). Leaving row placement untouched applies the
         //    colSpans-only update, the mirror of the rows-only case below.
         //  - `widgetRows` present and an array ⇒ install it (the normal both-present case).
-        //  - `widgetRows` present but a non-array (hand-built junk) ⇒ coerce to `[]`, the
-        //    same "stay total, don't throw on `.map`" coercion `widgetColSpans` gets below.
+        //  - `widgetRows` present but a non-array (hand-built junk, e.g. `null`) ⇒ treat it
+        //    as ABSENT and reconcile against the page's EXISTING rows, NOT `[]`. The
+        //    `widgetColSpans → {}` coercion is harmless (spans merge/replace), but a
+        //    `widgetRows → []` coercion is DESTRUCTIVE: it un-places every widget on the
+        //    active page and then `enforceLayoutColSpans` drops all their spans as orphans —
+        //    the exact blank-page outcome T1-1 established a malformed layout field must
+        //    never trigger. `?? []` is equally total (no `.map` throw) and strictly safer.
         let safeRows: string[][];
-        if (widgetRows === undefined) {
-          safeRows = page.widgetRows ?? [];
-        } else if (Array.isArray(widgetRows)) {
+        if (Array.isArray(widgetRows)) {
           safeRows = widgetRows;
         } else {
-          safeRows = [];
+          safeRows = page.widgetRows ?? [];
         }
         const sanitizedRows = dedupeLayoutRows(
           safeRows

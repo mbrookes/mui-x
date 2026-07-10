@@ -236,6 +236,67 @@ describe('migrateState', () => {
     expect(result.success).toBe(true);
   });
 
+  // ── per-entry named rejection of the three optional collections (Finding 1) ──
+  // Mirrors the filters treatment above: `migrateState` reports the junk field by NAME
+  // rather than letting it load and crash the client on first use.
+  it('fails a doc with a junk relationships entry, naming the field (Finding 1)', () => {
+    const result = migrateState(
+      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, relationships: [null] }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/relationships\[0\]/);
+  });
+
+  it('fails a doc with a junk expressionFields entry, naming the field (Finding 1)', () => {
+    const result = migrateState(
+      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, expressionFields: [42] }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/expressionFields\[0\]/);
+  });
+
+  it('fails a doc whose filterPreset has a non-array filters, naming the field (Finding 1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filterPresets: [{ id: 'p1', name: 'P', filters: 'junk' }],
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filterPresets\[0\]/);
+  });
+
+  it('fails a doc whose filterPreset has a null inner filter, naming the nested field (Finding 1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filterPresets: [{ id: 'p1', name: 'P', filters: [null] }],
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filterPresets\[0\]\.filters\[0\]/);
+  });
+
+  it('a doc with well-formed relationships / expressionFields / filterPresets still succeeds (Finding 1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        relationships: [{ id: 'r1', sourceId: 'a', targetId: 'b' }],
+        expressionFields: [{ id: 'ef1', name: 'Rev', sourceId: 'a' }],
+        filterPresets: [
+          {
+            id: 'p1',
+            name: 'P',
+            filters: [
+              { id: 'f1', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
   // ── fail-closed on non-integer schemaVersion (finding 3 / review 2.1) ────────
   // `typeof NaN === 'number'` used to fail OPEN: `NaN === CURRENT` / `NaN > CURRENT`
   // are both false and the migration loop never runs, so a `schemaVersion: NaN` doc
@@ -927,6 +988,197 @@ describe('deserializeState', () => {
     expect(state.doc.relationships).toEqual([]);
     expect(state.doc.expressionFields).toEqual([]);
     expect(state.doc.filterPresets).toEqual([]);
+  });
+
+  // ── per-entry screening of the three collections on load (Finding 1) ─────────
+  // The prior code coerced only the CONTAINER, so a junk ENTRY (`[null]`) installed
+  // verbatim, crashed the client on first use, and round-tripped through every autosave.
+  it('drops non-record relationships / expressionFields entries on load (Finding 1)', () => {
+    const goodRel = { id: 'r1', sourceId: 'a', targetId: 'b' };
+    const goodEf = { id: 'ef1', name: 'Rev', sourceId: 'a' };
+    const serialized = {
+      ...minimalSerialized,
+      relationships: [null, goodRel, 'junk'],
+      expressionFields: [goodEf, 42],
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    // Only the record entries survive; primitives/null are dropped.
+    expect(state.doc.relationships).toEqual([goodRel]);
+    expect(state.doc.expressionFields).toEqual([goodEf]);
+    // The cleaned doc round-trips without re-persisting the junk.
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it("drops a non-record filterPreset and screens a preset's inner filters (Finding 1)", () => {
+    const goodFilter = {
+      id: 'pf',
+      field: 'x',
+      operator: 'equals',
+      value: '',
+      scope: { kind: 'page' },
+    };
+    const serialized = {
+      ...minimalSerialized,
+      filterPresets: [
+        null,
+        { id: 'p1', name: 'Preset 1', filters: [null, goodFilter] },
+        // A preset with no `filters` array is itself junk and is dropped.
+        { id: 'p2', name: 'No filters array' },
+      ],
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(state.doc.filterPresets).toHaveLength(1);
+    expect(state.doc.filterPresets![0].id).toBe('p1');
+    // The `null` inner filter entry is screened out; only the record survives.
+    expect(state.doc.filterPresets![0].filters).toHaveLength(1);
+    expect(state.doc.filterPresets![0].filters[0].id).toBe('pf');
+  });
+
+  it('leaves well-formed relationships / filterPresets reference-stable (Finding 1)', () => {
+    const relationships = [{ id: 'r1', sourceId: 'a', targetId: 'b' }];
+    const filterPresets = [
+      {
+        id: 'p1',
+        name: 'P',
+        filters: [{ id: 'f', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } }],
+      },
+    ];
+    const serialized = {
+      ...minimalSerialized,
+      relationships,
+      filterPresets,
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // Nothing was dropped, so the SAME array references are carried through (no churn).
+    expect(state.doc.relationships).toBe(relationships);
+    expect(state.doc.filterPresets).toBe(filterPresets);
+    expect(state.doc.filterPresets![0].filters).toBe(filterPresets[0].filters);
+  });
+
+  // ── closed-union leaf membership at the load boundary (Finding 2) ────────────
+  it('drops a filter whose operator is not a member of the closed union (Finding 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        // `equal` is a plausible typo for `equals` — an active chip that filters nothing.
+        { id: 'bad-op', field: 'x', operator: 'equal', value: '', scope: { kind: 'page' } },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  it('drops a filter whose present operator2 is not a member (Finding 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'bad-op2',
+          field: 'x',
+          operator: 'equals',
+          operator2: 'nope',
+          value: '',
+          scope: { kind: 'page' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters).toHaveLength(0);
+  });
+
+  it('drops a filter whose scope.kind is not a member of the closed union (Finding 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        // `pages` (typo for `page`) would otherwise survive as a permanent inert entry.
+        { id: 'bad-scope', field: 'x', operator: 'equals', value: '', scope: { kind: 'pages' } },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  it('drops a non-member config.chartType key, keeping the widget for the bar fallback (Finding 2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'C',
+          config: { chartType: 'trendline', xField: 'a' },
+        },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // The widget survives (not dropped), the junk chartType key is removed so
+    // `resolveChartType`'s 'bar' fallback applies, and sibling keys are preserved.
+    expect(state.doc.widgets.w1).toBeDefined();
+    expect(Object.hasOwn(state.doc.widgets.w1.config, 'chartType')).toBe(false);
+    expect((state.doc.widgets.w1.config as { xField?: string }).xField).toBe('a');
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('keeps a valid config.chartType untouched (Finding 2)', () => {
+    const widget = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'C',
+      config: { chartType: 'line' },
+    };
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: widget },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // A valid chartType with no legacy columns/ySeries to normalize is a pure no-op:
+    // the SAME widget reference is carried through.
+    expect(state.doc.widgets.w1).toBe(serialized.widgets.w1);
+  });
+
+  // ── identity-preserving normalization for already-canonical config (Finding 5)
+  // A non-empty but already-canonical `columns`/`ySeries` must NOT mint a fresh array
+  // (and hence a fresh config/widget) on every load — that defeats cross-load memoization.
+  it('leaves a widget with non-empty already-canonical columns reference-stable (Finding 5)', () => {
+    const widget = {
+      id: 'g1',
+      kind: 'grid',
+      title: 'Grid',
+      // Object columns are already canonical — `normalizeGridColumn` returns them as-is.
+      config: { columns: [{ fieldId: 'a' }, { fieldId: 'b' }] },
+    };
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { g1: widget },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.g1).toBe(serialized.widgets.g1);
+  });
+
+  it('leaves a widget with non-empty already-canonical ySeries reference-stable (Finding 5)', () => {
+    const widget = {
+      id: 'c1',
+      kind: 'chart',
+      title: 'C',
+      // `type` already set, no `seriesType` alias — `normalizeChartSeries` is a no-op.
+      config: { chartType: 'line', ySeries: [{ fieldId: 'rev', type: 'line' }] },
+    };
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { c1: widget },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.c1).toBe(serialized.widgets.c1);
   });
 
   // ── id↔record-key reconciliation at the load boundary (finding 2.1) ──────────

@@ -2437,6 +2437,40 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 18 });
     });
 
+    it('treats a present-but-non-array widgetRows (null) as ABSENT, leaving the layout untouched (Finding 3)', () => {
+      // A hand-built server payload (bypassing `parseStateMutation`, which rejects a
+      // non-array `widgetRows`) with `widgetRows: null` used to take the third branch and
+      // coerce to `[]`, un-placing every widget on the active page — contradicting the
+      // T1-1 invariant that a malformed layout field must never mean "replace with
+      // nothing". `null` is now handled the same as ABSENT (`page.widgetRows ?? []`).
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            widgetRows: null,
+            widgetColSpans: { w1: 18 },
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // The page's existing layout is preserved (NOT wiped to `[]`).
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 18 });
+    });
+
     it('MERGES a widgetColSpans-only bulk onto existing spans, preserving an untouched widget concurrently resized (T2-2)', () => {
       // T2-2 (residual lost-update): a colSpans-only bulk names ONLY the widget whose
       // width the model changed (w1). Widget w2 already has a span set — from a prior turn

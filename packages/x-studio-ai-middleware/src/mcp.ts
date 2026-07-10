@@ -572,15 +572,18 @@ export function buildStudioMcpServer(
   }
 
   /**
-   * Authorization gate for the resource reads that expose the SAME payload as the
-   * `get_dashboard_state` TOOL — `studio://dashboard/state` (the `projectStateForAI`
-   * JSON) and `studio://dashboard/system-prompt` (that state rendered as prompt
-   * text). The tool-call path rejects `get_dashboard_state` when it is excluded from
-   * `allowedTools`, but the resource read served the identical payload ungated
-   * (finding 2.1). This runs the SAME `isToolAllowed` + args-only policy consult +
-   * approval bridge the tool path uses, mapped onto `get_dashboard_state`, so a host
-   * that hides that tool also blocks the equivalent resource read. Returns a
-   * deny-reason string, or `null` to proceed.
+   * Authorization gate for the read surfaces that expose the SAME payload family as
+   * the `get_dashboard_state` TOOL — `studio://dashboard/state` (the
+   * `projectStateForAI` JSON), `studio://dashboard/system-prompt` (that state
+   * rendered as prompt text), `studio://schema/{id}` (a per-source slice), and the
+   * `query_data_source_examples` MCP prompt (a further-reduced per-source schema
+   * slice; finding T2-2). The tool-call path rejects `get_dashboard_state` when it
+   * is excluded from `allowedTools`, but these other read surfaces served
+   * equivalent payloads ungated (finding 2.1, T2-2). This runs the SAME
+   * `isToolAllowed` + args-only policy consult + approval bridge the tool path
+   * uses, mapped onto `get_dashboard_state`, so a host that hides that tool also
+   * blocks every equivalent resource/prompt read. Returns a deny-reason string, or
+   * `null` to proceed.
    */
   async function authorizeResourceStateAccess(): Promise<string | null> {
     const gatedToolName = 'get_dashboard_state';
@@ -620,7 +623,13 @@ export function buildStudioMcpServer(
     authorizeStateAccess: authorizeResourceStateAccess,
   });
 
-  registerPromptHandlers(server, { stateBox });
+  registerPromptHandlers(server, {
+    stateBox,
+    // Same `get_dashboard_state` gate as `studio://schema/{id}` (finding T2-2):
+    // `query_data_source_examples` serves a per-source schema slice of the same
+    // payload family, so it must honor the same allowedTools/toolPolicy chokepoint.
+    authorizeStateAccess: authorizeResourceStateAccess,
+  });
 
   return server;
 }

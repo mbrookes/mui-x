@@ -1162,12 +1162,19 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
   });
 
-  it('still attaches widgetRows/widgetColSpans when the batch contains an accepted colSpan change', () => {
+  // Regression for finding 2.3 (producer half): a colSpans-ONLY batch changes widths, not
+  // row placement, so it must attach `widgetColSpans` WITHOUT the plan-time `widgetRows`
+  // snapshot. Shipping `widgetRows` here would let the reducer's layout replacement revert
+  // any concurrent client-side drag-reorder/row-reassignment that happened while this turn
+  // was running — the exact lost-update class T2-4 closed, one case narrower. The reducer
+  // (fixed in the same round) reconciles a `widgetColSpans`-present/`widgetRows`-absent
+  // payload against the page's EXISTING rows, so omitting `widgetRows` is now correct.
+  it('attaches only widgetColSpans (not widgetRows) for a colSpans-only batch', () => {
     const state = makeState();
     const result = executeToolOnState('apply_bulk_update', { colSpans: { 'widget-1': 12 } }, state);
     const args = (result.mutation as { args: Record<string, unknown> }).args;
-    expect(Object.hasOwn(args, 'widgetRows')).toBe(true);
     expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
   });
 
   it('omits widgetRows/widgetColSpans when every op in the batch was skipped (no real change)', () => {

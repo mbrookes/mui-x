@@ -1272,19 +1272,40 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
       }
 
-      // T2-4 (producer half): `widgetRows`/`widgetColSpans` are a plan-time snapshot of
-      // the active page's layout — attaching them unconditionally means a batch that only
+      // T2-4 / 2.3 (producer half): `widgetRows`/`widgetColSpans` are a plan-time snapshot
+      // of the active page's layout — attaching them unconditionally means a batch that only
       // contains `widgetUpdates` (no removals/additions/layout/colSpans) still ships that
       // stale snapshot, silently reverting any concurrent client-side layout edit (e.g. a
-      // drag-reorder) that happened while this turn was running. Attach them only when
-      // this batch actually changed the layout — mirrored by `applied`, since a requested
-      // op that was skipped (not found / invalid / out of range) never touched `widgetRows`
-      // or `colSpans` and must not be sent either. The reducer (fixed in the same round,
-      // `applyMutation.ts`'s `applyBulkUpdate.apply`) treats true absence of BOTH fields as
-      // "layout unchanged" and skips the layout-replacement block entirely, so an
-      // updates-only batch now leaves the client's current layout untouched.
-      const layoutChanged =
-        applied.removed > 0 || applied.added > 0 || applied.layout || applied.colSpans > 0;
+      // drag-reorder) that happened while this turn was running. So the layout fields are
+      // attached only when this batch actually changed layout — mirrored by `applied`, since
+      // a requested op that was skipped (not found / invalid / out of range) never touched
+      // `widgetRows` or `colSpans` and must not be sent either.
+      //
+      // Two distinct layout-change shapes attach DIFFERENT fields (finding 2.3):
+      //  - A removal / addition / explicit `layout` op genuinely reorders or re-places rows,
+      //    so the full turn-start `widgetRows` snapshot IS the intended new placement and
+      //    must ship alongside `widgetColSpans`.
+      //  - A colSpans-ONLY batch (`applied.colSpans > 0` but no removal/addition/layout op)
+      //    changes only widths, never row placement. Shipping `widgetRows` here would revert
+      //    a concurrent client-side drag-reorder/row-reassignment — the exact lost-update
+      //    class T2-4 closed, one case narrower. So we omit `widgetRows` and send ONLY
+      //    `widgetColSpans`, relying on the reducer (`applyMutation.ts`'s
+      //    `applyBulkUpdate.apply`, fixed in the same round) to reconcile a spans-only
+      //    payload against the page's EXISTING rows instead of wiping them.
+      // The reducer treats true absence of BOTH fields as "layout unchanged" and skips the
+      // layout-replacement block entirely, so an updates-only or all-skipped batch leaves the
+      // client's current layout untouched.
+      const rowsChanged = applied.removed > 0 || applied.added > 0 || applied.layout;
+      const colSpansOnly = !rowsChanged && applied.colSpans > 0;
+
+      let layoutFields: Record<string, unknown>;
+      if (rowsChanged) {
+        layoutFields = { widgetRows, widgetColSpans: colSpans };
+      } else if (colSpansOnly) {
+        layoutFields = { widgetColSpans: colSpans };
+      } else {
+        layoutFields = {};
+      }
 
       const mutation: StateMutation = {
         type: 'applyBulkUpdate',
@@ -1292,7 +1313,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           removedWidgetIds,
           addedWidgets,
           updatedWidgets,
-          ...(layoutChanged ? { widgetRows, widgetColSpans: colSpans } : {}),
+          ...layoutFields,
           activePageId,
         },
       } as StateMutation;

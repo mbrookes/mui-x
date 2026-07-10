@@ -637,6 +637,117 @@ describe('ChartSetupPanel', () => {
     }
   });
 
+  // Finding 2.13: the panel's support check must validate the SAME fields the canvas
+  // (`useChartWidgetData.ts`) does — `chartTypeExtraFields` (heatmap/funnel/sankey/gantt
+  // dimension fields) and the scatter aux fields (`scatterColorField`/`scatterSizeField`) —
+  // not just x/y/series. Before the fix, the panel's `analyzeChartSupport` call omitted all
+  // three, so an unresolvable field in one of them showed no warning here even though the
+  // rendered widget would fall back to the "unsupported chart configuration" overlay.
+  describe('extra-field / scatter-aux-field validation (finding 2.13)', () => {
+    it('warns when a heatmap heatYField is an unresolvable cross-source field', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            { id: 'col', label: 'Column', type: 'string' },
+            { id: 'val', label: 'Value', type: 'number' },
+          ],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: {
+            chartType: 'heatmap',
+            xField: 'col',
+            heatYField: 'doesNotExistAnywhere',
+            yField: 'val',
+            ySeries: [{ fieldId: 'val' }],
+          },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(
+          screen.getByText(/not available on the widget source or a directly related source/i),
+        ).toBeVisible();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+
+    it('does not warn when the heatYField resolves on the widget source (control)', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            { id: 'col', label: 'Column', type: 'string' },
+            { id: 'rowAxis', label: 'Row Axis', type: 'string' },
+            { id: 'val', label: 'Value', type: 'number' },
+          ],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: {
+            chartType: 'heatmap',
+            xField: 'col',
+            heatYField: 'rowAxis',
+            yField: 'val',
+            ySeries: [{ fieldId: 'val' }],
+          },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(
+          screen.queryByText(/not available on the widget source or a directly related source/i),
+        ).toBeNull();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+
+    it('warns for a scatter chart with a cross-source colour field', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+
+      try {
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: {
+            chartType: 'scatter',
+            xField: 'id',
+            yField: 'id',
+            ySeries: [{ fieldId: 'id' }],
+            // Owned by the related `customers` source, not `orders` — scatter doesn't
+            // support cross-source field combinations.
+            scatterColorField: 'country',
+          },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.getByText(/do not support cross-source field combinations/i)).toBeVisible();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+      }
+    });
+  });
+
   // Schema review finding 1.1's UI half: funnel has no sort DIRECTION concept
   // (`StudioFunnelChartConfig` declares `chartSortBy` only — buildFunnelStages
   // never reads `chartSortDirection`), so the direction toggle must be hidden

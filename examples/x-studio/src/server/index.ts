@@ -7,24 +7,30 @@
  * it to anyone who loads the page. Also serves the built static client when
  * present, so a single Railway service can host both (see railway.toml).
  *
- * Captures one snapshot of the library-usage matrix per ISO week and persists
- * it via snapshotStore.ts, so /api/github-library-usage/history can drive a
- * "scrub through time" view on the client. See snapshotStore.ts for the
+ * Captures one snapshot per ISO week for each of two independent matrices —
+ * component library × data grid library, and component library × chart
+ * library — persisting each via snapshotStore.ts (see weeklyCapture.ts for
+ * the shared capture-cycle logic) so their /history endpoints can drive
+ * "scrub through time" views on the client. See snapshotStore.ts for the
  * durability caveat on Railway (or any host with an ephemeral filesystem).
  *
  * Environment variables:
- *   PORT                — HTTP port (default 3006)
- *   GITHUB_SEARCH_TOKEN  — GitHub personal access token used for code search.
- *                          Without it, a capture produces no rows and is not
- *                          persisted (so it doesn't poison history with an
- *                          all-zero week — see refreshIfDue below).
- *   SNAPSHOT_STORE_PATH  — Where weekly snapshots are persisted (default
- *                          ./data/library-usage-history.json — see
- *                          snapshotStore.ts).
- *   ALLOWED_ORIGINS      — Comma-separated CORS origins for the /api routes
- *                          (the server's own origin is always allowed, so
- *                          this only needs to list *other* origins, e.g. a
- *                          separate Vite dev server).
+ *   PORT                          — HTTP port (default 3006)
+ *   GITHUB_SEARCH_TOKEN           — GitHub personal access token used for
+ *                                   code search. Without it, a capture
+ *                                   produces no rows and is not persisted
+ *                                   (see weeklyCapture.ts).
+ *   SNAPSHOT_STORE_PATH           — Where data-grid weekly snapshots are
+ *                                   persisted (default
+ *                                   ./data/library-usage-history.json).
+ *   CHART_LIBRARY_SNAPSHOT_STORE_PATH — Where chart-library weekly snapshots
+ *                                   are persisted (default
+ *                                   ./data/chart-library-usage-history.json).
+ *   ALLOWED_ORIGINS               — Comma-separated CORS origins for the
+ *                                   /api routes (the server's own origin is
+ *                                   always allowed, so this only needs to
+ *                                   list *other* origins, e.g. a separate
+ *                                   Vite dev server).
  */
 import dotenv from 'dotenv';
 
@@ -36,13 +42,9 @@ import cors from 'cors';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchLibraryUsageMatrix } from './githubLibraryUsage.js';
-import {
-  getIsoWeekMonday,
-  loadSnapshots,
-  saveSnapshot,
-  type LibraryUsageSnapshot,
-} from './snapshotStore.js';
+import { fetchLibraryUsageMatrix, fetchChartLibraryUsageMatrix } from './githubLibraryUsage.js';
+import { createSnapshotStore } from './snapshotStore.js';
+import { createWeeklyCapture } from './weeklyCapture.js';
 import { log, error, warn } from './logger.js';
 
 // The built client (`vite build`, run at deploy time — see railway.toml). Only present when
@@ -61,9 +63,15 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3004')
   .split(',')
   .map((s) => s.trim());
 
+const DATA_GRID_SNAPSHOT_STORE_PATH =
+  process.env.SNAPSHOT_STORE_PATH ?? path.join(process.cwd(), 'data', 'library-usage-history.json');
+const CHART_LIBRARY_SNAPSHOT_STORE_PATH =
+  process.env.CHART_LIBRARY_SNAPSHOT_STORE_PATH ??
+  path.join(process.cwd(), 'data', 'chart-library-usage-history.json');
+
 // Re-check periodically whether a new ISO week has started since the last capture. This is a
 // "poll for due work" interval, not a precise cron — "due" is derived from persisted snapshots
-// (see refreshIfDue), so it self-heals across restarts/redeploys regardless of exact timing.
+// (see weeklyCapture.ts), so it self-heals across restarts/redeploys regardless of exact timing.
 const REFRESH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 async function main(): Promise<void> {
@@ -92,63 +100,52 @@ async function main(): Promise<void> {
     })(req, res, next);
   });
 
-  let snapshots: LibraryUsageSnapshot[] = await loadSnapshots();
-  let refreshInFlight: Promise<void> | null = null;
+  const dataGridCapture = createWeeklyCapture({
+    label: 'github-library-usage',
+    store: createSnapshotStore(DATA_GRID_SNAPSHOT_STORE_PATH),
+    fetchMatrix: fetchLibraryUsageMatrix,
+    token: GITHUB_SEARCH_TOKEN,
+  });
+  const chartLibraryCapture = createWeeklyCapture({
+    label: 'github-chart-library-usage',
+    store: createSnapshotStore(CHART_LIBRARY_SNAPSHOT_STORE_PATH),
+    fetchMatrix: fetchChartLibraryUsageMatrix,
+    token: GITHUB_SEARCH_TOKEN,
+  });
+  await dataGridCapture.init();
+  await chartLibraryCapture.init();
 
-  // Fetches a fresh matrix and persists it as this week's snapshot, but only if one isn't
-  // already stored for the current ISO week (so redeploys/restarts don't waste GitHub's rate
-  // limit re-capturing a week that's already done). A run where every cell failed (no token
-  // configured, or every search errored — see LibraryUsageMatrixResult.failedCount) is
-  // deliberately NOT persisted — better to keep serving last week's real numbers than to
-  // overwrite them with a false all-zero snapshot. Note this only catches a FULLY failed run:
-  // if some cells succeeded and others didn't, the partial result still gets saved (those
-  // failed cells read as a real 0 until the next capture) — the same trade-off the live
-  // /api/github-library-usage endpoint already accepted before weekly history existed.
-  async function refreshIfDue(): Promise<void> {
-    if (refreshInFlight) {
-      return refreshInFlight;
-    }
-    refreshInFlight = (async () => {
-      const currentWeek = getIsoWeekMonday(new Date());
-      if (snapshots.some((s) => s.weekOf === currentWeek)) {
-        return;
-      }
-      log(`[github-library-usage] Capturing snapshot for week of ${currentWeek}…`);
-      const { rows, failedCount } = await fetchLibraryUsageMatrix(GITHUB_SEARCH_TOKEN);
-      if (rows.length === 0 || failedCount === rows.length) {
-        warn(
-          `[github-library-usage] Capture for week of ${currentWeek} produced no usable rows ` +
-            `(${failedCount}/${rows.length} cells failed) — not persisting.`,
-        );
-        return;
-      }
-      snapshots = await saveSnapshot({ weekOf: currentWeek, fetchedAt: Date.now(), rows });
-    })();
-    try {
-      await refreshInFlight;
-    } finally {
-      refreshInFlight = null;
-    }
+  // Run the two captures sequentially, not in parallel — they share GITHUB_SEARCH_TOKEN's
+  // 30/min GitHub search-rate budget, so capturing both at once would double the chance of
+  // hitting it. Each capture no-ops instantly once its own week is already stored, so this
+  // costs nothing once both are up to date.
+  async function refreshAllIfDue(): Promise<void> {
+    await dataGridCapture
+      .refreshIfDue()
+      .catch((err) => error('[github-library-usage] Capture failed:', err));
+    await chartLibraryCapture
+      .refreshIfDue()
+      .catch((err) => error('[github-chart-library-usage] Capture failed:', err));
   }
 
-  // Kick off an initial capture in the background if this week's snapshot is missing — don't
-  // block server startup on a ~1min GitHub fetch (24 rate-limited searches — see
-  // githubLibraryUsage.ts).
-  refreshIfDue().catch((err) => error('[github-library-usage] Initial capture failed:', err));
+  // Kick off an initial capture in the background if either matrix's snapshot for this week is
+  // missing — don't block server startup on the ~1-2min combined GitHub fetch (24 rate-limited
+  // searches per matrix — see githubLibraryUsage.ts).
+  void refreshAllIfDue();
   setInterval(() => {
-    refreshIfDue().catch((err) => error('[github-library-usage] Scheduled capture failed:', err));
+    void refreshAllIfDue();
   }, REFRESH_CHECK_INTERVAL_MS);
 
   // GET /api/github-library-usage — the latest captured snapshot's component-library ×
   // data-grid-library adoption matrix (unchanged shape from before weekly history existed).
   app.get('/api/github-library-usage', async (_req: Request, res: Response): Promise<void> => {
     try {
-      if (snapshots.length === 0) {
+      if (dataGridCapture.getSnapshots().length === 0) {
         // Nothing captured yet (fresh install, or first boot after a filesystem reset) — wait
         // for the in-flight initial capture rather than answering with an empty matrix.
-        await refreshIfDue();
+        await dataGridCapture.refreshIfDue();
       }
-      const latest = snapshots.at(-1);
+      const latest = dataGridCapture.getSnapshots().at(-1);
       res.json({ rows: latest?.rows ?? [], fetchedAt: latest?.fetchedAt ?? null });
     } catch (err) {
       error('[github-library-usage] Failed:', err);
@@ -159,7 +156,26 @@ async function main(): Promise<void> {
   // GET /api/github-library-usage/history — every captured weekly snapshot, ascending by week.
   // Powers the client's week-scrubber panel (see connectors/githubLibraryUsageSource.ts).
   app.get('/api/github-library-usage/history', (_req: Request, res: Response): void => {
-    res.json({ snapshots });
+    res.json({ snapshots: dataGridCapture.getSnapshots() });
+  });
+
+  // GET /api/chart-library-usage(/history) — same shape as the two routes above, for the
+  // component-library × chart-library matrix.
+  app.get('/api/chart-library-usage', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      if (chartLibraryCapture.getSnapshots().length === 0) {
+        await chartLibraryCapture.refreshIfDue();
+      }
+      const latest = chartLibraryCapture.getSnapshots().at(-1);
+      res.json({ rows: latest?.rows ?? [], fetchedAt: latest?.fetchedAt ?? null });
+    } catch (err) {
+      error('[github-chart-library-usage] Failed:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get('/api/chart-library-usage/history', (_req: Request, res: Response): void => {
+    res.json({ snapshots: chartLibraryCapture.getSnapshots() });
   });
 
   // Health
@@ -167,8 +183,14 @@ async function main(): Promise<void> {
     res.json({
       ok: true,
       hasGithubSearchToken: Boolean(GITHUB_SEARCH_TOKEN),
-      snapshotCount: snapshots.length,
-      latestSnapshotWeek: snapshots.at(-1)?.weekOf ?? null,
+      dataGrid: {
+        snapshotCount: dataGridCapture.getSnapshots().length,
+        latestSnapshotWeek: dataGridCapture.getSnapshots().at(-1)?.weekOf ?? null,
+      },
+      chartLibrary: {
+        snapshotCount: chartLibraryCapture.getSnapshots().length,
+        latestSnapshotWeek: chartLibraryCapture.getSnapshots().at(-1)?.weekOf ?? null,
+      },
     });
   });
 
@@ -188,11 +210,13 @@ async function main(): Promise<void> {
 
   app.listen(PORT, () => {
     log(`[startup] x-studio-example-api listening on http://localhost:${PORT}`);
-    log(`[startup]   Health:  http://localhost:${PORT}/health`);
-    log(`[startup]   API:     http://localhost:${PORT}/api/github-library-usage`);
-    log(`[startup]   History: http://localhost:${PORT}/api/github-library-usage/history`);
+    log(`[startup]   Health:            http://localhost:${PORT}/health`);
+    log(`[startup]   Data grid API:     http://localhost:${PORT}/api/github-library-usage`);
+    log(`[startup]   Data grid history: http://localhost:${PORT}/api/github-library-usage/history`);
+    log(`[startup]   Chart API:         http://localhost:${PORT}/api/chart-library-usage`);
+    log(`[startup]   Chart history:     http://localhost:${PORT}/api/chart-library-usage/history`);
     if (hasClientBuild) {
-      log(`[startup]   Client:  http://localhost:${PORT}/`);
+      log(`[startup]   Client:            http://localhost:${PORT}/`);
     }
     if (!GITHUB_SEARCH_TOKEN) {
       warn(

@@ -1,23 +1,144 @@
 /**
- * Client connector for the "component library × data grid library" adoption
- * chart.
+ * Client connectors for the "component library × X library" adoption charts
+ * (currently: data grid libraries, and chart libraries).
  *
- * Reads GET /api/github-library-usage from this app's own API server (see
- * src/server/index.ts + src/server/githubLibraryUsage.ts), which proxies
- * GitHub's code-search API using a server-side token. The GitHub token never
- * ships to the browser — baking a personal access token into the client
- * bundle via a VITE_ env var would expose it to anyone who loads the page.
+ * Each reads from this app's own API server (see src/server/index.ts +
+ * src/server/githubLibraryUsage.ts), which proxies GitHub's code-search API
+ * using a server-side token. The GitHub token never ships to the browser —
+ * baking a personal access token into the client bundle via a VITE_ env var
+ * would expose it to anyone who loads the page.
  *
  * `/api/*` requests resolve relative to the current origin: in production a
  * single Railway service serves both the built client and this API (see
  * railway.toml), so no base URL is needed; in local dev, `vite.config.ts`
  * proxies `/api` to the separately-running `pnpm server` process.
  *
- * Without the API server running, or when it has no GITHUB_SEARCH_TOKEN configured,
- * the endpoint returns an empty row set and the chart shows its "no data"
- * state rather than erroring.
+ * Without the API server running, or when it has no GITHUB_SEARCH_TOKEN
+ * configured, an endpoint returns an empty row set and the chart shows its
+ * "no data" state rather than erroring.
  */
 import type { StudioDataSource, StudioDataSourceAdapter } from '@mui/x-studio';
+
+/** A `GET <endpoint>` returning `{ rows }` — the "current" (latest snapshot) shape. */
+function createCurrentRowsConnector(endpoint: string, label: string) {
+  let cachedRows: Record<string, unknown>[] | null = null;
+  let inFlight: Promise<Record<string, unknown>[]> | null = null;
+
+  async function prefetch(): Promise<Record<string, unknown>[]> {
+    if (cachedRows !== null) {
+      return cachedRows;
+    }
+    if (inFlight) {
+      return inFlight;
+    }
+
+    inFlight = (async () => {
+      try {
+        const res = await fetch(endpoint);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+        const data = (await res.json()) as { rows: Record<string, unknown>[] };
+        cachedRows = data.rows;
+        return cachedRows;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[x-studio] ${label} connector: could not reach ${endpoint} — is the API server ` +
+            'running? (pnpm server)',
+          err,
+        );
+        return [];
+      }
+    })();
+
+    try {
+      return await inFlight;
+    } finally {
+      inFlight = null;
+    }
+  }
+
+  function createAdapter(): StudioDataSourceAdapter {
+    return {
+      async getRows() {
+        return { rows: await prefetch() };
+      },
+    };
+  }
+
+  return { prefetch, createAdapter };
+}
+
+interface LibraryUsageSnapshot {
+  weekOf: string;
+  fetchedAt: number;
+  rows: Record<string, unknown>[];
+}
+
+/**
+ * A `GET <endpoint>` returning `{ snapshots }` — every captured weekly
+ * snapshot, flattened into one row set with a `weekOf` on each row (row ids
+ * are prefixed with the week so they stay unique across snapshots — the
+ * server's per-cell id alone repeats every week).
+ */
+function createHistoryRowsConnector(endpoint: string, label: string) {
+  let cachedRows: Record<string, unknown>[] | null = null;
+  let inFlight: Promise<Record<string, unknown>[]> | null = null;
+
+  async function prefetch(): Promise<Record<string, unknown>[]> {
+    if (cachedRows !== null) {
+      return cachedRows;
+    }
+    if (inFlight) {
+      return inFlight;
+    }
+
+    inFlight = (async () => {
+      try {
+        const res = await fetch(endpoint);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+        const data = (await res.json()) as { snapshots: LibraryUsageSnapshot[] };
+        cachedRows = data.snapshots.flatMap((snapshot) =>
+          snapshot.rows.map((row) => ({
+            ...row,
+            id: `${snapshot.weekOf}__${row.id}`,
+            weekOf: snapshot.weekOf,
+          })),
+        );
+        return cachedRows;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[x-studio] ${label} connector: could not reach ${endpoint} — is the API server ` +
+            'running? (pnpm server)',
+          err,
+        );
+        return [];
+      }
+    })();
+
+    try {
+      return await inFlight;
+    } finally {
+      inFlight = null;
+    }
+  }
+
+  function createAdapter(): StudioDataSourceAdapter {
+    return {
+      async getRows() {
+        return { rows: await prefetch() };
+      },
+    };
+  }
+
+  return { prefetch, createAdapter };
+}
+
+// ── Data grid libraries ─────────────────────────────────────────────────────
 
 export const GITHUB_LIBRARY_USAGE_SOURCE_ID = 'source-github-library-usage';
 
@@ -32,59 +153,14 @@ export const GITHUB_LIBRARY_USAGE_SOURCE: StudioDataSource = {
   ],
 };
 
-let cachedRows: Record<string, unknown>[] | null = null;
-let inFlight: Promise<Record<string, unknown>[]> | null = null;
-
-/**
- * Fetches (and caches for the lifetime of the page) the adoption matrix from
- * this app's own API server. Returns [] (without throwing) on failure — the
- * caller decides how to surface that.
- */
-export async function prefetchGithubLibraryUsage(): Promise<Record<string, unknown>[]> {
-  if (cachedRows !== null) {
-    return cachedRows;
-  }
-  if (inFlight) {
-    return inFlight;
-  }
-
-  inFlight = (async () => {
-    try {
-      const res = await fetch('/api/github-library-usage');
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      }
-      const data = (await res.json()) as { rows: Record<string, unknown>[] };
-      cachedRows = data.rows;
-      return cachedRows;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[x-studio] GitHub library usage connector: could not reach /api/github-library-usage — ' +
-          'is the API server running? (pnpm server)',
-        err,
-      );
-      return [];
-    }
-  })();
-
-  try {
-    return await inFlight;
-  } finally {
-    inFlight = null;
-  }
-}
-
-/** Returns a StudioDataSourceAdapter backed by the GitHub search matrix above. */
-export function createGithubLibraryUsageAdapter(): StudioDataSourceAdapter {
-  return {
-    async getRows() {
-      return { rows: await prefetchGithubLibraryUsage() };
-    },
-  };
-}
-
-// ── Weekly history (scrubber) ───────────────────────────────────────────────
+const dataGridCurrent = createCurrentRowsConnector(
+  '/api/github-library-usage',
+  'GitHub library usage',
+);
+/** Fetches (and caches for the lifetime of the page) the latest data-grid adoption matrix. */
+export const prefetchGithubLibraryUsage = dataGridCurrent.prefetch;
+/** Returns a StudioDataSourceAdapter backed by the latest data-grid adoption matrix. */
+export const createGithubLibraryUsageAdapter = dataGridCurrent.createAdapter;
 
 export const GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID = 'source-github-library-usage-history';
 
@@ -106,67 +182,33 @@ export const GITHUB_LIBRARY_USAGE_HISTORY_SOURCE: StudioDataSource = {
   ],
 };
 
-interface LibraryUsageSnapshot {
-  weekOf: string;
-  fetchedAt: number;
-  rows: Record<string, unknown>[];
-}
+const dataGridHistory = createHistoryRowsConnector(
+  '/api/github-library-usage/history',
+  'GitHub library usage history',
+);
+export const prefetchGithubLibraryUsageHistory = dataGridHistory.prefetch;
+export const createGithubLibraryUsageHistoryAdapter = dataGridHistory.createAdapter;
 
-let cachedHistoryRows: Record<string, unknown>[] | null = null;
-let historyInFlight: Promise<Record<string, unknown>[]> | null = null;
+// ── Chart libraries ──────────────────────────────────────────────────────────
 
-/**
- * Fetches every captured weekly snapshot and flattens them into one row set
- * with a `weekOf` on each row (row ids are prefixed with the week so they
- * stay unique across snapshots — the server's per-cell id alone repeats every
- * week). Returns [] (without throwing) on failure.
- */
-export async function prefetchGithubLibraryUsageHistory(): Promise<Record<string, unknown>[]> {
-  if (cachedHistoryRows !== null) {
-    return cachedHistoryRows;
-  }
-  if (historyInFlight) {
-    return historyInFlight;
-  }
+export const GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID = 'source-github-chart-library-usage';
 
-  historyInFlight = (async () => {
-    try {
-      const res = await fetch('/api/github-library-usage/history');
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      }
-      const data = (await res.json()) as { snapshots: LibraryUsageSnapshot[] };
-      cachedHistoryRows = data.snapshots.flatMap((snapshot) =>
-        snapshot.rows.map((row) => ({
-          ...row,
-          id: `${snapshot.weekOf}__${row.id}`,
-          weekOf: snapshot.weekOf,
-        })),
-      );
-      return cachedHistoryRows;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[x-studio] GitHub library usage history connector: could not reach ' +
-          '/api/github-library-usage/history — is the API server running? (pnpm server)',
-        err,
-      );
-      return [];
-    }
-  })();
+export const GITHUB_CHART_LIBRARY_USAGE_SOURCE: StudioDataSource = {
+  id: GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID,
+  label: 'GitHub Chart Library Usage',
+  fields: [
+    { id: 'id', label: 'ID', type: 'string', hidden: true },
+    { id: 'componentLibrary', label: 'Component Library', type: 'string' },
+    { id: 'chartLibrary', label: 'Chart Library', type: 'string' },
+    { id: 'repoCount', label: 'Repositories', type: 'number' },
+  ],
+};
 
-  try {
-    return await historyInFlight;
-  } finally {
-    historyInFlight = null;
-  }
-}
-
-/** Returns a StudioDataSourceAdapter backed by the flattened weekly-history rows above. */
-export function createGithubLibraryUsageHistoryAdapter(): StudioDataSourceAdapter {
-  return {
-    async getRows() {
-      return { rows: await prefetchGithubLibraryUsageHistory() };
-    },
-  };
-}
+const chartLibraryCurrent = createCurrentRowsConnector(
+  '/api/chart-library-usage',
+  'GitHub chart library usage',
+);
+/** Fetches (and caches for the lifetime of the page) the latest chart-library adoption matrix. */
+export const prefetchGithubChartLibraryUsage = chartLibraryCurrent.prefetch;
+/** Returns a StudioDataSourceAdapter backed by the latest chart-library adoption matrix. */
+export const createGithubChartLibraryUsageAdapter = chartLibraryCurrent.createAdapter;

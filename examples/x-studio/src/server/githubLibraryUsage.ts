@@ -1,8 +1,8 @@
 /**
- * Server-side GitHub code-search matrix builder.
+ * Server-side GitHub code-search matrix builders.
  *
- * Runs one GitHub code search per (component library, data grid library)
- * pair to count repos whose package.json declares both, e.g.:
+ * Runs one GitHub code search per (component library, X library) pair to
+ * count repos whose package.json declares both, e.g.:
  *
  *   "@mui/material" "@mui/x-data-grid" filename:package.json
  *
@@ -16,9 +16,9 @@
  * This lives on the server (not the client) because GitHub code search
  * requires an authenticated request, and a personal access token must never
  * ship inside a client bundle — anyone loading the page could extract it.
- * See `server/index.ts` for the endpoint that serves this data and caches it
- * in memory, and `connectors/githubLibraryUsageSource.ts` for the client
- * adapter that reads it.
+ * See `server/index.ts` for the weekly-capture endpoints that serve this
+ * data, and `connectors/githubLibraryUsageSource.ts` for the client
+ * adapters that read it.
  */
 import { warn } from './logger.js';
 
@@ -49,12 +49,22 @@ export const DATA_GRID_LIBRARIES: LibraryDef[] = [
   { id: 'react-data-grid', label: 'React Data Grid', pkg: 'react-data-grid' },
 ];
 
+export const CHART_LIBRARIES: LibraryDef[] = [
+  { id: 'mui-x-charts', label: 'MUI X Charts', pkg: '@mui/x-charts' },
+  { id: 'recharts', label: 'Recharts', pkg: 'recharts' },
+  // The React wrapper, not the framework-agnostic `chart.js` core — consistent with how the
+  // other libraries here are all searched by their React-facing package (e.g. `ag-grid-react`
+  // rather than `ag-grid-community`), since this whole matrix is about React app choices.
+  { id: 'chart-js', label: 'Chart.js', pkg: 'react-chartjs-2' },
+  { id: 'victory', label: 'Victory', pkg: 'victory' },
+];
+
 const GITHUB_SEARCH_ENDPOINT = 'https://api.github.com/search/code';
 // Stay comfortably under GitHub's 30 requests/min authenticated search limit. This alone isn't
 // airtight — the 30/min budget is shared across the whole token, so a run that immediately
-// follows a previous one (e.g. two redeploys in quick succession, each re-running the full
-// matrix on a cold cache) can still exhaust it — see the retry-on-403 handling below, which is
-// the actual backstop.
+// follows a previous one (e.g. two redeploys in quick succession, each re-running a full matrix
+// on a cold cache) can still exhaust it — see the retry-on-403 handling below, which is the
+// actual backstop.
 const REQUEST_INTERVAL_MS = 2500;
 // Cap retries so a persistently-failing token/query doesn't hang the request forever.
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -88,7 +98,7 @@ async function fetchCombinationCount(pkgA: string, pkgB: string, token: string):
     // GitHub's rate-limited response is a 403 with X-RateLimit-Remaining: 0 — distinct from an
     // auth/permissions 403 (bad or under-scoped token), which doesn't carry that header. Wait
     // for the window to actually reset and retry rather than recording a false 0 for this cell,
-    // which would otherwise sit wrong in the 24h cache until the next natural refresh.
+    // which would otherwise sit wrong in the persisted snapshot until the next weekly refresh.
     const isRateLimited = res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0';
     if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
       const resetHeader = res.headers.get('x-ratelimit-reset');
@@ -129,19 +139,24 @@ export interface LibraryUsageMatrixResult {
 }
 
 /**
- * Builds the component-library × data-grid-library adoption matrix, one
- * GitHub code search per cell. Returns { rows: [], failedCount: 0 } (without
- * throwing) when no token is configured. Individual failed cells fall back
- * to a count of 0 rather than aborting the whole matrix — see
- * `LibraryUsageMatrixResult.failedCount` for how to tell a real zero from a
- * failure once every cell is done.
+ * Builds a component-library × `otherLibraries` adoption matrix, one GitHub
+ * code search per cell, storing each row's second-axis label under
+ * `otherFieldKey` (e.g. 'dataGridLibrary' or 'chartLibrary') so callers get
+ * differently-shaped rows from the same fetch logic. Returns
+ * { rows: [], failedCount: 0 } (without throwing) when no token is
+ * configured. Individual failed cells fall back to a count of 0 rather than
+ * aborting the whole matrix — see `LibraryUsageMatrixResult.failedCount` for
+ * how to tell a real zero from a failure once every cell is done.
  */
-export async function fetchLibraryUsageMatrix(
+async function fetchLibraryUsageMatrixFor(
+  otherLibraries: LibraryDef[],
+  otherFieldKey: string,
   token: string | undefined,
+  label: string,
 ): Promise<LibraryUsageMatrixResult> {
   if (!token) {
     warn(
-      '[github-library-usage] no GITHUB_SEARCH_TOKEN configured — returning an empty matrix. ' +
+      `[${label}] no GITHUB_SEARCH_TOKEN configured — returning an empty matrix. ` +
         'GitHub code search requires authentication.',
     );
     return { rows: [], failedCount: 0 };
@@ -151,7 +166,7 @@ export async function fetchLibraryUsageMatrix(
   let failedCount = 0;
   let isFirstRequest = true;
   for (const componentLib of COMPONENT_LIBRARIES) {
-    for (const gridLib of DATA_GRID_LIBRARIES) {
+    for (const otherLib of otherLibraries) {
       if (!isFirstRequest) {
         // eslint-disable-next-line no-await-in-loop
         await sleep(REQUEST_INTERVAL_MS);
@@ -160,18 +175,42 @@ export async function fetchLibraryUsageMatrix(
       let repoCount = 0;
       try {
         // eslint-disable-next-line no-await-in-loop
-        repoCount = await fetchCombinationCount(componentLib.pkg, gridLib.pkg, token);
+        repoCount = await fetchCombinationCount(componentLib.pkg, otherLib.pkg, token);
       } catch (err) {
         failedCount += 1;
-        warn('[github-library-usage]', err);
+        warn(`[${label}]`, err);
       }
       rows.push({
-        id: `${componentLib.id}__${gridLib.id}`,
+        id: `${componentLib.id}__${otherLib.id}`,
         componentLibrary: componentLib.label,
-        dataGridLibrary: gridLib.label,
+        [otherFieldKey]: otherLib.label,
         repoCount,
       });
     }
   }
   return { rows, failedCount };
+}
+
+/** Component-library × data-grid-library adoption matrix (see fetchLibraryUsageMatrixFor). */
+export function fetchLibraryUsageMatrix(
+  token: string | undefined,
+): Promise<LibraryUsageMatrixResult> {
+  return fetchLibraryUsageMatrixFor(
+    DATA_GRID_LIBRARIES,
+    'dataGridLibrary',
+    token,
+    'github-library-usage',
+  );
+}
+
+/** Component-library × chart-library adoption matrix (see fetchLibraryUsageMatrixFor). */
+export function fetchChartLibraryUsageMatrix(
+  token: string | undefined,
+): Promise<LibraryUsageMatrixResult> {
+  return fetchLibraryUsageMatrixFor(
+    CHART_LIBRARIES,
+    'chartLibrary',
+    token,
+    'github-chart-library-usage',
+  );
 }

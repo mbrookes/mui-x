@@ -1,24 +1,28 @@
 # x-studio example
 
-A dashboard with a 100%-stacked bar chart plotting, for every UI component
-library, the relative share of each data grid library among non-fork GitHub
-repositories that declare both as dependencies — e.g. how many repos pairing
-`@mui/material` use `@mui/x-data-grid` vs. `ag-grid-react`. See
-`src/connectors/githubLibraryUsageSource.ts` for the full list of libraries
-compared and how the GitHub code-search query is built.
+A dashboard with two 100%-stacked bar charts plotting, for every UI component
+library, the relative share of each **data grid** library and each
+**charting** library among non-fork GitHub repositories that declare both as
+dependencies — e.g. how many repos pairing `@mui/material` use
+`@mui/x-data-grid` vs. `ag-grid-react`, or `@mui/x-charts` vs. `recharts`. See
+`src/server/githubLibraryUsage.ts` for the full list of libraries compared
+(`COMPONENT_LIBRARIES`, `DATA_GRID_LIBRARIES`, `CHART_LIBRARIES`) and how the
+GitHub code-search query is built.
 
-A second "Adoption Over Time" section captures that same matrix once per
+A third "Adoption Over Time" section captures the data-grid matrix once per
 week and lets you scrub through the captured history with a date-slider
 filter, rebuilding the chart for whatever week (or range of weeks) is
-selected.
+selected. (Weekly history is captured for the chart-library matrix too, but
+isn't yet wired to its own scrubber panel.)
 
 ## Architecture
 
 - **Client** (`src/`) — a Vite/React app built on `@mui/x-studio`. It has no
   embedded credentials: `src/connectors/githubLibraryUsageSource.ts` reads
-  the current adoption matrix from `GET /api/github-library-usage`, and the
-  full weekly history (for the scrubber) from
-  `GET /api/github-library-usage/history` — both on this app's own API
+  the current data-grid matrix from `GET /api/github-library-usage`, the full
+  weekly history (for the scrubber) from
+  `GET /api/github-library-usage/history`, and the current chart-library
+  matrix from `GET /api/chart-library-usage` — all on this app's own API
   server, resolved relative to the current origin.
 - **Server** (`src/server/`) — a small Express app that:
   - proxies GitHub's code-search API using a server-side
@@ -26,13 +30,15 @@ selected.
     code search requires authentication — baking a personal access token
     into the client bundle via a `VITE_`-prefixed env var would expose it to
     anyone who loads the page);
-  - captures one snapshot of the matrix per ISO week (building it costs one
-    rate-limited GitHub search per (component library × data grid library)
-    cell — see `COMPONENT_LIBRARIES`/`DATA_GRID_LIBRARIES` in
-    `src/server/githubLibraryUsage.ts`) and persists it via
-    `src/server/snapshotStore.ts`. A background check every 6h captures the
-    new week's snapshot once one is due; a run that produces zero rows (no
-    token, or every search failed) is never persisted, so a transient
+  - captures one snapshot per ISO week for each matrix independently
+    (`src/server/weeklyCapture.ts` drives the shared capture cycle; building
+    a snapshot costs one rate-limited GitHub search per component-library ×
+    other-library cell — see `src/server/githubLibraryUsage.ts`), and
+    persists each via its own `src/server/snapshotStore.ts`-backed store. A
+    background check every 6h captures a new week's snapshot once one is
+    due, for each matrix in turn (never concurrently — they share one
+    GitHub token's rate-limit budget); a run where every cell failed (no
+    token, or every search errored) is never persisted, so a transient
     failure can't overwrite a real week with false zeros;
   - serves the built static client (`dist/`) when present, so a single
     process/service can host both — see [Deploying to Railway](#deploying-to-railway).
@@ -55,9 +61,11 @@ work in dev without any client-side base-URL configuration. Without
 renders its "No data to display" empty state rather than erroring — see
 `src/connectors/githubLibraryUsageSource.ts`.
 
-Weekly snapshots are written to `./data/library-usage-history.json` by
-default (gitignored) — delete that file to reset local history, or set
-`SNAPSHOT_STORE_PATH` to point elsewhere.
+Weekly snapshots are written to `./data/library-usage-history.json` (data
+grid) and `./data/chart-library-usage-history.json` (charting) by default
+(both gitignored) — delete either file to reset that matrix's local history,
+or set `SNAPSHOT_STORE_PATH` / `CHART_LIBRARY_SNAPSHOT_STORE_PATH` to point
+elsewhere.
 
 ## Deploying to Railway
 
@@ -70,13 +78,15 @@ same origin. Configure on the Railway service:
   service's own (same-origin requests, including the co-hosted production
   client, are always allowed regardless of this list — see
   `src/server/index.ts`).
-- **`SNAPSHOT_STORE_PATH` + a Railway Volume** — required for weekly history to
-  actually accumulate. Railway's default filesystem is ephemeral: it's wiped
-  on every redeploy/restart, so without a persistent volume attached, the
-  "Adoption Over Time" section resets to a single week forever, no matter how
+- **`SNAPSHOT_STORE_PATH`/`CHART_LIBRARY_SNAPSHOT_STORE_PATH` + a Railway
+  Volume** — required for weekly history to actually accumulate, for either
+  matrix. Railway's default filesystem is ephemeral: it's wiped on every
+  redeploy/restart, so without a persistent volume attached, the "Adoption
+  Over Time" section resets to a single week forever, no matter how
   long the service has been running. Attach a Volume to the service (Railway
   dashboard → service → Volumes) mounted at, say, `/data`, then set
-  `SNAPSHOT_STORE_PATH=/data/library-usage-history.json`.
+  `SNAPSHOT_STORE_PATH=/data/library-usage-history.json` and
+  `CHART_LIBRARY_SNAPSHOT_STORE_PATH=/data/chart-library-usage-history.json`.
 
 Lessons carried over from deploying `examples/x-studio-survey` to Railway:
 

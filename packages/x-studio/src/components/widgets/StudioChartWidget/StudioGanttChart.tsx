@@ -21,8 +21,30 @@ const LABEL_W = 140;
 const AXIS_H = 24;
 const MIN_BAR_W = 4;
 
+/**
+ * Reinterprets a UTC-midnight-anchored timestamp as a LOCAL calendar date, so
+ * formatting it doesn't day-shift for a viewer west of UTC.
+ *
+ * `startMs`/`endMs` are produced upstream (`chartShapes/gantt.ts`) via
+ * `new Date(rawDateCell).getTime()`; for the canonical `'YYYY-MM-DD'` date-only
+ * cells these bars are typically built from, that anchors the instant at UTC
+ * midnight of the intended calendar day. Formatting that instant directly via
+ * `toLocaleDateString` (which reads LOCAL calendar components) then reads back a
+ * day earlier for any viewer whose local offset is negative (e.g. `2024-03-15`
+ * renders as "Mar 14" for a US-timezone viewer) — the display-side twin of the
+ * ingestion day-shift bug class already fixed for `temporalUtils.ts`/
+ * `widgetUtils.tsx`'s date-only handling (finding 2.15). Reading the UTC Y/M/D
+ * components back out and constructing a new LOCAL `Date` from them cancels the
+ * shift: the constructed date's local components now equal the original
+ * intended calendar day regardless of the viewer's offset.
+ */
+function toDisplayDate(ms: number): Date {
+  const utc = new Date(ms);
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+}
+
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
+  return toDisplayDate(ms).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -50,7 +72,7 @@ function buildTicks(minMs: number, maxMs: number, maxTicks: number): number[] {
 }
 
 function shortDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return toDisplayDate(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -219,7 +241,7 @@ export function StudioGanttChart({
                 {formatDate(item.startMs)} → {formatDate(item.endMs)}
               </Typography>
               <Typography variant="caption" sx={{ display: 'block' }}>
-                Duration: {formatDuration(durationMs)}
+                {localeText.chartGanttDurationLabel} {formatDuration(durationMs)}
               </Typography>
               {item.colorCategory && (
                 <Typography variant="caption" sx={{ display: 'block' }}>

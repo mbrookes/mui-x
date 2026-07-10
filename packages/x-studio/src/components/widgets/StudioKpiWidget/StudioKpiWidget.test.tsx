@@ -23,14 +23,19 @@ import { StudioKpiWidget } from './StudioKpiWidget';
 
 // The KPI widget reads its current-period rows through useWidgetRows. Route the mock
 // through a hoisted holder so each test can swap the fixture rows it returns.
+// `effective` defaults to mirroring `current` (so most tests, which don't care about
+// the `filteredRowsNoCross` vs `effectiveRows` distinction, are unaffected) — a test
+// exercising the `crossFilterMode` resolution (finding 3.8) can set it independently to
+// tell which one the widget actually picked.
 const rowsHolder = vi.hoisted(() => ({
   current: [] as Record<string, unknown>[],
+  effective: null as Record<string, unknown>[] | null,
 }));
 
 vi.mock('../../../internals/useWidgetRows', () => ({
   useWidgetRows: () => ({
     filteredRowsNoCross: rowsHolder.current,
-    effectiveRows: rowsHolder.current,
+    effectiveRows: rowsHolder.effective ?? rowsHolder.current,
     isLoading: false,
     isError: false,
     errorMessage: undefined,
@@ -87,6 +92,7 @@ interface StateOverrides {
   relationships?: StudioRelationship[];
   filters?: StudioFilterState[];
   expressionFields?: StudioExpressionField[];
+  globalCrossFilterMode?: 'cross-highlight' | 'cross-filter' | 'none';
 }
 
 function createState(overrides?: StateOverrides): StudioState {
@@ -97,6 +103,9 @@ function createState(overrides?: StateOverrides): StudioState {
         id: 'dashboard-1',
         title: 'Dashboard',
         activePageId: 'page-1',
+        ...(overrides?.globalCrossFilterMode
+          ? { globalCrossFilterMode: overrides.globalCrossFilterMode }
+          : {}),
       },
       pages: {
         'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] },
@@ -855,5 +864,140 @@ describe('<StudioKpiWidget /> measure formula edit busts the cached headline + s
     expect(sumSpark).toEqual([100, 400]);
     expect(avgSpark).toEqual([100, 200]);
     expect(avgSpark).not.toEqual(sumSpark);
+  });
+});
+
+describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicator (finding 3.8)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    // Reset so later tests (which never set `.effective`) keep the default
+    // "mirrors `.current`" behaviour other describe blocks rely on.
+    rowsHolder.effective = null;
+  });
+
+  it("a dashboard-wide globalCrossFilterMode overrides the widget's own 'none' setting, matching every other widget kind's precedence", () => {
+    // `filteredRowsNoCross` (the widget's local 'none' choice) sums to 100; `effectiveRows`
+    // (what a global override should route to) sums to 999. Pre-fix, the KPI's local
+    // `crossFilterMode` resolution ignored `globalCrossFilterMode` entirely and always
+    // used `filteredRowsNoCross` here, regardless of the dashboard-wide toggle.
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    rowsHolder.effective = [{ id: 's2', amount: 999, saleDate: '2026-07-01' }];
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      globalCrossFilterMode: 'cross-filter',
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(lastValue()).toBe('999');
+  });
+
+  it("keeps the widget's own 'none' setting (grand total) when there is no global override", () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    rowsHolder.effective = [{ id: 's2', amount: 999, saleDate: '2026-07-01' }];
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(lastValue()).toBe('100');
+  });
+
+  it('shows the "ignoring filters" indicator for an enabled interactive filter from another widget on this page', () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    const interactiveFilter: StudioFilterState = {
+      id: 'f-interactive',
+      field: 'region',
+      operator: 'equals',
+      value: 'EMEA',
+      scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [interactiveFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(screen.queryByTestId('InfoOutlinedIcon')).not.toBe(null);
+  });
+
+  it('does not show the indicator for an interactive filter scoped to a different page', () => {
+    // Pre-fix, `hasIgnoredInteractiveFilters` matched any interactive-scope filter from
+    // another widget with no `pageId` check, so a filter that could never apply to this
+    // page still showed the "ignoring filters" icon.
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    const otherPageFilter: StudioFilterState = {
+      id: 'f-other-page',
+      field: 'region',
+      operator: 'equals',
+      value: 'EMEA',
+      scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [otherPageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(screen.queryByTestId('InfoOutlinedIcon')).toBe(null);
+  });
+
+  it('does not show the indicator for a disabled interactive filter', () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    const disabledFilter: StudioFilterState = {
+      id: 'f-disabled',
+      field: 'region',
+      operator: 'equals',
+      value: 'EMEA',
+      scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      disabled: true,
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [disabledFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(screen.queryByTestId('InfoOutlinedIcon')).toBe(null);
   });
 });

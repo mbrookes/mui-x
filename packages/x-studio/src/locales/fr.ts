@@ -822,6 +822,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     'Le diagramme de Sankey nécessite des champs source, cible et valeur.',
   chartGanttRequiresFieldsHint:
     "Le diagramme de Gantt nécessite un champ d'étiquette et des champs de dates de début et de fin.",
+  chartGanttDurationLabel: 'Durée :',
+  chartCrossFilterFilteredOutLabel: 'filtré',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -860,6 +862,23 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionAddPage: 'Ajouter une nouvelle page',
   aiSuggestionSummarisePage: 'Résumer la page',
   aiSuggestionWhatDataAvailable: 'Quelles données sont disponibles ?',
+  aiSuggestionBarChartPrompt: (numericLabel, catLabel, sourceLabel) =>
+    `Ajoute un graphique à barres montrant ${numericLabel} par ${catLabel} à partir des données ${sourceLabel}.`,
+  aiSuggestionKpiPrompt: (fieldLabel, sourceLabel) =>
+    `Ajoute une carte KPI montrant le total de ${fieldLabel} depuis ${sourceLabel}.`,
+  aiSuggestionTablePrompt: (sourceLabel) =>
+    `Ajoute un tableau de données montrant les enregistrements de ${sourceLabel}.`,
+  aiSuggestionChangeToLinePrompt: (widgetTitle) =>
+    `Transforme le widget « ${widgetTitle} » en graphique en courbes.`,
+  aiSuggestionAddSparklinePrompt: (widgetTitle) =>
+    `Ajoute une sparkline au widget KPI « ${widgetTitle} ».`,
+  aiSuggestionAddDateFilterPrompt:
+    'Ajoute un widget de filtre de plage de dates au tableau de bord.',
+  aiSuggestionAddPagePrompt: 'Crée une nouvelle page de tableau de bord.',
+  aiSuggestionSummarisePagePrompt:
+    'Donne-moi un résumé exécutif des principaux enseignements de cette page — concentre-toi sur les données, les tendances et les anomalies plutôt que sur la structure de la page.',
+  aiSuggestionWhatDataAvailablePrompt:
+    'Quelles sources de données et quels champs sont disponibles pour construire ce tableau de bord ?',
   chatNewConversationName: 'Nouvelle conversation',
   chatSwitchConversationTooltip: 'Changer de conversation',
   chatNoConversationsLabel: 'Aucune conversation pour le moment',
@@ -1082,6 +1101,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   exprBooleanValueAriaLabel: 'Valeur booléenne',
   filterRankDirectionAriaLabel: 'Sens du classement',
   filterRankCountLabel: "Nombre d'éléments",
+  filterSliderMinimumAriaLabel: (label) => `${label} minimum`,
+  filterSliderMaximumAriaLabel: (label) => `${label} maximum`,
   filterRelativeDateUnitAriaLabel: 'Unité de temps',
   filterRelativeDateDirectionAriaLabel: 'Direction',
   filterDateModeAriaLabel: 'Type de valeur de date',

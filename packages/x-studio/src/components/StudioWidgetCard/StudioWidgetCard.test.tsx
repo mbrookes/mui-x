@@ -3,6 +3,7 @@ import { createRenderer, fireEvent, screen, act } from '@mui/internal-test-utils
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
   StudioDataSource,
+  StudioExpressionField,
   StudioFilterState,
   StudioState,
   StudioWidget,
@@ -47,6 +48,7 @@ function setup(
     mode?: StudioState['session']['mode'];
     filters?: StudioFilterState[];
     dataSources?: Record<string, StudioDataSource>;
+    expressionFields?: StudioExpressionField[];
   } = {},
 ) {
   const w = options.widget ?? widget();
@@ -55,6 +57,7 @@ function setup(
       doc: {
         widgets: { [w.id]: w },
         ...(options.filters ? { filters: options.filters } : {}),
+        ...(options.expressionFields ? { expressionFields: options.expressionFields } : {}),
       },
       session: {
         ...(options.mode ? { mode: options.mode } : {}),
@@ -108,7 +111,11 @@ describe('StudioWidgetCard', () => {
 
   it('selects the widget on Enter and Space key presses', () => {
     const { card, setSelectedSpy } = setup();
-    card.focus(); // fireEvent.keyDown targets the active element in this harness
+    // fireEvent.keyDown targets the active element in this harness. Wrapped in act()
+    // since focusing the card now also updates state (finding 2.14's onFocus handler).
+    act(() => {
+      card.focus();
+    });
     fireEvent.keyDown(card, { key: 'Enter' });
     fireEvent.keyDown(card, { key: ' ' });
     expect(setSelectedSpy).toHaveBeenCalledTimes(2);
@@ -135,7 +142,9 @@ describe('StudioWidgetCard', () => {
   it('does not select/activate the widget when clicked in view mode', () => {
     const { card, setSelectedSpy } = setup({ mode: 'view' });
     fireEvent.click(card);
-    card.focus();
+    act(() => {
+      card.focus();
+    });
     fireEvent.keyDown(card, { key: 'Enter' });
     expect(setSelectedSpy).not.toHaveBeenCalled();
   });
@@ -150,7 +159,9 @@ describe('StudioWidgetCard', () => {
   // action for a Space keypress) on top of activating the card.
   it('prevents default scroll behavior when activated with Space in edit mode', () => {
     const { card } = setup();
-    card.focus();
+    act(() => {
+      card.focus();
+    });
     // `fireEvent` returns the result of `dispatchEvent`, which is `false` when the
     // event was cancelable and a handler called `preventDefault()`.
     const result = fireEvent.keyDown(card, { key: ' ' });
@@ -159,9 +170,45 @@ describe('StudioWidgetCard', () => {
 
   it('does not preventDefault for Space in view mode (card is not interactive)', () => {
     const { card } = setup({ mode: 'view' });
-    card.focus();
+    act(() => {
+      card.focus();
+    });
     const result = fireEvent.keyDown(card, { key: ' ' });
     expect(result).toBe(true);
+  });
+
+  // Regression coverage for finding 2.14: the view-mode export/expand toolbar used to
+  // reveal only on `onMouseEnter`/`onMouseLeave`, with no keyboard-focus equivalent — a
+  // keyboard-only user could never reach it (edit mode already has a keyboard path via
+  // card selection). The toolbar buttons stay mounted with `tabIndex={-1}` while hidden
+  // (`StudioWidgetCardActionsOverlay`), so focusing the always-tabbable card container
+  // must flip them to `tabIndex={0}` exactly like mouse hover does.
+  it('reveals the view-mode toolbar (and makes its buttons tabbable) on card focus, not just mouse hover', () => {
+    const source: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      rows: [{ status: 'active' }],
+    };
+    const { card } = setup({
+      mode: 'view',
+      widget: widget({ kind: 'grid', sourceId: 's1', config: {} as StudioWidgetConfig }),
+      dataSources: { s1: source },
+    });
+    const exportButton = screen.getByLabelText('Download as CSV');
+    // Hidden and out of the tab order before any hover/focus.
+    expect(exportButton.getAttribute('tabindex')).toBe('-1');
+
+    fireEvent.focus(card);
+    expect(exportButton.getAttribute('tabindex')).toBe('0');
+
+    // Focus moving to a descendant (the button itself, e.g. via Tab) must not hide the
+    // toolbar again — only leaving the card entirely should.
+    fireEvent.blur(card, { relatedTarget: exportButton });
+    expect(exportButton.getAttribute('tabindex')).toBe('0');
+
+    fireEvent.blur(card, { relatedTarget: null });
+    expect(exportButton.getAttribute('tabindex')).toBe('-1');
   });
 
   // Regression coverage: the active cross-filter chip label used to be built by an
@@ -184,6 +231,41 @@ describe('StudioWidgetCard', () => {
     });
     expect(screen.getByText(/order_date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
     expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+  });
+
+  // Regression coverage for finding 3.11: the cross-filter chip label only checked
+  // `source.fields`, so a cross-filter on an expression (calculated) field fell through
+  // to the raw field id instead of its label. `resolveFieldDef` (already the shared
+  // "check owned fields, then expression fields" lookup used by the chart widgets)
+  // should resolve it the same way here.
+  it('resolves the cross-filter chip label from an expression field, not just the raw id', () => {
+    const crossFilter: StudioFilterState = {
+      id: 'cf1',
+      field: 'margin',
+      operator: 'equals',
+      value: 'high',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+    };
+    const marginField: StudioExpressionField = {
+      id: 'margin',
+      label: 'Margin %',
+      sourceId: 's1',
+      isMeasure: false,
+      expression: {
+        operator: 'add',
+        inputs: [
+          { type: 'number', value: 0 },
+          { type: 'number', value: 0 },
+        ],
+      } as StudioExpressionField['expression'],
+    };
+    setup({
+      widget: widget({ kind: 'grid', sourceId: 's1', config: {} as StudioWidgetConfig }),
+      filters: [crossFilter],
+      expressionFields: [marginField],
+    });
+    expect(screen.getByText('Margin %: high')).toBeDefined();
+    expect(screen.queryByText(/^margin:/)).toBeNull();
   });
 
   // Regression coverage: `resolveWidgetRows` only honours a widget's cross-filter mode

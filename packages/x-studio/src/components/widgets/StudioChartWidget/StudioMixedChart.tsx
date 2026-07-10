@@ -26,10 +26,13 @@ export interface StudioMixedChartProps {
   /** Route line series to a right-hand y-axis. */
   dualYAxis?: boolean;
   /**
-   * Whether the chart blends series from independent sources. The series config is
-   * always matched by fieldId (see the `mixedSeries` comment below) — this flag is
-   * used elsewhere (e.g. the support-guard call site) to decide whether the usual
-   * xField/yField support validation applies.
+   * Whether the chart blends series from independent sources. When blended,
+   * `multiYData.series` entries carry a `sourceId` and the series config is matched
+   * by the `(fieldId, sourceId)` pair (see the `mixedSeries` comment below) so two
+   * series sharing a field id across different sources aren't config-matched to the
+   * same `ySeries` entry (finding 2.12). This flag is also used elsewhere (e.g. the
+   * support-guard call site) to decide whether the usual xField/yField support
+   * validation applies.
    */
   isBlended: boolean;
   resolvedChartColors: string[];
@@ -70,14 +73,31 @@ export function StudioMixedChart({
   children,
 }: StudioMixedChartProps) {
   const mixedSeries = multiYData.series.map((s, index) => {
-    // Always match the config by fieldId, for both blended and non-blended charts.
+    // Match the config by fieldId, for both blended and non-blended charts.
     // `multiYData.series` order does NOT reliably line up with `ySeries` by index for
     // blended charts: `useChartWidgetData`'s `blendedMultiYData` builds its inputs via
     // `blendSeries.flatMap((s) => (s.fieldId ? [...] : []))`, which drops fieldless
     // entries — so an incomplete `ySeries` row (no `fieldId` yet, e.g. mid-configuration
     // in the setup panel) before a configured one shifts every subsequent series one
     // index out of alignment with a positional lookup (finding 2.2).
-    const seriesConfig = ySeries.find((c) => c.fieldId === s.fieldId);
+    //
+    // For a real blended chart, `blendedMultiYData` always populates `s.sourceId` on
+    // every entry (see its construction in `useChartWidgetData.ts`), and two series can
+    // legitimately share a `fieldId` while blending different sources (e.g. `amount`
+    // from `orders` and `amount` from `refunds`) — matching by fieldId alone would
+    // config-match the second series to the first's `ySeries` entry, rendering it with
+    // the wrong chart type/label/format/axis (finding 2.12). So when the data entry
+    // itself carries a sourceId, also require the config's resolved sourceId (falling
+    // back to the widget's primary source, same as `seriesSourceId` below) to match it.
+    const seriesConfig = ySeries.find((c) => {
+      if (c.fieldId !== s.fieldId) {
+        return false;
+      }
+      if (s.sourceId === undefined) {
+        return true;
+      }
+      return (c.sourceId ?? widgetSourceId) === s.sourceId;
+    });
     const seriesType = (seriesConfig && normalizeChartSeries(seriesConfig).type) ?? 'bar';
     const seriesId = `${s.fieldId}-${index}`;
     const color = resolvedChartColors[index % resolvedChartColors.length];

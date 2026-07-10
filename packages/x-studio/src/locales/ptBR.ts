@@ -811,6 +811,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSankeyRequiresFieldsHint: 'O diagrama de Sankey requer campos de origem, destino e valor.',
   chartGanttRequiresFieldsHint:
     'O gráfico de Gantt requer um campo de rótulo, um campo de data de início e um de data de término.',
+  chartGanttDurationLabel: 'Duração:',
+  chartCrossFilterFilteredOutLabel: 'filtrado',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -849,6 +851,22 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionAddPage: 'Adicionar nova página',
   aiSuggestionSummarisePage: 'Resumir página',
   aiSuggestionWhatDataAvailable: 'Quais dados estão disponíveis?',
+  aiSuggestionBarChartPrompt: (numericLabel, catLabel, sourceLabel) =>
+    `Adicione um gráfico de barras mostrando ${numericLabel} por ${catLabel} a partir dos dados de ${sourceLabel}.`,
+  aiSuggestionKpiPrompt: (fieldLabel, sourceLabel) =>
+    `Adicione um cartão KPI mostrando o total de ${fieldLabel} de ${sourceLabel}.`,
+  aiSuggestionTablePrompt: (sourceLabel) =>
+    `Adicione uma tabela de dados mostrando registros de ${sourceLabel}.`,
+  aiSuggestionChangeToLinePrompt: (widgetTitle) =>
+    `Mude o widget "${widgetTitle}" para um gráfico de linhas.`,
+  aiSuggestionAddSparklinePrompt: (widgetTitle) =>
+    `Adicione uma sparkline ao widget KPI "${widgetTitle}".`,
+  aiSuggestionAddDateFilterPrompt: 'Adicione um widget de filtro de intervalo de datas ao painel.',
+  aiSuggestionAddPagePrompt: 'Crie uma nova página do painel.',
+  aiSuggestionSummarisePagePrompt:
+    'Dê-me um resumo executivo dos principais insights desta página — concentre-se nos dados, tendências e quaisquer anomalias em vez da estrutura da página.',
+  aiSuggestionWhatDataAvailablePrompt:
+    'Quais fontes de dados e campos estão disponíveis para construir este painel?',
   chatNewConversationName: 'Nova conversa',
   chatSwitchConversationTooltip: 'Trocar conversa',
   chatNoConversationsLabel: 'Nenhuma conversa ainda',
@@ -1069,6 +1087,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   exprBooleanValueAriaLabel: 'Valor booleano',
   filterRankDirectionAriaLabel: 'Direção de classificação',
   filterRankCountLabel: 'Número de itens',
+  filterSliderMinimumAriaLabel: (label) => `${label} mínimo`,
+  filterSliderMaximumAriaLabel: (label) => `${label} máximo`,
   filterRelativeDateUnitAriaLabel: 'Unidade de tempo',
   filterRelativeDateDirectionAriaLabel: 'Direção',
   filterDateModeAriaLabel: 'Tipo de valor de data',

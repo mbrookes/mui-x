@@ -50,6 +50,7 @@ import { inferKpiDateSubtitle } from '../../internals/widgetUtils';
 import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
+import { resolveFieldDef } from '../widgets/StudioChartWidget/chartWidgetHelpers';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { runWidgetExport } from './widgetExport';
 import { useStudioWidgetInsights } from './useStudioWidgetInsights';
@@ -445,6 +446,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        // `hovered` also gates the view-mode export/expand toolbar (`showViewActions`
+        // below); without a focus-driven equivalent it was mouse-only, so a
+        // keyboard-only user could never reveal those actions in view mode (edit mode
+        // already has a keyboard path via card selection/`isSelected`). React's
+        // `onFocus`/`onBlur` behave like native `focusin`/`focusout` (they bubble from
+        // descendants), so this also fires when a toolbar button itself receives focus
+        // via Tab, keeping the buttons visible while they're being tabbed through
+        // (finding 2.14).
+        onFocus={() => setHovered(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setHovered(false);
+          }
+        }}
         sx={{
           borderColor: pageTheme?.cardBorderColor ?? 'divider',
           borderWidth: pageTheme?.cardBorderWidth ?? 1,
@@ -568,7 +583,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   <Chip
                     size="small"
                     label={`${
-                      source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
+                      // Check the source's physical fields first, then expression
+                      // (computed) fields, mirroring `resolveFieldDef`'s use elsewhere
+                      // for field-label lookups — a cross-filter on a calculated field
+                      // previously fell straight through to the raw field id since only
+                      // `source.fields` was checked (finding 3.11).
+                      resolveFieldDef(activeCrossFilter.field, source, expressionFields)?.label ??
                       activeCrossFilter.field
                     }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}
                     onDelete={() => controller.clearCrossFilter(widgetId)}

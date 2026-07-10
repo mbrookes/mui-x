@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Slider } from '@mui/material';
 import dayjs from 'dayjs';
+import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
 
 export interface StudioFilterSliderControlProps {
   label: string;
@@ -16,6 +17,7 @@ export interface StudioFilterSliderControlProps {
 
 export function SliderControl(props: StudioFilterSliderControlProps) {
   const { label, min, max, step, isDate, currentValue, onApply, onClear } = props;
+  const localeText = useStudioLocaleText();
   const [localValue, setLocalValue] = React.useState<[number, number]>([
     currentValue?.from ?? min,
     currentValue?.to ?? max,
@@ -64,7 +66,11 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
         valueLabelDisplay="auto"
         valueLabelFormat={formatLabel}
         getAriaValueText={formatLabel}
-        getAriaLabel={(index) => `${label} ${index === 0 ? 'minimum' : 'maximum'}`}
+        getAriaLabel={(index) =>
+          index === 0
+            ? localeText.filterSliderMinimumAriaLabel(label)
+            : localeText.filterSliderMaximumAriaLabel(label)
+        }
         sx={{ display: 'block' }}
       />
     </Box>

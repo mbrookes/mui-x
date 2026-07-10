@@ -337,7 +337,11 @@ export function StudioBarChart({
           : rawFilteredValues;
       const valueFormatter =
         multiYBarContext && filteredValuesForFormatter
-          ? makeCrossFilterValueFormatter(filteredValuesForFormatter, baseFormatter)
+          ? makeCrossFilterValueFormatter(
+              filteredValuesForFormatter,
+              baseFormatter,
+              localeText.chartCrossFilterFilteredOutLabel,
+            )
           : baseFormatter;
       return {
         id: seriesId,
@@ -496,7 +500,11 @@ export function StudioBarChart({
           : rawFilteredValues;
       const valueFormatter =
         sfBarContext && filteredValuesForFormatter
-          ? makeCrossFilterValueFormatter(filteredValuesForFormatter, baseSeriesValueFormatter)
+          ? makeCrossFilterValueFormatter(
+              filteredValuesForFormatter,
+              baseSeriesValueFormatter,
+              localeText.chartCrossFilterFilteredOutLabel,
+            )
           : baseSeriesValueFormatter;
       return {
         id: seriesId,
@@ -693,7 +701,11 @@ export function StudioBarChart({
       if (otherGroupingApplied && String(label) === otherBucketLabel) {
         let sum = 0;
         for (const [lbl, fv] of filteredValueByLabel) {
-          if (!keepSet.has(lbl)) {
+          // Exclude the empty-label bucket, matching `nonEmptyBarPairs`'s exclusion above
+          // (`label !== null && label !== undefined && label !== ''`) — otherwise this ghost
+          // sum can include a filtered value the baseline's `otherValue` never counted,
+          // making the "Other" ghost total exceed its own (baseline) bar (finding 3.9).
+          if (lbl !== '' && !keepSet.has(lbl)) {
             sum += fv ?? 0;
           }
         }
@@ -715,7 +727,11 @@ export function StudioBarChart({
     : null;
   const singleSeriesVF =
     singleBarContext && singleSeriesFilteredValues
-      ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
+      ? makeCrossFilterValueFormatter(
+          singleSeriesFilteredValues,
+          seriesValueFormatter,
+          localeText.chartCrossFilterFilteredOutLabel,
+        )
       : seriesValueFormatter;
   // Bar slots: a field-titled tooltip (question as title, category as the labelled row) plus a
   // bar slot — ghost-target rendering wins; otherwise multi-select source dimming; else default.

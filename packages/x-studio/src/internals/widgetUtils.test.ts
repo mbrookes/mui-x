@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildCsvContent,
   createDefaultWidget,
   downloadCsv,
+  exportChartToPng,
   exportGridToCsv,
   formatDateFilterLabel,
   inferKpiDateSubtitle,
@@ -667,6 +668,69 @@ describe('downloadCsv', () => {
   });
 });
 
+// Regression coverage for finding 3.10: a failed SVG-blob `<img>` load had no `onerror`
+// handler, so it silently no-oped AND leaked the `URL.createObjectURL` object URL that
+// the (never-invoked) `onload` handler would otherwise have revoked.
+describe('exportChartToPng', () => {
+  function makeChartContainer(): HTMLElement {
+    const container = document.createElement('div');
+    container.innerHTML = '<svg width="100" height="50"></svg>';
+    document.body.appendChild(container);
+    return container;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('revokes the object URL and warns (without throwing) when the image fails to load', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-url');
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      scale: vi.fn(),
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+
+    // jsdom never actually loads a `blob:` URL into an `<img>` (neither `onload` nor
+    // `onerror` fires on its own), so capture the constructed element to invoke its
+    // `onerror` handler directly, exactly as the browser would on a real load failure.
+    // Patching the shared `HTMLImageElement.prototype.src` accessor (rather than
+    // subclassing the `Image` constructor) avoids jsdom's legacy `Image` factory not
+    // reliably supporting `extends` — `new Image()` in the SUT still returns a normal
+    // image element, and this setter observes every `.src` assignment on it.
+    let capturedImage: HTMLImageElement | null = null;
+    const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return srcDescriptor.get!.call(this);
+      },
+      set(this: HTMLImageElement, value: string) {
+        // Capturing the setter's `this` (the constructed <img>) is the point of this
+        // test-only patch.
+        // eslint-disable-next-line consistent-this
+        capturedImage = this;
+        srcDescriptor.set!.call(this, value);
+      },
+    });
+
+    try {
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      exportChartToPng(widget, makeChartContainer());
+
+      expect(capturedImage).not.toBeNull();
+      expect(() => capturedImage!.onerror!(new Event('error'))).not.toThrow();
+      expect(revokeSpy).toHaveBeenCalledWith('blob:fake-url');
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', srcDescriptor);
+    }
+  });
+});
+
 // ─── Locale token tests ────────────────────────────────────────────────────────
 
 /** Build a StudioFilterState with a relative date value (requires `relative: true`). */
@@ -705,6 +769,68 @@ describe('formatDateFilterLabel — default EN tokens', () => {
 
   it('formats "Next 2 weeks" with plural unit', () => {
     expect(formatDateFilterLabel(relDateFilter('next', 2, 'week'))).toBe('Next 2 weeks');
+  });
+});
+
+// Regression coverage for finding 2.15: a canonical date-only value (`'YYYY-MM-DD'`) is
+// anchored to UTC midnight by `new Date(...)`; formatting that instant through the local
+// calendar day-shifted it back a day for any viewer west of UTC. `formatAbsoluteDate`
+// (private to this module, exercised here via `formatDateFilterLabel`'s absolute-date
+// branches) must read the Y/M/D components directly instead.
+describe('formatDateFilterLabel — date-only values do not day-shift west of UTC', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // Node re-reads `TZ` per `Date` call (no restart needed), so this reliably
+    // reproduces the bug for a negative-UTC-offset viewer regardless of the host
+    // machine's own timezone.
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  function absoluteDateFilter(
+    operator: StudioFilterState['operator'],
+    value: unknown,
+    value2?: unknown,
+  ): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator,
+      scope: { kind: 'page' },
+      value,
+      ...(value2 !== undefined ? { value2 } : {}),
+    } as StudioFilterState;
+  }
+
+  it('does not shift a "since" (greater_than_or_equal) date-only value back a day', () => {
+    expect(formatDateFilterLabel(absoluteDateFilter('greater_than_or_equal', '2024-03-15'))).toBe(
+      'Since Mar 15, 2024',
+    );
+  });
+
+  it('does not shift a "until" (less_than_or_equal) date-only value back a day', () => {
+    expect(formatDateFilterLabel(absoluteDateFilter('less_than_or_equal', '2024-03-15'))).toBe(
+      'Until Mar 15, 2024',
+    );
+  });
+
+  it('does not shift either side of a between-with-two-values range', () => {
+    expect(
+      formatDateFilterLabel(absoluteDateFilter('less_than_or_equal', '2024-03-15', '2024-03-20')),
+    ).toBe('Mar 15, 2024 – Mar 20, 2024');
+  });
+
+  it('does not shift a between-range built from a { from, to } value', () => {
+    expect(
+      formatDateFilterLabel(
+        absoluteDateFilter('between', { from: '2024-03-15', to: '2024-03-20' }),
+      ),
+    ).toBe('Mar 15, 2024 – Mar 20, 2024');
   });
 });
 

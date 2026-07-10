@@ -303,9 +303,27 @@ function formatRelativeDateValue(rel: RelativeDateValue, localeText: StudioLocal
   return localeText.dateFilterNext(rel.amount, unitLabel);
 }
 
+/** Matches a canonical date-only cell value, e.g. `'2024-03-15'`. */
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 function formatAbsoluteDate(value: unknown): string {
   if (!value) {
     return '';
+  }
+  // A canonical date-only string is anchored to UTC midnight by `new Date(...)`;
+  // formatting that instant through the LOCAL calendar (`toLocaleDateString`) below
+  // day-shifts it for any viewer west of UTC (e.g. `2024-03-15` renders as "Mar 14") —
+  // the display-side twin of the ingestion day-shift bug class `temporalUtils.ts`
+  // already guards against for date-only values (finding 2.15). Parse the Y/M/D
+  // components directly and construct a LOCAL `Date` from them so the displayed
+  // calendar date matches the stored one regardless of the viewer's offset.
+  if (typeof value === 'string' && DATE_ONLY_RE.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
   }
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) {
@@ -773,6 +791,14 @@ export function exportChartToPng(
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+  // Without an error handler, a failed SVG-blob image load (e.g. the browser rejects the
+  // serialized SVG) silently no-ops AND leaks the object URL `onload` would have revoked
+  // (finding 3.10). There's no existing user-facing error surface for this export path, so
+  // a console warning is the best available signal short of adding new UI.
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    console.warn('MUI X Studio: failed to export chart to PNG (image failed to load).');
   };
 
   img.src = url;

@@ -33,7 +33,13 @@ export interface MultiSeriesData {
  */
 export interface MultiYSeriesData {
   labels: (string | number)[];
-  series: Array<{ fieldId: string; values: number[] }>;
+  /**
+   * `sourceId` is only populated for blended series (see {@link aggregateBlendedSeries}),
+   * where two entries can legitimately share the same `fieldId` while originating from
+   * different sources. Non-blended aggregation (`aggregateMultipleSeries`) never sets it,
+   * since its series are already de-duplicated by `fieldId` within a single source.
+   */
+  series: Array<{ fieldId: string; sourceId?: string; values: number[] }>;
 }
 
 /**
@@ -479,6 +485,15 @@ export function aggregateMultipleSeries(
 export interface BlendedSeriesInput {
   /** Field id aggregated for this series (within its own `rows`). */
   fieldId: string;
+  /**
+   * The series' resolved source id (callers should default this to the widget's
+   * primary source when the series config omits one, mirroring the `rows` fallback).
+   * Threaded through to the output so two series sharing a `fieldId` across
+   * different sources can be told apart downstream (finding 2.12) — matching on
+   * `fieldId` alone conflates them. Optional only for callers that don't need
+   * source-aware disambiguation (e.g. direct aggregator tests).
+   */
+  sourceId?: string;
   /** Rows for this series, already filtered/resolved from its own source. */
   rows: Row[];
   /** Per-series aggregation. @default 'sum' */
@@ -536,6 +551,7 @@ export function aggregateBlendedSeries(
     labels: sortedLabels,
     series: series.map((s, i) => ({
       fieldId: s.fieldId,
+      sourceId: s.sourceId,
       values: sortedLabels.map((label) => valueMaps[i].get(label) ?? 0),
     })),
   };

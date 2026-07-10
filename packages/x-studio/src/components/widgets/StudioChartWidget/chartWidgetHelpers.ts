@@ -268,17 +268,22 @@ export function alignFilteredToAllLabels(
  * Wraps a base valueFormatter to show "filtered / total" when a cross-filter is active.
  * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
+ * @param {string} filteredOutLabel - Localized suffix shown for a fully-filtered-out value
+ *   (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Defaults to the
+ *   English literal so existing callers that haven't threaded locale text through yet keep
+ *   compiling, but every in-repo call site should pass the localized value.
  * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
  */
 export function makeCrossFilterValueFormatter(
   filteredValues: (number | null)[],
   baseFormatter: (arg: number | null) => string,
+  filteredOutLabel: string = 'filtered out',
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const fv = filteredValues[dataIndex];
     const base = baseFormatter(value);
     if (fv == null) {
-      return `${base} (filtered out)`;
+      return `${base} (${filteredOutLabel})`;
     }
     if (fv === value) {
       return base;
@@ -291,15 +296,19 @@ export function makeCrossFilterValueFormatter(
  * to show "filtered / baseline" when a cross-highlight ghost series is active.
  * @param {(number | null)[]} baselineValues - Array of baseline (all-data) values aligned to the x-axis.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
+ * @param {string} filteredOutLabel - Localized suffix shown for a fully-filtered-out value
+ *   (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Defaults to the
+ *   English literal for the same back-compat reason as `makeCrossFilterValueFormatter`.
  */
 export function makeCrossHighlightLineFormatter(
   baselineValues: (number | null)[],
   baseFormatter: (arg: number | null) => string,
+  filteredOutLabel: string = 'filtered out',
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const baseline = baselineValues[dataIndex] ?? null;
     if (value == null) {
-      return `${baseFormatter(baseline)} (filtered out)`;
+      return `${baseFormatter(baseline)} (${filteredOutLabel})`;
     }
     if (value === baseline || baseline == null) {
       return baseFormatter(value);

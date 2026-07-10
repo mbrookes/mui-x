@@ -900,8 +900,16 @@ function getRegionDisplayNames(): Intl.DisplayNames | null {
     return regionDisplayNames;
   }
   try {
+    // Resolve the runtime's active locale (`undefined` locales arg), matching every
+    // other `Intl.*` construction in this package (`numberFormat.ts`,
+    // `toLocaleDateString(undefined, …)` in `kpiUtils.ts`/`temporalUtils.ts`/
+    // `StudioGanttChart.tsx`/`widgetUtils.tsx`) — none of them thread a locale code
+    // from `StudioLocaleText` (which only carries translated strings, not a BCP-47
+    // tag), they all defer to the browser/runtime default. Hardcoding `['en']` here
+    // was the one outlier, pinning region names to English regardless of the
+    // viewer's locale (finding 3.13).
     // react-doctor-disable-next-line react-doctor/js-hoist-intl -- already lazy-cached at module scope
-    regionDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' });
+    regionDisplayNames = new Intl.DisplayNames(undefined, { type: 'region' });
     return regionDisplayNames;
   } catch {
     return null;
@@ -909,8 +917,9 @@ function getRegionDisplayNames(): Intl.DisplayNames | null {
 }
 
 /**
- * Returns the English display name for an ISO 3166-1 alpha-2 country code.
- * Uses `Intl.DisplayNames` for broad coverage; falls back to the raw code.
+ * Returns the localized (runtime-default-locale) display name for an ISO 3166-1
+ * alpha-2 country code. Uses `Intl.DisplayNames` for broad coverage; falls back to
+ * the raw code.
  */
 export function alpha2ToName(code: string): string {
   try {

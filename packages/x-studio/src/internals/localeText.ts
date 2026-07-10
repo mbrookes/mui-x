@@ -925,6 +925,13 @@ export interface StudioLocaleText {
   chartSankeyRequiresFieldsHint: string;
   /** Hint shown when a gantt chart is missing required fields */
   chartGanttRequiresFieldsHint: string;
+  /** Label preceding the duration value in a gantt bar's hover tooltip, e.g. "Duration:" */
+  chartGanttDurationLabel: string;
+  /**
+   * Suffix appended to a cross-filtered-out chart tooltip value, e.g. "1,200 (filtered out)".
+   * Shared by the bar and line/area cross-filter tooltip formatters.
+   */
+  chartCrossFilterFilteredOutLabel: string;
 
   // ── Map widget ────────────────────────────────────────────────────────────
   /** Returns the unconfigured-map hint, e.g. "Use the Setup tab to choose a country field and a value field." */
@@ -958,6 +965,30 @@ export interface StudioLocaleText {
   aiSuggestionAddPage: string;
   aiSuggestionSummarisePage: string;
   aiSuggestionWhatDataAvailable: string;
+
+  // ── AI chat suggestions — submitted prompt text ───────────────────────────
+  // These are the actual message TEXT submitted to the chat thread when a suggestion
+  // chip is clicked (rendered as "the user's own message"), as opposed to the chip's
+  // displayed `label` above — kept as separate tokens so a non-English locale doesn't
+  // show a translated chip that then posts an English message (finding 3.14).
+  /** Submitted prompt for the bar-chart suggestion. */
+  aiSuggestionBarChartPrompt: (
+    numericLabel: string,
+    catLabel: string,
+    sourceLabel: string,
+  ) => string;
+  /** Submitted prompt for the KPI suggestion. */
+  aiSuggestionKpiPrompt: (fieldLabel: string, sourceLabel: string) => string;
+  /** Submitted prompt for the data-table suggestion. */
+  aiSuggestionTablePrompt: (sourceLabel: string) => string;
+  /** Submitted prompt for the "change to line chart" suggestion. */
+  aiSuggestionChangeToLinePrompt: (widgetTitle: string) => string;
+  /** Submitted prompt for the "add sparkline" suggestion. */
+  aiSuggestionAddSparklinePrompt: (widgetTitle: string) => string;
+  aiSuggestionAddDateFilterPrompt: string;
+  aiSuggestionAddPagePrompt: string;
+  aiSuggestionSummarisePagePrompt: string;
+  aiSuggestionWhatDataAvailablePrompt: string;
   /** Default name for a new AI chat thread */
   chatNewConversationName: string;
   /** Tooltip on the thread-switcher button */
@@ -1144,6 +1175,10 @@ export interface StudioLocaleText {
   filterRankDirectionAriaLabel: string;
   /** Visible/accessible label for the rank filter count field */
   filterRankCountLabel: string;
+  /** Accessible name for the slider filter's lower-bound thumb, e.g. "Price minimum" */
+  filterSliderMinimumAriaLabel: (label: string) => string;
+  /** Accessible name for the slider filter's upper-bound thumb, e.g. "Price maximum" */
+  filterSliderMaximumAriaLabel: (label: string) => string;
   /** Accessible name for the relative-date unit select */
   filterRelativeDateUnitAriaLabel: string;
   /** Accessible name for the relative-date direction select */
@@ -2080,6 +2115,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSankeyRequiresFieldsHint: 'Sankey chart requires source, target, and value fields.',
   chartGanttRequiresFieldsHint:
     'Gantt chart requires a label field, start date field, and end date field.',
+  chartGanttDurationLabel: 'Duration:',
+  chartCrossFilterFilteredOutLabel: 'filtered out',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -2104,6 +2141,21 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionAddPage: 'Add a new page',
   aiSuggestionSummarisePage: 'Summarise page',
   aiSuggestionWhatDataAvailable: 'What data is available?',
+  aiSuggestionBarChartPrompt: (numericLabel, catLabel, sourceLabel) =>
+    `Add a bar chart showing ${numericLabel} by ${catLabel} from the ${sourceLabel} data.`,
+  aiSuggestionKpiPrompt: (fieldLabel, sourceLabel) =>
+    `Add a KPI card showing the total ${fieldLabel} from ${sourceLabel}.`,
+  aiSuggestionTablePrompt: (sourceLabel) => `Add a data table showing records from ${sourceLabel}.`,
+  aiSuggestionChangeToLinePrompt: (widgetTitle) =>
+    `Change the "${widgetTitle}" widget to a line chart.`,
+  aiSuggestionAddSparklinePrompt: (widgetTitle) =>
+    `Add a sparkline to the "${widgetTitle}" KPI widget.`,
+  aiSuggestionAddDateFilterPrompt: 'Add a date range filter widget to the dashboard.',
+  aiSuggestionAddPagePrompt: 'Create a new dashboard page.',
+  aiSuggestionSummarisePagePrompt:
+    'Give me an executive summary of the key insights from this page — focus on the data, trends, and any anomalies rather than the page structure.',
+  aiSuggestionWhatDataAvailablePrompt:
+    'What data sources and fields are available for building this dashboard?',
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
   chatNoConversationsLabel: 'No conversations yet',
@@ -2241,6 +2293,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   exprBooleanValueAriaLabel: 'Boolean value',
   filterRankDirectionAriaLabel: 'Rank direction',
   filterRankCountLabel: 'Number of items',
+  filterSliderMinimumAriaLabel: (label) => `${label} minimum`,
+  filterSliderMaximumAriaLabel: (label) => `${label} maximum`,
   filterRelativeDateUnitAriaLabel: 'Time unit',
   filterRelativeDateDirectionAriaLabel: 'Direction',
   filterDateModeAriaLabel: 'Date value type',

@@ -1151,3 +1151,123 @@ describe('useChartWidgetData — per-series yAggregation precedence (finding 1.1
     expect(data.seriesData.US[janIdx]).toBe(40);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 2.1: chart-support guard must see related-source expression fields, not
+// just the widget's own-source ones.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Before the fix, this hook subscribed with `makeSelectExpressionFieldsForSource(own)`
+// only. A calculated column owned by a DIRECTLY-RELATED source (one hop away via a
+// relationship) is invisible to `findDirectFieldOwner`/`hasRowLevelField` in that case,
+// so `analyzeChartSupport` reports `{ supported: false, reason:
+// 'field_not_found_or_not_direct' }` even though `ChartSetupPanel` (which subscribes to
+// the full expression-field list) validated and allowed the exact same configuration.
+// The fix subscribes to own + one-hop-related source ids (mirroring `useWidgetRows`),
+// so the widget's own guard agrees with the setup panel, and `useChartRows` no longer
+// short-circuits to `[]` purely because of this (previously wrong) outer gate.
+//
+// Note on scope: actually resolving a related-source EXPRESSION field's per-row VALUE
+// onto the widget's own rows is a separate concern (`enrichRowsWithRelatedFields` in
+// `internals/dataSourceGraph.ts`, out of scope for this fix — it only pulls physical
+// fields from a related source today). These tests assert exactly what this fix
+// changes: the support verdict itself, and that the widget is no longer forced blank
+// by a guard that disagreed with the setup panel. They deliberately do not assert
+// joined-value correctness, which this fix does not touch.
+
+describe('useChartWidgetData — related-source expression field support (finding 2.1)', () => {
+  const ordersWithCustomerSource: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'customerId', label: 'Customer ID', type: 'string', hidden: true },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: [
+      { id: 'o1', customerId: 'c1', total: 100 },
+      { id: 'o2', customerId: 'c1', total: 50 },
+      { id: 'o3', customerId: 'c2', total: 30 },
+    ],
+  };
+
+  const customersSource: StudioDataSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string', hidden: true },
+      { id: 'region', label: 'Region', type: 'string' },
+    ],
+    rows: [
+      { id: 'c1', region: 'US' },
+      { id: 'c2', region: 'EU' },
+    ],
+  };
+
+  // Owned by `customers` (the RELATED source), not by `orders` (the widget's own
+  // source) — this is the exact shape the previous own-source-only selector missed.
+  const customerTierField: StudioExpressionField = {
+    id: 'customer-tier',
+    label: 'Customer Tier',
+    sourceId: 'customers',
+    isMeasure: false,
+    type: 'string',
+    expression: { id: 'region' },
+  };
+
+  const relOrdersCustomers: StudioRelationship = {
+    id: 'rel-orders-customers',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+    type: 'many-to-one',
+  };
+
+  function chartOnCustomerTier(): StudioWidgetOf<'chart'> {
+    return {
+      id: 'chart-customer-tier',
+      kind: 'chart',
+      title: 'Revenue by Customer Tier',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'customer-tier',
+        yField: 'total',
+        yAggregation: 'sum',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    const widget = chartOnCustomerTier();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersWithCustomerSource, customers: customersSource },
+      relationships: [relOrdersCustomers],
+      expressionFields: [customerTierField],
+    });
+  });
+
+  it('reports the chart as supported when the dimension field is owned by a directly-related source', () => {
+    const widget = chartOnCustomerTier();
+    const { result } = renderHook(() =>
+      useChartWidgetData(widget, ordersWithCustomerSource, 'page-1'),
+    );
+    expect(result.current.chartSupport.supported).toBe(true);
+    expect(result.current.chartSupport.reason).toBeUndefined();
+  });
+
+  it('does not force enrichedRows/chartData to empty via the (now-agreeing) outer support guard', () => {
+    const widget = chartOnCustomerTier();
+    const { result } = renderHook(() =>
+      useChartWidgetData(widget, ordersWithCustomerSource, 'page-1'),
+    );
+    // Before the fix, `useChartRows` short-circuited to `[]` because the outer
+    // `chartSupport.supported` (computed from the own-source-only list) was false —
+    // even though the field is perfectly valid per the setup panel's full-list check.
+    expect(result.current.enrichedRows.length).toBe(ordersWithCustomerSource.rows!.length);
+    // `chartData` is computed (not null) once enrichedRows are non-empty — the pipeline
+    // actually runs instead of being gated off before it starts.
+    expect(result.current.chartData).not.toBeNull();
+  });
+});

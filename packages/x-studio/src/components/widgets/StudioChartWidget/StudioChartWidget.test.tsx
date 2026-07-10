@@ -2256,4 +2256,106 @@ describe('<StudioChartWidget />', () => {
       expect(peakLine.props.x).toBeUndefined();
     });
   });
+
+  // ─── Finding 2.1 ────────────────────────────────────────────────────────────
+  // Before the fix, this component (and useChartWidgetData) subscribed to expression
+  // fields scoped to the widget's OWN source only. A calculated column owned by a
+  // directly-related source (one hop away) was therefore invisible to the chart-support
+  // guard, which reported the chart unsupported even though ChartSetupPanel (which reads
+  // the full expression-field list) validated and allowed the exact same configuration
+  // — permanently rendering the "unsupported chart configuration" overlay instead of
+  // the chart.
+  //
+  // Note on scope: this test asserts the overlay is gone and the chart renderer runs —
+  // exactly what this fix (selector scoping) changes. It does not assert the joined
+  // field's per-row VALUE is correct: `enrichRowsWithRelatedFields`
+  // (`internals/dataSourceGraph.ts`, out of scope here) only pulls PHYSICAL fields from
+  // a related source today, not a related source's own expression fields, so the
+  // rendered series legitimately has empty/blank buckets for this exact fixture.
+  describe('related-source expression field support (finding 2.1)', () => {
+    it('renders the chart (not the unsupported overlay) when xField is a calculated column owned by a directly-related source', () => {
+      const ordersSource: StudioDataSource = {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'customerId', label: 'Customer ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [
+          { id: 'o1', customerId: 'c1', total: 100 },
+          { id: 'o2', customerId: 'c1', total: 50 },
+          { id: 'o3', customerId: 'c2', total: 30 },
+        ],
+      };
+
+      const customersSource: StudioDataSource = {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+        rows: [
+          { id: 'c1', region: 'US' },
+          { id: 'c2', region: 'EU' },
+        ],
+      };
+
+      const widget: StudioWidgetOf<'chart'> = {
+        id: 'chart-customer-tier',
+        kind: 'chart',
+        title: 'Revenue by Customer Tier',
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          xField: 'customer-tier',
+          yField: 'total',
+          yAggregation: 'sum',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: ordersSource, customers: customersSource },
+        relationships: [
+          {
+            id: 'rel-orders-customers',
+            sourceId: 'orders',
+            sourceField: 'customerId',
+            targetId: 'customers',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+        ],
+        expressionFields: [
+          {
+            // Owned by `customers` (the related source), not `orders` (the widget's
+            // own source) — the shape the previous own-source-only selector missed.
+            id: 'customer-tier',
+            label: 'Customer Tier',
+            sourceId: 'customers',
+            isMeasure: false,
+            type: 'string',
+            expression: { id: 'region' },
+          },
+        ],
+      });
+
+      renderChart(widget, ordersSource);
+
+      // The permanent "unsupported chart configuration" overlay is gone — the outer
+      // guard now agrees with what ChartSetupPanel already validated and allowed. (This
+      // fixture's rendered bars are still empty because joining a related source's own
+      // EXPRESSION field onto the widget's rows is a separate, out-of-scope limitation
+      // of `enrichRowsWithRelatedFields` — see the note above — but the widget must no
+      // longer misreport the config itself as unsupported.)
+      expect(
+        screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedFieldNotFound),
+      ).toBeNull();
+      expect(screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedDefault)).toBeNull();
+      expect(
+        screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedMixedCrossSource),
+      ).toBeNull();
+    });
+  });
 });

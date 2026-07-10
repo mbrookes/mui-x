@@ -420,6 +420,16 @@ export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
  * Returns a stable memoized selector that returns the cross-filters
  * arriving from OTHER widgets on the given page.
  *
+ * Honors the dashboard-level `crossFilterAllPages` toggle: when it is on, a
+ * cross-filter emitted on ANY page counts as "incoming" here, matching
+ * `useWidgetRows`' `hasChartCrossFilters` predicate (`crossFilterAllPages ||
+ * f.scope.pageId === pageId`) and `filterScoping.ts`'s row-scoping — both of which
+ * already honor the flag. Without this, a chart's rows get filtered/ghosted by a
+ * cross-filter from another page (the actual row-filtering path honors the flag),
+ * while this selector reported no incoming cross-filter at all, so interaction-gating
+ * consumers (the "clear cross-filter" affordance, stale-hover suppression) disagreed
+ * with what was actually happening to the data (finding 2.4).
+ *
  * Uses reference-equality caching so a chart only re-renders when the
  * set of incoming cross-filters actually changes (same pattern as
  * makeSelectExpressionFieldsForSource).
@@ -433,18 +443,20 @@ export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
  */
 export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string) {
   let lastInput: StudioFilterState[] | undefined;
+  let lastAllPages: boolean | undefined;
   let lastResult: StudioFilterState[] | undefined;
 
   return (state: StudioState): StudioFilterState[] => {
     const filters = state.doc.filters;
-    if (filters === lastInput && lastResult !== undefined) {
+    const allPages = state.doc.dashboard.crossFilterAllPages ?? false;
+    if (filters === lastInput && allPages === lastAllPages && lastResult !== undefined) {
       return lastResult;
     }
     const filtered = filters.filter(
       (f) =>
         f.scope.kind === 'cross-filter' &&
         f.scope.sourceWidgetId !== widgetId &&
-        f.scope.pageId === pageId &&
+        (allPages || f.scope.pageId === pageId) &&
         !f.disabled,
     );
     if (
@@ -454,9 +466,11 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
       filtered.every((f, i) => f === lastResult![i])
     ) {
       lastInput = filters;
+      lastAllPages = allPages;
       return lastResult;
     }
     lastInput = filters;
+    lastAllPages = allPages;
     lastResult = filtered;
     return filtered;
   };

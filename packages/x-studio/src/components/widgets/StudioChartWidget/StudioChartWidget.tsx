@@ -24,7 +24,8 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   selectDataSources,
-  makeSelectExpressionFieldsForSource,
+  selectRelationships,
+  makeSelectExpressionFieldsForSources,
   makeSelectActiveCrossFilter,
   makeSelectIncomingCrossFilters,
 } from '../../../context';
@@ -118,10 +119,31 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
   const localeText = useStudioLocaleText();
+  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source —
+  // matching `useChartWidgetData`'s identical `relevantSourceIds` computation (and
+  // `useWidgetRows`' pattern), so `getFieldDependencySource`/`isFieldForeignDerived` below
+  // can resolve a related-source calculated field the same way `analyzeChartSupport` does,
+  // instead of only ever seeing this widget's own-source expression fields (finding 2.1).
+  const relevantSourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (widget.sourceId) {
+      ids.add(widget.sourceId);
+      for (const rel of relationships) {
+        if (rel.sourceId === widget.sourceId) {
+          ids.add(rel.targetId);
+        } else if (rel.targetId === widget.sourceId) {
+          ids.add(rel.sourceId);
+        }
+      }
+    }
+    return ids;
+  }, [widget.sourceId, relationships]);
+
   const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
 

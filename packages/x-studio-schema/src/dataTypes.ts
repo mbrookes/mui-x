@@ -128,6 +128,19 @@ export interface StudioQueryDescriptor {
   /** Time-series bucketing granularity */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
+   * True when this widget currently has an incoming chart-click cross-filter or interactive
+   * (filter-widget) selection — deliberately excluded from `filter` itself (they must not trigger
+   * a server round-trip or churn the cache key on every click), but adapters that push
+   * aggregation down (`aggregations`) need this signal: those filters are enforced CLIENT-SIDE
+   * over the returned rows, and a server-aggregated response is one row per group with only the
+   * grouped/alias columns present — a cross-filter on any other field reads `undefined` on every
+   * row and empties the widget. An adapter should strip `aggregations` (returning raw rows,
+   * mirroring the existing `count`/`avg`+`xGroupBy` client-aggregate special-cases) whenever this
+   * is `true`, so the client's own aggregation step (which always runs) can shape the data
+   * AFTER the cross-filter has been applied to real, ungrouped rows.
+   */
+  hasIncomingCrossOrInteractiveFilters?: boolean;
+  /**
    * Stable hash of all other fields. Use as a cache key.
    * The package computes this; the developer need not hash the descriptor.
    */

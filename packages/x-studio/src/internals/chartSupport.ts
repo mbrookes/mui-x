@@ -1,6 +1,12 @@
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
+} from '../models';
 import { findDirectRelationship } from './dataSourceGraph';
 import { resolveRowsAtGrain } from './grainResolution';
+import { filterFingerprint } from './resolvedRowsCache';
 
 type Row = Record<string, unknown>;
 
@@ -373,6 +379,15 @@ export function resolveChartRowsForAggregation(
    * `undefined` — the guard already reports such a field as SUPPORTED (finding 1.9).
    */
   extraFields: (string | undefined)[] = [],
+  /**
+   * The widget's fully resolved/scoped filter set (page + widget + cross-filter + interactive —
+   * exactly what L3 used to produce `widgetRows`). Only the subset targeting the anchor source
+   * is applied to the anchor rows before the expansion join (see `resolveRowsAtGrain`) — without
+   * it, a filter on an anchor-source field that L3 enforced as a semi-join gets silently
+   * re-widened back to every anchor row for each surviving widget row (finding 1.4). Folded into
+   * the cache key below so a filter edit invalidates the cached re-anchored result.
+   */
+  widgetFilters: StudioFilterState[] = [],
 ): Row[] {
   const cleanExtraFields = extraFields.filter((field): field is string => Boolean(field));
   const requestedFields = [xField, ...yFields, seriesField, ...cleanExtraFields].filter(
@@ -436,7 +451,16 @@ export function resolveChartRowsForAggregation(
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
 
-  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}|${cleanExtraFields.join(',')}`;
+  // Only the anchor-scoped filter subset affects `resolveRowsAtGrain`'s output (finding 1.4);
+  // fold its content-based fingerprint into the cache key so editing/adding/removing an
+  // anchor-source filter invalidates the entry instead of serving a stale re-anchored result.
+  const anchorScopedFilterKey = widgetFilters
+    .filter((f) => f.filterSourceId === anchorSourceId)
+    .map(filterFingerprint)
+    .sort()
+    .join('|');
+
+  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}|${cleanExtraFields.join(',')}|${anchorScopedFilterKey}`;
   const cached = byKey.get(configKey);
   if (
     cached &&
@@ -463,6 +487,7 @@ export function resolveChartRowsForAggregation(
     relationships,
     expressionFields,
     readSourceIds,
+    widgetFilters,
   );
 
   const readSourceRows = new Map<string, Row[] | null>();

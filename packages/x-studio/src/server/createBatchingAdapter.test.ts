@@ -988,4 +988,180 @@ describe('createBatchingAdapter — aggregation & filter push-down policy', () =
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  // ─── Finding 2.8 ────────────────────────────────────────────────────────────
+  it('does not silently drop a valueless second condition (is_not_empty) — falls back to the client-side residual', async () => {
+    // Leaf: status != 'archived' AND status is_not_empty. `value2` is legitimately absent for
+    // `is_not_empty` (mirrors `isConditionComplete`'s in-memory rule), so this second condition
+    // IS present — but has no server-side operator equivalent. The whole leaf must therefore be
+    // routed to the client-side residual (never silently reduced to just the first condition).
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, status: 'active' }, // kept: != archived AND not empty
+          { id: 2, status: 'archived' }, // excluded by the first condition
+          { id: 3, status: '' }, // excluded by the second condition (is_not_empty)
+          { id: 4, status: null }, // excluded by the second condition (is_not_empty)
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'status'],
+        filter: {
+          type: 'leaf',
+          field: 'status',
+          op: 'not_equals',
+          value: 'archived',
+          op2: 'is_not_empty',
+          value2: undefined,
+          conjunction: 'and',
+        },
+      }),
+    );
+
+    // Only row 1 survives both conditions.
+    expect(result.rows.map((r) => r.id)).toEqual([1]);
+
+    // The server request must not silently encode ONLY the first condition as if it were the
+    // whole filter — the leaf is untranslatable as a whole and should be withheld entirely,
+    // deferring both conditions to the client-side residual instead.
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown; columns: string[] }>;
+    };
+    expect(body.widgets[0].filters).toBeUndefined();
+    // `status` must still be selected so the client-side residual can evaluate it.
+    expect(body.widgets[0].columns).toContain('status');
+  });
+
+  // ─── Finding 2.9 ────────────────────────────────────────────────────────────
+  it('routes an aggregated descriptor to raw rows when an incoming cross-filter is present, instead of emptying the widget', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Simulate the server-aggregated shape: one row per group with the group column
+    // (`category`) and the alias (`total`) only — no `region` column, matching what a
+    // server-side GROUP BY would actually return.
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { category: 'A', region: 'EU', total: 10 },
+          { category: 'B', region: 'US', total: 20 },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'region', 'total'],
+        groupBy: 'category',
+        aggregations: [{ field: 'total', fn: 'sum', alias: 'total' }],
+        hasIncomingCrossOrInteractiveFilters: true,
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    // Aggregation is stripped — the server returns raw rows so the cross-filter (enforced
+    // client-side over a field like `region`, which a group-by response would never carry) can
+    // actually match something instead of reading `undefined` on every row and emptying the
+    // widget.
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still pushes the aggregation down when there is no incoming cross/interactive filter', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'total'],
+        groupBy: 'category',
+        aggregations: [{ field: 'total', fn: 'sum', alias: 'total' }],
+        hasIncomingCrossOrInteractiveFilters: false,
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: Array<{ func: string }> }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'total', func: 'sum', alias: 'total' },
+    ]);
+  });
+
+  // ─── Finding 2.11 ───────────────────────────────────────────────────────────
+  it('simple mode suppresses ORDER BY when groupBy is an expression-field id (unresolved column)', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      // Simple mode: dataSources/relationships omitted. expressionFields is still an
+      // independent option (used only to detect an unresolved-column groupBy here).
+      expressionFields: [
+        {
+          id: 'expr-margin',
+          label: 'Margin',
+          sourceId: 'orders',
+          isMeasure: false,
+          expression: { operator: 'subtract', inputs: [{ id: 'price' }, { id: 'cost' }] },
+        },
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        sourceId: 'orders',
+        select: ['expr-margin', 'total'],
+        groupBy: 'expr-margin',
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ orderBy?: unknown }>;
+    };
+    // `expr-margin` has no physical column of that name — emitting it unresolved would fail
+    // the whole batch entry with "no such column" (finding 2.11).
+    expect(body.widgets[0].orderBy).toBeUndefined();
+  });
+
+  it('simple mode still orders by a plain physical groupBy column', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'total'],
+        groupBy: 'category',
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ orderBy?: Array<{ column: string; direction: string }> }>;
+    };
+    expect(body.widgets[0].orderBy).toEqual([{ column: 'category', direction: 'asc' }]);
+  });
 });

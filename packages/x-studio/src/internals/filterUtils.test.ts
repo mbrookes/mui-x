@@ -625,6 +625,35 @@ describe('applyFilters — rank mode', () => {
     ]);
     expect(result).toHaveLength(5);
   });
+
+  // ─── Finding 2.4 ────────────────────────────────────────────────────────────
+  it('applies condition filters BEFORE the rank filter, matching the adapter push-down order (finding 2.4)', () => {
+    // Condition: category != 'Y' (excludes rows b and e, the two highest-revenue rows).
+    // Rank: top 2 by revenue.
+    //
+    // "rank then filter" (the old, buggy order) ranks the FULL dataset first — e(400) and
+    // b(300) win the top-2 slots — and only THEN applies the condition, which excludes both
+    // (they're category 'Y'), leaving an empty result.
+    //
+    // "filter then rank" (the adapter's order, and the fix here) applies the condition first —
+    // removing b and e — then ranks the survivors (a=100, c=200, d=50), correctly keeping the
+    // top 2 among what's left: c and a.
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'category',
+        operator: 'not_equals',
+        value: 'Y',
+      }),
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 2,
+        rankDirection: 'top',
+      }),
+    ]);
+    expect(result.map((r) => r.id).sort()).toEqual(['a', 'c']);
+  });
 });
 
 // ─── Compound conditions (AND / OR) ───────────────────────────────────────────

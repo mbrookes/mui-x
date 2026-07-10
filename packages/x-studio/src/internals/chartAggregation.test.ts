@@ -488,6 +488,43 @@ describe('resolveChartRowsForAggregation', () => {
     });
   });
 
+  // ─── Finding 1.4 ────────────────────────────────────────────────────────────
+  it('applies an anchor(orders)-scoped filter to the anchor rows before the expansion join, end to end (finding 1.4)', () => {
+    // Chart on customers (x=country, y=orders.total, anchor=orders) with an incoming
+    // cross-filter `orders.total > 60` — L3 would enforce this as a semi-join (keep customers
+    // with >=1 matching order); L4 must apply the SAME filter to the anchor rows themselves
+    // before the expansion join, or it resurrects every order (matching + non-matching) for
+    // customers that have at least one match.
+    const totalFilter = {
+      id: 'f-total',
+      field: 'total',
+      operator: 'greater_than' as const,
+      value: 60,
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 'w2', pageId: 'p1' },
+      filterSourceId: 'orders',
+    } as unknown as StudioFilterState;
+
+    const resolvedRows = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+      [],
+      [totalFilter],
+    );
+
+    // Only ORD-1 (100, Germany) and ORD-3 (70, France) survive; ORD-2 (50, Germany) is excluded.
+    expect(resolvedRows).toHaveLength(2);
+    expect(aggregateByField(resolvedRows, 'country', 'total')).toEqual({
+      labels: ['France', 'Germany'],
+      values: [70, 100],
+    });
+  });
+
   it('matches the direct orders-grain aggregation for the same country totals', () => {
     const joinedRows = resolveChartRowsForAggregation(
       customers,

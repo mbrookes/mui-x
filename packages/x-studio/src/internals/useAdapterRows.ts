@@ -5,6 +5,7 @@ import type {
   StudioDataSource,
   StudioExpressionField,
   StudioFilterState,
+  StudioRelationship,
   StudioWidget,
 } from '../models';
 import { buildQueryDescriptor } from './queryDescriptor';
@@ -43,6 +44,8 @@ export function useAdapterRows(
   pageId: string,
   filters: StudioFilterState[],
   expressionFields: StudioExpressionField[],
+  relationships: StudioRelationship[] = [],
+  crossFilterAllPages: boolean = false,
 ): UseAdapterRowsResult {
   const hasAdapter = Boolean(dataSource?.adapter);
 
@@ -51,8 +54,25 @@ export function useAdapterRows(
     if (!hasAdapter || !widget.sourceId) {
       return null;
     }
-    return buildQueryDescriptor(widget, filters, pageId, dataSource?.tableName, expressionFields);
-  }, [hasAdapter, widget, filters, pageId, dataSource, expressionFields]);
+    return buildQueryDescriptor(
+      widget,
+      filters,
+      pageId,
+      dataSource?.tableName,
+      expressionFields,
+      relationships,
+      crossFilterAllPages,
+    );
+  }, [
+    hasAdapter,
+    widget,
+    filters,
+    pageId,
+    dataSource,
+    expressionFields,
+    relationships,
+    crossFilterAllPages,
+  ]);
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {

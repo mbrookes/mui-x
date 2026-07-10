@@ -860,6 +860,24 @@ describe('useChartWidgetData — rank-filter separation', () => {
     const data = result.current.multiYData!;
     expect(data.labels).toEqual(['Electronics']);
   });
+
+  // ─── Finding 2.6 ────────────────────────────────────────────────────────────
+  it('ignores a DISABLED widget rank filter — the chart is NOT reduced to top/bottom N (finding 2.6)', () => {
+    // Toggling a Top-N filter off in the drawer sets `disabled: true`. Every other filter path
+    // (`selectFiltersForWidget`) already excludes disabled filters; the widget-rank lookup here
+    // must too, or the chart stays reduced to N categories after the user turns it off.
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [rankFilter({ rankDirection: 'top', value: 2, disabled: true })],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    // All 3 categories render — the disabled rank filter must not reduce to top-2.
+    const data = result.current.chartData!;
+    expect(data.labels).toHaveLength(3);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

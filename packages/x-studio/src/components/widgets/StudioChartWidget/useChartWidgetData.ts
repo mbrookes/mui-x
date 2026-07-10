@@ -3,7 +3,12 @@
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme, useColorScheme } from '@mui/material';
-import type { StudioChartConfig, StudioDataSource, StudioWidgetOf } from '../../../models';
+import type {
+  StudioChartConfig,
+  StudioDataSource,
+  StudioWidgetConfig,
+  StudioWidgetOf,
+} from '../../../models';
 import {
   aggregateBlendedSeries,
   aggregateByField,
@@ -24,11 +29,14 @@ import {
   selectDataSources,
   selectRelationships,
   makeSelectExpressionFieldsForSource,
+  selectGlobalCrossFilterMode,
+  selectCrossFilterAllPages,
 } from '../../../context';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
+import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(
@@ -67,6 +75,8 @@ export function useChartWidgetData(
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -82,7 +92,13 @@ export function useChartWidgetData(
     () =>
       filters.find(
         (f) =>
-          f.scope.kind === 'widget' && f.scope.widgetId === widget.id && f.filterMode === 'rank',
+          // `!f.disabled` mirrors `selectFiltersForWidget` (the scoping authority every other
+          // filter path uses): a disabled Top-N filter must NOT keep reducing the chart to N
+          // categories after the user toggles it off in the drawer (finding 2.6).
+          !f.disabled &&
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widget.id &&
+          f.filterMode === 'rank',
       ) ?? null,
     [filters, widget.id],
   );
@@ -101,6 +117,43 @@ export function useChartWidgetData(
     isError,
     errorMessage,
   } = useWidgetRows(widget, dataSource, pageId);
+
+  // The widget's fully resolved/scoped filter set — recomputed here (rather than exposed by
+  // `useWidgetRows`) via the exact same `selectFiltersForWidget` call and params it uses
+  // internally, so this hook's L4 anchor-filter re-application (finding 1.4, threaded through
+  // `useChartRows` below) can never disagree with what L3 actually enforced as a semi-join.
+  // `resolvedFiltersNoCross` ('page' + 'widget' only) matches `filteredRowsNoCross`;
+  // `resolvedFiltersAll` ('all' — page + widget + cross-filter + interactive) matches
+  // `filteredRows`. `effectiveRows` is `filteredRowsNoCross` in `crossFilterMode: 'none'` and
+  // `filteredRows` otherwise — mirroring `useWidgetRows`'s own `effectiveRows` resolution exactly.
+  const resolvedFiltersNoCross = React.useMemo(
+    () =>
+      selectFiltersForWidget(filters, {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        include: 'no-cross',
+        crossFilterAllPages,
+      }),
+    [filters, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+  );
+  const resolvedFiltersAll = React.useMemo(
+    () =>
+      selectFiltersForWidget(filters, {
+        widgetId: widget.id,
+        widgetSourceId: widget.sourceId,
+        activePageId: pageId,
+        include: 'all',
+        crossFilterAllPages,
+      }),
+    [filters, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+  );
+  const chartCrossFilterMode =
+    globalCrossFilterMode ??
+    (widget.config as StudioWidgetConfig)?.crossFilterMode ??
+    'cross-highlight';
+  const effectiveResolvedFilters =
+    chartCrossFilterMode === 'none' ? resolvedFiltersNoCross : resolvedFiltersAll;
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -229,6 +282,7 @@ export function useChartWidgetData(
     activeYFields,
     chartSupport,
     chartTypeExtraFields,
+    effectiveResolvedFilters,
   );
 
   // Enriched rows from non-cross-filtered data — used to compute stable series names.
@@ -238,6 +292,7 @@ export function useChartWidgetData(
     activeYFields,
     chartSupport,
     chartTypeExtraFields,
+    resolvedFiltersNoCross,
   );
 
   const isMultiSeries = activeYFields.length > 1;

@@ -290,6 +290,26 @@ describe('buildQueryDescriptor', () => {
     expect(desc.filter).toMatchObject({ type: 'leaf', field: 'region', value: 'EU' });
   });
 
+  it('widens select to include rankByField for an aggregate rank filter (finding 2.5)', () => {
+    // "Top 5 by profit" on a chart displaying revenue: `field` is the group-by dimension,
+    // `rankByField` ('profit') is the measure the rank actually sorts by. Neither the widget's
+    // own config nor the rank filter's `field` reference 'profit' — without explicitly widening
+    // `select`, the adapter never fetches it, so the client-side rank reduction reads
+    // `Number(row['profit'] ?? 0)` = 0 for every row (an arbitrary "top 5" in insertion order).
+    const rankFilter = makeFilter({
+      scope: { kind: 'widget', widgetId: 'w1' },
+      field: 'category',
+      filterMode: 'rank',
+      value: 5,
+      rankDirection: 'top',
+      rankByField: 'profit',
+    });
+    const widget = makeWidget({ xField: 'category', yField: 'revenue' });
+    const desc = buildQueryDescriptor(widget, [rankFilter], PAGE_ID);
+    expect(desc.select).toContain('profit');
+    expect(desc.select).toContain('category');
+  });
+
   it('includes widget-scoped filters for this widget only', () => {
     const widgetFilter = makeFilter({
       scope: { kind: 'widget', widgetId: 'w1' },
@@ -333,11 +353,14 @@ describe('buildQueryDescriptor', () => {
     expect(desc.filter).toBeUndefined();
   });
 
-  it('cross-filter application does not change the cacheKey', () => {
-    // Because cross-filters never enter the descriptor, adding one must not perturb the
-    // request cacheKey (which would otherwise force a spurious server round-trip).
-    const widget = makeWidget({ yField: 'amount' });
+  it('cross-filter application does not change the cacheKey for a non-aggregated widget', () => {
+    // Because cross-filters never enter the descriptor's filter tree, adding one must not
+    // perturb the request cacheKey for a widget with no server-side aggregation to strip —
+    // there is nothing about the request shape a cross-filter could change (would otherwise
+    // force a spurious server round-trip on every chart click).
+    const widget = makeWidget({});
     const descNoCross = buildQueryDescriptor(widget, [], PAGE_ID);
+    expect(descNoCross.aggregations).toBeUndefined();
     const crossFilter = makeFilter({
       scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
       field: 'category',
@@ -345,6 +368,42 @@ describe('buildQueryDescriptor', () => {
     });
     const descWithCross = buildQueryDescriptor(widget, [crossFilter], PAGE_ID);
     expect(descWithCross.cacheKey).toBe(descNoCross.cacheKey);
+    expect(descWithCross.hasIncomingCrossOrInteractiveFilters).toBe(true);
+    expect(descNoCross.hasIncomingCrossOrInteractiveFilters).toBe(false);
+  });
+
+  it('cross-filter application DOES change the cacheKey for a server-aggregated widget (finding 2.9)', () => {
+    // A cross-filter is enforced CLIENT-SIDE over the returned rows. For a widget whose
+    // descriptor pushes an aggregation down, the server would otherwise return one
+    // pre-aggregated row per group with only the grouped/alias columns — the cross-filter's
+    // own field would read `undefined` on every row and empty the widget. The adapter (see
+    // createBatchingAdapter.ts) reacts to `hasIncomingCrossOrInteractiveFilters` by fetching
+    // raw rows instead, so the cacheKey (and the flag itself) MUST change when a cross-filter
+    // arrives or clears — serving the stale aggregated-shape cache entry would reintroduce the
+    // bug.
+    const widget = makeWidget({ yField: 'amount' });
+    const descNoCross = buildQueryDescriptor(widget, [], PAGE_ID);
+    expect(descNoCross.aggregations?.length).toBeGreaterThan(0);
+    expect(descNoCross.hasIncomingCrossOrInteractiveFilters).toBe(false);
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const descWithCross = buildQueryDescriptor(widget, [crossFilter], PAGE_ID);
+    expect(descWithCross.hasIncomingCrossOrInteractiveFilters).toBe(true);
+    expect(descWithCross.cacheKey).not.toBe(descNoCross.cacheKey);
+  });
+
+  it('an interactive (filter-widget) selection also flips hasIncomingCrossOrInteractiveFilters', () => {
+    const widget = makeWidget({ yField: 'amount' });
+    const interactive = makeFilter({
+      scope: { kind: 'interactive', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const desc = buildQueryDescriptor(widget, [interactive], PAGE_ID);
+    expect(desc.hasIncomingCrossOrInteractiveFilters).toBe(true);
   });
 
   it('page and widget filters still reach the descriptor (guard against over-removal)', () => {

@@ -164,6 +164,11 @@ export interface CompiledGeo {
   scale?: number;
   /** Projection translate `[x, y]`, forwarded to the provider's `translate` prop. */
   translate?: [number, number];
+  // Formats the choropleth color legend's min/max labels (from the color
+  // channel's `legend.format`). x-charts ignores a z-axis `valueFormatter` for
+  // the continuous color legend, so the shell applies this via the legend's
+  // `minLabel`/`maxLabel` props instead.
+  colorLegendFormat?: (value: unknown) => string;
 }
 
 /** What a mark compiler hands back for one normalized unit (layer). */

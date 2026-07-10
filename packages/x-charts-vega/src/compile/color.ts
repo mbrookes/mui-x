@@ -341,6 +341,13 @@ export interface ResolveColorOptions {
    * honor colorMap" partial gap, which would be misleading there.
    */
   colorMapConsumed?: boolean;
+  /**
+   * Set by the geoshape caller, whose continuous color legend can honor a
+   * `legend.format`/`formatType` (compiled to a `valueFormatter` and applied to
+   * the legend's min/max labels). Suppresses the `color-legend-config-ignored`
+   * gap for those keys — they are translated, not dropped.
+   */
+  legendFormatHonored?: boolean;
 }
 
 export function resolveColor(
@@ -445,7 +452,10 @@ export function resolveColor(
     if (legend && typeof legend === 'object') {
       // `orient` (and the positional offsets) are honored by the shell, which
       // repositions the default legend — only gap the still-unsupported keys.
-      const unsupportedKeys = Object.keys(legend).filter((key) => !HONORED_LEGEND_KEYS.has(key));
+      const honoredHere = options?.legendFormatHonored
+        ? new Set([...HONORED_LEGEND_KEYS, 'format', 'formatType'])
+        : HONORED_LEGEND_KEYS;
+      const unsupportedKeys = Object.keys(legend).filter((key) => !honoredHere.has(key));
       if (unsupportedKeys.length > 0) {
         gaps.add({
           code: 'encoding:color-legend-config-ignored',

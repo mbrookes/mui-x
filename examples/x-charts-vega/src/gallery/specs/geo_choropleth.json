@@ -26,7 +26,10 @@
   "encoding": {
     "color": {
       "field": "rate",
-      "type": "quantitative"
+      "type": "quantitative",
+      "legend": {
+        "format": ".1%"
+      }
     }
   }
 }

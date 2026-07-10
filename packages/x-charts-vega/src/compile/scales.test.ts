@@ -215,6 +215,41 @@ describe('scales & axes', () => {
       expect(compiled.xAxis?.categories).to.deep.equal(['B', 'A', 'C']);
     });
 
+    it('defaults numeric discrete categories to ascending order (no explicit sort)', () => {
+      // An ordinal numeric field (e.g. `Cylinders` on a heatmap) has no
+      // meaningful first-seen order; it should come out ascending, not scrambled.
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { c: 8, v: 1 },
+            { c: 4, v: 2 },
+            { c: 6, v: 3 },
+            { c: 3, v: 4 },
+          ],
+        },
+        mark: 'rect',
+        encoding: { x: { field: 'c', type: 'ordinal' }, y: { field: 'g', type: 'nominal' } },
+      });
+      expect(compiled.xAxis?.categories).to.deep.equal([3, 4, 6, 8]);
+    });
+
+    it('keeps string discrete categories in first-seen order by default', () => {
+      // String categories often carry a deliberate semantic order (e.g. weather
+      // sun/fog/drizzle/rain/snow), so data order is preserved, not alphabetized.
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { c: 'sun', v: 1 },
+            { c: 'fog', v: 2 },
+            { c: 'rain', v: 3 },
+          ],
+        },
+        mark: 'bar',
+        encoding: { x: { field: 'c', type: 'nominal' }, y: { field: 'v' } },
+      });
+      expect(compiled.xAxis?.categories).to.deep.equal(['sun', 'fog', 'rain']);
+    });
+
     it('sorts ascending lexicographically', () => {
       const compiled = compileSpec({
         data: { values: rows },

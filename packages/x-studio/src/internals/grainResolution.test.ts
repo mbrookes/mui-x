@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { resolveRowsAtGrain } from './grainResolution';
 import { resolveChartRowsForAggregation, aggregateByField } from './chartAggregation';
-import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
+} from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -549,5 +554,211 @@ describe('resolveRowsAtGrain', () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0].category).toBe('priority');
     expect(filtered[0].weight).toBe(10); // the excluded 'normal' weight (5) is NOT summed in
+  });
+
+  // ─── Finding 1.3 — L4 filter re-application is blind to expression-field filters ─────
+  describe('finding 1.3 — expression-field filters at the fan-out grain', () => {
+    // Chart on `customers` (x = segment), y = orders.amount → anchor = orders (many-to-one).
+    // `big` is a NON-measure expression column on the ANCHOR source (orders), NOT among the
+    // requested chart fields. c1 has one big order (100) and one small one (30).
+    const customers: Row[] = [{ id: 'c1', segment: 'Enterprise' }];
+    const orders: Row[] = [
+      { id: 'o1', customerId: 'c1', amount: 100 },
+      { id: 'o2', customerId: 'c1', amount: 30 },
+    ];
+    const rel: StudioRelationship = {
+      id: 'r',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'segment', label: 'Segment', type: 'string' },
+        ],
+        rows: customers,
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+        ],
+        rows: orders,
+      },
+    };
+    // `big = amount > 50` — a calculated boolean column on orders. o1 → true, o2 → false.
+    const bigExpr = {
+      id: 'big',
+      label: 'Big',
+      sourceId: 'orders',
+      isMeasure: false,
+      type: 'boolean',
+      expression: {
+        operator: 'greaterThan',
+        inputs: [{ id: 'amount' }, { type: 'number', value: 50 }],
+      },
+    } as unknown as StudioExpressionField;
+    const fieldOwners = new Map([
+      ['segment', 'customers'],
+      ['amount', 'orders'],
+    ]);
+
+    it('facet (a): a foreign-owned expression-field filter with NO filterSourceId is anchor-scoped (resurrection-safe)', () => {
+      // Authored in the filters drawer on `orders.big` (an expression owned by a source foreign to
+      // the widget), so it carries no explicit `filterSourceId` — L3 derives the owner, and L4 now
+      // derives it too. Without the derivation the filter is invisible to `anchorScopedFilters`,
+      // so the expansion join resurrects the small (30) order the filter excluded.
+      const drawerFilter = {
+        id: 'f-big',
+        field: 'big',
+        operator: 'equals' as const,
+        value: true,
+        scope: { kind: 'page' as const, pageId: 'p1' },
+        // NOTE: no filterSourceId — the exact shape finding 1.3a is about.
+      } as unknown as StudioFilterState;
+
+      const resolved = resolveRowsAtGrain(
+        customers,
+        'customers',
+        'orders',
+        ['segment', 'amount'],
+        fieldOwners,
+        dataSources,
+        [rel],
+        [bigExpr],
+        undefined,
+        [drawerFilter],
+      );
+      // Only the big order survives; the small (30) order is not resurrected.
+      expect(resolved.map((r) => r.amount)).toEqual([100]);
+    });
+
+    it('facet (b): a filter WITH filterSourceId on an anchor-owned expression field outside the requested set is evaluated against ENRICHED rows', () => {
+      // The filter explicitly targets `orders` (anchor). `big` is not among the requested chart
+      // fields, so anchor-row enrichment used to skip it — `applyFilters` then saw `undefined`
+      // for every row and dropped ALL of them (empty chart). The enrichment set is now widened to
+      // include filter-referenced fields, so `big` is computed and the filter matches correctly.
+      const anchorFilter = {
+        id: 'f-big',
+        field: 'big',
+        operator: 'equals' as const,
+        value: true,
+        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'w2', pageId: 'p1' },
+        filterSourceId: 'orders',
+      } as unknown as StudioFilterState;
+
+      const resolved = resolveRowsAtGrain(
+        customers,
+        'customers',
+        'orders',
+        ['segment', 'amount'],
+        fieldOwners,
+        dataSources,
+        [rel],
+        [bigExpr],
+        undefined,
+        [anchorFilter],
+      );
+      // Not empty (the bug) — the big order survives, the small one is excluded.
+      expect(resolved.map((r) => r.amount)).toEqual([100]);
+    });
+
+    it('facet (b): a filter on a JUNCTION-owned expression field outside the requested set forces junction enrichment', () => {
+      // M:N anchor: widget = products, anchor = product_tags (junction), y = weight (junction).
+      // `heavy = weight > 15` is a calculated column on the junction, NOT requested. Without
+      // forcing junction enrichment when a filter references it, `heavy` is `undefined` and the
+      // filter drops every junction row.
+      const products: Row[] = [{ id: 'p1', name: 'Widget' }];
+      const tags: Row[] = [{ id: 't1' }, { id: 't2' }];
+      const junction: Row[] = [
+        { pid: 'p1', tid: 't1', weight: 10 },
+        { pid: 'p1', tid: 't2', weight: 20 },
+      ];
+      const m2mRel = {
+        id: 'r',
+        type: 'many-to-many',
+        sourceId: 'products',
+        sourceField: 'id',
+        targetId: 'tags',
+        targetField: 'id',
+        junctionSourceId: 'product_tags',
+        junctionSourceField: 'pid',
+        junctionTargetField: 'tid',
+      } as unknown as StudioRelationship;
+      const mnDataSources: Record<string, StudioDataSource> = {
+        products: {
+          id: 'products',
+          label: 'Products',
+          fields: [
+            { id: 'id', label: 'ID', type: 'string' },
+            { id: 'name', label: 'Name', type: 'string' },
+          ],
+          rows: products,
+        },
+        tags: {
+          id: 'tags',
+          label: 'Tags',
+          fields: [{ id: 'id', label: 'ID', type: 'string' }],
+          rows: tags,
+        },
+        product_tags: {
+          id: 'product_tags',
+          label: 'PT',
+          fields: [
+            { id: 'pid', label: 'PID', type: 'string' },
+            { id: 'tid', label: 'TID', type: 'string' },
+            { id: 'weight', label: 'Weight', type: 'number' },
+          ],
+          rows: junction,
+        },
+      };
+      const heavyExpr = {
+        id: 'heavy',
+        label: 'Heavy',
+        sourceId: 'product_tags',
+        isMeasure: false,
+        type: 'boolean',
+        expression: {
+          operator: 'greaterThan',
+          inputs: [{ id: 'weight' }, { type: 'number', value: 15 }],
+        },
+      } as unknown as StudioExpressionField;
+      const heavyFilter = {
+        id: 'f-heavy',
+        field: 'heavy',
+        operator: 'equals' as const,
+        value: true,
+        scope: { kind: 'cross-filter' as const, sourceWidgetId: 'w2', pageId: 'p1' },
+        filterSourceId: 'product_tags',
+      } as unknown as StudioFilterState;
+
+      const resolved = resolveRowsAtGrain(
+        products,
+        'products',
+        'product_tags',
+        ['name', 'weight'],
+        new Map([
+          ['name', 'products'],
+          ['weight', 'product_tags'],
+        ]),
+        mnDataSources,
+        [m2mRel],
+        [heavyExpr],
+        undefined,
+        [heavyFilter],
+      );
+      // Only the heavy (weight 20) junction link survives — not empty (the bug).
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0].weight).toBe(20);
+    });
   });
 });

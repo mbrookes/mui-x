@@ -11,6 +11,37 @@ import { applyFilters } from './filterUtils';
 
 type Row = Record<string, unknown>;
 
+/**
+ * The effective source a filter targets, mirroring L3's derivation in `dataSourceGraph.resolveRows`.
+ *
+ * A filter authored in the filters drawer on an expression field owned by ANOTHER source carries
+ * **no** explicit `filterSourceId` — L3 derives the owner on the fly (`resolveRows` routes it as a
+ * cross-filter using `expressionField.sourceId`). L4's anchor/remote-scoped-filter classification
+ * (and its result-cache key in `resolveChartRowsForAggregation`) must derive the same owner, or
+ * such a filter is invisible here and the anchor-row "resurrection" fix (finding 1.4) silently does
+ * not apply to this exact filter shape (finding 1.3a).
+ *
+ * Returns the explicit `filterSourceId` when present; otherwise the source of a non-measure
+ * expression field matching the filter's `field` that is NOT owned by the widget source; otherwise
+ * `undefined` (a native/same-source filter, already enforced by L3).
+ */
+export function effectiveFilterSourceId(
+  filter: StudioFilterState,
+  widgetSourceId: string,
+  expressionFields: StudioExpressionField[],
+): string | undefined {
+  if (filter.filterSourceId != null) {
+    return filter.filterSourceId;
+  }
+  if (!filter.field) {
+    return undefined;
+  }
+  const exprOwner = expressionFields.find(
+    (ef) => ef.id === filter.field && !ef.isMeasure && ef.sourceId !== widgetSourceId,
+  );
+  return exprOwner?.sourceId;
+}
+
 function enrichSourceRowsWithExpressions(
   rows: Row[],
   sourceId: string,
@@ -104,9 +135,14 @@ export function resolveRowsAtGrain(
   const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
 
   // The subset of the widget's resolved filters that target the ANCHOR source's own fields
-  // (a cross-filter or page filter whose `filterSourceId === anchorSourceId`). Applied directly
-  // to the anchor rows, before the expansion join, in both re-anchor branches below (finding 1.4).
-  const anchorScopedFilters = widgetFilters.filter((f) => f.filterSourceId === anchorSourceId);
+  // (a cross-filter or page filter whose effective source is the anchor). Applied directly to the
+  // anchor rows, before the expansion join, in both re-anchor branches below (finding 1.4). The
+  // effective source is derived (not just read off `filterSourceId`) so a drawer filter on an
+  // anchor-owned EXPRESSION field — which carries no explicit `filterSourceId`, exactly as L3
+  // handles it — is recognized as anchor-scoped too (finding 1.3a).
+  const anchorScopedFilters = widgetFilters.filter(
+    (f) => effectiveFilterSourceId(f, widgetSourceId, expressionFields) === anchorSourceId,
+  );
 
   if (anchorSourceId === widgetSourceId) {
     const related = enrichRowsWithRelatedFields(
@@ -196,7 +232,9 @@ export function resolveRowsAtGrain(
     // in case the filter targets a remote-owned expression column) and drop, below, any junction
     // row whose target key is no longer present — the remote-endpoint analogue of the iter6
     // anchor/junction-scoped fix.
-    const remoteScopedFilters = widgetFilters.filter((f) => f.filterSourceId === remoteSourceId);
+    const remoteScopedFilters = widgetFilters.filter(
+      (f) => effectiveFilterSourceId(f, widgetSourceId, expressionFields) === remoteSourceId,
+    );
     const rawRemoteRows = dataSources[remoteSourceId]?.rows ?? [];
     const filteredRemoteRows =
       remoteScopedFilters.length > 0
@@ -218,8 +256,16 @@ export function resolveRowsAtGrain(
     // Junction-owned expression fields (e.g. a calculated column on the M:N junction table)
     // need L2 enrichment too — the junction rows were previously read raw, unlike every other
     // anchor branch, which routes through `enrichSourceRowsWithExpressions` (finding 1.3).
+    // Enrichment must also fire when an anchor(junction)-scoped FILTER references a junction-owned
+    // expression column that is NOT among the requested chart fields; otherwise `applyFilters`
+    // below evaluates that column as `undefined` on every junction row and empties the chart
+    // (finding 1.3b). `exprFieldIdsOnSource` already covers every non-measure junction expression
+    // field, so no extra field ids need threading — only the enrichment gate widens.
     const junctionRowsRaw = dataSources[anchorSourceId]?.rows ?? [];
-    const junctionRowsEnriched = needsExpressionEnrichment
+    const needsJunctionExpressionEnrichment =
+      needsExpressionEnrichment ||
+      anchorScopedFilters.some((f) => f.field != null && exprFieldIdsOnSource.has(f.field));
+    const junctionRowsEnriched = needsJunctionExpressionEnrichment
       ? enrichSourceRowsWithExpressions(
           junctionRowsRaw,
           anchorSourceId,
@@ -281,6 +327,16 @@ export function resolveRowsAtGrain(
   const anchorFieldIds = new Set(
     requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
   );
+  // Widen the enrichment set to also include any field referenced by an anchor-scoped filter.
+  // Enrichment is otherwise scoped to the REQUESTED anchor fields, so a filter on an anchor-owned
+  // EXPRESSION column outside that set would be `undefined` when `applyFilters` evaluates it below —
+  // dropping every anchor row and emptying an otherwise-correct chart (finding 1.3b). A native
+  // filter field is harmless here (it is not an expression column, so enrichment ignores it).
+  for (const f of anchorScopedFilters) {
+    if (f.field) {
+      anchorFieldIds.add(f.field);
+    }
+  }
   // Apply the anchor-source-scoped filter subset directly to the anchor ("many"-side) rows
   // BEFORE the join-membership filter below. L3 already enforced this filter as a semi-join
   // (kept a widget row if it has >=1 matching anchor row); without re-applying it here, EVERY

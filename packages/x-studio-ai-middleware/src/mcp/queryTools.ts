@@ -93,7 +93,23 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         offset?: number;
       };
 
-      const clampedLimit = Math.min(limit ?? maxQueryRows, maxQueryRows);
+      // Clamp `limit` to a sane, positive integer within [1, maxQueryRows].
+      // A model-supplied `limit` is untrusted: a negative value, `NaN` (e.g.
+      // from a non-numeric `"all"`), zero, or a fractional value must not
+      // reach `data.queryDataSource` unchanged — depending on the host's Knex
+      // wiring that produces a raw driver error (`LIMIT NaN`) instead of the
+      // actionable, model-recoverable errors this layer otherwise guarantees
+      // (T2-6). Falsy (0/NaN) truncated values fall back to `maxQueryRows`,
+      // matching the "Default 1000" behavior already documented in the tool's
+      // JSON schema.
+      const truncatedLimit = Math.trunc(Number(limit));
+      const clampedLimit = Math.min(Math.max(1, truncatedLimit || maxQueryRows), maxQueryRows);
+
+      // Clamp `offset` to a non-negative integer, coercing a negative/NaN/
+      // non-numeric value to 0 rather than forwarding it untouched (T2-6).
+      const truncatedOffset = Math.trunc(Number(offset));
+      const clampedOffset =
+        Number.isFinite(truncatedOffset) && truncatedOffset > 0 ? truncatedOffset : 0;
 
       if (!sourceId) {
         return errorResult('sourceId is required');
@@ -115,7 +131,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           ...(having && having.length > 0 && { having }),
           orderBy,
           limit: clampedLimit,
-          ...(offset !== undefined && { offset }),
+          ...(offset !== undefined && { offset: clampedOffset }),
         });
 
         return jsonResult({ sourceId, ...result });

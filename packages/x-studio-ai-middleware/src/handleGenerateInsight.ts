@@ -20,6 +20,45 @@ export interface GenerateInsightOptions {
   maxTokens?: number;
 }
 
+/** Hard cap on a generated chat-session title, matching `rename_thread`'s server-side cap. */
+const MAX_GENERATED_TITLE_LENGTH = 40;
+
+/**
+ * Normalize the shape of a `{ title, description }` object parsed from the
+ * LLM's raw JSON output. `JSON.parse` only guarantees syntactically valid
+ * JSON — it says nothing about whether the LLM actually returned the fields
+ * callers depend on (the same "LLM said JSON, JSON said nothing about shape"
+ * gap `assertValidCreateWidgetResponse` guards for the widget-creation path
+ * below). A response like `{"title": {"text": "…"}}` or a bare array parses
+ * fine, and without this check a non-string `title` would propagate typed as
+ * `string` into a client that stores it verbatim as a chat-thread title.
+ *
+ * Unlike the widget path, a malformed title here is low-stakes (a cosmetic
+ * label, not a widget definition feeding the reducer), so this coerces/falls
+ * back to `firstMessage` instead of throwing — mirroring the existing
+ * parse-failure fallback in `handleGenerateTitle`. `title` is also capped to
+ * `MAX_GENERATED_TITLE_LENGTH`, matching `rename_thread`'s `.slice(0, 40)`
+ * cap on the same kind of user-facing string.
+ */
+function normalizeGeneratedTitle(
+  parsed: unknown,
+  firstMessage: string,
+): { title: string; description: string } {
+  const candidate =
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+
+  const title =
+    typeof candidate.title === 'string' && candidate.title.trim() !== ''
+      ? candidate.title.trim().slice(0, MAX_GENERATED_TITLE_LENGTH)
+      : firstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH);
+
+  const description = typeof candidate.description === 'string' ? candidate.description.trim() : '';
+
+  return { title, description };
+}
+
 /**
  * Generate a short title + one-sentence description for a chat session.
  *
@@ -66,7 +105,8 @@ export async function handleGenerateTitle(
   };
 
   try {
-    return JSON.parse(data.choices[0].message.content) as { title: string; description: string };
+    const parsed: unknown = JSON.parse(data.choices[0].message.content);
+    return normalizeGeneratedTitle(parsed, firstMessage);
   } catch {
     return { title: firstMessage.slice(0, 40), description: '' };
   }

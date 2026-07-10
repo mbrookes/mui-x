@@ -56,6 +56,60 @@ describe('handleGenerateTitle', () => {
       /Title generation failed: 500/,
     );
   });
+
+  // Regression for T2-7: valid JSON that is shaped wrong (missing/mistyped
+  // "title", or an absurdly long one) previously propagated verbatim, typed
+  // as `{ title: string; description: string }` with no runtime guarantee.
+  // `handleCreateWidget`'s sibling widget path already validates shape
+  // (`assertValidCreateWidgetResponse`); `handleGenerateTitle` now applies the
+  // same-spirit check via `normalizeGeneratedTitle`, falling back instead of
+  // throwing since a bad title is a cosmetic label, not a widget definition.
+  describe('shape validation of the parsed title/description (T2-7)', () => {
+    it('falls back to the first message when "title" is a non-string (object)', async () => {
+      const message = 'plan my quarterly review';
+      stubFetch(JSON.stringify({ title: { text: 'Quarterly Review' }, description: 'desc' }));
+      const result = await handleGenerateTitle(message, OPTIONS);
+      expect(result.title).toBe(message.slice(0, 40));
+      expect(typeof result.title).toBe('string');
+    });
+
+    it('falls back to the first message when "title" is missing entirely', async () => {
+      const message = 'show me sales trends';
+      stubFetch(JSON.stringify({ description: 'A look at sales trends.' }));
+      const result = await handleGenerateTitle(message, OPTIONS);
+      expect(result.title).toBe(message.slice(0, 40));
+      expect(result.description).toBe('A look at sales trends.');
+    });
+
+    it('caps an oversized "title" to 40 characters instead of returning it verbatim', async () => {
+      const oversizedTitle = 'A'.repeat(200);
+      stubFetch(JSON.stringify({ title: oversizedTitle, description: 'desc' }));
+      const result = await handleGenerateTitle('hi', OPTIONS);
+      expect(result.title).toHaveLength(40);
+      expect(result.title).toBe(oversizedTitle.slice(0, 40));
+    });
+
+    it('rejects a bare-array JSON response and falls back to the first message', async () => {
+      const message = 'array response should not crash';
+      stubFetch(JSON.stringify(['Sales Review', 'A look at sales.']));
+      const result = await handleGenerateTitle(message, OPTIONS);
+      expect(result.title).toBe(message.slice(0, 40));
+      expect(result.description).toBe('');
+    });
+
+    it('coerces a non-string "description" to an empty string', async () => {
+      stubFetch(JSON.stringify({ title: 'Sales Review', description: { note: 'x' } }));
+      const result = await handleGenerateTitle('hi', OPTIONS);
+      expect(result.title).toBe('Sales Review');
+      expect(result.description).toBe('');
+    });
+
+    it('still accepts a well-formed, short title/description unchanged', async () => {
+      stubFetch(JSON.stringify({ title: 'Sales Review', description: 'A look at sales.' }));
+      const result = await handleGenerateTitle('hi', OPTIONS);
+      expect(result).toEqual({ title: 'Sales Review', description: 'A look at sales.' });
+    });
+  });
 });
 
 describe('handleCreateWidget', () => {

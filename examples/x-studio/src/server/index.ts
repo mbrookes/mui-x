@@ -129,8 +129,8 @@ async function main(): Promise<void> {
   }
 
   // Kick off an initial capture in the background if either matrix's snapshot for this week is
-  // missing — don't block server startup on the ~1-2min combined GitHub fetch (24 rate-limited
-  // searches per matrix — see githubLibraryUsage.ts).
+  // missing — don't block server startup on the combined GitHub fetch (one rate-limited search
+  // per component-library × other-library cell, per matrix — see githubLibraryUsage.ts).
   void refreshAllIfDue();
   setInterval(() => {
     void refreshAllIfDue();

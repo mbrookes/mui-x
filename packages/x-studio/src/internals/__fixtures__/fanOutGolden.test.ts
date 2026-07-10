@@ -327,6 +327,118 @@ describe('fan-out golden fixtures — chart vs grid (current, pre-unification be
     expect(chartAgg.values[chartAgg.labels.indexOf('Gadget')]).toBe(5);
   });
 
+  it('scenario 5: M:N remote dimension + widget-owned measure fans the measure out across every junction link (finding 1.1)', () => {
+    // Widget on `orders`; x = tags.name (owned by the M:N remote endpoint), y = sum(orders.total)
+    // (owned by the widget source itself). Before the fix, analyzeChartSupport reported this
+    // supported but kept anchor = orders, so L4 enriched each order with only its FIRST tag
+    // (arbitrary junction order) — "sum of order total by tag" attributed each order to ONE tag.
+    // The fix junction-anchors the topology: each order is fanned out to one row per matching
+    // junction entry, so the widget-owned total is distributed across EVERY tag the order has.
+    const orders = [
+      { id: 'o1', total: 100 }, // linked to tags A + B
+      { id: 'o2', total: 50 }, // linked to tag B only
+    ];
+    const tags = [
+      { id: 'tA', name: 'A' },
+      { id: 'tB', name: 'B' },
+    ];
+    const orderTags = [
+      { orderId: 'o1', tagId: 'tA' },
+      { orderId: 'o1', tagId: 'tB' },
+      { orderId: 'o2', tagId: 'tB' },
+    ];
+    const m2mRel: StudioRelationship = {
+      id: 'rel-order-tags',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: orders,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: tags,
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'tagId', label: 'Tag', type: 'string' },
+        ],
+        rows: orderTags,
+      },
+    };
+
+    // Support now reports the M:N junction as the aggregation anchor (was: widget source).
+    const support = analyzeChartSupport(
+      'orders',
+      'name',
+      ['total'],
+      undefined,
+      undefined,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+    expect(support.supported).toBe(true);
+    expect(support.anchorSourceId).toBe('order_tags');
+
+    // One output row per junction link, each carrying the order's full total and its tag's name.
+    const resolved = resolveChartRowsForAggregation(
+      orders,
+      'orders',
+      'name',
+      ['total'],
+      undefined,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+    expect(resolved).toHaveLength(3);
+
+    const chartAgg = aggregateByField(resolved, 'name', 'total');
+    // Correct join semantic: o1 (100) contributes to BOTH A and B; o2 (50) to B.
+    expect(chartAgg.values[chartAgg.labels.indexOf('A')]).toBe(100);
+    expect(chartAgg.values[chartAgg.labels.indexOf('B')]).toBe(150); // 100 (o1) + 50 (o2)
+
+    // A fieldless "count of orders by tag" fans out the same way: A:1 (o1), B:2 (o1, o2).
+    const countResolved = resolveChartRowsForAggregation(
+      orders,
+      'orders',
+      'name',
+      [],
+      undefined,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+    expect(countResolved).toHaveLength(3);
+    const countByTag = countResolved.reduce<Record<string, number>>((acc, r) => {
+      acc[r.name as string] = (acc[r.name as string] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(countByTag).toEqual({ A: 1, B: 2 });
+  });
+
   it("scenario 4: null/missing FK within grid's supported many-to-one topology contributes nothing (not a separate bucket)", () => {
     const orderItemsWithNullFk = [
       { id: 'i1', orderId: 'ord1', category: 'Electronics', qty: 2 },

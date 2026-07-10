@@ -212,6 +212,7 @@ export function analyzeChartSupport(
     return { supported: false, reason: 'scatter_cross_source_not_supported' };
   }
 
+  const yFieldSet = new Set(yFields);
   const ySourceIds = [
     ...new Set(
       yFields
@@ -221,6 +222,10 @@ export function analyzeChartSupport(
   ];
 
   let anchorSourceId = widgetSourceId;
+  // Set only when we junction-anchor purely to fan a WIDGET-owned measure out across an
+  // M:N remote dimension (finding 1.1). It relaxes the y-owner check below: in that topology
+  // the measure legitimately lives on the widget source, not on the (junction) anchor.
+  let junctionAnchorForWidgetMeasure = false;
   if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
     const ySourceId = ySourceIds[0];
     const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceId, relationships);
@@ -252,6 +257,42 @@ export function analyzeChartSupport(
         anchorSourceId = ySourceId;
       }
     }
+  } else if (ySourceIds.every((sourceId) => sourceId === widgetSourceId)) {
+    // All measures are widget-owned (or there are none — a fieldless "count" chart). If a
+    // grouping DIMENSION (x / series / extra) is owned by the remote endpoint (or the junction
+    // itself) of a many-to-many relationship with the widget source, the widget grain fans out
+    // across that M:N link. Leaving `anchorSourceId = widgetSourceId` here routes L4 through
+    // `enrichRowsWithRelatedFields`, whose M:N path is first-match-only — it attaches a single
+    // arbitrary junction link per widget row and silently discards the rest, so
+    // "sum of order total by tag" attributes each order to only ONE of its tags (finding 1.1).
+    // Anchor on the M:N junction instead: `resolveRowsAtGrain`'s M:N branch expands each widget
+    // row into one row per matching junction entry (merging widget + remote + junction fields),
+    // so the widget-owned measure is correctly fanned out across every linked remote value.
+    const junctionAnchors = new Set<string>();
+    for (const [fieldId, owner] of fieldOwners) {
+      if (yFieldSet.has(fieldId) || owner === widgetSourceId) {
+        continue;
+      }
+      const mnRel = relationships.find(
+        (rel) =>
+          rel.type === 'many-to-many' &&
+          !!rel.junctionSourceId &&
+          ((rel.sourceId === widgetSourceId &&
+            (rel.targetId === owner || rel.junctionSourceId === owner)) ||
+            (rel.targetId === widgetSourceId &&
+              (rel.sourceId === owner || rel.junctionSourceId === owner))),
+      );
+      if (mnRel?.junctionSourceId) {
+        junctionAnchors.add(mnRel.junctionSourceId);
+      }
+    }
+    if (junctionAnchors.size === 1) {
+      [anchorSourceId] = junctionAnchors;
+      junctionAnchorForWidgetMeasure = true;
+    } else if (junctionAnchors.size > 1) {
+      // Dimensions on two different M:N remote endpoints have no single junction grain.
+      return { supported: false, reason: 'mixed_cross_source_fields' };
+    }
   }
 
   if (
@@ -261,10 +302,15 @@ export function analyzeChartSupport(
     return { supported: false, reason: 'mixed_cross_source_fields' };
   }
 
-  const yFieldSet = new Set(yFields);
   for (const [fieldId, owner] of fieldOwners.entries()) {
     if (yFieldSet.has(fieldId)) {
-      if (owner !== anchorSourceId) {
+      // The measure must live on the anchor grain so a per-row aggregation can't double count.
+      // Exception: a widget-owned measure under a junction anchor selected purely to fan it out
+      // across an M:N remote dimension (finding 1.1) — the expansion join reads it from the
+      // merged widget row, one clean copy per junction link, which is the intended join semantic.
+      const measureOwnerOk =
+        owner === anchorSourceId || (junctionAnchorForWidgetMeasure && owner === widgetSourceId);
+      if (!measureOwnerOk) {
         return { supported: false, reason: 'mixed_cross_source_fields' };
       }
       continue;
@@ -451,11 +497,27 @@ export function resolveChartRowsForAggregation(
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
 
-  // Only the anchor-scoped filter subset affects `resolveRowsAtGrain`'s output (finding 1.4);
-  // fold its content-based fingerprint into the cache key so editing/adding/removing an
-  // anchor-source filter invalidates the entry instead of serving a stale re-anchored result.
+  // The anchor-scoped filter subset affects `resolveRowsAtGrain`'s output (finding 1.4); so does
+  // the subset scoped to the M:N REMOTE endpoint when the anchor is a many-to-many junction —
+  // those are re-applied to the remote rows before the expansion join (finding 2.3). Fold both
+  // fingerprints into the cache key so editing/adding/removing either invalidates the entry
+  // instead of serving a stale re-anchored result.
+  const anchorScopeSourceIds = new Set<string>([anchorSourceId]);
+  const mnRelForAnchor = relationships.find(
+    (rel) =>
+      rel.type === 'many-to-many' &&
+      rel.junctionSourceId === anchorSourceId &&
+      (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
+  );
+  if (mnRelForAnchor) {
+    anchorScopeSourceIds.add(
+      mnRelForAnchor.sourceId === widgetSourceId
+        ? mnRelForAnchor.targetId
+        : mnRelForAnchor.sourceId,
+    );
+  }
   const anchorScopedFilterKey = widgetFilters
-    .filter((f) => f.filterSourceId === anchorSourceId)
+    .filter((f) => f.filterSourceId != null && anchorScopeSourceIds.has(f.filterSourceId))
     .map(filterFingerprint)
     .sort()
     .join('|');

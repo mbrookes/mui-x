@@ -359,8 +359,13 @@ export function resolveRows(
  *
  * For many-to-many two-hop joins: builds a lookup
  * (widgetJoinValue → firstMatchingTargetFieldValue) via the junction table.
- * Uses the **first** matching junction row per widget row — suitable for display
- * columns; aggregate queries should use `resolveChartRowsForAggregation`.
+ * Uses the **first** matching junction row per widget row — this is DISPLAY-column
+ * semantics only (one representative related value per widget row). It is deliberately
+ * lossy for aggregation: an order linked to tags A+B collapses to a single arbitrary tag.
+ * Aggregate/chart queries whose grouping dimension is owned by an M:N remote endpoint must
+ * NOT rely on this path — `analyzeChartSupport` junction-anchors that topology so
+ * `resolveRowsAtGrain` fans each widget row out to one row per matching junction entry
+ * instead (finding 1.1); this first-match lookup is reached only for genuine display columns.
  */
 export function enrichRowsWithRelatedFields(
   rows: Row[],

@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useXScale, useYScale } from '@mui/x-charts/hooks';
 import type { CompiledOverlay, OverlayBandPoint, OverlayErrorBarItem } from '../compile/context';
-import { scalePosition } from './scaleUtils';
+import { scaleBandwidth, scalePosition } from './scaleUtils';
 import type { AnyScale } from './scaleUtils';
 
 /*
@@ -23,20 +23,25 @@ import type { AnyScale } from './scaleUtils';
 const DEFAULT_STROKE = 'currentColor';
 const DEFAULT_FILL = 'currentColor';
 const CAP_LENGTH = 10;
+/** Dodge slot width (px) used when the category scale is continuous (bandwidth 0). Matches BoxPlot.tsx. */
+const POINT_SCALE_FALLBACK_WIDTH = 20;
 
 function ErrorBarWhisker(props: {
   item: OverlayErrorBarItem;
   horizontal: boolean;
   categoryScale: AnyScale;
   valueScale: AnyScale;
+  /** Pixel offset along the category axis for grouped/dodged error bars (0 when not dodged). */
+  dodgeOffset: number;
 }) {
-  const { item, horizontal, categoryScale, valueScale } = props;
-  const categoryPos = scalePosition(categoryScale, item.category);
+  const { item, horizontal, categoryScale, valueScale, dodgeOffset } = props;
+  const basePos = scalePosition(categoryScale, item.category);
   const lowerPos = scalePosition(valueScale, item.lower);
   const upperPos = scalePosition(valueScale, item.upper);
-  if (categoryPos == null || lowerPos == null || upperPos == null) {
+  if (basePos == null || lowerPos == null || upperPos == null) {
     return null;
   }
+  const categoryPos = basePos + dodgeOffset;
   const stroke = item.color ?? DEFAULT_STROKE;
   const centerPos = item.center !== undefined ? scalePosition(valueScale, item.center) : null;
   const halfCap = CAP_LENGTH / 2;
@@ -115,17 +120,31 @@ function ErrorBarsGroup(props: {
   const horizontal = overlay.orientation === 'horizontal';
   const categoryScale = horizontal ? yScale : xScale;
   const valueScale = horizontal ? xScale : yScale;
+  // Grouped/dodged error bars: subdivide each category band into `groupCount`
+  // equal slots and center each item on its `groupIndex` slot, so sibling
+  // color-groups draw side-by-side (same dodge math as BoxPlot.tsx). The
+  // groupCount is carried on every item (see errorBar.ts); a single group
+  // leaves everything on the category center.
+  const groupCount = overlay.items[0]?.groupCount ?? 1;
+  const bandwidth = scaleBandwidth(categoryScale);
+  const slot = (bandwidth > 0 ? bandwidth : POINT_SCALE_FALLBACK_WIDTH) / groupCount;
   return (
     <g className="MuiVegaOverlay-errorBars">
-      {overlay.items.map((item, index) => (
-        <ErrorBarWhisker
-          key={index}
-          item={item}
-          horizontal={horizontal}
-          categoryScale={categoryScale}
-          valueScale={valueScale}
-        />
-      ))}
+      {overlay.items.map((item, index) => {
+        const groupIndex = item.groupIndex ?? 0;
+        const dodgeOffset =
+          groupCount > 1 ? -(slot * groupCount) / 2 + (groupIndex + 0.5) * slot : 0;
+        return (
+          <ErrorBarWhisker
+            key={index}
+            item={item}
+            horizontal={horizontal}
+            categoryScale={categoryScale}
+            valueScale={valueScale}
+            dodgeOffset={dodgeOffset}
+          />
+        );
+      })}
     </g>
   );
 }

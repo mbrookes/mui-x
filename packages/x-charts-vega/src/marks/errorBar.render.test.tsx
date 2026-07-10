@@ -44,6 +44,51 @@ describe('<VegaLiteChart /> errorbar/errorband marks (render)', () => {
     expect(lines.length).to.be.at.least(6);
   });
 
+  it('renders dodged whiskers for a color-split errorbar, side-by-side per category', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { day: 'Mon', temp: 10, region: 'east' },
+          { day: 'Mon', temp: 12, region: 'east' },
+          { day: 'Mon', temp: 14, region: 'west' },
+          { day: 'Mon', temp: 16, region: 'west' },
+          { day: 'Tue', temp: 20, region: 'east' },
+          { day: 'Tue', temp: 22, region: 'east' },
+          { day: 'Tue', temp: 24, region: 'west' },
+          { day: 'Tue', temp: 26, region: 'west' },
+        ],
+      },
+      mark: 'errorbar',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative', scale: { domain: [0, 30] } },
+        color: { field: 'region', type: 'nominal' },
+      },
+    };
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    const group = container.querySelector('.MuiVegaOverlay-errorBars');
+    expect(group).not.to.equal(null);
+    // 2 categories × 2 color groups = 4 dodged whiskers, each with a main line
+    // plus two end caps and a center tick.
+    const whiskerGroups = group!.querySelectorAll(':scope > g');
+    expect(whiskerGroups.length).to.equal(4);
+    // The two color groups draw in distinct strokes.
+    const strokes = new Set(
+      Array.from(group!.querySelectorAll('line')).map((line) => line.getAttribute('stroke')),
+    );
+    expect(strokes.size).to.be.at.least(2);
+    // Dodging offsets the sibling groups to different x positions within a
+    // category, so the vertical whisker lines are not all at the same x.
+    const mainLineXs = new Set(
+      Array.from(group!.querySelectorAll('g > line:first-child')).map((line) =>
+        line.getAttribute('x1'),
+      ),
+    );
+    expect(mainLineXs.size).to.be.at.least(3);
+  });
+
   it('renders a filled band path for an errorband mark', () => {
     const spec: VegaLiteSpec = {
       data: { values: rows },

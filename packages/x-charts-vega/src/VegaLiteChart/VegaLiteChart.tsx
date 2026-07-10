@@ -28,7 +28,8 @@ import { RangeBarPlot } from '@mui/x-charts-premium/BarChartPremium';
 import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import { ChartsClipPath } from '@mui/x-charts/ChartsClipPath';
 import useId from '@mui/utils/useId';
-import type { DatasetRow, VegaLiteSpec } from '../types';
+import type { Position } from '@mui/x-charts/models';
+import type { DatasetRow, VegaFieldDef, VegaLiteSpec } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
 import { collectBindInputs } from '../compile/params';
@@ -36,6 +37,31 @@ import { VegaOverlays, ArcLabelsPlot } from '../overlays';
 import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
+import { VegaTooltip, resolveTooltipFields } from './VegaTooltip';
+
+type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' };
+
+/**
+ * Maps a Vega-Lite color-legend `orient` to the x-charts wrapper's legend
+ * placement (`legendPosition` + `legendDirection`, the mechanism that actually
+ * moves the composed HTML legend — `<ChartsLegend>` itself drops a `position`
+ * prop). Returns `undefined` for unset / unsupported orients so the default
+ * placement is preserved.
+ */
+function resolveLegendLayout(orient: string | undefined): LegendLayout | undefined {
+  switch (orient) {
+    case 'top':
+      return { position: { vertical: 'top', horizontal: 'center' }, direction: 'horizontal' };
+    case 'bottom':
+      return { position: { vertical: 'bottom', horizontal: 'center' }, direction: 'horizontal' };
+    case 'left':
+      return { position: { vertical: 'middle', horizontal: 'start' }, direction: 'vertical' };
+    case 'right':
+      return { position: { vertical: 'middle', horizontal: 'end' }, direction: 'vertical' };
+    default:
+      return undefined;
+  }
+}
 
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
@@ -337,6 +363,19 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const resolvedWidth = width ?? compiled.width;
   const resolvedHeight = height ?? compiled.height;
 
+  // Color-legend placement from `encoding.color.legend.orient` (unset keeps the
+  // default placement). Only field-based color channels carry a `legend`.
+  const legendLayout = resolveLegendLayout(
+    (spec.encoding?.color as VegaFieldDef | undefined)?.legend?.orient,
+  );
+
+  // A declared `tooltip` channel swaps the default tooltip for one that renders
+  // the spec's field list; absent/null (or a channel with no resolvable fields)
+  // keeps the built-in tooltip.
+  const tooltipChannel = spec.encoding?.tooltip;
+  const resolvedTooltipFields = tooltipChannel != null ? resolveTooltipFields(tooltipChannel) : [];
+  const tooltipFields = resolvedTooltipFields.length > 0 ? resolvedTooltipFields : null;
+
   if (compiled.chartKind === 'geo') {
     // A geoshape choropleth's color axis (set by the mark compiler for a
     // quantitative/temporal color field, see marks/geoshape.ts) picks the
@@ -416,10 +455,16 @@ function SingleViewChart(props: VegaLiteChartProps) {
       width={resolvedWidth}
       height={resolvedHeight}
     >
-      <ChartsWrapper>
-        {compiled.hasLegend && <ChartsLegend />}
+      <ChartsWrapper
+        legendPosition={legendLayout?.position}
+        legendDirection={legendLayout?.direction}
+      >
+        {compiled.hasLegend && <ChartsLegend direction={legendLayout?.direction} />}
         {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
-        <ChartsSurface title={compiled.title}>
+        <ChartsSurface
+          title={compiled.title}
+          sx={compiled.background ? { backgroundColor: compiled.background } : undefined}
+        >
           {compiled.chartKind === 'cartesian' && (
             <ChartsGrid
               vertical={compiled.grid.vertical ?? false}
@@ -451,7 +496,20 @@ function SingleViewChart(props: VegaLiteChartProps) {
           {children}
         </ChartsSurface>
         {/* Heatmap cells have no axis-tooltip payload — use the item trigger. */}
-        <ChartsTooltip trigger={compiled.plots.includes('heatmap') ? 'item' : undefined} />
+        {tooltipFields != null ? (
+          <VegaTooltip
+            fields={tooltipFields}
+            // Marks with no axis-tooltip payload (heatmap cells, polar/pie
+            // slices) resolve their highlighted item via the item trigger.
+            trigger={
+              compiled.plots.includes('heatmap') || compiled.chartKind === 'polar'
+                ? 'item'
+                : undefined
+            }
+          />
+        ) : (
+          <ChartsTooltip trigger={compiled.plots.includes('heatmap') ? 'item' : undefined} />
+        )}
       </ChartsWrapper>
     </ChartsDataProviderPremium>
   );

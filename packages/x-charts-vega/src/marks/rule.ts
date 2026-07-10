@@ -7,7 +7,7 @@ import type {
 import type { DatasetRow, VegaChannelDef, VegaFieldType } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
 import type { GapCollector } from '../gaps';
-import { toDate, toNumber } from '../compile/fieldTypes';
+import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 
 /*
  * OWNERSHIP: the "segments, ticks & bubbles" work unit also owns this file
@@ -21,14 +21,17 @@ import { toDate, toNumber } from '../compile/fieldTypes';
  * - only `x` → vertical reference line;
  * - `x`+`x2` (and/or `y`+`y2`) → per-row `{kind: 'segments'}` overlay items
  *   (see buildXSpanSegments/buildYSpanSegments/buildDiagonalSegments below):
- *   x+x2 alone draws a horizontal segment per row anchored at that row's `y`
- *   value (Vega-Lite semantics — a "span" rule needs the other axis fixed to
- *   place it); y+y2 alone is the transposed vertical case; when all four of
- *   x/y/x2/y2 are set, each row gets an arbitrary diagonal segment from
- *   (x, y) to (x2, y2). A missing anchor channel (e.g. x+x2 with no y) would
- *   need to span the full plotting extent in Vega-Lite, which has no
- *   data-space representation here (`OverlaySegment` positions are data
- *   values, not pixels) — that case is dropped with an `unsupported` gap;
+ *   x+x2 alone draws a horizontal segment per row; a "span" rule needs the
+ *   perpendicular (y) axis fixed to place it, so the y position is resolved
+ *   from, in order, the row's `y` value, the `yOffset` channel, or — when the
+ *   chart already has a categorical y axis (shared from another layer) — by
+ *   distributing rows across that axis' bands by row index; y+y2 alone is the
+ *   transposed vertical case; when all four of x/y/x2/y2 are set, each row gets
+ *   an arbitrary diagonal segment from (x, y) to (x2, y2). Only when none of
+ *   those anchors exists is the span genuinely unanchorable (it would span the
+ *   full plotting extent in Vega-Lite, which has no data-space representation
+ *   here — `OverlaySegment` positions are data values, not pixels) and dropped
+ *   with a `partial` gap;
  * - mark color/strokeDash → lineStyle, applied to both reference lines and
  *   segment items.
  */
@@ -187,7 +190,72 @@ function resolveRowPosition(
   return undefined;
 }
 
-/** `x`+`x2` alone: a horizontal segment per row, anchored at that row's `y`. */
+/**
+ * Resolves the per-row position on a span rule's *perpendicular* axis (the `y`
+ * axis for an `x`→`x2` span, the `x` axis for a `y`→`y2` span). A span rule
+ * needs the other axis fixed to place each segment; the anchor is taken from,
+ * in priority order:
+ *   1. an explicit positional encoding on that axis (`y`/`x`) — the row's value;
+ *   2. the `yOffset`/`xOffset` channel — a sub-position channel repurposed as
+ *      the anchor when the main positional channel is absent;
+ *   3. a categorical axis shared from another layer — when the rule's own rows
+ *      carry that axis' backing field, each row is anchored at its *own*
+ *      category value (so it lands on the band it belongs to, regardless of row
+ *      order); otherwise rows are distributed across the bands by row index (a
+ *      full-height/width rule has no data-space form here, so spreading rows
+ *      over the band is the closest approximation).
+ * Returns `null` when none of those exists (genuinely unanchorable); the caller
+ * then drops the span with a `partial` gap. `emitPixelValueGap` is fired here
+ * (once per channel) for literal `value` anchors, mirroring the single-value
+ * reference-line path.
+ */
+function resolvePerpendicularAnchor(
+  ctx: UnitContext,
+  axisName: 'x' | 'y',
+  primaryDef: VegaChannelDef | undefined,
+  offsetDef: VegaChannelDef | undefined,
+  path: string,
+): ((row: DatasetRow, index: number) => number | string | Date | undefined) | null {
+  const { gaps } = ctx;
+  const axis = axisName === 'x' ? ctx.x : ctx.y;
+
+  if (primaryDef !== undefined) {
+    emitPixelValueGap(axisName, primaryDef, gaps, path);
+    const fieldType = axis?.fieldType;
+    return (row) => resolveRowPosition(primaryDef, fieldType, row);
+  }
+
+  if (offsetDef !== undefined) {
+    emitPixelValueGap(`${axisName}Offset`, offsetDef, gaps, path);
+    const fieldType = resolveFieldType(offsetDef, ctx.rows);
+    return (row) => resolveRowPosition(offsetDef, fieldType, row);
+  }
+
+  const categories = axis?.categories;
+  if (categories && categories.length > 0) {
+    const axisField = axis?.field;
+    return (row, index) => {
+      // Prefer the row's own value on the categorical axis (correct band even
+      // when the rule's rows are ordered/filtered differently from the axis
+      // domain); fall back to distributing across bands by row index only when
+      // the row carries no value for that field.
+      if (axisField !== undefined) {
+        const own = row[axisField];
+        if (own != null) {
+          return own as number | string | Date;
+        }
+      }
+      return categories[index % categories.length];
+    };
+  }
+
+  return null;
+}
+
+/**
+ * `x`+`x2`: a horizontal segment per row, anchored on the perpendicular (`y`)
+ * axis (see `resolvePerpendicularAnchor`).
+ */
 function buildXSpanSegments(
   ctx: UnitContext,
   path: string,
@@ -197,36 +265,37 @@ function buildXSpanSegments(
   const { encoding, rows, gaps } = ctx;
   const xDef = encoding.x!;
   const x2Def = encoding.x2!;
-  const yDef = encoding.y;
 
   emitPixelValueGap('x2', x2Def, gaps, path);
 
-  if (yDef === undefined) {
+  const anchor = resolvePerpendicularAnchor(ctx, 'y', encoding.y, encoding.yOffset, path);
+  if (!anchor) {
     gaps.add({
       code: 'mark:rule-segment-x-no-anchor',
       message:
-        'A rule mark spanning `x` → `x2` with no `y` encoding would span the full plotting height in Vega-Lite; this wrapper has no data-space way to express a full-height segment (`OverlaySegment` positions are data values, not pixels), so the segment was dropped. Add a `y` (or `datum`) encoding to anchor each row.',
-      severity: 'unsupported',
+        'A rule mark spanning `x` → `x2` with no `y`/`yOffset` encoding, and no categorical y axis to distribute rows across, would span the full plotting height in Vega-Lite; this wrapper has no data-space way to express a full-height segment (`OverlaySegment` positions are data values, not pixels), so the segment was dropped. Add a `y` (or `yOffset`/`datum`) encoding, or layer the rule over a mark with a categorical y axis, to anchor each row.',
+      severity: 'partial',
       path: `${path}.encoding.x2`,
     });
     return;
   }
-  emitPixelValueGap('y', yDef, gaps, path);
 
   const xFieldType = ctx.x?.fieldType;
-  const yFieldType = ctx.y?.fieldType;
-  for (const row of rows) {
+  rows.forEach((row, index) => {
     const x1 = resolveRowPosition(xDef, xFieldType, row);
     const x2Value = resolveRowPosition(x2Def, xFieldType, row);
-    const y = resolveRowPosition(yDef, yFieldType, row);
+    const y = anchor(row, index);
     if (x1 == null || x2Value == null || y == null) {
-      continue;
+      return;
     }
     out.push({ x1, x2: x2Value, y1: y, y2: y, style: lineStyle });
-  }
+  });
 }
 
-/** `y`+`y2` alone: a vertical segment per row, anchored at that row's `x`. */
+/**
+ * `y`+`y2`: a vertical segment per row, anchored on the perpendicular (`x`)
+ * axis (see `resolvePerpendicularAnchor`).
+ */
 function buildYSpanSegments(
   ctx: UnitContext,
   path: string,
@@ -236,33 +305,31 @@ function buildYSpanSegments(
   const { encoding, rows, gaps } = ctx;
   const yDef = encoding.y!;
   const y2Def = encoding.y2!;
-  const xDef = encoding.x;
 
   emitPixelValueGap('y2', y2Def, gaps, path);
 
-  if (xDef === undefined) {
+  const anchor = resolvePerpendicularAnchor(ctx, 'x', encoding.x, encoding.xOffset, path);
+  if (!anchor) {
     gaps.add({
       code: 'mark:rule-segment-y-no-anchor',
       message:
-        'A rule mark spanning `y` → `y2` with no `x` encoding would span the full plotting width in Vega-Lite; this wrapper has no data-space way to express a full-width segment (`OverlaySegment` positions are data values, not pixels), so the segment was dropped. Add an `x` (or `datum`) encoding to anchor each row.',
-      severity: 'unsupported',
+        'A rule mark spanning `y` → `y2` with no `x`/`xOffset` encoding, and no categorical x axis to distribute rows across, would span the full plotting width in Vega-Lite; this wrapper has no data-space way to express a full-width segment (`OverlaySegment` positions are data values, not pixels), so the segment was dropped. Add an `x` (or `xOffset`/`datum`) encoding, or layer the rule over a mark with a categorical x axis, to anchor each row.',
+      severity: 'partial',
       path: `${path}.encoding.y2`,
     });
     return;
   }
-  emitPixelValueGap('x', xDef, gaps, path);
 
-  const xFieldType = ctx.x?.fieldType;
   const yFieldType = ctx.y?.fieldType;
-  for (const row of rows) {
+  rows.forEach((row, index) => {
     const y1 = resolveRowPosition(yDef, yFieldType, row);
     const y2Value = resolveRowPosition(y2Def, yFieldType, row);
-    const x = resolveRowPosition(xDef, xFieldType, row);
+    const x = anchor(row, index);
     if (y1 == null || y2Value == null || x == null) {
-      continue;
+      return;
     }
     out.push({ x1: x, x2: x, y1, y2: y2Value, style: lineStyle });
-  }
+  });
 }
 
 /** All four of `x`/`y`/`x2`/`y2` set: an arbitrary diagonal segment per row from (x, y) to (x2, y2). */

@@ -81,6 +81,47 @@ describe('<VegaLiteChart /> rule mark segments', () => {
     expect(line?.getAttribute('stroke')).to.equal('#ff0000');
   });
 
+  it('renders one <line> per row for an x/x2 span rule anchored at a categorical y axis (no y encoding on the rule)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { cat: 'A', v: 10, xStart: 1, xEnd: 5 },
+          { cat: 'B', v: 20, xStart: 2, xEnd: 4 },
+        ],
+      },
+      layer: [
+        {
+          mark: 'bar',
+          encoding: {
+            y: { field: 'cat', type: 'nominal' },
+            x: { field: 'v', type: 'quantitative', scale: { domain: [0, 25] } },
+          },
+        },
+        {
+          mark: 'rule',
+          encoding: {
+            x: { field: 'xStart', type: 'quantitative' },
+            x2: { field: 'xEnd' },
+          },
+        },
+      ],
+    };
+    let reported: TranslationGap[] = [];
+    const { container } = render(
+      <VegaLiteChart
+        width={300}
+        height={200}
+        spec={spec}
+        onGaps={(gaps) => {
+          reported = gaps;
+        }}
+      />,
+    );
+    const lines = container.querySelectorAll('.MuiVegaOverlay-segments line');
+    expect(lines.length).to.equal(2);
+    expect(reported.map((gap) => gap.code)).not.to.include('mark:rule-segment-x-no-anchor');
+  });
+
   it('still renders an unaffected reference line for a plain y rule alongside a segment rule layer', () => {
     const spec: VegaLiteSpec = {
       data: {

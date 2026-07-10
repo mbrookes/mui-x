@@ -49,7 +49,7 @@ describe('compileRuleMark', () => {
     expect(gap?.severity).to.equal('partial');
   });
 
-  it('drops an x/x2 span with no y anchor and reports an unsupported gap (no data-space way to express a full-height segment)', () => {
+  it('drops a genuinely-unanchorable x/x2 span (no y/yOffset, no categorical y axis) with a partial gap', () => {
     const compiled = compileSpec({
       data: { values: [{ xStart: 1, xEnd: 5 }] },
       mark: 'rule',
@@ -58,13 +58,13 @@ describe('compileRuleMark', () => {
         x2: { field: 'xEnd' },
       },
     });
-    const codes = compiled.gaps.map((entry) => entry.code);
-    expect(codes).to.include('mark:rule-segment-x-no-anchor');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:rule-segment-x-no-anchor');
+    expect(gap?.severity).to.equal('partial');
     expect(compiled.referenceLines).to.have.length(0);
     expect(compiled.overlays).to.have.length(0);
   });
 
-  it('drops a y/y2 span with no x anchor and reports an unsupported gap', () => {
+  it('drops a genuinely-unanchorable y/y2 span (no x/xOffset, no categorical x axis) with a partial gap', () => {
     const compiled = compileSpec({
       data: { values: [{ yStart: 1, yEnd: 5 }] },
       mark: 'rule',
@@ -73,9 +73,90 @@ describe('compileRuleMark', () => {
         y2: { field: 'yEnd' },
       },
     });
-    const codes = compiled.gaps.map((entry) => entry.code);
-    expect(codes).to.include('mark:rule-segment-y-no-anchor');
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:rule-segment-y-no-anchor');
+    expect(gap?.severity).to.equal('partial');
     expect(compiled.overlays).to.have.length(0);
+  });
+
+  it('builds an x/x2 segments overlay anchored at `yOffset` when there is no `y` encoding', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { xStart: 1, xEnd: 5, level: 2 },
+          { xStart: 2, xEnd: 3, level: 4 },
+        ],
+      },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'xStart', type: 'quantitative' },
+        x2: { field: 'xEnd' },
+        yOffset: { field: 'level', type: 'quantitative' },
+      },
+    });
+    const codes = compiled.gaps.map((entry) => entry.code);
+    expect(codes).not.to.include('mark:rule-segment-x-no-anchor');
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0] as { kind: string; items: unknown[] };
+    expect(overlay.kind).to.equal('segments');
+    expect(overlay.items).to.deep.equal([
+      { x1: 1, x2: 5, y1: 2, y2: 2, style: undefined },
+      { x1: 2, x2: 3, y1: 4, y2: 4, style: undefined },
+    ]);
+  });
+
+  it('builds a y/y2 segments overlay anchored at `xOffset` when there is no `x` encoding', () => {
+    const compiled = compileSpec({
+      data: { values: [{ yStart: 1, yEnd: 9, slot: 3 }] },
+      mark: 'rule',
+      encoding: {
+        y: { field: 'yStart', type: 'quantitative' },
+        y2: { field: 'yEnd' },
+        xOffset: { field: 'slot', type: 'quantitative' },
+      },
+    });
+    const codes = compiled.gaps.map((entry) => entry.code);
+    expect(codes).not.to.include('mark:rule-segment-y-no-anchor');
+    expect(compiled.overlays).to.have.length(1);
+    const overlay = compiled.overlays[0] as { items: unknown[] };
+    expect(overlay.items).to.deep.equal([{ x1: 3, x2: 3, y1: 1, y2: 9, style: undefined }]);
+  });
+
+  it('distributes an x/x2 span across the bands of a categorical y axis shared from another layer', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { cat: 'A', v: 10, xStart: 1, xEnd: 5 },
+          { cat: 'B', v: 20, xStart: 2, xEnd: 4 },
+        ],
+      },
+      layer: [
+        {
+          mark: 'bar',
+          encoding: {
+            y: { field: 'cat', type: 'nominal' },
+            x: { field: 'v', type: 'quantitative' },
+          },
+        },
+        {
+          mark: 'rule',
+          encoding: {
+            x: { field: 'xStart', type: 'quantitative' },
+            x2: { field: 'xEnd' },
+          },
+        },
+      ],
+    });
+    const codes = compiled.gaps.map((entry) => entry.code);
+    expect(codes).not.to.include('mark:rule-segment-x-no-anchor');
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'segments') as {
+      items: Array<{ x1: unknown; x2: unknown; y1: unknown; y2: unknown }>;
+    };
+    expect(overlay).not.to.equal(undefined);
+    // Each row is anchored at its row-index category (A, then B).
+    expect(overlay.items).to.deep.equal([
+      { x1: 1, x2: 5, y1: 'A', y2: 'A', style: undefined },
+      { x1: 2, x2: 4, y1: 'B', y2: 'B', style: undefined },
+    ]);
   });
 
   it('builds a horizontal segments overlay per row from x/x2 anchored at the row y', () => {

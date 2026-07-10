@@ -52,7 +52,13 @@ type ResolveSourceResult =
  * is named instead as the discovery path.
  */
 export function resolveSource(stateBox: StudioStateBox, sourceId: string): ResolveSourceResult {
-  const source = stateBox.current.runtime.dataSources[sourceId];
+  // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
+  // (`"constructor"`, `"__proto__"`) would otherwise resolve a truthy inherited value
+  // via the prototype chain. Today the `!source.tableName` check below saves this by
+  // accident (no prototype member has a `tableName`); the guard makes it explicit and
+  // robust rather than incidental.
+  const sources = stateBox.current.runtime.dataSources;
+  const source = Object.hasOwn(sources, sourceId) ? sources[sourceId] : undefined;
   if (!source || !source.tableName) {
     return {
       ok: false,

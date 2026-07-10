@@ -14,12 +14,14 @@ import {
   createFilterId,
   createPageId,
   isStudioChartType,
+  isStudioFilterOperator,
   isWidgetOfKind,
   STUDIO_CHART_TYPES,
+  STUDIO_FILTER_OPERATORS,
   validateChartConfigKeysForType,
   validateConfigKeysForKind,
 } from '@mui/x-studio-schema';
-import type { OptionalWidgetField } from '@mui/x-studio-schema';
+import type { BuiltinStudioWidgetKind, OptionalWidgetField } from '@mui/x-studio-schema';
 import type {
   StudioState,
   StudioCustomWidgetDef,
@@ -179,6 +181,35 @@ export interface ExternalToolImpl {
 }
 
 /**
+ * `Object.hasOwn`-guarded read of a model-supplied id from a plain-object map.
+ *
+ * Every entity map in `state.doc` (`widgets`, `pages`, …) is a plain object, so a
+ * bare `map[id]` walks the prototype chain: a model-supplied id like `"constructor"`,
+ * `"toString"`, or `"__proto__"` resolves to a truthy inherited function and passes a
+ * naive `if (map[id])` existence check — even though the shared reducer
+ * (`applyMutation.ts`) is fully `Object.hasOwn`-hardened and silently no-ops on that
+ * same key. That mismatch is finding T2-1: the executor reports `success: true` for a
+ * call the reducer treated as a no-op (budget/SSE/persistence-hook pollution + a
+ * model/actual-state desync), and for `add_widget_filter` actually COMMITS a dangling
+ * filter (its `addFilter` reducer applies the filter verbatim regardless). Routing
+ * every model-supplied id lookup through these helpers makes the executor's
+ * existence checks agree with the reducer's own-property discipline.
+ */
+function hasOwnEntity(map: object, id: string): boolean {
+  return Object.hasOwn(map, id);
+}
+
+/** `Object.hasOwn`-guarded widget lookup (see `hasOwnEntity`). */
+function getWidget(state: StudioState, id: string): StudioWidget | undefined {
+  return Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id] : undefined;
+}
+
+/** `Object.hasOwn`-guarded page lookup (see `hasOwnEntity`). */
+function getPage(state: StudioState, id: string): StudioState['doc']['pages'][string] | undefined {
+  return Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
+}
+
+/**
  * Validates `config`'s keys against the given widget `kind` (via the shared
  * `validateConfigKeysForKind` runtime guard) and, if any key doesn't belong to
  * that kind, returns a human-readable error string naming the offending keys.
@@ -295,48 +326,98 @@ function invalidChartConfigKeyError(
 }
 
 /**
- * Runtime allow-list of valid `StudioFilterOperator` values, kept EXHAUSTIVE against
- * the schema union via the `satisfies Record<StudioFilterOperator, true>` annotation:
- * adding an operator to `StudioFilterOperator` in `@mui/x-studio-schema` without
- * listing it here is a compile error, so this gate can never silently drift stale.
- * The schema package exports the operator TYPE but no runtime list, so this derived
- * constant is the executor's authoritative source of truth — every filter-creating
- * tool validates the untrusted, model-supplied operator against it rather than
- * casting a bogus string straight onto a `StudioFilterState`.
- */
-const VALID_FILTER_OPERATORS = {
-  equals: true,
-  not_equals: true,
-  in: true,
-  not_in: true,
-  contains: true,
-  does_not_contain: true,
-  starts_with: true,
-  not_starts_with: true,
-  ends_with: true,
-  not_ends_with: true,
-  is_empty: true,
-  is_not_empty: true,
-  greater_than: true,
-  less_than: true,
-  greater_than_or_equal: true,
-  less_than_or_equal: true,
-  between: true,
-} satisfies Record<StudioFilterOperator, true>;
-
-/**
- * Validates a model-supplied filter operator string against `VALID_FILTER_OPERATORS`.
+ * Validates a model-supplied filter operator string against the schema package's
+ * `isStudioFilterOperator` guard (backed by the exhaustive, compile-time-locked
+ * `STUDIO_FILTER_OPERATORS` list — see `@mui/x-studio-schema/widgetTypeGuards`).
  * Returns a human-readable error naming the valid operators when the value is not a
  * known operator, or `undefined` when it is valid. Shared by `add_page_filter` and
  * `add_widget_filter` so the wording (and the allow-list) stays identical.
+ *
+ * This consumes the SAME shared list the schema-side `addFilter` wire boundary
+ * (`parseStateMutation.ts`) validates against (schema T2-1), so the AI-tool boundary
+ * and the persistence/wire boundary can never disagree about which operators are
+ * legal. The previous hand-copied `VALID_FILTER_OPERATORS` object literal (a second
+ * source of truth that had to be kept in lockstep by hand) is gone.
  */
 function invalidFilterOperatorError(operator: string): string | undefined {
-  return Object.hasOwn(VALID_FILTER_OPERATORS, operator)
+  return isStudioFilterOperator(operator)
     ? undefined
-    : `invalid filter operator '${operator}'. Valid operators: ${Object.keys(
-        VALID_FILTER_OPERATORS,
-      ).join(', ')}.`;
+    : `invalid filter operator '${operator}'. Valid operators: ${STUDIO_FILTER_OPERATORS.join(
+        ', ',
+      )}.`;
 }
+
+/**
+ * Runtime allow-list of valid `StudioDataField['type']` values (finding T2-3), kept
+ * EXHAUSTIVE against the schema union via the `satisfies Record<StudioDataField['type'],
+ * true>` annotation: adding a field type to the schema without listing it here is a
+ * compile error, so this gate can never silently drift stale. The `fieldType` filter
+ * arg is an optional UI hint that the client keys its filter-input rendering off of, so
+ * an unvalidated value (a classic LLM slip like `"text"`, or a crafted non-string) would
+ * persist verbatim into `StudioFilterState.fieldType` and ship a broken filter editor —
+ * the exact value-shape class the sibling `operator` arg is already gated for.
+ */
+const VALID_FIELD_TYPES = {
+  string: true,
+  number: true,
+  date: true,
+  datetime: true,
+  boolean: true,
+} satisfies Record<NonNullable<StudioDataField['type']>, true>;
+
+/**
+ * Validates and narrows a model-supplied `fieldType` filter arg. `fieldType` is
+ * optional, so an absent (`undefined`/`null`) value is legal and narrows to
+ * `undefined` (the hint is simply omitted). A present value must be a known
+ * `StudioDataField['type']`; anything else yields an actionable error (mirroring the
+ * fail-closed `operator` handling). Shared by `add_page_filter` and `add_widget_filter`.
+ */
+function resolveFieldType(
+  value: unknown,
+): { fieldType: StudioDataField['type'] | undefined } | { error: string } {
+  if (value === undefined || value === null) {
+    return { fieldType: undefined };
+  }
+  if (typeof value === 'string' && Object.hasOwn(VALID_FIELD_TYPES, value)) {
+    return { fieldType: value as StudioDataField['type'] };
+  }
+  return {
+    error: `invalid fieldType ${JSON.stringify(value)}. Valid field types: ${Object.keys(
+      VALID_FIELD_TYPES,
+    ).join(', ')}.`,
+  };
+}
+
+/**
+ * Runtime allow-list of every built-in widget kind (finding T2-4), kept EXHAUSTIVE
+ * against `BuiltinStudioWidgetKind` via the `satisfies readonly BuiltinStudioWidgetKind[]`
+ * clause plus the `AssertAllBuiltinKindsListed` compile-time lock below (same pattern as
+ * the schema package's `STUDIO_FILTER_OPERATORS`/`STUDIO_CHART_TYPES` locks): adding a
+ * built-in kind without listing it here fails the build. The set of kinds a model may
+ * legitimately name is this list UNION the host-registered `customWidgets[].kind`; any
+ * other kind string both mints an unrenderable widget AND bypasses all config-key
+ * validation (`validateConfigKeysForKind` returns `[]` — unrestricted — for an unknown
+ * kind, and the chart-level check only runs for `kind === 'chart'` exactly).
+ */
+const BUILTIN_WIDGET_KINDS = [
+  'grid',
+  'chart',
+  'kpi',
+  'text',
+  'filter',
+  'pivot',
+  'map',
+] as const satisfies readonly BuiltinStudioWidgetKind[];
+
+type AssertAllBuiltinKindsListed =
+  Exclude<BuiltinStudioWidgetKind, (typeof BUILTIN_WIDGET_KINDS)[number]> extends never
+    ? true
+    : [
+        'BUILTIN_WIDGET_KINDS is missing:',
+        Exclude<BuiltinStudioWidgetKind, (typeof BUILTIN_WIDGET_KINDS)[number]>,
+      ];
+const ALL_BUILTIN_KINDS_LISTED: AssertAllBuiltinKindsListed = true;
+void ALL_BUILTIN_KINDS_LISTED;
 
 /**
  * Builds a `StudioWidget` from AI-tool arguments, layering config in one canonical
@@ -361,6 +442,22 @@ function buildWidgetFromArgs(
   const title = String(args.title ?? '');
   const sourceId = args.sourceId ? String(args.sourceId) : undefined;
   const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+  // Validate `kind` against the CLOSED, locally-knowable set (built-in kinds ∪
+  // host-registered `customWidgets[].kind`) BEFORE building anything (finding T2-4).
+  // An unknown kind — even a capitalization slip like `"Chart"` — both mints a widget
+  // the client cannot render AND bypasses every config-key check (an unrestricted kind
+  // passes `validateConfigKeysForKind`, and the chart-level check only runs for the
+  // exact string `'chart'`). Fail closed with an error naming the valid kinds, matching
+  // the fail-closed `chartType` treatment via `isStudioChartType`.
+  const isBuiltinKind = (BUILTIN_WIDGET_KINDS as readonly string[]).includes(kind);
+  const isRegisteredCustomKind = customWidgets?.some((d) => d.kind === kind) ?? false;
+  if (!isBuiltinKind && !isRegisteredCustomKind) {
+    const customKinds = (customWidgets ?? []).map((d) => d.kind);
+    const validKinds = [...BUILTIN_WIDGET_KINDS, ...customKinds];
+    return {
+      error: `unknown widget kind '${kind}'. Valid kinds: ${validKinds.join(', ')}.`,
+    };
+  }
   const error = invalidConfigKeyError(kind, aiConfig as Record<string, unknown>);
   if (error) {
     return { error };
@@ -506,7 +603,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // where the client's navigation happens to be. Error rather than spread
       // an `undefined` page into state.
       const pageId = state.doc.dashboard.activePageId;
-      if (!state.doc.pages[pageId]) {
+      if (!getPage(state, pageId)) {
         return {
           output: JSON.stringify({
             error: 'Cannot add a widget: there is no active page. Call add_page first.',
@@ -533,7 +630,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
-      const widget = state.doc.widgets[widgetId];
+      const widget = getWidget(state, widgetId);
       if (!widget) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
@@ -630,7 +727,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const widgetId = String(args.widgetId ?? '');
-      if (!state.doc.widgets[widgetId]) {
+      if (!getWidget(state, widgetId)) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
           nextState: state,
@@ -668,7 +765,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const rows = rawRows as string[][];
       const activePageId = state.doc.dashboard.activePageId;
-      if (!state.doc.pages[activePageId]) {
+      if (!getPage(state, activePageId)) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
       // Reject DUPLICATE ids (RC5): a widget id appearing in more than one cell would
@@ -702,7 +799,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Validate MEMBERSHIP: every id must be a known widget (widgets added earlier
       // this turn are already threaded into `state.doc.widgets`). Unknown ids would
       // otherwise be stored as phantom layout entries (blank cards).
-      const unknownIds = [...new Set(rows.flat())].filter((id) => !state.doc.widgets[id]);
+      const unknownIds = [...new Set(rows.flat())].filter(
+        (id) => !hasOwnEntity(state.doc.widgets, id),
+      );
       if (unknownIds.length > 0) {
         return {
           output: JSON.stringify({
@@ -739,14 +838,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // through to the `[widgetId]` fallback below and emits a `setWidgetColSpan`
       // for a phantom widget (a silent no-op on apply). Reject with a clear error
       // so the model can correct the id instead of assuming the width was set.
-      if (!state.doc.widgets[widgetId]) {
+      if (!getWidget(state, widgetId)) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
           nextState: state,
         };
       }
       const activePageId = state.doc.dashboard.activePageId;
-      const activePage = state.doc.pages[activePageId];
+      const activePage = getPage(state, activePageId);
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
@@ -798,7 +897,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
       const title = String(args.title ?? '');
-      const page = state.doc.pages[pageId];
+      const page = getPage(state, pageId);
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
@@ -815,7 +914,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
-      const page = state.doc.pages[pageId];
+      const page = getPage(state, pageId);
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
@@ -837,7 +936,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
-      if (!state.doc.pages[pageId]) {
+      if (!getPage(state, pageId)) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
       const mutation: StateMutation = { type: 'setActivePage', args: { pageId } };
@@ -856,7 +955,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Match add_widget: confirm the active page exists before scoping a filter to
       // it, so a stale/empty activePageId returns an actionable error instead of
       // committing a page filter targeting a page that no longer exists.
-      if (!state.doc.pages[activePageId]) {
+      if (!getPage(state, activePageId)) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
       const field = String(args.field ?? '');
@@ -868,7 +967,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const operator = operatorRaw as StudioFilterOperator;
       const value = args.value;
-      const fieldType = args.fieldType as StudioDataField['type'] | undefined;
+      // Validate `fieldType` against the exhaustive schema-derived set (finding T2-3),
+      // mirroring the sibling `operator` gate above — an unvalidated hint would persist
+      // verbatim and break the client's filter-input rendering.
+      const fieldTypeResult = resolveFieldType(args.fieldType);
+      if ('error' in fieldTypeResult) {
+        return { output: JSON.stringify({ error: fieldTypeResult.error }), nextState: state };
+      }
+      const { fieldType } = fieldTypeResult;
       const filterId = createFilterId();
       const filter: StudioFilterState = {
         id: filterId,
@@ -899,7 +1005,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Match every other entity-targeting tool: validate the widget exists before
       // committing a widget-scoped filter, so a fabricated/stale widgetId returns an
       // actionable error instead of silently committing a dangling no-op filter.
-      if (!state.doc.widgets[widgetId]) {
+      if (!getWidget(state, widgetId)) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
           nextState: state,
@@ -914,7 +1020,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const operator = operatorRaw as StudioFilterOperator;
       const value = args.value;
-      const fieldType = args.fieldType as StudioDataField['type'] | undefined;
+      // Validate `fieldType` (finding T2-3), same as `add_page_filter`.
+      const fieldTypeResult = resolveFieldType(args.fieldType);
+      if ('error' in fieldTypeResult) {
+        return { output: JSON.stringify({ error: fieldTypeResult.error }), nextState: state };
+      }
+      const { fieldType } = fieldTypeResult;
       const filterId = createFilterId();
       const filter: StudioFilterState = {
         id: filterId,
@@ -984,7 +1095,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state, customWidgets }) => {
       const activePageId = state.doc.dashboard.activePageId;
-      const activePage = state.doc.pages[activePageId];
+      const activePage = getPage(state, activePageId);
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page found.' }), nextState: state };
       }
@@ -1114,7 +1225,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         if (update.config) {
           // Resolve the target's kind from either the CURRENT state or a widget
           // added earlier in this same batch (not yet in `state.doc.widgets`).
-          const existingWidget = state.doc.widgets[wid];
+          const existingWidget = getWidget(state, wid);
           const kind = existingWidget?.kind ?? addedWidgetKinds[wid];
           const error = invalidConfigKeyError(kind, update.config as Record<string, unknown>);
           if (error) {
@@ -1388,7 +1499,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const widget = state.doc.widgets[widgetId];
+      const widget = getWidget(state, widgetId);
       if (!widget) {
         return {
           output: JSON.stringify({ error: `Widget '${widgetId}' not found.` }),

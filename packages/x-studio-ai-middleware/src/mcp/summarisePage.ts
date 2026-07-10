@@ -52,7 +52,13 @@ export function createSummarisePageHandler(deps: {
     // Accept optional pageId arg; fall back to active page.
     const requestedPageId = (args as { pageId?: string })?.pageId;
     const resolvedPageId = requestedPageId ?? state.doc.dashboard.activePageId;
-    const activePage = resolvedPageId ? state.doc.pages[resolvedPageId] : null;
+    // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member pageId
+    // (`"constructor"`) would otherwise resolve to a truthy inherited function and
+    // degrade to a confusing "No queryable widgets" path instead of a clean not-found.
+    const activePage =
+      resolvedPageId && Object.hasOwn(state.doc.pages, resolvedPageId)
+        ? state.doc.pages[resolvedPageId]
+        : null;
 
     if (!activePage) {
       return {

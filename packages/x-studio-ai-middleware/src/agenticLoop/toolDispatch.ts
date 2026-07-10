@@ -143,12 +143,19 @@ function buildApprovalDisplayInput(
   state: StudioState,
 ): unknown {
   const input = (toolInput ?? {}) as Record<string, unknown>;
+  // `Object.hasOwn`-guarded lookups (finding T2-1): a prototype-member id must not
+  // resolve to an inherited value via the prototype chain — display-only here, but
+  // kept consistent with the executor's own-property discipline.
+  const readWidget = (id: string): StudioState['doc']['widgets'][string] | undefined =>
+    Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id] : undefined;
+  const readPage = (id: string): StudioState['doc']['pages'][string] | undefined =>
+    Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
   if (toolName === 'remove_widget') {
-    const realTitle = state.doc.widgets[String(input.widgetId ?? '')]?.title;
+    const realTitle = readWidget(String(input.widgetId ?? ''))?.title;
     return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
   }
   if (toolName === 'remove_page') {
-    const realTitle = state.doc.pages[String(input.pageId ?? '')]?.title;
+    const realTitle = readPage(String(input.pageId ?? ''))?.title;
     return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
   }
   if (toolName === 'apply_bulk_update') {
@@ -162,7 +169,7 @@ function buildApprovalDisplayInput(
         ...input,
         widgetRemovals: removals.map((id) => {
           const widgetId = String(id);
-          return { id: widgetId, title: state.doc.widgets[widgetId]?.title ?? '(unknown widget)' };
+          return { id: widgetId, title: readWidget(widgetId)?.title ?? '(unknown widget)' };
         }),
       };
     }

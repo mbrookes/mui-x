@@ -684,7 +684,12 @@ function buildDashboardState(
   );
 
   if (focusedWidgetId) {
-    const focused = state.doc.widgets[focusedWidgetId];
+    // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member focusedWidgetId
+    // would otherwise resolve to a truthy inherited function and render a bogus
+    // per-widget focus block for a widget that does not exist.
+    const focused = Object.hasOwn(state.doc.widgets, focusedWidgetId)
+      ? state.doc.widgets[focusedWidgetId]
+      : undefined;
     if (focused) {
       lines.push('');
       lines.push('## Per-widget focus');

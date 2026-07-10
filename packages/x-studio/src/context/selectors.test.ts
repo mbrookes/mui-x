@@ -82,8 +82,9 @@ function state(overrides?: {
   dataSources?: Record<string, StudioDataSource>;
   mode?: StudioSession['mode'];
   shell?: StudioSession['shell'];
+  crossFilterAllPages?: boolean;
 }): StudioState {
-  return createDefaultStudioState({
+  const base = createDefaultStudioState({
     doc: {
       ...(overrides?.filters ? { filters: overrides.filters } : {}),
       ...(overrides?.widgets ? { widgets: overrides.widgets } : {}),
@@ -97,6 +98,16 @@ function state(overrides?: {
       ...(overrides?.dataSources ? { dataSources: overrides.dataSources } : {}),
     },
   });
+  if (overrides?.crossFilterAllPages === undefined) {
+    return base;
+  }
+  return {
+    ...base,
+    doc: {
+      ...base.doc,
+      dashboard: { ...base.doc.dashboard, crossFilterAllPages: overrides.crossFilterAllPages },
+    },
+  };
 }
 
 // ── Plain accessors ─────────────────────────────────────────────────────────
@@ -315,6 +326,58 @@ describe('makeSelectIncomingCrossFilters', () => {
     const sel = makeSelectIncomingCrossFilters('w1', 'page-1');
     const s = state({ filters: [theirs] });
     expect(sel(s)).toBe(sel(s));
+  });
+
+  // ─── Finding 2.4 ────────────────────────────────────────────────────────────
+  // `crossFilterAllPages` makes a cross-filter emitted on ANY page apply to a chart's
+  // actual rows (see useWidgetRows' hasChartCrossFilters / filterScoping.ts). Before the
+  // fix, this selector ignored the flag entirely and only ever matched same-page
+  // cross-filters, so the "has incoming cross-filter" signal (gating the clear-cross-filter
+  // affordance and hover/highlight logic) disagreed with what was actually filtering the
+  // widget's rows.
+  it('ignores a cross-filter from a DIFFERENT page when crossFilterAllPages is off (default)', () => {
+    const otherPage = filter({
+      id: 'other-page',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'page-2' },
+    });
+    const sel = makeSelectIncomingCrossFilters('w1', 'page-1');
+    expect(sel(state({ filters: [otherPage] }))).toEqual([]);
+  });
+
+  it('includes a cross-filter from a DIFFERENT page when crossFilterAllPages is on (finding 2.4)', () => {
+    const otherPage = filter({
+      id: 'other-page',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'page-2' },
+    });
+    const sel = makeSelectIncomingCrossFilters('w1', 'page-1');
+    expect(sel(state({ filters: [otherPage], crossFilterAllPages: true }))).toEqual([otherPage]);
+  });
+
+  it("still excludes the widget's OWN cross-filter and disabled ones when crossFilterAllPages is on", () => {
+    const mine = filter({
+      id: 'mine',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-2' },
+    });
+    const disabled = filter({
+      id: 'disabled',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'page-2' },
+      disabled: true,
+    });
+    const sel = makeSelectIncomingCrossFilters('w1', 'page-1');
+    expect(sel(state({ filters: [mine, disabled], crossFilterAllPages: true }))).toEqual([]);
+  });
+
+  it('recomputes when crossFilterAllPages toggles even if the filters array reference is unchanged', () => {
+    const otherPage = filter({
+      id: 'other-page',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'page-2' },
+    });
+    const filters = [otherPage];
+    const sel = makeSelectIncomingCrossFilters('w1', 'page-1');
+    expect(sel(state({ filters, crossFilterAllPages: false }))).toEqual([]);
+    // Same `filters` array reference, only the dashboard flag flips — the memoized
+    // selector must not serve the stale cached (empty) result.
+    expect(sel(state({ filters, crossFilterAllPages: true }))).toEqual([otherPage]);
   });
 });
 

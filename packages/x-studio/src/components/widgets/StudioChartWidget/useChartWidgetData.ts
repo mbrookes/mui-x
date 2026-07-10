@@ -28,7 +28,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  makeSelectExpressionFieldsForSource,
+  makeSelectExpressionFieldsForSources,
   selectGlobalCrossFilterMode,
   selectCrossFilterAllPages,
 } from '../../../context';
@@ -77,9 +77,31 @@ export function useChartWidgetData(
   const relationships = useStudioSelector(selectRelationships);
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
   const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
+  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source,
+  // mirroring `useWidgetRows`' `relevantSourceIds`/`makeSelectExpressionFieldsForSources`
+  // pattern exactly. `analyzeChartSupport` below (and `ChartSetupPanel`'s own support
+  // check) resolves a related-source calculated field via `findDirectFieldOwner` →
+  // `hasRowLevelField`, which only finds an expression field in this list — an
+  // own-source-only list makes a related-source expression field invisible here, so this
+  // guard falsely disagrees with the setup panel's full-list check (finding 2.1).
+  const relevantSourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (widget.sourceId) {
+      ids.add(widget.sourceId);
+      for (const rel of relationships) {
+        if (rel.sourceId === widget.sourceId) {
+          ids.add(rel.targetId);
+        } else if (rel.targetId === widget.sourceId) {
+          ids.add(rel.sourceId);
+        }
+      }
+    }
+    return ids;
+  }, [widget.sourceId, relationships]);
+
   const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const muiTheme = useTheme();

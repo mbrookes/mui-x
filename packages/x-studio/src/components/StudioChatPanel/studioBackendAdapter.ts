@@ -178,7 +178,15 @@ export function createBackendChatAdapter(
       // This request's own reader, captured so cleanup removes only it (never a
       // concurrent request's reader) from the shared `activeReaders` set.
       let requestReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-      const textPartId = `text-0`;
+      // A single agentic turn can interleave text and tool calls across multiple
+      // steps: preamble text → tool call → final answer. Each contiguous text run
+      // must render as its OWN text part, in arrival order — otherwise the final
+      // answer's deltas get appended into the SAME text part as the preamble and
+      // render spliced ABOVE the (earlier) tool card instead of below it (finding
+      // 2.23). So the text-part id is per-run, not fixed: a new id is minted every
+      // time a text run is closed by an intervening `step-start` or `tool-activity`.
+      let textPartCounter = 0;
+      let textPartId = `text-${textPartCounter}`;
       const reasoningId = `r-thinking`;
       let textStarted = false;
       let reasoningEnded = false;
@@ -198,6 +206,19 @@ export function createBackendChatAdapter(
         if (!reasoningEnded) {
           reasoningEnded = true;
           streamController.enqueue({ type: 'reasoning-end', id: reasoningId });
+        }
+      };
+
+      // Helper: close the current text part (if one is open) and mint a fresh id for
+      // the next text run, so a text run interrupted by a tool call or a new step is
+      // finalized before the tool card renders and any later text starts its own part
+      // in correct arrival order (finding 2.23).
+      const endTextPart = (streamController: ReadableStreamDefaultController<ChatMessageChunk>) => {
+        if (textStarted) {
+          streamController.enqueue({ type: 'text-end', id: textPartId });
+          textStarted = false;
+          textPartCounter += 1;
+          textPartId = `text-${textPartCounter}`;
         }
       };
 
@@ -355,6 +376,10 @@ export function createBackendChatAdapter(
               });
             } else if (type === 'tool-activity') {
               endReasoning(streamController);
+              // Close any preamble text run before the tool card so the tool card
+              // renders after it, and so a later (post-tool) text run starts its own
+              // fresh part instead of being appended to the preamble (finding 2.23).
+              endTextPart(streamController);
               const {
                 phase,
                 toolCallId,
@@ -401,6 +426,10 @@ export function createBackendChatAdapter(
                 });
               }
             } else if (type === 'step-start') {
+              // A new agentic step begins: finalize the current text run (if any) into
+              // its own part so the next step's text renders as a separate segment in
+              // arrival order rather than merging into the previous step's text (2.23).
+              endTextPart(streamController);
               // Emit an x-chat start-step chunk to visually separate agentic iterations.
               streamController.enqueue({ type: 'start-step' });
             } else if (type === 'message-metadata') {

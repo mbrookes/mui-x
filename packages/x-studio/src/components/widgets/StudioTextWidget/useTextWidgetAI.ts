@@ -8,6 +8,9 @@ import {
   selectDashboard,
   selectWidgets,
   selectDataSources,
+  selectFilters,
+  selectExpressionFields,
+  selectRelationships,
 } from '../../../context';
 import { useStudioUIConfig, useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildWidgetDataSummary } from '../../StudioChatPanel/generateInsight';
@@ -169,13 +172,19 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
   const activePage = useStudioSelector(selectActivePage);
   const dashboard = useStudioSelector(selectDashboard);
   // `buildPageSnapshot` (via `buildWidgetDataSummary`) reads sibling widget configs
-  // from `doc.widgets` and row data from `runtime.dataSources` — neither changes
-  // `activePage`/`dashboard` identity (finding 3.15), so both must be subscribed to
-  // directly or `setDataSourceRows`/`upsertDataSource`/a sibling-widget config edit
-  // would leave this memo (and the cached markdown it feeds) stale until a manual
-  // `refresh()`.
+  // from `doc.widgets`, row data from `runtime.dataSources`, and — through the data
+  // pipeline (L2 enrichment, L3 scoped filters) — `doc.filters`, `doc.expressionFields`,
+  // and `doc.relationships`. None of these change `activePage`/`dashboard` identity
+  // (finding 1.5 / 3.15), and filters/expression-fields/relationships each live in
+  // their own `doc` partition, so all must be subscribed to directly. Otherwise adding
+  // or editing a page filter (or a computed field, or a relationship) would leave this
+  // memo — and the cached AI markdown it feeds — describing stale, pre-filter numbers
+  // until a manual `refresh()` (which itself keys off the same stale memoized snapshot).
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
+  const filters = useStudioSelector(selectFilters);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const relationships = useStudioSelector(selectRelationships);
 
   const { snapshot, hash, cacheKey } = React.useMemo(() => {
     const state = controller.getState();
@@ -185,11 +194,24 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     const h = djb2Hash(`${prompt}\n${snap}`);
     const key = `${CACHE_PREFIX}:${dashboard.id}:${dashboard.activePageId}:${widgetId}:${h}`;
     return { snapshot: snap, hash: h, cacheKey: key };
-    // `widgets`/`dataSources` are read only to force recomputation when the state
-    // `buildPageSnapshot` reads changes identity — the memo body itself re-derives
-    // everything from `controller.getState()` rather than from these values directly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgets/dataSources are used as reactive triggers only, see comment above
-  }, [activePage, dashboard, widgetId, controller, prompt, widgets, dataSources, privateMode]);
+    // `widgets`/`dataSources`/`filters`/`expressionFields`/`relationships` are read
+    // only to force recomputation when the state `buildPageSnapshot` reads changes
+    // identity — the memo body itself re-derives everything from `controller.getState()`
+    // rather than from these values directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgets/dataSources/filters/expressionFields/relationships are used as reactive triggers only, see comment above
+  }, [
+    activePage,
+    dashboard,
+    widgetId,
+    controller,
+    prompt,
+    widgets,
+    dataSources,
+    filters,
+    expressionFields,
+    relationships,
+    privateMode,
+  ]);
 
   const [markdown, setMarkdown] = React.useState<string | null>(() => readCache(cacheKey));
   const [loading, setLoading] = React.useState(false);

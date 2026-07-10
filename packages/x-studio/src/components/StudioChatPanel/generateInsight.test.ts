@@ -264,6 +264,150 @@ describe('buildWidgetDataSummary', () => {
     });
   });
 
+  // ─── Chart widgets — L4 parity regressions (finding 2.1) ───────────────────
+  //
+  // `buildChartWidgetSummary` re-runs L4 (`resolveChartRowsForAggregation`) itself to
+  // build the AI-facing narration. Before the fix it did so without the anchor-scoped
+  // filter set and without excluding a *disabled* Top-N rank filter — both of which
+  // `useChartWidgetData.ts` (the actual chart-render path) already handled. Either gap
+  // makes the AI narrate numbers that disagree with what the widget renders.
+  describe('chart widgets — L4 parity with the render path (finding 2.1)', () => {
+    it('re-applies an anchor-scoped page filter during L4, instead of resurrecting anchor rows the render path excludes', () => {
+      const customersFields = [
+        { id: 'id', label: 'Customer ID', type: 'string' as const },
+        { id: 'country', label: 'Country', type: 'string' as const },
+      ];
+      const ordersFields = [
+        { id: 'id', label: 'Order ID', type: 'string' as const },
+        { id: 'customerId', label: 'Customer ID', type: 'string' as const },
+        { id: 'total', label: 'Total', type: 'number' as const },
+      ];
+      const customersRows = [
+        { id: 'CUS-1', country: 'Germany' },
+        { id: 'CUS-2', country: 'France' },
+      ];
+      const ordersRows = [
+        { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+        { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+        { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+      ];
+      // A page filter on the related `orders` source's own field. L3 enforces this as a
+      // semi-join (keep a customer if it has AT LEAST ONE qualifying order) — CUS-1 keeps
+      // ORD-1 (100) and CUS-2 keeps ORD-3 (70), both > 60, so both customers survive L3.
+      const anchorFilter: StudioFilterState = {
+        id: 'pf1',
+        field: 'total',
+        operator: 'greater_than',
+        value: 60,
+        filterSourceId: 'orders',
+        scope: { kind: 'page' },
+      } as StudioFilterState;
+      const state = createDefaultStudioState({
+        doc: {
+          filters: [anchorFilter],
+          relationships: [
+            {
+              id: 'r1',
+              sourceId: 'orders',
+              targetId: 'customers',
+              sourceField: 'customerId',
+              targetField: 'id',
+              type: 'many-to-one',
+            },
+          ],
+        },
+        runtime: {
+          dataSources: {
+            customers: makeSource({
+              id: 'customers',
+              label: 'Customers',
+              fields: customersFields,
+              rows: customersRows,
+            }),
+            orders: makeSource({
+              id: 'orders',
+              label: 'Orders',
+              fields: ordersFields,
+              rows: ordersRows,
+            }),
+          },
+        },
+      });
+      const widget = makeWidget({
+        sourceId: 'customers',
+        kind: 'chart',
+        config: { chartType: 'bar', xField: 'country', yField: 'total' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix, L4 re-anchored to the orders grain WITHOUT re-applying `anchorFilter`,
+      // resurrecting ORD-2 (total 50) onto Germany's total (150) even though the rendered
+      // chart (via `useChartWidgetData.ts`) excludes it. Post-fix, Germany's total (100)
+      // matches the rendered chart: only ORD-1 survives the anchor-scoped re-application.
+      // (Labels are alphabetically sorted by `sortLabels`, and `total` has no matching
+      // field on the widget's own `customers` source, so its raw field id is used as the
+      // label — neither is relevant to what this test is regression-covering.)
+      expect(result).toBe(
+        [
+          'Aggregated by country (sum of total)',
+          '2 categories',
+          'country,total',
+          'France,70',
+          'Germany,100',
+        ].join('\n'),
+      );
+    });
+
+    it('does not let a disabled Top-N widget rank filter keep truncating the summary', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        { region: 'EU', amount: 300 },
+        { region: 'US', amount: 200 },
+        { region: 'APAC', amount: 100 },
+      ];
+      const source = makeSource({ fields, rows });
+      // A Top-1 rank filter scoped to this widget, but disabled — the user toggled it off
+      // in the filters drawer. `useChartWidgetData.ts`'s `widgetRankFilter` already excludes
+      // disabled rank filters (`!f.disabled`); this narration path previously did not.
+      const rankFilter: StudioFilterState = {
+        id: 'rank1',
+        field: 'amount',
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'top',
+        disabled: true,
+        scope: { kind: 'widget', widgetId: 'w1' },
+      } as StudioFilterState;
+      const state = makeState({ dataSources: { orders: source }, filters: [rankFilter] });
+      const widget = makeWidget({
+        kind: 'chart',
+        config: { chartType: 'bar', xField: 'region', yField: 'amount', yAggregation: 'sum' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix, the disabled rank filter still truncated the summary to the top 1 category
+      // (EU only). Post-fix, a disabled rank filter is ignored — all 3 categories appear
+      // (alphabetically sorted by `sortLabels`), matching what the (also-unfiltered)
+      // rendered chart shows.
+      expect(result).toBe(
+        [
+          'Aggregated by region (sum of Amount)',
+          '3 categories',
+          'region,Amount',
+          'APAC,100',
+          'EU,300',
+          'US,200',
+          'Stats: Amount: min=100, max=300, mean=200, median=200',
+        ].join('\n'),
+      );
+    });
+  });
+
   // ─── Map widgets ────────────────────────────────────────────────────────────
 
   describe('map widgets', () => {

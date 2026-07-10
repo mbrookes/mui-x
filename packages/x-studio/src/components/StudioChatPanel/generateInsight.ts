@@ -16,6 +16,7 @@ import type { StudioState, StudioFilterState } from '../../models/stateTypes';
 import type { StudioWidget, StudioWidgetConfig } from '../../models/widgetTypes';
 import type { StudioDataSource } from '../../models/dataTypes';
 import { createStudioPipeline, type StudioPipelineState } from '../../internals/StudioPipeline';
+import { selectFiltersForWidget } from '../../internals/filterScoping';
 import {
   computeAggregate,
   findDateFilter,
@@ -385,7 +386,14 @@ function buildChartWidgetSummary(
   }
   const rankFilter =
     state.doc.filters.find(
-      (f) => f.scope.kind === 'widget' && f.scope.widgetId === widget.id && f.filterMode === 'rank',
+      (f) =>
+        // `!f.disabled` mirrors `useChartWidgetData.ts`'s `widgetRankFilter` (the render path):
+        // a disabled Top-N rank filter must NOT keep reducing this AI-facing summary to N
+        // categories after the user toggles it off in the drawer (finding 2.1).
+        !f.disabled &&
+        f.scope.kind === 'widget' &&
+        f.scope.widgetId === widget.id &&
+        f.filterMode === 'rank',
     ) ?? null;
 
   let activeYFields: string[] = [];
@@ -400,6 +408,39 @@ function buildChartWidgetSummary(
     return '';
   }
 
+  // Non-xy dimension fields the chart family reads but that aren't expressed as x/y/series —
+  // mirrors `useChartWidgetData.ts`'s `chartTypeExtraFields` exactly, so a cross-source
+  // heatmap/funnel/sankey/gantt dimension is enriched onto `enrichedRows` here the same way
+  // it is onto the rendered chart's rows (finding 2.1).
+  const chartTypeExtraFields: (string | undefined)[] = (() => {
+    switch (chartType) {
+      case 'heatmap':
+        return [cfg.heatYField];
+      case 'funnel':
+        return [cfg.funnelReachedField];
+      case 'sankey':
+        return [cfg.sankeyTargetField];
+      case 'gantt':
+        return [cfg.ganttLabelField, cfg.ganttStartField, cfg.ganttEndField, cfg.ganttColorField];
+      default:
+        return [];
+    }
+  })();
+
+  // The widget's fully resolved/scoped filter set — mirrors `useChartWidgetData.ts`'s
+  // `effectiveResolvedFilters` (selectFiltersForWidget with `include` matching the rows
+  // baseline in use) so the L4 anchor-filter re-application below can never disagree with
+  // what L3 actually enforced as a semi-join to produce `filteredRows` (finding 2.1).
+  const chartCrossFilterMode =
+    state.doc.dashboard.globalCrossFilterMode ?? cfg.crossFilterMode ?? 'cross-highlight';
+  const widgetFilters = selectFiltersForWidget(state.doc.filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId: state.doc.dashboard.activePageId,
+    include: chartCrossFilterMode === 'none' ? 'no-cross' : 'all',
+    crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
+  });
+
   const enrichedRows = resolveChartRowsForAggregation(
     filteredRows,
     widget.sourceId,
@@ -409,6 +450,8 @@ function buildChartWidgetSummary(
     state.runtime.dataSources,
     state.doc.relationships,
     state.doc.expressionFields,
+    chartTypeExtraFields,
+    widgetFilters,
   );
 
   const yFieldLabel = (id: string) => source.fields.find((f) => f.id === id)?.label ?? id;

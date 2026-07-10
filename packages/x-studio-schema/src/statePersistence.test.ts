@@ -894,6 +894,81 @@ describe('deserializeState', () => {
     expect(state.doc.expressionFields).toEqual([]);
     expect(state.doc.filterPresets).toEqual([]);
   });
+
+  // ── id↔record-key reconciliation at the load boundary (finding 2.1) ──────────
+  // The reducer keys every id-based lookup/delete/cross-filter-cleanup off the RECORD
+  // KEY, and both the wire boundary and the reducer reject a `changes.id` to keep
+  // `widget.id`/`page.id` in sync with their key. A hand-edited/shared doc where the
+  // desync ALREADY exists must be reconciled here (re-stamp id ← key), or every edit of
+  // that widget/page silently no-ops. The KEY wins.
+  it('re-stamps a widget whose id field disagrees with its record key (finding 2.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      // Record key is `w-a`, but the widget's own `id` field claims `w-b`.
+      widgets: { 'w-a': { id: 'w-b', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w-a']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets['w-a'].id).toBe('w-a');
+    // The canvas renders from the key; a subsequent edit that passes `widget.id` back now
+    // matches the record key, so it is no longer a silent no-op.
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('leaves a widget whose id field already matches its key reference-stable (finding 2.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.w1.id).toBe('w1');
+  });
+
+  it('re-stamps a page whose id field disagrees with its record key (finding 2.1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 'p-a' },
+      // Record key is `p-a`, but the page's own `id` field claims `p-b`.
+      pages: { 'p-a': { id: 'p-b', title: 'P', widgetRows: [] } },
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['p-a'].id).toBe('p-a');
+    // The reconciled key still names a real page, so `activePageId` is left untouched.
+    expect(state.doc.dashboard.activePageId).toBe('p-a');
+  });
+
+  // ── null widget config coerced at the direct-call load surface (finding 2.4) ──
+  // `deserializeState` is a public "total over nested-corrupt docs" surface. A record
+  // widget whose `config` is `null` used to sail through (the normalize reads use `?.`)
+  // and install a live widget whose first render throws on `config.chartType`. Coerce the
+  // junk config to `{}` here, mirroring the relationships-style coercion.
+  it('coerces a widget whose config is null to {} instead of installing a crashing widget (finding 2.4)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 'chart', title: '', config: null } },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(serialized, {});
+    }).not.toThrow();
+    expect(state.doc.widgets.w1).toBeDefined();
+    expect(state.doc.widgets.w1.config).toEqual({});
+    // The coerced widget must round-trip without throwing.
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('coerces a widget whose config is a non-record primitive to {} (finding 2.4)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 'chart', title: '', config: 'junk' } },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.w1.config).toEqual({});
+  });
 });
 
 // ─── serializeState / deserializeState roundtrip ─────────────────────────────

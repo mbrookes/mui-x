@@ -1238,6 +1238,28 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
       expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
     });
+
+    it('sets the span of a not-yet-placed widget when rowWidgetIds is omitted (parser-bypass, finding 2.5)', () => {
+      // w1 exists in `state.widgets` but sits on NO page (the documented not-yet-placed
+      // case), and a parser-bypassing partial payload (an `executeToolOnState`-style
+      // mutation built by hand) omits `rowWidgetIds`. The OLD code left `rowWidgetIds`
+      // undefined and threw a `TypeError` at `.filter(...)`; the handler must instead
+      // treat the widget as the sole occupant of its row (mirroring the producer's own
+      // `?? [widgetId]` default) and apply gracefully, like every sibling handler.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'setWidgetColSpan',
+          args: { widgetId: 'w1', columns: 12 },
+        } as StateMutation);
+      }).not.toThrow();
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
   });
 
   describe('addPage', () => {
@@ -2197,6 +2219,67 @@ describe('applyMutation', () => {
         },
       });
       expect(next.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+    });
+
+    // ── total over a parser-bypassing partial layout payload (finding 2.5, shared with
+    //    ai-middleware T2-4) ──────────────────────────────────────────────────────────
+    it('leaves the active-page layout untouched when BOTH widgetRows and widgetColSpans are omitted (finding 2.5)', () => {
+      // The three widget-delta fields are already `?? []`-defaulted, but the two layout
+      // fields were read unguarded — `widgetRows.map(...)` threw on an updates-only bulk
+      // built by hand (the `executeToolOnState` pattern, which never runs the parser).
+      // The correct fix is NOT `widgetRows ?? []` (that would WIPE the layout on mere
+      // omission); it is to SKIP the layout replacement entirely when both are absent, so
+      // an updates-only bulk preserves whatever layout the user has.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            updatedWidgets: [{ widgetId: 'w1', title: 'Renamed' }],
+            activePageId: 'page-1',
+          },
+        } as StateMutation);
+      }).not.toThrow();
+      // The update applied…
+      expect(next.widgets.w1.title).toBe('Renamed');
+      // …and the layout was NOT wiped by the omission.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
+
+    it('applies a layout update carrying only widgetRows (widgetColSpans omitted) without throwing (finding 2.5)', () => {
+      // At least one layout field present ⇒ the layout replacement runs; the ABSENT
+      // `widgetColSpans` is coerced to `{}` (not read unguarded) so `Object.keys` can't
+      // throw. The block stays total on a partial payload.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            widgetRows: [['w1']],
+            activePageId: 'page-1',
+          },
+        } as StateMutation);
+      }).not.toThrow();
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
   });
 

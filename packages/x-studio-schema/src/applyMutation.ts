@@ -388,13 +388,25 @@ export function normalizePersistedPages(
       }
       nextSpans = Object.keys(rebuilt).length > 0 ? rebuilt : undefined;
     }
+    // Reconcile the page's own `id` field with its record KEY (finding 2.1), the page
+    // analogue of the widget id↔key reconciliation in `deserializeState`. Every reducer
+    // path that targets a page keys off the record KEY (`state.pages[pageId]`), so a
+    // hand-edited/shared doc where the desync ALREADY exists (`pages: { "p-a": { "id":
+    // "p-b", … } }`) would render from the key while any affordance carrying `page.id`
+    // silently missed. The key is the source of truth; re-stamp `id: pid` (preserving the
+    // page rather than dropping it) and force a rebuild so the corrected id lands.
+    const idDesynced = page.id !== pid;
     if (
+      idDesynced ||
       !rowsWereArray ||
       !spansWereRecord ||
       !rowsEqual(currentRows, sanitizedRows) ||
       !spansEqual(nextSpans, page.widgetColSpans)
     ) {
-      nextEntries.push([pid, { ...page, widgetRows: sanitizedRows, widgetColSpans: nextSpans }]);
+      nextEntries.push([
+        pid,
+        { ...page, id: pid, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
+      ]);
       pagesChanged = true;
     } else {
       nextEntries.push([pid, page]);
@@ -956,7 +968,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
-      const rowWidgetIds = currentRow ?? args.rowWidgetIds;
+      // `?? [widgetId]` final fallback (finding 2.5): for a not-yet-placed widget (in
+      // `state.widgets` but on no page) the derived `currentRow` is `undefined`, and a
+      // parser-bypassing partial payload (an `executeToolOnState`-style mutation built by
+      // hand, which never runs `parseStateMutation`) can omit `rowWidgetIds` — leaving
+      // `rowWidgetIds.filter(...)` below to throw a `TypeError` mid-apply instead of the
+      // graceful degraded apply every sibling handler provides. Default to treating the
+      // widget as the sole occupant of its row, mirroring the producer's own
+      // `currentRow ?? [widgetId]` default (`executeToolOnState`'s `set_widget_width`).
+      const rowWidgetIds = currentRow ?? args.rowWidgetIds ?? [widgetId];
       const clamped = columns == null ? null : clampSpan(columns);
       const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
 
@@ -1147,8 +1167,24 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   applyBulkUpdate: {
     apply: (state, args) => {
-      const { removedWidgetIds, addedWidgets, updatedWidgets, widgetRows, widgetColSpans } = args;
+      const { removedWidgetIds, addedWidgets, updatedWidgets } = args;
       const { activePageId } = args;
+
+      // `widgetRows`/`widgetColSpans` are typed as REQUIRED on the wire mutation, but the
+      // reducer must stay TOTAL over a parser-bypassing partial payload a future middleware
+      // tool builds by hand (the established `executeToolOnState` pattern, which never runs
+      // `parseStateMutation`) — exactly as the three widget-delta fields already are
+      // (`?? []`). Read them as runtime-optional (finding 2.5).
+      const widgetRows = args.widgetRows as string[][] | undefined;
+      const widgetColSpans = args.widgetColSpans as Record<string, number> | undefined;
+      // The whole layout-replacement block is SKIPPED when BOTH layout fields are absent
+      // (finding 2.5 / shared with ai-middleware T2-4): defaulting an absent `widgetRows`
+      // to `[]` would silently WIPE the active page's layout when the field is merely
+      // omitted from a partial-batch mutation — strictly worse than throwing. So the layout
+      // is only replaced when at least one field is actually PRESENT (the producer attaches
+      // them only for a batch that changed layout); an updates-only bulk leaves layout
+      // untouched. When present, array/record-ness is coerced below so the block stays total.
+      const hasLayoutUpdate = widgetRows !== undefined || widgetColSpans !== undefined;
 
       // The layout portion (`widgetRows`/`widgetColSpans`) targets the ACTIVE PAGE only,
       // but the widget deltas (`removedWidgetIds`/`addedWidgets`/`updatedWidgets`) are
@@ -1160,7 +1196,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // untrusted `activePageId` can't match a prototype member.
       const pageExists = Object.hasOwn(state.pages, activePageId);
       let layoutPages: StudioDoc['pages'] = state.pages;
-      if (pageExists) {
+      if (pageExists && hasLayoutUpdate) {
         const page = state.pages[activePageId];
 
         // Sanitize the producer-supplied active-page rows against the ids that will
@@ -1184,8 +1220,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // deduplicate ids that appear more than once — the same id twice would render the
         // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
         // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
+        // Coerce a non-array `widgetRows` (and non-array rows within it) so the block stays
+        // total on a hand-built payload — one layout field present while the other/junk is
+        // supplied must not throw (finding 2.5). `widgetColSpans`-only present ⇒ rows `[]`.
+        const safeRows = Array.isArray(widgetRows) ? widgetRows : [];
         const sanitizedRows = dedupeLayoutRows(
-          widgetRows.map((row) => row.filter((id) => validRowIds.has(id))),
+          safeRows
+            .filter((row): row is string[] => Array.isArray(row))
+            .map((row) => row.filter((id) => validRowIds.has(id))),
         );
 
         // Normalize the producer-supplied active-page spans through the SAME invariants
@@ -1197,12 +1239,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // singleton span is intentional — while the row-overflow drop, orphaned-span
         // drop, and empty→undefined collapse all apply. Feeding the SANITIZED rows here
         // means a span for a dropped phantom id is pruned as an orphan.
+        // Coerce a non-record `widgetColSpans` (absent when only `widgetRows` was supplied,
+        // or junk from a hand-built payload) to `{}` so `Object.keys` can't throw (finding 2.5).
+        const safeSpans: Record<string, number> =
+          widgetColSpans !== null &&
+          typeof widgetColSpans === 'object' &&
+          !Array.isArray(widgetColSpans)
+            ? widgetColSpans
+            : {};
         const clampedSpans: Record<string, number> = {};
-        for (const key of Object.keys(widgetColSpans)) {
+        for (const key of Object.keys(safeSpans)) {
           if (!isSafePatchKey(key)) {
             continue;
           }
-          clampedSpans[key] = clampSpan(widgetColSpans[key]);
+          clampedSpans[key] = clampSpan(safeSpans[key]);
         }
         const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, clampedSpans);
 

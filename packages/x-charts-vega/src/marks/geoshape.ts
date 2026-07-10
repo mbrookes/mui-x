@@ -2,8 +2,15 @@ import type { CompiledSeries, CompiledUnit, UnitContext } from '../compile/conte
 import type { ContinuousColorMapConfig, PiecewiseColorMapConfig } from '../compile/color';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
-import type { VegaEncoding, VegaFieldDef, VegaTransform } from '../types';
+import type {
+  DatasetRow,
+  VegaEncoding,
+  VegaFieldDef,
+  VegaLookupTransform,
+  VegaTransform,
+} from '../types';
 import { isFieldDef } from '../types';
+import { applyLookupTransform } from '../transforms/lookup';
 
 /*
  * OWNERSHIP: the "geoshape/map mark" work unit owns this file.
@@ -425,6 +432,48 @@ function pickColorChannel(
   return undefined;
 }
 
+/**
+ * Prepare features for a choropleth join. x-charts matches `mapShape` series
+ * data to features **only by `feature.properties.name`**, yet a Vega-Lite
+ * choropleth commonly (a) carries the value in a *separate* dataset joined by a
+ * `lookup` transform keyed on the feature `id`, and (b) uses features that have
+ * an `id` but no `properties.name` (e.g. TopoJSON US counties). The row-level
+ * transform pipeline only ever sees the single wrapping FeatureCollection, so
+ * the lookup never reaches the individual features. Here, for the geoshape
+ * itself, we:
+ *   1. apply every `lookup` transform onto the FEATURES, copying the joined
+ *      field (e.g. `rate`) onto each one (read back by `resolveFieldValue`);
+ *   2. bridge a feature's `id` into `properties.name` when it has no name, so
+ *      the join key x-charts needs exists and matches the choropleth entries
+ *      (which key on the same resolved name).
+ * Features that already carry a name keep it; features without an `id` are left
+ * untouched.
+ */
+function joinAndBridgeFeatures(features: GeoFeature[], ctx: UnitContext): GeoFeature[] {
+  const lookups = (ctx.unit.transform ?? []).filter(
+    (transform: VegaTransform): transform is VegaLookupTransform =>
+      !!transform && typeof transform === 'object' && 'lookup' in transform,
+  );
+  let joined = features;
+  for (const lookup of lookups) {
+    joined = applyLookupTransform(
+      joined as unknown as DatasetRow[],
+      lookup,
+      ctx.gaps,
+      ctx.unit.path,
+    ) as unknown as GeoFeature[];
+  }
+  return joined.map((feature) => {
+    if (typeof feature.properties?.name === 'string' || feature.id == null) {
+      return feature;
+    }
+    return {
+      ...feature,
+      properties: { ...(feature.properties ?? {}), name: String(feature.id) },
+    };
+  });
+}
+
 export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   const resolution = resolveGeoData(ctx.rows);
 
@@ -448,8 +497,16 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [] };
   }
 
+  const color = pickColorChannel(ctx);
+  // A choropleth joins any `lookup` values onto each feature and bridges a
+  // numeric feature `id` into `properties.name` so x-charts can color it; the
+  // rebuilt geoData must carry those bridged names so its name index matches the
+  // series entries. Outline maps (no color) keep the features as-is.
+  const features = color ? joinAndBridgeFeatures(resolution.features, ctx) : resolution.features;
+  const geoData = color ? { ...resolution.geoData, features } : resolution.geoData;
+
   const geo: CompiledUnit['geo'] = {
-    geoData: resolution.geoData,
+    geoData,
     projection: resolveProjection(ctx),
     ...resolveProjectionTuning(ctx),
   };
@@ -473,7 +530,6 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
-  const color = pickColorChannel(ctx);
   if (!color) {
     // Outline map: no color encoding, just the base features.
     return { series: [], plots: ['geoBase'], geo };
@@ -481,7 +537,7 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
 
   const { entries, colorMap } = buildChoroplethEntries(
     ctx,
-    resolution.features,
+    features,
     color.channelKey,
     color.channel,
     color.field,

@@ -150,6 +150,69 @@ describe('decideTierWithCache — tier-cache hit', () => {
   });
 });
 
+// ─── decideTierWithCache — tier-cache hit re-derives tier from CURRENT
+//     thresholds instead of trusting the cached tier verbatim (finding 2.4) ────
+//
+// `thresholds` is folded into neither the tier-cache key nor a digest, so a
+// cache entry written under one set of thresholds (e.g. before a mid-rollout
+// config change, or by a different node in a cluster running stale config)
+// can be read back under DIFFERENT thresholds. The entry always persists the
+// input `rowCount`, so a hit must re-map `rowCount` through the READER's
+// current `thresholds` rather than trusting the stale `tier` field.
+
+describe('decideTierWithCache — tier-cache hit re-derives tier from cached rowCount under current thresholds (finding 2.4)', () => {
+  it('ignores a stale cached "client" tier and re-derives "server" when the current thresholds are tighter', async () => {
+    // Cached when e.g. an old/other-node client threshold comfortably covered
+    // 15_000 rows. The CURRENT thresholds (DEFAULT: client=10_000) do not.
+    const tierCache = makeTierCache({ tier: 'client', rowCount: 15_000 });
+    const getRowCount = makeGetRowCount(0);
+
+    const result = await decideTierWithCache(
+      false,
+      'key',
+      getRowCount,
+      tierCache,
+      DEFAULT_THRESHOLDS,
+    );
+
+    // Must be re-derived from rowCount under DEFAULT_THRESHOLDS, not the stale
+    // cached 'client'.
+    expect(result).toEqual({ tier: 'server', rowCount: 15_000, source: 'tier-cache' });
+    expect(getRowCount).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stale cached "db" tier and re-derives "client" when the current thresholds have widened', async () => {
+    // Cached under tight thresholds where 50 rows exceeded the server tier.
+    const tierCache = makeTierCache({ tier: 'db', rowCount: 50 });
+    const getRowCount = makeGetRowCount(0);
+
+    const result = await decideTierWithCache(
+      false,
+      'key',
+      getRowCount,
+      tierCache,
+      { client: 100, server: 200 }, // reader's current thresholds now cover 50 rows
+    );
+
+    expect(result).toEqual({ tier: 'client', rowCount: 50, source: 'tier-cache' });
+    expect(getRowCount).not.toHaveBeenCalled();
+  });
+
+  it('still returns the cached tier unmodified when the current thresholds agree with how it was cached', async () => {
+    // Sanity check: re-derivation must be a no-op when thresholds haven't
+    // changed — the fix must not perturb the already-passing hit-path tests.
+    const tierCache = makeTierCache({ tier: 'server', rowCount: 55_000 });
+    const result = await decideTierWithCache(
+      false,
+      'key',
+      makeGetRowCount(0),
+      tierCache,
+      DEFAULT_THRESHOLDS,
+    );
+    expect(result).toEqual({ tier: 'server', rowCount: 55_000, source: 'tier-cache' });
+  });
+});
+
 // ─── decideTierWithCache — omitted tierCacheTtlMs never writes back ───────────
 // This is the behavior that used to live in the standalone `decideTier` helper
 // (now removed as dead code): the decision is still computed/read, but nothing

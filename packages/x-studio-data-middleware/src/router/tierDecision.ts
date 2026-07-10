@@ -106,7 +106,15 @@ export async function decideTierWithCache(
       );
     }
     if (cached) {
-      return { tier: cached.tier, rowCount: cached.rowCount, source: 'tier-cache' };
+      // Re-map the cached `rowCount` through the CURRENT `thresholds` instead of
+      // trusting `cached.tier` verbatim (finding 2.4). `thresholds` is folded into
+      // neither the cache key nor the policy digest, so a cached decision may have
+      // been computed under different thresholds (mid-rollout config change, or a
+      // different node in a cluster during a deploy); re-deriving here makes a
+      // cached decision reinterpretable under the reader's own config with no key
+      // change and no extra I/O.
+      const tier = tierFromRowCount(cached.rowCount, thresholds);
+      return { tier, rowCount: cached.rowCount, source: 'tier-cache' };
     }
   }
 

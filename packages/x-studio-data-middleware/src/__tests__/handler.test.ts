@@ -1173,6 +1173,87 @@ describe('handleBatchQuery — cache failures do not poison results (finding 2.6
   });
 });
 
+// ─── handleBatchQuery — missing HMAC secret is a per-widget error, not a
+//     rejected batch (finding 2.3) ─────────────────────────────────────────────
+//
+// Before the fix, `generateCacheKey` ran OUTSIDE `processWidget`'s try/catch.
+// `generateCacheKey` throws (fail-closed) when neither `CACHE_HMAC_SECRET` nor
+// `JWT_SECRET` is configured, so that throw rejected `processWidget`'s promise,
+// which rejected the whole `Promise.all` in `handleBatchQuery` — turning a
+// config error into a rejected batch instead of the documented structured
+// `BatchQueryResponse` with a per-widget `{ error }` result. This block runs
+// with BOTH secrets unset (temporarily clearing the module-level
+// `JWT_SECRET` this file sets for every other test) and asserts the batch
+// still resolves, with the failure scoped to the affected widget(s).
+describe('handleBatchQuery — missing HMAC secret degrades to a per-widget error (finding 2.3)', () => {
+  function withoutHmacSecrets<T>(fn: () => Promise<T>): Promise<T> {
+    const savedCacheSecret = process.env.CACHE_HMAC_SECRET;
+    const savedJwtSecret = process.env.JWT_SECRET;
+    delete process.env.CACHE_HMAC_SECRET;
+    delete process.env.JWT_SECRET;
+    return fn().finally(() => {
+      if (savedCacheSecret === undefined) {
+        delete process.env.CACHE_HMAC_SECRET;
+      } else {
+        process.env.CACHE_HMAC_SECRET = savedCacheSecret;
+      }
+      if (savedJwtSecret === undefined) {
+        delete process.env.JWT_SECRET;
+      } else {
+        process.env.JWT_SECRET = savedJwtSecret;
+      }
+    });
+  }
+
+  it('resolves with a structured per-widget error instead of rejecting the whole batch', async () =>
+    withoutHmacSecrets(async () => {
+      const body: BatchQueryRequest = {
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      };
+
+      // The key assertion: this must RESOLVE (documented BatchQueryResponse
+      // shape), never reject/throw, even though cache-key generation fails
+      // closed internally.
+      const result = await handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      });
+
+      expect(result.pageId).toBe('p1');
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].id).toBe('w1');
+      expect(result.results[0].rows).toEqual([]);
+      expect(result.results[0].tier).toBe('db');
+      expect(result.results[0].rowCount).toBe(0);
+      expect(result.results[0].error).toMatch(/No cache HMAC secret is configured/);
+    }));
+
+  it('isolates the failure per widget: every widget in the batch gets its own error result, not a rejected Promise.all', async () =>
+    withoutHmacSecrets(async () => {
+      const body: BatchQueryRequest = {
+        pageId: 'p1',
+        widgets: [
+          { id: 'w1', table: 'sales' },
+          { id: 'w2', table: 'sales', columns: ['region'] },
+        ],
+      };
+
+      const result = await handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      });
+
+      expect(result.results).toHaveLength(2);
+      for (const widgetResult of result.results) {
+        expect(widgetResult.rows).toEqual([]);
+        expect(widgetResult.error).toMatch(/No cache HMAC secret is configured/);
+      }
+    }));
+});
+
 // ─── handleBatchQuery — tier-cache failures degrade gracefully (finding 2.1) ───
 //
 // Before the fix, `decideTierWithCache` awaited `tierCacheProvider.get()`/`.set()`

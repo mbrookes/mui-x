@@ -132,13 +132,19 @@ async function processWidget(
   policy: CompiledSecurityPolicy,
   plan: ValidatedQueryPlan,
 ): Promise<WidgetQueryResult> {
-  // Fold the compiled policy's digest into the cache key so a policy change (e.g.
-  // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
-  // instead of a differently-scoped node serving them (Gap B).
-  const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest);
   const queryOptions = policy;
 
   try {
+    // Fold the compiled policy's digest into the cache key so a policy change (e.g.
+    // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
+    // instead of a differently-scoped node serving them (Gap B).
+    // Generated INSIDE the try block (finding 2.3): `generateCacheKey` throws when
+    // no HMAC secret is configured (`CACHE_HMAC_SECRET` / `JWT_SECRET` both unset),
+    // and every widget-scoped operation must honor the per-widget error-isolation
+    // invariant — a throw here must produce this widget's `{ error }` result, not
+    // reject the whole batch's `Promise.all`.
+    const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest);
+
     // ── 1. Data cache check ────────────────────────────────────────────────
     // The cache is a best-effort layer in FRONT of the authoritative DB: a cache
     // read failure (e.g. Redis down) must degrade to a fresh DB fetch, not fail

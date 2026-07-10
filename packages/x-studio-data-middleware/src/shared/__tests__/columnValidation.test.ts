@@ -1,0 +1,81 @@
+/**
+ * Regression tests for finding 2.4 — prototype-chain lookups on client-supplied
+ * keys in `resolveAlias` and `checkColumnAgainstAllowlist`.
+ *
+ * Both `descriptor.columnAliases?.[column]` and `allowlist[table]` used to be
+ * plain bracket lookups on plain object literals, which inherit from
+ * `Object.prototype`. A client-supplied `column`/`table` naming an inherited
+ * member (`"constructor"`, `"toString"`, `"__proto__"`, `"hasOwnProperty"`, …)
+ * would resolve to the INHERITED value (a truthy function/object) instead of
+ * `undefined` — exactly the bug class `applyHaving`'s `opMap` lookup was already
+ * fixed for (see `queryBuilder.test.ts`'s "HAVING operator allowlist" suite).
+ * These tests pin the same own-property gate on the two sibling lookups named
+ * by the finding.
+ */
+import { describe, it, expect } from 'vitest';
+import { resolveAlias, checkColumnAgainstAllowlist } from '../columnValidation';
+import type { BatchWidgetDescriptor } from '../../security/types';
+
+const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
+
+describe('resolveAlias — own-property gate on columnAliases (finding 2.4)', () => {
+  function descriptor(
+    columnAliases: BatchWidgetDescriptor['columnAliases'],
+  ): BatchWidgetDescriptor {
+    return { id: 'w1', table: 'sales', columnAliases };
+  }
+
+  it.each(PROTO_KEYS)(
+    'resolves the prototype-inherited key "%s" to the literal column name (not the inherited value)',
+    (key) => {
+      // An EMPTY columnAliases object still inherits from Object.prototype.
+      const result = resolveAlias(descriptor({}), key);
+      expect(result).toBe(key);
+      expect(typeof result).toBe('string');
+    },
+  );
+
+  it('still resolves a real, own alias entry normally', () => {
+    expect(resolveAlias(descriptor({ ssn: 'amount' }), 'ssn')).toBe('amount');
+  });
+
+  it('returns the column unchanged when columnAliases is undefined', () => {
+    expect(resolveAlias(descriptor(undefined), 'amount')).toBe('amount');
+  });
+
+  it('does not resolve to a non-string own value (defense in depth)', () => {
+    // Not reachable through normal JSON (values are always strings on the wire),
+    // but guards the case where an alias map entry is not a string.
+    const withNonStringValue = { weird: 123 } as unknown as BatchWidgetDescriptor['columnAliases'];
+    expect(resolveAlias(descriptor(withNonStringValue), 'weird')).toBe('weird');
+  });
+});
+
+describe('checkColumnAgainstAllowlist — own-property gate on allowlist[table] (finding 2.4)', () => {
+  it.each(PROTO_KEYS)(
+    'rejects a table name matching a prototype-inherited member "%s" as "no entry" (fail-closed)',
+    (table) => {
+      expect(() =>
+        checkColumnAgainstAllowlist(`${table}.id`, 'sales', { sales: ['id'] }, 'columns'),
+      ).toThrow(/has no entry in the column allowlist/);
+    },
+  );
+
+  it('still validates a real, own allowlist entry normally', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('sales.amount', 'sales', { sales: ['amount'] }, 'columns'),
+    ).not.toThrow();
+  });
+
+  it('still fails closed for a genuinely-unlisted table (no regression from the gate itself)', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('unknown_table.id', 'sales', { sales: ['id'] }, 'columns'),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+
+  it('rejects an unqualified column whose defaultTable name is prototype-inherited', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('id', 'constructor', { sales: ['id'] }, 'columns'),
+    ).toThrow(/has no entry in the column allowlist/);
+  });
+});

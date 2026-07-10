@@ -12,6 +12,7 @@ import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
+import { TIER_CACHE_KEY_PREFIX } from '../router/tierDecision';
 import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
 
@@ -991,7 +992,11 @@ describe('handleBatchQuery — tier routing cache', () => {
     // First call: runs preflight, populates tier cache
     const r1 = await handleBatchQuery(body, ACME_CLAIMS, opts);
     expect(tierCache.size).toBe(1);
-    const tierEntry = await tierCache.get(generateCacheKey(ACME_CLAIMS, body.widgets[0]));
+    // The tier plane's key is namespaced with TIER_CACHE_KEY_PREFIX (finding 2.1)
+    // so it can never collide with the data plane's entry for the same widget.
+    const tierEntry = await tierCache.get(
+      TIER_CACHE_KEY_PREFIX + generateCacheKey(ACME_CLAIMS, body.widgets[0]),
+    );
     expect(tierEntry?.tier).toBeDefined();
 
     // Second call: tier cache is hit, preflight is skipped
@@ -1019,6 +1024,152 @@ describe('handleBatchQuery — tier routing cache', () => {
     });
     // Tier cache should not be populated when disabled
     expect(tierCache.size).toBe(0);
+  });
+});
+
+// ─── handleBatchQuery — data/tier cache plane key isolation (finding 2.1) ──────
+
+describe('handleBatchQuery — data cache and tier cache never collide on a shared store (finding 2.1)', () => {
+  it('writes the data-cache and tier-cache entries under DISTINCT keys, even on one shared underlying store', async () => {
+    // Simulate the documented "combining with RedisCacheProvider" setup: ONE
+    // shared key/value store backing BOTH cache planes with no `keyPrefix` on
+    // either provider — the exact precondition the finding calls out. Before the
+    // fix, both planes derived their key from the SAME `generateCacheKey` output,
+    // so the tier-cache SET would silently overwrite the data-cache entry (or
+    // vice-versa), and a `CacheEntry` could be misparsed as a `TierEntry` (or
+    // vice-versa). `TIER_CACHE_KEY_PREFIX` namespaces the tier plane so the two
+    // can never land on the same key.
+    const sharedStore = new Map<string, string>();
+
+    const dataCacheProvider = {
+      async get(key: string) {
+        const raw = sharedStore.get(key);
+        return raw ? JSON.parse(raw) : undefined;
+      },
+      async set(key: string, value: unknown) {
+        sharedStore.set(key, JSON.stringify(value));
+      },
+      async invalidatePrefix() {},
+      async deleteByTag() {},
+    };
+    const tierCacheProvider = {
+      async get(key: string) {
+        const raw = sharedStore.get(key);
+        return raw ? JSON.parse(raw) : undefined;
+      },
+      async set(key: string, value: unknown) {
+        sharedStore.set(key, JSON.stringify(value));
+      },
+      async invalidatePrefix() {},
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      cacheProvider: dataCacheProvider,
+      tierCacheProvider,
+      tierCacheTtlMs: 60_000,
+    });
+
+    // Two DISTINCT keys were written to the shared store — not one overwriting
+    // the other (the pre-fix behavior collapsed this to a single key).
+    expect(sharedStore.size).toBe(2);
+
+    const keys = [...sharedStore.keys()];
+    const tierKey = keys.find((k) => k.startsWith('tier:'));
+    const dataKey = keys.find((k) => k !== tierKey);
+    expect(tierKey).toBeDefined();
+    expect(dataKey).toBeDefined();
+    // The tier key is the data key with the namespace prefix applied — never an
+    // independently-derived (and therefore possibly colliding) string.
+    expect(tierKey).toBe(`tier:${dataKey}`);
+
+    // The data-cache entry is a well-formed CacheEntry (has `rows`)…
+    const dataEntry = JSON.parse(sharedStore.get(dataKey!)!);
+    expect(Array.isArray(dataEntry.rows)).toBe(true);
+
+    // …and the tier-cache entry (under the PREFIXED key) is a well-formed
+    // TierEntry (has `tier`), never the other shape — so a concurrent reader can
+    // never JSON-parse one plane's entry as the other's (the `rows: undefined`
+    // failure mode the finding describes).
+    const tierEntry = JSON.parse(sharedStore.get(tierKey!)!);
+    expect(typeof tierEntry.tier).toBe('string');
+    expect(tierEntry.rows).toBeUndefined();
+  });
+});
+
+// ─── handleBatchQuery — cache-backend failures degrade gracefully (finding 2.6) ─
+
+describe('handleBatchQuery — cache failures do not poison results (finding 2.6)', () => {
+  function makeThrowingCache(overrides: {
+    get?: () => Promise<never>;
+    set?: () => Promise<never>;
+  }) {
+    return {
+      async get() {
+        if (overrides.get) {
+          return overrides.get();
+        }
+        return undefined;
+      },
+      async set() {
+        if (overrides.set) {
+          await overrides.set();
+        }
+      },
+      async invalidatePrefix() {},
+      async deleteByTag() {},
+    };
+  }
+
+  it('a throwing cache GET falls back to the database instead of failing the widget', async () => {
+    const cacheProvider = makeThrowingCache({
+      get: async () => {
+        throw new Error('Redis is down');
+      },
+    });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      cacheProvider,
+    });
+    // The widget is served from the DB — no error, real rows, not an empty
+    // error-shaped result.
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it('a throwing cache SET still returns the DB rows already fetched, instead of discarding them', async () => {
+    const cacheProvider = makeThrowingCache({
+      set: async () => {
+        throw new Error('Redis is down');
+      },
+    });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      cacheProvider,
+    });
+    // Before the fix, a throwing `set` was caught by the widget's outer try/catch
+    // and returned `{ rows: [], error }` — discarding rows already fetched from
+    // the DB. The fix isolates the cache write so the fetched rows still return.
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
   });
 });
 

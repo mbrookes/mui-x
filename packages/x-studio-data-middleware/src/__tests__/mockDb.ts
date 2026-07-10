@@ -157,28 +157,52 @@ export function createMockDb(
         return qb;
       },
       havingRaw(expr: string, bindings: unknown[]) {
-        // Parse "?? op ?" with alias and value bindings
-        const [alias, value] = bindings as [string, number];
+        // The handler now re-emits the aggregate EXPRESSION rather than the SELECT
+        // output alias for cross-dialect portability (finding 2.5): the raw shape is
+        // `FUNC(??) op ?` with bindings `[physicalColumn, value]`. The mock keeps its
+        // aggregation results keyed by ALIAS, so resolve the referenced aggregate
+        // back to its alias by matching (func, column) against the recorded
+        // `aggSpecs`. (The predicate closure runs at `then()` time, by which point
+        // `aggSpecs` — populated after `havingRaw` in `executeForTier` — is filled.)
+        const compare = (v: number, op: string, value: number): boolean => {
+          switch (op) {
+            case '=':
+              return v === value;
+            case '>':
+              return v > value;
+            case '<':
+              return v < value;
+            case '>=':
+              return v >= value;
+            case '<=':
+              return v <= value;
+            default:
+              return true;
+          }
+        };
+        const funcMatch = expr.match(/^([A-Za-z]+)\(\?\?\)\s*([<>=!]+)\s*\?$/);
+        if (funcMatch) {
+          const func = funcMatch[1].toLowerCase();
+          const op = funcMatch[2];
+          const [physical, value] = bindings as [string, number];
+          const physKey = physical.includes('.') ? physical.split('.').pop()! : physical;
+          havingPredicates.push((row) => {
+            const spec = aggSpecs.find((a) => {
+              const specKey = a.column.includes('.') ? a.column.split('.').pop()! : a.column;
+              return a.func === func && specKey === physKey;
+            });
+            const key = spec ? spec.alias : physKey;
+            return compare(row[key] as number, op, value);
+          });
+          return qb;
+        }
+        // Legacy "?? op ?" shape (bindings [alias, value]) — kept for any direct
+        // caller still emitting the alias form.
         const opMatch = expr.match(/\?\?\s*([<>=!]+)\s*\?/);
         if (opMatch) {
           const op = opMatch[1];
-          havingPredicates.push((row) => {
-            const v = row[alias] as number;
-            switch (op) {
-              case '=':
-                return v === value;
-              case '>':
-                return v > value;
-              case '<':
-                return v < value;
-              case '>=':
-                return v >= value;
-              case '<=':
-                return v <= value;
-              default:
-                return true;
-            }
-          });
+          const [alias, value] = bindings as [string, number];
+          havingPredicates.push((row) => compare(row[alias] as number, op, value));
         }
         return qb;
       },

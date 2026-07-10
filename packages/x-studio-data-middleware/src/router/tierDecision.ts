@@ -29,6 +29,21 @@ export interface TierThresholds {
 export const DEFAULT_THRESHOLDS: TierThresholds = { client: 10_000, server: 100_000 };
 
 /**
+ * Namespace prefix applied to tier-cache keys (finding 2.1).
+ *
+ * The data cache and the tier cache are two independent planes, but they derive
+ * their key from the SAME `generateCacheKey` output. When a host wires BOTH planes
+ * to one shared Redis client (the documented "combining" setup), an identical key
+ * string makes the two planes silently overwrite each other: a data-cache `set`
+ * clobbers the tier `TierEntry` with a `CacheEntry` (and vice-versa in a race,
+ * shipping a `rows: undefined` result to the client). Prefixing the tier plane's
+ * key structurally separates the two namespaces regardless of which providers a
+ * host pairs, so no provider combination can ever collide. `handler.ts` applies
+ * this prefix when it threads the shared cache key into `decideTierWithCache`.
+ */
+export const TIER_CACHE_KEY_PREFIX = 'tier:';
+
+/**
  * Map a preflight row count to a routing tier.
  */
 function tierFromRowCount(

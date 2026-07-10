@@ -22,13 +22,21 @@ import type {
   FilterPredicate,
   HavingPredicate,
 } from '../security/types';
-import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
+import {
+  applyPredicates,
+  applySecurityPredicates,
+  applySecurityPredicatesToJoinOn,
+} from '../shared/predicates';
 import {
   toCompiledSecurityPolicy,
   type CompiledSecurityPolicy,
   type SecurityPolicyOptions,
 } from '../security/compileSecurityPolicy';
-import { toValidatedQueryPlan, type ValidatedQueryPlan } from '../security/validateQueryPlan';
+import {
+  toValidatedQueryPlan,
+  type PlanAggregation,
+  type ValidatedQueryPlan,
+} from '../security/validateQueryPlan';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -82,6 +90,15 @@ export function buildSecureQuery(
   // carries physical `ColumnRef`s on both sides — the SAME resolution
   // `validateDescriptorColumns` checked against the allowlist), so execution can
   // never target a different physical column than validation approved.
+  //
+  // OUTER-JOIN SECURITY PLACEMENT (finding 2.3): the security predicate for the
+  // NULLABLE side of an outer join goes in the JOIN's ON clause, not WHERE. A
+  // joined-table tenant predicate in WHERE drops every NULL-extended row a LEFT
+  // JOIN was meant to keep (turning it into an INNER join); the symmetric case for
+  // a RIGHT JOIN drops the preserved joined-side rows via the PRIMARY table's WHERE
+  // predicate. Placing it in ON scopes which rows JOIN (matched joined rows are
+  // still tenant-checked — no cross-tenant fan-out) while preserving unmatched
+  // outer rows. See `applySecurityPredicatesToJoinOn`.
   for (const join of queryPlan.joins) {
     let joinMethod: string;
     if (join.type === 'left') {
@@ -91,9 +108,20 @@ export function buildSecureQuery(
     } else {
       joinMethod = 'join';
     }
+    const joinedSecurity = policy.forJoinedTable(join.table);
+    const primarySecurity = policy.forPrimaryTable(queryPlan.table);
     query[joinMethod](join.table, function joinOn(this: any) {
       for (const [left, right] of join.on) {
         this.on(left, '=', right);
+      }
+      if (join.type === 'left') {
+        // The joined (right) side is nullable — scope it in ON so genuinely
+        // unmatched rows stay NULL-extended instead of being dropped by WHERE.
+        applySecurityPredicatesToJoinOn(this, join.table, claims, joinedSecurity, 'read');
+      } else if (join.type === 'right') {
+        // The primary (left) side is nullable — scope the PRIMARY table in ON so
+        // the preserved joined-side rows with no primary match survive.
+        applySecurityPredicatesToJoinOn(this, queryPlan.table, claims, primarySecurity, 'read');
       }
     });
   }
@@ -103,16 +131,26 @@ export function buildSecureQuery(
   // joined table inherits the primary table's resolved security columns unless
   // the host explicitly opts it out as a shared/lookup table (`perTable[table] =
   // null`). See `resolveJoinSecurityColumns`.
-  applySecurityPredicates(
-    query,
-    queryPlan.table,
-    claims,
-    policy.forPrimaryTable(queryPlan.table),
-    'read',
-  );
+  //
+  // Placement (finding 2.3): the primary table is scoped in WHERE, UNLESS a RIGHT
+  // join makes it the nullable side (then its predicate moved to that join's ON
+  // above). Joined tables are scoped in WHERE for inner/right joins; a LEFT join's
+  // joined-table predicate already went into its ON clause above.
+  const hasRightJoin = queryPlan.joins.some((join) => join.type === 'right');
+  if (!hasRightJoin) {
+    applySecurityPredicates(
+      query,
+      queryPlan.table,
+      claims,
+      policy.forPrimaryTable(queryPlan.table),
+      'read',
+    );
+  }
 
   for (const join of queryPlan.joins) {
-    applySecurityPredicates(query, join.table, claims, policy.forJoinedTable(join.table), 'read');
+    if (join.type !== 'left') {
+      applySecurityPredicates(query, join.table, claims, policy.forJoinedTable(join.table), 'read');
+    }
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
@@ -126,18 +164,43 @@ export function buildSecureQuery(
   // Only allowed against aggregation aliases (validated by handler.ts before
   // this function is called). Uses Knex parameterized havingRaw to prevent injection.
   for (const h of queryPlan.having) {
-    applyHaving(query, h);
+    applyHaving(query, h, queryPlan.aggregations, queryPlan.table);
   }
 
   return query;
 }
 
+/** SQL aggregate function name per plan aggregation func — same five as `execute.ts`. */
+const HAVING_FUNC_MAP: Record<PlanAggregation['func'], string> = {
+  sum: 'SUM',
+  avg: 'AVG',
+  count: 'COUNT',
+  min: 'MIN',
+  max: 'MAX',
+};
+
 /**
  * Apply a HAVING predicate to a Knex query.
+ *
  * The alias is already validated against aggregations by the caller (handler.ts).
  * Uses havingRaw with Knex bindings to prevent injection.
+ *
+ * DIALECT PORTABILITY (finding 2.5): the predicate re-emits the actual aggregate
+ * EXPRESSION (`SUM(col) > ?`) rather than the SELECT output alias (`total > ?`).
+ * PostgreSQL (and standard SQL) does not allow referencing a SELECT output alias
+ * in HAVING — `HAVING total > 10000` errors with `42703 column "total" does not
+ * exist` — whereas MySQL/SQLite tolerate it (which is why the jsdom `mockDb` test
+ * suite, running neither Postgres nor a real SQL engine, never caught it). The
+ * aggregate expression is valid on all three dialects. The `func`/column come from
+ * the plan's `PlanAggregation` (whose alias the caller matched to `h.alias`), the
+ * column identifier stays `??`-bound and the value `?`-bound.
  */
-function applyHaving(query: any, h: HavingPredicate): void {
+function applyHaving(
+  query: any,
+  h: HavingPredicate,
+  aggregations: PlanAggregation[],
+  table: string,
+): void {
   const opMap: Record<HavingPredicate['operator'], string> = {
     eq: '=',
     gt: '>',
@@ -159,6 +222,30 @@ function applyHaving(query: any, h: HavingPredicate): void {
     );
   }
   const op = opMap[h.operator];
-  // havingRaw with ?? binding for the alias identifier, ? for the value
-  query.havingRaw(`?? ${op} ?`, [h.alias, h.value]);
+
+  // Re-emit the aggregate expression rather than the alias (finding 2.5). The
+  // matching aggregation is guaranteed to exist on the request path
+  // (`validateHavingAliases` rejects a HAVING alias with no aggregation before this
+  // runs); a direct caller that skipped validation fails closed with a clear error.
+  const agg = aggregations.find((a) => a.alias === h.alias);
+  if (!agg) {
+    throw new Error(
+      `MUI X Studio Server: HAVING alias "${h.alias}" does not match any aggregation alias. ` +
+        `HAVING may only filter a declared aggregation, and the predicate re-emits that aggregate ` +
+        `expression for cross-dialect portability. Declare an aggregation whose alias the HAVING references.`,
+    );
+  }
+  if (!Object.prototype.hasOwnProperty.call(HAVING_FUNC_MAP, agg.func)) {
+    throw new Error(
+      `MUI X Studio Server: Aggregation function "${agg.func}" is not supported in HAVING. ` +
+        `Supported aggregation functions are: sum, avg, count, min, max.`,
+    );
+  }
+  const func = HAVING_FUNC_MAP[agg.func];
+  // Qualify an unqualified aggregate column with the primary table (as SELECT /
+  // GROUP BY / aggregations are in `execute.ts`) to avoid ambiguity under joins.
+  const physical = agg.physical.includes('.') ? agg.physical : `${table}.${agg.physical}`;
+  // havingRaw: ?? binds the column identifier, ? binds the value; the FUNC and
+  // operator are fixed tokens from own-property-gated maps (never client text).
+  query.havingRaw(`${func}(??) ${op} ?`, [physical, h.value]);
 }

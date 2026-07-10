@@ -15,9 +15,18 @@
  * 5. One failed mutation does not abort the rest of the batch (per-item isolation)
  *
  * After each successful mutation:
- * - cacheProvider.deleteByTag(table) is called automatically to evict stale
- *   query results for the affected table. The host app does not need to call
- *   /api/invalidate manually when using handleMutation.
+ * - deleteByTag(table) is called automatically to evict stale query results for
+ *   the affected table. The host app does not need to call /api/invalidate
+ *   manually when using handleMutation. When no `cacheProvider` is supplied, the
+ *   invalidation runs against the SAME process-wide default cache that
+ *   `handleBatchQuery` populates by default (finding 2.2) — so a zero-config host
+ *   that reads and writes through both handlers still observes its own writes,
+ *   instead of the read path caching into a singleton the write path could not
+ *   reach.
+ * - The cache side-effect is best-effort: a throwing `deleteByTag` (e.g. Redis
+ *   down) is caught and logged, and the mutation still reports `ok: true`. A
+ *   committed write reported as failed would prompt a client retry that inserts a
+ *   duplicate row — strictly worse than a cache stale for ≤ its TTL (finding 2.6).
  */
 import type {
   JwtSecurityClaims,
@@ -38,6 +47,7 @@ import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
 } from '../security/compileSecurityPolicy';
+import { getDefaultCache } from '../cache/defaultProviders';
 
 /**
  * Handle a batch of mutation operations from a Studio client.
@@ -87,7 +97,11 @@ async function processMutation(
   options: HandleMutationOptions,
   policy: CompiledSecurityPolicy,
 ): Promise<MutationResult> {
-  const { db, writableColumns, cacheProvider, columnAllowlist } = options;
+  const { db, writableColumns, columnAllowlist } = options;
+  // Fall back to the SAME process-wide default cache `handleBatchQuery` uses when
+  // no `cacheProvider` is passed, so a zero-config host still invalidates the read
+  // path's default cache after a write (finding 2.2).
+  const cacheProvider = options.cacheProvider ?? getDefaultCache();
 
   try {
     // Validate operation type
@@ -148,8 +162,19 @@ async function processMutation(
     // ── Post-mutation cache invalidation ──────────────────────────────────
     // Evict all cached query results tagged with this table so the next read
     // fetches fresh rows from the DB — no manual /api/invalidate call needed.
-    if (cacheProvider) {
+    // The write already committed, so a cache-backend failure here must NOT flip
+    // the result to `ok: false` (a client retry would duplicate the row). Catch
+    // and degrade to a logged warning; the cache is stale for ≤ its TTL, which is
+    // strictly better than reporting a committed write as failed (finding 2.6).
+    try {
       await cacheProvider.deleteByTag(descriptor.table);
+    } catch (cacheErr) {
+      console.warn(
+        `MUI X Studio Server: post-mutation cache invalidation failed for table "${descriptor.table}"; ` +
+          `the mutation committed successfully and is reported as such. Cached reads for this table may be ` +
+          `stale until their TTL expires — check the cache backend. ` +
+          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+      );
     }
 
     return { id: descriptor.id, ok: true, rowsAffected };

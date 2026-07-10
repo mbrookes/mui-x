@@ -421,6 +421,21 @@ describe('validateQueryPlan — SELECT * allowlist-bypass synthesis (finding 1.1
     const plan = validateQueryPlan(descriptor);
     expect(plan.columns).toEqual([]);
   });
+
+  // Regression for finding 2.4: `columnAllowlist[table]` used to be a bare
+  // bracket lookup on a plain object, inheriting from `Object.prototype`. A
+  // widget whose table happens to name an inherited member would read a truthy
+  // inherited value and SKIP the fail-closed "has no entry" throw below, then
+  // crash on `.includes(...)`. The own-property gate must still fail closed.
+  it.each(['constructor', 'toString', 'hasOwnProperty', '__proto__'])(
+    'still fails closed for a primary table named "%s" with no OWN allowlist entry',
+    (table) => {
+      const descriptor: BatchWidgetDescriptor = { id: 'w1', table };
+      expect(() => validateQueryPlan(descriptor, { sales: ['id'] })).toThrow(
+        /has no entry in the column allowlist/,
+      );
+    },
+  );
 });
 
 describe('validateQueryPlan — ORDER BY direction allowlist (finding 1.3)', () => {

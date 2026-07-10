@@ -484,6 +484,9 @@ export function validateConfigKeysForKind(
  * unrestricted chart type.
  */
 export function getAllowedChartConfigKeys(chartType: StudioChartType): Set<string> {
+  if (!Object.hasOwn(CHART_TYPE_CONFIG_KEYS, chartType)) {
+    return new Set<string>();
+  }
   return new Set<string>(CHART_TYPE_CONFIG_KEYS[chartType]);
 }
 

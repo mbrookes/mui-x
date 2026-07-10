@@ -7,6 +7,7 @@ import {
   validateConfigKeysForKind,
 } from './configKeyValidation';
 import { STUDIO_CHART_TYPES } from './widgetTypeGuards';
+import type { StudioChartType } from './baseTypes';
 
 describe('getAllowedConfigKeys', () => {
   it('includes the shared config keys plus the kind-specific keys for a built-in kind', () => {
@@ -112,6 +113,18 @@ describe('getAllowedChartConfigKeys', () => {
     expect(gaugeKeys.has('sankeyTargetField')).toBe(false);
     expect(gaugeKeys.has('chartSortBy')).toBe(false);
   });
+
+  it('fails closed (empty Set) for a prototype-chain chartType instead of throwing (T2-1)', () => {
+    // A crafted/untrusted `chartType` naming an Object.prototype member must resolve
+    // to the documented "unknown chart type" fail-closed empty allow-list, exactly
+    // like an ordinary unrecognized string (e.g. 'trendline') — never throw.
+    expect(() => getAllowedChartConfigKeys('constructor' as StudioChartType)).not.toThrow();
+    expect(getAllowedChartConfigKeys('constructor' as StudioChartType)).toEqual(new Set());
+    expect(getAllowedChartConfigKeys('toString' as StudioChartType)).toEqual(new Set());
+    expect(getAllowedChartConfigKeys('hasOwnProperty' as StudioChartType)).toEqual(new Set());
+    // Same fail-closed result as an ordinary unknown chart type string.
+    expect(getAllowedChartConfigKeys('trendline' as StudioChartType)).toEqual(new Set());
+  });
 });
 
 describe('validateChartConfigKeysForType', () => {
@@ -215,6 +228,21 @@ describe('validateChartConfigKeysForType', () => {
       validateChartConfigKeysForType('line', { chartType: 'line', barLayout: undefined }),
     ).toEqual([]);
   });
+
+  it('flags every defined key for a prototype-chain chartType instead of throwing (T2-1)', () => {
+    expect(() =>
+      validateChartConfigKeysForType('constructor' as StudioChartType, {
+        chartType: 'constructor',
+        xField: 'a',
+      }),
+    ).not.toThrow();
+    expect(
+      validateChartConfigKeysForType('toString' as StudioChartType, {
+        chartType: 'toString',
+        xField: 'a',
+      }),
+    ).toEqual(['chartType', 'xField']);
+  });
 });
 
 describe('validateConfigKeysForKind — undefined-valued keys', () => {
@@ -245,6 +273,12 @@ describe('stripForeignFamilyKeys', () => {
     expect(result).toEqual(clean);
     // Returns a copy, never the same reference.
     expect(result).not.toBe(clean);
+  });
+
+  it('strips every key (fails closed) for a prototype-chain chartType instead of throwing (T2-1)', () => {
+    const stored = { chartType: 'constructor', xField: 'region', yField: 'revenue' };
+    expect(() => stripForeignFamilyKeys(stored, 'constructor' as StudioChartType)).not.toThrow();
+    expect(stripForeignFamilyKeys(stored, 'constructor' as StudioChartType)).toEqual({});
   });
 });
 

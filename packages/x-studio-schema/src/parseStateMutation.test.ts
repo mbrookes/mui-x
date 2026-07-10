@@ -480,6 +480,59 @@ describe('parseStateMutation — malformed per-variant args', () => {
         args: { filter: { id: 'f', field: 'x', value: 1, scope: { kind: 'page' } } },
       },
     },
+    // Architecture review 2.2: the three UPDATE-shaped config-carrying channels
+    // previously left `chartType` as part of the unchecked `config` leaf, so an
+    // arbitrary/non-member value could persist through a patch (and wedge every
+    // later legitimate AI `update_widget` on that widget). All three now run the
+    // same membership check the create path already enforced.
+    {
+      label: 'updateWidget config.chartType is not a known chart type',
+      value: {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: 'trendline' } },
+      },
+    },
+    {
+      label: 'updateWidget config.chartType is a non-string',
+      value: {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: 42 } },
+      },
+    },
+    {
+      label: 'updateWidget changes.config.chartType is not a known chart type',
+      value: {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: { chartType: 'trendline' } } },
+      },
+    },
+    {
+      label: 'updateWidget changes.config.chartType is a non-string',
+      value: {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: { chartType: {} } } },
+      },
+    },
+    {
+      label: 'applyBulkUpdate updatedWidgets[].config.chartType is not a known chart type',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          updatedWidgets: [{ widgetId: 'w1', config: { chartType: 'trendline' } }],
+        },
+      },
+    },
+    {
+      label: 'applyBulkUpdate updatedWidgets[].config.chartType is a non-string',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          updatedWidgets: [{ widgetId: 'w1', config: { chartType: 42 } }],
+        },
+      },
+    },
   ];
 
   it.each(cases)('rejects $label', ({ value }) => {
@@ -560,9 +613,10 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     ).toBe(true);
   });
 
-  it('accepts an addWidget chart with NO chartType (omitted discriminant is left to the stateful path)', () => {
-    // A chart config with an omitted chartType cannot be family-validated statelessly
-    // (no access to the existing widget), so the chart-family check is skipped here.
+  it('accepts an addWidget chart with NO chartType and only bar-family keys (2.3: omitted chartType resolves to the bar fallback)', () => {
+    // `xField`/`barLayout` are valid BAR-family keys, and an omitted `chartType` on
+    // a fresh create-path config resolves to the same 'bar' fallback the middleware
+    // applies (`resolveChartType`'s `?? 'bar'`), so this must still pass.
     expect(
       parseStateMutation({
         type: 'addWidget',
@@ -576,6 +630,48 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
         },
       }).ok,
     ).toBe(true);
+  });
+
+  // Finding 2.3: `validateWidget` previously skipped the chart-family-key check
+  // entirely whenever `chartType` was absent, treating a create-path widget as
+  // unvalidatable in that case. But a create-path config with no `chartType` IS
+  // effectively a bar chart (the same `?? 'bar'` fallback `resolveChartType`/the
+  // middleware's `invalidChartConfigKeyError` apply), so a bar-incompatible key
+  // like `sankeyTargetField` must now be rejected even with no explicit `chartType`
+  // — exactly as the semantically identical `{ chartType: 'bar', sankeyTargetField
+  // }` already was.
+  it('rejects an addWidget chart with NO chartType but a cross-family key (2.3: resolves to the bar fallback)', () => {
+    const result = parseStateMutation({
+      type: 'addWidget',
+      args: {
+        widget: {
+          id: 'w',
+          kind: 'chart',
+          title: 'T',
+          config: { sankeyTargetField: 'to' },
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error(
+        'expected parseStateMutation to reject a bar-incompatible key with no chartType',
+      );
+    }
+    expect(result.error).toContain('sankeyTargetField');
+    expect(result.error).toContain('bar');
+  });
+
+  // Same fallback, exercised via the applyBulkUpdate.addedWidgets sibling path.
+  it('rejects an applyBulkUpdate addedWidgets entry with NO chartType but a cross-family key (2.3)', () => {
+    const result = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: {
+        ...validBulkArgs(),
+        addedWidgets: [{ id: 'w', kind: 'chart', title: 'T', config: { sankeyTargetField: 'to' } }],
+      },
+    });
+    expect(result.ok).toBe(false);
   });
 
   it('accepts an addWidget with a valid per-kind config', () => {
@@ -617,6 +713,71 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
             title: 'T',
             config: { chartType: 'mixed', ySeries: [null] },
           },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  // Finding 2.2: a present-and-valid `chartType` on an update-shaped config
+  // channel must still be accepted — only membership is being newly enforced.
+  it('accepts an updateWidget config.chartType that is a known chart type', () => {
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: 'gauge' } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts an updateWidget changes.config.chartType that is a known chart type', () => {
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: { chartType: 'line' } } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts an applyBulkUpdate updatedWidgets[].config.chartType that is a known chart type', () => {
+    expect(
+      parseStateMutation({
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          updatedWidgets: [{ widgetId: 'w1', config: { chartType: 'pie' } }],
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  // `chartType: undefined` is the sanctioned patch-delete of the key (clearing a
+  // previously-set chart type back to the widget's stored/default value) and must
+  // stay legal on every update-shaped config channel even after the 2.2 fix.
+  it('accepts an updateWidget config.chartType of undefined (sanctioned patch-delete)', () => {
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: undefined, xField: 'a' } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts an updateWidget changes.config.chartType of undefined (sanctioned patch-delete)', () => {
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: { chartType: undefined } } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts an applyBulkUpdate updatedWidgets[].config.chartType of undefined (sanctioned patch-delete)', () => {
+    expect(
+      parseStateMutation({
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          updatedWidgets: [{ widgetId: 'w1', config: { chartType: undefined } }],
         },
       }).ok,
     ).toBe(true);
@@ -707,4 +868,106 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
+});
+
+// T2-4 (parser half): `applyBulkUpdate.args.widgetRows`/`widgetColSpans` used to be
+// required, forcing an updates-only bulk call (no removals/additions/layout op/
+// colSpans) to carry a full turn-start layout snapshot that could silently revert a
+// concurrent client-side layout edit. The reducer's fix (a parallel unit, in
+// `applyMutation.ts`) treats "both absent" as "skip layout replacement, don't wipe" —
+// this parser half's job is only to let that true absence reach the reducer
+// unmodified, not to default it to `[]`/`{}` (which would be indistinguishable from
+// "replace the layout with nothing").
+describe('parseStateMutation — applyBulkUpdate widgetRows/widgetColSpans optionality (T2-4)', () => {
+  function bulkArgsWithout(omit: Array<'widgetRows' | 'widgetColSpans'>): Record<string, unknown> {
+    const args: Record<string, unknown> = {
+      removedWidgetIds: [],
+      addedWidgets: [],
+      updatedWidgets: [{ widgetId: 'w1', title: 'Retitled' }],
+      widgetRows: [['w1']],
+      widgetColSpans: { w1: 6 },
+      activePageId: 'page-1',
+    };
+    for (const key of omit) {
+      delete args[key];
+    }
+    return args;
+  }
+
+  it('accepts an updates-only applyBulkUpdate with BOTH widgetRows and widgetColSpans absent', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: bulkArgsWithout(['widgetRows', 'widgetColSpans']),
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('passes true absence through unchanged — does not default widgetRows/widgetColSpans to []/{}', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: bulkArgsWithout(['widgetRows', 'widgetColSpans']),
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    const { args } = parsed.mutation as unknown as {
+      args: Record<string, unknown>;
+    };
+    // Own-key absence, not merely a falsy/empty value: a `?? []`/`?? {}` default
+    // would still be an OWN key, which the reducer could not tell apart from "the
+    // producer explicitly wants an empty layout".
+    expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
+    expect(Object.hasOwn(args, 'widgetColSpans')).toBe(false);
+  });
+
+  it('accepts widgetRows present with widgetColSpans absent (independent optionality)', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: bulkArgsWithout(['widgetColSpans']),
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('accepts widgetColSpans present with widgetRows absent (independent optionality)', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: bulkArgsWithout(['widgetRows']),
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('still rejects a present-but-malformed widgetRows even when widgetColSpans is absent', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...bulkArgsWithout(['widgetColSpans']), widgetRows: 'not-a-matrix' },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('still rejects a present-but-malformed widgetColSpans even when widgetRows is absent', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...bulkArgsWithout(['widgetRows']), widgetColSpans: 'not-a-record' },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('still rejects a present widgetColSpans carrying an own __proto__ key when widgetRows is absent', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: {
+        ...bulkArgsWithout(['widgetRows']),
+        widgetColSpans: JSON.parse('{"__proto__":6}'),
+      },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  // NOTE: this suite intentionally does NOT assert `applyMutation` behavior on an
+  // absent-layout payload — that half of T2-4 (treating "both absent" as "skip
+  // layout replacement, don't wipe" rather than throwing) is owned by a parallel
+  // fix to `applyMutation.ts`'s `applyBulkUpdate` handler, not this parser. This
+  // suite's job ends at proving the parser ACCEPTS the payload and forwards true
+  // absence unchanged (see the two tests above).
 });

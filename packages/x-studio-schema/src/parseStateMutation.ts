@@ -112,6 +112,30 @@ function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
   return Object.keys(record).some((key) => UNSAFE_KEYS.has(key));
 }
 
+/**
+ * True when `config` carries an own `chartType` key whose value is present
+ * (not `undefined`) but is not a member of the closed `StudioChartType` union —
+ * e.g. `chartType: 'trendline'` or a non-string like `chartType: 42`.
+ *
+ * Finding 2.2 — the full-widget create path (`validateWidget`, used by
+ * `addWidget`/`applyBulkUpdate.addedWidgets`) already requires an explicit
+ * `config.chartType` to pass `isStudioChartType`, but the three UPDATE-shaped
+ * config-carrying channels (`updateWidget.args.config`,
+ * `updateWidget.args.changes.config`, `applyBulkUpdate.args.updatedWidgets[].config`)
+ * left `config`'s entire interior — including `chartType` itself — as an
+ * unchecked leaf. This closes only the MEMBERSHIP gap, mirroring
+ * `validateWidget`'s own membership check verbatim: it needs no resolved widget
+ * kind/existing-widget state, unlike the (genuinely stateful) chart-family-key
+ * check, which stays out of scope for a bare patch. `chartType: undefined` stays
+ * legal — it is the sanctioned patch-delete of the key.
+ */
+function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
+  if (!Object.hasOwn(config, 'chartType') || config.chartType === undefined) {
+    return false;
+  }
+  return !isString(config.chartType) || !isStudioChartType(config.chartType);
+}
+
 // ── Nested-structure validators ─────────────────────────────────────────────────
 
 /**
@@ -191,21 +215,37 @@ function validateWidget(widget: unknown, path: string): string | null {
   }
   // Second, finer-grained fail-closed check for chart widgets: a chart config
   // carrying a key that belongs to a DIFFERENT chart family (e.g. `sankeyTargetField`
-  // on a `gauge` chart) is rejected. This is STATELESS — it can only resolve the
-  // family when the incoming config carries an explicit `chartType`, since it has no
-  // access to the existing widget to resolve an omitted discriminant. A missing
-  // `chartType` is therefore left to the in-process path
-  // (`executeToolOnState.ts`, wired in a later unit) that CAN read the current
-  // widget's chartType; here we simply skip the chart-family check when it is
-  // absent (the kind-level check above already ran). An explicit `chartType` that is
-  // not a real `StudioChartType` is itself rejected — there are no custom chart types.
-  if (widget.kind === 'chart' && widget.config.chartType !== undefined) {
-    if (!isString(widget.config.chartType) || !isStudioChartType(widget.config.chartType)) {
+  // on a `gauge` chart) is rejected. An explicit `chartType` that is not a real
+  // `StudioChartType` is itself rejected first — there are no custom chart types.
+  //
+  // Finding 2.3 — this validator only ever sees FULL-WIDGET creation payloads
+  // (`addWidget`/`applyBulkUpdate.addedWidgets`; see the STATELESS constraint
+  // above), so there is no "existing widget" to omit a discriminant relative to
+  // in the first place: a fresh config with no `chartType` IS effectively a bar
+  // chart, by the same `?? 'bar'` rule `resolveChartType`/the middleware's
+  // `invalidChartConfigKeyError` apply (an empty config is a valid bar config).
+  // Previously this check was skipped entirely whenever `chartType` was absent,
+  // which meant `{ sankeyTargetField: 'x' }` with no `chartType` passed the wire
+  // gate while the semantically identical `{ chartType: 'bar', sankeyTargetField:
+  // 'x' }` was rejected — the middleware's own `buildWidgetFromArgs` already
+  // resolves the same `'bar'` fallback and rejects it, so the two boundaries
+  // disagreed on an identical payload. Using the same fallback here keeps them in
+  // agreement. (An `updateWidget` config PATCH is a different case: it genuinely
+  // has no full widget/kind to fall back from, so it is intentionally NOT
+  // family-key-validated here — see `hasInvalidChartTypeInConfig`'s membership-only
+  // check for that channel instead.)
+  if (widget.kind === 'chart') {
+    const chartTypeValue = widget.config.chartType;
+    if (
+      chartTypeValue !== undefined &&
+      (!isString(chartTypeValue) || !isStudioChartType(chartTypeValue))
+    ) {
       return `${path}.config.chartType must be one of the known chart types`;
     }
-    const invalidChartKeys = validateChartConfigKeysForType(widget.config.chartType, widget.config);
+    const effectiveChartType = chartTypeValue === undefined ? 'bar' : chartTypeValue;
+    const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, widget.config);
     if (invalidChartKeys.length > 0) {
-      return `${path}.config carries key(s) not valid for a '${widget.config.chartType}' chart: ${invalidChartKeys.join(', ')}`;
+      return `${path}.config carries key(s) not valid for a '${effectiveChartType}' chart: ${invalidChartKeys.join(', ')}`;
     }
   }
   return null;
@@ -363,6 +403,17 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         if (hasUnsafeOwnKeys(args.changes.config)) {
           return "updateWidget.args.changes.config must not carry a '__proto__'/'constructor'/'prototype' key";
         }
+        // Finding 2.2 — `config`'s interior is deliberately left as an unchecked
+        // leaf (see the module doc), but `chartType` is the one leaf key every
+        // OTHER config-carrying arg in this file already membership-checks on the
+        // create path (`validateWidget`). Leaving it unchecked here let an
+        // arbitrary/non-string `chartType` persist through a PATCH, silently
+        // fall back to a default chart client-side, and then wedge every later
+        // legitimate AI `update_widget` on that widget (the middleware hard-errors
+        // on an unknown stored `chartType`).
+        if (hasInvalidChartTypeInConfig(args.changes.config)) {
+          return 'updateWidget.args.changes.config.chartType must be one of the known chart types when present';
+        }
       }
     }
     if (args.config !== undefined) {
@@ -371,6 +422,10 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       }
       if (hasUnsafeOwnKeys(args.config)) {
         return "updateWidget.args.config must not carry a '__proto__'/'constructor'/'prototype' key";
+      }
+      // Finding 2.2 — see the identical check on `changes.config` above.
+      if (hasInvalidChartTypeInConfig(args.config)) {
+        return 'updateWidget.args.config.chartType must be one of the known chart types when present';
       }
     }
     // The wire-safe field/config-key clear affordance. Both are arrays of KEY
@@ -495,18 +550,33 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         if (hasUnsafeOwnKeys(update.config)) {
           return `${at}.config must not carry a '__proto__'/'constructor'/'prototype' key`;
         }
+        // Finding 2.2 — see the identical check on `updateWidget.args.config` above.
+        if (hasInvalidChartTypeInConfig(update.config)) {
+          return `${at}.config.chartType must be one of the known chart types when present`;
+        }
       }
     }
-    if (!isStringMatrix(args.widgetRows)) {
-      return 'applyBulkUpdate.args.widgetRows must be a string[][]';
+    // Finding T2-4 (parser half) — `widgetRows`/`widgetColSpans` are OPTIONAL: a
+    // bulk update carrying only `updatedWidgets` (no removals, additions, layout
+    // op, or colSpans) must be able to omit both entirely. The reducer (fixed in
+    // the same round) treats "both absent" as "skip layout replacement, don't
+    // wipe" — so this validator must pass true absence through unchanged rather
+    // than defaulting to `[]`/`{}`, which would look identical to "replace the
+    // layout with nothing" and cause the reducer to wipe it. Presence is still
+    // shape-checked exactly as before.
+    if (args.widgetRows !== undefined && !isStringMatrix(args.widgetRows)) {
+      return 'applyBulkUpdate.args.widgetRows must be a string[][] when present';
     }
-    if (!isFiniteNumberRecord(args.widgetColSpans)) {
-      return 'applyBulkUpdate.args.widgetColSpans must be a Record<string, number>';
+    if (args.widgetColSpans !== undefined && !isFiniteNumberRecord(args.widgetColSpans)) {
+      return 'applyBulkUpdate.args.widgetColSpans must be a Record<string, number> when present';
     }
     // The reducer rebuilds `widgetColSpans` key-by-key, so an unsafe own key here
     // (e.g. `JSON.parse('{"__proto__":6}')`) is rejected even though it passes the
     // finite-number-record shape check above.
-    if (hasUnsafeOwnKeys(args.widgetColSpans)) {
+    if (
+      args.widgetColSpans !== undefined &&
+      hasUnsafeOwnKeys(args.widgetColSpans as Record<string, unknown>)
+    ) {
       return "applyBulkUpdate.args.widgetColSpans must not carry a '__proto__'/'constructor'/'prototype' key";
     }
     if (!isSafeId(args.activePageId)) {

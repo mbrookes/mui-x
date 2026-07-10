@@ -1597,6 +1597,48 @@ describe('aggregateByTwoFields', () => {
     // avg(10, 20) = 15 — NOT (10 + 0 + 20) / 3 = 10
     expect(result.seriesData.A[northIdx]).toBe(15);
   });
+
+  // ─── non-numeric measure fallback (finding 2.4) ──────────────────────────────
+  // `aggregateByField` and `aggregateMultipleSeries` both pre-detect a non-numeric
+  // yField and fall back to counting rows. `aggregateByTwoFields` (the split-by
+  // path) lacked this fallback: `coerceAggregateValue` skips every non-numeric
+  // cell, so a split-by chart on a string measure rendered every cell `null`
+  // (blank chart) instead of falling back to counts like its siblings.
+  it('falls back to counting rows when the measure field is non-numeric, like its siblings', () => {
+    const stringRows = [
+      { region: 'North', product: 'A', label: 'foo' },
+      { region: 'North', product: 'A', label: 'bar' },
+      { region: 'North', product: 'B', label: 'baz' },
+      { region: 'South', product: 'A', label: 'qux' },
+    ];
+    const result = aggregateByTwoFields(stringRows, 'region', 'product', 'label');
+    const northIdx = result.labels.indexOf('North');
+    const southIdx = result.labels.indexOf('South');
+    // Non-numeric measure → pre-detect flips to count → row tallies, not null cells.
+    expect(result.seriesData.A[northIdx]).toBe(2);
+    expect(result.seriesData.B[northIdx]).toBe(1);
+    expect(result.seriesData.A[southIdx]).toBe(1);
+  });
+
+  it('still honors an explicit "count" yAggregation for a non-numeric measure', () => {
+    const stringRows = [
+      { region: 'North', product: 'A', label: 'foo' },
+      { region: 'North', product: 'A', label: 'bar' },
+    ];
+    const result = aggregateByTwoFields(
+      stringRows,
+      'region',
+      'product',
+      'label',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'count',
+    );
+    const northIdx = result.labels.indexOf('North');
+    expect(result.seriesData.A[northIdx]).toBe(2);
+  });
 });
 
 // ─── aggregateMultipleSeries ──────────────────────────────────────────────────

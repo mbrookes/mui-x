@@ -149,21 +149,29 @@ export function useBlendedSeriesRows(
       // date-range preset to concrete bounds instead of leaving it null/incomplete
       // (finding 2.2, facets a & b).
       //
+      const sourceExpressionFields = foreignExpressionFields.filter((ef) => ef.sourceId === sid);
       // A foreign series is aggregated independently in its own source (no cross-source
       // JOIN, unlike the primary series), so a scoped filter is only actually applicable
-      // when its field exists directly on THIS source — a page filter authored against a
-      // field that only exists on the widget's primary source (or some other source
-      // entirely) must stay fully unconstrained here rather than being evaluated against
-      // `undefined` and spuriously filtering out every row. This applicability gate is
-      // orthogonal to (and preserved unchanged from before) the scope-correctness fix
-      // above.
+      // when its field exists directly on THIS source, OR is one of this source's own
+      // (non-measure) expression fields — those are enriched into `spec.expressionFields`
+      // below (`resolveRowsCached(..., spec.expressionFields, usedIds)`) and therefore
+      // directly evaluable in-source, mirroring how the primary series' own filter
+      // evaluation honours expression-field ownership (the `!ef.isMeasure` derived-owner
+      // check in `dataSourceGraph.ts`'s L3 cross-filter routing). A page filter authored
+      // against a field that only exists on the widget's primary source (or some other
+      // source entirely) must stay fully unconstrained here rather than being evaluated
+      // against `undefined` and spuriously filtering out every row (finding 2.3).
       const applicable = selectFiltersForWidget(filters, {
         widgetId: `${widget.id}::blend::${sid}`,
         widgetSourceId: sid,
         activePageId: pageId,
         include: 'no-cross',
-      }).filter((f) => f.field && src.fields.some((fl) => fl.id === f.field));
-      const sourceExpressionFields = foreignExpressionFields.filter((ef) => ef.sourceId === sid);
+      }).filter(
+        (f) =>
+          f.field &&
+          (src.fields.some((fl) => fl.id === f.field) ||
+            sourceExpressionFields.some((ef) => ef.id === f.field && !ef.isMeasure)),
+      );
       specs.push({
         sid,
         fields: [...fields],

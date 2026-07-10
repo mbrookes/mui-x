@@ -137,6 +137,9 @@ export function useWidgetRows(
   // Own source is needed for self-enrichment; related sources are needed so that
   // resolveRows can enrich foreign source rows when evaluating cross-filters
   // (e.g. expr-order-country on ORDERS when this widget is on ORDER_ITEMS).
+  // For a many-to-many relationship the junction (bridge) source is included too, so a
+  // junction-owned expression field targeted by a filter can be routed/enriched at L3
+  // instead of being invisible here (mirrors `getReachableSourceIds`; finding 2.1).
   // Completely unrelated sources (e.g. PRODUCTS for an ORDER_ITEMS widget) are
   // excluded so that adding expressions there doesn't trigger a re-render here.
   const relevantSourceIds = React.useMemo(() => {
@@ -146,8 +149,14 @@ export function useWidgetRows(
       for (const rel of relationships) {
         if (rel.sourceId === widget.sourceId) {
           ids.add(rel.targetId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         } else if (rel.targetId === widget.sourceId) {
           ids.add(rel.sourceId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         }
       }
     }

@@ -33,7 +33,8 @@ import {
   selectDataSources,
   selectRelationships,
   selectGlobalCrossFilterMode,
-  makeSelectExpressionFieldsForSource,
+  selectCrossFilterAllPages,
+  makeSelectExpressionFieldsForSources,
 } from '../../../context';
 import { formatNumber } from '../../../internals/numberFormat';
 import { cachedCompute } from '../../../internals/computedCache';
@@ -226,6 +227,7 @@ function computeFilterBasedTrend(params: {
   currentValue: number;
   measureKey: string;
   crossFilterMode: 'none' | 'cross-filter';
+  crossFilterAllPages: boolean;
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
@@ -240,6 +242,7 @@ function computeFilterBasedTrend(params: {
     currentValue,
     measureKey,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -264,6 +267,7 @@ function computeFilterBasedTrend(params: {
     widgetSourceId: widget.sourceId,
     activePageId: pageId,
     include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+    crossFilterAllPages,
   });
   const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
   if (!dateFilter) {
@@ -567,6 +571,7 @@ function useKpiSparkline(params: {
   aggregation: StudioKpiAggregation;
   measureExprField: StudioExpressionField | undefined;
   crossFilterMode: 'none' | 'cross-filter';
+  crossFilterAllPages: boolean;
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
@@ -584,6 +589,7 @@ function useKpiSparkline(params: {
     aggregation,
     measureExprField,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -610,6 +616,7 @@ function useKpiSparkline(params: {
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+      crossFilterAllPages,
     });
     const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
     // Only use the date filter's field as the time axis when the filter applies to the
@@ -714,6 +721,7 @@ function useKpiSparkline(params: {
     aggregation,
     measureExprField,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -739,6 +747,7 @@ function useKpiTrend(params: {
   measureKey: string;
   rawValue: number;
   crossFilterMode: 'none' | 'cross-filter';
+  crossFilterAllPages: boolean;
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
@@ -757,6 +766,7 @@ function useKpiTrend(params: {
     measureKey,
     rawValue,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -779,6 +789,7 @@ function useKpiTrend(params: {
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+      crossFilterAllPages,
     });
     const needsDateFilter =
       !hasFixedPeriodTrend &&
@@ -873,6 +884,7 @@ function useKpiTrend(params: {
           currentValue: rawValue,
           measureKey,
           crossFilterMode,
+          crossFilterAllPages,
           dataSources,
           relationships,
           expressionFields,
@@ -896,6 +908,7 @@ function useKpiTrend(params: {
     measureKey,
     rawValue,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -913,9 +926,38 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const localeText = useStudioLocaleText();
+  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source, and
+  // — for a many-to-many relationship — its junction (bridge) source too, mirroring the
+  // `relevantSourceIds`/`makeSelectExpressionFieldsForSources` pattern `useWidgetRows` and
+  // `useChartWidgetData` already use. An own-source-only list broke the iteration-8
+  // anchor-filter re-application for expression-field shapes: an anchor-owned expression-field
+  // filter was never classified anchor-scoped (so it wasn't re-applied at L4 → resurrection) or,
+  // once threaded, zeroed the KPI out because the anchor rows were never enriched with that
+  // column; and the trend's previous-period `resolveRows` mis-routed related-source expression
+  // filters as native, dropping every previous-period row (bogus ∞/NaN deltas) (findings 1.3, 2.1).
+  const relevantSourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (widget.sourceId) {
+      ids.add(widget.sourceId);
+      for (const rel of relationships) {
+        if (rel.sourceId === widget.sourceId) {
+          ids.add(rel.targetId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
+        } else if (rel.targetId === widget.sourceId) {
+          ids.add(rel.sourceId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
+        }
+      }
+    }
+    return ids;
+  }, [widget.sourceId, relationships]);
   const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const chartColors = usePageChartColors();
@@ -934,6 +976,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // exactly as it overrides a chart's/grid's, even though a KPI's OWN default (absent
   // any override) is 'none' rather than 'cross-highlight'.
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  // The dashboard-level "cross-filter across all pages" toggle. `useWidgetRows` (which produced
+  // `currentRows`) and `useChartWidgetData` both subscribe to and thread this into
+  // `selectFiltersForWidget`; threading it here too keeps every KPI L4/trend filter scope in
+  // parity with the rendered row baselines when a cross-filter is emitted from another page
+  // (finding 2.2).
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const crossFilterModeRaw =
     globalCrossFilterMode ?? (config as StudioWidgetConfig).crossFilterMode;
   const crossFilterMode =
@@ -963,8 +1011,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         widgetSourceId: widget.sourceId,
         activePageId: pageId,
         include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+        crossFilterAllPages,
       }),
-    [filters, widget.id, widget.sourceId, pageId, crossFilterMode],
+    [filters, widget.id, widget.sourceId, pageId, crossFilterMode, crossFilterAllPages],
   );
 
   // Grain-aware rows for KPI value and sparkline computation (see useKpiGrainAnchoredRows).
@@ -1000,6 +1049,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     aggregation,
     measureExprField,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,
@@ -1019,6 +1069,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     measureKey,
     rawValue,
     crossFilterMode,
+    crossFilterAllPages,
     dataSources,
     relationships,
     expressionFields,

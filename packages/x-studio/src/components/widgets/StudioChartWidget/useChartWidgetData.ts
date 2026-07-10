@@ -84,6 +84,10 @@ export function useChartWidgetData(
   // `hasRowLevelField`, which only finds an expression field in this list — an
   // own-source-only list makes a related-source expression field invisible here, so this
   // guard falsely disagrees with the setup panel's full-list check (finding 2.1).
+  // For a many-to-many relationship the junction (bridge) source is included too, so a
+  // junction-owned expression field used as a chart dimension is resolvable by the guard
+  // and by L4 grain resolution instead of being invisible (mirrors `getReachableSourceIds`;
+  // finding 2.1).
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -91,8 +95,14 @@ export function useChartWidgetData(
       for (const rel of relationships) {
         if (rel.sourceId === widget.sourceId) {
           ids.add(rel.targetId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         } else if (rel.targetId === widget.sourceId) {
           ids.add(rel.sourceId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         }
       }
     }

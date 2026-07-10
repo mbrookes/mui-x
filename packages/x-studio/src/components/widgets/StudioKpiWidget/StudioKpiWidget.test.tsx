@@ -1320,3 +1320,357 @@ describe('<StudioKpiWidget /> KPI L4 anchor-filter re-application (finding 1.2)'
     expect(sparkline?.data).toEqual([50]);
   });
 });
+
+// ─── findings 1.3 / 2.1 / 2.2: KPI expression-field & cross-page filter scoping ───────
+//
+// The KPI previously subscribed to its OWN source's expression fields only
+// (`makeSelectExpressionFieldsForSource(widget.sourceId)`) and never threaded the
+// dashboard-level `crossFilterAllPages` toggle into its filter scoping. That defeated the
+// iteration-8 `widgetFilters` fix for two shapes:
+//   • an anchor/related/junction-owned EXPRESSION-field filter was invisible, so
+//     `effectiveFilterSourceId` never classified it as anchor-scoped → it was not re-applied
+//     at L4 (resurrection) or, once threaded, zeroed the KPI (findings 1.3, 2.1);
+//   • a cross-page cross-filter (`crossFilterAllPages: true`) was excluded from the L4/trend
+//     scope while `useWidgetRows` already applied it to the rendered rows (finding 2.2).
+describe('<StudioKpiWidget /> expression-field & cross-page filter scoping (findings 1.3, 2.1, 2.2)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+    rowsHolder.effective = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    rowsHolder.effective = null;
+  });
+
+  // Widget on `customers` (the "one" side); value field `total` owned by `orders` (the "many"
+  // side) — the grain-anchored topology `useKpiGrainAnchoredRows` re-anchors on (doc note D.1).
+  const customersSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [{ id: 'id', label: 'ID', type: 'string' }],
+    rows: [],
+  } as unknown as StudioDataSource;
+  const ordersWithTotal = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'customerId', label: 'Customer', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+      { id: 'status', label: 'Status', type: 'string' },
+    ],
+    rows: [
+      { id: 'O1', customerId: 'C1', total: 300, status: 'paid' },
+      { id: 'O2', customerId: 'C1', total: 200, status: 'unpaid' },
+    ],
+  } as unknown as StudioDataSource;
+  const customerOrdersRelationship = {
+    id: 'rel-customer-orders',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+    type: 'many-to-one',
+  } as unknown as StudioRelationship;
+  // `bigOrder = total > 250` — a calculated boolean owned by the ANCHOR source (`orders`).
+  // O1 (300) → true, O2 (200) → false.
+  const bigOrderExpr = {
+    id: 'bigOrder',
+    label: 'Big order',
+    sourceId: 'orders',
+    isMeasure: false,
+    type: 'boolean',
+    expression: {
+      operator: 'greaterThan',
+      inputs: [{ id: 'total' }, { type: 'number', value: 250 }],
+    },
+  } as unknown as StudioExpressionField;
+
+  it('finding 1.3: re-applies an anchor-owned EXPRESSION-field filter to the headline (no resurrection)', () => {
+    // The drawer filter targets the anchor-owned expression column `bigOrder` and carries NO
+    // `filterSourceId` (the exact shape finding 1.3a is about). Pre-fix the KPI saw only
+    // `customers` expression fields, so `bigOrder` was invisible → `effectiveFilterSourceId`
+    // could not classify it as anchor-scoped → it was never re-applied during L4 re-anchoring →
+    // the expansion join resurrected O2, summing 500. With own+related subscription the filter is
+    // anchor-scoped and applied: only O1 (300) survives.
+    const bigOrderFilter = {
+      id: 'f-big',
+      field: 'bigOrder',
+      fieldType: 'boolean',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: true,
+      // NOTE: no filterSourceId — owner is derived from the expression-field list.
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'C1' }];
+    const widget = makeWidget({ kpiValueField: 'total', kpiAggregation: 'sum' }, 'customers');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { customers: customersSource, orders: ordersWithTotal },
+      relationships: [customerOrdersRelationship],
+      expressionFields: [bigOrderExpr],
+      filters: [bigOrderFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, customersSource);
+
+    // Pre-fix: 500 (O1 + O2 resurrected). Post-fix: only the big order O1.
+    expect(lastValue()).toBe('300');
+  });
+
+  it('finding 1.3: an anchor-owned EXPRESSION-field filter yields a correct trend delta (no bogus ∞ against a resurrected previous period)', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+
+    // Widget on `order_items`; value `revenue` owned by `orders`. `bigRevenue = revenue > 250`
+    // is owned by the anchor (`orders`): O1 (300) → true, O2 (200) → false. Current-window items
+    // point at O1 (kept), previous-window items point at O2 (excluded by the anchor expression
+    // filter). Pre-fix the expression field was invisible on the own-source-only list, so O2 was
+    // resurrected into the previous period (previousValue 200, delta +50%). Post-fix the previous
+    // period has no surviving anchor rows.
+    const ordersWithRevenue = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+      ],
+      rows: [
+        { id: 'O1', revenue: 300 },
+        { id: 'O2', revenue: 200 },
+      ],
+    } as unknown as StudioDataSource;
+    const bigRevenueExpr = {
+      id: 'bigRevenue',
+      label: 'Big revenue',
+      sourceId: 'orders',
+      isMeasure: false,
+      type: 'boolean',
+      expression: {
+        operator: 'greaterThan',
+        inputs: [{ id: 'revenue' }, { type: 'number', value: 250 }],
+      },
+    } as unknown as StudioExpressionField;
+    const bigRevenueFilter = {
+      id: 'f-bigrev',
+      field: 'bigRevenue',
+      fieldType: 'boolean',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: true,
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = allOrderItems;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'oiDate',
+      },
+      'order_items',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { order_items: orderItemsSource, orders: ordersWithRevenue },
+      relationships: [crossSourceRelationship],
+      expressionFields: [bigRevenueExpr],
+      filters: [bigRevenueFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, orderItemsSource);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    // Pre-fix: previousValue 200 (O2 resurrected), delta +0.5. Post-fix: O2 excluded.
+    expect(trend!.previousValue).toBe(0);
+    expect(trend!.delta).toBe(Infinity);
+    // Headline stays the anchor-filtered all-time total: only O1 (300).
+    expect(lastValue()).toBe('300');
+  });
+
+  it('finding 2.1: re-applies a JUNCTION-owned expression-field filter to an M:N sparkline dimension', () => {
+    // Widget on `orders` (native yField `amount`) with a many-to-many relationship to `tags` via
+    // the `order_tags` junction. The sparkline's time field (`createdDate`) lives on `tags`, so
+    // `analyzeChartSupport` anchors on the junction to fan the dimension out (finding 1.1). The
+    // page filter targets `heavy` — an expression field owned by the JUNCTION source
+    // (`order_tags`) — and carries NO `filterSourceId`. Pre-fix the junction was omitted from
+    // `relevantSourceIds`, so `heavy` was invisible: the filter could be neither classified as
+    // junction(anchor)-scoped nor evaluated (the junction rows were never enriched with it), so
+    // both tag links survived and the single order's amount was double-counted (100). Including
+    // the junction source makes `heavy` resolvable → the light link is dropped before the join.
+    const ordersSourceNative = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [{ id: 'o1', amount: 50 }],
+    } as unknown as StudioDataSource;
+    const tagsSource = {
+      id: 'tags',
+      label: 'Tags',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'createdDate', label: 'Created', type: 'date' },
+      ],
+      rows: [
+        { id: 't1', createdDate: '2026-07-01' },
+        { id: 't2', createdDate: '2026-07-05' },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsSource = {
+      id: 'order_tags',
+      label: 'Order Tags',
+      fields: [
+        { id: 'orderId', label: 'Order', type: 'string' },
+        { id: 'tagId', label: 'Tag', type: 'string' },
+        { id: 'weight', label: 'Weight', type: 'number' },
+      ],
+      rows: [
+        { orderId: 'o1', tagId: 't1', weight: 10 },
+        { orderId: 'o1', tagId: 't2', weight: 1 },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsRelationship = {
+      id: 'rel-order-tags',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    // `heavy = weight > 5` — a calculated boolean owned by the JUNCTION source. The t1 link (10)
+    // is heavy; the t2 link (1) is not.
+    const heavyLinkExpr = {
+      id: 'heavy',
+      label: 'Heavy link',
+      sourceId: 'order_tags',
+      isMeasure: false,
+      type: 'boolean',
+      expression: {
+        operator: 'greaterThan',
+        inputs: [{ id: 'weight' }, { type: 'number', value: 5 }],
+      },
+    } as unknown as StudioExpressionField;
+    const heavyFilter = {
+      id: 'f-heavy',
+      field: 'heavy',
+      fieldType: 'boolean',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'equals',
+      value: true,
+      // NOTE: no filterSourceId — owner (`order_tags`) is derived from the expression-field list.
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'o1', amount: 50 }];
+    const widget = makeWidget(
+      {
+        kpiValueField: 'amount',
+        kpiAggregation: 'sum',
+        kpiSparkline: true,
+        kpiSparklineField: 'createdDate',
+        kpiSparklineSourceId: 'tags',
+        kpiSparklineGranularity: 'month',
+      },
+      'orders',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { orders: ordersSourceNative, tags: tagsSource, order_tags: orderTagsSource },
+      relationships: [orderTagsRelationship],
+      expressionFields: [heavyLinkExpr],
+      filters: [heavyFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, ordersSourceNative);
+
+    const sparkline = lastSparkline();
+    // Pre-fix: both links survive (junction filter unresolvable) → 50 + 50 = 100. Post-fix: the
+    // light link is dropped, so the order's amount is counted exactly once.
+    expect(sparkline?.data).toEqual([50]);
+  });
+
+  it('finding 2.2: threads crossFilterAllPages so a cross-page cross-filter scopes the grain-anchored headline', () => {
+    // Widget on `customers`, value `total` owned by `orders`, in cross-filter mode. A chart on
+    // ANOTHER page (page-2) emitted a cross-filter `orders.status = 'paid'`. With the dashboard
+    // "cross-filter across all pages" toggle ON, `useWidgetRows` already applied it to the
+    // rendered rows — the KPI's L4 re-anchoring must scope to it too, or the expansion join
+    // resurrects the unpaid order. Pre-fix the KPI never passed `crossFilterAllPages`, so
+    // `selectFiltersForWidget` defaulted it to false and excluded the page-2 cross-filter → 500.
+    const crossPagePaidFilter = {
+      id: 'f-cross-status',
+      field: 'status',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+      operator: 'equals',
+      value: 'paid',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'C1' }];
+    const widget = makeWidget(
+      { kpiValueField: 'total', kpiAggregation: 'sum', crossFilterMode: 'cross-filter' },
+      'customers',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { customers: customersSource, orders: ordersWithTotal },
+      relationships: [customerOrdersRelationship],
+      filters: [crossPagePaidFilter],
+    });
+    mockState.doc.dashboard.crossFilterAllPages = true;
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, customersSource);
+
+    // Post-fix: the cross-page cross-filter is in scope → only the paid order O1 (300).
+    expect(lastValue()).toBe('300');
+  });
+
+  it('finding 2.2: a cross-page cross-filter is correctly EXCLUDED when crossFilterAllPages is off', () => {
+    // Same fixture, toggle OFF: the page-2 cross-filter must NOT reach this page's KPI, so the
+    // grain-anchored headline is the unscoped all-time total (O1 + O2 = 500). This proves the KPI
+    // actually reads the toggle rather than hard-coding either behaviour.
+    const crossPagePaidFilter = {
+      id: 'f-cross-status',
+      field: 'status',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'page-2' },
+      operator: 'equals',
+      value: 'paid',
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'C1' }];
+    const widget = makeWidget(
+      { kpiValueField: 'total', kpiAggregation: 'sum', crossFilterMode: 'cross-filter' },
+      'customers',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { customers: customersSource, orders: ordersWithTotal },
+      relationships: [customerOrdersRelationship],
+      filters: [crossPagePaidFilter],
+    });
+    mockState.doc.dashboard.crossFilterAllPages = false;
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, customersSource);
+
+    expect(lastValue()).toBe('500');
+  });
+});

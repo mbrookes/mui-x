@@ -28,7 +28,11 @@
 import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
 import { validateChartConfigKeysForType, validateConfigKeysForKind } from './configKeyValidation';
-import { isStudioChartType } from './widgetTypeGuards';
+import {
+  isStudioChartType,
+  isStudioFilterOperator,
+  STUDIO_FILTER_OPERATORS,
+} from './widgetTypeGuards';
 import { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 
 export type ParseStateMutationResult =
@@ -284,8 +288,9 @@ function validateFilterScope(scope: unknown, path: string): string | null {
 
 /**
  * Shallow validation of a `StudioFilterState` embedded in `addFilter`. `id` must be a
- * safe id, `field`/`operator` must be strings, and `scope` must be a valid scope; the
- * filter's `value` (and other condition/rank leaf payload) is left unchecked — the
+ * safe id, `field` must be a string, `operator` (and a PRESENT `operator2`) must be a
+ * member of the closed `StudioFilterOperator` union, and `scope` must be a valid scope;
+ * the filter's `value` (and other condition/rank leaf payload) is left unchecked — the
  * reducer appends the filter verbatim and only keys off its `id`, so `value` is a leaf
  * the validator does not need to interpret.
  *
@@ -294,6 +299,27 @@ function validateFilterScope(scope: unknown, path: string): string | null {
  * `field: 42` or `operator: {}` would install an active-but-unevaluable filter that
  * silently renders every widget in scope empty. Mirrors the `titleMode: 42`-class gaps
  * closed elsewhere in this file — check what other code keys/iterates on.
+ *
+ * `operator` gets a MEMBERSHIP check (not just `isString`), for the same reason
+ * `chartType`/`scope.kind`/`titleMode` do: the client's evaluator branches on it and
+ * FAILS OPEN on an unknown value (`filterUtils.ts` `default: return () => true;`), so a
+ * plausible-but-wrong string like `'equal'` would install a filter chip that renders as
+ * ACTIVE while filtering nothing — silently wrong displayed data, strictly worse than a
+ * rejected mutation. The AI-tool boundary already membership-checks this exact value
+ * (`invalidFilterOperatorError`), so a string-only check here left the two boundaries
+ * disagreeing on an identical payload (architecture review T2-1). Both now share the
+ * one `isStudioFilterOperator` list. `operator2` is optional (absent stays legal), but
+ * a PRESENT value carries the identical fail-open hazard for a compound filter's second
+ * condition, so it is membership-checked the same way when present.
+ *
+ * The remaining closed-union leaf fields — `filterMode`, `conjunction`, `rankDirection`,
+ * `dateRangePreset` — are deliberately left unchecked: unlike `operator`, the client's
+ * evaluator DEGRADES SAFELY rather than fails open for each. A junk `filterMode` falls
+ * through to condition mode, a junk `conjunction` behaves as `'and'`, a junk
+ * `rankDirection` behaves as `'top'` (rank-mode default), and `dateRangePreset` is an
+ * 11-member display-only annotation the evaluator never branches on. None can produce
+ * the active-chip-that-filters-nothing failure, so the wire boundary tolerates them for
+ * forward compatibility rather than rejecting a payload the evaluator handles safely.
  */
 function validateFilter(filter: unknown, path: string): string | null {
   if (!isRecord(filter)) {
@@ -305,8 +331,11 @@ function validateFilter(filter: unknown, path: string): string | null {
   if (!isString(filter.field)) {
     return `${path}.field must be a string`;
   }
-  if (!isString(filter.operator)) {
-    return `${path}.operator must be a string`;
+  if (!isStudioFilterOperator(filter.operator)) {
+    return `${path}.operator must be one of ${STUDIO_FILTER_OPERATORS.join(', ')}`;
+  }
+  if (filter.operator2 !== undefined && !isStudioFilterOperator(filter.operator2)) {
+    return `${path}.operator2 must be one of ${STUDIO_FILTER_OPERATORS.join(', ')} when present`;
   }
   return validateFilterScope(filter.scope, `${path}.scope`);
 }

@@ -62,6 +62,8 @@ export {
   isChartConfigOfType,
   isStudioChartType,
   STUDIO_CHART_TYPES,
+  isStudioFilterOperator,
+  STUDIO_FILTER_OPERATORS,
 } from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
 // `CURRENT_SCHEMA_VERSION` is re-exported via `stateTypes.ts` above (its source

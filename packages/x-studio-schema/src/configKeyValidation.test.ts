@@ -6,7 +6,11 @@ import {
   validateChartConfigKeysForType,
   validateConfigKeysForKind,
 } from './configKeyValidation';
-import { STUDIO_CHART_TYPES } from './widgetTypeGuards';
+import {
+  STUDIO_CHART_TYPES,
+  STUDIO_FILTER_OPERATORS,
+  isStudioFilterOperator,
+} from './widgetTypeGuards';
 import type { StudioChartType } from './baseTypes';
 
 describe('getAllowedConfigKeys', () => {
@@ -290,5 +294,36 @@ describe('STUDIO_CHART_TYPES completeness (proxy pin for the compile-time lock)'
     expect(STUDIO_CHART_TYPES.length).toBe(16);
     // No duplicate entries.
     expect(new Set(STUDIO_CHART_TYPES).size).toBe(STUDIO_CHART_TYPES.length);
+  });
+});
+
+describe('STUDIO_FILTER_OPERATORS completeness (proxy pin for the compile-time lock)', () => {
+  it('lists exactly the 17 StudioFilterOperator literals with no duplicates', () => {
+    // Runtime proxy for the `AssertAllFilterOperatorsListed` error-tuple lock: if an
+    // operator is added to `StudioFilterOperator` without a `STUDIO_FILTER_OPERATORS`
+    // entry, the build fails at the assertion — this pin makes the count observable.
+    // The downstream `@mui/x-studio-ai-middleware` boundary consumes this exact list to
+    // replace its hand-copied `VALID_FILTER_OPERATORS`, so drift here is load-bearing.
+    expect(STUDIO_FILTER_OPERATORS.length).toBe(17);
+    expect(new Set(STUDIO_FILTER_OPERATORS).size).toBe(STUDIO_FILTER_OPERATORS.length);
+  });
+});
+
+describe('isStudioFilterOperator', () => {
+  it('accepts every listed operator', () => {
+    for (const op of STUDIO_FILTER_OPERATORS) {
+      expect(isStudioFilterOperator(op)).toBe(true);
+    }
+  });
+
+  it("rejects a plausible-but-wrong typo ('equal', not the real 'equals')", () => {
+    expect(isStudioFilterOperator('equal')).toBe(false);
+  });
+
+  it('rejects non-string values (object, number, null, undefined)', () => {
+    expect(isStudioFilterOperator({})).toBe(false);
+    expect(isStudioFilterOperator(42)).toBe(false);
+    expect(isStudioFilterOperator(null)).toBe(false);
+    expect(isStudioFilterOperator(undefined)).toBe(false);
   });
 });

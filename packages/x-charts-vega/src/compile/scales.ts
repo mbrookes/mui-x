@@ -796,17 +796,24 @@ export function resolveAxes(
   let x = resolveChannelAxis('x', xOccurrences, gaps, forceX) as AxisResolution<XAxis> | undefined;
   let y = resolveChannelAxis('y', yOccurrences, gaps, forceY) as AxisResolution<YAxis> | undefined;
 
-  // Vega-Lite renders an aggregate-only bar (a value channel with no category
-  // channel anywhere in the spec) as a single bar over an implicit "all"
-  // category. Synthesize a one-category band axis for that side so the bar
-  // compiler has a domain to align to (marked `synthetic` — it has no backing
-  // data field).
-  const hasBarWith = (channel: 'x' | 'y') =>
-    units.some(({ unit }) => unit.mark.type === 'bar' && isFieldDef(unit.encoding[channel]));
-  if (!x && xOccurrences.length === 0 && hasBarWith('y')) {
+  // Synthesize a one-category band axis for the perpendicular side of a mark
+  // that encodes only one positional field:
+  //   - an aggregate-only bar (a value channel, no category channel) → Vega-Lite
+  //     draws one bar over an implicit "all" category;
+  //   - a 1D `tick` strip/rug plot (only `x` or only `y`) → the ticks span the
+  //     full perpendicular extent of that lone band.
+  // The axis is marked `synthetic` (no backing data field); the bar/tick
+  // compilers place every row on its single category.
+  const hasSingleAxisMarkWith = (channel: 'x' | 'y') =>
+    units.some(
+      ({ unit }) =>
+        (unit.mark.type === 'bar' || unit.mark.type === 'tick') &&
+        isFieldDef(unit.encoding[channel]),
+    );
+  if (!x && xOccurrences.length === 0 && hasSingleAxisMarkWith('y')) {
     x = syntheticBandAxis('x') as AxisResolution<XAxis>;
   }
-  if (!y && yOccurrences.length === 0 && hasBarWith('x')) {
+  if (!y && yOccurrences.length === 0 && hasSingleAxisMarkWith('x')) {
     y = syntheticBandAxis('y') as AxisResolution<YAxis>;
   }
 

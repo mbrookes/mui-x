@@ -85,6 +85,12 @@ function resolveAxisValue(
   row: DatasetRow,
 ): number | string | Date | null {
   if (!axis?.field) {
+    // A synthetic single-category axis (the perpendicular band of a 1D
+    // strip/tick plot — see scales.ts) has no backing field; every row sits on
+    // its lone category so the tick can span that band.
+    if (axis?.synthetic && axis.categories && axis.categories.length > 0) {
+      return axis.categories[0] as string | number | Date;
+    }
     return null;
   }
   const raw = row[axis.field];
@@ -253,7 +259,13 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   const markType = unit.mark.type;
   const isTick = markType === 'tick';
 
-  if (!ctx.x?.field || !ctx.y?.field) {
+  // A tick mark tolerates a single positional field — the missing side resolves
+  // to a synthetic one-category band (scales.ts) the ticks span across, giving a
+  // 1D strip/rug plot. Genuine point/scatter marks still need both axes.
+  const xHasField = !!ctx.x?.field;
+  const yHasField = !!ctx.y?.field;
+  const axesOk = isTick ? xHasField || yHasField : xHasField && yHasField;
+  if (!axesOk) {
     gaps.add({
       code: 'mark:point-missing-axis',
       message:

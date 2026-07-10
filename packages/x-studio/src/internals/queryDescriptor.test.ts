@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { buildQueryDescriptor, filtersToFilterNode } from './queryDescriptor';
+import {
+  buildQueryDescriptor,
+  buildWidgetQueryDescriptor,
+  filtersToFilterNode,
+} from './queryDescriptor';
 import { stableStringify } from './stableStringify';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
-import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../models';
+import type {
+  StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -524,5 +534,160 @@ describe('buildQueryDescriptor', () => {
     // joinSourceId and fieldId are not physical columns on source-orders — not in select.
     expect(desc.select).not.toContain('segment');
     expect(desc.select).not.toContain('source-customers');
+  });
+});
+
+// ─── buildWidgetQueryDescriptor (finding 2.3) ─────────────────────────────────
+//
+// `useAdapterRows` (the live-render path) and `runWidgetExport` (the CSV export path) both
+// read the SAME `studioRequestCache` entry, keyed by `descriptor.cacheKey`. Previously,
+// `widgetExport.ts` rebuilt its own descriptor via a hand-picked subset of
+// `buildQueryDescriptor`'s positional arguments that silently omitted `relationships` and
+// `crossFilterAllPages` — both feed the cacheKey — so the export's cache lookup missed an
+// entry the live grid had already populated. `buildWidgetQueryDescriptor` is the single
+// helper both sites must now call, with a required (no-default) state object, so the
+// omission can no longer compile.
+
+describe('buildWidgetQueryDescriptor (finding 2.3)', () => {
+  // orders -(customerId)-> customers
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-customers',
+      type: 'many-to-one',
+      sourceId: 'source-orders',
+      sourceField: 'customerId',
+      targetId: 'source-customers',
+      targetField: 'id',
+    },
+  ];
+
+  // A calculated column whose expression nests a JoinFieldExpression (`customers.tier`)
+  // inside a FunctionExpression — the same "nested join" shape `expandToNativeFields` widens
+  // `select` for via the relationship's FK column (see queryDescriptor.ts:106-130).
+  const eligibleExprField: StudioExpressionField = {
+    id: 'expr-eligible',
+    label: 'Eligible',
+    sourceId: 'source-orders',
+    isMeasure: false,
+    type: 'number',
+    expression: {
+      operator: 'if',
+      inputs: [
+        {
+          operator: 'equals',
+          inputs: [
+            { joinSourceId: 'source-customers', fieldId: 'tier' },
+            { type: 'string', value: 'gold' },
+          ],
+        },
+        { type: 'number', value: 1 },
+        { type: 'number', value: 0 },
+      ],
+    },
+  };
+
+  it('delegates to buildQueryDescriptor with the exact same arguments (no behavior change)', () => {
+    const widget = {
+      ...makeWidget({ columns: [{ fieldId: 'expr-eligible' }] }),
+      kind: 'grid' as const,
+    };
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'other-page' },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const direct = buildQueryDescriptor(
+      widget,
+      [crossFilter],
+      PAGE_ID,
+      'orders_table',
+      [eligibleExprField],
+      relationships,
+      true,
+    );
+    const viaHelper = buildWidgetQueryDescriptor(widget, PAGE_ID, 'orders_table', {
+      filters: [crossFilter],
+      expressionFields: [eligibleExprField],
+      relationships,
+      crossFilterAllPages: true,
+    });
+    expect(viaHelper).toEqual(direct);
+  });
+
+  it('omitting relationships (the pre-fix export bug) drops the FK column from select and changes the cacheKey', () => {
+    const widget = {
+      ...makeWidget({ columns: [{ fieldId: 'expr-eligible' }] }),
+      kind: 'grid' as const,
+    };
+    const withRelationships = buildWidgetQueryDescriptor(widget, PAGE_ID, undefined, {
+      filters: [],
+      expressionFields: [eligibleExprField],
+      relationships,
+      crossFilterAllPages: false,
+    });
+    // The drifted call `widgetExport.ts` used to make: no `relationships` / `crossFilterAllPages`.
+    const drifted = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [eligibleExprField]);
+    expect(withRelationships.select).toContain('customerId');
+    expect(drifted.select).not.toContain('customerId');
+    expect(withRelationships.cacheKey).not.toBe(drifted.cacheKey);
+  });
+
+  // Regression test requested for finding 2.3: a grid widget with cross-source relationships
+  // and `crossFilterAllPages` enabled must yield IDENTICAL cacheKeys whether the descriptor is
+  // built the way the live-render path (`useAdapterRows`) builds it, or the way the CSV export
+  // path (`runWidgetExport`) builds it — proving the export hits the same cache entry the live
+  // render already populated instead of missing and falling back to a fresh fetch.
+  it('live-render and export descriptors produce an IDENTICAL cacheKey with cross-source relationships + crossFilterAllPages', () => {
+    const widget = {
+      ...makeWidget({
+        gridGroupByField: 'category',
+        columns: [
+          { fieldId: 'category' },
+          { fieldId: 'total', aggregationFn: 'sum' },
+          { fieldId: 'expr-eligible' },
+        ],
+      }),
+      kind: 'grid' as const,
+    };
+    // A cross-page cross-filter: only counts as "incoming" (and only then perturbs the
+    // cacheKey, since this widget has server-side aggregations to strip) when
+    // `crossFilterAllPages` is threaded through — exactly the flag the export path used to drop.
+    const crossPageCrossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'other-page' },
+      field: 'category',
+      value: 'Electronics',
+    });
+    const sharedState = {
+      filters: [crossPageCrossFilter],
+      expressionFields: [eligibleExprField],
+      relationships,
+      crossFilterAllPages: true,
+    };
+
+    // Simulates the live-render path (`useAdapterRows`'s descriptor memo).
+    const liveRenderDescriptor = buildWidgetQueryDescriptor(
+      widget,
+      PAGE_ID,
+      'orders_table',
+      sharedState,
+    );
+    // Simulates the CSV export path (`runWidgetExport`), built independently from the same
+    // underlying state (mirroring `state.doc.filters` / `state.doc.relationships` /
+    // `state.doc.dashboard.crossFilterAllPages` read at export time) via the same shared helper.
+    const exportDescriptor = buildWidgetQueryDescriptor(widget, PAGE_ID, 'orders_table', {
+      filters: sharedState.filters,
+      expressionFields: sharedState.expressionFields,
+      relationships: sharedState.relationships,
+      crossFilterAllPages: sharedState.crossFilterAllPages,
+    });
+
+    expect(exportDescriptor.cacheKey).toBe(liveRenderDescriptor.cacheKey);
+
+    // Sanity: both drifted facets actually matter for this widget, so the equality above is a
+    // meaningful assertion and not vacuously true — relationships widen `select` with the FK
+    // column, and crossFilterAllPages flips `hasIncomingCrossOrInteractiveFilters` because this
+    // widget has aggregations to strip.
+    expect(liveRenderDescriptor.select).toContain('customerId');
+    expect(liveRenderDescriptor.hasIncomingCrossOrInteractiveFilters).toBe(true);
   });
 });

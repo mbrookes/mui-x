@@ -323,3 +323,49 @@ export function buildQueryDescriptor(
     cacheKey,
   };
 }
+
+// ── Shared "descriptor from state" helper (finding 2.3) ─────────────────────
+
+/**
+ * The subset of `StudioState` needed to build a widget's query descriptor, bundled into a
+ * single required object rather than left as individually-optional positional arguments.
+ *
+ * This exists because `buildQueryDescriptor` itself defaults `relationships` to `[]` and
+ * `crossFilterAllPages` to `false` — convenient for the many unit tests that only care about
+ * filters/select, but exactly what let the CSV export path silently omit both and still
+ * compile. Both fields feed the descriptor's `cacheKey`, so a descriptor built with the
+ * defaults produces a DIFFERENT cache key than one built from real state, even when the
+ * underlying widget/page/filters are identical — the export path's cache lookup then misses
+ * an entry the live grid already populated. Requiring this object (with no defaults) makes
+ * that omission a compile error instead of a silent, cache-key-breaking drift.
+ */
+export interface WidgetQueryDescriptorState {
+  filters: StudioFilterState[];
+  expressionFields: StudioExpressionField[];
+  relationships: StudioRelationship[];
+  crossFilterAllPages: boolean;
+}
+
+/**
+ * Single source of truth for building a widget's `StudioQueryDescriptor` from live state.
+ * Both the on-screen adapter fetch (`useAdapterRows`) and the CSV export path
+ * (`runWidgetExport`) must call this — never `buildQueryDescriptor` directly with a hand-picked
+ * subset of arguments — so the two can never again build descriptors with different `cacheKey`s
+ * for what is otherwise the same query (finding 2.3).
+ */
+export function buildWidgetQueryDescriptor(
+  widget: StudioWidget,
+  pageId: string,
+  tableName: string | undefined,
+  state: WidgetQueryDescriptorState,
+): StudioQueryDescriptor {
+  return buildQueryDescriptor(
+    widget,
+    state.filters,
+    pageId,
+    tableName,
+    state.expressionFields,
+    state.relationships,
+    state.crossFilterAllPages,
+  );
+}

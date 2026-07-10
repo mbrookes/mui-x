@@ -136,6 +136,69 @@ describe('scales & axes', () => {
     });
   });
 
+  describe('band padding', () => {
+    it('maps scale.paddingInner to categoryGapRatio with a partial gap', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', scale: { paddingInner: 0.3 } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect((compiled.xAxis?.config as { categoryGapRatio?: number }).categoryGapRatio).to.equal(
+        0.3,
+      );
+      const gap = compiled.gaps.find((g) => g.code === 'scale:band-padding');
+      expect(gap?.severity).to.equal('partial');
+    });
+
+    it('falls back to scale.padding when paddingInner is absent', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', scale: { padding: 0.25 } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect((compiled.xAxis?.config as { categoryGapRatio?: number }).categoryGapRatio).to.equal(
+        0.25,
+      );
+    });
+
+    it('reports a partial gap for paddingOuter alone (no categoryGapRatio)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', scale: { paddingOuter: 0.4 } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect((compiled.xAxis?.config as { categoryGapRatio?: number }).categoryGapRatio).to.equal(
+        undefined,
+      );
+      expect(compiled.gaps.some((g) => g.code === 'scale:band-padding')).to.equal(true);
+    });
+
+    it('does not set categoryGapRatio on a point scale', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'line',
+        encoding: {
+          x: { field: 'c', type: 'nominal', scale: { paddingInner: 0.3 } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect((compiled.xAxis?.config as { categoryGapRatio?: number }).categoryGapRatio).to.equal(
+        undefined,
+      );
+      expect(compiled.gaps.some((g) => g.code === 'scale:band-padding')).to.equal(false);
+    });
+  });
+
   describe('discrete-axis sort', () => {
     const rows = [
       { c: 'B', v: 2 },
@@ -252,6 +315,129 @@ describe('scales & axes', () => {
         },
       });
       expect(compiled.yAxis?.config.domainLimit).to.equal('strict');
+    });
+
+    it('maps scale.nice: true to a nice domain limit (no gap)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 5 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { nice: true } },
+        },
+      });
+      expect(compiled.yAxis?.config.domainLimit).to.equal('nice');
+      expect(compiled.gaps.some((g) => g.code === 'scale:nice-count')).to.equal(false);
+    });
+
+    it('maps a numeric scale.nice to nice rounding with a partial tick-count gap', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 5 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { nice: 10 } },
+        },
+      });
+      expect(compiled.yAxis?.config.domainLimit).to.equal('nice');
+      const gap = compiled.gaps.find((g) => g.code === 'scale:nice-count');
+      expect(gap?.severity).to.equal('partial');
+    });
+
+    it('maps scale.constant to the symlog axis constant', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 5 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { type: 'symlog', constant: 2 } },
+        },
+      });
+      expect(compiled.yAxis?.config.scaleType).to.equal('symlog');
+      expect((compiled.yAxis?.config as { constant?: number }).constant).to.equal(2);
+    });
+
+    it('ignores scale.constant on a non-symlog scale', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 5 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { constant: 2 } },
+        },
+      });
+      expect((compiled.yAxis?.config as { constant?: number }).constant).to.equal(undefined);
+    });
+
+    it('pins min to 0 for scale.zero over all-positive data (partial gap)', () => {
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { c: 'A', v: 5 },
+            { c: 'B', v: 9 },
+          ],
+        },
+        mark: 'line',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { zero: true } },
+        },
+      });
+      expect((compiled.yAxis?.config as { min?: number }).min).to.equal(0);
+      expect((compiled.yAxis?.config as { max?: number }).max).to.equal(undefined);
+      const gap = compiled.gaps.find((g) => g.code === 'scale:zero-approximation');
+      expect(gap?.severity).to.equal('partial');
+    });
+
+    it('pins max to 0 for scale.zero over all-negative data', () => {
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { c: 'A', v: -5 },
+            { c: 'B', v: -9 },
+          ],
+        },
+        mark: 'line',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { zero: true } },
+        },
+      });
+      expect((compiled.yAxis?.config as { max?: number }).max).to.equal(0);
+      expect((compiled.yAxis?.config as { min?: number }).min).to.equal(undefined);
+    });
+
+    it('does not force a bound (or gap) for scale.zero over data straddling zero', () => {
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { c: 'A', v: -5 },
+            { c: 'B', v: 9 },
+          ],
+        },
+        mark: 'line',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { zero: true } },
+        },
+      });
+      expect((compiled.yAxis?.config as { min?: number }).min).to.equal(undefined);
+      expect((compiled.yAxis?.config as { max?: number }).max).to.equal(undefined);
+      expect(compiled.gaps.some((g) => g.code === 'scale:zero-approximation')).to.equal(false);
+    });
+
+    it('lets an explicit scale.domain win over the scale.zero pin', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 5 }] },
+        mark: 'line',
+        encoding: {
+          x: { field: 'c', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative', scale: { zero: true, domain: [2, 20] } },
+        },
+      });
+      expect((compiled.yAxis?.config as { min?: number }).min).to.equal(2);
+      expect((compiled.yAxis?.config as { max?: number }).max).to.equal(20);
+      expect(compiled.gaps.some((g) => g.code === 'scale:zero-approximation')).to.equal(false);
     });
 
     it('leaves the domain unrestricted for scale.zero: false (no forced min)', () => {
@@ -415,6 +601,47 @@ describe('scales & axes', () => {
       });
       expect((compiled.xAxis?.config as { position?: string }).position).to.equal('none');
       expect(compiled.xAxis?.config.label).to.equal(undefined);
+    });
+
+    it('disables tick marks for axis.ticks: false', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', axis: { ticks: false } },
+          y: { field: 'v', type: 'quantitative', axis: { ticks: false } },
+        },
+      });
+      expect((compiled.xAxis?.config as { disableTicks?: boolean }).disableTicks).to.equal(true);
+      expect((compiled.yAxis?.config as { disableTicks?: boolean }).disableTicks).to.equal(true);
+    });
+
+    it('disables the axis line for axis.domain: false', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', axis: { domain: false } },
+          y: { field: 'v', type: 'quantitative', axis: { domain: false } },
+        },
+      });
+      expect((compiled.xAxis?.config as { disableLine?: boolean }).disableLine).to.equal(true);
+      expect((compiled.yAxis?.config as { disableLine?: boolean }).disableLine).to.equal(true);
+    });
+
+    it('leaves tick/line toggles unset when axis.ticks/axis.domain are not false', () => {
+      const compiled = compileSpec({
+        data: { values: [{ c: 'A', v: 1 }] },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', axis: { ticks: true, domain: true } },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect((compiled.xAxis?.config as { disableTicks?: boolean }).disableTicks).to.equal(
+        undefined,
+      );
+      expect((compiled.xAxis?.config as { disableLine?: boolean }).disableLine).to.equal(undefined);
     });
 
     it('sets grid flags from axis.grid', () => {

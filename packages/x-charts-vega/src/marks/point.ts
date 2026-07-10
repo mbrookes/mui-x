@@ -296,20 +296,20 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       });
     }
 
-    if (
-      encoding.opacity !== undefined ||
-      unit.mark.opacity !== undefined ||
-      unit.mark.fillOpacity !== undefined ||
-      unit.mark.strokeOpacity !== undefined
-    ) {
+    // A constant `mark.opacity`/`fillOpacity` (or a value-def `opacity`
+    // encoding) is now baked into the marker color centrally (see
+    // `staticMarkOpacity` in compile/index.ts); a field-driven `opacity`
+    // encoding keeps its `encoding:opacity-field-unsupported` gap from
+    // resolveColor. Only `strokeOpacity` (a separate stroke alpha the single
+    // marker color can't express) is still dropped here.
+    if (unit.mark.strokeOpacity !== undefined) {
       gaps.add({
         code: 'encoding:opacity',
         message:
-          encoding.opacity !== undefined
-            ? 'x-charts scatter series have no per-point opacity option; the data-driven "opacity" encoding is ignored (every point renders fully opaque).'
-            : 'x-charts scatter series have no per-series opacity option; "opacity"/"fillOpacity"/"strokeOpacity" on the mark are ignored.',
+          'x-charts scatter markers have a single color with no separate stroke alpha; ' +
+          '"strokeOpacity" on the mark is ignored (mark/fill opacity IS applied via the marker color).',
         severity: 'ignored',
-        path: `${path}.encoding.opacity`,
+        path: `${path}.mark.strokeOpacity`,
       });
     }
   }

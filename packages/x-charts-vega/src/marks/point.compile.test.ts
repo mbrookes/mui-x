@@ -251,7 +251,7 @@ describe('compilePointMark', () => {
     expect(overlay.items[0].style?.stroke).not.to.equal(overlay.items[1].style?.stroke);
   });
 
-  it('reports separate ignored gaps for filled:false and opacity styling', () => {
+  it('bakes a static mark opacity into the marker color (no gap); still gaps strokeOpacity', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1, y: 1 }] },
       mark: { type: 'point', filled: false, opacity: 0.5 },
@@ -263,8 +263,22 @@ describe('compilePointMark', () => {
     const compiled = compileSpec(spec);
     const filledGap = compiled.gaps.find((entry) => entry.code === 'mark:point-filled');
     expect(filledGap?.severity).to.equal('ignored');
-    const opacityGap = compiled.gaps.find((entry) => entry.code === 'encoding:opacity');
-    expect(opacityGap?.severity).to.equal('ignored');
+    // A constant opacity is applied via the color's alpha, not reported as a gap.
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:opacity');
+    const color = (compiled.series[0] as { color?: string }).color ?? '';
+    expect(color).to.match(/^rgba\(/);
+
+    // strokeOpacity has no single-color equivalent and stays ignored.
+    const withStroke = compileSpec({
+      data: { values: [{ x: 1, y: 1 }] },
+      mark: { type: 'point', strokeOpacity: 0.3 },
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    });
+    const strokeGap = withStroke.gaps.find((entry) => entry.code === 'encoding:opacity');
+    expect(strokeGap?.severity).to.equal('ignored');
   });
 
   it('drops the layer with an unsupported gap when a positional channel is missing', () => {

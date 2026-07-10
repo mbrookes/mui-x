@@ -1,6 +1,6 @@
 import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
 import type { XAxis, YAxis } from '@mui/x-charts/models';
-import type { DatasetRow, VegaLiteSpec } from '../types';
+import type { DatasetRow, VegaEncoding, VegaLiteSpec, VegaMarkDef } from '../types';
 import { createGapCollector } from '../gaps';
 import type { TranslationGap } from '../gaps';
 import { normalizeSpec } from '../normalize';
@@ -20,6 +20,7 @@ import type {
   PlotKind,
   UnitContext,
 } from './context';
+import { applyAlpha } from './colorUtils';
 import { categoryIndex, categoryKey } from './context';
 
 export interface CompileOptions {
@@ -41,6 +42,8 @@ export interface CompiledChart {
   zAxis?: CompiledZAxis[];
   /** Geo provider config, set when chartKind is 'geo'. */
   geo?: CompiledGeo;
+  /** Chart background color from `spec.background`, applied by the shell. */
+  background?: string;
   plots: PlotKind[];
   referenceLines: CompiledReferenceLine[];
   /** Custom-drawn output for marks with no x-charts series equivalent. */
@@ -62,6 +65,25 @@ export interface CompiledChart {
   /** Resolved param/signal values, keyed by name (variable defaults + host overrides). */
   paramValues?: Readonly<Record<string, unknown>>;
   gaps: TranslationGap[];
+}
+
+/**
+ * A layer's constant opacity, from `mark.opacity`/`fillOpacity` or a value-def
+ * `opacity` encoding. Returns `undefined` when absent, fully opaque, or
+ * field-driven (field-driven opacity has no per-point equivalent and keeps its
+ * own `encoding:opacity-field-unsupported` gap in `compile/color.ts`).
+ */
+function staticMarkOpacity(unit: {
+  mark: VegaMarkDef;
+  encoding: VegaEncoding;
+}): number | undefined {
+  const enc = unit.encoding.opacity;
+  const encValue =
+    enc && !Array.isArray(enc) && typeof (enc as { value?: unknown }).value === 'number'
+      ? (enc as { value: number }).value
+      : undefined;
+  const raw = unit.mark.opacity ?? unit.mark.fillOpacity ?? encValue;
+  return typeof raw === 'number' && raw >= 0 && raw < 1 ? raw : undefined;
 }
 
 /** Numeric values an overlay contributes to a continuous axis. */
@@ -212,6 +234,9 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const zAxis: CompiledZAxis[] = [];
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
+  // Static opacity per series index (from the originating layer's mark), applied
+  // as an alpha on the resolved color after palette assignment below.
+  const seriesOpacity: Array<number | undefined> = [];
 
   for (const { unit, rows } of prepared) {
     const compiler = markRegistry[unit.mark.type];
@@ -238,8 +263,17 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       categoryIndex,
       categoryKey,
     };
+    const before = series.length;
     const compiled = compiler(ctx);
     series.push(...compiled.series);
+    // Record this layer's static opacity against the series it produced, so it
+    // can be baked into the resolved color once palette colors are assigned.
+    const opacity = staticMarkOpacity(unit);
+    if (opacity !== undefined) {
+      for (let i = before; i < series.length; i += 1) {
+        seriesOpacity[i] = opacity;
+      }
+    }
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));
     overlays.push(...(compiled.overlays ?? []));
@@ -286,6 +320,12 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     const colorable = entry as { color?: string };
     if (colorable.color === undefined) {
       colorable.color = palette[index % palette.length];
+    }
+    // Bake a static mark opacity into the (now-resolved) color — x-charts has
+    // no per-series opacity prop, so alpha on the color is the equivalent.
+    const opacity = seriesOpacity[index];
+    if (opacity !== undefined && typeof colorable.color === 'string') {
+      colorable.color = applyAlpha(colorable.color, opacity);
     }
   });
 
@@ -377,6 +417,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     yAxis: isCartesian ? axes.y : undefined,
     zAxis: zAxis.length > 0 ? zAxis : undefined,
     geo,
+    background: typeof spec.background === 'string' ? spec.background : undefined,
     plots: Array.from(plots),
     referenceLines,
     overlays,

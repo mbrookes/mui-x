@@ -71,6 +71,19 @@ export interface StudioPipeline {
    * @param xField        Chart x-axis field ID.
    * @param yFields       Chart y-axis field IDs (deduplicated).
    * @param seriesField   Optional series grouping field ID.
+   * @param extraFields   Non-xy dimension fields a chart family reads but that aren't expressed
+   *   via x/y/series (heatmap `heatYField`, funnel `funnelReachedField`, sankey `sankeyTargetField`,
+   *   `gantt*`). Threaded straight through to `resolveChartRowsForAggregation` so a one-hop
+   *   cross-source extra dimension is enriched onto the returned rows instead of resolving to
+   *   `undefined` (finding 1.9). Defaults to `[]`, matching the underlying function's own
+   *   default — omitting it preserves prior behaviour.
+   * @param widgetFilters The widget's fully resolved/scoped filter set (exactly what was passed to
+   *   `resolveWidgetRows` to produce `filteredRows` — e.g. via `selectFiltersForWidget`). Only the
+   *   subset targeting the anchor source is re-applied to the anchor rows before the expansion
+   *   join, so a filter L3 enforced as a semi-join isn't silently re-widened back to every anchor
+   *   row per surviving widget row (finding 1.4). Defaults to `[]`, matching the underlying
+   *   function's own default — omitting it preserves prior (pre-fix) behaviour, so existing
+   *   callers of this public façade are unaffected until they opt in (finding 2.2).
    */
   resolveChartRows(
     filteredRows: Row[],
@@ -78,6 +91,8 @@ export interface StudioPipeline {
     xField: string | undefined,
     yFields: string[],
     seriesField: string | undefined,
+    extraFields?: (string | undefined)[],
+    widgetFilters?: StudioFilterState[],
   ): Row[];
 
   /**
@@ -171,7 +186,15 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
       );
     },
 
-    resolveChartRows(filteredRows, sourceId, xField, yFields, seriesField) {
+    resolveChartRows(
+      filteredRows,
+      sourceId,
+      xField,
+      yFields,
+      seriesField,
+      extraFields,
+      widgetFilters,
+    ) {
       return resolveChartRowsForAggregation(
         filteredRows,
         sourceId,
@@ -181,6 +204,8 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
         dataSources,
         relationships,
         expressionFields,
+        extraFields,
+        widgetFilters,
       );
     },
 

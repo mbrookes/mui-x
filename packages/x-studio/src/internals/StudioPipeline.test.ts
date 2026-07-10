@@ -303,6 +303,143 @@ describe('createStudioPipeline', () => {
       // Should produce 3 rows (orders grain), one per order
       expect(result).toHaveLength(3);
     });
+
+    // ─── Finding 2.2 regression coverage ─────────────────────────────────────
+    //
+    // Before the fix, the public `resolveChartRows` façade accepted neither `extraFields`
+    // nor `widgetFilters`, so external callers (CSV export, benchmarks, tests) always got
+    // the pre-fix L4 semantics that `resolveChartRowsForAggregation` itself had already
+    // moved past internally (`useChartRows`/`useChartWidgetData`). These tests confirm the
+    // new optional parameters are threaded through, and that omitting them preserves the
+    // prior (unfiltered) behaviour for backward compatibility.
+    describe('extraFields / widgetFilters (finding 2.2)', () => {
+      const customers = [
+        { id: 'CUS-1', country: 'Germany' },
+        { id: 'CUS-2', country: 'France' },
+      ];
+      const orders = [
+        { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+        { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+        { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+      ];
+      const rel: StudioRelationship = {
+        id: 'r1',
+        sourceId: 'orders',
+        targetId: 'customers',
+        sourceField: 'customerId',
+        targetField: 'id',
+        type: 'many-to-one',
+      };
+
+      function makeCustomersOrdersState(filters: StudioFilterState[] = []): StudioPipelineState {
+        return makeState({
+          dataSources: {
+            customers: {
+              id: 'customers',
+              label: 'Customers',
+              fields: [
+                { id: 'id', label: 'Customer ID', type: 'string' },
+                { id: 'country', label: 'Country', type: 'string' },
+              ],
+              rows: customers,
+            },
+            orders: {
+              id: 'orders',
+              label: 'Orders',
+              fields: [
+                { id: 'id', label: 'Order ID', type: 'string' },
+                { id: 'customerId', label: 'Customer ID', type: 'string' },
+                { id: 'total', label: 'Total', type: 'number' },
+              ],
+              rows: orders,
+            },
+          },
+          relationships: [rel],
+          filters,
+        });
+      }
+
+      it('omitting extraFields/widgetFilters preserves the prior (unfiltered) behaviour', () => {
+        const pipeline = createStudioPipeline(makeCustomersOrdersState());
+        // Same call as the pre-existing "re-anchors" test, with no new params — the anchor
+        // join re-widens to ALL of each customer's orders (no anchor filter re-applied).
+        const result = pipeline.resolveChartRows(
+          customers,
+          'customers',
+          'country',
+          ['total'],
+          undefined,
+        );
+        expect(result).toHaveLength(3);
+      });
+
+      it('threads widgetFilters into the L4 anchor-scoped filter re-application', () => {
+        const anchorFilter: StudioFilterState = {
+          id: 'af1',
+          field: 'total',
+          operator: 'greater_than',
+          value: 60,
+          filterSourceId: 'orders',
+          scope: { kind: 'page' },
+        } as StudioFilterState;
+        const pipeline = createStudioPipeline(makeCustomersOrdersState([anchorFilter]));
+
+        // Without passing widgetFilters, the anchor join still resurrects every order
+        // (backward-compatible default of `[]`).
+        const withoutFilters = pipeline.resolveChartRows(
+          customers,
+          'customers',
+          'country',
+          ['total'],
+          undefined,
+        );
+        expect(withoutFilters).toHaveLength(3);
+
+        // Passing widgetFilters re-applies the anchor-scoped filter to the anchor (orders)
+        // rows before the expansion join: only ORD-1 (100) and ORD-3 (70) satisfy
+        // total > 60 — ORD-2 (50) is excluded, matching what L3 already enforced upstream.
+        const withFilters = pipeline.resolveChartRows(
+          customers,
+          'customers',
+          'country',
+          ['total'],
+          undefined,
+          [],
+          [anchorFilter],
+        );
+        expect(withFilters).toHaveLength(2);
+      });
+
+      it('threads extraFields into the requested-field set used by chart-support analysis', () => {
+        const pipeline = createStudioPipeline(makeCustomersOrdersState());
+
+        // xField-only chart on customers (no yFields) is trivially supported — no
+        // cross-source fields are requested at all.
+        const withoutExtra = pipeline.resolveChartRows(
+          customers,
+          'customers',
+          'country',
+          [],
+          undefined,
+        );
+        expect(withoutExtra).toHaveLength(2);
+
+        // Passing 'total' (owned by the related `orders` source) via `extraFields`, with no
+        // matching yField to anchor on, makes the configuration an unsupported cross-source
+        // dimension mix (mirroring `resolveChartRowsForAggregation`'s own `extraFields`
+        // semantics) — proving the façade now feeds `extraFields` into support analysis
+        // instead of silently ignoring them.
+        const withExtra = pipeline.resolveChartRows(
+          customers,
+          'customers',
+          'country',
+          [],
+          undefined,
+          ['total'],
+        );
+        expect(withExtra).toHaveLength(0);
+      });
+    });
   });
 
   describe('pipeline accepts StudioState (full store state)', () => {

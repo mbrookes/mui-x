@@ -1972,6 +1972,69 @@ describe('executeToolOnState: set_widget_forecast', () => {
     expect(mut.args.config && Object.keys(mut.args.config)).toEqual(['forecast']);
     expect(mut.args.changes?.config).toBeUndefined();
   });
+
+  // Regression for T2-3 (value-shape gap): a model string-boolean slip like `enabled: "false"`
+  // is TRUTHY in JS, so the old truthiness check ENABLED the forecast a call meant to DISABLE —
+  // while reporting `{ success: true }`. `enabled` must be validated as an ACTUAL boolean.
+  it("rejects a string 'false' for enabled instead of silently enabling the forecast (T2-3)", () => {
+    const baseState = makeState();
+    const lineState = {
+      ...baseState,
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
+            config: { chartType: 'line' as const },
+          },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      // The classic LLM string-boolean slip: `"false"` is truthy in JS.
+      { widgetId: 'widget-1', enabled: 'false' },
+      lineState,
+    );
+    // Fails closed with an actionable error instead of reporting success…
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/enabled.*boolean/i);
+    // …and the forecast was NOT enabled (no mutation applied).
+    expect(result.mutation).toBeUndefined();
+    const widget1 = result.nextState.doc.widgets['widget-1'];
+    if (!isWidgetOfKind(widget1, 'chart')) {
+      throw new Error('expected widget-1 to remain a chart widget');
+    }
+    expect((widget1.config as StudioChartConfig).forecast).toBeUndefined();
+  });
+
+  it('rejects a non-boolean showConfidenceBands instead of persisting a string in a boolean field (T2-3)', () => {
+    const baseState = makeState();
+    const lineState = {
+      ...baseState,
+      doc: {
+        ...baseState.doc,
+        widgets: {
+          'widget-1': {
+            ...baseState.doc.widgets['widget-1'],
+            kind: 'chart' as const,
+            config: { chartType: 'line' as const },
+          },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: true, showConfidenceBands: 'no' },
+      lineState,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/showConfidenceBands.*boolean/i);
+    expect(result.mutation).toBeUndefined();
+  });
 });
 
 // ── Purity guard (frozen input) ────────────────────────────────────────────────

@@ -1294,7 +1294,25 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           }
           clampedSpans[key] = clampSpan(safeSpans[key]);
         }
-        const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, clampedSpans);
+
+        // T2-2 (residual lost-update): a colSpans-only bulk (`widgetRows === undefined`)
+        // must MERGE its span entries onto the page's EXISTING spans, not REPLACE the whole
+        // map. The producer ships a turn-start snapshot of the page's spans; wholesale-
+        // replacing the receiver's map with it silently reverts a concurrent client
+        // drag-resize of a DIFFERENT widget (one not named in this batch) — the same
+        // lost-update class T2-4 / 2.3 closed for `widgetRows`, one field over. Merging
+        // (incoming keys win, untouched keys survive) is backward compatible with the
+        // current full-snapshot producer — a superset merge ≡ replace for the keys it
+        // carries — while preserving any client-side span the snapshot doesn't know about.
+        // Bulk `colSpans` entries are numbers 6–24 and cannot clear a span, so merge
+        // semantics lose nothing. When `widgetRows` IS present the producer genuinely
+        // re-placed rows and ships rows+spans together, so the wire spans ARE the intended
+        // full map for the new placement and must replace, not merge.
+        const spansToEnforce: Record<string, number> =
+          widgetRows === undefined
+            ? { ...(page.widgetColSpans ?? {}), ...clampedSpans }
+            : clampedSpans;
+        const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, spansToEnforce);
 
         // Reference-equality no-op tracking: only rebuild the active page when its rows or
         // spans actually changed (by value), so a re-delivered bulk carrying the current

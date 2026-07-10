@@ -64,6 +64,81 @@ function readArcTextEncoding(
   return { unresolvable: true };
 }
 
+/**
+ * Reads the `order` encoding down to a per-slice sort field and direction.
+ * Pie renders slices in `data` array order, so applying `order` is a matter of
+ * sorting the built slice data by this field. Returns `undefined` when there is
+ * nothing to sort (no `order` channel, a constant value order, or an explicit
+ * `sort: null`) or when the spec can't be interpreted (in which case a
+ * `partial` gap is recorded).
+ */
+function resolveArcOrder(
+  encoding: UnitContext['encoding'],
+  gaps: UnitContext['gaps'],
+  path: string,
+): { field: string; direction: 1 | -1 } | undefined {
+  const orderDef = encoding.order;
+  if (orderDef === undefined) {
+    return undefined;
+  }
+
+  const addPartialGap = () => {
+    gaps.add({
+      code: 'encoding:arc-order',
+      message:
+        'This `order` channel could not be interpreted as a per-slice sort (only a `field` with an optional `sort: "ascending" | "descending"` is supported); slices follow the row order of the (post-aggregation) data instead.',
+      severity: 'partial',
+      path: `${path}.encoding.order`,
+    });
+  };
+
+  if (Array.isArray(orderDef)) {
+    // Multiple order fields have no single-key equivalent for a pie's slice
+    // order; fall back to row order.
+    addPartialGap();
+    return undefined;
+  }
+
+  if (isValueDef(orderDef)) {
+    // A constant value order (`order: {value: n}`) assigns every slice the same
+    // rank — nothing to reorder.
+    return undefined;
+  }
+
+  if (isFieldDef(orderDef) && orderDef.field) {
+    const { sort } = orderDef;
+    if (sort === null) {
+      // Explicit "do not sort".
+      return undefined;
+    }
+    if (sort === undefined || sort === 'ascending') {
+      return { field: orderDef.field, direction: 1 };
+    }
+    if (sort === 'descending') {
+      return { field: orderDef.field, direction: -1 };
+    }
+    // A field/array/object `sort` (sort-by-another-encoding, explicit domain
+    // order, …) isn't interpreted here.
+    addPartialGap();
+    return undefined;
+  }
+
+  // A field-less aggregate (`{aggregate: 'count'}`), a datum def, etc. — no
+  // per-slice value to read from the (post-aggregation) rows.
+  addPartialGap();
+  return undefined;
+}
+
+/** Compares two `order`-field values numerically when both are numbers, else lexicographically. */
+function compareOrderValues(a: unknown, b: unknown): number {
+  const aNumber = toNumber(a);
+  const bNumber = toNumber(b);
+  if (aNumber != null && bNumber != null) {
+    return aNumber - bNumber;
+  }
+  return String(a ?? '').localeCompare(String(b ?? ''));
+}
+
 /** Vega-Lite's `mark.padAngle` is in radians; x-charts' `paddingAngle` is in degrees. */
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 
@@ -102,15 +177,9 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
 
   const arcTextEncoding = readArcTextEncoding(encoding);
 
-  if (encoding.order !== undefined) {
-    gaps.add({
-      code: 'encoding:arc-order',
-      message:
-        'Slice ordering via the `order` channel is not applied; slices follow the row order of the (post-aggregation) data instead.',
-      severity: 'ignored',
-      path: `${path}.encoding.order`,
-    });
-  }
+  // Pie slices render in `data` array order, so `order` is applied by sorting
+  // the built slice data below (see `arcOrder`).
+  const arcOrder = resolveArcOrder(encoding, gaps, path);
 
   // Resolve the theta (slice value) channel. Aggregation is already folded
   // into a synthetic field on `encoding.theta` by the pipeline, so a plain
@@ -227,6 +296,7 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
   }
 
   const textById = new Map<PieItemId, string>();
+  const orderKeyByDatum = arcOrder ? new Map<PieValueType, unknown>() : undefined;
   const data: PieValueType[] = [];
   rows.forEach((row, index) => {
     const rawValue = thetaField !== undefined ? row[thetaField] : staticThetaValue;
@@ -265,13 +335,35 @@ export function compileArcMark(ctx: UnitContext): CompiledUnit {
       }
     }
 
-    data.push({
+    const datum: PieValueType = {
       id,
       value,
       label,
       ...(sliceColor ? { color: sliceColor } : {}),
-    });
+    };
+    data.push(datum);
+    if (arcOrder && orderKeyByDatum) {
+      // The order field usually survives as a group column (e.g. the color
+      // field). When it doesn't — the common case where it references the
+      // theta measure, whose raw column was consumed and renamed to a
+      // synthetic aggregate column by the pipeline — sort by the slice's
+      // aggregated `value` instead, which is what "order pie slices by that
+      // measure" means.
+      orderKeyByDatum.set(
+        datum,
+        Object.prototype.hasOwnProperty.call(row, arcOrder.field) ? row[arcOrder.field] : value,
+      );
+    }
   });
+
+  if (arcOrder && orderKeyByDatum) {
+    // Stable sort (per spec, JS `Array.prototype.sort` is stable) keeps the
+    // original row order for slices whose `order` values tie.
+    data.sort(
+      (a, b) =>
+        compareOrderValues(orderKeyByDatum.get(a), orderKeyByDatum.get(b)) * arcOrder.direction,
+    );
+  }
 
   if (data.length === 0 && rows.length > 0) {
     gaps.add({

@@ -201,6 +201,19 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
   return changed ? ({ ...config, ySeries: nextSeries } as C) : config;
 }
 
+/**
+ * A plain object (not `null`, not an array, not a primitive). The single shared
+ * "is this a usable widget `config`" predicate for this reducer, mirroring the
+ * sibling `isRecord` in `parseStateMutation.ts` and the load-boundary coercion in
+ * `statePersistence.ts` — every config-accepting channel in this file uses this
+ * exact shape rather than an ad-hoc `typeof`/truthiness check (T2-2): a non-record
+ * `config` (`null`, an array, or a truthy primitive like a string) is treated as
+ * ABSENT, never as a record to merge or install.
+ */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // Coerce a widget whose `config` is not a record (e.g. `config: null` from a
 // server-built `addWidget`/`applyBulkUpdate.addedWidgets` that bypassed
 // `parseStateMutation`) into one carrying `config: {}`, mirroring the load-boundary
@@ -213,7 +226,7 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
 // Reference-stable when the config is already a record.
 function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   const { config } = widget;
-  if (config !== null && typeof config === 'object' && !Array.isArray(config)) {
+  if (isPlainRecord(config)) {
     return widget;
   }
   return { ...widget, config: {} } as StudioWidget;
@@ -660,11 +673,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
       //
-      // Require a record: a non-record `config` (e.g. `config: null` from a server-built
-      // mutation that bypassed `parseStateMutation`) is treated as ABSENT rather than
-      // applied — `Object.entries(null)` would otherwise throw. This mirrors the sibling
-      // `changes.config: null` guard below (T3.3), finishing the defense-in-depth pair.
-      if (config !== null && typeof config === 'object') {
+      // Require a record: a non-record `config` (`null`, an array, or a primitive —
+      // e.g. from a server-built mutation that bypassed `parseStateMutation`) is
+      // treated as ABSENT rather than applied — `Object.entries(null)` would
+      // otherwise throw, and `Object.entries([...])` would merge index keys ("0",
+      // "1", …) into the widget's live config (T2-2). This mirrors the sibling
+      // `changes.config` guard below (T3.3/T2-2), finishing the defense-in-depth pair.
+      if (isPlainRecord(config)) {
         // Normalize the deprecated `seriesType` alias on the incoming patch's
         // `ySeries` to canonical `type`, so the alias never survives a live write
         // (it is otherwise only normalized at the load boundary in
@@ -731,14 +746,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             // rewrap the widget (reference-equality no-op contract). Compared key-by-key,
             // the same way the `config`-patch branch tracks `changedConfig`.
             //
-            // `value && typeof value === 'object'` is a defense-in-depth guard (mirroring
-            // this file's other unsafe-key guards for the "server bypasses the parser"
-            // case): `parseStateMutation` already rejects a non-object `changes.config`
+            // `isPlainRecord(value)` is a defense-in-depth guard (mirroring this
+            // file's other unsafe-key guards for the "server bypasses the parser"
+            // case): `parseStateMutation` already rejects a non-record `changes.config`
             // at the wire boundary, but without this guard a server-built mutation with
             // `changes: { config: null }` would fall through to a bare `value !==
             // updated.config` comparison and assign `config = null`, corrupting the
-            // widget. A non-object value is simply ignored rather than applied.
-            if (value && typeof value === 'object') {
+            // widget — and `changes: { config: [...] }` would install the array AS the
+            // widget's `config` verbatim (T2-2), since `normalizeConfigChartSeries` and
+            // `shallowRecordEqual` are both array-tolerant. A non-record value is simply
+            // ignored rather than applied.
+            if (isPlainRecord(value)) {
               const normalized = normalizeConfigChartSeries(value as Record<string, unknown>);
               if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
                 definedChanges.config = normalized;
@@ -1411,7 +1429,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // be normalized only at the next load boundary). Only assign when the merge
         // actually changed a config key by value (compared like the `config`-patch
         // branch), so a value-identical config patch stays a no-op.
-        if (update.config) {
+        //
+        // `isPlainRecord` (not bare truthiness): a bare `if (update.config)` lets an
+        // array OR a truthy string through, and `{ ...existing.config, ...update.config }`
+        // spreads either one's index keys ("0", "1", …) into the merged config (T2-2).
+        // A non-record `update.config` is skipped entirely, same as an absent one.
+        if (isPlainRecord(update.config)) {
           const mergedConfig = normalizeConfigChartSeries({
             ...existing.config,
             ...update.config,

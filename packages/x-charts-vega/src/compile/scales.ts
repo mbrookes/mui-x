@@ -440,11 +440,19 @@ function resolveChannelAxis(
       pairs.sort((a, b) => (a.value as Date).getTime() - (b.value as Date).getTime());
     }
 
-    // A quantitative field forced onto a discrete band (a bar's numeric
-    // category axis) has no nominal order to preserve; default to ascending
-    // numeric order like a Vega-Lite ordinal-quantitative axis, unless an
-    // explicit `sort` overrides it below.
-    if (forcedQuantitativeDiscrete && sort === undefined) {
+    // A discrete axis whose category values are all numeric — an ordinal or
+    // quantitative field forced onto a band (e.g. `Cylinders`, `age`) — has no
+    // meaningful first-seen order; default to ascending numeric order, matching
+    // Vega-Lite's ordinal default, unless an explicit `sort` overrides it below.
+    // String categories keep first-seen data order, which usually reflects a
+    // deliberate semantic ordering the wrapper preserves (a deviation from
+    // Vega-Lite's alphabetical default).
+    if (
+      !isTemporal &&
+      sort === undefined &&
+      pairs.length > 0 &&
+      pairs.every((pair) => typeof pair.value === 'number')
+    ) {
       pairs.sort((a, b) => compareValues(a.value, b.value));
     }
 

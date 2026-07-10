@@ -7,6 +7,7 @@ import {
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
+import { applyDocMutation } from './applyMutation';
 import type { StudioWidget } from './widgetTypes';
 
 // A minimal but STRUCTURALLY COMPLETE serialized doc (all four required top-level
@@ -507,6 +508,39 @@ describe('deserializeState', () => {
   it('leaves ai undefined when not in serialized data', () => {
     const state = deserializeState(minimalSerialized, {});
     expect(state.doc.ai).toBeUndefined();
+  });
+
+  // T2-3: the ai load guard validated `threads` is an array but not each ENTRY, so a
+  // `null` thread entry loaded verbatim and then threw in `renameAIThread`'s `t.id` read.
+  it('drops a non-record ai.threads entry on load so a later rename does not throw (T2-3)', () => {
+    const goodThread = {
+      id: 'thread-1',
+      name: 'Kept',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      messages: [],
+    };
+    const serialized = {
+      ...minimalSerialized,
+      // `null` and a primitive are junk entries that the container `Array.isArray` check
+      // alone would let through.
+      ai: { threads: [null, goodThread, 'junk'], activeThreadId: 'thread-1' },
+    } as unknown as typeof minimalSerialized;
+    let restored!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      restored = deserializeState(serialized, {});
+    }).not.toThrow();
+    // Only the record entry survives; the `null`/primitive entries are dropped.
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    expect(restored.doc.ai!.threads[0].id).toBe('thread-1');
+    // The whole point: a rename over the loaded doc no longer throws on a null entry.
+    let renamed!: typeof restored.doc;
+    expect(() => {
+      renamed = applyDocMutation(restored.doc, {
+        type: 'renameAIThread',
+        args: { name: 'Renamed', updatedAt: '2026-02-01T00:00:00.000Z', threadId: 'thread-1' },
+      });
+    }).not.toThrow();
+    expect(renamed.ai!.threads[0].name).toBe('Renamed');
   });
 
   // 2.4: the restored doc is stamped at CURRENT_SCHEMA_VERSION (deserialize only runs

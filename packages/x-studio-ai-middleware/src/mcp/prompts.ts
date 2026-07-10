@@ -59,9 +59,20 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
       );
 
       if (requestedId && !allSources.some((s) => s.id === requestedId)) {
+        // `requestedId` and the full `allSources` id list are state-derived (source ids are
+        // host-injected, `runtime.dataSources` keys) and land in free-form MCP error prose —
+        // an untrusted-string-into-prompt position under invariant 13's own definition, not
+        // the "addressable identifier" carve-out other single-id error paths in this package
+        // rely on (a `uri`/`completion` value the client parses back out verbatim). This is
+        // the one site that instead ECHOES the whole configured id catalogue back through a
+        // client-visible error string that many MCP clients splice into the model
+        // conversation, so — unlike a single opaque id round-tripped through `uri` — it
+        // warrants routing through the same `sanitizeForPrompt` choke point the example
+        // blocks below already use, for symmetry with how `resources/list` treats the same
+        // values (finding T2-5).
         throw new Error(
-          `Unknown sourceId: "${requestedId}". ` +
-            `Available: ${allSources.map((s) => s.id).join(', ')}.`,
+          `Unknown sourceId: "${sanitizeForPrompt(requestedId)}". ` +
+            `Available: ${allSources.map((s) => sanitizeForPrompt(s.id)).join(', ')}.`,
         );
       }
 

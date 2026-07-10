@@ -360,13 +360,34 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
 
     // studio://schema/{sourceId} — field metadata for a specific source
     if (uri.startsWith('studio://schema/')) {
+      // Same `get_dashboard_state` gate the raw-state and system-prompt resources run
+      // (finding T2-1): this branch serves a per-source slice of the SAME
+      // `projectStateForAI` payload — `sampleValues` (up to 8 real, row-derived distinct
+      // values per field) and the `serializeFieldForAI` string are not "static field
+      // metadata", they are the exact row-derived category `get_dashboard_state` caps and
+      // `privateModeExcluded` treats as sensitive. Without this gate, a host that excludes
+      // `get_dashboard_state` from `allowedTools` (or denies it via `toolPolicy`) would
+      // still leak the full schema catalogue — plus real sample data — by enumerating
+      // `resources/list` (ungated by design) and reading `studio://schema/<id>` per source.
+      if (authorizeStateAccess) {
+        const denied = await authorizeStateAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
+      }
       const sourceId = uri.slice('studio://schema/'.length);
-      const source = stateBox.current.runtime.dataSources[sourceId];
-      if (!source) {
+      // `dataSources` is a plain object, so a bare `!source` falsy check does not catch a
+      // `sourceId` naming an `Object.prototype` member (e.g. "constructor", "toString"),
+      // which resolves via the prototype chain to a truthy non-source value and would then
+      // throw an opaque `TypeError` on `source.fields.filter(...)` below (finding T2-4).
+      // `Object.hasOwn` only matches an actual own entry in the map, matching the
+      // `Object.hasOwn` guards used throughout the schema package's reducer.
+      if (!Object.hasOwn(stateBox.current.runtime.dataSources, sourceId)) {
         throw new Error(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
         );
       }
+      const source = stateBox.current.runtime.dataSources[sourceId];
       const visibleFields = source.fields.filter((f) => !f.hidden);
       return {
         contents: [

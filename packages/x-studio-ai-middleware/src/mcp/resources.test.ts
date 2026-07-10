@@ -674,3 +674,106 @@ describe('resources/list metadata sanitization (T1-1)', () => {
     expect(preview!.uri).toBe('studio://data/source-orders');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T2-1 — studio://schema/{sourceId} must honor the SAME get_dashboard_state
+// authorization gate as studio://dashboard/state and studio://dashboard/system-prompt:
+// it serves a per-source slice of the identical projectStateForAI payload
+// (fieldDistinctValues-derived sampleValues + the serializeFieldForAI string are
+// row-derived data, not "static field metadata").
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read studio://schema/{sourceId} authorization (T2-1)', () => {
+  /** A source whose `fieldDistinctValues` stands in for sensitive row-derived data
+   * that must not leak once get_dashboard_state is excluded. */
+  function makeStateBoxWithDistinctValues(): StudioStateBox {
+    return {
+      current: createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+          pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+        },
+        runtime: {
+          dataSources: {
+            'source-orders': makeSource({
+              fieldDistinctValues: { id: ['SECRET-1', 'SECRET-2', 'SECRET-3'] },
+            } as Partial<StudioDataSource>),
+          },
+        },
+      }),
+    };
+  }
+
+  it('denies studio://schema/{id} when allowedTools excludes get_dashboard_state', async () => {
+    const server = buildStudioMcpServer(makeStateBoxWithDistinctValues(), {
+      allowedTools: ['render_chart'],
+    });
+    await expect(readResource(server, 'studio://schema/source-orders')).rejects.toThrow(
+      /allowedTools|get_dashboard_state/,
+    );
+  });
+
+  it('denies studio://schema/{id} when toolPolicy denies get_dashboard_state', async () => {
+    const server = buildStudioMcpServer(makeStateBoxWithDistinctValues(), {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'get_dashboard_state'
+          ? { action: 'deny', reason: 'policy: no dashboard state' }
+          : { action: 'allow' },
+    });
+    await expect(readResource(server, 'studio://schema/source-orders')).rejects.toThrow(
+      /policy: no dashboard state/,
+    );
+  });
+
+  it('a host that hides get_dashboard_state cannot recover row-derived sample values through resources/list + per-source schema reads', async () => {
+    // A metadata-only integration: no get_dashboard_state, so studio://dashboard/state
+    // is correctly refused. Before the fix, enumerating resources/list (ungated by
+    // design) and reading studio://schema/<id> per source recovered the same
+    // fieldDistinctValues-derived sampleValues anyway.
+    const server = buildStudioMcpServer(makeStateBoxWithDistinctValues(), {
+      allowedTools: ['list_pages'],
+    });
+    await expect(readResource(server, 'studio://dashboard/state')).rejects.toThrow();
+    await expect(readResource(server, 'studio://schema/source-orders')).rejects.toThrow();
+  });
+
+  it('serves studio://schema/{id} — including sampleValues — when get_dashboard_state is allowed (no regression)', async () => {
+    const server = buildStudioMcpServer(makeStateBoxWithDistinctValues(), {
+      allowedTools: ['get_dashboard_state'],
+    });
+    const result = await readResource(server, 'studio://schema/source-orders');
+    const payload = JSON.parse(result.contents[0].text);
+    expect(payload.id).toBe('source-orders');
+    const field = payload.fields.find((f: { id: string }) => f.id === 'id');
+    expect(field.sampleValues).toEqual(['SECRET-1', 'SECRET-2', 'SECRET-3']);
+  });
+
+  it('serves studio://schema/{id} under the default allow-all policy (no regression)', async () => {
+    const server = buildStudioMcpServer(makeStateBoxWithDistinctValues());
+    const result = await readResource(server, 'studio://schema/source-orders');
+    expect(JSON.parse(result.contents[0].text).id).toBe('source-orders');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T2-4 — studio://schema/<prototype-key> must return the standard "Unknown data
+// source" error instead of an unhandled TypeError from a prototype-chain lookup.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read studio://schema/{sourceId} prototype-key guard (T2-4)', () => {
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'])(
+    'returns "Unknown data source" instead of throwing a raw TypeError for sourceId "%s"',
+    async (sourceId) => {
+      const server = buildStudioMcpServer(makeStateBox());
+      await expect(readResource(server, `studio://schema/${sourceId}`)).rejects.toThrow(
+        /Unknown data source/,
+      );
+    },
+  );
+
+  it('still serves a legitimately named source (no over-broad regression)', async () => {
+    const server = buildStudioMcpServer(makeStateBox());
+    const result = await readResource(server, 'studio://schema/source-orders');
+    expect(JSON.parse(result.contents[0].text).id).toBe('source-orders');
+  });
+});

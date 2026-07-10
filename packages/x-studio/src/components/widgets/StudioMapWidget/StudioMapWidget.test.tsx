@@ -685,6 +685,134 @@ describe('<StudioMapWidget /> shared aggregation policy', () => {
   });
 });
 
+// Regression coverage for finding 1.1: the map's region aggregation reduced a fanned-out
+// cross-source (many-to-one) value field ONCE PER WIDGET ROW with no FK dedup — so a related
+// record joined onto several widget rows (e.g. an order's total copied onto every line item)
+// was summed multiple times, silently inflating the total. It now dedupes by the relationship's
+// FK before aggregating per region — the map analogue of the grid's `symmetricAggregate`.
+describe('<StudioMapWidget /> cross-source fan-in dedup', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    continuousColorLegendSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockLocaleText = DEFAULT_STUDIO_LOCALE_TEXT;
+  });
+
+  function latestLegendAriaLabel() {
+    const props = continuousColorLegendSpy.mock.calls.at(-1)?.[0] as {
+      'aria-label'?: string;
+    };
+    return props?.['aria-label'];
+  }
+
+  // A widget on `sales` (acting as order-items) whose value field lives on the related `orders`
+  // source via a many-to-one relationship. Rows mirror what `useWidgetRows`' cross-source
+  // enrichment produces: each line item carries its order's `orderTotal`, so an order with two
+  // line items appears twice with the SAME `orderId` + `orderTotal`.
+  const ordersSource: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [{ id: 'orderTotal', label: 'Order Total', type: 'number' }],
+    rows: [],
+  };
+  const crossSourceWidget = {
+    ...baseWidget,
+    config: {
+      ...baseWidget.config,
+      mapValueField: 'orderTotal',
+      mapValueSourceId: 'orders',
+    },
+  } as StudioWidget;
+  const salesToOrders = [
+    {
+      id: 'rel-1',
+      type: 'many-to-one',
+      sourceId: 'sales',
+      targetId: 'orders',
+      sourceField: 'orderId',
+      targetField: 'id',
+    },
+  ] as unknown as StudioState['doc']['relationships'];
+
+  async function renderCrossSource(aggregation: string) {
+    const widget = {
+      ...crossSourceWidget,
+      config: { ...crossSourceWidget.config, mapAggregation: aggregation },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource, orders: ordersSource },
+      relationships: salesToOrders,
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+    await renderMap(widget);
+  }
+
+  it('sums a fanned-out many-to-one value once per related record, not once per widget row', async () => {
+    // US: order 1 (total 100) fanned across 2 line items + order 2 (total 50) → deduped sum 150.
+    // France: order 3 (total 30) → 30. Without dedup, US would be 100+100+50 = 250.
+    rows = [
+      { country: 'United States', orderId: 1, orderTotal: 100 },
+      { country: 'United States', orderId: 1, orderTotal: 100 },
+      { country: 'United States', orderId: 2, orderTotal: 50 },
+      { country: 'France', orderId: 3, orderTotal: 30 },
+    ];
+    await renderCrossSource('sum');
+    // Legend extent spans the deduped region sums: min 30 (France), max 150 (US).
+    expect(latestLegendAriaLabel()).toContain('from 30 to 150');
+  });
+
+  it('averages the deduped related values (not fan-out-weighted)', async () => {
+    // US deduped values [100, 50] → avg 75 (not (100+100+50)/3 = 83.33). France [30] → 30.
+    rows = [
+      { country: 'United States', orderId: 1, orderTotal: 100 },
+      { country: 'United States', orderId: 1, orderTotal: 100 },
+      { country: 'United States', orderId: 2, orderTotal: 50 },
+      { country: 'France', orderId: 3, orderTotal: 30 },
+    ];
+    await renderCrossSource('avg');
+    expect(latestLegendAriaLabel()).toContain('from 30 to 75');
+  });
+
+  it('does NOT dedup a same-source value field (no fan-out relationship) — per-row reduce stands', async () => {
+    // Identical row shape, but the value field is the widget's OWN `sales` column: there is no
+    // many-to-one fan-out, so every row is a distinct measurement and all must be summed.
+    rows = [
+      { country: 'United States', orderId: 1, sales: 100 },
+      { country: 'United States', orderId: 1, sales: 100 },
+      { country: 'United States', orderId: 2, sales: 50 },
+      { country: 'France', orderId: 3, sales: 30 },
+    ];
+    const widget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapValueField: 'sales', mapAggregation: 'sum' },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource, orders: ordersSource },
+      relationships: salesToOrders,
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+    await renderMap(widget);
+    // US = 100+100+50 = 250 (own-source column, no dedup); France = 30.
+    expect(latestLegendAriaLabel()).toContain('from 30 to 250');
+  });
+});
+
 // Regression coverage for finding 2.21: `normalize` merges mixed country-code encodings
 // ('US', 'USA', 'United States') into one display region, but clicking used to emit
 // `equals <first raw variant>` — a downstream widget's filter would then only match a

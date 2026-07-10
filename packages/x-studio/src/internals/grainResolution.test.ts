@@ -448,4 +448,106 @@ describe('resolveRowsAtGrain', () => {
     expect(resolved).toHaveLength(1);
     expect(resolved[0].weight).toBe(10);
   });
+
+  // ─── Finding 2.3 ────────────────────────────────────────────────────────────
+  it('applies a filter scoped to the M:N REMOTE endpoint to the remote rows before the expansion join (finding 2.3)', () => {
+    // Chart on `orders`, junction-anchored on `order_tags` (y = order_tags.weight),
+    // x = tags.category. A page/cross filter `tags.category = 'priority'` (filterSourceId: 'tags')
+    // was enforced at L3 only as a semi-join on the orders ("keep orders having >=1 priority tag").
+    // The M:N expansion then walks EVERY tag of a surviving order — including the excluded
+    // 'normal' tag — so weights for excluded categories used to be summed back in. The fix filters
+    // the remote (tags) rows here and drops junction rows whose target is no longer present.
+    const orders: Row[] = [{ id: 'o1' }];
+    const tags: Row[] = [
+      { id: 't1', category: 'priority' },
+      { id: 't2', category: 'normal' },
+    ];
+    const orderTags: Row[] = [
+      { orderId: 'o1', tagId: 't1', weight: 10 },
+      { orderId: 'o1', tagId: 't2', weight: 5 },
+    ];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'ID', type: 'string' }],
+        rows: orders,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+        rows: tags,
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'tagId', label: 'Tag', type: 'string' },
+          { id: 'weight', label: 'Weight', type: 'number' },
+        ],
+        rows: orderTags,
+      },
+    };
+    const fieldOwners = new Map([
+      ['category', 'tags'],
+      ['weight', 'order_tags'],
+    ]);
+    const priorityFilter = {
+      id: 'f-priority',
+      field: 'category',
+      operator: 'equals' as const,
+      value: 'priority',
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 'w2', pageId: 'p1' },
+      filterSourceId: 'tags',
+    } as unknown as StudioFilterState;
+
+    // Control: without the remote-endpoint filter, BOTH tag links survive (the excluded 'normal'
+    // category included) — this is the pre-fix "resurrection" the filter must prevent.
+    const unfiltered = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'order_tags',
+      ['category', 'weight'],
+      fieldOwners,
+      dataSources,
+      [m2mRel],
+      [],
+      undefined,
+      [],
+    );
+    expect(unfiltered.map((r) => r.category).sort()).toEqual(['normal', 'priority']);
+
+    // With the remote-endpoint filter threaded through, only the 'priority' tag's link remains.
+    const filtered = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'order_tags',
+      ['category', 'weight'],
+      fieldOwners,
+      dataSources,
+      [m2mRel],
+      [],
+      undefined,
+      [priorityFilter],
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].category).toBe('priority');
+    expect(filtered[0].weight).toBe(10); // the excluded 'normal' weight (5) is NOT summed in
+  });
 });

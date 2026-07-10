@@ -187,10 +187,33 @@ export function resolveRowsAtGrain(
     // Build lookup maps for widget and remote source (normalized join keys).
     const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
     const widgetRowLookup = indexRowsByKey(widgetRowsEnriched, widgetJoinField);
-    const remoteRowLookup = indexRowsByKey(
-      dataSources[remoteSourceId]?.rows ?? [],
-      remoteJoinField,
-    );
+
+    // Re-apply the filter subset scoped to the M:N REMOTE endpoint (finding 2.3). L3 enforced a
+    // remote-endpoint filter (e.g. `tags.category = 'priority'`) only as a semi-join on the widget
+    // rows ("keep orders having >=1 matching tag"); the expansion join below then walks EVERY
+    // junction row of a surviving widget row — including links to remote rows the filter excluded,
+    // resurrecting weights for excluded categories. Filter the remote rows here (enriching first,
+    // in case the filter targets a remote-owned expression column) and drop, below, any junction
+    // row whose target key is no longer present — the remote-endpoint analogue of the iter6
+    // anchor/junction-scoped fix.
+    const remoteScopedFilters = widgetFilters.filter((f) => f.filterSourceId === remoteSourceId);
+    const rawRemoteRows = dataSources[remoteSourceId]?.rows ?? [];
+    const filteredRemoteRows =
+      remoteScopedFilters.length > 0
+        ? applyFilters(
+            enrichSourceRowsWithExpressions(
+              rawRemoteRows,
+              remoteSourceId,
+              dataSources,
+              relationships,
+              expressionFields,
+              undefined,
+              collectReadSourceIds,
+            ),
+            remoteScopedFilters,
+          )
+        : rawRemoteRows;
+    const remoteRowLookup = indexRowsByKey(filteredRemoteRows, remoteJoinField);
 
     // Junction-owned expression fields (e.g. a calculated column on the M:N junction table)
     // need L2 enrichment too — the junction rows were previously read raw, unlike every other
@@ -221,8 +244,15 @@ export function resolveRowsAtGrain(
       }
       const widgetRow = widgetRowLookup.get(widgetKey) ?? {};
       const targetKey = normalizeJoinKey(jRow[junctionTargetField]);
-      const remoteRow = (targetKey === null ? undefined : remoteRowLookup.get(targetKey)) ?? {};
-      return [{ ...widgetRow, ...remoteRow, ...jRow }];
+      const remoteRow = targetKey === null ? undefined : remoteRowLookup.get(targetKey);
+      // With a remote-endpoint filter active, a junction row whose target is absent from the
+      // filtered remote key set links to an excluded remote row — drop it entirely rather than
+      // emitting a row with the excluded value stripped (finding 2.3). Without such a filter,
+      // keep the row even if the remote lookup misses (unchanged display-enrichment behavior).
+      if (remoteScopedFilters.length > 0 && remoteRow === undefined) {
+        return [];
+      }
+      return [{ ...widgetRow, ...(remoteRow ?? {}), ...jRow }];
     });
   }
 

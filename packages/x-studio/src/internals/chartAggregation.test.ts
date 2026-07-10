@@ -1276,6 +1276,147 @@ describe('analyzeChartSupport', () => {
       ),
     ).toEqual({ supported: false, reason: 'mixed_cross_source_fields' });
   });
+
+  // ─── Finding 1.1 (M:1-anchor variant) ───────────────────────────────────────
+  // Widget = `orders`. Measure y = `order_items.total`, so the anchor switches to
+  // `order_items` (a directly-related MANY side — a plain many-to-one anchor). A grouping
+  // dimension owned by the remote endpoint / junction of an M:N relationship with `orders`
+  // (`tags` via the `order_tags` junction) has no single grain combining an
+  // `order_items`-level measure with a tag fan-out. Iteration 7's junction-anchor fix only
+  // covered widget-owned measures; here the measure is NOT widget-owned, so this must fail
+  // closed rather than be silently mis-attributed by the first-match-only M:N display lookup.
+  describe('finding 1.1 — M:1 anchor + M:N-reachable dimension fails closed', () => {
+    const ordersRows = [{ id: 'ORD-1' }, { id: 'ORD-2' }];
+    const mnDataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+        rows: ordersRows,
+      },
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'Item ID', type: 'string' },
+          { id: 'orderId', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [
+          { id: 'OI-1', orderId: 'ORD-1', total: 30 },
+          { id: 'OI-2', orderId: 'ORD-2', total: 50 },
+        ],
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'Tag ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: [
+          { id: 't1', name: 'A' },
+          { id: 't2', name: 'B' },
+        ],
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order ID', type: 'string' },
+          { id: 'tagId', label: 'Tag ID', type: 'string' },
+          { id: 'weightClass', label: 'Weight Class', type: 'string' },
+        ],
+        rows: [
+          { orderId: 'ORD-1', tagId: 't1', weightClass: 'heavy' },
+          { orderId: 'ORD-1', tagId: 't2', weightClass: 'light' },
+          { orderId: 'ORD-2', tagId: 't2', weightClass: 'light' },
+        ],
+      },
+    };
+    const mnRelationships: StudioRelationship[] = [
+      {
+        id: 'rel-items-orders',
+        sourceId: 'order_items',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+      {
+        id: 'rel-orders-tags',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'tags',
+        targetField: 'id',
+        type: 'many-to-many',
+        junctionSourceId: 'order_tags',
+        junctionSourceField: 'orderId',
+        junctionTargetField: 'tagId',
+      } as unknown as StudioRelationship,
+    ];
+
+    it('fails closed for an M:N REMOTE-endpoint dimension (tags.name) under an order_items anchor', () => {
+      const support = analyzeChartSupport(
+        'orders',
+        'name', // x owned by the M:N remote endpoint `tags`
+        ['total'], // y owned by `order_items` → anchor = order_items (plain many-to-one)
+        undefined,
+        'bar',
+        mnDataSources,
+        mnRelationships,
+        [],
+      );
+      expect(support).toEqual({ supported: false, reason: 'mixed_cross_source_fields' });
+
+      // ...and the row resolver short-circuits to [] rather than silently mis-attributing each
+      // order_items row's total to one arbitrary tag link (the corruption this guard prevents).
+      const resolved = resolveChartRowsForAggregation(
+        ordersRows,
+        'orders',
+        'name',
+        ['total'],
+        undefined,
+        mnDataSources,
+        mnRelationships,
+        [],
+      );
+      expect(resolved).toEqual([]);
+    });
+
+    it('fails closed for a JUNCTION-owned dimension (order_tags.weightClass) under an order_items anchor', () => {
+      // When the dimension is owned by the junction source itself, the first-match lookup cannot
+      // resolve junction-owned fields at all — every row would read `undefined`. Fail closed.
+      const support = analyzeChartSupport(
+        'orders',
+        'weightClass', // x owned by the junction source `order_tags`
+        ['total'], // y owned by `order_items` → anchor = order_items (plain many-to-one)
+        undefined,
+        'bar',
+        mnDataSources,
+        mnRelationships,
+        [],
+      );
+      expect(support).toEqual({ supported: false, reason: 'mixed_cross_source_fields' });
+    });
+
+    it('still SUPPORTS the same M:N dimension when the measure is widget-owned (iter-7 junction anchor unaffected)', () => {
+      // Regression guard: the fail-closed check must NOT fire when the measure lives on the widget
+      // source — that topology junction-anchors and fans the widget-owned measure out correctly.
+      const support = analyzeChartSupport(
+        'orders',
+        'name',
+        [], // fieldless count — measure is (trivially) widget-owned
+        undefined,
+        'bar',
+        mnDataSources,
+        mnRelationships,
+        [],
+      );
+      expect(support.supported).toBe(true);
+      expect(support.anchorSourceId).toBe('order_tags');
+    });
+  });
 });
 
 describe('resolveChartRowsForAggregation bridge case', () => {

@@ -5,7 +5,7 @@ import type {
   StudioRelationship,
 } from '../models';
 import { findDirectRelationship } from './dataSourceGraph';
-import { resolveRowsAtGrain } from './grainResolution';
+import { effectiveFilterSourceId, resolveRowsAtGrain } from './grainResolution';
 import { filterFingerprint } from './resolvedRowsCache';
 
 type Row = Record<string, unknown>;
@@ -62,6 +62,32 @@ function isSafeWidgetBridgeOwner(
       (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
   );
   return viaJunction;
+}
+
+/**
+ * True when `ownerSourceId` is reachable from `widgetSourceId` via a many-to-many relationship —
+ * either as its remote endpoint (the direct relationship is `many-to-many`) or as its junction
+ * source. This is exactly the fan-out topology that has no single grain when the chart anchors on a
+ * DIFFERENT directly-related many side (finding 1.1): the dimension fans out across the M:N link
+ * while the measure lives on an unrelated many-side anchor. Note a `viaJunction` remote/junction
+ * owner is only flagged when NO safe direct (M:1/O:O) relationship exists — `findDirectRelationship`
+ * returning a non-M:N relationship means the owner is bridgeable the ordinary way and must not fail.
+ */
+function isManyToManyReachableOwner(
+  widgetSourceId: string,
+  ownerSourceId: string,
+  relationships: StudioRelationship[],
+): boolean {
+  const direct = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
+  if (direct) {
+    return direct.type === 'many-to-many';
+  }
+  return relationships.some(
+    (rel) =>
+      rel.type === 'many-to-many' &&
+      rel.junctionSourceId === ownerSourceId &&
+      (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
+  );
 }
 
 function findDirectFieldOwner(
@@ -226,6 +252,12 @@ export function analyzeChartSupport(
   // M:N remote dimension (finding 1.1). It relaxes the y-owner check below: in that topology
   // the measure legitimately lives on the widget source, not on the (junction) anchor.
   let junctionAnchorForWidgetMeasure = false;
+  // Set only when the anchor is a plain many-to-one anchor (widget is the "one" side, anchor is a
+  // directly-related MANY side — NOT the widget itself, NOT an M:N junction). In that topology a
+  // grouping dimension owned by the remote endpoint / junction of an M:N relationship with the
+  // widget has no single grain combining it with the many-side measure, so it must fail closed
+  // rather than be silently mis-attributed by the first-match-only M:N display lookup (finding 1.1).
+  let anchorIsPlainManyToOne = false;
   if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
     const ySourceId = ySourceIds[0];
     const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceId, relationships);
@@ -237,6 +269,7 @@ export function analyzeChartSupport(
       ) {
         // many-to-one: widget is the "one" side → anchor on the "many" (ySource)
         anchorSourceId = ySourceId;
+        anchorIsPlainManyToOne = true;
       } else if (
         anchorRelationship.type === 'many-to-many' &&
         anchorRelationship.junctionSourceId
@@ -318,6 +351,23 @@ export function analyzeChartSupport(
 
     if (owner === anchorSourceId) {
       continue;
+    }
+
+    // Finding 1.1 (M:1-anchor variant): under a plain many-to-one anchor (the measure lives on a
+    // directly-related many side, distinct from the widget source), a grouping dimension owned by
+    // the remote endpoint or junction of an M:N relationship with the widget has no single grain.
+    // `isSafeWidgetBridgeOwner` would wave it through and `resolveRowsAtGrain`'s many-to-one branch
+    // would then resolve it via `enrichRowsWithRelatedFields`'s first-match-only junction lookup —
+    // attributing each widget row's measure to ONE arbitrary link (or, for a junction-OWNED
+    // dimension, reading `undefined` for every row). Iteration 7's junction-anchor fix only covered
+    // widget-owned measures; this branch's measure is NOT widget-owned and NOT on the dimension's
+    // M:N relationship, so there is genuinely no combined grain — fail closed, matching the existing
+    // "two distinct M:N remote dimensions" behaviour.
+    if (
+      anchorIsPlainManyToOne &&
+      isManyToManyReachableOwner(widgetSourceId, owner, relationships)
+    ) {
+      return { supported: false, reason: 'mixed_cross_source_fields' };
     }
 
     if (!isSafeWidgetBridgeOwner(widgetSourceId, owner, relationships)) {
@@ -516,8 +566,15 @@ export function resolveChartRowsForAggregation(
         : mnRelForAnchor.sourceId,
     );
   }
+  // Derive each filter's effective source the same way `resolveRowsAtGrain` does, so a drawer
+  // filter on an anchor/remote-owned EXPRESSION field (no explicit `filterSourceId`) is folded into
+  // the key too — otherwise editing/adding such a filter would serve a stale re-anchored result
+  // (finding 1.3a).
   const anchorScopedFilterKey = widgetFilters
-    .filter((f) => f.filterSourceId != null && anchorScopeSourceIds.has(f.filterSourceId))
+    .filter((f) => {
+      const effectiveSourceId = effectiveFilterSourceId(f, widgetSourceId, expressionFields);
+      return effectiveSourceId != null && anchorScopeSourceIds.has(effectiveSourceId);
+    })
     .map(filterFingerprint)
     .sort()
     .join('|');

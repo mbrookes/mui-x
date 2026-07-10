@@ -363,9 +363,16 @@ export function resolveRows(
  * semantics only (one representative related value per widget row). It is deliberately
  * lossy for aggregation: an order linked to tags A+B collapses to a single arbitrary tag.
  * Aggregate/chart queries whose grouping dimension is owned by an M:N remote endpoint must
- * NOT rely on this path — `analyzeChartSupport` junction-anchors that topology so
- * `resolveRowsAtGrain` fans each widget row out to one row per matching junction entry
- * instead (finding 1.1); this first-match lookup is reached only for genuine display columns.
+ * NOT rely on this path for the number — `analyzeChartSupport` either junction-anchors that
+ * topology (so `resolveRowsAtGrain` fans each widget row out to one row per matching junction
+ * entry, when the measure is widget-owned) or fails the chart closed as
+ * `mixed_cross_source_fields` (when the measure anchors on a DIFFERENT many side and there is no
+ * single combined grain — finding 1.1). This lookup is therefore reached for aggregation only in
+ * the no-re-anchor (`anchorSourceId === widgetSourceId`) branch, where each widget row IS its own
+ * group and a single representative related value per row is exactly right; every fan-out-unsafe
+ * topology is anchored or rejected upstream before it can get here. (Earlier revisions of this
+ * comment claimed "display columns only", which the M:1-anchor topology falsified before the
+ * finding 1.1 guard was added — see review note D.2.)
  */
 export function enrichRowsWithRelatedFields(
   rows: Row[],

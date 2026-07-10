@@ -3,12 +3,13 @@ import { StudioController } from '../../store/StudioController';
 import type {
   StudioDataSource,
   StudioExpressionField,
+  StudioFilterState,
   StudioRelationship,
   StudioWidget,
   StudioWidgetConfig,
 } from '../../models';
 import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
-import { buildQueryDescriptor } from '../../internals/queryDescriptor';
+import { buildQueryDescriptor, buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import { runWidgetExport } from './widgetExport';
 
@@ -489,6 +490,107 @@ describe('runWidgetExport', () => {
     expect(rows[0]).toMatchObject({ id: 'o1', bonus: 200 });
     // ...and its def resolved from the related source's expression field.
     expect(crossSourceFieldDefs).toEqual([{ id: 'bonus', label: 'Bonus', type: 'number' }]);
+  });
+
+  // ─── Descriptor-signature drift regression (finding 2.3) ──────────────────────
+  //
+  // The CSV export path used to rebuild the adapter descriptor via
+  // `buildQueryDescriptor(widget, filters, pageId, tableName, expressionFields)` — omitting
+  // `relationships` and `crossFilterAllPages`, both of which feed `cacheKey`. For a grouped
+  // grid with cross-source relationships and `crossFilterAllPages` enabled, that produced a
+  // DIFFERENT cacheKey than the live grid's `useAdapterRows` descriptor, so the export's cache
+  // lookup missed an entry the on-screen grid had already populated and fell back to the
+  // "No data available to export yet" message even though the grid was showing data. Both call
+  // sites now go through the shared `buildWidgetQueryDescriptor` helper, which requires the
+  // full state object (no defaults to silently fall back to).
+  it('hits the SAME cache entry the live grid populated for a grouped grid with cross-source relationships + crossFilterAllPages (finding 2.3)', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+      ],
+      // No `rows` — adapter-backed source; fetched rows only ever live in the request cache.
+      adapter: { getRows: vi.fn() },
+    };
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [{ id: 'id', label: 'ID', type: 'string' }],
+      rows: [{ id: 'c1' }],
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+      },
+    ];
+    const widget: StudioWidget = {
+      id: 'w11',
+      kind: 'grid',
+      title: 'Orders',
+      sourceId: 'orders',
+      config: {
+        gridGroupByField: 'category',
+        columns: [{ fieldId: 'category' }, { fieldId: 'total', aggregationFn: 'sum' }],
+      } as StudioWidgetConfig,
+    };
+    // A cross-page cross-filter: only counts as "incoming" — and therefore only perturbs the
+    // cacheKey, since this grouped grid has a server-side aggregation to strip — when
+    // `crossFilterAllPages` is threaded through. This is exactly the flag the pre-fix export
+    // descriptor dropped.
+    const crossPageCrossFilter: StudioFilterState = {
+      id: 'cf1',
+      field: 'category',
+      operator: 'equals',
+      value: 'Electronics',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-widget', pageId: 'other-page' },
+    };
+    const controller = new StudioController({
+      doc: {
+        widgets: { [widget.id]: widget },
+        relationships,
+        filters: [crossPageCrossFilter],
+      },
+      runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
+    });
+    controller.setCrossFilterAllPages(true);
+    const state = controller.getState();
+
+    // Build the descriptor the SAME way the live-render path (`useAdapterRows`) does, and
+    // assert its cacheKey is identical to the one the export path computes — the direct
+    // equality assertion the regression is about.
+    const liveRenderDescriptor = buildWidgetQueryDescriptor(widget, 'page-1', 'orders', {
+      filters: state.doc.filters,
+      expressionFields: state.doc.expressionFields,
+      relationships: state.doc.relationships,
+      crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
+    });
+    expect(liveRenderDescriptor.hasIncomingCrossOrInteractiveFilters).toBe(true);
+
+    // Seed the cache exactly as the on-screen grid would have (via `useAdapterRows`).
+    const cachedRows = [{ category: 'Electronics', total: 500 }];
+    studioRequestCache.set(liveRenderDescriptor.cacheKey, { rows: cachedRows }, 'orders');
+
+    runWidgetExport({
+      widget,
+      source: ordersSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    // Cache HIT: the export must not fall back to the "no data" placeholder.
+    expect(downloadCsv).not.toHaveBeenCalled();
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
   });
 
   it('delegates pivot and custom-kind widgets to their imperative export handler', () => {

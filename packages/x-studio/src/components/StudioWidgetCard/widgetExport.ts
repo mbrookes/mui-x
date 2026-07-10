@@ -3,7 +3,7 @@ import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
-import { buildQueryDescriptor } from '../../internals/queryDescriptor';
+import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
 
@@ -58,17 +58,21 @@ export function runWidgetExport({
     // unconditionally was therefore always an empty array for an adapter source, with
     // no indication to the user why the CSV came out empty (finding 2.9). Rebuild the
     // EXACT descriptor `useAdapterRows` builds for the on-screen grid so this reads the
-    // SAME cache entry instead of silently exporting nothing.
+    // SAME cache entry instead of silently exporting nothing. Go through the shared
+    // `buildWidgetQueryDescriptor` helper (rather than calling `buildQueryDescriptor`
+    // directly) so this can never again omit `relationships` /  `crossFilterAllPages` —
+    // both feed the cacheKey, so omitting either produces a descriptor with a DIFFERENT
+    // cacheKey than the live grid's, and this cache lookup misses despite the exact same
+    // data already being cached under the live path's key (finding 2.3).
     let sourceRows: Record<string, unknown>[];
     let cacheMiss = false;
     if (hasAdapter) {
-      const descriptor = buildQueryDescriptor(
-        widget,
-        state.doc.filters,
-        pageId,
-        source?.tableName,
-        state.doc.expressionFields,
-      );
+      const descriptor = buildWidgetQueryDescriptor(widget, pageId, source?.tableName, {
+        filters: state.doc.filters,
+        expressionFields: state.doc.expressionFields,
+        relationships: state.doc.relationships,
+        crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
+      });
       const cached = studioRequestCache.get(descriptor.cacheKey);
       cacheMiss = cached === undefined;
       sourceRows = cached?.rows ?? [];

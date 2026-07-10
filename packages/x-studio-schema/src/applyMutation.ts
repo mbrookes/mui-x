@@ -201,6 +201,24 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
   return changed ? ({ ...config, ySeries: nextSeries } as C) : config;
 }
 
+// Coerce a widget whose `config` is not a record (e.g. `config: null` from a
+// server-built `addWidget`/`applyBulkUpdate.addedWidgets` that bypassed
+// `parseStateMutation`) into one carrying `config: {}`, mirroring the load-boundary
+// coercion (`deserializeState`, finding 2.4). `normalizeConfigChartSeries` already
+// tolerates a non-record config so the IMMEDIATE add doesn't throw, but storing the
+// widget with `config: null` verbatim leaves a landmine: the NEXT config-touching
+// mutation does `Object.keys(existing.config)` / `shallowRecordEqual(existing.config, …)`
+// and throws `Cannot convert undefined or null to object`. Neutralizing it at the add
+// site (not just the immediate normalize call) closes that deferred throw (T2-2).
+// Reference-stable when the config is already a record.
+function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
+  const { config } = widget;
+  if (config !== null && typeof config === 'object' && !Array.isArray(config)) {
+    return widget;
+  }
+  return { ...widget, config: {} } as StudioWidget;
+}
+
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed
 // widget. Extracted from `removeWidget` so `applyBulkUpdate` can enforce the same
 // invariant for every widget its bulk replacement drops (a removed source widget
@@ -596,14 +614,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (Object.hasOwn(state.widgets, widget.id)) {
         return state;
       }
+      // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), so a widget with a
+      // hand-built `config: null` never lands in `state.widgets` verbatim to detonate on
+      // the next config-touching mutation. Mirrors `deserializeState`'s load-boundary
+      // coercion (finding 2.4).
+      const safeWidget = coerceWidgetConfig(widget);
       // Normalize the deprecated `seriesType` alias to canonical `type` on write, so
       // the alias never survives a live add (it is otherwise only normalized at the
       // load boundary in `deserializeState`). Reference-stable when already canonical.
-      const normalizedConfig = normalizeConfigChartSeries(widget.config);
+      const normalizedConfig = normalizeConfigChartSeries(safeWidget.config);
       const normalizedWidget =
-        normalizedConfig === widget.config
-          ? widget
-          : ({ ...widget, config: normalizedConfig } as StudioWidget);
+        normalizedConfig === safeWidget.config
+          ? safeWidget
+          : ({ ...safeWidget, config: normalizedConfig } as StudioWidget);
       return {
         ...state,
         widgets: { ...state.widgets, [normalizedWidget.id]: normalizedWidget },
@@ -1220,10 +1243,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // deduplicate ids that appear more than once — the same id twice would render the
         // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
         // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
-        // Coerce a non-array `widgetRows` (and non-array rows within it) so the block stays
-        // total on a hand-built payload — one layout field present while the other/junk is
-        // supplied must not throw (finding 2.5). `widgetColSpans`-only present ⇒ rows `[]`.
-        const safeRows = Array.isArray(widgetRows) ? widgetRows : [];
+        //
+        // Resolve which rows to reconcile against, TOTAL over all three partial-payload
+        // shapes (finding 2.5 closed only two of them; T1-1 closes the third):
+        //  - `widgetRows` ABSENT (a spans-only bulk: `widgetColSpans` present, no rows) ⇒
+        //    reconcile the span update against the page's EXISTING rows, NOT `[]`.
+        //    Defaulting to `[]` here silently un-places EVERY widget on the active page —
+        //    and then `enforceLayoutColSpans` drops the very spans this bulk carries as
+        //    orphans against the now-empty rows — so a mutation that only meant to change a
+        //    width would blank the page (T1-1). Leaving row placement untouched applies the
+        //    colSpans-only update, the mirror of the rows-only case below.
+        //  - `widgetRows` present and an array ⇒ install it (the normal both-present case).
+        //  - `widgetRows` present but a non-array (hand-built junk) ⇒ coerce to `[]`, the
+        //    same "stay total, don't throw on `.map`" coercion `widgetColSpans` gets below.
+        let safeRows: string[][];
+        if (widgetRows === undefined) {
+          safeRows = page.widgetRows ?? [];
+        } else if (Array.isArray(widgetRows)) {
+          safeRows = widgetRows;
+        } else {
+          safeRows = [];
+        }
         const sanitizedRows = dedupeLayoutRows(
           safeRows
             .filter((row): row is string[] => Array.isArray(row))
@@ -1313,13 +1353,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         if (Object.hasOwn(nextWidgets, widget.id)) {
           continue;
         }
+        // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), mirroring
+        // `addWidget` and the load boundary — otherwise a hand-built `config: null`
+        // added widget detonates on the next config-touching mutation.
+        const safeWidget = coerceWidgetConfig(widget);
         // Normalize the deprecated `seriesType` alias on write (reference-stable when
         // already canonical), so a bulk-added widget matches the load-boundary shape.
-        const normalizedConfig = normalizeConfigChartSeries(widget.config);
+        const normalizedConfig = normalizeConfigChartSeries(safeWidget.config);
         nextWidgets[widget.id] =
-          normalizedConfig === widget.config
-            ? widget
-            : ({ ...widget, config: normalizedConfig } as StudioWidget);
+          normalizedConfig === safeWidget.config
+            ? safeWidget
+            : ({ ...safeWidget, config: normalizedConfig } as StudioWidget);
         widgetsChanged = true;
       }
       for (const update of updatedWidgets ?? []) {
@@ -1453,7 +1497,17 @@ export function applyDocMutation(doc: StudioDoc, mutation: StateMutation): Studi
   // handler exists for every variant known at compile time — but a value
   // arriving over the wire (SSE payload, legacy/forward-incompatible client)
   // is not guaranteed to match, so guard the lookup at runtime too.
-  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation> | undefined;
+  // `Object.hasOwn` before the bracket read (T2-1), matching the `Object.hasOwn` discipline
+  // every other table lookup in this package uses (`parseStateMutation`'s validator table,
+  // `getAllowedConfigKeys`, the reducer's per-widget guards). Without it, a `mutation.type`
+  // naming an `Object.prototype` member (`'constructor'`/`'toString'`/`'__proto__'`) resolves
+  // UP the prototype chain instead of to `undefined`, defeating the `handler ? … : doc` guard:
+  // `type: 'constructor'` would call `Object.apply(doc, args)` and replace the whole doc with
+  // a bogus `{}`, and `'__proto__'`/`'valueOf'` would throw mid-apply. Gating on own-property
+  // membership restores the documented graceful no-op for an unrecognized `type`.
+  const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
+    ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
+    : undefined;
   return handler ? handler.apply(doc, mutation.args) : doc;
 }
 
@@ -1475,6 +1529,12 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
  * log (client-side undo/redo history label + MCP `get_recent_changes`).
  */
 export function mutationLabel(mutation: StateMutation): string {
-  const handler = MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation> | undefined;
+  // `Object.hasOwn` before the bracket read (T2-1), same reasoning as `applyDocMutation`:
+  // a `type` naming an `Object.prototype` member would otherwise resolve to a prototype
+  // function and throw `handler.label is not a function` instead of returning the raw type
+  // string the contract promises for an unrecognized `type`.
+  const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
+    ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
+    : undefined;
   return handler ? handler.label(mutation.args) : (mutation as { type: string }).type;
 }

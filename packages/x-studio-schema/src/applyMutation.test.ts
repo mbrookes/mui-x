@@ -148,6 +148,34 @@ describe('applyMutation', () => {
     expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
   });
 
+  it('addWidget coerces a `null` config to `{}` so a LATER config mutation does not throw (T2-2)', () => {
+    // The iteration-7 fix stopped the immediate add from throwing but stored the widget
+    // with `config: null` verbatim — a landmine the NEXT config-touching mutation detonated
+    // via `Object.keys(null)`/`shallowRecordEqual(null, …)`. Coercing to `{}` at the add
+    // site (mirroring the load boundary, finding 2.4) closes that deferred throw.
+    const widget = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'W',
+      config: null,
+    } as unknown as StudioWidgetOf<'chart'>;
+    const added = applyDocMutation(twoPageState('page-1'), {
+      type: 'addWidget',
+      args: { widget, pageId: 'page-1' },
+    });
+    // The installed widget carries a real record, not `null`.
+    expect(added.widgets.w1.config).toEqual({});
+    // …and a subsequent config-touching update no longer throws on the null.
+    let next!: StudioDoc;
+    expect(() => {
+      next = applyDocMutation(added, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { chartType: 'line' } },
+      });
+    }).not.toThrow();
+    expect((next.widgets.w1.config as { chartType?: string }).chartType).toBe('line');
+  });
+
   it('addWidget with a prototype-hazard id is a no-op (Tier 3)', () => {
     // A `'__proto__'` id would create a real own entry that silently vanishes on the next
     // load (the load-boundary key screen drops it) — so reject it up front, uniform with
@@ -2281,6 +2309,78 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
+
+    it('reconciles a widgetColSpans-only bulk against the EXISTING rows, without wiping the layout (T1-1)', () => {
+      // The third partial shape (mirror of the rows-only test above): `widgetColSpans`
+      // present, `widgetRows` ABSENT. `safeRows` used to fall to `[]`, un-placing every
+      // widget on the active page and then orphaning the very span the bulk carried. The
+      // fix reconciles the span update against the page's current rows instead.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            widgetColSpans: { w1: 18 },
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // Rows are preserved (not wiped to `[]`), so every widget stays placed.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      // …and only the span was updated (clamped/enforced, kept because its row still holds w1).
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 18 });
+    });
+
+    it('a bulk-added widget with a `null` config is stored with `{}`, safe for a later update (T2-2)', () => {
+      // Mirror of the addWidget T2-2 fix on the bulk `addedWidgets` path: the add site
+      // coerces a non-record config to `{}` rather than storing the null landmine.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: {},
+      });
+      const nullConfigWidget = {
+        id: 'wb',
+        kind: 'chart',
+        title: 'WB',
+        config: null,
+      } as unknown as StudioWidgetOf<'chart'>;
+      let added!: StudioDoc;
+      expect(() => {
+        added = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            addedWidgets: [nullConfigWidget],
+            activePageId: 'page-1',
+          },
+        } as StateMutation);
+      }).not.toThrow();
+      expect(added.widgets.wb.config).toEqual({});
+      // A subsequent bulk config update on that widget no longer throws on the null.
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(added, {
+          type: 'applyBulkUpdate',
+          args: {
+            updatedWidgets: [{ widgetId: 'wb', config: { chartType: 'line' } }],
+            activePageId: 'page-1',
+          },
+        } as StateMutation);
+      }).not.toThrow();
+      expect((next.widgets.wb.config as { chartType?: string }).chartType).toBe('line');
+    });
   });
 
   describe('renameAIThread', () => {
@@ -2475,6 +2575,24 @@ describe('applyMutation', () => {
     const next = applyDocMutation(state, bogus);
     expect(next).toBe(state);
   });
+
+  it('a mutation type naming an Object.prototype member is a graceful no-op, not doc corruption (T2-1)', () => {
+    // The dispatch bracket lookup had no `Object.hasOwn` gate, so a `type` naming a
+    // prototype member resolved UP the chain instead of to `undefined`, defeating the
+    // `handler ? … : doc` guard: `type: 'constructor'` invoked `Object.apply(doc, args)`
+    // and replaced the WHOLE doc with a bogus `{}`; `'__proto__'`/`'valueOf'` threw
+    // mid-apply. Every such `type` must now be the same graceful no-op an unknown type is.
+    const state = twoPageState();
+    for (const type of ['constructor', 'toString', '__proto__', 'valueOf', 'hasOwnProperty']) {
+      const bogus = { type, args: {} } as any;
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, bogus);
+      }, `applyDocMutation type=${type}`).not.toThrow();
+      // Same reference back — the doc is neither replaced nor corrupted.
+      expect(next, `applyDocMutation type=${type}`).toBe(state);
+    }
+  });
 });
 
 // The full-state `applyMutation` wrapper must only ever rewrite the `doc` partition:
@@ -2578,5 +2696,16 @@ describe('mutationLabel', () => {
     const bogus = { type: 'bogusMutation', args: {} } as any;
     expect(() => mutationLabel(bogus)).not.toThrow();
     expect(mutationLabel(bogus)).toBe('bogusMutation');
+  });
+
+  it('returns the raw type string for a prototype-member type, not a throw (T2-1)', () => {
+    // Without the `Object.hasOwn` gate, `type: 'constructor'`/`'toString'` resolved to a
+    // prototype function and threw `handler.label is not a function`. It must fall back to
+    // the raw type string, exactly like any other unrecognized type.
+    for (const type of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      const bogus = { type, args: {} } as any;
+      expect(() => mutationLabel(bogus), `mutationLabel type=${type}`).not.toThrow();
+      expect(mutationLabel(bogus), `mutationLabel type=${type}`).toBe(type);
+    }
   });
 });

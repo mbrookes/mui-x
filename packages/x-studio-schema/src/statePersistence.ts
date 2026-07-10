@@ -538,6 +538,22 @@ export function deserializeState(
     ? dashboard
     : { ...dashboard, activePageId: Object.keys(normalizedPages)[0] ?? '' };
 
+  // Validate `doc.ai` at the load boundary: keep it only when it is a record whose
+  // `threads` is an array, AND screen each thread ENTRY (T2-3) — not just the container.
+  // `renameAIThread` does `(state.ai.threads ?? []).map((t) => t.id …)` with NO optional
+  // chaining, so a `threads: [null, {…}]` that passes the container `Array.isArray` check
+  // still throws `Cannot read properties of null (reading 'id')` on the first rename, and
+  // `serializeDoc` re-persists the junk verbatim (`threads.length > 0`), round-tripping the
+  // corruption. Drop non-record entries the SAME way the sibling `filters` per-entry screen
+  // below does, rather than loading them verbatim. Reference-stable when every surviving
+  // thread is already a record; the whole `ai` is dropped to `undefined` when absent/junk.
+  let normalizedAi: StudioAIState | undefined;
+  if (isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)) {
+    const ai = serialized.ai as StudioAIState;
+    const safeThreads = ai.threads.filter((thread) => isRecord(thread));
+    normalizedAi = safeThreads.length === ai.threads.length ? ai : { ...ai, threads: safeThreads };
+  }
+
   return {
     doc: {
       // `deserializeState` only ever runs on migrated state (a guarantee `migrateState`
@@ -586,15 +602,8 @@ export function deserializeState(
         ? serialized.expressionFields
         : [],
       filterPresets: Array.isArray(serialized.filterPresets) ? serialized.filterPresets : [],
-      // Validate `doc.ai`'s shape at the load boundary: keep it only when it is a record
-      // whose `threads` is an array. `renameAIThread` does `(state.ai.threads ?? []).map(…)`
-      // — the `??` guards nullish but NOT a truthy non-array (`threads: 'junk'` / `{}`),
-      // which would throw `.map is not a function`; and `serializeDoc` re-persists the junk
-      // verbatim (`'junk'.length > 0`), round-tripping the corruption. Drop it to `undefined`.
-      ai:
-        isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)
-          ? serialized.ai
-          : undefined,
+      // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
+      ai: normalizedAi,
     },
     session: {
       mode: 'edit',

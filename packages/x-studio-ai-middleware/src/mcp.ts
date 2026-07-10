@@ -533,14 +533,63 @@ export function buildStudioMcpServer(
    * govern all raw-row access). Returns a deny-reason string, or `null` to proceed.
    * `consultToolPolicyArgsOnly` also increments `sessionUsage.toolCalls`, so a
    * usage-aware policy no longer undercounts these reads.
+   *
+   * `input.sourceId` (finding 2.3) is threaded into the policy consult AND the
+   * approval bridge, so a per-source `toolPolicy` rule (deny `query_data_source`
+   * for one `sourceId`) or an `approvalHandler` that renders `ctx.input` sees which
+   * source the `studio://data/{sourceId}` read targets — it is no longer blind.
+   * `studio://dashboard/data-health` is a multi-source operation and calls this
+   * without a `sourceId`, gated once against the tool-name allow-list/policy.
    */
-  async function authorizeResourceDataAccess(): Promise<string | null> {
+  async function authorizeResourceDataAccess(
+    input: {
+      sourceId?: string;
+    } = {},
+  ): Promise<string | null> {
     const gatedToolName = 'query_data_source';
     if (!isToolAllowed(gatedToolName)) {
       return (
         `MUI X Studio: Reading this resource runs a live '${gatedToolName}' query, but that ` +
         `tool is not in this MCP session's allowedTools. Raw-data resource reads honor the same ` +
         `allow-list as the data tools. Add '${gatedToolName}' to allowedTools to permit it.`
+      );
+    }
+    const gate = await consultToolPolicyArgsOnly(gatedToolName, input, stateBox.current, {
+      policy: sessionToolPolicy,
+      transport: 'mcp',
+      usage: sessionUsage,
+    });
+    if (gate.kind === 'denied') {
+      return gate.reason;
+    }
+    if (gate.kind === 'needs-approval') {
+      const bridged = await bridgeApproval(gatedToolName, input);
+      if (!bridged.approved) {
+        return bridged.reason;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Authorization gate for the resource reads that expose the SAME payload as the
+   * `get_dashboard_state` TOOL — `studio://dashboard/state` (the `projectStateForAI`
+   * JSON) and `studio://dashboard/system-prompt` (that state rendered as prompt
+   * text). The tool-call path rejects `get_dashboard_state` when it is excluded from
+   * `allowedTools`, but the resource read served the identical payload ungated
+   * (finding 2.1). This runs the SAME `isToolAllowed` + args-only policy consult +
+   * approval bridge the tool path uses, mapped onto `get_dashboard_state`, so a host
+   * that hides that tool also blocks the equivalent resource read. Returns a
+   * deny-reason string, or `null` to proceed.
+   */
+  async function authorizeResourceStateAccess(): Promise<string | null> {
+    const gatedToolName = 'get_dashboard_state';
+    if (!isToolAllowed(gatedToolName)) {
+      return (
+        `MUI X Studio: Reading this resource returns the same dashboard state as the ` +
+        `'${gatedToolName}' tool, but that tool is not in this MCP session's allowedTools. ` +
+        `Dashboard-state resource reads honor the same allow-list as the tool. Add ` +
+        `'${gatedToolName}' to allowedTools to permit it.`
       );
     }
     const gate = await consultToolPolicyArgsOnly(gatedToolName, {}, stateBox.current, {
@@ -568,6 +617,7 @@ export function buildStudioMcpServer(
     logger,
     subscribedUris,
     authorizeDataAccess: authorizeResourceDataAccess,
+    authorizeStateAccess: authorizeResourceStateAccess,
   });
 
   registerPromptHandlers(server, { stateBox });

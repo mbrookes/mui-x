@@ -425,3 +425,184 @@ describe('resources/read studio://dashboard/state redaction (finding 2.2)', () =
     ]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// finding 2.1 — the dashboard-state resources must honor the get_dashboard_state
+// authorization the equivalent TOOL enforces
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read dashboard-state authorization (T2-1)', () => {
+  it('denies studio://dashboard/state when allowedTools excludes get_dashboard_state', async () => {
+    // A deliberately narrow server that hides get_dashboard_state — the resource read
+    // must not leak the byte-identical projectStateForAI payload the tool would return.
+    const server = buildStudioMcpServer(makeStateBox(), { allowedTools: ['render_chart'] });
+    await expect(readResource(server, 'studio://dashboard/state')).rejects.toThrow(
+      /allowedTools|get_dashboard_state/,
+    );
+  });
+
+  it('denies studio://dashboard/system-prompt when allowedTools excludes get_dashboard_state', async () => {
+    const server = buildStudioMcpServer(makeStateBox(), { allowedTools: ['render_chart'] });
+    await expect(readResource(server, 'studio://dashboard/system-prompt')).rejects.toThrow(
+      /allowedTools|get_dashboard_state/,
+    );
+  });
+
+  it('denies both dashboard-state resources when toolPolicy denies get_dashboard_state', async () => {
+    const server = buildStudioMcpServer(makeStateBox(), {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'get_dashboard_state'
+          ? { action: 'deny', reason: 'policy: no dashboard state' }
+          : { action: 'allow' },
+    });
+    await expect(readResource(server, 'studio://dashboard/state')).rejects.toThrow(
+      /policy: no dashboard state/,
+    );
+    await expect(readResource(server, 'studio://dashboard/system-prompt')).rejects.toThrow(
+      /policy: no dashboard state/,
+    );
+  });
+
+  it('serves both dashboard-state resources when get_dashboard_state is allowed (no regression)', async () => {
+    const server = buildStudioMcpServer(makeStateBox(), {
+      allowedTools: ['get_dashboard_state'],
+    });
+
+    const state = await readResource(server, 'studio://dashboard/state');
+    expect(JSON.parse(state.contents[0].text).doc).toBeDefined();
+
+    const prompt = await readResource(server, 'studio://dashboard/system-prompt');
+    expect(prompt.contents[0].text).toContain('source-orders');
+  });
+
+  it('serves both dashboard-state resources under the default allow-all policy (no regression)', async () => {
+    const server = buildStudioMcpServer(makeStateBox());
+    const state = await readResource(server, 'studio://dashboard/state');
+    expect(JSON.parse(state.contents[0].text).doc).toBeDefined();
+    const prompt = await readResource(server, 'studio://dashboard/system-prompt');
+    expect(prompt.contents[0].text.length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// finding 2.2 — studio://dashboard/system-prompt's contextEnricher runs live DB
+// queries, so it must pass the SAME data-access gate as data-health / row preview.
+// Only the enrichment is skipped when denied — the resource is still served.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read system-prompt contextEnricher authorization (T2-2)', () => {
+  it('skips contextEnricher (no live query) when query_data_source is denied by policy', async () => {
+    const data = makeData();
+    const contextEnricher = vi.fn(async () => ({ rowCounts: {} }));
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data,
+      contextEnricher,
+      // get_dashboard_state is allowed (so the state prompt is served) but the live-query
+      // tool the enricher maps onto is denied.
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'query_data_source'
+          ? { action: 'deny', reason: 'policy: no live queries' }
+          : { action: 'allow' },
+    });
+
+    // The resource is STILL served (state access is allowed)…
+    const result = await readResource(server, 'studio://dashboard/system-prompt');
+    expect(result.contents[0].text.length).toBeGreaterThan(0);
+    // …but the enricher's live DB round-trip never ran.
+    expect(contextEnricher).not.toHaveBeenCalled();
+  });
+
+  it('skips contextEnricher when allowedTools excludes query_data_source', async () => {
+    const data = makeData();
+    const contextEnricher = vi.fn(async () => ({ rowCounts: {} }));
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data,
+      contextEnricher,
+      allowedTools: ['get_dashboard_state'],
+    });
+
+    const result = await readResource(server, 'studio://dashboard/system-prompt');
+    expect(result.contents[0].text.length).toBeGreaterThan(0);
+    expect(contextEnricher).not.toHaveBeenCalled();
+  });
+
+  it('runs contextEnricher when query_data_source is allowed (no regression)', async () => {
+    const data = makeData();
+    const contextEnricher = vi.fn(async () => ({ rowCounts: {} }));
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data,
+      contextEnricher,
+      allowedTools: ['get_dashboard_state', 'query_data_source'],
+    });
+
+    const result = await readResource(server, 'studio://dashboard/system-prompt');
+    expect(result.contents[0].text.length).toBeGreaterThan(0);
+    expect(contextEnricher).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// finding 2.3 — the row-preview gate must thread the requested sourceId into the
+// policy consult so a per-source toolPolicy rule is no longer blind
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read studio://data/{id} per-source authorization (T2-3)', () => {
+  /** A two-source, table-backed state box so a per-source policy has something to
+   * discriminate on. */
+  function makeTwoSourceStateBox(): StudioStateBox {
+    return {
+      current: createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+          pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] } },
+        },
+        runtime: {
+          dataSources: {
+            'source-orders': makeSource(),
+            'source-salaries': makeSource({
+              id: 'source-salaries',
+              label: 'Salaries',
+              tableName: 'salaries',
+            }),
+          },
+        },
+      }),
+    };
+  }
+
+  it('denies studio://data/source-salaries but serves source-orders under a per-source policy', async () => {
+    const data = makeData();
+    const seenSourceIds: unknown[] = [];
+    const server = buildStudioMcpServer(makeTwoSourceStateBox(), {
+      data,
+      // Per-source rule: block query_data_source for the salaries source only. This is
+      // exactly the policy that used to be silently bypassed by resource reads because
+      // the consult carried input: {} instead of the real sourceId.
+      toolPolicy: (ctx) => {
+        if (ctx.toolName === 'query_data_source') {
+          seenSourceIds.push((ctx.input as { sourceId?: string }).sourceId);
+          if ((ctx.input as { sourceId?: string }).sourceId === 'source-salaries') {
+            return { action: 'deny', reason: 'policy: salaries is off-limits' };
+          }
+        }
+        return { action: 'allow' };
+      },
+    });
+
+    // The sensitive source is denied…
+    await expect(readResource(server, 'studio://data/source-salaries')).rejects.toThrow(
+      /salaries is off-limits/,
+    );
+    // …and the policy actually SAW the sourceId (not an empty object).
+    expect(seenSourceIds).toContain('source-salaries');
+
+    // The other source is still served, and the query ran.
+    const preview = await readResource(server, 'studio://data/source-orders');
+    expect(JSON.parse(preview.contents[0].text).sourceId).toBe('source-orders');
+    expect(seenSourceIds).toContain('source-orders');
+    // The denied source never reached the DB.
+    expect(data.queryDataSource.mock.calls.every((c) => c[0].sourceId !== 'source-salaries')).toBe(
+      true,
+    );
+  });
+});

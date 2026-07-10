@@ -45,9 +45,31 @@ export interface ResourceHandlerDeps {
    * conceptually invoke). It resolves to a deny-reason string when the read is
    * NOT authorized, or `null` when it may proceed. When omitted, no gate is
    * applied (used only by unit tests that construct the handlers directly).
+   *
+   * The optional `input.sourceId` is threaded into the policy-consult context
+   * (finding 2.3) so a per-source `toolPolicy` rule (deny `query_data_source` for
+   * one `sourceId`) or an `approvalHandler` that inspects `ctx.input` is no longer
+   * blind on `studio://data/{sourceId}` reads — the consult sees which source is
+   * being read.
+   * @param {{ sourceId?: string }} [input] Optional descriptor of the resource being read.
+   * @param {string} [input.sourceId] The source id targeted by a `studio://data/{sourceId}` read, threaded into the policy consult; omitted for the multi-source `data-health` read.
    * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
    */
-  authorizeDataAccess?: () => Promise<string | null>;
+  authorizeDataAccess?: (input?: { sourceId?: string }) => Promise<string | null>;
+  /**
+   * Authorization gate for the resource URIs that expose the SAME dashboard-state
+   * payload as the `get_dashboard_state` tool — `studio://dashboard/state` (the
+   * `projectStateForAI` JSON) and `studio://dashboard/system-prompt` (that state
+   * rendered as prompt text). The tool-call path rejects `get_dashboard_state`
+   * when a host excludes it from `allowedTools`, but the resource read served the
+   * byte-identical payload ungated (finding 2.1). The composition root wires this
+   * to the same `isToolAllowed('get_dashboard_state')` + args-only policy consult
+   * the tool path uses. Resolves to a deny-reason string when the read is NOT
+   * authorized, or `null` when it may proceed. When omitted, no gate is applied
+   * (used only by unit tests that construct the handlers directly).
+   * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
+   */
+  authorizeStateAccess?: () => Promise<string | null>;
   /**
    * Upper bound on the number of distinct URIs `subscribedUris` may hold.
    * A prefix-validated URI (e.g. `studio://schema/<sourceId>`) is still an
@@ -98,6 +120,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     logger,
     subscribedUris,
     authorizeDataAccess,
+    authorizeStateAccess,
     maxSubscribedUris = DEFAULT_MAX_SUBSCRIBED_URIS,
   } = deps;
 
@@ -172,6 +195,17 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     const { uri } = request.params;
 
     if (uri === 'studio://dashboard/state') {
+      // Same authorization chokepoint the `get_dashboard_state` TOOL passes
+      // (finding 2.1): this resource returns the byte-identical `projectStateForAI`
+      // payload, so excluding `get_dashboard_state` from `allowedTools` (or denying
+      // it via `toolPolicy`) must block this read too — otherwise a host that hid the
+      // tool would still leak the whole dashboard state through the resource surface.
+      if (authorizeStateAccess) {
+        const denied = await authorizeStateAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
+      }
       // Serialize the AUTHORED document plus DATA-SOURCE METADATA ONLY — never the
       // raw `StudioState`. A host's state box can carry live `rows` (and a
       // non-serializable `adapter`) on `runtime.dataSources`; dumping them verbatim
@@ -193,6 +227,17 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     }
 
     if (uri === 'studio://dashboard/system-prompt') {
+      // Same `get_dashboard_state` gate as the raw state resource (finding 2.1): this
+      // resource embeds the full `<dashboard_state>` block (the identical
+      // `projectStateForAI` payload, just rendered as prompt text), so it must honor
+      // the same authorization as the tool and the raw-state resource.
+      if (authorizeStateAccess) {
+        const denied = await authorizeStateAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
+      }
+
       const dataToolNames = data
         ? ['query_data_source', 'describe_data_source', 'get_field_values', 'compute_field_stats']
         : undefined;
@@ -204,15 +249,28 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // Best-effort server-side enrichment (row counts, schema comments).
       let enrichedContext: StudioAIEnrichedContext | undefined;
       if (contextEnricher) {
-        try {
-          enrichedContext = await contextEnricher({
-            dashboardState: stateBox.current,
-            richContext,
-          });
-        } catch (err) {
-          logger?.error(
-            `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
+        // The `contextEnricher` runs LIVE DB queries (per-dimension row counts —
+        // strictly finer-grained than the per-source COUNTs `data-health` returns), so
+        // it must pass the SAME data-access chokepoint as `data-health` and the row
+        // preview (finding 2.2). Only the ENRICHMENT is skipped when denied, not the
+        // whole resource — the state-derived prompt is still served (already gated for
+        // state access above), just without the extra live-query enrichment.
+        const enrichDenied = authorizeDataAccess ? await authorizeDataAccess() : null;
+        if (enrichDenied) {
+          logger?.log(
+            `[mcp] skipping contextEnricher for studio://dashboard/system-prompt: ${enrichDenied}`,
           );
+        } else {
+          try {
+            enrichedContext = await contextEnricher({
+              dashboardState: stateBox.current,
+              richContext,
+            });
+          } catch (err) {
+            logger?.error(
+              `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
 
@@ -327,16 +385,19 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       if (!data) {
         throw new Error('Data access is not configured for this MCP server instance.');
       }
+      // Parse the `sourceId` BEFORE gating so it can be threaded into the policy
+      // consult (finding 2.3) — a per-source `toolPolicy` rule or an `approvalHandler`
+      // that inspects `ctx.input` would otherwise be blind on this read.
+      const sourceId = uri.slice('studio://data/'.length);
       // Same authorization chokepoint the data TOOLS pass before returning rows
       // (finding 2.1): this resource serves up to 20 raw rows, so it must not
       // bypass `allowedTools` / `toolPolicy`.
       if (authorizeDataAccess) {
-        const denied = await authorizeDataAccess();
+        const denied = await authorizeDataAccess({ sourceId });
         if (denied) {
           throw new Error(denied);
         }
       }
-      const sourceId = uri.slice('studio://data/'.length);
       const source = stateBox.current.runtime.dataSources[sourceId];
       if (!source || !source.tableName) {
         throw new Error(

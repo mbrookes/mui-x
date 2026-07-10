@@ -562,4 +562,44 @@ describe('buildModeReset', () => {
     const reset = buildModeReset('selection');
     expect(reset.value).toEqual([]);
   });
+
+  // Regression for finding 2.19: switching an existing condition filter to rank mode used to
+  // leave `field` untouched, so a filter already configured on a STRING field could flip to
+  // rank mode and keep it — the numeric-rank sort then computes `NaN` comparators (a silent
+  // no-op "Top N" with no feedback).
+  describe('clears a non-numeric field when switching to rank mode (2.19)', () => {
+    it('clears field/fieldType/filterSourceId when the current field is a string', () => {
+      const reset = buildModeReset('rank', 'string');
+      expect(reset.field).toBeUndefined();
+      expect(reset.fieldType).toBeUndefined();
+      expect(reset.filterSourceId).toBeUndefined();
+      // These keys must actually be PRESENT (set to `undefined`) in the patch so a merge
+      // clears them — not merely absent from the object.
+      expect(reset).toHaveProperty('field');
+      expect(reset).toHaveProperty('fieldType');
+      expect(reset).toHaveProperty('filterSourceId');
+    });
+
+    it('clears field when no current field type is known (treated as non-numeric)', () => {
+      const reset = buildModeReset('rank');
+      expect(reset).toHaveProperty('field');
+      expect(reset.field).toBeUndefined();
+    });
+
+    it('preserves field/fieldType when the current field is already numeric', () => {
+      const reset = buildModeReset('rank', 'number');
+      // No `field`/`fieldType`/`filterSourceId` key at all — the caller's existing values
+      // survive the merge unchanged.
+      expect(reset).not.toHaveProperty('field');
+      expect(reset).not.toHaveProperty('fieldType');
+      expect(reset).not.toHaveProperty('filterSourceId');
+    });
+
+    it('does not clear a non-numeric field when switching to a non-rank mode', () => {
+      const conditionReset = buildModeReset('condition', 'string');
+      const selectionReset = buildModeReset('selection', 'string');
+      expect(conditionReset).not.toHaveProperty('field');
+      expect(selectionReset).not.toHaveProperty('field');
+    });
+  });
 });

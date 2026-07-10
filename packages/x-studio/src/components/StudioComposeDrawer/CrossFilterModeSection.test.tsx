@@ -121,4 +121,62 @@ describe('CrossFilterModeSection', () => {
       crossFilterMode: 'none',
     });
   });
+
+  // Regression for finding 2.8 (Tier3 #8): deselecting the already-default-mode button used
+  // to still commit `crossFilterMode: defaultMode` as a NEW config key even though nothing
+  // visually changes (the button was already showing as selected because `value` was
+  // `undefined`, resolved to `defaultMode`) — an undoable no-op that clutters the undo stack.
+  describe('no-op guard on deselect (finding 2.8)', () => {
+    it('does not commit when deselecting the default button while value is undefined', async () => {
+      const { user } = render(
+        <CrossFilterModeSection
+          widgetId="widget-1"
+          title="Interactions"
+          modes={['cross-highlight', 'cross-filter', 'none']}
+          defaultMode="none"
+          value={undefined}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'None' }));
+
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    });
+
+    it('does not commit when deselecting a button whose value already equals defaultMode explicitly', async () => {
+      const { user } = render(
+        <CrossFilterModeSection
+          widgetId="widget-1"
+          title="Interactions"
+          modes={['cross-highlight', 'cross-filter', 'none']}
+          defaultMode="none"
+          value="none"
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'None' }));
+
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    });
+
+    it('still commits when deselecting a NON-default selected mode (the resolved value actually changes)', async () => {
+      // This is the pre-existing "commits defaultMode when deselected" case (still correct):
+      // the resolved next value differs from the currently stored value, so it's a real change.
+      const { user } = render(
+        <CrossFilterModeSection
+          widgetId="widget-1"
+          title="Interactions"
+          modes={['cross-highlight', 'cross-filter', 'none']}
+          defaultMode="cross-highlight"
+          value="cross-filter"
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Filter' }));
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        crossFilterMode: 'cross-highlight',
+      });
+    });
+  });
 });

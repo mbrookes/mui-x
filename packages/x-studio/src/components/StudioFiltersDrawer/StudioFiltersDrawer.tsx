@@ -204,7 +204,10 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       f.scope.kind === 'cross-filter' && (crossFilterAllPages || f.scope.pageId === activePageId),
   );
   const interactiveFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope.kind === 'interactive',
+    // Scope to the active page, exactly as the filter engine does (`filterScoping.ts`'s
+    // `interactive` case) — otherwise the drawer lists "active" interactive filters from other
+    // pages that affect nothing on the current one (Tier 3 drawer/engine mismatch).
+    (f: StudioFilterState) => f.scope.kind === 'interactive' && f.scope.pageId === activePageId,
   );
 
   // 3.10: derive the active saved-view from the doc rather than tracking it as component

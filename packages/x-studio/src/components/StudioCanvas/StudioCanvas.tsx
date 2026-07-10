@@ -614,12 +614,43 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     watch: isEmptyPage,
   });
 
-  if (isEmptyPage) {
-    return (
-      <Box
-        ref={canvasRefCallback}
-        sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
-      >
+  // Tier3 #10: the empty-state UI used to be a separate early-return branch that rendered
+  // ONLY the empty-state `Paper`, skipping the `mountedPageIds` keep-alive container below
+  // entirely. Since that container is what keeps every OTHER previously-visited page mounted
+  // (via absolute-position + clip-path rather than `display:none`), deleting the last widget
+  // on page A while page B was mounted tore B's widgets/pipeline down and restarted its
+  // animations on return — defeating the very keep-alive design this component documents.
+  // Fix: always render the same keep-alive structure; the empty-state `Paper` is layered
+  // alongside it (the active page's own `StudioPageRows` naturally renders nothing for an
+  // empty page — see its `widgetRows.length === 0` guard — so nothing else needs to change).
+  return (
+    <Box
+      ref={canvasRefCallback}
+      sx={[
+        {
+          position: 'relative',
+          width: '100%',
+          p: mode === 'edit' ? 0 : '8px',
+          backgroundColor: isEmptyPage
+            ? undefined
+            : (activePage?.theme?.pageBackground ?? undefined),
+          minHeight: '100%',
+        },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
+      onMouseDown={(event) => {
+        // Deselect + notify only when clicking the canvas background (not a widget card)
+        const target = event.target as HTMLElement;
+        if (!target.closest('[data-widget-card]')) {
+          controller.setSelectedWidget(null);
+          onBackgroundClick?.();
+        }
+      }}
+    >
+      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
+      {features.quickFilter && <StudioDateRangeBar />}
+
+      {isEmptyPage && (
         <Paper
           ref={emptyDropRef}
           variant="outlined"
@@ -646,40 +677,14 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               : localeText.canvasEmptyViewModeHint}
           </Typography>
         </Paper>
-      </Box>
-    );
-  }
-
-  return (
-    <Box
-      ref={canvasRefCallback}
-      sx={[
-        {
-          position: 'relative',
-          width: '100%',
-          p: mode === 'edit' ? 0 : '8px',
-          backgroundColor: activePage?.theme?.pageBackground ?? undefined,
-          minHeight: '100%',
-        },
-        ...(Array.isArray(sx) ? sx : [sx]),
-      ]}
-      onMouseDown={(event) => {
-        // Deselect + notify only when clicking the canvas background (not a widget card)
-        const target = event.target as HTMLElement;
-        if (!target.closest('[data-widget-card]')) {
-          controller.setSelectedWidget(null);
-          onBackgroundClick?.();
-        }
-      }}
-    >
-      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-      {features.quickFilter && <StudioDateRangeBar />}
+      )}
 
       {/* Positioning context for the inactive pages. It sits inside the canvas padding, so an
           inactive page's `position: absolute; width: 100%` resolves to the same content width
           as the in-flow active page. Without it the absolute pages would size to the canvas
           padding box (a few px wider), and switching back to a page would resize its charts —
-          which x-charts animates, producing a visible flash. */}
+          which x-charts animates, producing a visible flash. Always rendered (even when the
+          active page is empty) so every OTHER mounted page stays alive — see Tier3 #10 above. */}
       <Box sx={{ position: 'relative' }}>
         {Object.values(pages).map((page) => {
           if (!mountedPageIds.has(page.id)) {

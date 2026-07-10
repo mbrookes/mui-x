@@ -4,6 +4,7 @@ import type {
   StudioDataField,
   StudioDateRangePreset,
   StudioFilterPreset,
+  StudioFilterScope,
   StudioFilterState,
 } from '../models';
 
@@ -146,11 +147,24 @@ export function setDashboardDateRange(
   return { ...doc, filters: [...withoutExisting, newFilter] };
 }
 
+/** The source id of a `dashboard-date-range`-scoped filter. */
+function dashboardDateRangeSourceId(filter: StudioFilterState): string {
+  return (filter.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId;
+}
+
 /**
  * Sets the dashboard-level date range across every provided source at once. Creates one
  * `scope.kind === 'dashboard-date-range'` filter per source so each widget is filtered
- * by its own source's date field. Replaces any previously active dashboard date-range
- * filters for the page.
+ * by its own source's date field.
+ *
+ * ADDITIVE and field-preserving (finding 1.7): a source that already has a dashboard-date-range
+ * filter keeps the field that filter was authored on (e.g. an AI-chosen `ship_date`) rather than
+ * being silently re-pointed to the source's first date field, and is merely re-stamped with the
+ * new `preset`/custom bounds. Sources genuinely missing coverage get a fresh filter on the field
+ * supplied in `fields`. Coverage is never dropped: a `'custom'` preset that resolves to `null`
+ * (missing bounds) preserves the existing filter instead of deleting it — so the coverage-
+ * reconciliation effect (which fires purely from rendering) can never non-undoably wipe a page's
+ * custom date range.
  */
 export function setDashboardDateRangeAll(
   doc: StudioDoc,
@@ -168,20 +182,53 @@ export function setDashboardDateRangeAll(
       !(f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId),
   );
 
-  const newFilters = fields
-    .map(({ fieldId, sourceId, fieldType }) =>
-      buildDateRangeFilter({
-        id: `dashboard-date-range-${pageId}-${sourceId}`,
-        field: fieldId,
-        fieldType,
-        sourceId,
-        preset,
-        scope: { kind: 'dashboard-date-range', sourceId, pageId },
-        customFrom,
-        customTo,
-      }),
-    )
-    .filter((f): f is StudioFilterState => f !== null);
+  // Index existing coverage by source so we can preserve each filter's authored field.
+  const existingBySource = new Map<string, StudioFilterState>();
+  for (const f of existingForPage) {
+    const sourceId = dashboardDateRangeSourceId(f);
+    if (!existingBySource.has(sourceId)) {
+      existingBySource.set(sourceId, f);
+    }
+  }
+
+  const coveredSourceIds = new Set<string>();
+  const newFilters: StudioFilterState[] = [];
+  for (const { fieldId, sourceId, fieldType } of fields) {
+    if (coveredSourceIds.has(sourceId)) {
+      continue;
+    }
+    coveredSourceIds.add(sourceId);
+    const existing = existingBySource.get(sourceId);
+    const built = buildDateRangeFilter({
+      // Reuse the existing filter's id when there is one so a single-source persisted filter
+      // isn't needlessly re-keyed; otherwise mint the per-source id scheme.
+      id: existing?.id ?? `dashboard-date-range-${pageId}-${sourceId}`,
+      field: existing?.field ?? fieldId,
+      fieldType: existing?.fieldType ?? fieldType,
+      sourceId,
+      preset,
+      scope: { kind: 'dashboard-date-range', sourceId, pageId },
+      customFrom,
+      customTo,
+    });
+    if (built) {
+      newFilters.push(built);
+    } else if (existing) {
+      // `buildDateRangeFilter` returned null (a `'custom'` preset with no bounds). Never drop
+      // an existing filter's coverage — keep it as-is rather than deleting the date range.
+      newFilters.push(existing);
+    }
+  }
+
+  // Preserve coverage for any already-covered source not present in `fields` (defensive —
+  // `fields` normally lists every source with a date field).
+  for (const f of existingForPage) {
+    const sourceId = dashboardDateRangeSourceId(f);
+    if (!coveredSourceIds.has(sourceId)) {
+      coveredSourceIds.add(sourceId);
+      newFilters.push(f);
+    }
+  }
 
   // Identity preservation (2.3): return the ORIGINAL doc when the rebuilt set is content-equal
   // to the existing dashboard-date-range filters for the page (same count, each new filter

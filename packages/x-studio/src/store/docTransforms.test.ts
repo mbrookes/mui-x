@@ -193,6 +193,137 @@ describe('docTransforms.setDashboardDateRangeAll', () => {
     const doc = makeDoc();
     expect(docTransforms.setDashboardDateRangeAll(doc, 'page-1', [], 'last_3_months')).toBe(doc);
   });
+
+  // Regression coverage for finding 1.7: the coverage-reconciliation effect used to always pass
+  // `undefined` custom bounds, so a `'custom'` preset built an EMPTY filter set (`buildDateRangeFilter`
+  // returns `null` with no bounds) whose length mismatch against the existing custom filter(s)
+  // triggered a rebuild-all that silently deleted every custom date-range filter for the page.
+  describe('custom preset coverage (finding 1.7)', () => {
+    it('preserves an existing custom-range filter and extends coverage to a newly-added source', () => {
+      const existingCustom: StudioFilterState = {
+        id: 'dashboard-date-range-page-1-s1',
+        field: 'order_date',
+        fieldType: 'date',
+        filterSourceId: 's1',
+        filterMode: 'condition',
+        operator: 'between',
+        dateRangePreset: 'custom',
+        value: { from: '2024-01-01', to: '2024-01-31' },
+        scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+      };
+      const doc = makeDoc({ filters: [existingCustom] });
+
+      // A second source (`s2`) is injected after the persisted single-source custom range
+      // loaded — the reconciliation effect now covers both sources, threading the EXISTING
+      // custom bounds through (as `StudioDateRangeBar` does) rather than `undefined`.
+      const next = docTransforms.setDashboardDateRangeAll(
+        doc,
+        'page-1',
+        [
+          { fieldId: 'order_date', sourceId: 's1', fieldType: 'date' },
+          { fieldId: 'ship_date', sourceId: 's2', fieldType: 'date' },
+        ],
+        'custom',
+        '2024-01-01',
+        '2024-01-31',
+      );
+
+      const rangeFilters = next.filters.filter((f) => f.scope.kind === 'dashboard-date-range');
+      expect(rangeFilters).toHaveLength(2);
+      // The original s1 filter is untouched (same id/field), not deleted.
+      const s1Filter = rangeFilters.find(
+        (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 's1',
+      );
+      expect(s1Filter).toMatchObject({
+        id: 'dashboard-date-range-page-1-s1',
+        field: 'order_date',
+        value: { from: '2024-01-01', to: '2024-01-31' },
+      });
+      // The newly-covered s2 source gets the SAME custom bounds.
+      const s2Filter = rangeFilters.find(
+        (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 's2',
+      );
+      expect(s2Filter).toMatchObject({
+        field: 'ship_date',
+        value: { from: '2024-01-01', to: '2024-01-31' },
+      });
+    });
+
+    it('never wipes an existing custom-range filter when called with no bounds (the pre-fix repro)', () => {
+      // This reproduces the OLD call shape (`customFrom`/`customTo` omitted, as the buggy
+      // effect always passed) to prove the transform itself no longer deletes coverage even
+      // if a caller regresses back to omitting bounds.
+      const existingCustom: StudioFilterState = {
+        id: 'dashboard-date-range-page-1-s1',
+        field: 'order_date',
+        fieldType: 'date',
+        filterSourceId: 's1',
+        filterMode: 'condition',
+        operator: 'between',
+        dateRangePreset: 'custom',
+        value: { from: '2024-01-01', to: '2024-01-31' },
+        scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+      };
+      const doc = makeDoc({ filters: [existingCustom] });
+
+      const next = docTransforms.setDashboardDateRangeAll(
+        doc,
+        'page-1',
+        [
+          { fieldId: 'order_date', sourceId: 's1', fieldType: 'date' },
+          { fieldId: 'ship_date', sourceId: 's2', fieldType: 'date' },
+        ],
+        'custom',
+      );
+
+      const rangeFilters = next.filters.filter((f) => f.scope.kind === 'dashboard-date-range');
+      // The existing s1 custom filter survives — it is never deleted just because bounds
+      // were unavailable for the reconciliation call.
+      expect(rangeFilters.some((f) => f.id === 'dashboard-date-range-page-1-s1')).toBe(true);
+    });
+
+    it('preserves an authored non-first date field when reconciling a non-custom preset', () => {
+      // Secondary defect (1.7): rebuilding ALL of a page's date-range filters from each
+      // source's FIRST date field would silently re-point a filter authored on a DIFFERENT
+      // field (e.g. an AI-chosen `ship_date`) back to the source's first field
+      // (`order_date`) whenever another source merely lacked coverage.
+      const existingOnShipDate: StudioFilterState = {
+        id: 'dashboard-date-range-page-1-s1',
+        field: 'ship_date',
+        fieldType: 'date',
+        filterSourceId: 's1',
+        filterMode: 'condition',
+        operator: 'between',
+        dateRangePreset: 'last_3_months',
+        value: null,
+        scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+      };
+      const doc = makeDoc({ filters: [existingOnShipDate] });
+
+      // s2 has no coverage yet; s1's `fields` entry lists its FIRST date field
+      // (`order_date`) — the reconciliation call always reports first-date-field candidates,
+      // even for a source that's already covered on a different field.
+      const next = docTransforms.setDashboardDateRangeAll(
+        doc,
+        'page-1',
+        [
+          { fieldId: 'order_date', sourceId: 's1', fieldType: 'date' },
+          { fieldId: 'order_date', sourceId: 's2', fieldType: 'date' },
+        ],
+        'last_3_months',
+      );
+
+      const s1Filter = next.filters.find(
+        (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 's1',
+      );
+      // s1 keeps its authored `ship_date` field — not silently re-pointed to `order_date`.
+      expect(s1Filter?.field).toBe('ship_date');
+      const s2Filter = next.filters.find(
+        (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 's2',
+      );
+      expect(s2Filter?.field).toBe('order_date');
+    });
+  });
 });
 
 describe('docTransforms.setWidgetDateRange', () => {

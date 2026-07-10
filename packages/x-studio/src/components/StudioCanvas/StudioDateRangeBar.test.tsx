@@ -96,3 +96,75 @@ describe('StudioDateRangeBar custom preset (finding 3.12)', () => {
     expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.dateRangePresetAllTime)).toBeVisible();
   });
 });
+
+/**
+ * Regression coverage for architecture-review finding 1.7: the coverage-reconciliation
+ * effect fires whenever a data source lacks a `dashboard-date-range` filter on its first
+ * date field. It used to always call `setDashboardDateRangeAll(..., undefined, undefined,
+ * { undoable: false })` — for a `'custom'` preset this built an EMPTY filter set (no bounds
+ * means `buildDateRangeFilter` returns `null`), and the length mismatch against the existing
+ * custom filter(s) triggered a rebuild-all that silently deleted the page's custom date
+ * range, non-undoably, on the very next render.
+ */
+describe('StudioDateRangeBar custom preset coverage-reconciliation (finding 1.7)', () => {
+  const TWO_SOURCES_WITH_DATE: Record<string, StudioDataSource> = {
+    src1: {
+      id: 'src1',
+      label: 'Source 1',
+      fields: [{ id: 'order_date', label: 'Order Date', type: 'date' as const }],
+      rows: [],
+    },
+    src2: {
+      id: 'src2',
+      label: 'Source 2',
+      fields: [{ id: 'ship_date', label: 'Ship Date', type: 'date' as const }],
+      rows: [],
+    },
+  };
+
+  it('does not delete an existing custom range when a second source has no coverage yet', () => {
+    const { wrapper, controller } = createStudioHarness({
+      initialState: {
+        doc: {
+          filters: [customDateRangeFilter()],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        // Two sources with date fields, but only `src1` has a persisted custom-range
+        // filter — `src2` was injected after the persisted state loaded.
+        runtime: { dataSources: TWO_SOURCES_WITH_DATE },
+      },
+    });
+    render(<StudioDateRangeBar />, { wrapper });
+
+    const rangeFilters = controller
+      .getState()
+      .doc.filters.filter((f) => f.scope.kind === 'dashboard-date-range');
+    // The custom range must survive reconciliation and now cover BOTH sources — not be wiped.
+    expect(rangeFilters.length).toBe(2);
+    const src1Filter = rangeFilters.find(
+      (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 'src1',
+    );
+    const src2Filter = rangeFilters.find(
+      (f) => f.scope.kind === 'dashboard-date-range' && f.scope.sourceId === 'src2',
+    );
+    expect(src1Filter?.value).toEqual({ from: '2024-01-01', to: '2024-01-31' });
+    expect(src2Filter?.value).toEqual({ from: '2024-01-01', to: '2024-01-31' });
+    // The Select still reflects "Custom", never falls back to "All time".
+    expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.dateRangePresetCustom)).toBeVisible();
+  });
+
+  it('reconciliation is non-undoable and pushes no undo entry', () => {
+    const { wrapper, controller } = createStudioHarness({
+      initialState: {
+        doc: {
+          filters: [customDateRangeFilter()],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: { dataSources: TWO_SOURCES_WITH_DATE },
+      },
+    });
+    render(<StudioDateRangeBar />, { wrapper });
+
+    expect(controller.canUndo()).toBe(false);
+  });
+});

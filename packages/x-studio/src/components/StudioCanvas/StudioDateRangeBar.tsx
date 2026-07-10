@@ -102,27 +102,43 @@ export function StudioDateRangeBar() {
     if (activePreset === 'all_time' || sourceDateFields.length === 0) {
       return;
     }
+    const dashboardDateRangeFilters = (filters as StudioFilterState[]).filter(
+      (f) => f.scope?.kind === 'dashboard-date-range' && f.scope.pageId === activePageId,
+    );
     const coveredSourceIds = new Set(
-      (filters as StudioFilterState[])
-        .filter((f) => f.scope?.kind === 'dashboard-date-range' && f.scope.pageId === activePageId)
-        .map(
-          (f) => (f.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId,
-        ),
+      dashboardDateRangeFilters.map(
+        (f) => (f.scope as Extract<StudioFilterScope, { kind: 'dashboard-date-range' }>).sourceId,
+      ),
     );
     const missing = sourceDateFields.filter(({ sourceId }) => !coveredSourceIds.has(sourceId));
-    if (missing.length > 0) {
-      // System-initiated normalization (expanding persisted single-source coverage to newly
-      // injected sources), not an authored edit — commit non-undoably so it neither pushes an
-      // undo entry on mount nor clears the redo stack when it re-fires after an undo.
-      controller.setDashboardDateRangeAll(
-        activePageId,
-        sourceDateFields,
-        activePreset,
-        undefined,
-        undefined,
-        { undoable: false },
-      );
+    if (missing.length === 0) {
+      return;
     }
+    // For a `'custom'` range, thread the existing explicit bounds through so newly-covered
+    // sources reuse the SAME window (1.7). Passing `undefined` bounds would make
+    // `buildDateRangeFilter` return null for the custom preset, and the reconciliation would
+    // then wipe the page's custom date range non-undoably — the exact bug this guards against.
+    let customFrom: string | undefined;
+    let customTo: string | undefined;
+    if (activePreset === 'custom') {
+      const existingCustom = dashboardDateRangeFilters.find(
+        (f) => f.dateRangePreset === 'custom' && f.value,
+      );
+      const value = existingCustom?.value as { from?: string; to?: string } | null | undefined;
+      customFrom = value?.from;
+      customTo = value?.to;
+    }
+    // System-initiated normalization (expanding persisted single-source coverage to newly
+    // injected sources), not an authored edit — commit non-undoably so it neither pushes an
+    // undo entry on mount nor clears the redo stack when it re-fires after an undo.
+    controller.setDashboardDateRangeAll(
+      activePageId,
+      sourceDateFields,
+      activePreset,
+      customFrom,
+      customTo,
+      { undoable: false },
+    );
   }, [activePageId, activePreset, controller, filters, sourceDateFields]);
 
   if (sourceDateFields.length === 0) {

@@ -109,6 +109,15 @@ export function PageFilterRow(props: PageFilterRowProps) {
     if (currentModeForRepair !== 'condition') {
       return;
     }
+    // 2.17: only repair against a RESOLVED field type. During a data-loading race the source
+    // may not be injected yet, so `fieldType` is `undefined`, `getOperators(undefined)` falls
+    // back to STRING_OPERATORS, and a valid stored date/number operator (`between`/
+    // `greater_than`) would look "invalid" and be permanently rewritten to `equals` — a
+    // non-undoable doc change caused merely by rendering during the race. Skip until the type
+    // actually resolves (either `filter.fieldType` present or the field-catalog lookup succeeded).
+    if (fieldType === undefined) {
+      return;
+    }
     const repair: Partial<StudioFilterState> = {};
     if (filter.operator && !operators.some((o) => o.value === filter.operator)) {
       repair.operator = operators[0].value;
@@ -119,13 +128,21 @@ export function PageFilterRow(props: PageFilterRowProps) {
     if (repair.operator !== undefined || repair.operator2 !== undefined) {
       controller.updateFilter(filter.id, repair, { undoable: false });
     }
-  }, [currentModeForRepair, filter.operator, filter.operator2, filter.id, operators, controller]);
+  }, [
+    currentModeForRepair,
+    fieldType,
+    filter.operator,
+    filter.operator2,
+    filter.id,
+    operators,
+    controller,
+  ]);
 
   const handleModeChange = (newMode: FilterMode) => {
     if (newMode === 'rank' && disableRankMode) {
       return;
     }
-    handleFilterChange(buildModeReset(newMode));
+    handleFilterChange(buildModeReset(newMode, fieldType));
   };
 
   // Phase 1: no field selected yet — show mode toggle + field picker

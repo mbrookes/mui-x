@@ -252,6 +252,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterSelectionNoValues: 'Nenhum valor encontrado.',
   filterSelectionAll: 'Todos',
   filterSelectionSelectedCount: (count) => `${count} selecionado${count === 1 ? '' : 's'}`,
+  filterSelectionCapHint: (cap) =>
+    `Mostrando os primeiros ${cap} valores. Digite para restringir a lista.`,
   filterSectionNoInteractiveFilters:
     'Nenhum filtro interativo ativo. Use widgets de filtro na tela para definir filtros.',
   filterSectionNoCrossFilters:

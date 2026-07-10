@@ -27,6 +27,9 @@ export function FieldDetailView() {
   const selectedFieldId = shell.selectedFieldId;
   const dataTypeLabels = useDataTypeLabels();
   const localeText = useStudioLocaleText();
+  // Unique per-mount id so two mounted <Studio> instances don't emit duplicate DOM ids
+  // (matches how `StudioDateRangeBar.tsx` derives its label id).
+  const numberFormatLabelId = React.useId();
   const source = shell.selectedSourceId ? dataSources[shell.selectedSourceId] : null;
   const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
 
@@ -74,11 +77,11 @@ export function FieldDetailView() {
           <Divider />
           <Box sx={{ py: 1.25 }}>
             <FormControl fullWidth size="small">
-              <InputLabel id="field-number-format-label">
+              <InputLabel id={numberFormatLabelId}>
                 {localeText.fieldDetailNumberFormatLabel}
               </InputLabel>
               <Select
-                labelId="field-number-format-label"
+                labelId={numberFormatLabelId}
                 label={localeText.fieldDetailNumberFormatLabel}
                 value={field.format ?? ''}
                 onChange={(event) => {

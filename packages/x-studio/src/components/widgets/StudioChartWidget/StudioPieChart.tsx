@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { PieChart } from '@mui/x-charts/PieChart';
-import type { PieChartProps } from '@mui/x-charts/PieChart';
+import { PieChart, PieArc } from '@mui/x-charts/PieChart';
+import type { PieChartProps, PieArcProps } from '@mui/x-charts/PieChart';
 import type { HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
@@ -15,6 +15,39 @@ import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
 import { ChartFieldTitleContext, ItemFieldTooltip } from './StudioChartFieldTooltip';
 
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+/**
+ * Dimming state for the grouped concentric-ring pie's slices, keyed by
+ * `${seriesId}:${dataIndex}` (a plain per-slice boolean isn't expressible via
+ * `PieValueType` — it only supports `id`/`value`/`label`/`color` — so, mirroring how
+ * `CrossHighlightPieArc` threads its ratio map through `PieHighlightContext` rather
+ * than baking it into `color`, dimming state is threaded through context to a custom
+ * `pieArc` slot instead).
+ */
+export const PieRingDimContext = React.createContext<Map<string, boolean> | null>(null);
+
+/**
+ * Ring-pie arc renderer: dims via `fill-opacity` (like `CrossHighlightPieArc`) rather
+ * than suffixing the slice's `color` with a hex alpha byte (`${color}40`), which
+ * silently renders fully opaque — losing the dim entirely — whenever a host supplies a
+ * non-hex color (a CSS variable, `rgb(...)`, `hsl(...)`, …) via `chartColors` or
+ * `theme.components.MuiPieChart.defaultProps.colors` (finding 3.7).
+ *
+ * Exported (like the sibling `CrossHighlightPieArc`) so it can be unit-tested directly
+ * against a mocked `PieArc` — see `RingDimmedPieArc.test.tsx`.
+ */
+export function RingDimmedPieArc(props: PieArcProps) {
+  const { seriesId, dataIndex } = props;
+  const dimMap = React.useContext(PieRingDimContext);
+  const isDimmed = dimMap?.get(`${seriesId}:${dataIndex}`) ?? false;
+  return (
+    <g style={{ fillOpacity: isDimmed ? 0.25 : 1 }}>
+      <PieArc {...props} />
+    </g>
+  );
+}
+
+const RING_PIE_SLOTS = { pieArc: RingDimmedPieArc } as const;
 
 function EmptyLegend() {
   return null;
@@ -281,6 +314,32 @@ export function StudioPieChart({
     otherBucketLabel,
   ]);
 
+  // Per-slice dim state for the grouped-ring `RingDimmedPieArc` slot, keyed by
+  // `${seriesId}:${dataIndex}` — see the `PieRingDimContext` comment above for why this
+  // can't be baked into `color`. Memoized (rather than rebuilt as a fresh `Map` every
+  // render inside the ring branch below) so the object passed to `PieRingDimContext.Provider`
+  // has a stable reference across renders that don't change the underlying ring data —
+  // otherwise every render would force-remount/re-evaluate every consumer of the context.
+  // Computed unconditionally (not inside the `if (seriesField && twoRingData)` branch
+  // below) so this hook is never called conditionally.
+  const ringDimMap = React.useMemo((): Map<string, boolean> => {
+    const map = new Map<string, boolean>();
+    if (!twoRingData) {
+      return map;
+    }
+    const { rings, filteredCategories, filteredSlicesByCategory } = twoRingData;
+    for (const ring of rings) {
+      const isCatDimmed = filteredCategories != null && !filteredCategories.has(ring.label);
+      const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
+      ring.slices.labels.forEach((label, i) => {
+        const catKey = String(label);
+        const isDimmed = isCatDimmed || (filteredSlices != null && !filteredSlices.has(catKey));
+        map.set(`${ring.id}:${i}`, isDimmed);
+      });
+    }
+    return map;
+  }, [twoRingData]);
+
   // ── Pie cross-highlight context ──────────────────────────────────────────────
   const isPieHighlightActive = Boolean(shouldShowGhost && allChartData && preserveXFieldBaseline);
   const pieRatioByIndex = React.useMemo((): Map<number, number> => {
@@ -342,7 +401,7 @@ export function StudioPieChart({
 
   // ── Grouped rings: one ring per xField category, slices by seriesField ──
   if (seriesField && twoRingData) {
-    const { rings, categoryOrder, filteredCategories, filteredSlicesByCategory } = twoRingData;
+    const { rings, categoryOrder } = twoRingData;
     const n = rings.length;
     if (n === 0) {
       return <div style={{ height }} />;
@@ -368,8 +427,6 @@ export function StudioPieChart({
     const pieSeries = rings.map((ring, ringIndex) => {
       const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
       const innerRadius = Math.max(donutHole, outerRadius - ringWidth);
-      const isCatDimmed = filteredCategories != null && !filteredCategories.has(ring.label);
-      const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
       const ringTotal = ring.slices.values.reduce((sum, v) => sum + (v ?? 0), 0);
 
       // For multi-ring, compute per-ring arc label props
@@ -391,7 +448,6 @@ export function StudioPieChart({
         valueFormatter: (item: { value: number }) => valueFormatter(item.value),
         data: ring.slices.labels.map((label, i) => {
           const catKey = String(label);
-          const isDimmed = isCatDimmed || (filteredSlices != null && !filteredSlices.has(catKey));
           const baseColor = categoryColor.get(catKey) ?? pieColors[i % pieColors.length];
           const showLegend = !legendAssigned.has(catKey);
           if (showLegend) {
@@ -406,7 +462,10 @@ export function StudioPieChart({
               : (location: 'legend' | 'tooltip' | 'arc') =>
                   location === 'tooltip' ? formatLabel(label) : '',
             value: ring.slices.values[i] ?? 0,
-            color: isDimmed ? `${baseColor}40` : baseColor,
+            // Always the real colour — dimming is applied via `fill-opacity` by
+            // `RingDimmedPieArc` (reading `ringDimMap` through `PieRingDimContext`), not by
+            // suffixing an alpha byte here (finding 3.7).
+            color: baseColor,
           };
         }),
         highlightScope: { highlight: 'item' as const, fade: 'series' as const },
@@ -414,26 +473,29 @@ export function StudioPieChart({
     });
 
     return (
-      <PieChart
-        {...slotProps}
-        height={twoRingPieH}
-        skipAnimation={skipAnimation}
-        series={pieSeries}
-        colors={pieColors}
-        {...(pieLegendBelow && {
-          slotProps: {
-            legend: {
-              direction: 'vertical' as const,
-              position: { vertical: 'bottom' as const, horizontal: 'center' as const },
+      <PieRingDimContext.Provider value={ringDimMap}>
+        <PieChart
+          {...slotProps}
+          height={twoRingPieH}
+          skipAnimation={skipAnimation}
+          series={pieSeries}
+          colors={pieColors}
+          slots={RING_PIE_SLOTS}
+          {...(pieLegendBelow && {
+            slotProps: {
+              legend: {
+                direction: 'vertical' as const,
+                position: { vertical: 'bottom' as const, horizontal: 'center' as const },
+              },
             },
-          },
-        })}
-        margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
-        highlightedItem={controlledHighlightedItem}
-        onHighlightChange={(item) =>
-          onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-        }
-      />
+          })}
+          margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
+          highlightedItem={controlledHighlightedItem}
+          onHighlightChange={(item) =>
+            onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
+        />
+      </PieRingDimContext.Provider>
     );
   }
 

@@ -271,7 +271,17 @@ export function useChartWidgetData(
       const sid = s.sourceId;
       const rows =
         !sid || sid === widget.sourceId ? enrichedRows : (foreignRowsBySource.get(sid) ?? []);
-      return [{ fieldId: s.fieldId, rows, yAggregation: s.yAggregation }];
+      // Default the resolved sourceId to the widget's primary source (mirroring the
+      // `rows` fallback above) so the output always carries a concrete sourceId for
+      // the (fieldId, sourceId) pair-matching consumers rely on (finding 2.12).
+      return [
+        {
+          fieldId: s.fieldId,
+          sourceId: sid ?? widget.sourceId ?? '',
+          rows,
+          yAggregation: s.yAggregation,
+        },
+      ];
     });
     if (inputs.length === 0) {
       return null;

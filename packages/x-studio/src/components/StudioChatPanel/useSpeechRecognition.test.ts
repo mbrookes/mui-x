@@ -12,6 +12,8 @@ class MockSpeechRecognition {
 
   interimResults = false;
 
+  lang = '';
+
   onresult: ((event: MockSpeechRecognitionEvent) => void) | null = null;
 
   onerror: (() => void) | null = null;
@@ -186,5 +188,37 @@ describe('useSpeechRecognition', () => {
     });
     unmount();
     expect(mockInstance.stopSpy).toHaveBeenCalled();
+  });
+
+  // Regression coverage for finding 3.15: `recognition.lang` was never set, so
+  // dictation always followed the browser/OS default instead of the app's active
+  // locale (when the caller can supply one).
+  describe('lang', () => {
+    it('sets recognition.lang from the lang argument', () => {
+      const { result } = renderHook(() => useSpeechRecognition('fr-FR'));
+      act(() => {
+        result.current.start();
+      });
+      expect(mockInstance.lang).toBe('fr-FR');
+    });
+
+    it('leaves recognition.lang unset (browser default) when no lang is provided', () => {
+      const { result } = renderHook(() => useSpeechRecognition());
+      act(() => {
+        result.current.start();
+      });
+      expect(mockInstance.lang).toBe('');
+    });
+
+    it('uses the latest lang value at start() time without requiring a new start callback', () => {
+      const { result, rerender } = renderHook(({ lang }) => useSpeechRecognition(lang), {
+        initialProps: { lang: 'de-DE' },
+      });
+      rerender({ lang: 'es-ES' });
+      act(() => {
+        result.current.start();
+      });
+      expect(mockInstance.lang).toBe('es-ES');
+    });
   });
 });

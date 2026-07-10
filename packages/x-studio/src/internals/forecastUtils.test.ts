@@ -191,6 +191,41 @@ describe('computeWidgetForecast', () => {
     }
   });
 
+  // Regression coverage for finding 3.12: the lower confidence band used to be
+  // unconditionally floored at 0 via `Math.max(0, v - stdError)`, which is correct for a
+  // "no negative counts" measure (e.g. units sold) but wrong for a series that
+  // legitimately takes negative values (e.g. net margin) — the fix only floors at 0 when
+  // the historical series itself never went negative.
+  it('still floors the lower band at 0 for a historical series that never goes negative', () => {
+    // Noisy but always-positive counts with a large enough stdError that an unclamped
+    // lower band would dip below 0.
+    const result = computeWidgetForecast(historicalLabels, [10, 1, 20, 2], {
+      enabled: true,
+      periods: 2,
+      showConfidenceBands: true,
+    });
+    expect(result!.lowerBand).not.toBeNull();
+    for (let i = 4; i < 6; i += 1) {
+      expect(result!.lowerBand![i]!).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('does not floor the lower band at 0 for a historical series with legitimately negative values', () => {
+    // A net-margin-style series that dips negative historically — the forecast's lower
+    // band must be allowed to go negative too, not clamped to 0.
+    const negativeHistory: (number | null)[] = [-10, -30, -5, -40];
+    const result = computeWidgetForecast(historicalLabels, negativeHistory, {
+      enabled: true,
+      periods: 2,
+      showConfidenceBands: true,
+    });
+    expect(result!.lowerBand).not.toBeNull();
+    // At least one forecast-range lower-band value must be negative (pre-fix, every one
+    // would have been clamped to exactly 0 regardless of the regression's actual output).
+    const forecastRangeLower = result!.lowerBand!.slice(4, 6) as number[];
+    expect(forecastRangeLower.some((v) => v < 0)).toBe(true);
+  });
+
   it('uses default 3 periods when periods is not specified', () => {
     const result = computeWidgetForecast(historicalLabels, historicalValues, {
       enabled: true,

@@ -818,6 +818,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartSankeyRequiresFieldsHint: 'Das Sankey-Diagramm erfordert Quell-, Ziel- und Wertfelder.',
   chartGanttRequiresFieldsHint:
     'Das Gantt-Diagramm erfordert ein Beschriftungsfeld sowie Felder für Start- und Enddatum.',
+  chartGanttDurationLabel: 'Dauer:',
+  chartCrossFilterFilteredOutLabel: 'gefiltert',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -855,6 +857,22 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionAddPage: 'Neue Seite hinzufügen',
   aiSuggestionSummarisePage: 'Seite zusammenfassen',
   aiSuggestionWhatDataAvailable: 'Welche Daten sind verfügbar?',
+  aiSuggestionBarChartPrompt: (numericLabel, catLabel, sourceLabel) =>
+    `Füge ein Balkendiagramm hinzu, das ${numericLabel} nach ${catLabel} aus den Daten von ${sourceLabel} zeigt.`,
+  aiSuggestionKpiPrompt: (fieldLabel, sourceLabel) =>
+    `Füge eine KPI-Karte hinzu, die den Gesamtwert von ${fieldLabel} aus ${sourceLabel} zeigt.`,
+  aiSuggestionTablePrompt: (sourceLabel) =>
+    `Füge eine Datentabelle hinzu, die Datensätze aus ${sourceLabel} zeigt.`,
+  aiSuggestionChangeToLinePrompt: (widgetTitle) =>
+    `Ändere das Widget „${widgetTitle}“ in ein Liniendiagramm.`,
+  aiSuggestionAddSparklinePrompt: (widgetTitle) =>
+    `Füge dem KPI-Widget „${widgetTitle}“ eine Sparkline hinzu.`,
+  aiSuggestionAddDateFilterPrompt: 'Füge dem Dashboard ein Datumsbereichsfilter-Widget hinzu.',
+  aiSuggestionAddPagePrompt: 'Erstelle eine neue Dashboard-Seite.',
+  aiSuggestionSummarisePagePrompt:
+    'Gib mir eine Management-Zusammenfassung der wichtigsten Erkenntnisse dieser Seite — konzentriere dich auf die Daten, Trends und Auffälligkeiten statt auf die Seitenstruktur.',
+  aiSuggestionWhatDataAvailablePrompt:
+    'Welche Datenquellen und Felder stehen zum Erstellen dieses Dashboards zur Verfügung?',
   chatNewConversationName: 'Neues Gespräch',
   chatSwitchConversationTooltip: 'Unterhaltung wechseln',
   chatNoConversationsLabel: 'Noch keine Gespräche',
@@ -1076,6 +1094,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   exprBooleanValueAriaLabel: 'Boolescher Wert',
   filterRankDirectionAriaLabel: 'Rangfolge-Richtung',
   filterRankCountLabel: 'Anzahl der Elemente',
+  filterSliderMinimumAriaLabel: (label) => `${label} Minimum`,
+  filterSliderMaximumAriaLabel: (label) => `${label} Maximum`,
   filterRelativeDateUnitAriaLabel: 'Zeiteinheit',
   filterRelativeDateDirectionAriaLabel: 'Richtung',
   filterDateModeAriaLabel: 'Datumswertetyp',

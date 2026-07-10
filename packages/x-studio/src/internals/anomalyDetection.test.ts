@@ -192,6 +192,42 @@ describe('detectChartDataAnomalies', () => {
       expect(annotations).toHaveLength(1);
       expect(annotations[0].value).toBe('2024-W04');
     });
+
+    // Regression coverage for the Tier 3 finding: trimEdges used to trim by raw ARRAY
+    // index (0 / length-1), not by chronological period. When `chartSortBy: 'value'` is
+    // active, the chart's `labels`/`values` arrays are sorted by aggregated value, not
+    // chronologically — so the array's first/last position no longer corresponds to the
+    // first/last calendar period, and the old index-based trim suppressed whichever
+    // points happened to sort into those positions instead of the genuine edge periods.
+    it('trims the chronologically first/last period even when the arrays are value-sorted, not index 0/length-1', () => {
+      // Same underlying data as the "suppresses edge outliers" case above (the true
+      // partial-period outliers are W01 low and W08 high), reordered so neither the
+      // chronologically-first nor chronologically-last period sits at array index 0 or
+      // length-1 (simulating `chartSortBy: 'value'`, which is not a value-ascending
+      // sort here — the point is simply that array position no longer matches
+      // chronological position at either edge).
+      const valueSortedLabels = [
+        '2024-W03', // 11
+        '2024-W08', // 500 (chronological edge, high outlier) — NOT at array index length-1
+        '2024-W04', // 10
+        '2024-W06', // 10
+        '2024-W01', // 2   (chronological edge, low outlier) — NOT at array index 0
+        '2024-W05', // 12
+        '2024-W07', // 11
+        '2024-W02', // 10
+      ];
+      const valueSortedValues = [11, 500, 10, 10, 2, 12, 11, 10];
+
+      const annotations = detectChartDataAnomalies(
+        'w1',
+        valueSortedLabels,
+        valueSortedValues,
+        true,
+      );
+      // Both chronological edges must be suppressed regardless of their array position.
+      expect(annotations.some((a) => a.value === '2024-W01')).toBe(false);
+      expect(annotations.some((a) => a.value === '2024-W08')).toBe(false);
+    });
   });
 });
 

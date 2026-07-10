@@ -37,16 +37,20 @@ export function generateSuggestions(
       if (numericField && catField) {
         suggestions.push({
           label: localeText.aiSuggestionBarChart(numericField.label, catField.label),
-          value: `Add a bar chart showing ${numericField.label} by ${catField.label} from the ${source.label} data.`,
+          value: localeText.aiSuggestionBarChartPrompt(
+            numericField.label,
+            catField.label,
+            source.label,
+          ),
         });
         suggestions.push({
           label: localeText.aiSuggestionKpi(numericField.label),
-          value: `Add a KPI card showing the total ${numericField.label} from ${source.label}.`,
+          value: localeText.aiSuggestionKpiPrompt(numericField.label, source.label),
         });
       } else if (source.fields.length > 0) {
         suggestions.push({
           label: localeText.aiSuggestionTable(source.label),
-          value: `Add a data table showing records from ${source.label}.`,
+          value: localeText.aiSuggestionTablePrompt(source.label),
         });
       }
     }
@@ -54,7 +58,7 @@ export function generateSuggestions(
     if (suggestions.length < 3) {
       suggestions.push({
         label: localeText.aiSuggestionWhatDataAvailable,
-        value: 'What data sources and fields are available for building this dashboard?',
+        value: localeText.aiSuggestionWhatDataAvailablePrompt,
       });
     }
   } else {
@@ -67,7 +71,7 @@ export function generateSuggestions(
       if (first) {
         suggestions.push({
           label: localeText.aiSuggestionChangeToLine(first.title),
-          value: `Change the "${first.title}" widget to a line chart.`,
+          value: localeText.aiSuggestionChangeToLinePrompt(first.title),
         });
       }
     }
@@ -77,7 +81,7 @@ export function generateSuggestions(
       if (first) {
         suggestions.push({
           label: localeText.aiSuggestionAddSparkline(first.title),
-          value: `Add a sparkline to the "${first.title}" KPI widget.`,
+          value: localeText.aiSuggestionAddSparklinePrompt(first.title),
         });
       }
     }
@@ -91,20 +95,19 @@ export function generateSuggestions(
       if (hasDateSource) {
         suggestions.push({
           label: localeText.aiSuggestionAddDateFilter,
-          value: 'Add a date range filter widget to the dashboard.',
+          value: localeText.aiSuggestionAddDateFilterPrompt,
         });
       }
     }
 
     suggestions.push({
       label: localeText.aiSuggestionAddPage,
-      value: 'Create a new dashboard page.',
+      value: localeText.aiSuggestionAddPagePrompt,
     });
 
     suggestions.push({
       label: localeText.aiSuggestionSummarisePage,
-      value:
-        'Give me an executive summary of the key insights from this page — focus on the data, trends, and any anomalies rather than the page structure.',
+      value: localeText.aiSuggestionSummarisePagePrompt,
     });
   }
 

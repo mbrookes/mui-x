@@ -61,7 +61,10 @@ export function StudioWidgetExpandDialog(props: StudioWidgetExpandDialogProps) {
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="h6" noWrap>
-            {widget.config?.cardExpandTitle || widget.title || 'Chart'}
+            {/* The expand dialog is chart-only (see `capabilities.expand` in
+                builtinWidgetDefs.ts), so the fallback title is always the localized
+                "Chart" kind label rather than a hardcoded English literal (finding 3.13). */}
+            {widget.config?.cardExpandTitle || widget.title || localeText.widgetKindChart}
           </Typography>
           {effectiveSubtitle && (
             <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>

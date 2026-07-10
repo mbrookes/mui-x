@@ -818,6 +818,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     'El diagrama de Sankey requiere campos de origen, destino y valor.',
   chartGanttRequiresFieldsHint:
     'El diagrama de Gantt requiere un campo de etiqueta, un campo de fecha de inicio y uno de fecha de fin.',
+  chartGanttDurationLabel: 'Duración:',
+  chartCrossFilterFilteredOutLabel: 'filtrado',
 
   // Map widget
   widgetConfigureMapFieldHint: (fieldLabel) =>
@@ -855,6 +857,22 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionAddPage: 'Agregar nueva página',
   aiSuggestionSummarisePage: 'Resumir la página',
   aiSuggestionWhatDataAvailable: '¿Qué datos están disponibles?',
+  aiSuggestionBarChartPrompt: (numericLabel, catLabel, sourceLabel) =>
+    `Agrega un gráfico de barras que muestre ${numericLabel} por ${catLabel} a partir de los datos de ${sourceLabel}.`,
+  aiSuggestionKpiPrompt: (fieldLabel, sourceLabel) =>
+    `Agrega una tarjeta KPI que muestre el total de ${fieldLabel} de ${sourceLabel}.`,
+  aiSuggestionTablePrompt: (sourceLabel) =>
+    `Agrega una tabla de datos que muestre los registros de ${sourceLabel}.`,
+  aiSuggestionChangeToLinePrompt: (widgetTitle) =>
+    `Cambia el widget «${widgetTitle}» a un gráfico de líneas.`,
+  aiSuggestionAddSparklinePrompt: (widgetTitle) =>
+    `Agrega una sparkline al widget KPI «${widgetTitle}».`,
+  aiSuggestionAddDateFilterPrompt: 'Agrega un widget de filtro de rango de fechas al panel.',
+  aiSuggestionAddPagePrompt: 'Crea una nueva página del panel.',
+  aiSuggestionSummarisePagePrompt:
+    'Dame un resumen ejecutivo de los principales hallazgos de esta página — céntrate en los datos, las tendencias y cualquier anomalía en lugar de en la estructura de la página.',
+  aiSuggestionWhatDataAvailablePrompt:
+    '¿Qué fuentes de datos y campos están disponibles para construir este panel?',
   chatNewConversationName: 'Nueva conversación',
   chatSwitchConversationTooltip: 'Cambiar conversación',
   chatNoConversationsLabel: 'Aún no hay conversaciones',
@@ -1074,6 +1092,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   exprBooleanValueAriaLabel: 'Valor booleano',
   filterRankDirectionAriaLabel: 'Dirección de clasificación',
   filterRankCountLabel: 'Número de elementos',
+  filterSliderMinimumAriaLabel: (label) => `${label} mínimo`,
+  filterSliderMaximumAriaLabel: (label) => `${label} máximo`,
   filterRelativeDateUnitAriaLabel: 'Unidad de tiempo',
   filterRelativeDateDirectionAriaLabel: 'Dirección',
   filterDateModeAriaLabel: 'Tipo de valor de fecha',

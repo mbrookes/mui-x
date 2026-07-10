@@ -407,8 +407,13 @@ describe('StudioPieChart', () => {
       const smb = sliceByValue(props, 0, 5);
       const enterprise = sliceByValue(props, 0, 7);
       expect(smb!.color).toBe('#222');
-      // Dim colour is reconciled with the resolved palette (base + '40'), like the single ring.
-      expect(enterprise!.color).toBe('#11140');
+      // The dimmed slice keeps its REAL, un-suffixed colour (finding 3.7) — dimming is
+      // applied via `fill-opacity` by `RingDimmedPieArc` (the `pieArc` slot, reading a
+      // per-slice dim map through `PieRingDimContext`), not by string-concatenating an
+      // alpha byte onto `color` here. See `RingDimmedPieArc.test.tsx` for direct coverage
+      // of the fill-opacity behaviour.
+      expect(enterprise!.color).toBe('#111');
+      expect(props.slots?.pieArc).toBeDefined();
     });
   });
 

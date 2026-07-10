@@ -2,6 +2,7 @@ import { detectAnomaliesIQR } from '@mui/x-studio-schema';
 import { isWidgetOfKind } from '../models';
 import type { StudioChartConfig, StudioWidget } from '../models';
 import type { StudioChartAnnotation } from '../models/widgetTypes';
+import { sortLabels } from './temporalUtils';
 // Tukey IQR detection now lives in the shared `@mui/x-studio-schema` package
 // (previously duplicated here and, byte-for-byte, in the AI middleware's mcp.ts).
 // Re-exported so existing callers importing it from this module keep working.
@@ -111,15 +112,22 @@ export function detectChartDataAnomalies(
     return [];
   }
   const outlierIndices = detectAnomaliesIQR(cleanValues);
-  const lastIdx = cleanValues.length - 1;
   const annotations: StudioChartAnnotation[] = [];
   const seen = new Set<string>();
   let counter = 0;
+  // Trim by the chronologically first/last PERIOD, not by raw array position:
+  // `cleanLabels`/`cleanValues` are in whatever order the chart renders them, which is
+  // chronological only when `chartSortBy` is unset/`'category'`. Under `chartSortBy:
+  // 'value'` (offered for every bar/line chart), the arrays are sorted by aggregated
+  // value instead — index 0 / length-1 would then suppress the most extreme-VALUE
+  // points instead of the partial first/last periods this option exists to exclude.
+  const chronoFirstLabel = trimEdges ? sortLabels(cleanLabels)[0] : undefined;
+  const chronoLastLabel = trimEdges ? sortLabels(cleanLabels)[cleanLabels.length - 1] : undefined;
   for (const idx of outlierIndices) {
-    if (trimEdges && (idx === 0 || idx === lastIdx)) {
+    const value = cleanLabels[idx];
+    if (trimEdges && (value === chronoFirstLabel || value === chronoLastLabel)) {
       continue;
     }
-    const value = cleanLabels[idx];
     const key = `${typeof value}:${String(value)}`;
     if (seen.has(key)) {
       continue;

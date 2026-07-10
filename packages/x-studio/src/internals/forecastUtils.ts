@@ -311,10 +311,15 @@ export function computeWidgetForecast(
       values[n - 1],
       ...forecastValues.map((v) => v + stdError),
     ];
+    // Only floor the lower band at 0 when the historical series itself never went
+    // negative (e.g. counts/revenue) — a series that legitimately takes negative values
+    // (net margin, balance, temperature, …) would otherwise have its lower confidence
+    // band incorrectly clamped to 0 (finding 3.12).
+    const hasNegativeHistory = values.some((v) => v != null && v < 0);
     lowerBand = [
       ...Array(n - 1).fill(null),
       values[n - 1],
-      ...forecastValues.map((v) => Math.max(0, v - stdError)),
+      ...forecastValues.map((v) => (hasNegativeHistory ? v - stdError : Math.max(0, v - stdError))),
     ];
   }
 

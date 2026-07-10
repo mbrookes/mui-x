@@ -525,6 +525,40 @@ describe('StudioBarChart', () => {
       expect(props.series[0].valueFormatter!(20, { dataIndex: 0 })).toBe('12 / 20');
     });
 
+    // Regression coverage for finding 3.9: the ghost "Other" bucket's sum previously
+    // iterated every non-kept label in the FILTERED dataset, including an empty-string
+    // label bucket — which the baseline aggregation (`nonEmptyBarPairs`) always excludes.
+    // A large filtered value on the empty-label bucket therefore leaked into the "Other"
+    // ghost total, which could then exceed the "Other" bar's own (baseline) height.
+    it('excludes the empty-label bucket from the ghost "Other" sum, matching the baseline\'s exclusion', () => {
+      renderChart(
+        baseProps({
+          // Same shape as the aligned-ghost test above, but the underlying source also has
+          // an empty-category bucket with a large value — excluded from BOTH the display
+          // and the baseline "Other" sum (10 + 5 = 15, unaffected by the empty bucket).
+          allChartData: { labels: ['', 'A', 'B', 'C', 'D'], values: [100, 10, 5, 20, 15] },
+          // Filtered subset: the empty bucket's filtered value (100) must NOT be folded
+          // into the "Other" ghost sum — only A's filtered value (6) should be.
+          chartData: { labels: ['', 'C', 'A'], values: [100, 12, 6] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+          barMaxCategories: 3,
+        }),
+      );
+      const props = lastBarProps();
+      // Rendered display order/baseline unaffected by the empty bucket.
+      expect(props.xAxis[0].data).toEqual(['C', 'D', 'Other']);
+      expect(props.series[0].data).toEqual([20, 15, 15]);
+
+      const filtered = capturedBarCtx!.filteredValuesBySeriesId['cross-filter-series'];
+      // "Other" ghost sum must be A's filtered value only (6), not 106 (which would also
+      // fold in the empty bucket's filtered value of 100) — and must not exceed the
+      // "Other" bar's own baseline height (15).
+      expect(filtered[2]).toBe(6);
+      expect(filtered[2]).not.toBe(106);
+      expect(filtered[2]!).toBeLessThanOrEqual(15);
+    });
+
     it('feeds the SourceSelectionContext the display-order multi-select indices', () => {
       renderChart(
         baseProps({

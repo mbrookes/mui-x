@@ -155,6 +155,56 @@ describe('StudioMixedChart', () => {
     expect(byId['count-1']).toBe('bar');
   });
 
+  // Regression for finding 2.12: two blended series can share a fieldId across DIFFERENT
+  // sources (e.g. `amount` from `orders` blended with `amount` from `refunds`) — matching
+  // config by fieldId alone config-matches the second series to the first's `ySeries`
+  // entry, rendering it with the wrong type/label/format. Blended `multiYData.series`
+  // entries carry a `sourceId` (see `aggregateBlendedSeries`/`blendedMultiYData`), so the
+  // match must consider the `(fieldId, sourceId)` pair.
+  it('matches blended series config by (fieldId, sourceId), not fieldId alone, when two sources share a field id', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [],
+    };
+    const refundsSource: StudioDataSource = {
+      id: 'refunds',
+      label: 'Refunds',
+      fields: [{ id: 'amount', label: 'Refund Amount', type: 'number' }],
+      rows: [],
+    };
+    renderMixed(
+      baseProps({
+        multiYData: {
+          labels: ['Jan', 'Feb'],
+          series: [
+            { fieldId: 'amount', sourceId: 'orders', values: [100, 200] },
+            { fieldId: 'amount', sourceId: 'refunds', values: [10, 20] },
+          ],
+        },
+        ySeries: [
+          { fieldId: 'amount', sourceId: 'orders', seriesType: 'bar' },
+          { fieldId: 'amount', sourceId: 'refunds', seriesType: 'line' },
+        ] as unknown as StudioMixedChartProps['ySeries'],
+        dataSources: { orders: ordersSource, refunds: refundsSource },
+        dataSource: ordersSource,
+        widgetSourceId: 'orders',
+        isBlended: true,
+      }),
+    );
+    const props = lastProps();
+    // Both series render with distinct ids ('amount-0', 'amount-1') since ids are
+    // fieldId + array index, not just fieldId.
+    const byId = Object.fromEntries(props.series.map((s) => [s.id, s]));
+    expect(byId['amount-0'].type).toBe('bar');
+    // Pre-fix, matching by fieldId alone would resolve the SECOND (refunds) series to
+    // the FIRST config entry it finds for fieldId 'amount' (the orders/bar one),
+    // rendering it as a bar with the orders series' label instead of its own.
+    expect(byId['amount-1'].type).toBe('line');
+    expect(props.series.map((s) => s.label)).toEqual(['Amount', 'Refund Amount']);
+  });
+
   // Regression for finding 2.2: aggregateBlendedSeries drops fieldless ySeries entries
   // (`blendSeries.flatMap((s) => s.fieldId ? [...] : [])`) before building `multiYData`,
   // so a half-configured series row (no fieldId yet — the state the setup panel passes

@@ -34,6 +34,7 @@ interface SpeechRecognitionEventLocal extends Event {
 interface SpeechRecognitionInstance extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
+  lang: string;
   onresult: ((event: SpeechRecognitionEventLocal) => void) | null;
   onerror: (() => void) | null;
   onend: (() => void) | null;
@@ -62,14 +63,28 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
  * The hook exposes a `transcript` string that the caller can append to a
  * controlled input. Transcription is continuous — it accumulates until `stop()`
  * is called or the browser ends the session automatically (e.g. silence).
+ *
+ * @param lang - BCP-47 language tag (e.g. `'fr-FR'`) to set on the recognition
+ *   session, so dictation follows the app's active locale rather than always
+ *   falling back to the browser/OS default (finding 3.15). The caller is
+ *   responsible for resolving this from whatever locale signal the host app
+ *   uses — `StudioLocaleText` itself carries only translated strings, not a
+ *   BCP-47 tag (see `countryUtils.ts`'s `Intl.DisplayNames` comment for the
+ *   same distinction). Omit to keep the previous behavior (browser default).
  */
-export function useSpeechRecognition(): UseSpeechRecognitionReturn {
+export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn {
   const Ctor = React.useMemo(() => getSpeechRecognitionCtor(), []);
   const isSupported = Ctor !== null;
 
   const recognitionRef = React.useRef<SpeechRecognitionInstance | null>(null);
   const [isListening, setIsListening] = React.useState(false);
   const [transcript, setTranscript] = React.useState('');
+
+  // Read the latest `lang` at `start()` time without making `start` (and therefore
+  // every consumer's callback deps) churn on every render when the caller passes a
+  // fresh literal.
+  const langRef = React.useRef(lang);
+  langRef.current = lang;
 
   const start = React.useCallback(() => {
     if (!Ctor || recognitionRef.current) {
@@ -79,6 +94,9 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     const recognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
+    if (langRef.current) {
+      recognition.lang = langRef.current;
+    }
 
     recognition.onresult = (event: SpeechRecognitionEventLocal) => {
       let full = '';

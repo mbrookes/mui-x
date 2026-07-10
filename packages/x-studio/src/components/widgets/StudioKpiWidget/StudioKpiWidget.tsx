@@ -32,6 +32,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
+  selectGlobalCrossFilterMode,
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { formatNumber } from '../../../internals/numberFormat';
@@ -868,7 +869,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // from summary cards; 'cross-filter' opts in to context-sensitivity.
   // 'cross-highlight' is not applicable to KPIs (no visual row representation), but treat
   // it as 'cross-filter' for backward compatibility with any saved dashboard configs.
-  const crossFilterModeRaw = (config as StudioWidgetConfig).crossFilterMode;
+  //
+  // The dashboard-wide `globalCrossFilterMode` override takes precedence over the
+  // widget's own config, matching the resolution every other widget kind uses
+  // (`useWidgetRows`: `globalCrossFilterMode ?? config.crossFilterMode ?? default`) — ARCHITECTURE.md
+  // documents no KPI-specific exception to that precedence, so omitting it here was a
+  // silent divergence rather than deliberate grand-total semantics (finding 3.8):
+  // toggling the dashboard-wide mode should still override a KPI's own 'none' setting
+  // exactly as it overrides a chart's/grid's, even though a KPI's OWN default (absent
+  // any override) is 'none' rather than 'cross-highlight'.
+  const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  const crossFilterModeRaw =
+    globalCrossFilterMode ?? (config as StudioWidgetConfig).crossFilterMode;
   const crossFilterMode =
     crossFilterModeRaw === 'cross-highlight' ? 'cross-filter' : (crossFilterModeRaw ?? 'none');
 
@@ -986,10 +998,20 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const showSparkline = (config.kpiSparkline ?? false) && hasData;
 
   // Show an indicator when crossFilterMode is 'none' and there are active interactive
-  // filters from other widgets that this KPI is intentionally ignoring.
+  // filters from other widgets that this KPI is intentionally ignoring. Also verify
+  // `pageId`/`disabled` — without them this previously flagged filters that could never
+  // actually apply to this page/widget in the first place (a disabled filter-widget
+  // selection, or one scoped to a different page), showing the icon with nothing real
+  // being ignored (finding 3.8).
   const hasIgnoredInteractiveFilters =
     crossFilterMode === 'none' &&
-    filters.some((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId !== widget.id);
+    filters.some(
+      (f) =>
+        !f.disabled &&
+        f.scope.kind === 'interactive' &&
+        f.scope.sourceWidgetId !== widget.id &&
+        f.scope.pageId === pageId,
+    );
 
   return (
     <Box

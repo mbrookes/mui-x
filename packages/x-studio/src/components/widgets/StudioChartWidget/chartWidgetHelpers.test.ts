@@ -11,6 +11,8 @@ import {
   formatPercentValue,
   isAreaStacked,
   isBarStacked,
+  makeCrossFilterValueFormatter,
+  makeCrossHighlightLineFormatter,
   makeValueFormatter,
   normalizeCrossFilterValue,
   getTemporalSortOrder,
@@ -398,5 +400,56 @@ describe('sortMultiYTemporally', () => {
     expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
     expect(result.series[0].values).toEqual([1, 2, 3]);
     expect(result.series[1].values).toEqual([100, 200, 300]);
+  });
+});
+
+// ─── makeCrossFilterValueFormatter / makeCrossHighlightLineFormatter ──────────
+//
+// Regression coverage for finding 2.13: the "(filtered out)" tooltip suffix was
+// hardcoded English with no locale token, unlike every other string in the same
+// tooltip. Both factories now take an explicit `filteredOutLabel` (threaded from
+// `StudioLocaleText.chartCrossFilterFilteredOutLabel` at the chart call sites) and
+// only fall back to the English literal when a caller omits it.
+
+describe('makeCrossFilterValueFormatter', () => {
+  const baseFormatter = (v: number | null) => (v == null ? '' : `$${v}`);
+
+  it('uses the provided localized label for a fully-filtered-out value', () => {
+    const formatter = makeCrossFilterValueFormatter([null], baseFormatter, 'filtré');
+    expect(formatter(100, { dataIndex: 0 })).toBe('$100 (filtré)');
+  });
+
+  it('falls back to the English literal when no label is provided', () => {
+    const formatter = makeCrossFilterValueFormatter([null], baseFormatter);
+    expect(formatter(100, { dataIndex: 0 })).toBe('$100 (filtered out)');
+  });
+
+  it('shows "filtered / total" when the filtered value differs from the total', () => {
+    const formatter = makeCrossFilterValueFormatter([40], baseFormatter, 'filtré');
+    expect(formatter(100, { dataIndex: 0 })).toBe('$40 / $100');
+  });
+
+  it('shows just the base value when filtered equals total (no active cross-filter narrowing)', () => {
+    const formatter = makeCrossFilterValueFormatter([100], baseFormatter, 'filtré');
+    expect(formatter(100, { dataIndex: 0 })).toBe('$100');
+  });
+});
+
+describe('makeCrossHighlightLineFormatter', () => {
+  const baseFormatter = (v: number | null) => (v == null ? '' : `$${v}`);
+
+  it('uses the provided localized label when the point is filtered out (value is null)', () => {
+    const formatter = makeCrossHighlightLineFormatter([100], baseFormatter, 'filtré');
+    expect(formatter(null, { dataIndex: 0 })).toBe('$100 (filtré)');
+  });
+
+  it('falls back to the English literal when no label is provided', () => {
+    const formatter = makeCrossHighlightLineFormatter([100], baseFormatter);
+    expect(formatter(null, { dataIndex: 0 })).toBe('$100 (filtered out)');
+  });
+
+  it('shows "value / baseline" when the point differs from the baseline', () => {
+    const formatter = makeCrossHighlightLineFormatter([100], baseFormatter, 'filtré');
+    expect(formatter(40, { dataIndex: 0 })).toBe('$40 / $100');
   });
 });

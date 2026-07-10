@@ -130,7 +130,7 @@ describe('compileArcMark', () => {
     expect(compiled.series).to.have.length(0);
   });
 
-  it('reports gaps for theta2/radius/radius2/order channels', () => {
+  it('reports gaps for theta2/radius/radius2 channels', () => {
     const compiled = compileSpec({
       data: { values: rows },
       mark: 'arc',
@@ -140,11 +140,6 @@ describe('compileArcMark', () => {
         theta2: { field: 'amount' },
         radius: { field: 'amount' },
         radius2: { field: 'amount' },
-        // A `text` field matching the `color` field maps cleanly onto
-        // `arcLabel: 'label'` (see the dedicated arc-label tests) — it
-        // reports no gap of its own, so it isn't part of this "unsupported
-        // channel" test.
-        order: { field: 'amount' },
       },
     });
     const codes = compiled.gaps.map((entry) => entry.code);
@@ -152,7 +147,73 @@ describe('compileArcMark', () => {
     expect(codes).to.include('encoding:arc-radius');
     expect(codes).to.include('encoding:arc-radius2');
     expect(codes).not.to.include('encoding:arc-text-label');
+  });
+
+  it('reorders slices by a surviving group field (descending) and emits no arc-order gap', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'arc',
+      encoding: {
+        theta: { field: 'amount', aggregate: 'sum', type: 'quantitative' },
+        color: { field: 'category', type: 'nominal' },
+        // `category` survives aggregation as a group column, so it is read
+        // directly from the rows; descending flips the natural A,B order.
+        order: { field: 'category', sort: 'descending' },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:arc-order');
+    const pieSeries = compiled.series[0] as unknown as { data: PieValueType[] };
+    expect(pieSeries.data.map((slice) => slice.id)).to.deep.equal(['B', 'A']);
+  });
+
+  it('sorts by the aggregated slice value when the `order` field references the (renamed) theta measure', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'arc',
+      encoding: {
+        theta: { field: 'amount', aggregate: 'sum', type: 'quantitative' },
+        color: { field: 'category', type: 'nominal' },
+        // `amount` is consumed by the theta aggregation and no longer exists as
+        // a column; ordering by it falls back to the slice value (ascending).
+        order: { field: 'amount' },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:arc-order');
+    const pieSeries = compiled.series[0] as unknown as { data: PieValueType[] };
+    expect(pieSeries.data.map((slice) => slice.id)).to.deep.equal(['A', 'B']);
+  });
+
+  it('reorders slices descending when `order.sort` is "descending"', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'arc',
+      encoding: {
+        theta: { field: 'amount', aggregate: 'sum', type: 'quantitative' },
+        color: { field: 'category', type: 'nominal' },
+        order: { field: 'amount', sort: 'descending' },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:arc-order');
+    const pieSeries = compiled.series[0] as unknown as { data: PieValueType[] };
+    // B (sum 20) now comes before A (sum 15).
+    expect(pieSeries.data).to.deep.equal([
+      { id: 'B', value: 20, label: 'B' },
+      { id: 'A', value: 15, label: 'A' },
+    ]);
+  });
+
+  it('keeps a partial arc-order gap for an order spec it cannot interpret', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'arc',
+      encoding: {
+        theta: { field: 'amount', aggregate: 'sum', type: 'quantitative' },
+        color: { field: 'category', type: 'nominal' },
+        // A field-less aggregate has no per-slice value to sort by.
+        order: { aggregate: 'count' },
+      },
+    });
     const orderGap = compiled.gaps.find((entry) => entry.code === 'encoding:arc-order');
-    expect(orderGap?.severity).to.equal('ignored');
+    expect(orderGap?.severity).to.equal('partial');
   });
 });

@@ -48,7 +48,8 @@
  *
  * ## Combining with RedisCacheProvider
  *
- * For a fully shared multi-node cache stack, use both:
+ * For a fully shared multi-node cache stack, use both — safely, EVEN on one
+ * shared Redis client with no `keyPrefix` on either provider:
  * ```ts
  * const dataCache  = new RedisCacheProvider(redis, { defaultTtlSeconds: 30 });
  * const tierCache  = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 300 });
@@ -60,6 +61,19 @@
  *   tierCacheProvider: tierCache,
  * });
  * ```
+ * `handleBatchQuery` (`handler.ts`) namespaces the tier plane's key with
+ * `TIER_CACHE_KEY_PREFIX` (`'tier:'`, exported from `router/tierDecision.ts`)
+ * before ever calling into this provider, so the data-cache entry (key
+ * `studio:v1:<tenant>:<sec>:<query>`) and the tier-cache entry (key
+ * `tier:studio:v1:<tenant>:<sec>:<query>`) never collide — even sharing one
+ * Redis client with no `keyPrefix` on either provider, as above. Without this
+ * prefix, an identical key string would let the two planes silently overwrite
+ * each other (a `RedisTierCacheProvider` write clobbering the data cache's
+ * `CacheEntry`, or vice-versa, and a concurrent reader misparsing one shape as
+ * the other). A host that calls THIS provider directly (bypassing `handler.ts`)
+ * and shares a Redis client with a `RedisCacheProvider` should still apply a
+ * distinguishing `keyPrefix` to one of the two, since the namespacing above is
+ * only applied by `handler.ts`, not by this class itself.
  *
  * ## Key format
  *

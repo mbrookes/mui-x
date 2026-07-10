@@ -48,7 +48,24 @@ import type { BatchWidgetDescriptor } from '../security/types';
  * (allowlist-bypass regression)` in `queryBuilder.test.ts` for the pinned property.)
  */
 export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string): string {
-  return descriptor.columnAliases?.[column] ?? column;
+  const aliases = descriptor.columnAliases;
+  // Gate on an OWN-property check BEFORE the lookup (finding 2.4). `column` is
+  // client JSON, and a plain object literal inherits from `Object.prototype`, so a
+  // bare `aliases?.[column] ?? column` on a `column` naming an inherited member
+  // (`"constructor"`, `"toString"`, `"__proto__"`, …) resolves to a truthy
+  // inherited function/object instead of `undefined`, defeating the `?? column`
+  // fallback and letting a non-string `ColumnRef` flow downstream (a `TypeError`
+  // in the allowlist check, or a silently-dropped filter when Knex treats the
+  // function as a grouped-where callback). Restrict to own string entries — the
+  // same fail-closed posture as `applyHaving`'s opMap gate — so an inherited key
+  // resolves to the literal `column` string, exactly like any unmapped reference.
+  if (aliases && Object.prototype.hasOwnProperty.call(aliases, column)) {
+    const mapped = aliases[column];
+    if (typeof mapped === 'string') {
+      return mapped;
+    }
+  }
+  return column;
 }
 
 /**
@@ -75,7 +92,14 @@ export function checkColumnAgainstAllowlist(
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;
 
-  const allowed = allowlist[table];
+  // Own-property gate (finding 2.4): `table` is derived from a client-qualified
+  // column name, and `allowlist` is a plain object, so a qualified reference such
+  // as `constructor.x` would otherwise read the inherited `Object.prototype`
+  // member (a truthy function) and BYPASS the fail-closed "has no entry" branch
+  // below, then crash on `allowed.includes`. Treat a non-own key as "no entry".
+  const allowed = Object.prototype.hasOwnProperty.call(allowlist, table)
+    ? allowlist[table]
+    : undefined;
   if (!allowed) {
     throw new Error(
       `MUI X Studio Server: Table "${table}" has no entry in the column allowlist (${context}). ` +

@@ -250,7 +250,13 @@ function synthesizeProjectionFromAllowlist(
   table: string,
   columnAllowlist: Record<string, string[]>,
 ): void {
-  const allowed = columnAllowlist[table];
+  // Own-property gate (finding 2.4), matching `checkColumnAgainstAllowlist`: a
+  // primary `table` naming an inherited `Object.prototype` member would otherwise
+  // read a truthy inherited value and skip the fail-closed "has no entry" throw,
+  // then crash on `.includes`. Treat a non-own key as "no entry".
+  const allowed = Object.prototype.hasOwnProperty.call(columnAllowlist, table)
+    ? columnAllowlist[table]
+    : undefined;
   if (!allowed) {
     // Same message (and therefore same extracted error code) as
     // `checkColumnAgainstAllowlist`'s "has no entry" throw — the context token is

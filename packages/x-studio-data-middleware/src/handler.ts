@@ -38,32 +38,18 @@ import {
   type CompiledSecurityPolicy,
 } from './security/compileSecurityPolicy';
 import { validateQueryPlan, type ValidatedQueryPlan } from './security/validateQueryPlan';
-import { LRUCacheProvider } from './cache/LRUCacheProvider';
-import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
+import { getDefaultCache, getDefaultTierCache } from './cache/defaultProviders';
 import { runPreflight } from './router/preflight';
 import { executeForTier } from './router/execute';
-import { decideTierWithCache, DEFAULT_THRESHOLDS } from './router/tierDecision';
+import {
+  decideTierWithCache,
+  DEFAULT_THRESHOLDS,
+  TIER_CACHE_KEY_PREFIX,
+} from './router/tierDecision';
 import { assertTablesAllowed } from './shared/assertTablesAllowed';
-import type { CacheProvider, TierCacheProvider } from './cache/types';
+import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
-
-let defaultCache: CacheProvider | undefined;
-let defaultTierCache: TierCacheProvider | undefined;
-
-function getDefaultCache(): CacheProvider {
-  if (!defaultCache) {
-    defaultCache = new LRUCacheProvider();
-  }
-  return defaultCache;
-}
-
-function getDefaultTierCache(): TierCacheProvider {
-  if (!defaultTierCache) {
-    defaultTierCache = new MapTierCacheProvider();
-  }
-  return defaultTierCache;
-}
 
 /**
  * Handle a batch query request from a Studio dashboard.
@@ -154,7 +140,20 @@ async function processWidget(
 
   try {
     // ── 1. Data cache check ────────────────────────────────────────────────
-    const cached = await cacheProvider.get(cacheKey);
+    // The cache is a best-effort layer in FRONT of the authoritative DB: a cache
+    // read failure (e.g. Redis down) must degrade to a fresh DB fetch, not fail
+    // the widget. Catch here and treat the error as a miss (finding 2.6).
+    let cached: CacheEntry | undefined;
+    try {
+      cached = await cacheProvider.get(cacheKey);
+    } catch (cacheErr) {
+      cached = undefined;
+      console.warn(
+        `MUI X Studio Server: cache read failed for a widget; falling back to the database. ` +
+          `The result is still served from the DB, but the cache backend should be checked. ` +
+          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+      );
+    }
     if (cached) {
       return {
         id: descriptor.id,
@@ -181,7 +180,9 @@ async function processWidget(
 
     const tierDecision = await decideTierWithCache(
       hasAggregations,
-      cacheKey,
+      // Namespace the tier plane's key so it can never collide with the data
+      // plane's entry for the same widget on a shared Redis client (finding 2.1).
+      TIER_CACHE_KEY_PREFIX + cacheKey,
       () => runPreflight(db, claims, descriptor, queryOptions, plan).then((p) => p.rowCount),
       tierCacheProvider,
       resolvedThresholds,
@@ -216,11 +217,21 @@ async function processWidget(
     // table would leave joined rows stale until TTL. Persist `rowCount` so a
     // later cache hit reports the same total as the cold miss.
     if (tier !== 'db' || !hasAggregations) {
-      await cacheProvider.set(
-        cacheKey,
-        { rows, cachedAt: Date.now(), tier, rowCount },
-        { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
-      );
+      // The rows are already in hand from the DB — a cache WRITE failure must not
+      // discard them. Catch and degrade to "served, uncached" (finding 2.6).
+      try {
+        await cacheProvider.set(
+          cacheKey,
+          { rows, cachedAt: Date.now(), tier, rowCount },
+          { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
+        );
+      } catch (cacheErr) {
+        console.warn(
+          `MUI X Studio Server: cache write failed for a widget; the result is still returned. ` +
+            `Subsequent requests will re-query the DB until the cache backend recovers. ` +
+            `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+        );
+      }
     }
 
     return {

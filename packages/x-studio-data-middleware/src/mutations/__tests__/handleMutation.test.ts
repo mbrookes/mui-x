@@ -327,6 +327,42 @@ describe('handleMutation — cache invalidation', () => {
       handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
     ).resolves.toMatchObject({ results: [{ id: 'm1', ok: true }] });
   });
+
+  // Regression for finding 2.6: a throwing `deleteByTag` (e.g. Redis down) used to
+  // be inside the SAME try/catch as the DB write, so a cache-backend failure after
+  // a SUCCESSFULLY COMMITTED insert reported `ok: false` — a reasonable client
+  // retry on that false failure would then insert a DUPLICATE row. The fix wraps
+  // the cache invalidation in its own try/catch so a committed write is always
+  // reported as such.
+  it('reports ok=true for a committed insert even when deleteByTag throws (cache failure must not poison the result)', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const throwingCache: CacheProvider = {
+      async get() {
+        return undefined;
+      },
+      async set() {},
+      async invalidatePrefix() {},
+      async deleteByTag() {
+        throw new Error('Redis is down');
+      },
+    };
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'pending' } },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+      cacheProvider: throwingCache,
+    });
+    // The row WAS committed to the DB…
+    expect(db.snapshot().orders).toHaveLength(1);
+    // …so the result must report success, not a spurious failure that could
+    // prompt a client retry and a duplicate insert.
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+  });
 });
 
 // ── WHERE-column allowlist ────────────────────────────────────────────────────

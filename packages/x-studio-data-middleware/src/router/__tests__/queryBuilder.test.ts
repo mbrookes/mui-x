@@ -44,10 +44,21 @@ function createRecordingDb() {
   // Join methods use Knex's callback form: `join(table, function () { this.on(...) })`.
   // Record the join once (with only the table), then run the callback against a
   // context whose `.on()` records each condition — so a composite-key join is a
-  // single join with multiple `on` calls (not one join per pair).
+  // single join with multiple `on` calls (not one join per pair). `andOnVal`/
+  // `andOnIn` are the ON-clause analogues of `where`/`whereIn` (finding 2.3) that
+  // `applySecurityPredicatesToJoinOn` uses to scope an outer join's nullable side
+  // WITHOUT dropping unmatched rows the way a WHERE predicate would.
   const joinCtx = {
     on(...args: unknown[]) {
       calls.push({ method: 'on', args });
+      return joinCtx;
+    },
+    andOnVal(...args: unknown[]) {
+      calls.push({ method: 'andOnVal', args });
+      return joinCtx;
+    },
+    andOnIn(...args: unknown[]) {
+      calls.push({ method: 'andOnIn', args });
       return joinCtx;
     },
   };
@@ -328,6 +339,34 @@ describe('buildSecureQuery', () => {
       );
       expect(calls).toContainEqual({ method: 'where', args: ['status', '=', 'active'] });
     });
+
+    // Regression for finding 2.4: an EMPTY `columnAliases` object still inherits
+    // from `Object.prototype`. Before the own-property gate, a filter naming an
+    // inherited member (`constructor`, `toString`, …) resolved `resolveAlias` to
+    // the inherited FUNCTION rather than `undefined`, and Knex's `.where(fn, ...)`
+    // silently treats a function first-argument as a grouped-where callback,
+    // dropping the user's filter instead of filtering on the literal column name.
+    it.each(['constructor', 'toString', 'hasOwnProperty', '__proto__'])(
+      'filters on the literal column name "%s" (not an inherited Object.prototype member) with an empty columnAliases map',
+      (column) => {
+        const { db, calls } = createRecordingDb();
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          descriptor({
+            columnAliases: {},
+            filters: [{ column, operator: 'eq', value: 'x' }],
+          }),
+          { tenancy: SINGLE_TENANT },
+        );
+        // The literal string column name reaches `.where(...)` as the first arg —
+        // never a function (which would signal Knex's grouped-where form instead).
+        const whereCall = calls.find((c) => c.method === 'where' && c.args[2] === 'x');
+        expect(whereCall).toBeDefined();
+        expect(whereCall!.args[0]).toBe(column);
+        expect(typeof whereCall!.args[0]).toBe('string');
+      },
+    );
   });
 
   describe('joins', () => {
@@ -435,6 +474,106 @@ describe('buildSecureQuery', () => {
       const joinIdx = indexOf(calls, 'leftJoin');
       const securityIdx = indexOf(calls, 'where', (c) => c.args[0] === 'sales.tenant_id');
       expect(joinIdx).toBeLessThan(securityIdx);
+    });
+  });
+
+  describe('outer-join security predicate placement (finding 2.3 — no INNER-join degradation)', () => {
+    // Regression: a joined-table (or, for RIGHT joins, primary-table) security
+    // predicate placed in WHERE silently drops every NULL-extended row an outer
+    // join was meant to preserve, turning a LEFT/RIGHT join into an INNER join.
+    // The fix moves the NULLABLE side's predicate into the JOIN's ON clause via
+    // `andOnVal`/`andOnIn` instead.
+
+    it('LEFT JOIN: scopes the joined (nullable) table in ON, not WHERE', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      // The joined table's tenant predicate is bound to the ON clause…
+      expect(calls).toContainEqual({
+        method: 'andOnVal',
+        args: ['customers.tenant_id', '=', 'acme'],
+      });
+      // …and is NEVER emitted as a WHERE predicate against the joined table (which
+      // would drop unmatched/NULL-extended rows and silently degrade to INNER JOIN).
+      expect(
+        calls.some((c) => c.method === 'where' && String(c.args[0]).startsWith('customers.')),
+      ).toBe(false);
+      // The PRIMARY table (non-nullable side of a LEFT join) is still WHERE-scoped.
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+    });
+
+    it('RIGHT JOIN: scopes the primary (nullable) table in ON, not WHERE', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'right', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      // The PRIMARY table's tenant predicate is bound to the ON clause (it is the
+      // nullable side of a RIGHT join)…
+      expect(calls).toContainEqual({
+        method: 'andOnVal',
+        args: ['sales.tenant_id', '=', 'acme'],
+      });
+      // …and is NEVER emitted as a WHERE predicate against the primary table.
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'sales.tenant_id')).toBe(
+        false,
+      );
+      // The JOINED table (non-nullable side of a RIGHT join) is still WHERE-scoped.
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+    });
+
+    it('INNER JOIN (default): both sides stay WHERE-scoped (equivalent to ON placement)', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.tenant_id', '=', 'acme'] });
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+      expect(calls.some((c) => c.method === 'andOnVal')).toBe(false);
+    });
+
+    it('LEFT JOIN: region/department predicates on the joined table also move to ON', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        { ...BASE_CLAIMS, regionIds: [1, 2], department: 'ops' },
+        descriptor({
+          joins: [
+            { table: 'customers', type: 'left', on: [['sales.customer_id', 'customers.id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'andOnIn',
+        args: ['customers.region_id', [1, '1', 2, '2']],
+      });
+      expect(calls).toContainEqual({
+        method: 'andOnVal',
+        args: ['customers.department', '=', 'ops'],
+      });
+      expect(
+        calls.some((c) => c.method === 'whereIn' && String(c.args[0]).startsWith('customers.')),
+      ).toBe(false);
     });
   });
 
@@ -727,9 +866,58 @@ describe('buildSecureQuery', () => {
         });
         const havingCall = calls.find((c) => c.method === 'havingRaw');
         expect(havingCall).toBeDefined();
-        expect(havingCall!.args[1]).toEqual(['total', 1]);
+        // Finding 2.5 — re-emits the aggregate EXPRESSION (qualified physical
+        // column), not the SELECT output alias, so HAVING stays valid on
+        // PostgreSQL (which rejects an alias reference in HAVING).
+        expect(havingCall!.args[0]).toMatch(/^SUM\(\?\?\)/);
+        expect(havingCall!.args[1]).toEqual(['sales.amount', 1]);
       },
     );
+
+    // Regression for finding 2.5: PostgreSQL rejects `HAVING <select-alias> op ?`
+    // (`42703 column ... does not exist`); MySQL/SQLite silently tolerate it. The
+    // fix must NEVER emit the bare alias as the havingRaw identifier binding.
+    it('never binds the SELECT output alias as the HAVING identifier (dialect portability)', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, BASE_CLAIMS, havingDescriptor('gt'), { tenancy: SINGLE_TENANT });
+      const havingCall = calls.find((c) => c.method === 'havingRaw');
+      expect(havingCall!.args[1]).not.toContain('total');
+    });
+
+    it('qualifies the aggregate column with the primary table to avoid join ambiguity', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          aggregations: [{ column: 'revenue', func: 'sum', alias: 'total_revenue' }],
+          having: [{ alias: 'total_revenue', operator: 'gt', value: 10_000 }],
+        }),
+        { tenancy: SINGLE_TENANT },
+      );
+      const havingCall = calls.find((c) => c.method === 'havingRaw');
+      expect(havingCall!.args[0]).toBe('SUM(??) > ?');
+      expect(havingCall!.args[1]).toEqual(['sales.revenue', 10_000]);
+    });
+
+    it('emits the correct aggregate function for each supported HAVING aggregation', () => {
+      const funcs = ['sum', 'avg', 'count', 'min', 'max'] as const;
+      const expectedSql = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX'];
+      funcs.forEach((func, i) => {
+        const { db, calls } = createRecordingDb();
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          descriptor({
+            aggregations: [{ column: 'amount', func, alias: 'agg_alias' }],
+            having: [{ alias: 'agg_alias', operator: 'gt', value: 1 }],
+          }),
+          { tenancy: SINGLE_TENANT },
+        );
+        const havingCall = calls.find((c) => c.method === 'havingRaw');
+        expect(havingCall!.args[0]).toBe(`${expectedSql[i]}(??) > ?`);
+      });
+    });
 
     // Regression: `opMap` is a plain object literal that inherits from
     // `Object.prototype`, so a `!op` falsiness guard alone let an operator naming

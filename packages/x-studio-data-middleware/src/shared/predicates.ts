@@ -183,12 +183,74 @@ export function applySecurityPredicates(
   securityColumns: SecurityColumns | undefined,
   mode: 'read' | 'write',
 ): void {
+  emitSecurityPredicates(
+    table,
+    claims,
+    securityColumns,
+    mode,
+    (column, value) => query.where(column, '=', value),
+    (column, values) => query.whereIn(column, values),
+  );
+}
+
+/**
+ * Apply the row-level security predicates for one table INSIDE a Knex JOIN's ON
+ * clause (rather than the WHERE clause).
+ *
+ * OUTER-JOIN CORRECTNESS (finding 2.3) — a joined table's security predicate in
+ * the WHERE clause silently degrades a LEFT/RIGHT JOIN to an INNER JOIN: for a
+ * `LEFT JOIN customers`, an `orders` row with no matching customer produces a
+ * NULL-extended row whose `customers.tenant_id` is NULL, so a
+ * `WHERE customers.tenant_id = :tenant` predicate is false and the row the caller
+ * explicitly asked to keep is dropped. Emitting the SAME predicate in the JOIN's
+ * ON clause instead scopes which rows JOIN (a matched joined row is still
+ * tenant-checked — no cross-tenant fan-out) while leaving genuinely-unmatched
+ * outer rows NULL-extended and present. `buildSecureQuery` uses this for the
+ * nullable side of each outer join and keeps WHERE placement for inner joins
+ * (equivalent) and the non-nullable primary table.
+ *
+ * Uses Knex's `andOnVal`/`andOnIn` — the ON-clause analogues of `where`/`whereIn`
+ * that bind the third argument as a VALUE (not an identifier), so the tenant/
+ * region/department values stay parameterized exactly as on the WHERE path.
+ */
+export function applySecurityPredicatesToJoinOn(
+  onBuilder: any,
+  table: string,
+  claims: JwtSecurityClaims,
+  securityColumns: SecurityColumns | undefined,
+  mode: 'read' | 'write',
+): void {
+  emitSecurityPredicates(
+    table,
+    claims,
+    securityColumns,
+    mode,
+    (column, value) => onBuilder.andOnVal(column, '=', value),
+    (column, values) => onBuilder.andOnIn(column, values),
+  );
+}
+
+// Single source of truth for WHICH row-level security predicates a table gets and
+// on which columns/values — shared by the WHERE-clause (`applySecurityPredicates`)
+// and ON-clause (`applySecurityPredicatesToJoinOn`) emitters so the two can never
+// drift on which dimensions are scoped, the `undefined`-vs-`[]` region semantics,
+// the empty-string department distinction, or the numeric+string region matching.
+// The callers (`emitEq`/`emitIn`) supply only the two Knex primitives — `.where`/
+// `.andOnVal` and `.whereIn`/`.andOnIn` respectively — that differ between clauses.
+function emitSecurityPredicates(
+  table: string,
+  claims: JwtSecurityClaims,
+  securityColumns: SecurityColumns | undefined,
+  mode: 'read' | 'write',
+  emitEq: (column: string, value: unknown) => void,
+  emitIn: (column: string, values: unknown[]) => void,
+): void {
   if (!securityColumns) {
     return;
   }
 
   if (securityColumns.tenant) {
-    query.where(`${table}.${securityColumns.tenant}`, '=', claims.tenantId);
+    emitEq(`${table}.${securityColumns.tenant}`, claims.tenantId);
   }
 
   // Distinguish "no region scoping" (undefined) from "authorized for zero
@@ -211,7 +273,7 @@ export function applySecurityPredicates(
     // the doc comment above. `[].flatMap(...)` stays `[]`, so the empty-scope
     // `1 = 0` behavior above is unaffected.
     const regionMatchValues = claims.regionIds.flatMap((id) => [id, String(id)]);
-    query.whereIn(`${table}.${securityColumns.region}`, regionMatchValues);
+    emitIn(`${table}.${securityColumns.region}`, regionMatchValues);
   }
 
   // `!== undefined` (not truthiness) — finding 3.3. `claims.department === ''`
@@ -224,7 +286,7 @@ export function applySecurityPredicates(
   // always emits a real predicate, which — for a table with no literal
   // empty-string department value — matches no rows rather than every row.
   if (securityColumns.department && claims.department !== undefined) {
-    query.where(`${table}.${securityColumns.department}`, '=', claims.department);
+    emitEq(`${table}.${securityColumns.department}`, claims.department);
   }
 }
 

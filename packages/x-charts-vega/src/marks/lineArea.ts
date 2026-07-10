@@ -178,6 +178,50 @@ function groupContinuousPoints(ctx: UnitContext, xField: string, yField: string)
 }
 
 /**
+ * Resolves a mark `color`/`fill`/`stroke` value to a solid color string.
+ * Vega-Lite also allows a gradient object (`{gradient, stops}`) here, but
+ * x-charts fills/strokes are solid — so a gradient is approximated by its
+ * highest-offset (typically most saturated) stop color and an `ignored` gap is
+ * recorded, rather than silently dropping it and falling back to the palette.
+ */
+function resolveMarkColor(
+  value: unknown,
+  gaps: UnitContext['gaps'],
+  path: string,
+): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    'gradient' in value &&
+    Array.isArray((value as { stops?: unknown }).stops)
+  ) {
+    const stops = (
+      value as unknown as { stops: Array<{ offset?: number; color?: unknown }> }
+    ).stops.filter((stop) => typeof stop.color === 'string');
+    gaps.add({
+      code: 'mark:gradient-fill',
+      message:
+        'A gradient `mark.color`/`fill` is not supported — x-charts line/area fills are a single ' +
+        'solid color. The gradient is approximated by its last color stop; use a solid `color`/`fill` ' +
+        'for an exact match.',
+      severity: 'ignored',
+      path: `${path}.mark`,
+    });
+    if (stops.length === 0) {
+      return undefined;
+    }
+    const last = stops.reduce((best, stop) =>
+      (stop.offset ?? 0) >= (best.offset ?? 0) ? stop : best,
+    );
+    return last.color as string;
+  }
+  return undefined;
+}
+
+/**
  * Builds a polyline (segments overlay) for a `line`/`trail` mark whose x is a
  * continuous quantitative axis — the one axis shape with no index-aligned
  * category domain to hang an x-charts line series on. Each color group becomes
@@ -193,10 +237,7 @@ function buildContinuousLineOverlay(
   const { palette } = ctx;
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
-  const staticStroke =
-    (typeof mark.color === 'string' && mark.color) ||
-    (typeof mark.stroke === 'string' && mark.stroke) ||
-    undefined;
+  const staticStroke = resolveMarkColor(mark.color ?? mark.stroke, ctx.gaps, ctx.unit.path);
 
   const items: OverlaySegment[] = [];
   order.forEach((key, groupIndex) => {
@@ -235,11 +276,11 @@ function buildContinuousAreaOverlay(
   const { palette } = ctx;
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
-  const staticFill =
-    (typeof mark.fill === 'string' && mark.fill) ||
-    (typeof mark.color === 'string' && mark.color) ||
-    (typeof mark.stroke === 'string' && mark.stroke) ||
-    undefined;
+  const staticFill = resolveMarkColor(
+    mark.fill ?? mark.color ?? mark.stroke,
+    ctx.gaps,
+    ctx.unit.path,
+  );
 
   const overlays: CompiledOverlay[] = [];
   order.forEach((key, groupIndex) => {
@@ -441,12 +482,16 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   } else {
     const staticColor =
       colorRes.staticColor ??
-      (markType === 'area'
-        ? (mark.fill ?? mark.color ?? mark.stroke)
-        : (mark.stroke ?? mark.color ?? mark.fill));
+      resolveMarkColor(
+        markType === 'area'
+          ? (mark.fill ?? mark.color ?? mark.stroke)
+          : (mark.stroke ?? mark.color ?? mark.fill),
+        gaps,
+        path,
+      );
     groups.push({
       key: SINGLE_GROUP_KEY,
-      color: typeof staticColor === 'string' ? staticColor : undefined,
+      color: staticColor,
     });
   }
 

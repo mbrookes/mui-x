@@ -130,6 +130,58 @@ function buildLineStyle(mark: UnitContext['unit']['mark']): React.CSSProperties 
   };
 }
 
+/** Stable key for a color-group value (mirrors the grouping used elsewhere). */
+function colorKey(value: unknown): string {
+  return value instanceof Date ? `d:${value.getTime()}` : String(value);
+}
+
+/**
+ * A per-row stroke color derived from the `color`/`fill`/`stroke` field
+ * encoding, so a color-split rule (e.g. a Gantt colored by task) paints each
+ * segment its group color instead of a single shared stroke. Colors come from an
+ * explicit `scale.range` (positionally matched to `scale.domain`, else
+ * first-appearance order) and fall back to the chart palette. Returns
+ * `undefined` when there is no color field — the shared `lineStyle` is used.
+ */
+function buildRowColor(ctx: UnitContext): ((row: DatasetRow) => string | undefined) | undefined {
+  const { encoding, rows, palette } = ctx;
+  const colorDef = [encoding.color, encoding.fill, encoding.stroke].find((def) => isFieldDef(def));
+  const field = isFieldDef(colorDef) ? colorDef.field : undefined;
+  if (!field) {
+    return undefined;
+  }
+  const scale = (colorDef as { scale?: { domain?: unknown[]; range?: string[] } }).scale;
+  const range = Array.isArray(scale?.range) ? scale.range : undefined;
+  const order: unknown[] = Array.isArray(scale?.domain) ? [...scale.domain] : [];
+  const seen = new Set(order.map(colorKey));
+  for (const row of rows) {
+    const value = row[field];
+    if (value == null || seen.has(colorKey(value))) {
+      continue;
+    }
+    seen.add(colorKey(value));
+    order.push(value);
+  }
+  const colorByKey = new Map<string, string>();
+  order.forEach((value, index) => {
+    colorByKey.set(colorKey(value), range?.[index] ?? palette[index % palette.length]);
+  });
+  return (row) => {
+    const value = row[field];
+    return value == null ? undefined : colorByKey.get(colorKey(value));
+  };
+}
+
+/** Merges a per-row stroke color over the shared line style (color-field wins over `mark.color`). */
+function styleForRow(
+  base: React.CSSProperties | undefined,
+  rowColor: ((row: DatasetRow) => string | undefined) | undefined,
+  row: DatasetRow,
+): React.CSSProperties | undefined {
+  const stroke = rowColor?.(row);
+  return stroke === undefined ? base : { ...base, stroke };
+}
+
 /**
  * `{value: N}` on a positional channel is a raw pixel offset in Vega-Lite,
  * not a data-domain value — there is no scale to invert it through here, so
@@ -260,6 +312,7 @@ function buildXSpanSegments(
   ctx: UnitContext,
   path: string,
   lineStyle: React.CSSProperties | undefined,
+  rowColor: ((row: DatasetRow) => string | undefined) | undefined,
   out: OverlaySegment[],
 ): void {
   const { encoding, rows, gaps } = ctx;
@@ -288,7 +341,7 @@ function buildXSpanSegments(
     if (x1 == null || x2Value == null || y == null) {
       return;
     }
-    out.push({ x1, x2: x2Value, y1: y, y2: y, style: lineStyle });
+    out.push({ x1, x2: x2Value, y1: y, y2: y, style: styleForRow(lineStyle, rowColor, row) });
   });
 }
 
@@ -300,6 +353,7 @@ function buildYSpanSegments(
   ctx: UnitContext,
   path: string,
   lineStyle: React.CSSProperties | undefined,
+  rowColor: ((row: DatasetRow) => string | undefined) | undefined,
   out: OverlaySegment[],
 ): void {
   const { encoding, rows, gaps } = ctx;
@@ -328,7 +382,7 @@ function buildYSpanSegments(
     if (y1 == null || y2Value == null || x == null) {
       return;
     }
-    out.push({ x1: x, x2: x, y1, y2: y2Value, style: lineStyle });
+    out.push({ x1: x, x2: x, y1, y2: y2Value, style: styleForRow(lineStyle, rowColor, row) });
   });
 }
 
@@ -337,6 +391,7 @@ function buildDiagonalSegments(
   ctx: UnitContext,
   path: string,
   lineStyle: React.CSSProperties | undefined,
+  rowColor: ((row: DatasetRow) => string | undefined) | undefined,
   out: OverlaySegment[],
 ): void {
   const { encoding, rows, gaps } = ctx;
@@ -353,7 +408,7 @@ function buildDiagonalSegments(
     if (x1 == null || x2Value == null || y1 == null || y2Value == null) {
       continue;
     }
-    out.push({ x1, x2: x2Value, y1, y2: y2Value, style: lineStyle });
+    out.push({ x1, x2: x2Value, y1, y2: y2Value, style: styleForRow(lineStyle, rowColor, row) });
   }
 }
 
@@ -372,6 +427,9 @@ export function compileRuleMark(ctx: UnitContext): CompiledUnit {
   }
 
   const lineStyle = buildLineStyle(mark);
+  // A color-field split paints each segment its group color (e.g. a Gantt
+  // colored by task); reference lines keep the shared style below.
+  const rowColor = buildRowColor(ctx);
   const referenceLines: CompiledReferenceLine[] = [];
   const segmentItems: OverlaySegment[] = [];
 
@@ -379,11 +437,11 @@ export function compileRuleMark(ctx: UnitContext): CompiledUnit {
   const hasYSegment = encoding.y !== undefined && encoding.y2 !== undefined;
 
   if (hasXSegment && hasYSegment) {
-    buildDiagonalSegments(ctx, path, lineStyle, segmentItems);
+    buildDiagonalSegments(ctx, path, lineStyle, rowColor, segmentItems);
   } else if (hasXSegment) {
-    buildXSpanSegments(ctx, path, lineStyle, segmentItems);
+    buildXSpanSegments(ctx, path, lineStyle, rowColor, segmentItems);
   } else if (hasYSegment) {
-    buildYSpanSegments(ctx, path, lineStyle, segmentItems);
+    buildYSpanSegments(ctx, path, lineStyle, rowColor, segmentItems);
   }
 
   if (!hasXSegment && !hasYSegment && encoding.x !== undefined && encoding.y !== undefined) {

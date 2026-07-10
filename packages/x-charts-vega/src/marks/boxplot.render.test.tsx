@@ -103,12 +103,11 @@ describe('<VegaLiteChart /> boxplot mark', () => {
     expect(xs[1]).not.to.equal(xs[3]);
   });
 
-  it('shrinks the dodge thickness by groupCount on the point-scale fallback width too (horizontal/categorical-y)', () => {
-    // A categorical y axis resolves to a point (not band) scale in this
-    // wrapper (see bar.test.ts's "compiles horizontal bars" comment), so a
-    // horizontal grouped box plot exercises the `bandwidth() === 0` fallback
-    // path — each group's slot must still shrink by groupCount so dodged
-    // boxes don't overlap.
+  it('dodges a horizontal (categorical-y) grouped box plot within its band without overlap', () => {
+    // A per-category mark's categorical axis now resolves to a BAND scale (see
+    // BAND_SCALE_MARKS in scales.ts), so dodged boxes size from the real band
+    // height and sit side-by-side inside it — no point-scale-edge overflow, and
+    // each group's slot still shrinks by groupCount so the boxes don't overlap.
     const groupedHorizontalSpec: VegaLiteSpec = {
       data: {
         values: [
@@ -130,13 +129,18 @@ describe('<VegaLiteChart /> boxplot mark', () => {
     );
     const rects = container.querySelectorAll('.MuiVegaOverlay-boxes rect');
     expect(rects.length).to.equal(2);
-    // Horizontal boxes use `height` for the (cross-axis) thickness. With the
-    // 20px point-scale fallback, default widthRatio 0.5, and groupCount 2,
-    // thickness must be (20 / 2) * 0.5 = 5 — not (20) * 0.5 = 10, which would
-    // make the two dodged groups' bands overlap.
-    const heights = Array.from(rects).map((rect) => Number(rect.getAttribute('height')));
-    expect(heights[0]).to.equal(5);
-    expect(heights[1]).to.equal(5);
+    // Horizontal boxes use `height` for the (cross-axis) thickness.
+    const boxes = Array.from(rects)
+      .map((rect) => ({
+        y: Number(rect.getAttribute('y')),
+        h: Number(rect.getAttribute('height')),
+      }))
+      .sort((a, b) => a.y - b.y);
+    // Both groups share an equal, positive thickness.
+    expect(boxes[0].h).to.be.greaterThan(0);
+    expect(boxes[0].h).to.equal(boxes[1].h);
+    // Dodged: the two groups occupy disjoint vertical slots (no overlap).
+    expect(boxes[0].y + boxes[0].h).to.be.at.most(boxes[1].y + 1e-6);
   });
 
   it('applies the median sub-mark color to the median line', () => {

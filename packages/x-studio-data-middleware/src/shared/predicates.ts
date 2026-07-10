@@ -63,6 +63,30 @@ export const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
 ]);
 
 /**
+ * Look up a table's per-table security-column override, own-property-gated.
+ *
+ * SECURITY (finding 2.2) — `table` is client JSON (`descriptor.table` /
+ * `joins[].table`). A bare `config.perTable[table]` reads the prototype chain, so a
+ * table named like an `Object.prototype` member (`constructor`, `toString`,
+ * `hasOwnProperty`, `__proto__`, …) would resolve `override` to a truthy INHERITED
+ * object instead of `undefined` — the one client-keyed lookup shape in the package
+ * that was not `hasOwnProperty`-gated like every sibling
+ * (`columnValidation`, `mutationBuilder`, `queryBuilder`, `validateQueryPlan`).
+ * Gating with `Object.prototype.hasOwnProperty.call` makes such a table fall through
+ * to the "no per-table override" default (own properties only), and also makes the
+ * lookup immune to host-side prototype pollution.
+ */
+function lookupPerTableOverride(
+  config: SecurityColumnsConfig | undefined,
+  table: string,
+): SecurityColumnOverride | null | undefined {
+  if (config?.perTable && Object.prototype.hasOwnProperty.call(config.perTable, table)) {
+    return config.perTable[table];
+  }
+  return undefined;
+}
+
+/**
  * Resolve the security column names for the PRIMARY table of a query/mutation.
  *
  * The tenant column is `perTable[table]?.tenant ?? resolvedTenantColumn`, where
@@ -77,7 +101,7 @@ export function resolvePrimarySecurityColumns(
   config: SecurityColumnsConfig | undefined,
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns {
-  const override: SecurityColumnOverride | null | undefined = config?.perTable?.[table];
+  const override: SecurityColumnOverride | null | undefined = lookupPerTableOverride(config, table);
   return {
     tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
     region: resolveDimension(override?.region, config?.region ?? 'region_id'),
@@ -125,7 +149,7 @@ export function resolveJoinSecurityColumns(
   config: SecurityColumnsConfig | undefined,
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns | undefined {
-  const override: SecurityColumnOverride | null | undefined = config?.perTable?.[table];
+  const override: SecurityColumnOverride | null | undefined = lookupPerTableOverride(config, table);
   // Whole-table opt-out: this joined table is a shared/lookup table with no tenant
   // column and must join unscoped.
   if (override === null) {

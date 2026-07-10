@@ -148,6 +148,124 @@ describe('compileSecurityPolicy — fail-closed contradiction check', () => {
   });
 });
 
+// ── Fail-closed tenant-column validation (finding 2.1) ────────────────────────
+//
+// `TenancyConfig.tenantColumn: string` is a COMPILE-TIME guarantee only. The
+// realistic misconfiguration is `tenantColumn: process.env.TENANT_COLUMN!` with
+// the env var unset (→ `undefined`) or set to `''`. Before this fix that passed
+// straight through and the downstream truthiness gate (`predicates.ts`
+// `if (securityColumns.tenant)`) emitted NO tenant predicate on any read or write,
+// skipped the insert force-stamp, and skipped the client-supplied-tenant rejection
+// — a deployment that BELIEVES it is multi-tenant ran fully cross-tenant unscoped.
+// Compilation must now fail CLOSED.
+describe('compileSecurityPolicy — fail-closed tenant-column validation (finding 2.1)', () => {
+  it.each([
+    ['an empty string', ''],
+    ['a whitespace-only string', '   '],
+  ])('throws when multi-tenant tenantColumn is %s', (_label, tenantColumn) => {
+    expect(() =>
+      compileSecurityPolicy({ tenancy: { mode: 'multi-tenant', tenantColumn } }),
+    ).toThrow(/multi-tenant.*tenantColumn/s);
+  });
+
+  it('throws when multi-tenant tenantColumn is undefined (unset env var)', () => {
+    expect(() =>
+      // Cast: the `undefined` here models an unset `process.env.TENANT_COLUMN!`,
+      // which the `tenantColumn: string` type cannot represent but runtime can.
+      compileSecurityPolicy({
+        tenancy: { mode: 'multi-tenant', tenantColumn: undefined as unknown as string },
+      }),
+    ).toThrow(/multi-tenant.*tenantColumn/s);
+  });
+
+  it('throws BEFORE producing a policy whose tenant predicate would be silently disabled (the insert-leak scenario)', () => {
+    // Prove the exact danger the throw prevents: with an empty tenant column the
+    // resolved tenant column is falsy (`''`), so the downstream truthiness gate
+    // (`emitSecurityPredicates` `if (securityColumns.tenant)`) emits NO tenant
+    // predicate, and an INSERT would neither force-stamp the tenant nor reject a
+    // client-supplied tenant value (`mutationBuilder` gates BOTH on `cols.tenant`).
+    // That silently-unscoped policy must never be handed back: compilation fails
+    // closed first.
+    expect(resolvePrimarySecurityColumns('orders', undefined, '').tenant).toBe('');
+    expect(Boolean(resolvePrimarySecurityColumns('orders', undefined, '').tenant)).toBe(false);
+    expect(() =>
+      compileSecurityPolicy({ tenancy: { mode: 'multi-tenant', tenantColumn: '' } }),
+    ).toThrow();
+  });
+
+  it('still compiles cleanly for a valid non-empty tenantColumn', () => {
+    expect(() =>
+      compileSecurityPolicy({ tenancy: { mode: 'multi-tenant', tenantColumn: 'tenant_id' } }),
+    ).not.toThrow();
+  });
+});
+
+// ── Fail-closed empty-string dimension override (finding 2.1) ─────────────────
+//
+// `perTable[t].tenant: ''` (and any empty-string dimension override) is an
+// UNDOCUMENTED third sentinel: `resolveDimension('')` returns `''`, which the
+// downstream truthiness gate silently skips, AND — for a per-table tenant — it
+// dodges the single-tenant contradiction check (which gates on `Boolean(entry.tenant)`).
+// It must be rejected as neither a rename (non-empty string) nor the `null` drop.
+describe('compileSecurityPolicy — fail-closed empty-string dimension override (finding 2.1)', () => {
+  it('throws for an empty-string perTable[t].tenant override (multi-tenant)', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { perTable: { customers: { tenant: '' } } },
+      }),
+    ).toThrow(/customers.*tenant/s);
+  });
+
+  it('throws for an empty-string perTable[t].tenant override under single-tenant (closes the contradiction-check escape hatch)', () => {
+    // Under single-tenant `Boolean('')` is false, so the contradiction check would
+    // NOT fire — the empty string used to silently opt the table out. Now the
+    // empty-string validation throws first.
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: SINGLE_TENANT,
+        securityColumns: { perTable: { customers: { tenant: '' } } },
+      }),
+    ).toThrow(/customers.*tenant/s);
+  });
+
+  it('throws for a whitespace-only perTable[t].region override', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { perTable: { audit_log: { region: '  ' } } },
+      }),
+    ).toThrow(/audit_log.*region/s);
+  });
+
+  it('throws for an empty-string top-level securityColumns.region', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { region: '' },
+      }),
+    ).toThrow(/securityColumns\.region/s);
+  });
+
+  it('throws for an empty-string top-level securityColumns.department', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { department: '' },
+      }),
+    ).toThrow(/securityColumns\.department/s);
+  });
+
+  it('still allows null (drop) and a real string (rename) in the same override', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { perTable: { audit_log: { region: null, department: 'dept' } } },
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe('compileSecurityPolicy — multi-tenant per-table overrides', () => {
   it('a perTable tenant override wins over the top-level tenancy.tenantColumn for that table', () => {
     const policy = compileSecurityPolicy({

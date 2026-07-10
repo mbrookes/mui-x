@@ -16,7 +16,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@mui/internal-test-utils';
-import type { StudioDataSource, StudioState, StudioWidgetOf } from '../../../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioState,
+  StudioWidgetOf,
+} from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   mockUseStudioSelector,
@@ -80,6 +85,40 @@ const ordersSource: StudioDataSource = {
 // Deliberately contains a ':' — the exact class of sourceId the legacy cacheKey parse
 // (`cacheKey.split(':')[0]`) truncates.
 const COLON_SOURCE_ID = 'db:public.products';
+
+// A second in-memory (no adapter) foreign source, used by the finding 2.2 regression
+// tests below (cross-page leak, preset date range, calculated foreign field).
+const inventorySource: StudioDataSource = {
+  id: 'inventory',
+  label: 'Inventory',
+  fields: [
+    { id: 'category', label: 'Category', type: 'string' },
+    { id: 'stock', label: 'Stock', type: 'number' },
+    { id: 'unitPrice', label: 'Unit Price', type: 'number' },
+    { id: 'restockedAt', label: 'Restocked At', type: 'date' },
+  ],
+  rows: [
+    { id: 'i1', category: 'Electronics', stock: 12, unitPrice: 5 },
+    { id: 'i2', category: 'Furniture', stock: 40, unitPrice: 20 },
+  ],
+};
+
+function inventoryBlendedWidget(fieldId: string): StudioWidgetOf<'chart'> {
+  return {
+    id: 'chart-blend-inventory',
+    kind: 'chart',
+    title: 'Revenue vs Inventory by Category',
+    sourceId: 'orders',
+    config: {
+      chartType: 'mixed',
+      xField: 'category',
+      ySeries: [
+        { fieldId: 'total', sourceId: 'orders', type: 'bar', yAggregation: 'sum' },
+        { fieldId, sourceId: 'inventory', type: 'line', yAggregation: 'sum' },
+      ],
+    },
+  };
+}
 
 function blendedWidget(): StudioWidgetOf<'chart'> {
   return {
@@ -218,5 +257,194 @@ describe('useBlendedSeriesRows — refetch failure must not serve stale rows (fi
     await waitFor(() => {
       expect(result.current.foreignRowsBySource.has(COLON_SOURCE_ID)).toBe(false);
     });
+  });
+});
+
+describe('useBlendedSeriesRows — page-scoped filters must not leak across pages (finding 2.2, facet a)', () => {
+  it('does not apply a page filter scoped to a DIFFERENT page to a foreign sync source', () => {
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-other-page',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            filterSourceId: 'inventory',
+            scope: { kind: 'page', pageId: 'page-2' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    // The chart lives on page-1 — a filter scoped to page-2 must not constrain it.
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    // Before the fix, `pageFilters` kept every `scope.kind === 'page'` filter without
+    // checking `scope.pageId`, so this page-2 filter incorrectly narrowed the foreign
+    // series down to the single 'Electronics' row.
+    expect(result.current.foreignRowsBySource.get('inventory')).toHaveLength(2);
+  });
+
+  it('DOES apply a page filter scoped to the same page as the chart (contrast case)', () => {
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-same-page',
+            field: 'category',
+            operator: 'equals',
+            value: 'Electronics',
+            filterSourceId: 'inventory',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].category).toBe('Electronics');
+  });
+});
+
+describe('useBlendedSeriesRows — dashboard date-range presets must be resolved, not skipped (finding 2.2, facet b)', () => {
+  it('resolves a dashboard-date-range preset filter and applies it to a foreign sync source', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const fiveYearsAgo = `${new Date().getFullYear() - 5}-01-01`;
+    const dateScopedInventory: StudioDataSource = {
+      ...inventorySource,
+      rows: [
+        { id: 'i1', category: 'Electronics', stock: 12, unitPrice: 5, restockedAt: today },
+        { id: 'i2', category: 'Furniture', stock: 40, unitPrice: 20, restockedAt: fiveYearsAgo },
+      ],
+    };
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: dateScopedInventory },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        filters: [
+          {
+            id: 'f-date-range',
+            field: 'restockedAt',
+            fieldType: 'date',
+            operator: 'between',
+            // A preset filter's value stays `null` until resolved at query time — see
+            // `resolveDateRangePresets`.
+            value: null,
+            dateRangePreset: 'last_3_months',
+            scope: { kind: 'dashboard-date-range', sourceId: 'inventory', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    // Before the fix, `isConditionComplete('between', null)` was `false`, so the whole
+    // filter was treated as incomplete and skipped — both the recent AND the
+    // 5-year-old row would render (unfiltered, all-time), instead of only the row
+    // within the "last 3 months" window.
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].id).toBe('i1');
+  });
+});
+
+describe('useBlendedSeriesRows — a foreign calculated field must be enriched, not render as zero (finding 2.2, facet c)', () => {
+  const stockValueExpr: StudioExpressionField = {
+    id: 'stockValue',
+    label: 'Stock Value',
+    sourceId: 'inventory',
+    isMeasure: false,
+    expression: {
+      operator: 'multiply',
+      inputs: [{ id: 'stock' }, { id: 'unitPrice' }],
+    },
+  };
+
+  it('enriches a calculated field used as a foreign blended series on the sync (in-memory) path', () => {
+    const widget = inventoryBlendedWidget('stockValue');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: { ...mockState.doc, expressionFields: [stockValueExpr] },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    // Before the fix, `expressionFields: []` was passed to `resolveRowsCached`, so
+    // `stockValue` was never L2-enriched — every row's value was `undefined`, which
+    // renders as zero after aggregation.
+    expect(rows?.find((r) => r.id === 'i1')?.stockValue).toBe(60);
+    expect(rows?.find((r) => r.id === 'i2')?.stockValue).toBe(800);
+  });
+
+  it('enriches a calculated field used as a foreign blended series on the adapter path', async () => {
+    const getRows = vi.fn().mockResolvedValue({
+      rows: [
+        { category: 'Electronics', stock: 12, unitPrice: 5 },
+        { category: 'Furniture', stock: 40, unitPrice: 20 },
+      ],
+    });
+    const adapterInventory: StudioDataSource = {
+      ...inventorySource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    const widget = inventoryBlendedWidget('stockValue');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: adapterInventory },
+    });
+    mockState = {
+      ...mockState,
+      doc: { ...mockState.doc, expressionFields: [stockValueExpr] },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    await waitFor(() => {
+      expect(getRows).toHaveBeenCalled();
+    });
+
+    // Before the fix, the adapter path never enriched the returned rows (no
+    // `getCachedEnrichedRows` pass), so `stockValue` would be `undefined` on every row.
+    await waitFor(() => {
+      const rows = result.current.foreignRowsBySource.get('inventory');
+      expect(rows?.find((r) => r.category === 'Electronics')?.stockValue).toBe(60);
+    });
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows?.find((r) => r.category === 'Furniture')?.stockValue).toBe(800);
   });
 });

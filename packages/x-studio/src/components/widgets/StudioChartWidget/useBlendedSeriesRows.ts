@@ -3,19 +3,23 @@
 import * as React from 'react';
 import type {
   StudioChartConfig,
+  StudioExpressionField,
   StudioFilterState,
   StudioQueryDescriptor,
   StudioWidgetOf,
 } from '../../../models';
 import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
 import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
+import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
 import { buildQueryDescriptor } from '../../../internals/queryDescriptor';
+import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   useStudioSelector,
   selectFilters,
   selectDataSources,
   selectRelationships,
+  makeSelectExpressionFieldsForSources,
 } from '../../../context';
 
 export interface BlendedSeriesRows {
@@ -34,10 +38,28 @@ export interface BlendedSeriesRows {
  * outer-joined onto the chart's category axis.
  *
  * This hook resolves the rows for every foreign source referenced by the widget's
- * `ySeries` — in-memory sources are read directly (and page-filtered) from the store,
+ * `ySeries` — in-memory sources are read directly (and filtered) from the store,
  * adapter-backed sources are fetched via their own adapter using a per-source query
  * descriptor. The single output consumed by the caller is `foreignRowsBySource`,
  * which the blended aggregation aligns against the primary series.
+ *
+ * Filter scoping and expression-field resolution are routed through the SAME shared
+ * helpers every other widget path uses (`selectFiltersForWidget` — the documented
+ * "single scoping authority", and the real per-source expression-field list) rather
+ * than hand-rolled matching, so a foreign series can't disagree with the primary
+ * series about which filters apply, whether a dashboard date-range preset is
+ * resolved, or whether a calculated field renders (finding 2.2):
+ * - Only page-scoped and dashboard-date-range filters constrain a foreign series
+ *   (widget-specific, cross-filter, interactive and rank filters are tied to the
+ *   primary widget/source) — achieved by scoping each foreign source's filters with
+ *   a synthetic widgetId (never matched by a real `scope: 'widget'` filter) and
+ *   `include: 'no-cross'`.
+ * - `selectFiltersForWidget` itself checks `scope.pageId`/`scope.sourceId` (so a
+ *   filter authored on a different page, or a dashboard-date-range filter for a
+ *   different source, never leaks in) and resolves any date-range preset
+ *   (`dateRangePreset` + `value: null`) to concrete bounds via
+ *   `resolveDateRangePresets`, instead of leaving it "incomplete" and silently
+ *   skipped.
  */
 export function useBlendedSeriesRows(
   widget: StudioWidgetOf<'chart'>,
@@ -61,26 +83,36 @@ export function useBlendedSeriesRows(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
 
-  // Page-scoped filters apply across the dashboard, so they also constrain foreign
-  // blended series. Widget-specific, cross-filter and rank filters are tied to the
-  // primary widget/source and are not applied to a foreign source's aggregation.
-  const pageFilters = React.useMemo(
-    () =>
-      filters.filter(
-        (f) =>
-          (f.scope.kind === 'page' || f.scope.kind === 'dashboard-date-range') &&
-          f.filterMode !== 'rank',
-      ),
-    [filters],
-  );
+  // Distinct foreign source ids referenced by the blended series — scopes the
+  // expression-fields subscription so editing an unrelated source's calculated
+  // fields doesn't re-render this hook (mirrors useWidgetRows' relevantSourceIds).
+  const foreignSourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (isBlended && blendSeries) {
+      for (const s of blendSeries) {
+        if (s.sourceId && s.sourceId !== widget.sourceId) {
+          ids.add(s.sourceId);
+        }
+      }
+    }
+    return ids;
+  }, [isBlended, blendSeries, widget.sourceId]);
 
-  // Distinct foreign sources referenced by the blended series, with the fields and
-  // page filters each needs. Split downstream into sync (in-memory) and async (adapter).
+  const selectForeignExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSources(foreignSourceIds),
+    [foreignSourceIds],
+  );
+  const foreignExpressionFields = useStudioSelector(selectForeignExpressionFields);
+
+  // Distinct foreign sources referenced by the blended series, with the fields, the
+  // shared scoped filter set, and the real expression fields each needs. Split
+  // downstream into sync (in-memory) and async (adapter).
   const foreignSpecs = React.useMemo(() => {
     const specs: {
       sid: string;
       fields: string[];
       applicable: StudioFilterState[];
+      expressionFields: StudioExpressionField[];
       hasAdapter: boolean;
     }[] = [];
     if (!isBlended || !blendSeries) {
@@ -107,13 +139,51 @@ export function useBlendedSeriesRows(
           fields.add(o.fieldId);
         }
       }
-      const applicable = pageFilters.filter(
-        (f) => f.field && src.fields.some((fl) => fl.id === f.field),
-      );
-      specs.push({ sid, fields: [...fields], applicable, hasAdapter: Boolean(src.adapter) });
+      // Route through `selectFiltersForWidget` — the same single scoping authority
+      // `useWidgetRows`/`buildQueryDescriptor` use for the primary series — instead of
+      // hand-rolled page/dashboard-date-range matching. A synthetic widgetId (no real
+      // widget ever has this id) means a `scope: 'widget'` filter never matches, so
+      // `include: 'no-cross'` yields exactly "page + dashboard-date-range for this
+      // source/page", matching this module's documented contract. This also fixes the
+      // cross-page leak (`scope.pageId` is honored) and resolves any dashboard
+      // date-range preset to concrete bounds instead of leaving it null/incomplete
+      // (finding 2.2, facets a & b).
+      //
+      // A foreign series is aggregated independently in its own source (no cross-source
+      // JOIN, unlike the primary series), so a scoped filter is only actually applicable
+      // when its field exists directly on THIS source — a page filter authored against a
+      // field that only exists on the widget's primary source (or some other source
+      // entirely) must stay fully unconstrained here rather than being evaluated against
+      // `undefined` and spuriously filtering out every row. This applicability gate is
+      // orthogonal to (and preserved unchanged from before) the scope-correctness fix
+      // above.
+      const applicable = selectFiltersForWidget(filters, {
+        widgetId: `${widget.id}::blend::${sid}`,
+        widgetSourceId: sid,
+        activePageId: pageId,
+        include: 'no-cross',
+      }).filter((f) => f.field && src.fields.some((fl) => fl.id === f.field));
+      const sourceExpressionFields = foreignExpressionFields.filter((ef) => ef.sourceId === sid);
+      specs.push({
+        sid,
+        fields: [...fields],
+        applicable,
+        expressionFields: sourceExpressionFields,
+        hasAdapter: Boolean(src.adapter),
+      });
     }
     return specs;
-  }, [isBlended, blendSeries, config.xField, widget.sourceId, dataSources, pageFilters]);
+  }, [
+    isBlended,
+    blendSeries,
+    config.xField,
+    widget.id,
+    widget.sourceId,
+    dataSources,
+    filters,
+    pageId,
+    foreignExpressionFields,
+  ]);
 
   // Sync (in-memory) foreign sources — resolved directly from store rows.
   const syncForeignRows = React.useMemo(() => {
@@ -136,13 +206,16 @@ export function useBlendedSeriesRows(
       const normalized = getCachedNormalizedDataSource(src, usedIds);
       map.set(
         spec.sid,
+        // Real per-source expression fields (not `[]`) so a calculated field used as a
+        // foreign blended series is L2-enriched instead of rendering as all zeros
+        // (finding 2.2, facet c).
         resolveRowsCached(
           normalized.rows ?? [],
           spec.sid,
           spec.applicable,
           dataSources,
           relationships,
-          [],
+          spec.expressionFields,
           usedIds,
         ),
       );
@@ -177,11 +250,44 @@ export function useBlendedSeriesRows(
       };
       map.set(
         spec.sid,
-        buildQueryDescriptor(syntheticWidget, spec.applicable, pageId, src?.tableName),
+        // Thread the real expression fields (and relationships) through so a foreign
+        // expression-field series is both widened into the server SELECT
+        // (`expandToNativeFields`) and available for the post-fetch enrichment pass
+        // below (finding 2.2, facet c).
+        buildQueryDescriptor(
+          syntheticWidget,
+          spec.applicable,
+          pageId,
+          src?.tableName,
+          spec.expressionFields,
+          relationships,
+        ),
       );
     }
     return map;
-  }, [foreignSpecs, blendSeries, config.xField, xGroupBy, widget.id, dataSources, pageId]);
+  }, [
+    foreignSpecs,
+    blendSeries,
+    config.xField,
+    xGroupBy,
+    widget.id,
+    dataSources,
+    pageId,
+    relationships,
+  ]);
+
+  // usedFieldIds per foreign source, for the adapter-response enrichment pass below —
+  // mirrors the sync path's own `usedIds` so enrichment stays lazy-by-widget instead of
+  // recomputing every non-measure expression field on the source.
+  const foreignUsedFieldIdsBySid = React.useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const spec of foreignSpecs) {
+      if (spec.hasAdapter) {
+        map.set(spec.sid, new Set(spec.fields));
+      }
+    }
+    return map;
+  }, [foreignSpecs]);
 
   const [asyncForeignRows, setAsyncForeignRows] = React.useState<
     Map<string, Record<string, unknown>[]>
@@ -196,6 +302,19 @@ export function useBlendedSeriesRows(
     // safely check liveness without tripping no-loop-func on a reassigned `let`.
     const live = { current: true };
     const cachedHits = new Map<string, Record<string, unknown>[]>();
+    // Adapters return physical columns only — the server can't compute a calculated
+    // field. Enrich each source's returned rows with its own expression fields here
+    // (mirroring `useWidgetRows`' `enrichedAdapterRows`) so a foreign expression-field
+    // series doesn't render as all zeros (finding 2.2, facet c).
+    const enrichForSource = (sid: string, rows: Record<string, unknown>[]) =>
+      getCachedEnrichedRows(
+        rows,
+        sid,
+        foreignExpressionFields,
+        dataSources,
+        relationships,
+        foreignUsedFieldIdsBySid.get(sid),
+      );
     for (const [sid, descriptor] of foreignDescriptors) {
       const adapter = dataSources[sid]?.adapter;
       if (!adapter) {
@@ -203,7 +322,7 @@ export function useBlendedSeriesRows(
       }
       const cached = studioRequestCache.get(descriptor.cacheKey);
       if (cached) {
-        cachedHits.set(sid, cached.rows);
+        cachedHits.set(sid, enrichForSource(sid, cached.rows));
         continue;
       }
       let promise = studioRequestCache.getInflight(descriptor.cacheKey);
@@ -219,7 +338,9 @@ export function useBlendedSeriesRows(
       promise.then(
         (result) => {
           if (live.current) {
-            setAsyncForeignRows((prev) => new Map(prev).set(sid, result.rows));
+            setAsyncForeignRows((prev) =>
+              new Map(prev).set(sid, enrichForSource(sid, result.rows)),
+            );
           }
         },
         () => {
@@ -256,7 +377,13 @@ export function useBlendedSeriesRows(
     return () => {
       live.current = false;
     };
-  }, [foreignDescriptors, dataSources]);
+  }, [
+    foreignDescriptors,
+    dataSources,
+    relationships,
+    foreignExpressionFields,
+    foreignUsedFieldIdsBySid,
+  ]);
 
   // Merge in-memory and adapter-resolved foreign rows for the blend aggregation.
   const foreignRowsBySource = React.useMemo(() => {

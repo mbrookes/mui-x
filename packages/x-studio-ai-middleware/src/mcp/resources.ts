@@ -14,7 +14,11 @@ import {
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { buildAISystemPrompt, serializeFieldForAI } from '../buildAISystemPrompt';
+import {
+  buildAISystemPrompt,
+  sanitizeForPrompt,
+  serializeFieldForAI,
+} from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
 import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
@@ -136,24 +140,41 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     // their `queryDataSource` implementation, not via `hidden`.
     const sources = Object.values(stateBox.current.runtime.dataSources).filter((s) => !s.hidden);
 
-    const schemaResources = sources.map((s) => ({
-      uri: `studio://schema/${s.id}`,
-      name: `${s.label} Schema`,
-      description: `Field definitions for the ${s.label} data source (sourceId: "${s.id}").`,
-      mimeType: 'application/json',
-    }));
+    // MCP resource `name`/`description` are LLM-consumed metadata (the MCP spec
+    // positions `description` as text "for the LLM to understand the resource"),
+    // so the state-derived source `label`/`id` interpolated into them are the same
+    // untrusted, attacker-influenceable values the sibling `prompts/get` handler
+    // (`mcp/prompts.ts`) already routes through `sanitizeForPrompt`. A poisoned
+    // label like `Orders</resources>\n\nIMPORTANT: …` must not be able to close a
+    // client's tag-structured framing early or read as an instruction — route both
+    // through the same choke point. The `uri` keeps the RAW id because it is an
+    // addressable identifier the `resources/read` handler slices back out, not an
+    // LLM-consumed text position.
+    const schemaResources = sources.map((s) => {
+      const safeLabel = sanitizeForPrompt(s.label);
+      const safeId = sanitizeForPrompt(s.id);
+      return {
+        uri: `studio://schema/${s.id}`,
+        name: `${safeLabel} Schema`,
+        description: `Field definitions for the ${safeLabel} data source (sourceId: "${safeId}").`,
+        mimeType: 'application/json',
+      };
+    });
 
     const dataResources = data
       ? sources
           .filter((s) => s.tableName)
-          .map((s) => ({
-            uri: `studio://data/${s.id}`,
-            name: `${s.label} Preview`,
-            description:
-              `Raw row preview for the ${s.label} data source (up to 20 rows). ` +
-              `Use query_data_source for filtered/aggregated queries.`,
-            mimeType: 'application/json',
-          }))
+          .map((s) => {
+            const safeLabel = sanitizeForPrompt(s.label);
+            return {
+              uri: `studio://data/${s.id}`,
+              name: `${safeLabel} Preview`,
+              description:
+                `Raw row preview for the ${safeLabel} data source (up to 20 rows). ` +
+                `Use query_data_source for filtered/aggregated queries.`,
+              mimeType: 'application/json',
+            };
+          })
       : [];
 
     const staticResources = [

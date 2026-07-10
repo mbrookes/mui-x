@@ -372,6 +372,16 @@ function renderLine(input: SanitizedChartInput): string {
 
   const allValues = allSeries.flatMap((s) => s.values);
   const maxVal = niceMax(Math.max(...allValues, 0));
+
+  // Guard against empty / all-non-positive values: with no positive value
+  // `maxVal` is 0, so every `yOf(v)` computes `v / 0` → NaN and the whole SVG
+  // fills with `y1="NaN"` gridlines/points (BOTH the multi-series and
+  // single-series paths reach here). Render the same "No data provided."
+  // placeholder bar/donut/scatter use (finding 2.2).
+  if (maxVal <= 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
+
   const tickValues = ticks(maxVal);
 
   const xOf = (i: number) => PAD.left + (i / Math.max(xLabels.length - 1, 1)) * chartW;
@@ -469,7 +479,12 @@ function renderPie(input: SanitizedChartInput): string {
   const cy = PAD.top + pieH / 2;
   const r = Math.min(W / 2 - 40, pieH / 2) * 0.9;
 
-  const total = data.reduce((s, d) => s + d.value, 0);
+  // Sum only POSITIVE values. Non-positive slices are skipped below anyway, but a
+  // mixed-sign dataset whose negatives drag `total` to <= 0 (while a positive
+  // slice exists) made `slice = (d.value / total) * 360` Infinity/negative, so
+  // `polarToCartesian(∞)` produced NaN path coordinates (finding 2.2). Summing
+  // positives keeps `total` a positive denominator that the drawn slices sum into.
+  const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
   const lines: string[] = [];
 
   // ── Title
@@ -572,6 +587,15 @@ function renderScatter(input: SanitizedChartInput): string {
   const xMin = Math.min(...xs);
   const xMax = Math.max(...xs);
   const yMax = niceMax(Math.max(...ys, 0));
+
+  // Guard against all-non-positive y values (e.g. a single `{ value: 0 }`
+  // point): `yMax` is 0, so every `py(y)` computes `y / 0` → NaN and the
+  // gridline/tick/point attributes come out as `NaN`. Render the same "No data
+  // provided." placeholder the empty-`points` branch above uses (finding 2.2).
+  if (yMax <= 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
+
   const xRange = xMax - xMin || 1;
 
   const px = (x: number) => PAD.left + ((x - xMin) / xRange) * chartW;
@@ -643,7 +667,12 @@ function renderDonut(input: SanitizedChartInput): string {
   const r = Math.min(W / 2 - 40, pieH / 2) * 0.9;
   const innerR = r * 0.45;
 
-  const total = data.reduce((s, d) => s + d.value, 0);
+  // Sum only POSITIVE values (mirrors renderPie): non-positive slices are skipped
+  // below, and a mixed-sign dataset whose negatives drag `total` to <= 0 while a
+  // positive slice exists made `slice = (d.value / total) * 360` Infinity/negative
+  // → NaN arc coordinates (finding 2.2). The all-non-positive case is already
+  // handled by the placeholder guard above, so `total` here is always positive.
+  const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
   const svgLines: string[] = [];
 
   if (title) {
@@ -730,6 +759,15 @@ function renderStackedBar(input: SanitizedChartInput): string {
     rawSeries.reduce((sum, s) => sum + (s.values[i] ?? 0), 0),
   );
   const maxTotal = niceMax(Math.max(...totals, 0));
+
+  // Guard against all-zero / all-non-positive stacks: `maxTotal` is 0, so every
+  // tick's `(tv / maxTotal) * chartH` and every bar's `(val / maxTotal) * chartH`
+  // is NaN. Render the same "No data provided." placeholder the other renderers
+  // use (finding 2.2) rather than the "requires xLabels and series" message,
+  // which is reserved for genuinely missing series above.
+  if (maxTotal <= 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
 
   const hasLegend = rawSeries.length > 0;
   const legendH = hasLegend ? 24 : 0;

@@ -243,7 +243,16 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       }
       const { tableName } = resolved;
       try {
-        const clampedFieldLimit = Math.min(fieldLimit ?? 50, 200);
+        // Clamp `limit` to a sane, positive integer within [1, 200]. The old
+        // `Math.min(fieldLimit ?? 50, 200)` enforced only the UPPER bound, so an
+        // untrusted `NaN` (e.g. a non-numeric `"many"`), negative, zero, or
+        // fractional value reached the host's `queryDataSource` unclamped
+        // (`LIMIT NaN` → a raw driver error, `LIMIT 0` → a silently empty
+        // success). Mirror the identical clamp `query_data_source` applies to its
+        // own `limit` (T2-6): truncate, floor at 1, and fall back to the default
+        // (50) on a falsy/`NaN` truncated value.
+        const truncatedFieldLimit = Math.trunc(Number(fieldLimit));
+        const clampedFieldLimit = Math.min(Math.max(1, truncatedFieldLimit || 50), 200);
         const result = await data.queryDataSource({
           sourceId,
           tableName,

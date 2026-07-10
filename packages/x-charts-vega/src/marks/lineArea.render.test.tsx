@@ -84,6 +84,33 @@ describe('<VegaLiteChart /> line/area marks (render)', () => {
     expect(container.querySelectorAll(`.${lineClasses.line}`)).to.have.length(2);
   });
 
+  it('renders a filled band overlay for an area mark over a continuous quantitative x axis', () => {
+    const { container } = render(
+      <VegaLiteChart
+        width={300}
+        height={200}
+        spec={{
+          data: {
+            values: [
+              { a: 1, b: 2 },
+              { a: 2, b: 4 },
+              { a: 3, b: 9 },
+            ],
+          },
+          mark: 'area',
+          encoding: {
+            x: { field: 'a', type: 'quantitative' },
+            y: { field: 'b', type: 'quantitative' },
+          },
+        }}
+        onGaps={() => {}}
+      />,
+    );
+    const band = container.querySelector('.MuiVegaOverlay-band path');
+    expect(band).not.to.equal(null);
+    expect(band?.getAttribute('d') ?? '').not.to.equal('');
+  });
+
   it('spaces irregular dates proportionally to elapsed time on the continuous time scale', () => {
     const { container } = render(
       <VegaLiteChart

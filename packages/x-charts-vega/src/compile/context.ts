@@ -67,6 +67,10 @@ export interface OverlayErrorBarItem {
   lower: number;
   upper: number;
   color?: string;
+  /** Sub-group index within the category for a color-split (dodged) error bar. */
+  groupIndex?: number;
+  /** Number of dodged sub-groups sharing each category. */
+  groupCount?: number;
 }
 
 export interface OverlayBandPoint {

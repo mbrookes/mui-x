@@ -16,24 +16,10 @@ import { groupRowsByField } from './bar';
 
 /*
  * A color-field split dodges error bars side-by-side within each category
- * (mirroring boxplot.ts). `OverlayErrorBarItem` lives in the shared
- * compile/context.ts, which this work unit must not edit, so the two optional
- * dodge fields are contributed here through declaration merging — they only
- * ADD optional properties, so no existing consumer is affected.
- * `OverlayBoxItem` already carries the equivalent `groupIndex` for dodged
- * boxes; the boxplot overlay object carries `groupCount`, but the `errorBars`
- * overlay is a union member (not an interface) and cannot be merged, so
- * `groupCount` rides on the item instead — every item in a dodged overlay
- * carries the same value.
+ * (mirroring boxplot.ts). The dodge fields `groupIndex`/`groupCount` live on
+ * `OverlayErrorBarItem` in compile/context.ts; every item in a dodged overlay
+ * carries the same `groupCount`.
  */
-declare module '../compile/context' {
-  interface OverlayErrorBarItem {
-    /** Sub-group index within the category (for grouped/dodged error bars). */
-    groupIndex?: number;
-    /** Number of sub-groups sharing each category (for grouped/dodged error bars). */
-    groupCount?: number;
-  }
-}
 
 /** Formats a color-group value for a legend swatch label (locale date for temporal groups). */
 function formatLegendLabel(value: unknown): string {

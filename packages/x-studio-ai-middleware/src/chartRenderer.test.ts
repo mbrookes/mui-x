@@ -370,3 +370,157 @@ describe('renderChartSvg — empty / non-positive data guards', () => {
     expect(svg).not.toContain('NaN');
   });
 });
+
+// ── Non-string text field coercion (finding T2-5) ────────────────────────────
+//
+// `xLabels` entries and series/`data` `name`/`label` values are declared
+// `string` in the `render_chart` schema but are model-supplied and never
+// validated at runtime — a model routinely emits a bare number (e.g. a year)
+// instead of a string. Before this fix, `esc()` called `.replace` on the raw
+// value and threw a `TypeError` for anything non-string, dead-ending the
+// whole chart render instead of just coercing that one value.
+
+describe('renderChartSvg — non-string text field coercion (T2-5)', () => {
+  it('coerces a numeric data label to a string instead of throwing (bar)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'bar',
+        data: [{ label: 2024 as unknown as string, value: 10 }],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('>2024<');
+  });
+
+  it('coerces a numeric xLabels entry to a string instead of throwing (line, single-series)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'line',
+        data: [
+          { label: 2021 as unknown as string, value: 5 },
+          { label: 2022 as unknown as string, value: 8 },
+        ],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('>2021<');
+    expect(svg).toContain('>2022<');
+  });
+
+  it('coerces numeric xLabels entries and a numeric series name to strings instead of throwing (line, multi-series)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'line',
+        xLabels: [2021, 2022, 2023] as unknown as string[],
+        series: [
+          { name: 2024 as unknown as string, values: [1, 2, 3] },
+          { name: 'Actual', values: [4, 5, 6] },
+        ],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('>2021<');
+    expect(svg).toContain('>2022<');
+    expect(svg).toContain('>2023<');
+    // Numeric series name is coerced and rendered in the legend.
+    expect(svg).toContain('2024');
+  });
+
+  it('coerces a numeric data label to a string instead of throwing (pie)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'pie',
+        data: [
+          { label: 2021 as unknown as string, value: 10 },
+          { label: 2022 as unknown as string, value: 20 },
+        ],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('2021');
+    expect(svg).toContain('2022');
+  });
+
+  it('coerces a numeric data label to a string instead of throwing (donut)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'donut',
+        data: [
+          { label: 2021 as unknown as string, value: 10 },
+          { label: 2022 as unknown as string, value: 20 },
+        ],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('2021');
+    expect(svg).toContain('2022');
+  });
+
+  it('coerces a numeric data label to a string instead of throwing (scatter)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'scatter',
+        data: [
+          { label: 1 as unknown as string, value: 5 },
+          { label: 2 as unknown as string, value: 8 },
+        ],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+  });
+
+  it('coerces numeric xLabels entries and a numeric series name to strings instead of throwing (stacked_bar)', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'stacked_bar',
+        xLabels: [2021, 2022] as unknown as string[],
+        series: [{ name: 2024 as unknown as string, values: [1, 2] }],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('>2021<');
+    expect(svg).toContain('>2022<');
+    expect(svg).toContain('2024');
+  });
+
+  it('coerces a numeric title to a string instead of throwing', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'bar',
+        title: 2024 as unknown as string,
+        data: SIMPLE_DATA,
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('2024');
+  });
+
+  it('coerces a null/undefined data label to an empty string rather than throwing', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'bar',
+        data: [{ label: null as unknown as string, value: 5 }],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+  });
+
+  it('still escapes HTML special characters in a coerced numeric-then-string label', () => {
+    // Regression guard: coercion must not bypass the existing esc() escaping.
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: [{ label: '<script>2024</script>', value: 1 }],
+    });
+    expect(svg).not.toContain('<script>');
+    expect(svg).toContain('&lt;script&gt;');
+  });
+});

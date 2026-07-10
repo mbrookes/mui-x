@@ -127,13 +127,36 @@ function sanitizeValue(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Coerce a caller-supplied text value (label, series name, title, …) to a
+ * string, falling back to `''` for `null`/`undefined`. `label`/`name` are
+ * declared `string` in the `render_chart` schema but, like `value`, are never
+ * validated at runtime — a model routinely emits a bare number (e.g. a year
+ * `xLabels` entry) instead of a string. Every one of these values eventually
+ * reaches `esc()`, which calls `.replace` and throws on a non-string, so
+ * coercing here — at the same choke point that already guards
+ * colors/dimensions/values — closes the gap for every renderer at once.
+ */
+function sanitizeText(value: unknown): string {
+  return value === undefined || value === null ? '' : String(value);
+}
+
+/** Same as `sanitizeText`, but preserves `undefined` for optional fields like `title`. */
+function sanitizeOptionalText(value: unknown): string | undefined {
+  return value === undefined || value === null ? undefined : String(value);
+}
+
 function sanitizeData(data: ChartDataPoint[] | undefined): ChartDataPoint[] | undefined {
   // Non-array `data` (e.g. `{}`) would throw inside `.map`; coerce to absent so
   // renderers fall back to the "No data provided." placeholder.
   if (!Array.isArray(data)) {
     return undefined;
   }
-  return data.map((d) => ({ ...d, value: sanitizeValue(d?.value) }));
+  return data.map((d) => ({
+    ...d,
+    label: sanitizeText(d?.label),
+    value: sanitizeValue(d?.value),
+  }));
 }
 
 function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | undefined {
@@ -143,8 +166,22 @@ function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | unde
   }
   return series.map((s) => ({
     ...s,
+    name: sanitizeText(s?.name),
     values: Array.isArray(s?.values) ? s.values.map(sanitizeValue) : [],
   }));
+}
+
+/**
+ * Coerce every `xLabels` entry to a string (mirrors `sanitizeData`'s `label`
+ * handling). Non-array `xLabels` (e.g. a bare string) would throw inside
+ * `.map`; coerce to absent so renderers fall back to their "No data"/
+ * "requires xLabels" placeholder, matching `colors`/`data`/`series`.
+ */
+function sanitizeXLabels(xLabels: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(xLabels)) {
+    return undefined;
+  }
+  return xLabels.map(sanitizeText);
 }
 
 /**
@@ -156,22 +193,37 @@ type SanitizedChartInput = ChartRendererInput & { width: number; height: number 
 
 /**
  * Validate/coerce the untrusted, model-supplied portions of the input
- * (`width`, `height`, `colors`, and every numeric `value`) before any renderer
- * interpolates them into SVG markup. Text content is handled separately by
- * `esc()`.
+ * (`width`, `height`, `colors`, every numeric `value`, and every text field —
+ * `title`, data `label`s, series `name`s, `xLabels`) before any renderer
+ * interpolates them into SVG markup. Coercing text here means every text
+ * value reaching `esc()` is already guaranteed to be a string, so `esc()`
+ * itself never has to guard against a non-string input.
  */
 function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
   return {
     ...input,
+    title: sanitizeOptionalText(input.title),
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),
     height: sanitizeDimension(input.height, DEFAULT_HEIGHT),
     colors: sanitizeColors(input.colors),
     data: sanitizeData(input.data),
     series: sanitizeSeries(input.series),
+    xLabels: sanitizeXLabels(input.xLabels),
   };
 }
 
-function esc(s: string): string {
+/**
+ * Escape text content for safe interpolation into SVG markup.
+ *
+ * All text reaching this function should already be a string thanks to the
+ * `sanitizeInput` choke point (`title`/`label`/`name`/`xLabels` entries are
+ * all coerced there). This accepts `unknown` and coerces defensively anyway
+ * — `.replace` throws on a non-string, so any call site that bypasses the
+ * choke point (or a future one that forgets to) fails safe (empty string)
+ * instead of throwing and failing the whole render.
+ */
+function esc(value: unknown): string {
+  const s = value === undefined || value === null ? '' : String(value);
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

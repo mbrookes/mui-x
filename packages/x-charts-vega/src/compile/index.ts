@@ -6,7 +6,7 @@ import type { TranslationGap } from '../gaps';
 import { normalizeSpec } from '../normalize';
 import { applyTransforms, applyEncodingTransforms } from '../transforms';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';
-import { resolveAxes } from './scales';
+import { forcesDiscreteBarCategory, resolveAxes } from './scales';
 import { resolveParams } from './params';
 import type { CompiledParamInput } from './params';
 import type {
@@ -224,7 +224,16 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     return { unit: { ...unit, encoding }, rows };
   });
 
-  const axes = resolveAxes(prepared, gaps, normalized.resolve);
+  // Detect the bar-with-quantitative-category case from the PRE-transform units:
+  // the encoding aggregate pass above strips the `aggregate` marker off the
+  // value channel, which is the signal `forcesDiscreteBarCategory` relies on to
+  // tell the value axis from the category axis. So compute the flags against the
+  // original encodings and hand them to `resolveAxes`.
+  const preUnits = normalized.units.map((unit) => ({ unit, rows: unit.rows }));
+  const axes = resolveAxes(prepared, gaps, normalized.resolve, {
+    x: forcesDiscreteBarCategory('x', preUnits),
+    y: forcesDiscreteBarCategory('y', preUnits),
+  });
 
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();

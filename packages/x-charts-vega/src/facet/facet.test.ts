@@ -63,6 +63,43 @@ describe('planFacets', () => {
     expect(plan.cells.map((cell) => cell.header)).to.deep.equal(['X', 'Y', 'Z']);
   });
 
+  it('applies top-level transforms before partitioning on a derived facet field', () => {
+    // The facet field (`gender`) is produced by a `calculate` transform and the
+    // rows are narrowed by a `filter`; both must run on the whole dataset before
+    // faceting partitions it. Without that, partitioning on the not-yet-derived
+    // field finds no values and every cell is empty (the trellis-bar bug).
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { year: 2000, sex: 1, age: 0, people: 10 },
+          { year: 2000, sex: 2, age: 0, people: 8 },
+          { year: 1990, sex: 1, age: 0, people: 99 },
+        ],
+      },
+      transform: [
+        { filter: 'datum.year == 2000' },
+        { calculate: "datum.sex == 2 ? 'Female' : 'Male'", as: 'gender' },
+      ],
+      mark: 'bar',
+      encoding: {
+        row: { field: 'gender' },
+        x: { field: 'age' },
+        y: { aggregate: 'sum', field: 'people' },
+      },
+    };
+    const plan = planFacets(spec, SIZE)!;
+    expect(plan).not.to.equal(null);
+    // One row per derived gender value; the 1990 row was filtered out.
+    expect(plan.cells).to.have.length(2);
+    expect(plan.cells.map((cell) => cell.header)).to.deep.equal(['Male', 'Female']);
+    // Each cell holds only its (already-transformed) partition and drops the
+    // top-level transform so it does not re-run per cell.
+    const first = plan.cells[0].spec;
+    expect((first.data as { values: unknown[] }).values).to.have.length(1);
+    expect(first.transform).to.equal(undefined);
+    expect(plan.gaps.filter((gap) => gap.code.startsWith('transform:'))).to.have.length(0);
+  });
+
   it('builds a matrix for combined row + column facets', () => {
     const spec: VegaLiteSpec = {
       data: {

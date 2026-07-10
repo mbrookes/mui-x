@@ -741,6 +741,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     configureStudioContextMock({ getState: () => mockState });
 
     const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
 
@@ -775,6 +776,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     configureStudioContextMock({ getState: () => mockState });
 
     const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
     // With the toggle off, the cross-page filter is excluded, so `filterSubtitle` is
@@ -830,6 +832,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
         </StudioUIConfigContext.Provider>
       </ThemeProvider>,
     );
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
 

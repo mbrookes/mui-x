@@ -1,0 +1,158 @@
+{
+  "bar": {
+    "title": "Simple Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "bar_aggregate": {
+    "title": "Aggregate Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "bar_grouped": {
+    "title": "Grouped Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "stacked_bar_weather": {
+    "title": "Stacked Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "layer_bar_labels": {
+    "title": "Simple Bar Chart with Labels",
+    "category": "Layered Plots"
+  },
+  "histogram": {
+    "title": "Histogram",
+    "category": "Single-View Plots"
+  },
+  "area_density": {
+    "title": "Density Plot",
+    "category": "Single-View Plots"
+  },
+  "bar_percent_of_total": {
+    "title": "Relative Bar Chart (Calculate Percentage of Total)",
+    "category": "Single-View Plots"
+  },
+  "point_2d": {
+    "title": "Scatterplot",
+    "category": "Single-View Plots"
+  },
+  "tick_dot": {
+    "title": "1D Strip Plot",
+    "category": "Single-View Plots"
+  },
+  "point_bubble": {
+    "title": "Bubble Plot",
+    "category": "Single-View Plots"
+  },
+  "circle": {
+    "title": "Scatterplot with Filled Circles",
+    "category": "Single-View Plots"
+  },
+  "line": {
+    "title": "Line Chart",
+    "category": "Single-View Plots"
+  },
+  "line_color": {
+    "title": "Multi Series Line Chart",
+    "category": "Single-View Plots"
+  },
+  "repeat_layer": {
+    "title": "Repeat and Layer to Show Different Movie Measures",
+    "category": "Multi-View Displays"
+  },
+  "line_slope": {
+    "title": "Slope Graph",
+    "category": "Single-View Plots"
+  },
+  "layer_line_co2_concentration": {
+    "title": "Carbon Dioxide in the Atmosphere",
+    "category": "Layered Plots"
+  },
+  "window_rank": {
+    "title": "Line Charts Showing Ranks Over Time",
+    "category": "Single-View Plots"
+  },
+  "area": {
+    "title": "Area Chart",
+    "category": "Single-View Plots"
+  },
+  "area_gradient": {
+    "title": "Area Chart with Gradient",
+    "category": "Single-View Plots"
+  },
+  "stacked_area": {
+    "title": "Stacked Area Chart",
+    "category": "Single-View Plots"
+  },
+  "rect_heatmap": {
+    "title": "Table Heatmap",
+    "category": "Single-View Plots"
+  },
+  "layer_text_heatmap": {
+    "title": "Layering text over heatmap",
+    "category": "Layered Plots"
+  },
+  "arc_pie": {
+    "title": "Pie Chart",
+    "category": "Single-View Plots"
+  },
+  "arc_donut": {
+    "title": "Donut Chart",
+    "category": "Single-View Plots"
+  },
+  "arc_radial": {
+    "title": "Radial Plot",
+    "category": "Single-View Plots"
+  },
+  "joinaggregate_mean_difference": {
+    "title": "Calculate Difference from Average",
+    "category": "Single-View Plots"
+  },
+  "layer_point_errorbar_ci": {
+    "title": "Error Bars Showing Confidence Interval",
+    "category": "Composite Marks"
+  },
+  "layer_line_errorband_ci": {
+    "title": "Line Chart with Confidence Interval Band",
+    "category": "Composite Marks"
+  },
+  "boxplot_2D_vertical": {
+    "title": "Tukey Box Plot (1.5 IQR)",
+    "category": "Composite Marks"
+  },
+  "trellis_bar": {
+    "title": "Trellis Bar Chart",
+    "category": "Multi-View Displays"
+  },
+  "trellis_scatter": {
+    "title": "Trellis Scatter Plot (wrapped)",
+    "category": "Multi-View Displays"
+  },
+  "trellis_barley": {
+    "title": "Becker's Barley Trellis Plot",
+    "category": "Multi-View Displays"
+  },
+  "vconcat_weather": {
+    "title": "Vertical Concatenation",
+    "category": "Multi-View Displays"
+  },
+  "concat_marginal_histograms": {
+    "title": "Marginal Histograms",
+    "category": "Multi-View Displays"
+  },
+  "geo_choropleth": {
+    "title": "Choropleth of Unemployment Rate per County",
+    "category": "Maps (Geographic Displays)"
+  },
+  "interactive_bar_select_highlight": {
+    "title": "Bar Chart with Highlighting on Hover and Selection on Click",
+    "category": "Interactive"
+  },
+  "interactive_legend": {
+    "title": "Interactive Legend",
+    "category": "Interactive"
+  },
+  "interactive_brush": {
+    "title": "Rectangular Brush",
+    "category": "Interactive"
+  }
+}

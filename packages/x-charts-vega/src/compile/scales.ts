@@ -17,9 +17,16 @@ import { createValueFormatter } from '../format';
  *   - per-channel band-vs-point selection (bars/rects → band, else point),
  *     with an explicit `scale.type` of band/point/ordinal overriding inference;
  *   - discrete-axis `sort` (ascending/descending/array/null; field/op → gap);
- *   - quantitative `scale.domain` / `zero` / `nice` / `reverse` / log-family;
+ *   - discrete band `padding`/`paddingInner` → band `categoryGapRatio`
+ *     (approximate — `paddingOuter` has no x-charts equivalent, so a `partial`
+ *     gap is recorded);
+ *   - quantitative `scale.domain` / `zero` / `nice` / `reverse` / log-family,
+ *     with `nice: true`→`domainLimit: 'nice'`, `nice: false`→`'strict'`, the
+ *     `symlog` `constant`, and `zero` approximated by pinning the domain to the
+ *     origin when the data is single-signed (both recorded as `partial` gaps);
  *   - axis-config enrichment (`title`, `labelAngle`, `tickCount`, `values`,
- *     `grid`, `labels`, `format`, `orient`) from the field def's `axis`, with
+ *     `grid`, `labels`, `format`, `orient`, `ticks`→`disableTicks`,
+ *     `domain`→`disableLine`) from the field def's `axis`, with
  *     the `format` d3 pattern compiled to a `valueFormatter` (see ../format)
  *     when it can be translated, and reported as a gap otherwise;
  *   - temporal channels rendered as a *continuous* time/utc scale over the
@@ -56,6 +63,9 @@ interface AxisExtras {
   position?: 'top' | 'bottom' | 'left' | 'right' | 'none';
   // Compiled from `axis.format` (d3-format / d3-time-format) — feeds ticks and tooltips.
   valueFormatter?: (value: unknown) => string;
+  // `axis.ticks: false` hides the tick marks; `axis.domain: false` hides the axis line.
+  disableTicks?: boolean;
+  disableLine?: boolean;
 }
 
 function fieldOf(def: VegaChannelDef | undefined): string | undefined {
@@ -148,6 +158,15 @@ function buildAxisExtras(
   }
   if (Object.keys(tickLabelStyle).length > 0) {
     extras.tickLabelStyle = tickLabelStyle;
+  }
+  // `axis.ticks: false` removes the tick marks; `axis.domain: false` removes the
+  // axis (domain) line. These are the tick/line rendering toggles — distinct
+  // from `scale.domain` (the data extent) handled on the quantitative branch.
+  if (axis.ticks === false) {
+    extras.disableTicks = true;
+  }
+  if (axis.domain === false) {
+    extras.disableLine = true;
   }
   if (typeof axis.format === 'string') {
     const formatter = createValueFormatter(
@@ -329,6 +348,9 @@ function resolveChannelAxis(
     tickNumber: extras.tickNumber,
     tickInterval: extras.tickInterval,
     tickLabelStyle: extras.tickLabelStyle,
+    // `axis.ticks: false` / `axis.domain: false` → hide the tick marks / axis line.
+    disableTicks: extras.disableTicks,
+    disableLine: extras.disableLine,
   };
 
   if (fieldType === 'nominal' || fieldType === 'ordinal' || fieldType === 'temporal') {
@@ -445,10 +467,42 @@ function resolveChannelAxis(
       discreteValueFormatter = (value) => (value as Date).toLocaleDateString();
     }
 
+    // Band `padding`/`paddingInner` (a 0..1 inter-category gap ratio) maps to
+    // x-charts' band `categoryGapRatio`, which expresses the same gap. Prefer
+    // `paddingInner`; fall back to the combined `padding`. This is approximate:
+    // x-charts has no `paddingOuter` equivalent (no outer band padding), so any
+    // outer padding is dropped and a `partial` gap is recorded. Point scales
+    // carry no `categoryGapRatio`, so this only applies to band.
+    let categoryGapRatio: number | undefined;
+    if (scaleType === 'band') {
+      let innerPadding: number | undefined;
+      if (typeof scale?.paddingInner === 'number') {
+        innerPadding = scale.paddingInner;
+      } else if (typeof scale?.padding === 'number') {
+        innerPadding = scale.padding;
+      }
+      const hasOuterPadding = typeof scale?.paddingOuter === 'number';
+      if (innerPadding !== undefined) {
+        categoryGapRatio = innerPadding;
+      }
+      if (innerPadding !== undefined || hasOuterPadding) {
+        gaps.add({
+          code: 'scale:band-padding',
+          message:
+            'Band `padding`/`paddingInner` is approximated by the x-charts band `categoryGapRatio` ' +
+            '(the gap between categories); `paddingOuter` has no x-charts equivalent and is dropped, so edge spacing ' +
+            'may differ from Vega-Lite. Tune `categoryGapRatio` on the axis for exact inter-category spacing.',
+          severity: 'partial',
+          path: `${first.unit.path}.encoding.${channel}.scale`,
+        });
+      }
+    }
+
     const config = {
       ...commonConfig,
       scaleType,
       data: categories,
+      ...(categoryGapRatio !== undefined ? { categoryGapRatio } : {}),
       ...(isTemporal ? { tickInterval: temporalTickInterval } : {}),
       ...(discreteValueFormatter ? { valueFormatter: discreteValueFormatter } : {}),
     };
@@ -482,17 +536,76 @@ function resolveChannelAxis(
     });
   }
   const domain = Array.isArray(scale?.domain) ? scale?.domain : undefined;
-  // `scale.zero: false` leaves the min free — the x-charts default already lets
-  // the domain float, so nothing is forced here (for bar-anchored axes x-charts
-  // keeps the zero baseline, which matches `zero`'s default of `true`).
-  // `scale.nice: false` maps to a strict domain; the default is nice rounding.
-  const domainLimit = scale?.nice === false ? ('strict' as const) : undefined;
+  const explicitMin = typeof domain?.[0] === 'number' ? domain[0] : undefined;
+  const explicitMax = typeof domain?.[1] === 'number' ? domain[1] : undefined;
+
+  // `scale.nice` controls domain rounding. `false` pins the domain to the raw
+  // extremums (x-charts `'strict'`); `true` asks for human-friendly rounding
+  // (`'nice'`, also x-charts' own default). A numeric `nice` targets a specific
+  // tick count while rounding — x-charts' `domainLimit` has no such knob, so it
+  // still rounds to `'nice'` and the lost tick-count target is a `partial` gap.
+  let domainLimit: 'nice' | 'strict' | undefined;
+  if (scale?.nice === false) {
+    domainLimit = 'strict';
+  } else if (scale?.nice === true) {
+    domainLimit = 'nice';
+  } else if (typeof scale?.nice === 'number') {
+    domainLimit = 'nice';
+    gaps.add({
+      code: 'scale:nice-count',
+      message:
+        `A numeric \`scale.nice\` (${scale.nice}) requests a specific tick count when rounding the ` +
+        "domain, which x-charts' `domainLimit` cannot express; the domain is rounded to nice values without honoring " +
+        'the count. Use `axis.tickCount` to influence tick density instead.',
+      severity: 'partial',
+      path: `${first.unit.path}.encoding.${channel}.scale.nice`,
+    });
+  }
+
+  // `scale.zero` forces the domain to include the origin (Vega-Lite's default
+  // for quantitative). x-charts has no `zero` toggle, so we approximate it: when
+  // no explicit `domain` bound covers the relevant side and the data is entirely
+  // single-signed, pin that side to 0 (`min: 0` for all-positive data, `max: 0`
+  // for all-negative). Data already straddling zero needs nothing. It is only an
+  // approximation — a `partial` gap records it — because the opposite end is
+  // still subject to `domainLimit` rounding. `scale.zero: false` forces nothing,
+  // matching x-charts' floating default.
+  let zeroMin: number | undefined;
+  let zeroMax: number | undefined;
+  if (scale?.zero === true) {
+    const extent = channelNumericExtent(occurrences);
+    if (extent) {
+      if (extent.min > 0 && explicitMin === undefined) {
+        zeroMin = 0;
+      } else if (extent.max < 0 && explicitMax === undefined) {
+        zeroMax = 0;
+      }
+    }
+    if (zeroMin !== undefined || zeroMax !== undefined) {
+      gaps.add({
+        code: 'scale:zero-approximation',
+        message:
+          '`scale.zero` is approximated by pinning the quantitative domain to include the origin ' +
+          '(min: 0 for all-positive data, max: 0 for all-negative); x-charts has no dedicated `zero` toggle, so the ' +
+          'opposite end is still subject to `domainLimit` rounding. Set an explicit `scale.domain` for exact bounds.',
+        severity: 'partial',
+        path: `${first.unit.path}.encoding.${channel}.scale.zero`,
+      });
+    }
+  }
+
   const config = {
     ...commonConfig,
     scaleType,
-    min: typeof domain?.[0] === 'number' ? domain[0] : undefined,
-    max: typeof domain?.[1] === 'number' ? domain[1] : undefined,
+    min: explicitMin ?? zeroMin,
+    max: explicitMax ?? zeroMax,
     domainLimit,
+    // The symlog scale's linear-around-zero threshold (`scale.constant`) maps
+    // straight to x-charts' symlog `constant`; Vega-Lite only reads it on
+    // symlog, so it is ignored for other scale types.
+    ...(scaleType === 'symlog' && typeof scale?.constant === 'number'
+      ? { constant: scale.constant }
+      : {}),
     // A translatable `axis.format` d3 pattern (see ../format) feeds both ticks
     // and tooltips; left undefined when the axis has no format.
     valueFormatter: extras.valueFormatter,
@@ -504,6 +617,36 @@ function resolveChannelAxis(
     channel: def,
     field,
   };
+}
+
+/**
+ * Numeric [min, max] extent of a quantitative channel across all its
+ * occurrences' rows, or `undefined` when no finite numeric value is present.
+ * Used to decide which side of the domain `scale.zero` should pin to the origin.
+ */
+function channelNumericExtent(
+  occurrences: ChannelOccurrence[],
+): { min: number; max: number } | undefined {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const occurrence of occurrences) {
+    const field = fieldOf(occurrence.def);
+    if (!field) {
+      continue;
+    }
+    for (const row of occurrence.rows) {
+      const raw = row[field];
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        if (raw < min) {
+          min = raw;
+        }
+        if (raw > max) {
+          max = raw;
+        }
+      }
+    }
+  }
+  return min <= max ? { min, max } : undefined;
 }
 
 export function resolveAxes(

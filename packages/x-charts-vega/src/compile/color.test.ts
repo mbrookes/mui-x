@@ -121,6 +121,22 @@ describe('resolveColor', () => {
       expect(result.range).to.deep.equal(['#abcdef']);
     });
 
+    it('maps a single-hue sequential scheme name (blues) to a discrete range', () => {
+      const { result, gaps } = resolve({
+        color: { field: 'category', type: 'nominal', scale: { scheme: 'blues' } },
+      });
+      expect(result.range).to.be.an('array').with.length.greaterThan(0);
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-scheme-unknown');
+    });
+
+    it('maps a multi-hue scheme name (viridis) to an approximating discrete range', () => {
+      const { result, gaps } = resolve({
+        color: { field: 'category', type: 'ordinal', scale: { scheme: 'viridis' } },
+      });
+      expect(result.range).to.be.an('array').with.length.greaterThan(0);
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-scheme-unknown');
+    });
+
     it('reports a partial gap and leaves range unset for an unknown scheme', () => {
       const { result, gaps } = resolve({
         color: { field: 'category', type: 'nominal', scale: { scheme: 'totally-unknown-scheme' } },
@@ -347,13 +363,39 @@ describe('resolveColor', () => {
   });
 
   describe('legend config objects', () => {
-    it('reports an ignored gap for a non-empty legend config object', () => {
+    it('reports an ignored gap for an unsupported legend config key', () => {
       const { result, gaps } = resolve({
-        color: { field: 'category', type: 'nominal', legend: { orient: 'bottom' } },
+        color: { field: 'category', type: 'nominal', legend: { title: 'Category' } },
       });
       expect(result.hasLegend).to.equal(true);
       const gap = gaps.find((g) => g.code === 'encoding:color-legend-config-ignored');
       expect(gap?.severity).to.equal('ignored');
+    });
+
+    it('does not report a gap for an orient-only legend config (position is honored)', () => {
+      const { result, gaps } = resolve({
+        color: { field: 'category', type: 'nominal', legend: { orient: 'bottom' } },
+      });
+      expect(result.hasLegend).to.equal(true);
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-legend-config-ignored');
+    });
+
+    it('does not report a gap for positional-offset legend keys', () => {
+      const { gaps } = resolve({
+        color: { field: 'category', type: 'nominal', legend: { legendX: 10, legendY: 20 } },
+      });
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-legend-config-ignored');
+    });
+
+    it('still gaps unsupported keys even when orient is also present', () => {
+      const { gaps } = resolve({
+        color: {
+          field: 'category',
+          type: 'nominal',
+          legend: { orient: 'bottom', title: 'Category' },
+        },
+      });
+      expect(gaps.map((g) => g.code)).to.include('encoding:color-legend-config-ignored');
     });
 
     it('does not report a gap for an empty legend config object', () => {

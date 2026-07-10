@@ -69,8 +69,22 @@ export interface ColorResolution {
   colorMap?: ContinuousColorMapConfig | PiecewiseColorMapConfig;
 }
 
-/** Common Vega-Lite categorical scheme names mapped to x-charts palettes. */
+/**
+ * Common Vega-Lite scheme names mapped to x-charts palettes, for discrete
+ * (nominal/ordinal) color fields.
+ *
+ * Three families are covered:
+ * - True categorical schemes (`category*`, `tableau*`, `set*`, …) map to
+ *   x-charts' multi-hue categorical palettes.
+ * - Single-hue sequential schemes (`blues`, `greens`, …) are legal on discrete
+ *   fields too; they map to x-charts' monochromatic ramps, which are already
+ *   arrays of discrete swatches.
+ * - Multi-hue / perceptually-uniform schemes (`viridis`, `magma`, …) have no
+ *   monochromatic equivalent; they approximate to the multi-hue `strawberrySky`
+ *   sequential palette (the same approximation the continuous branch uses).
+ */
 const CATEGORICAL_SCHEME_PALETTES: Record<string, readonly string[]> = {
+  // True categorical schemes.
   category10: mangoFusionPaletteLight,
   category20: mangoFusionPaletteLight,
   category20b: mangoFusionPaletteLight,
@@ -83,6 +97,24 @@ const CATEGORICAL_SCHEME_PALETTES: Record<string, readonly string[]> = {
   set2: rainbowSurgePaletteLight,
   set3: rainbowSurgePaletteDark,
   paired: cheerfulFiestaPaletteDark,
+  pastel1: cheerfulFiestaPaletteLight,
+  pastel2: cheerfulFiestaPaletteLight,
+  // Single-hue sequential schemes used on discrete fields → monochromatic ramps.
+  blues: bluePaletteLight,
+  greens: greenPaletteLight,
+  oranges: orangePaletteLight,
+  purples: purplePaletteLight,
+  reds: redPaletteLight,
+  // Multi-hue / perceptually-uniform schemes → closest multi-hue palette.
+  viridis: strawberrySkyPaletteLight,
+  plasma: strawberrySkyPaletteLight,
+  inferno: strawberrySkyPaletteLight,
+  magma: strawberrySkyPaletteLight,
+  cividis: strawberrySkyPaletteLight,
+  turbo: strawberrySkyPaletteLight,
+  rainbow: strawberrySkyPaletteLight,
+  sinebow: strawberrySkyPaletteLight,
+  spectral: strawberrySkyPaletteLight,
 };
 
 const DEFAULT_BLUE_RANGE: readonly [string, string] = [
@@ -128,6 +160,14 @@ const SEQUENTIAL_SCHEME_RANGES: Record<string, readonly [string, string]> = {
     strawberrySkyPaletteLight[strawberrySkyPaletteLight.length - 1],
   ],
 };
+
+/**
+ * Legend config keys the x-charts shell can honor by repositioning the default
+ * legend. A legend object whose keys are all in this set is fully translatable,
+ * so it does not trigger the `color-legend-config-ignored` gap. Everything else
+ * (`title`, `values`, `symbolType`, gradient config, …) remains unsupported.
+ */
+const HONORED_LEGEND_KEYS = new Set(['orient', 'legendX', 'legendY']);
 
 function schemeNameOf(scheme: VegaScale['scheme']): string | undefined {
   if (!scheme) {
@@ -402,14 +442,22 @@ export function resolveColor(
     }
 
     const legend = fieldDef.legend;
-    if (legend && typeof legend === 'object' && Object.keys(legend).length > 0) {
-      gaps.add({
-        code: 'encoding:color-legend-config-ignored',
-        message:
-          'Legend configuration (e.g. `orient`, `title`) has no x-charts per-spec equivalent; a default legend is shown instead.',
-        severity: 'ignored',
-        path: `${path}.encoding.color.legend`,
-      });
+    if (legend && typeof legend === 'object') {
+      // `orient` (and the positional offsets) are honored by the shell, which
+      // repositions the default legend — only gap the still-unsupported keys.
+      const unsupportedKeys = Object.keys(legend).filter((key) => !HONORED_LEGEND_KEYS.has(key));
+      if (unsupportedKeys.length > 0) {
+        gaps.add({
+          code: 'encoding:color-legend-config-ignored',
+          message: `Legend configuration (${unsupportedKeys
+            .map((key) => `\`${key}\``)
+            .join(
+              ', ',
+            )}) has no x-charts per-spec equivalent; a default legend is shown instead. \`orient\`/position are honored separately.`,
+          severity: 'ignored',
+          path: `${path}.encoding.color.legend`,
+        });
+      }
     }
 
     return {

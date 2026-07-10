@@ -332,6 +332,24 @@ export function aggregateByTwoFields(
   // Map: xValue -> seriesValue -> per-cell accumulator (sum/count/min/max).
   const dataMap = new Map<string | number, Map<string | number, CellAcc>>();
 
+  // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
+  // count so callers that omit yAggregation (or misconfigure it for a
+  // non-numeric measure) get row counts instead of every cell rendering
+  // `null` (blank chart) — mirrors the pre-detect `aggregateByField` and
+  // `aggregateMultipleSeries` already apply (finding 2.4).
+  let effectiveAggregation = yAggregation;
+  if (effectiveAggregation !== 'count') {
+    for (const row of rows) {
+      const v = row[yField];
+      if (v !== null && v !== undefined) {
+        if (Number.isNaN(Number(v))) {
+          effectiveAggregation = 'count';
+        }
+        break;
+      }
+    }
+  }
+
   for (const row of rows) {
     if (isEmptyXValue(row[xField])) {
       continue;
@@ -348,7 +366,7 @@ export function aggregateByTwoFields(
       seriesMap = new Map();
       dataMap.set(xVal, seriesMap);
     }
-    if (yAggregation === 'count') {
+    if (effectiveAggregation === 'count') {
       // 'count' tallies rows regardless of the measure value (null rows included),
       // matching the KPI reference; the accumulated value is irrelevant.
       accumulateCell(seriesMap, seriesVal, 1);
@@ -367,7 +385,7 @@ export function aggregateByTwoFields(
   // Resolve a single cell to its aggregated value; `null` when the cell has no
   // data so line/area charts render visible gaps instead of collapsing to zero.
   const cellValue = (label: string | number, seriesName: string | number): number | null =>
-    finalizeCell(dataMap.get(label)?.get(seriesName), yAggregation);
+    finalizeCell(dataMap.get(label)?.get(seriesName), effectiveAggregation);
 
   const labels = orderLabels(sortLabels(Array.from(xValuesSet)), {
     sortBy,

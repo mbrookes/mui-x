@@ -19,10 +19,13 @@ import { renderHook, waitFor } from '@mui/internal-test-utils';
 import type {
   StudioDataSource,
   StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
   StudioState,
   StudioWidgetOf,
 } from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
+import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -446,5 +449,116 @@ describe('useBlendedSeriesRows — a foreign calculated field must be enriched, 
     });
     const rows = result.current.foreignRowsBySource.get('inventory');
     expect(rows?.find((r) => r.category === 'Furniture')?.stockValue).toBe(800);
+  });
+});
+
+describe("useBlendedSeriesRows — a filter on the foreign source's OWN expression field must apply (finding 2.3)", () => {
+  // stockValue = stock * unitPrice: i1 (Electronics) = 12*5 = 60, i2 (Furniture) = 40*20 = 800.
+  const stockValueExpr: StudioExpressionField = {
+    id: 'stockValue',
+    label: 'Stock Value',
+    sourceId: 'inventory',
+    isMeasure: false,
+    expression: {
+      operator: 'multiply',
+      inputs: [{ id: 'stock' }, { id: 'unitPrice' }],
+    },
+  };
+
+  // A page filter authored against `inventory.stockValue` (a calculated column owned by
+  // the foreign source, not a native field) — no `filterSourceId` set, matching how the
+  // Filters Drawer emits page filters on expression fields (L3 derives ownership on the
+  // fly; this hook must do the same for its independent in-source evaluation).
+  const stockValueFilter: StudioFilterState = {
+    id: 'f-stockvalue',
+    field: 'stockValue',
+    operator: 'greater_than',
+    value: 100,
+    scope: { kind: 'page', pageId: 'page-1' },
+  } as StudioFilterState;
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-inventory',
+      sourceId: 'orders',
+      sourceField: 'category',
+      targetId: 'inventory',
+      targetField: 'category',
+      type: 'many-to-one',
+    },
+  ];
+
+  it("applies a filter on the foreign source's own (non-measure) expression field to its blended series rows", () => {
+    const widget = inventoryBlendedWidget('stockValue');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: inventorySource },
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        relationships,
+        expressionFields: [stockValueExpr],
+        filters: [stockValueFilter],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    // Before the fix, the applicability gate only matched `src.fields` (native fields),
+    // so a filter on the calculated `stockValue` column was dropped entirely and BOTH
+    // inventory rows (Electronics stockValue=60, Furniture stockValue=800) would render
+    // unfiltered. After the fix, only the row whose calculated value clears the
+    // threshold survives.
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].category).toBe('Furniture');
+  });
+
+  it("agrees with the primary series' own L3 filter evaluation of the same expression-field filter", () => {
+    // The primary series (widget source = orders) honours this exact filter shape via
+    // `resolveRows`'s derived-ownership cross-filter routing (a page filter on an
+    // expression field owned by another source becomes a semi-join): only orders rows
+    // whose related inventory row's `stockValue` clears the threshold survive.
+    const dataSources = { orders: ordersSource, inventory: inventorySource };
+    const primaryRows = resolveRows(
+      ordersSource.rows!,
+      'orders',
+      [stockValueFilter],
+      dataSources,
+      relationships,
+      [stockValueExpr],
+    );
+    // Only the Furniture order survives the semi-join (its related inventory.stockValue
+    // is 800 > 100); the Electronics order's related inventory.stockValue is 60, so it
+    // is dropped.
+    expect(primaryRows.map((r) => r.category)).toEqual(['Furniture']);
+
+    // The foreign blended series (source = inventory) evaluates the SAME filter
+    // directly in-source (now that the applicability gate recognizes the foreign
+    // source's own expression fields, per the fix above).
+    const widget = inventoryBlendedWidget('stockValue');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources,
+    });
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        relationships,
+        expressionFields: [stockValueExpr],
+        filters: [stockValueFilter],
+      },
+    };
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+    const foreignRows = result.current.foreignRowsBySource.get('inventory');
+
+    // Both series agree: only the 'Furniture' category clears the filter on either side.
+    expect(foreignRows?.map((r) => r.category)).toEqual(primaryRows.map((r) => r.category));
   });
 });

@@ -125,6 +125,27 @@ const VALID_CASES: Array<{
     assert: (next) => expect(next.doc.filters.map((f) => f.id)).toContain('f-new'),
   },
   {
+    // A compound filter with a valid `operator2` still passes — the T2-1 membership check
+    // only rejects a PRESENT-and-INVALID `operator2`; a present-and-valid one is legal.
+    type: 'addFilter',
+    mutation: {
+      type: 'addFilter',
+      args: {
+        filter: {
+          id: 'f-compound',
+          field: 'rev',
+          operator: 'greater_than',
+          value: 100,
+          conjunction: 'and',
+          operator2: 'less_than',
+          value2: 500,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      },
+    },
+    assert: (next) => expect(next.doc.filters.map((f) => f.id)).toContain('f-compound'),
+  },
+  {
     type: 'removeFilter',
     mutation: { type: 'removeFilter', args: { filterId: 'seed-f' } },
     assert: (next) => expect(next.doc.filters.map((f) => f.id)).not.toContain('seed-f'),
@@ -478,6 +499,43 @@ describe('parseStateMutation — malformed per-variant args', () => {
       value: {
         type: 'addFilter',
         args: { filter: { id: 'f', field: 'x', value: 1, scope: { kind: 'page' } } },
+      },
+    },
+    // Architecture review T2-1: `filter.operator` is a closed 17-member union the client
+    // evaluator branches on and FAILS OPEN for (`filterUtils.ts` `default: () => true`).
+    // Before this fix `validateFilter` checked `operator` with `isString` only, so a
+    // plausible-but-wrong typo like `'equal'` (not in the real union — the member is
+    // `'equals'`) passed the wire boundary and installed a filter chip that renders as
+    // ACTIVE while filtering nothing. It is now membership-checked and REJECTED, matching
+    // the AI-tool boundary that already rejected the identical payload.
+    {
+      label: "addFilter filter.operator is a plausible-but-wrong typo ('equal', not in the union)",
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: { id: 'f', field: 'x', operator: 'equal', value: 1, scope: { kind: 'page' } },
+        },
+      },
+    },
+    // A PRESENT-but-invalid `operator2` (a compound filter's second condition) carries the
+    // identical fail-open hazard and is rejected the same way; an ABSENT `operator2` stays
+    // legal (pinned in the valid-cases block).
+    {
+      label: "addFilter filter.operator2 is present but invalid ('equal')",
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f',
+            field: 'x',
+            operator: 'greater_than',
+            value: 1,
+            conjunction: 'and',
+            operator2: 'equal',
+            value2: 10,
+            scope: { kind: 'page' },
+          },
+        },
       },
     },
     // Architecture review 2.2: the three UPDATE-shaped config-carrying channels

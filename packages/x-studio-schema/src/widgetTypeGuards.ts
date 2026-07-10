@@ -15,7 +15,7 @@
  * `StudioWidgetOf<'chart'>` (no guard needed); this guard is for the genuinely
  * cross-kind sites that branch on `widget.kind`.
  */
-import type { BuiltinStudioWidgetKind, StudioChartType } from './baseTypes';
+import type { BuiltinStudioWidgetKind, StudioChartType, StudioFilterOperator } from './baseTypes';
 import type {
   StudioChartConfig,
   StudioChartConfigByType,
@@ -123,4 +123,73 @@ void ALL_CHART_TYPES_LISTED;
 /** Runtime membership test for the closed `StudioChartType` union. */
 export function isStudioChartType(value: string): value is StudioChartType {
   return (STUDIO_CHART_TYPES as readonly string[]).includes(value);
+}
+
+// ── Filter-operator helpers ─────────────────────────────────────────────────────
+//
+// `StudioFilterOperator` (`baseTypes.ts`) is a closed 17-member union that BOTH
+// trust boundaries branch on — the wire boundary (`parseStateMutation`'s
+// `validateFilter`) and the AI-tool boundary (`executeToolOnState.ts`). Before this
+// list existed the schema exported only the operator TYPE, forcing the middleware to
+// hand-copy its own `VALID_FILTER_OPERATORS` record (locked with
+// `satisfies Record<StudioFilterOperator, true>`) as its "authoritative source of
+// truth". That per-package hand-copy is exactly the drift this package exists to
+// eliminate: the two boundaries could silently disagree on the identical payload. The
+// runtime list below is the single shared source both boundaries membership-check
+// against — mirrors the `STUDIO_CHART_TYPES` / `isStudioChartType` pattern above.
+
+/**
+ * Every `StudioFilterOperator` literal. The `as const` preserves the literal element
+ * types so `(typeof STUDIO_FILTER_OPERATORS)[number]` is the exact union of listed
+ * operators; the `satisfies readonly StudioFilterOperator[]` clause checks each element
+ * is a VALID operator (no stray entry). Element-validity alone does NOT enforce
+ * COMPLETENESS — a list missing `'between'` still satisfies it — so the
+ * `AssertAllFilterOperatorsListed` error-tuple lock below (the same pattern as
+ * `AssertAllChartTypesListed`) fails the build if any `StudioFilterOperator` literal is
+ * absent from this list.
+ */
+export const STUDIO_FILTER_OPERATORS = [
+  'equals',
+  'not_equals',
+  'in',
+  'not_in',
+  'contains',
+  'does_not_contain',
+  'starts_with',
+  'not_starts_with',
+  'ends_with',
+  'not_ends_with',
+  'is_empty',
+  'is_not_empty',
+  'greater_than',
+  'less_than',
+  'greater_than_or_equal',
+  'less_than_or_equal',
+  'between',
+] as const satisfies readonly StudioFilterOperator[];
+
+/**
+ * Fail-closed compile-time assertion that EVERY `StudioFilterOperator` literal appears
+ * in `STUDIO_FILTER_OPERATORS`. Resolves to `true` when the list is complete; otherwise
+ * to a descriptive error tuple naming the missing operators, which makes the
+ * `ALL_FILTER_OPERATORS_LISTED` binding below fail to compile. This is what actually
+ * fail-closes the list — `isStudioFilterOperator` gates the `addFilter` wire boundary
+ * (and the AI-tool boundary consuming this list), so a new operator missing here would
+ * be silently rejected everywhere.
+ */
+type AssertAllFilterOperatorsListed =
+  Exclude<StudioFilterOperator, (typeof STUDIO_FILTER_OPERATORS)[number]> extends never
+    ? true
+    : [
+        'STUDIO_FILTER_OPERATORS is missing:',
+        Exclude<StudioFilterOperator, (typeof STUDIO_FILTER_OPERATORS)[number]>,
+      ];
+const ALL_FILTER_OPERATORS_LISTED: AssertAllFilterOperatorsListed = true;
+void ALL_FILTER_OPERATORS_LISTED;
+
+/** Runtime membership test for the closed `StudioFilterOperator` union. */
+export function isStudioFilterOperator(value: unknown): value is StudioFilterOperator {
+  return (
+    typeof value === 'string' && (STUDIO_FILTER_OPERATORS as readonly string[]).includes(value)
+  );
 }

@@ -741,6 +741,24 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'b' });
     });
 
+    // T2-2: an array is truthy and `typeof [] === 'object'`, so the old
+    // `value && typeof value === 'object'` guard let it through and installed it AS the
+    // widget's `config` verbatim (`widget.config` became an array — a silent live-vs-reload
+    // divergence, since `deserializeState` would coerce it to `{}` on the next load but the
+    // live in-memory state wouldn't match). An array must be ignored exactly like `null`.
+    it('changes.config: an array does not corrupt the widget config (T2-2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: ['rogue', 'array'] } as never },
+      });
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+    });
+
     // Finishing the T3.3 defense-in-depth pair: the top-level `updateWidget.args.config`
     // branch admitted `null` (a server-built mutation bypassing the parser), then threw
     // inside `normalizeConfigChartSeries`/`Object.entries(null)`. A non-record `config` is
@@ -759,6 +777,27 @@ describe('applyMutation', () => {
         });
       }).not.toThrow();
       // Unchanged config, and a reference-equality no-op (no spurious undo step).
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+      expect(next).toBe(state);
+    });
+
+    // T2-2: the old guard (`config !== null && typeof config === 'object'`) let an array
+    // through, and `Object.entries([...])` merged its index keys ("0", "1", …) into the
+    // widget's live config. An array must be treated as ABSENT, same as `null`.
+    it('top-level config: an array is a no-op, not a merge of index keys (T2-2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar', xField: 'a' } },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', config: ['rogue', 'array'] as never },
+        });
+      }).not.toThrow();
+      // Unchanged config (no `"0"`/`"1"` keys merged in), and a reference-equality no-op.
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
       expect(next).toBe(state);
     });
@@ -1778,6 +1817,61 @@ describe('applyMutation', () => {
       });
       // Patched key changes; the untouched key survives the shallow merge.
       expect(next.widgets.w1.config).toEqual({ chartType: 'line', xField: 'category' });
+    });
+
+    // T2-2: the old guard was bare truthiness (`if (update.config)`), so an array passed
+    // and `{ ...existing.config, ...update.config }` merged its index keys ("0", "1", …)
+    // into the widget's live config. A non-record `update.config` must be skipped, same
+    // as an absent one.
+    it('an array `updatedWidgets[].config` is skipped, not merged as index keys (T2-2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { ...chartWidget('w1', 'W1'), config: { chartType: 'bar', xField: 'category' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', config: ['rogue', 'array'] as never }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      // Unchanged config (no `"0"`/`"1"` keys merged in), and a reference-equality no-op.
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'category' });
+      expect(next).toBe(state);
+    });
+
+    // T2-2: a truthy STRING is also bare-truthy, and `{ ...existing.config, ...'abc' }`
+    // spreads a string's own indices too (`{0:'a',1:'b',2:'c'}`) — the same hazard class
+    // as the array case, just via string iteration rather than array iteration.
+    it('a string `updatedWidgets[].config` is skipped, not spread as index keys (T2-2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { ...chartWidget('w1', 'W1'), config: { chartType: 'bar', xField: 'category' } },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', config: 'abc' as never }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      // Unchanged config (no `"0"`/`"1"`/`"2"` keys spread in), and a reference-equality no-op.
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'category' });
+      expect(next).toBe(state);
     });
 
     it('skips an update whose target widget no longer exists', () => {

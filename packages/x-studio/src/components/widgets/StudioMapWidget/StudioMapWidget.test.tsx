@@ -591,8 +591,8 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
 
   it('resolves format/currency from a cross-source CALCULATED (expression) field via mapValueSourceId (finding 1.1)', async () => {
     rows = [
-      { country: 'United States', bonus: 9999.99 },
-      { country: 'France', bonus: 42 },
+      { country: 'United States', bonus: 9999.99, customerId: 'c1' },
+      { country: 'France', bonus: 42, customerId: 'c2' },
     ];
     const widget: StudioWidget = {
       ...baseWidget,
@@ -603,6 +603,9 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
     // `dataSources[valueSourceId].fields` (never the source's expression fields), so a
     // related-source *calculated* value field lost its currency format and the aria-label's
     // min/max rendered as plain numbers with no currency symbol.
+    // Each row also carries its FK (`customerId`) — the M:1 relationship declared below
+    // activates the (pre-existing, iteration-9) fan-in dedup guard, which skips any row
+    // with no resolvable FK; a real cross-source-enriched row always carries this join key.
     const customersSource: StudioDataSource = {
       id: 'customers',
       label: 'Customers',

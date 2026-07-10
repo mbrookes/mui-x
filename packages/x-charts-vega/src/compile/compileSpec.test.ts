@@ -93,6 +93,47 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(geoData?.features).to.have.length(1);
   });
 
+  it('de-duplicates TopoJSON features that share an id, preferring the real geometry', () => {
+    // Real-world topologies (e.g. us-10m counties) carry a null-geometry
+    // placeholder alongside the real polygon for the same id. Both would key
+    // the map shape by that id and collide ("two children with the same key");
+    // the conversion collapses them to one, keeping the real geometry.
+    const topology = {
+      type: 'Topology',
+      objects: {
+        counties: {
+          type: 'GeometryCollection',
+          geometries: [
+            { type: null, id: 100, properties: {} },
+            { type: 'Polygon', id: 100, arcs: [[0]], properties: { name: 'X' } },
+            { type: 'Polygon', id: 200, arcs: [[0]], properties: { name: 'Y' } },
+          ],
+        },
+      },
+      arcs: [
+        [
+          [0, 0],
+          [0, 1],
+          [1, 1],
+          [1, 0],
+          [0, 0],
+        ],
+      ],
+    };
+    const compiled = compileSpec({
+      data: { values: topology, format: { type: 'topojson', feature: 'counties' } },
+      mark: 'geoshape',
+    } as unknown as VegaLiteSpec);
+    const geoData = compiled.geo?.geoData as {
+      features: Array<{ id?: number; geometry: unknown }>;
+    };
+    // One feature per id (100 and 200), not three.
+    expect(geoData.features).to.have.length(2);
+    const feature100 = geoData.features.find((entry) => entry.id === 100);
+    // The real polygon replaced the null-geometry placeholder.
+    expect(feature100?.geometry).not.to.equal(null);
+  });
+
   it('reports a gap naming the available objects for a missing topojson feature', () => {
     const compiled = compileSpec({
       data: {

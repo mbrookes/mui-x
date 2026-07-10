@@ -158,7 +158,25 @@ export function buildSecureQuery(
   // carry physical `ColumnRef`s — the same resolution `validateDescriptorColumns`
   // checked against `columnAllowlist`), so execution can never target a different
   // physical column than validation approved.
-  applyPredicates(query, queryPlan.filters as FilterPredicate[], 'read');
+  //
+  // TABLE-QUALIFICATION (finding 2.1): every OTHER column reference on the read
+  // path is table-qualified to avoid "ambiguous column" errors under joins — SELECT
+  // / GROUP BY / ORDER BY / aggregations (`execute.ts`'s `qualify()`) and all three
+  // security-predicate dimensions (`emitSecurityPredicates` in `shared/predicates.ts`,
+  // used above via `applySecurityPredicates`/`applySecurityPredicatesToJoinOn`). User
+  // filter predicates were the sole exception: `applyPredicate` emits a bare
+  // `where('<col>', ...)`, which Postgres/MySQL reject as ambiguous once a joined
+  // table shares the column name (`region_id`, `id`, `status`, …). Qualify an
+  // unqualified resolved filter column with the PRIMARY table here, mirroring
+  // `execute.ts`'s `qualify()` — a column already containing a `.` (a
+  // client-qualified reference, e.g. `customers.region_id`) is left untouched so it
+  // still resolves against the table the caller explicitly named.
+  const qualifiedFilters = (queryPlan.filters as FilterPredicate[]).map((filter) =>
+    filter.column.includes('.')
+      ? filter
+      : { ...filter, column: `${queryPlan.table}.${filter.column}` },
+  );
+  applyPredicates(query, qualifiedFilters, 'read');
 
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
   // Only allowed against aggregation aliases (validated by handler.ts before

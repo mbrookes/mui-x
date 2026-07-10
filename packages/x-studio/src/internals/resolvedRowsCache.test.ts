@@ -916,4 +916,155 @@ describe('resolveRowsCached', () => {
     const result2 = resolveRowsCached(ordersRows, 'orders', [crossFilter], ds, rel2, []);
     expect(result2).not.toBe(result1);
   });
+
+  // ─── Finding 1.2 ────────────────────────────────────────────────────────────
+  // L3 must track the joined-source-rows dependency of L2 (expression-field) enrichment, not
+  // just declared cross-filter sources — a widget-source expression column that JOINs a foreign
+  // source makes that foreign source's rows a real dependency of the resolved result, even with
+  // no cross-filter present at all.
+  it('invalidates when a joined source (via a widget-source JoinFieldExpression column) refreshes its rows, with no cross-filter present (finding 1.2)', () => {
+    // Widget on `orders`, with an expression column `customer_name = join(customers.name)`.
+    // No filter targets `customers` at all — the only dependency is L2 enrichment.
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const customersV1 = [
+      { id: 'c1', name: 'Alice' },
+      { id: 'c2', name: 'Bob' },
+    ];
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'r',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const customerNameExpr: StudioExpressionField = {
+      id: 'customer_name',
+      label: 'Customer name',
+      type: 'string',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'name' },
+    };
+    const dsV1: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+      customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV1 },
+    };
+
+    // No filters at all — a widget just displaying the joined column, e.g. a grid.
+    const filters: StudioFilterState[] = [];
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      filters,
+      dsV1,
+      relationships,
+      [customerNameExpr],
+      new Set(['customer_name']),
+    );
+    expect(result1.find((r) => r.id === 'o1')?.customer_name).toBe('Alice');
+
+    // Host refreshes `customers` rows via a new array reference — `orders` rows (the outer
+    // WeakMap key) are UNCHANGED, so without threading L2's join dependency into L3's own
+    // tracking, the cache would keep serving the stale `customerNameV1`-baked entry forever.
+    const customersV2 = [
+      { id: 'c1', name: 'Alice Renamed' },
+      { id: 'c2', name: 'Bob Renamed' },
+    ];
+    const dsV2: Record<string, StudioDataSource> = {
+      ...dsV1,
+      customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV2 },
+    };
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      filters,
+      dsV2,
+      relationships,
+      [customerNameExpr],
+      new Set(['customer_name']),
+    );
+    expect(result2).not.toBe(result1);
+    expect(result2.find((r) => r.id === 'o1')?.customer_name).toBe('Alice Renamed');
+  });
+
+  it('invalidates a filter ON the joined expression column itself when the foreign source refreshes (finding 1.2)', () => {
+    // Same setup, but this time there's a PAGE FILTER on the joined expression column
+    // (`customer_name = 'Alice'`) — the exact repro the review calls out: "filters on that
+    // expression column keep matching stale values too".
+    const ordersRows = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const customersV1 = [
+      { id: 'c1', name: 'Alice' },
+      { id: 'c2', name: 'Bob' },
+    ];
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'r',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ];
+    const customerNameExpr: StudioExpressionField = {
+      id: 'customer_name',
+      label: 'Customer name',
+      type: 'string',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'name' },
+    };
+    const dsV1: Record<string, StudioDataSource> = {
+      orders: { id: 'orders', label: 'Orders', fields: [], rows: ordersRows },
+      customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV1 },
+    };
+    const nameFilter = makeFilter({
+      id: 'f-name',
+      scope: { kind: 'page' as const },
+      field: 'customer_name',
+      operator: 'equals',
+      value: 'Alice',
+    });
+
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [nameFilter],
+      dsV1,
+      relationships,
+      [customerNameExpr],
+      new Set(['customer_name']),
+    );
+    expect(result1.map((r) => r.id)).toEqual(['o1']);
+
+    // Customer "Bob" is renamed to "Alice" — a fresh customers rows array (setDataSourceRows).
+    const customersV2 = [
+      { id: 'c1', name: 'Charlie' }, // Alice renamed away
+      { id: 'c2', name: 'Alice' }, // Bob renamed to Alice
+    ];
+    const dsV2: Record<string, StudioDataSource> = {
+      ...dsV1,
+      customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV2 },
+    };
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [nameFilter],
+      dsV2,
+      relationships,
+      [customerNameExpr],
+      new Set(['customer_name']),
+    );
+    // Without the fix, this would still return ['o1'] (stale) instead of ['o2'].
+    expect(result2.map((r) => r.id)).toEqual(['o2']);
+  });
 });

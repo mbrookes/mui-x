@@ -400,7 +400,16 @@ function compileSingleCondition(
   }
 }
 
-function isConditionComplete(operator: StudioFilterState['operator'], value: unknown): boolean {
+/**
+ * True when a (operator, value) pair is a fully-specified condition. Exported for reuse by
+ * `createBatchingAdapter.ts`, which must decide whether a leaf's SECOND condition is "present"
+ * using the exact same rule the in-memory evaluator uses — a valueless operator (`is_empty`/
+ * `is_not_empty`) is complete/present with no value at all (finding 2.8).
+ */
+export function isConditionComplete(
+  operator: StudioFilterState['operator'],
+  value: unknown,
+): boolean {
   if (operator === 'is_empty' || operator === 'is_not_empty') {
     return true;
   }
@@ -437,9 +446,27 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
     return rows;
   }
 
-  // Apply rank filters first (dataset-level reduction)
-  const rankFilters = active.filter((f) => (f.filterMode ?? 'condition') === 'rank');
+  // Apply condition and selection filters FIRST, then rank (dataset-level reduction) AFTER.
+  // This "filter then rank" order matches the adapter push-down path — which evaluates
+  // translatable condition predicates server-side and only re-applies the rank reduction on the
+  // returned rows client-side — so an adapter-backed and an in-memory source produce identical
+  // numbers for the same dashboard (finding 2.4). It is also the standard BI convention: a
+  // "top 5 regions" rank should rank the regions that survive the other filters, not rank the
+  // whole dataset and then filter the survivors.
+  //
+  // Condition/selection filters are compiled once per filter (not per row) so the filter-side
+  // constants (toComparable() / normalizeToDate() / toLowerCase()) are computed a single time.
+  const rowFilters = active.filter((f) => (f.filterMode ?? 'condition') !== 'rank');
   let result = rows;
+  if (rowFilters.length > 0) {
+    const tests = rowFilters.map(compileRowTest);
+    result =
+      tests.length === 1
+        ? result.filter(tests[0])
+        : result.filter((row) => tests.every((test) => test(row)));
+  }
+
+  const rankFilters = active.filter((f) => (f.filterMode ?? 'condition') === 'rank');
   for (const f of rankFilters) {
     const n = Math.round(Number(f.value));
     const dir = f.rankDirection ?? 'top';
@@ -468,16 +495,5 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
     }
   }
 
-  // Apply condition and selection filters row-by-row using pre-compiled test functions.
-  // Compiling once per filter (not per row) avoids redundant toComparable() /
-  // normalizeToDate() / toLowerCase() work on filter-side constants.
-  const rowFilters = active.filter((f) => (f.filterMode ?? 'condition') !== 'rank');
-  if (rowFilters.length === 0) {
-    return result;
-  }
-  const tests = rowFilters.map(compileRowTest);
-  if (tests.length === 1) {
-    return result.filter(tests[0]);
-  }
-  return result.filter((row) => tests.every((test) => test(row)));
+  return result;
 }

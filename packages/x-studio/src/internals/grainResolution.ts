@@ -1,7 +1,13 @@
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
+} from '../models';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { enrichRowsWithRelatedFields, findDirectRelationship } from './dataSourceGraph';
 import { collectKeySet, indexRowsByKey, normalizeJoinKey } from './joinKeys';
+import { applyFilters } from './filterUtils';
 
 type Row = Record<string, unknown>;
 
@@ -73,6 +79,21 @@ export function resolveRowsAtGrain(
    * changing invalidates the entry instead of serving stale rows (finding 1.5).
    */
   collectReadSourceIds?: Set<string>,
+  /**
+   * The widget's fully resolved/scoped filter set (page + widget + cross-filter + interactive,
+   * date-range presets already resolved to concrete bounds — i.e. exactly what L3 used to
+   * produce `widgetRows`). Only the subset targeting the ANCHOR source (`filterSourceId ===
+   * anchorSourceId`) is applied here, directly to the anchor rows, before the expansion join.
+   *
+   * L3 enforces an anchor-source-field filter as a semi-join (keep a widget row if it has AT
+   * LEAST ONE matching anchor row) — by design, since a widget row can have many anchor rows and
+   * only some need to match. Without this parameter, the expansion join below reads ALL of a
+   * surviving widget row's anchor rows straight from the (unfiltered) data-source store,
+   * resurrecting exactly the anchor rows the filter excluded — e.g. summing every order
+   * (paid + unpaid) for a customer with at least one paid order, instead of just the paid ones
+   * (finding 1.4).
+   */
+  widgetFilters: StudioFilterState[] = [],
 ): Row[] {
   // Determine which requested fields are expression fields on the anchor source.
   const exprFieldIdsOnSource = new Set(
@@ -81,6 +102,11 @@ export function resolveRowsAtGrain(
     ),
   );
   const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
+
+  // The subset of the widget's resolved filters that target the ANCHOR source's own fields
+  // (a cross-filter or page filter whose `filterSourceId === anchorSourceId`). Applied directly
+  // to the anchor rows, before the expansion join, in both re-anchor branches below (finding 1.4).
+  const anchorScopedFilters = widgetFilters.filter((f) => f.filterSourceId === anchorSourceId);
 
   if (anchorSourceId === widgetSourceId) {
     const related = enrichRowsWithRelatedFields(
@@ -139,15 +165,55 @@ export function resolveRowsAtGrain(
     // is a distinct foreign source whose rows this branch reads and must be reported (finding 1.5).
     collectReadSourceIds?.add(remoteSourceId);
 
+    // A THIRD source reachable many-to-one from widgetSourceId (distinct from the junction and
+    // the M:N remote endpoint) can own a requested dimension field — e.g. y lives on the
+    // junction while x/series is owned by `customers`, one-hop from `orders`. `analyzeChartSupport`
+    // validates and reports this configuration as supported, so it must actually be enriched onto
+    // the widget rows here (mirroring the many-to-one branch's own third-source enrichment)
+    // instead of silently resolving to `undefined` on every output row (finding 1.3).
+    const widgetRowsEnriched = enrichRowsWithRelatedFields(
+      widgetRows,
+      widgetSourceId,
+      requestedFields.filter(
+        (fieldId) =>
+          fieldOwners.get(fieldId) !== anchorSourceId &&
+          fieldOwners.get(fieldId) !== remoteSourceId,
+      ),
+      dataSources,
+      relationships,
+      collectReadSourceIds,
+    );
+
     // Build lookup maps for widget and remote source (normalized join keys).
     const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
-    const widgetRowLookup = indexRowsByKey(widgetRows, widgetJoinField);
+    const widgetRowLookup = indexRowsByKey(widgetRowsEnriched, widgetJoinField);
     const remoteRowLookup = indexRowsByKey(
       dataSources[remoteSourceId]?.rows ?? [],
       remoteJoinField,
     );
 
-    const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
+    // Junction-owned expression fields (e.g. a calculated column on the M:N junction table)
+    // need L2 enrichment too — the junction rows were previously read raw, unlike every other
+    // anchor branch, which routes through `enrichSourceRowsWithExpressions` (finding 1.3).
+    const junctionRowsRaw = dataSources[anchorSourceId]?.rows ?? [];
+    const junctionRowsEnriched = needsExpressionEnrichment
+      ? enrichSourceRowsWithExpressions(
+          junctionRowsRaw,
+          anchorSourceId,
+          dataSources,
+          relationships,
+          expressionFields,
+          exprFieldIdsOnSource,
+          collectReadSourceIds,
+        )
+      : junctionRowsRaw;
+
+    // Apply the anchor(junction)-source-scoped filter subset directly to the junction rows
+    // BEFORE the expansion join, so a filter on the junction's own fields (already enforced at
+    // L3 as a semi-join keeping widget rows with >=1 matching junction row) doesn't get silently
+    // re-widened back to every junction row for each surviving widget row (finding 1.4).
+    const junctionRows = applyFilters(junctionRowsEnriched, anchorScopedFilters);
+
     return junctionRows.flatMap((jRow) => {
       const widgetKey = normalizeJoinKey(jRow[junctionWidgetField]);
       if (widgetKey === null || !allowedWidgetKeys.has(widgetKey)) {
@@ -185,14 +251,23 @@ export function resolveRowsAtGrain(
   const anchorFieldIds = new Set(
     requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
   );
-  const enrichedAnchorRows = enrichSourceRowsWithExpressions(
-    dataSources[anchorSourceId]?.rows ?? [],
-    anchorSourceId,
-    dataSources,
-    relationships,
-    expressionFields,
-    anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
-    collectReadSourceIds,
+  // Apply the anchor-source-scoped filter subset directly to the anchor ("many"-side) rows
+  // BEFORE the join-membership filter below. L3 already enforced this filter as a semi-join
+  // (kept a widget row if it has >=1 matching anchor row); without re-applying it here, EVERY
+  // anchor row for a surviving widget row is read straight from the (unfiltered) store,
+  // resurrecting exactly the rows the filter excluded — e.g. summing all orders (paid + unpaid)
+  // for a customer with >=1 paid order instead of just the paid ones (finding 1.4).
+  const enrichedAnchorRows = applyFilters(
+    enrichSourceRowsWithExpressions(
+      dataSources[anchorSourceId]?.rows ?? [],
+      anchorSourceId,
+      dataSources,
+      relationships,
+      expressionFields,
+      anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
+      collectReadSourceIds,
+    ),
+    anchorScopedFilters,
   ).filter((row) => {
     const key = normalizeJoinKey(row[anchorJoinField]);
     return key !== null && allowedWidgetKeys.has(key);

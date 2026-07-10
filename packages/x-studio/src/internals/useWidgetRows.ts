@@ -174,6 +174,8 @@ export function useWidgetRows(
     pageId,
     filters,
     expressionFields,
+    relationships,
+    crossFilterAllPages,
   );
 
   // ── Sync (in-memory) path ───────────────────────────────────────────────
@@ -203,6 +205,22 @@ export function useWidgetRows(
     [partitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
   );
 
+  // `selectFiltersForWidget`'s own 'widget' scope case unconditionally excludes
+  // `filterMode === 'rank'` filters (handled as a special post-aggregation reduction
+  // elsewhere, e.g. `useChartWidgetData`'s own `widgetRankFilter` lookup, not as an ordinary row
+  // predicate) — so a WIDGET-scoped rank filter never appears in `reachableFilters` above.
+  // Collected directly from the already page/widget-scoped `partitioned.byWidgetId` bucket (not
+  // the raw dashboard-wide `filters`) so a widget-scoped "top N by measure" filter's field
+  // widening below isn't silently skipped, while still never widening on a rank filter that
+  // belongs to a DIFFERENT widget (finding 2.5).
+  const widgetScopedRankFilters = React.useMemo(
+    () =>
+      (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+        (f) => !f.disabled && (f.filterMode ?? 'condition') === 'rank',
+      ),
+    [partitioned, widget.id],
+  );
+
   // Compute the set of field IDs this widget actually uses in its config.
   // Passed to resolveRowsCached so enrichment is lazy-by-widget — adding an
   // unused expression field for the same source won't invalidate this widget's
@@ -214,13 +232,21 @@ export function useWidgetRows(
     const ids = new Set(collectSelectFields(widget));
     // Also include any fields referenced in filters that can reach this widget
     // (they need to be enriched so the filter can evaluate against them).
-    for (const f of reachableFilters) {
+    for (const f of [...reachableFilters, ...widgetScopedRankFilters]) {
       if (f.field) {
         ids.add(f.field);
       }
+      // A rank-by-measure filter (e.g. "top 5 by profit") reduces on `rankByField`, a
+      // field that need not otherwise appear anywhere in the widget's config or in `f.field`
+      // (the group-by/dimension column). Without this, `rankByField` never enters L1/L2
+      // enrichment scope, so its raw values are missing from the normalized/enriched row set
+      // the rank reduction reads from (finding 2.5).
+      if (f.rankByField) {
+        ids.add(f.rankByField);
+      }
     }
     return ids;
-  }, [widget, reachableFilters]);
+  }, [widget, reachableFilters, widgetScopedRankFilters]);
 
   // ── Lazy per-widget normalization (L1) ─────────────────────────────────
   // The store holds raw data sources. Each widget normalizes only the fields it

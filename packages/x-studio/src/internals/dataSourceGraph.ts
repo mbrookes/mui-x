@@ -206,6 +206,13 @@ export function resolveRows(
         dataSources,
         relationships,
         options?.usedFieldIds,
+        // Thread L2's join-source dependencies into the L3 caller's tracking. A widget-source
+        // expression column that JOINs a foreign source (e.g. `customer_name =
+        // join(customers.name)`) makes that foreign source's rows a real dependency of this
+        // resolved result even with NO cross-filter present. Without recording it,
+        // `resolvedRowsCache` keeps serving stale joined values — and filters ON that expression
+        // column keep matching stale values — after the foreign source's rows refresh (finding 1.2).
+        options?.collectJoinedSourceIds,
       );
 
   const nativeFilters: StudioFilterState[] = [];
@@ -294,6 +301,11 @@ export function resolveRows(
           expressionFields,
           dataSources,
           relationships,
+          undefined,
+          // The foreign source's own expression columns may JOIN yet another source; record
+          // those targets so a later refresh of that transitive source also invalidates the L3
+          // entry (finding 1.2).
+          options?.collectJoinedSourceIds,
         ),
       );
     }

@@ -77,7 +77,7 @@ const MAX_ENTRIES_PER_ROWS = 20;
  * Including it would guarantee a miss every time an interactive/cross-filter is
  * re-applied, since those ids carry a `Date.now()` suffix.
  */
-function filterFingerprint(f: StudioFilterState): string {
+export function filterFingerprint(f: StudioFilterState): string {
   return stableStringify([
     f.field,
     f.fieldType ?? null,

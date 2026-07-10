@@ -35,7 +35,12 @@ import type {
   ClientMutationDescriptor,
   ClientMutationResult,
 } from '../models';
-import { applyFilters, isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
+import {
+  applyFilters,
+  isConditionComplete,
+  isRelativeDateValue,
+  resolveRelativeDate,
+} from '../internals/filterUtils';
 import { normalizeJoinKey } from '../internals/joinKeys';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
@@ -871,7 +876,15 @@ function buildBatchWidgetDescriptor(
     // widget aggregate client-side — exactly like the cross-endpoint-groupBy path already does.
     // `columns` already carries every select field (group-by + measure), so raw rows are complete.
     let aggregations: AggregationSpec[] | undefined;
-    if (hasCountAggregation(d.aggregations)) {
+    if (d.hasIncomingCrossOrInteractiveFilters && d.aggregations && d.aggregations.length > 0) {
+      // A chart-click cross-filter or interactive (filter-widget) selection targeting this
+      // widget is enforced CLIENT-SIDE over the returned rows — but a server-aggregated response
+      // is one row per group with only the grouped/alias columns, so the cross-filter's field
+      // reads `undefined` on every row and empties the widget (finding 2.9). Route to raw rows +
+      // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases.
+      warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
+      aggregations = undefined;
+    } else if (hasCountAggregation(d.aggregations)) {
       warnCountRoutedClientSide(d.sourceId, warnDedupe);
       aggregations = undefined;
     } else if (d.xGroupBy && hasAvgAggregation(d.aggregations)) {
@@ -909,6 +922,16 @@ function buildBatchWidgetDescriptor(
       },
     );
 
+    // Simple mode has no relationship graph to resolve a groupBy id against, so an expression
+    // (calculated-column) field id has no guaranteed physical column of the same name — emitting
+    // `ORDER BY <expression-field-id>` unresolved fails the whole batch entry with "no such
+    // column". Relationship-aware mode already strips this case via its `skip`/`unresolved`
+    // check (`orderByColumn`, below); simple mode needs the same guard (finding 2.11).
+    const groupByIsExpressionField = Boolean(
+      d.groupBy &&
+      expressionFields?.some((ef) => ef.id === d.groupBy && ef.sourceId === d.sourceId),
+    );
+
     return {
       requestBody: {
         id: batchEntryId(d),
@@ -916,7 +939,10 @@ function buildBatchWidgetDescriptor(
         columns,
         aggregations,
         filters: partition.predicates.length > 0 ? partition.predicates : undefined,
-        orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
+        orderBy:
+          d.groupBy && !groupByIsExpressionField
+            ? [{ column: d.groupBy, direction: 'asc' as const }]
+            : undefined,
       },
       crossEndpointEnrichments: [],
       clientFilter,
@@ -988,6 +1014,15 @@ function buildBatchWidgetDescriptor(
   const aggregations: AggregationSpec[] | undefined = (() => {
     if (groupByIsCrossEndpoint) {
       // Can't group server-side — return raw rows for client-side enrichment + aggregation.
+      return undefined;
+    }
+    // A chart-click cross-filter or interactive (filter-widget) selection targeting this widget
+    // is enforced CLIENT-SIDE over the returned rows — but a server-aggregated response is one
+    // row per group with only the grouped/alias columns, so the cross-filter's field reads
+    // `undefined` on every row and empties the widget (finding 2.9). Route to raw rows +
+    // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases below.
+    if (d.hasIncomingCrossOrInteractiveFilters && d.aggregations && d.aggregations.length > 0) {
+      warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
       return undefined;
     }
     // A `count` aggregation is routed client-side (2.16d) — SQL COUNT(column) skips NULLs while
@@ -1217,7 +1252,15 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
   if (!isOpValueServerTranslatable(leaf.op, leaf.value)) {
     return false;
   }
-  const hasSecondCondition = leaf.op2 !== undefined && leaf.value2 !== undefined;
+  // Mirror `isConditionComplete`'s presence rule (not a bare `value2 !== undefined` check) — a
+  // valueless second operator (`is_empty`/`is_not_empty`) IS a real, present second condition
+  // with no value at all. The old `value2 !== undefined` check reported `hasSecondCondition` as
+  // false for it, so the leaf was declared "fully translatable" on its FIRST condition alone —
+  // silently dropping the second condition entirely (never emitted in `leafToPredicates` either,
+  // since that function has the same `value2 !== undefined` gate) instead of failing translation
+  // and falling back to the client-side residual, where the in-memory evaluator enforces both
+  // conditions correctly (finding 2.8).
+  const hasSecondCondition = leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2);
   if (!hasSecondCondition) {
     return true;
   }
@@ -1479,6 +1522,28 @@ function warnAvgXGroupByRoutedClientSide(sourceId: string, dedupe: Set<string>):
       `client-side instead of pushed to the data adapter: the adapter cannot transmit the bucket ` +
       `granularity, so a server-side average would be re-bucketed into an (incorrect) unweighted ` +
       `average of averages. Raw rows are fetched for this widget and averaged client-side.`,
+  );
+}
+
+/**
+ * Warn (once per build) that a server-side aggregation push-down was routed to
+ * raw-rows-then-client-aggregate because the widget has an incoming chart-click cross-filter or
+ * interactive (filter-widget) selection (finding 2.9). Those scopes are deliberately excluded
+ * from the server query (see `queryDescriptor.buildQueryDescriptor`) and are instead enforced
+ * client-side over the returned rows — but a server-aggregated response is one row per group
+ * with only the grouped/alias columns present, so the cross-filter's own field would read
+ * `undefined` on every row and empty the widget entirely. Fetching raw rows lets the client
+ * apply the cross-filter to real per-row data before its own (always-on) aggregation step runs.
+ */
+function warnCrossFilterAggregatedRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
+  warnAdapterDivergence(
+    dedupe,
+    `A server-side aggregation for source "${sourceId}" was computed client-side instead of ` +
+      `pushed to the data adapter: the widget has an incoming cross-filter or interactive ` +
+      `filter-widget selection, which is enforced client-side over the returned rows. A ` +
+      `server-aggregated response would contain only the grouped/alias columns, so the ` +
+      `cross-filter's field would read undefined on every row and empty the widget. Raw rows ` +
+      `are fetched for this widget and aggregated client-side instead.`,
   );
 }
 

@@ -2343,6 +2343,47 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 18 });
     });
 
+    it('MERGES a widgetColSpans-only bulk onto existing spans, preserving an untouched widget concurrently resized (T2-2)', () => {
+      // T2-2 (residual lost-update): a colSpans-only bulk names ONLY the widget whose
+      // width the model changed (w1). Widget w2 already has a span set — from a prior turn
+      // or a concurrent client drag-resize that landed AFTER the producer built its delta.
+      // The reducer used to WHOLESALE-REPLACE the page's span map with the wire payload,
+      // silently wiping w2's span (the same lost-update class as `widgetRows`, one field
+      // over). The merge fix keeps w2's span while applying w1's update.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            // Separate rows so the two spans never overflow a single row's 24 columns.
+            widgetRows: [['w1'], ['w2']],
+            // w2's span is already set (prior turn / concurrent client drag-resize).
+            widgetColSpans: { w1: 12, w2: 18 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            // Only w1 is named — no `widgetRows`, no w2 entry (a partial/colSpans-only payload).
+            widgetColSpans: { w1: 8 },
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // w1's span updated…
+      expect(next.pages['page-1'].widgetColSpans?.w1).toBe(8);
+      // …and w2's span SURVIVES the merge (would be `undefined` under the old replace bug).
+      expect(next.pages['page-1'].widgetColSpans?.w2).toBe(18);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 8, w2: 18 });
+      // Rows untouched.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+    });
+
     it('a bulk-added widget with a `null` config is stored with `{}`, safe for a later update (T2-2)', () => {
       // Mirror of the addWidget T2-2 fix on the bulk `addedWidgets` path: the add site
       // coerces a non-record config to `{}` rather than storing the null landmine.

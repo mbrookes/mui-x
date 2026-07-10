@@ -1378,9 +1378,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     plan: (args, { state }) => {
       const { widgetId, enabled, periods, showConfidenceBands } = args as {
         widgetId?: string;
-        enabled?: boolean;
+        enabled?: unknown;
         periods?: number;
-        showConfidenceBands?: boolean;
+        showConfidenceBands?: unknown;
       };
       if (!widgetId || typeof widgetId !== 'string') {
         return {
@@ -1433,6 +1433,36 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           };
         }
         periodsNum = Math.floor(n);
+      }
+
+      // Strictly validate `enabled`/`showConfidenceBands` as ACTUAL booleans at the write
+      // source (T2-3, finding-3.2 value-shape class). The tool schema declares both boolean
+      // (and marks `enabled` required), but the args are untrusted and unvalidated: relying
+      // on JS truthiness means a classic string-boolean slip like `enabled: "false"`
+      // (truthy!) would ENABLE a forecast a call meant to DISABLE — while reporting
+      // `success` — and a `showConfidenceBands: "no"` would persist a string in a
+      // `boolean`-typed config field. Fail closed with an actionable error — mirroring the
+      // `periods` coercion above and the shared `invalidConfigValueError` boolean check —
+      // rather than silently coercing the dangerous `"false"` → `true` direction.
+      if (typeof enabled !== 'boolean') {
+        return {
+          output: JSON.stringify({
+            error: `set_widget_forecast 'enabled' must be a boolean (true or false); received ${JSON.stringify(
+              enabled,
+            )}.`,
+          }),
+          nextState: state,
+        };
+      }
+      if (showConfidenceBands != null && typeof showConfidenceBands !== 'boolean') {
+        return {
+          output: JSON.stringify({
+            error: `set_widget_forecast 'showConfidenceBands' must be a boolean (true or false); received ${JSON.stringify(
+              showConfidenceBands,
+            )}.`,
+          }),
+          nextState: state,
+        };
       }
 
       const forecastConfig = enabled

@@ -10,6 +10,9 @@
  *   - Tier-cache populated after a preflight miss (when a TTL is given)
  *   - Omitting `tierCacheTtlMs` computes/reads the decision but never writes it back
  *     (decide-without-cache-write mode — this replaces the old standalone `decideTier`)
+ *   - Finding 2.1: a throwing tier-cache `get`/`set` degrades gracefully (falls
+ *     back to the preflight COUNT(*)) instead of throwing out of
+ *     `decideTierWithCache` and failing the widget.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { decideTierWithCache, DEFAULT_THRESHOLDS } from '../tierDecision';
@@ -25,6 +28,19 @@ function makeTierCache(hit?: TierEntry): TierCacheProvider {
   return {
     get: vi.fn(async () => hit),
     set: vi.fn(async () => {}),
+    invalidatePrefix: vi.fn(async () => {}),
+  };
+}
+
+/** A tier cache whose `get`/`set` both reject, simulating a down Redis backend. */
+function makeThrowingTierCache(): TierCacheProvider {
+  return {
+    get: vi.fn(async () => {
+      throw new Error('redis tier cache down');
+    }),
+    set: vi.fn(async () => {
+      throw new Error('redis tier cache down');
+    }),
     invalidatePrefix: vi.fn(async () => {}),
   };
 }
@@ -226,5 +242,77 @@ describe('decideTierWithCache — tier-cache population', () => {
     expect(getRowCount).not.toHaveBeenCalled();
     expect(tierCache.set).not.toHaveBeenCalled();
     expect(result.source).toBe('tier-cache');
+  });
+});
+
+// ─── decideTierWithCache — tier-cache failure isolation (finding 2.1) ─────────
+//
+// Before the fix, a throwing `tierCacheProvider.get`/`.set` propagated straight
+// out of `decideTierWithCache`, converted by `processWidget`'s outer catch-all
+// into a per-widget error result (`{ rows: [], tier: 'db', rowCount: 0, error }`)
+// — a total failure for every non-aggregation widget even though the DB itself
+// was healthy and the preflight could have run. This mirrors the data cache's
+// existing `get`/`set` guards in `handler.ts` (finding 2.6): a throwing `get` is
+// treated as a cache miss (fall through to the preflight), and a throwing `set`
+// is a logged warning that does not discard the already-computed decision.
+
+describe('decideTierWithCache — tier-cache failure isolation (finding 2.1)', () => {
+  it('degrades a throwing tierCacheProvider.get to a cache miss and still returns a tier via the preflight', async () => {
+    const tierCache = makeThrowingTierCache();
+    const getRowCount = makeGetRowCount(8_000);
+
+    const result = await decideTierWithCache(
+      false,
+      'key',
+      getRowCount,
+      tierCache,
+      DEFAULT_THRESHOLDS,
+    );
+
+    // The throw from `.get` did not propagate — the preflight ran and a valid
+    // tier decision (not an error) came back.
+    expect(result.tier).toBe('client');
+    expect(result.rowCount).toBe(8_000);
+    expect(result.source).toBe('preflight');
+    expect(getRowCount).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades a throwing tierCacheProvider.set to a logged warning without discarding the computed decision', async () => {
+    const tierCache = makeThrowingTierCache();
+    const getRowCount = makeGetRowCount(200_000);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = await decideTierWithCache(
+        false,
+        'key',
+        getRowCount,
+        tierCache,
+        DEFAULT_THRESHOLDS,
+        30_000, // TTL supplied so `.set` is attempted
+      );
+
+      // The `.set` throw did not propagate and did not discard the decision
+      // already computed from the preflight.
+      expect(result).toEqual({ tier: 'db', rowCount: 200_000, source: 'preflight' });
+      expect(tierCache.set).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('never throws out of decideTierWithCache when both get and set fail', async () => {
+    const tierCache = makeThrowingTierCache();
+    const getRowCount = makeGetRowCount(50);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(
+        decideTierWithCache(false, 'key', getRowCount, tierCache, DEFAULT_THRESHOLDS, 30_000),
+      ).resolves.toEqual({ tier: 'client', rowCount: 50, source: 'preflight' });
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

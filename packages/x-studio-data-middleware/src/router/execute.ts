@@ -59,9 +59,15 @@ export async function executeForTier(
 
   // Project one resolved column: an expression field (physical differs from its
   // output id) SELECTs `physical AS outputAlias`; a direct column is qualified.
+  // The source column is qualified in BOTH branches — an unqualified renamed
+  // column (e.g. `total` from `columnAliases: { revenue: 'total' }`) is just as
+  // ambiguous under a join as an unqualified direct column, so `qualify()` runs
+  // on `col.physical` here too before it goes into the `??` binding. Only the
+  // SOURCE reference is qualified; the output row KEY (`col.outputAlias`) is
+  // unaffected, so client row shapes are unchanged (finding 2.2).
   const projectColumn = (col: PlanProjectionColumn): unknown =>
     col.outputAlias !== undefined
-      ? db.raw(`?? as ??`, [col.physical, col.outputAlias])
+      ? db.raw(`?? as ??`, [qualify(col.physical), col.outputAlias])
       : qualify(col.physical);
 
   // Resolve one ORDER BY target: an aggregation alias stays as-is (not a physical

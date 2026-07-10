@@ -1173,6 +1173,113 @@ describe('handleBatchQuery — cache failures do not poison results (finding 2.6
   });
 });
 
+// ─── handleBatchQuery — tier-cache failures degrade gracefully (finding 2.1) ───
+//
+// Before the fix, `decideTierWithCache` awaited `tierCacheProvider.get()`/`.set()`
+// bare. The only enclosing try/catch was the per-widget outer catch-all, so a
+// throwing tier-cache backend converted the throw into a per-widget error result
+// (`{ rows: [], tier: 'db', rowCount: 0, error }`) for every non-aggregation
+// widget — even though the DB itself was healthy and the preflight COUNT(*)
+// could have run, exactly the outage class the DATA cache's `get`/`set` guards
+// (finding 2.6, tested above) were written for. This mirrors those tests but for
+// the tier-cache plane.
+
+describe('handleBatchQuery — tier-cache failures do not poison results (finding 2.1)', () => {
+  function makeThrowingTierCache(overrides: {
+    get?: () => Promise<never>;
+    set?: () => Promise<never>;
+  }) {
+    return {
+      async get() {
+        if (overrides.get) {
+          return overrides.get();
+        }
+        return undefined;
+      },
+      async set() {
+        if (overrides.set) {
+          await overrides.set();
+        }
+      },
+      async invalidatePrefix() {},
+    };
+  }
+
+  it('a throwing tier-cache GET still serves rows from the DB instead of failing the widget', async () => {
+    const tierCacheProvider = makeThrowingTierCache({
+      get: async () => {
+        throw new Error('redis tier cache down');
+      },
+    });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      tierCacheProvider,
+      tierCacheTtlMs: 60_000,
+    });
+    // Before the fix this was `{ rows: [], tier: 'db', rowCount: 0, error: 'redis
+    // tier cache down' }`. After the fix the tier-cache read failure degrades to
+    // a miss, the preflight runs, and real rows come back.
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it('a throwing tier-cache SET still returns the already-decided tier and rows, instead of discarding them', async () => {
+    const tierCacheProvider = makeThrowingTierCache({
+      set: async () => {
+        throw new Error('redis tier cache down');
+      },
+    });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      tierCacheProvider,
+      tierCacheTtlMs: 60_000,
+    });
+    // Before the fix, a throwing `.set` discarded the preflight decision already
+    // in hand and failed the widget. The fix isolates the cache write so the
+    // decided tier and fetched rows still return.
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it('every non-aggregation widget in a batch still succeeds when the tier cache is down', async () => {
+    const tierCacheProvider = makeThrowingTierCache({
+      get: async () => {
+        throw new Error('redis tier cache down');
+      },
+    });
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'w1', table: 'sales' },
+        { id: 'w2', table: 'sales', columns: ['region'] },
+      ],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      tierCacheProvider,
+      tierCacheTtlMs: 60_000,
+    });
+    for (const widgetResult of result.results) {
+      expect(widgetResult.error).toBeUndefined();
+      expect(widgetResult.rows.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 // ─── handleBatchQuery — aggregation push-down ────────────────────────────────
 
 describe('handleBatchQuery — aggregation push-down', () => {

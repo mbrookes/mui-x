@@ -89,8 +89,22 @@ export async function decideTierWithCache(
   }
 
   // 2. Tier-cache hit → reuse the cached tier decision.
+  //    The tier cache is a best-effort layer in FRONT of the preflight COUNT(*),
+  //    mirroring the data cache's posture (finding 2.6): a read failure (e.g.
+  //    Redis down) must degrade to a tier-cache miss (falling through to the
+  //    preflight), not fail the widget (finding 2.1).
   if (tierCacheProvider) {
-    const cached = await tierCacheProvider.get(cacheKey);
+    let cached: Awaited<ReturnType<TierCacheProvider['get']>>;
+    try {
+      cached = await tierCacheProvider.get(cacheKey);
+    } catch (cacheErr) {
+      cached = undefined;
+      console.warn(
+        `MUI X Studio Server: tier-cache read failed for a widget; falling back to the preflight COUNT(*). ` +
+          `The result is still served, but the tier-cache backend should be checked. ` +
+          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+      );
+    }
     if (cached) {
       return { tier: cached.tier, rowCount: cached.rowCount, source: 'tier-cache' };
     }
@@ -101,7 +115,18 @@ export async function decideTierWithCache(
   const tier = tierFromRowCount(rowCount, thresholds);
 
   if (tierCacheProvider && tierCacheTtlMs !== undefined) {
-    await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
+    // The tier decision is already computed — a cache WRITE failure must not
+    // discard it. Catch and degrade to "decided, uncached" (finding 2.1,
+    // mirroring the data cache's `set` guard for finding 2.6).
+    try {
+      await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
+    } catch (cacheErr) {
+      console.warn(
+        `MUI X Studio Server: tier-cache write failed for a widget; the tier decision is still returned. ` +
+          `Subsequent requests will re-run the preflight COUNT(*) until the tier-cache backend recovers. ` +
+          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+      );
+    }
   }
 
   return { tier, rowCount, source: 'preflight' };

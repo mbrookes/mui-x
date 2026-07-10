@@ -8,6 +8,7 @@
  * against a real Knex/SQL backend, so that is what is pinned here.
  */
 import { describe, it, expect } from 'vitest';
+import Knex from 'knex';
 import { executeForTier } from '../execute';
 import { validateQueryPlan } from '../../security/validateQueryPlan';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
@@ -243,5 +244,89 @@ describe('executeForTier — joined-table SELECT * bypass (finding 1.1)', () => 
     const selectCalls = calls.filter((c) => c.method === 'select');
     expect(selectCalls).toHaveLength(1);
     expect(selectCalls[0].args[0]).toEqual(['orders.*']);
+  });
+});
+
+// Regression for finding 2.2: a renamed (expression-field) projection column
+// (`col.outputAlias !== undefined`) used to emit its physical column into
+// `db.raw('?? as ??', [col.physical, col.outputAlias])` WITHOUT qualifying
+// `col.physical` with the primary table first — the last unqualified read-path
+// column reference in the package, inconsistent with GROUP BY/ORDER BY/direct
+// SELECT columns (all qualified via `qualify()`) in the very same query. Under a
+// join where the physical column name also exists on the joined table, this is
+// exactly the "ambiguous column" shape Postgres/MySQL reject.
+describe('executeForTier — renamed projection column qualification under a join (finding 2.2)', () => {
+  // The exact shape from the architecture review: an expression field
+  // `revenue -> total` on `orders`, joined against `customers` (which also has
+  // its own `total` column in a real schema — the ambiguity trigger).
+  const joinedRenameDescriptor = (): BatchWidgetDescriptor => ({
+    id: 'w1',
+    table: 'orders',
+    columns: ['revenue', 'status'],
+    columnAliases: { revenue: 'total' },
+    joins: [
+      {
+        table: 'customers',
+        type: 'inner',
+        on: [['orders.customer_id', 'customers.id']],
+      },
+    ],
+  });
+
+  it("qualifies the renamed column's physical source with the primary table (recording contract)", async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(db, BASE_CLAIMS, joinedRenameDescriptor(), 'client', {
+      tenancy: SINGLE_TENANT,
+    });
+
+    const selectCalls = calls.filter((c) => c.method === 'select');
+    expect(selectCalls).toHaveLength(1);
+    const projected = selectCalls[0].args[0] as unknown[];
+
+    // The renamed column ('revenue' -> physical 'total'): before the fix this
+    // was `{ kind: 'raw', bindings: ['total', 'revenue'] }` — the bare physical
+    // column, ambiguous under the join. After the fix the physical source is
+    // qualified with the primary table before it reaches the `??` binding; the
+    // output row KEY ('revenue') is unchanged.
+    expect(projected[0]).toEqual({ kind: 'raw', bindings: ['orders.total', 'revenue'] });
+    // The direct (non-renamed) column is qualified the same way it always was.
+    expect(projected[1]).toBe('orders.status');
+  });
+
+  // Real-Knex render pin (this package's now-standard verification technique,
+  // e.g. `queryBuilder.test.ts`'s "real Knex SQL rendering" sections): renders
+  // the actual `?? as ??` raw fragment through Knex's `pg` dialect so a Knex
+  // upgrade that changed how a dotted `??` identifier splits would fail this
+  // test instead of silently reintroducing the ambiguous-column bug.
+  describe('real Knex SQL rendering', () => {
+    const realDb = Knex({ client: 'pg' });
+
+    it('demonstrates the pre-fix shape (bare column) is what Postgres rejects as ambiguous', () => {
+      // Sanity check for the bug this fix closes: an unqualified `total` in the
+      // raw `?? as ??` fragment renders as a bare, unqualified identifier — under
+      // a join where BOTH `orders` and `customers` carry a `total` column,
+      // Postgres/MySQL reject this as `column reference "total" is ambiguous`.
+      const buggyRaw = realDb.raw('?? as ??', ['total', 'revenue']);
+      expect(buggyRaw.toString()).toBe('"total" as "revenue"');
+    });
+
+    it('renders the qualified, unambiguous fragment after the fix', () => {
+      // `qualify(col.physical)` prefixes the primary table before the raw
+      // binding — Knex splits the dotted `??` identifier into
+      // `"orders"."total"`, unambiguous even when `customers` has its own
+      // `total` column. The output alias (row key) is untouched.
+      const fixedRaw = realDb.raw('?? as ??', ['orders.total', 'revenue']);
+      expect(fixedRaw.toString()).toBe('"orders"."total" as "revenue"');
+    });
+
+    it('renders the full projected SELECT list for the joined-rename descriptor unambiguously', () => {
+      // End-to-end sanity: the same two projected values `executeForTier` builds
+      // for the joined-rename descriptor above, rendered together the way they
+      // would appear in the final SELECT list.
+      const renamedFragment = realDb.raw('?? as ??', ['orders.total', 'revenue']);
+      const directColumn = 'orders.status';
+      const rendered = `select ${renamedFragment.toString()}, "${directColumn.replace('.', '"."')}"`;
+      expect(rendered).toBe('select "orders"."total" as "revenue", "orders"."status"');
+    });
   });
 });

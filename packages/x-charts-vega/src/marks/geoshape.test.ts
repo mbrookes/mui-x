@@ -303,8 +303,10 @@ describe('compileGeoshapeMark', () => {
       expect(series.data.map((entry) => entry.name)).to.deep.equal(['A', 'B']);
     });
 
-    it('skips features without a string name (they cannot be joined to the map)', () => {
-      const unnamed = {
+    it('bridges a feature `id` into a name so an id-keyed feature can still join', () => {
+      // No `properties.name`, but an `id` — x-charts joins only by name, so the
+      // id is bridged into `properties.name` (String(id)) and the feature colors.
+      const idOnly = {
         type: 'Feature',
         id: 42,
         properties: { rate: 5 },
@@ -322,7 +324,81 @@ describe('compileGeoshapeMark', () => {
         },
       };
       const compiled = compileSpec({
-        data: { values: [featureA, unnamed, featureB] },
+        data: { values: [featureA, idOnly, featureB] },
+        mark: 'geoshape',
+        encoding: { color: { field: 'properties.rate', type: 'quantitative' } },
+      } as VegaLiteSpec);
+      const series = compiled.series[0] as unknown as MapShapeSeries;
+      expect(series.data.map((entry) => entry.name)).to.deep.equal(['A', '42', 'B']);
+    });
+
+    it('joins values onto id-keyed features via a `lookup` transform and colors them', () => {
+      // Real-world choropleth shape: TopoJSON-style features identified only by a
+      // numeric `id`, with the values living in a separate dataset joined by id.
+      const county = (id: number, x: number) => ({
+        type: 'Feature',
+        id,
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [x, 0],
+              [x, 10],
+              [x + 10, 10],
+              [x + 10, 0],
+              [x, 0],
+            ],
+          ],
+        },
+      });
+      const compiled = compileSpec({
+        data: { values: [county(1001, 0), county(1002, 20)] },
+        transform: [
+          {
+            lookup: 'id',
+            from: {
+              data: {
+                values: [
+                  { id: 1001, rate: 0.05 },
+                  { id: 1002, rate: 0.09 },
+                ],
+              },
+              key: 'id',
+              fields: ['rate'],
+            },
+          },
+        ],
+        mark: 'geoshape',
+        encoding: { color: { field: 'rate', type: 'quantitative' } },
+      } as unknown as VegaLiteSpec);
+      // The lookup put `rate` on each feature; the id bridged into a name so the
+      // shapes color instead of falling back to the outline `mark:geoshape-lookup`.
+      expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:geoshape-lookup');
+      const series = compiled.series[0] as unknown as MapShapeSeries;
+      expect(series.data.map((entry) => entry.name)).to.deep.equal(['1001', '1002']);
+      expect(series.data.map((entry) => entry.colorValue)).to.deep.equal([0.05, 0.09]);
+    });
+
+    it('skips features with neither a name nor an id (nothing to join on)', () => {
+      const anonymous = {
+        type: 'Feature',
+        properties: { rate: 5 },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [60, 0],
+              [60, 10],
+              [70, 10],
+              [70, 0],
+              [60, 0],
+            ],
+          ],
+        },
+      };
+      const compiled = compileSpec({
+        data: { values: [featureA, anonymous, featureB] },
         mark: 'geoshape',
         encoding: { color: { field: 'properties.rate', type: 'quantitative' } },
       } as VegaLiteSpec);

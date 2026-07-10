@@ -34,38 +34,46 @@ import {
   GITHUB_LIBRARY_USAGE_SOURCE_ID,
   GITHUB_LIBRARY_USAGE_HISTORY_SOURCE,
   GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
+  GITHUB_CHART_LIBRARY_USAGE_SOURCE,
+  GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID,
   createGithubLibraryUsageAdapter,
   createGithubLibraryUsageHistoryAdapter,
+  createGithubChartLibraryUsageAdapter,
   prefetchGithubLibraryUsage,
   prefetchGithubLibraryUsageHistory,
+  prefetchGithubChartLibraryUsage,
 } from './connectors/githubLibraryUsageSource';
 
 const PAGE_ID = 'page-library-usage';
 const INTRO_WIDGET_ID = 'widget-text-intro';
-const CHART_WIDGET_ID = 'widget-chart-library-usage';
+const DATA_GRID_CHART_WIDGET_ID = 'widget-chart-data-grid-adoption';
+const CHARTING_LIBRARY_CHART_WIDGET_ID = 'widget-chart-charting-library-adoption';
 const HISTORY_INTRO_WIDGET_ID = 'widget-text-history';
 const WEEK_FILTER_WIDGET_ID = 'widget-filter-week';
 const HISTORY_CHART_WIDGET_ID = 'widget-chart-library-usage-history';
 
 /**
- * A single page whose 100%-stacked bar chart plots, for every component
- * library, the relative share of each data grid library among non-fork
- * GitHub repos that declare both as dependencies — see
+ * A single page with two always-current 100%-stacked bar charts: one plots,
+ * for every component library, the relative share of each data grid
+ * library, the other the relative share of each charting library — both
+ * among non-fork GitHub repos that declare both as dependencies. See
  * `connectors/githubLibraryUsageSource.ts` for how the values are computed.
  *
- * Below it, a second "Adoption Over Time" section reads the same matrix
- * captured weekly (see server/snapshotStore.ts) and lets the user scrub
- * through history with a date-slider filter. Unfiltered, that chart sums
- * every captured week — it's presented as its own historical/exploratory
- * section for that reason, rather than replacing the always-current chart
- * above, whose default view stays exactly "the latest snapshot".
+ * Below those, a third "Adoption Over Time" section reads the data-grid
+ * matrix captured weekly (see server/snapshotStore.ts) and lets the user
+ * scrub through history with a date-slider filter. Unfiltered, that chart
+ * sums every captured week — it's presented as its own historical/
+ * exploratory section for that reason, rather than replacing either
+ * always-current chart above, whose default view stays exactly "the latest
+ * snapshot". (Weekly history is captured for the charting-library matrix
+ * too — see server/index.ts — just not yet wired to its own scrubber here.)
  */
 const INITIAL_STATE: Partial<StudioState> = {
   doc: {
     schemaVersion: 1,
     dashboard: {
       id: 'dashboard-github-library-usage',
-      title: 'Component Library × Data Grid Adoption',
+      title: 'Component Library Ecosystem Adoption',
       activePageId: PAGE_ID,
     },
     pages: {
@@ -74,7 +82,8 @@ const INITIAL_STATE: Partial<StudioState> = {
         title: 'Library Adoption',
         widgetRows: [
           [INTRO_WIDGET_ID],
-          [CHART_WIDGET_ID],
+          [DATA_GRID_CHART_WIDGET_ID],
+          [CHARTING_LIBRARY_CHART_WIDGET_ID],
           [HISTORY_INTRO_WIDGET_ID],
           [WEEK_FILTER_WIDGET_ID],
           [HISTORY_CHART_WIDGET_ID],
@@ -85,19 +94,21 @@ const INITIAL_STATE: Partial<StudioState> = {
       [INTRO_WIDGET_ID]: {
         id: INTRO_WIDGET_ID,
         kind: 'text',
-        title: 'Component Library × Data Grid Adoption',
+        title: 'Component Library Ecosystem Adoption',
         titleMode: 'manual',
         sourceId: undefined,
         config: {
           textTitleFontSize: 32,
           textTitleAlign: 'center',
-          textSubtitle: 'Non-fork GitHub repos whose package.json combines each pair of libraries',
+          textSubtitle:
+            'Non-fork GitHub repos whose package.json combines a component library with a ' +
+            'data grid or charting library',
         },
       },
-      [CHART_WIDGET_ID]: {
-        id: CHART_WIDGET_ID,
+      [DATA_GRID_CHART_WIDGET_ID]: {
+        id: DATA_GRID_CHART_WIDGET_ID,
         kind: 'chart',
-        title: 'Repositories using both libraries',
+        title: 'Data Grid Library Adoption',
         titleMode: 'manual',
         sourceId: GITHUB_LIBRARY_USAGE_SOURCE_ID,
         config: {
@@ -107,10 +118,23 @@ const INITIAL_STATE: Partial<StudioState> = {
           yField: 'repoCount',
         },
       },
+      [CHARTING_LIBRARY_CHART_WIDGET_ID]: {
+        id: CHARTING_LIBRARY_CHART_WIDGET_ID,
+        kind: 'chart',
+        title: 'Charting Library Adoption',
+        titleMode: 'manual',
+        sourceId: GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID,
+        config: {
+          chartType: 'bar-100',
+          xField: 'componentLibrary',
+          seriesField: 'chartLibrary',
+          yField: 'repoCount',
+        },
+      },
       [HISTORY_INTRO_WIDGET_ID]: {
         id: HISTORY_INTRO_WIDGET_ID,
         kind: 'text',
-        title: 'Adoption Over Time',
+        title: 'Data Grid Library Adoption Over Time',
         titleMode: 'manual',
         sourceId: undefined,
         config: {
@@ -135,7 +159,7 @@ const INITIAL_STATE: Partial<StudioState> = {
       [HISTORY_CHART_WIDGET_ID]: {
         id: HISTORY_CHART_WIDGET_ID,
         kind: 'chart',
-        title: 'Repositories using both libraries (by week)',
+        title: 'Data Grid Library Adoption (by week)',
         titleMode: 'manual',
         sourceId: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID,
         config: {
@@ -154,6 +178,7 @@ const INITIAL_STATE: Partial<StudioState> = {
     dataSources: {
       [GITHUB_LIBRARY_USAGE_SOURCE_ID]: GITHUB_LIBRARY_USAGE_SOURCE,
       [GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID]: GITHUB_LIBRARY_USAGE_HISTORY_SOURCE,
+      [GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID]: GITHUB_CHART_LIBRARY_USAGE_SOURCE,
     },
   },
   session: {
@@ -350,10 +375,10 @@ export default function App() {
   }, []);
 
   // Wire the GitHub library-usage connectors unconditionally — they always talk
-  // to this app's own /api/github-library-usage* endpoints regardless of any
-  // data-source mode. Pre-fetch rows so the data drawer shows the correct
-  // count and preview, and so each chart has a synchronous fallback on cold
-  // cache (no empty flash).
+  // to this app's own API server (see connectors/githubLibraryUsageSource.ts)
+  // regardless of any data-source mode. Pre-fetch rows so the data drawer
+  // shows the correct count and preview, and so each chart has a synchronous
+  // fallback on cold cache (no empty flash).
   React.useEffect(() => {
     studioRef.current?.setDataSourceAdapter(
       GITHUB_LIBRARY_USAGE_SOURCE_ID,
@@ -372,6 +397,16 @@ export default function App() {
     prefetchGithubLibraryUsageHistory().then((rows) => {
       if (rows.length > 0) {
         studioRef.current?.setDataSourceRows(GITHUB_LIBRARY_USAGE_HISTORY_SOURCE_ID, rows);
+      }
+    });
+
+    studioRef.current?.setDataSourceAdapter(
+      GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID,
+      createGithubChartLibraryUsageAdapter(),
+    );
+    prefetchGithubChartLibraryUsage().then((rows) => {
+      if (rows.length > 0) {
+        studioRef.current?.setDataSourceRows(GITHUB_CHART_LIBRARY_USAGE_SOURCE_ID, rows);
       }
     });
   }, []);

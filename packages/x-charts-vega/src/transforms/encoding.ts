@@ -42,9 +42,77 @@ const GROUPING_CHANNELS = [
 ] as const;
 const INLINE_TRANSFORM_CHANNELS = ['x', 'y', 'color'] as const;
 
-function syntheticName(def: VegaFieldDef): string {
+/**
+ * A resolved encoding-level argmin/argmax: within each group, the row whose
+ * `criterion` field is extreme is selected, and this channel's `extract` field
+ * is read off that row. Covers both the string form (`aggregate: 'argmax'`,
+ * where `criterion === extract === field`) and the object form
+ * (`aggregate: { argmax: 'b' }`, where `criterion` is `'b'` and `extract` is
+ * this channel's own `field`).
+ */
+interface ArgmmSpec {
+  op: 'argmin' | 'argmax';
+  criterion: string;
+  extract: string;
+}
+
+/**
+ * Classifies a channel's `aggregate` as an argmin/argmax:
+ * - `undefined` — not an argmin/argmax aggregate (a plain scalar op, or a
+ *   non-argmm object); the caller handles it elsewhere.
+ * - `null` — an argmin/argmax we cannot wire up (missing criterion or the
+ *   channel's own `field`); the caller records a gap and drops the channel.
+ * - `ArgmmSpec` — a resolved argmin/argmax.
+ */
+function resolveArgmm(def: VegaFieldDef): ArgmmSpec | null | undefined {
+  const agg = def.aggregate;
+  if (agg === 'argmin' || agg === 'argmax') {
+    // String form: select on and read back this channel's own field.
+    return def.field ? { op: agg, criterion: def.field, extract: def.field } : null;
+  }
+  if (agg && typeof agg === 'object' && (agg.argmax !== undefined || agg.argmin !== undefined)) {
+    const op = agg.argmax !== undefined ? 'argmax' : 'argmin';
+    const criterion = op === 'argmax' ? agg.argmax : agg.argmin;
+    // Object form: `criterion` selects the row; this channel's field is read
+    // off it. Both are required to produce a channel value.
+    return criterion && def.field ? { op, criterion, extract: def.field } : null;
+  }
+  return undefined;
+}
+
+function syntheticName(def: VegaFieldDef, argmm?: ArgmmSpec): string {
+  if (argmm) {
+    return `__${argmm.op}_${argmm.criterion}_${argmm.extract}`;
+  }
   const op = typeof def.aggregate === 'string' ? def.aggregate : 'agg';
   return `__${op}_${def.field ?? 'records'}`;
+}
+
+/**
+ * Resolves the bin-end companion for `bin: "binned"` (pre-binned data) from the
+ * positional channel's `x2`/`y2`, when it carries an explicit field. Returns the
+ * companion `channel` (so the caller can drop it once consumed) and its `field`.
+ * Returns `undefined` for channels with no companion (e.g. `color`) or when the
+ * companion has no field — applyInlineBin then falls back to `"${field}_end"`.
+ */
+function resolveBinnedEndChannel(
+  encoding: VegaEncoding,
+  channel: string,
+): { channel: 'x2' | 'y2'; field: string } | undefined {
+  let endChannel: 'x2' | 'y2' | undefined;
+  if (channel === 'x') {
+    endChannel = 'x2';
+  } else if (channel === 'y') {
+    endChannel = 'y2';
+  }
+  if (!endChannel) {
+    return undefined;
+  }
+  const endDef = encoding[endChannel];
+  if (endDef && !Array.isArray(endDef) && isFieldDef(endDef) && endDef.field) {
+    return { channel: endChannel, field: endDef.field };
+  }
+  return undefined;
 }
 
 export function applyEncodingTransforms(
@@ -81,6 +149,11 @@ export function applyEncodingTransforms(
       continue;
     }
     if (def.bin) {
+      // For pre-binned data (`bin: "binned"`), the bin end comes from the
+      // channel's `x2`/`y2` companion when present; otherwise applyInlineBin
+      // falls back to the `"${field}_end"` convention.
+      const binnedEndChannel =
+        def.bin === 'binned' ? resolveBinnedEndChannel(workingEncoding, channel) : undefined;
       const binResult = applyInlineBin(
         workingRows,
         def.field,
@@ -91,9 +164,17 @@ export function applyEncodingTransforms(
         // drive the axis category order); a binned color channel must keep
         // the positional row order intact.
         channel !== 'color',
+        binnedEndChannel?.field,
       );
       if (binResult) {
         workingRows = binResult.rows;
+        // The single ordinal "start–end" band now encodes the whole bin, so the
+        // x2/y2 companion that supplied the bin end is redundant — drop it, or a
+        // downstream bar mark would read x/x2 as a ranged bar instead of routing
+        // through the band-scale histogram path.
+        if (binnedEndChannel) {
+          delete workingEncoding[binnedEndChannel.channel];
+        }
         // Binned channels render as an ordinal "start–end" label field, so
         // histograms go through the existing band-scale path in scales.ts
         // (one bar per bin) instead of the continuous quantitative path.
@@ -135,25 +216,40 @@ export function applyEncodingTransforms(
     }
   }
 
-  const aggregateChannels: Array<{ channel: string; def: VegaFieldDef; as: string }> = [];
+  const aggregateChannels: Array<{
+    channel: string;
+    def: VegaFieldDef;
+    as: string;
+    argmm?: ArgmmSpec;
+  }> = [];
   for (const channel of AGGREGATABLE_CHANNELS) {
     const def = workingEncoding[channel];
-    if (def && !Array.isArray(def) && isFieldDef(def) && def.aggregate !== undefined) {
-      if (typeof def.aggregate !== 'string') {
-        gaps.add({
-          code: 'aggregate:argminmax',
-          message: 'argmin/argmax aggregates are not implemented; the channel was dropped.',
-          severity: 'unsupported',
-          path: `${path}.encoding.${channel}.aggregate`,
-        });
-        continue;
-      }
-      aggregateChannels.push({
-        channel,
-        def: def as VegaFieldDef,
-        as: syntheticName(def as VegaFieldDef),
-      });
+    if (!(def && !Array.isArray(def) && isFieldDef(def) && def.aggregate !== undefined)) {
+      continue;
     }
+    const fieldDef = def as VegaFieldDef;
+    const argmm = resolveArgmm(fieldDef);
+    if (argmm === null || (argmm === undefined && typeof fieldDef.aggregate !== 'string')) {
+      // Either an argmin/argmax we can't wire up (missing criterion/field) or a
+      // non-argmm object aggregate we don't understand — drop the channel.
+      gaps.add({
+        code: 'aggregate:argminmax',
+        message:
+          'The argmin/argmax aggregate needs both a criterion field to select on and ' +
+          `this channel's \`field\` to read back; the "${channel}" channel was dropped.`,
+        severity: 'unsupported',
+        path: `${path}.encoding.${channel}.aggregate`,
+      });
+      continue;
+    }
+    // `null` was handled above (channel dropped), so `argmm` is now
+    // `ArgmmSpec | undefined`.
+    aggregateChannels.push({
+      channel,
+      def: fieldDef,
+      as: syntheticName(fieldDef, argmm),
+      argmm,
+    });
   }
 
   if (aggregateChannels.length === 0) {
@@ -197,13 +293,27 @@ export function applyEncodingTransforms(
   const outRows: DatasetRow[] = [];
   for (const group of groups.values()) {
     const outRow: DatasetRow = { ...group.key };
-    for (const { channel, def, as } of aggregateChannels) {
+    for (const { channel, def, as, argmm } of aggregateChannels) {
+      if (argmm) {
+        // argmin/argmax: pick the row that extremizes `criterion` within the
+        // group (evaluateAggregate returns that whole row when given
+        // `group.rows`), then read this channel's `extract` field off it. A
+        // group with no numeric criterion value yields `null`.
+        const winner = evaluateAggregate(
+          argmm.op,
+          group.rows.map((row) => row[argmm.criterion]),
+          group.rows,
+        );
+        outRow[as] =
+          winner != null && typeof winner === 'object' ? (winner[argmm.extract] ?? null) : null;
+        continue;
+      }
       const values =
         def.field == null ? group.rows : group.rows.map((row) => row[def.field as string]);
       const result = evaluateAggregate(def.aggregate as never, values, group.rows);
-      // A non-scalar result (the whole row returned by argmin/argmax) can't be
-      // consumed as a positional/quantitative channel value, so it is treated
-      // like an unimplemented op here — the encoding channel needs a scalar.
+      // Only scalar ops reach here (argmin/argmax are handled above). A missing
+      // (`undefined`) or unexpectedly non-numeric result means the op has no
+      // scalar implementation, so the channel value is nulled and gapped.
       if (result === undefined || (result !== null && typeof result !== 'number')) {
         gaps.add({
           code: `aggregate:${String(def.aggregate)}`,
@@ -220,13 +330,20 @@ export function applyEncodingTransforms(
   }
 
   const nextEncoding: VegaEncoding = { ...workingEncoding };
-  for (const { channel, def, as } of aggregateChannels) {
+  for (const { channel, def, as, argmm } of aggregateChannels) {
     // The rewrite strips the `aggregate` marker and renames `field` to the
     // synthetic column, so scales.ts's aggregate-aware title derivation can
     // never fire downstream — derive the "MEAN of v"-style title here instead
-    // (matching axisTitle's format) unless the spec set one explicitly.
-    const op = String(def.aggregate).toUpperCase();
-    const derivedTitle = def.field ? `${op} of ${def.field}` : 'Count of Records';
+    // (matching axisTitle's format) unless the spec set one explicitly. For
+    // argmin/argmax the displayed value is this channel's `extract` field read
+    // off the winning row, so title it with that field name.
+    let derivedTitle: string;
+    if (argmm) {
+      derivedTitle = argmm.extract;
+    } else {
+      const op = String(def.aggregate).toUpperCase();
+      derivedTitle = def.field ? `${op} of ${def.field}` : 'Count of Records';
+    }
     nextEncoding[channel] = {
       ...def,
       field: as,

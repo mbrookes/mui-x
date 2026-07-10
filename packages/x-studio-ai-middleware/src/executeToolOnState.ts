@@ -1272,17 +1272,30 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
       }
 
+      // T2-4 (producer half): `widgetRows`/`widgetColSpans` are a plan-time snapshot of
+      // the active page's layout — attaching them unconditionally means a batch that only
+      // contains `widgetUpdates` (no removals/additions/layout/colSpans) still ships that
+      // stale snapshot, silently reverting any concurrent client-side layout edit (e.g. a
+      // drag-reorder) that happened while this turn was running. Attach them only when
+      // this batch actually changed the layout — mirrored by `applied`, since a requested
+      // op that was skipped (not found / invalid / out of range) never touched `widgetRows`
+      // or `colSpans` and must not be sent either. The reducer (fixed in the same round,
+      // `applyMutation.ts`'s `applyBulkUpdate.apply`) treats true absence of BOTH fields as
+      // "layout unchanged" and skips the layout-replacement block entirely, so an
+      // updates-only batch now leaves the client's current layout untouched.
+      const layoutChanged =
+        applied.removed > 0 || applied.added > 0 || applied.layout || applied.colSpans > 0;
+
       const mutation: StateMutation = {
         type: 'applyBulkUpdate',
         args: {
           removedWidgetIds,
           addedWidgets,
           updatedWidgets,
-          widgetRows,
-          widgetColSpans: colSpans,
+          ...(layoutChanged ? { widgetRows, widgetColSpans: colSpans } : {}),
           activePageId,
         },
-      };
+      } as StateMutation;
       return {
         output: JSON.stringify({
           success: true,

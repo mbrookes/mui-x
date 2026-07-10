@@ -3313,3 +3313,236 @@ describe('StudioController — transient doc state across undo/redo (1.1)', () =
     );
   });
 });
+
+// ─── 2.7: duplicateWidget honours the one-rank-filter-per-page invariant ──────
+// `duplicateWidget` clones a widget's widget-scoped filters and commits them via raw
+// `addFilter` mutations (which the reducer applies verbatim, no rank check). The clone lands
+// on the SAME page as the source, so a cloned rank filter would resolve to the same page
+// context as the source's own rank filter — the exact "two rank filters per page" state
+// `addFilter`/`updateFilter` reject and the filters drawer assumes cannot exist.
+describe('StudioController.duplicateWidget — rank-filter uniqueness (2.7)', () => {
+  it('drops a cloned widget-scoped rank filter that would conflict on the page', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addFilter(
+      makeFilter({
+        id: 'rank1',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'widget', widgetId: 'w1' },
+      }),
+    );
+
+    controller.duplicateWidget('w1');
+
+    // Exactly one rank filter survives — the source's own. The clone's rank filter was dropped
+    // guard-and-continue style rather than persisting a second rank filter on the page.
+    const rankFilters = controller.getState().doc.filters.filter((f) => f.filterMode === 'rank');
+    expect(rankFilters).toHaveLength(1);
+    expect(rankFilters[0].scope).toEqual({ kind: 'widget', widgetId: 'w1' });
+    warnSpy.mockRestore();
+  });
+
+  it('still clones non-rank widget-scoped filters onto the copy', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addFilter(
+      makeFilter({
+        id: 'cond1',
+        filterMode: 'condition',
+        value: 'foo',
+        scope: { kind: 'widget', widgetId: 'w1' },
+      }),
+    );
+
+    controller.duplicateWidget('w1');
+
+    const copyId = Object.keys(controller.getState().doc.widgets).find((id) => id !== 'w1')!;
+    const clonedForCopy = controller
+      .getState()
+      .doc.filters.filter((f) => f.scope.kind === 'widget' && f.scope.widgetId === copyId);
+    // The condition filter is cloned onto the copy (guard-and-continue only drops rank filters).
+    expect(clonedForCopy).toHaveLength(1);
+    expect(clonedForCopy[0]).toMatchObject({ filterMode: 'condition', value: 'foo' });
+  });
+});
+
+// ─── 2.9: upsertDataSource same-reference guard (refetch-loop hazard) ──────────
+describe('StudioController.upsertDataSource — same-reference guard (2.9)', () => {
+  it('re-injecting the identical source object is a clean no-op (no invalidation, no commit)', () => {
+    // Regression (2.9): a host re-injecting the SAME source object from an effect/poller would
+    // otherwise bump the source generation, evict every cached adapter result, and mark
+    // in-flight requests stale on every call — an unbounded refetch loop paired with
+    // `onStateChange`. `setDataSourceAdapter` already had this guard; `upsertDataSource` did not.
+    const controller = new StudioController();
+    const source = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' as const }],
+      rows: [{ amount: 1 }],
+    };
+    controller.upsertDataSource(source);
+
+    const stateBefore = controller.getState();
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      controller.upsertDataSource(source); // same reference re-injected
+      expect(spy).not.toHaveBeenCalled();
+      expect(controller.getState()).toBe(stateBefore);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a content-equal but distinct object still invalidates and commits (only reference identity short-circuits)', () => {
+    const controller = new StudioController();
+    controller.upsertDataSource({
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 1 }],
+    });
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      // A fresh object (as a config-swap reload produces) is NOT reference-equal, so it must
+      // still replace the entry and invalidate — the guard only short-circuits identity.
+      controller.upsertDataSource({
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+        rows: [{ amount: 2 }],
+      });
+      expect(spy).toHaveBeenCalledWith('orders');
+      expect(controller.getState().runtime.dataSources.orders.rows).toEqual([{ amount: 2 }]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ─── 2.10: phantom redo-clearing commits eliminated on value-identical writes ──
+// `setPageStackBreakpoint` / `updateActivePage` / `updateRelationship` each built a fresh
+// object unconditionally (`{ ...page, ...changes }` / `{ ...rel, ...patch }`), defeating
+// `commitDocPatch`'s reference-equality no-op guard even for a value-identical write — so
+// re-confirming a value the doc already holds wiped a pending redo stack.
+describe('StudioController — value-identical page/relationship writes are no-ops (2.10)', () => {
+  it('setPageStackBreakpoint re-confirming the current value preserves the redo stack', () => {
+    const controller = new StudioController();
+    controller.setPageStackBreakpoint(600);
+    controller.setDashboardTitle('edit'); // second undoable edit
+    controller.undo(); // reverts the title; breakpoint stays 600; redo now pending
+    expect(controller.canRedo()).toBe(true);
+
+    const before = controller.getState();
+    controller.setPageStackBreakpoint(600); // re-confirm the value the page already has
+
+    expect(controller.getState()).toBe(before); // no commit
+    expect(controller.canRedo()).toBe(true); // redo NOT wiped
+  });
+
+  it('updateActivePage re-confirming the current value preserves the redo stack', () => {
+    const controller = new StudioController();
+    controller.updateActivePage({ title: 'Renamed' });
+    controller.setDashboardTitle('edit');
+    controller.undo(); // reverts the title; active page title stays 'Renamed'; redo pending
+    expect(controller.canRedo()).toBe(true);
+
+    const before = controller.getState();
+    controller.updateActivePage({ title: 'Renamed' }); // value-identical
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  it('updateRelationship with a value-identical patch preserves the redo stack', () => {
+    const controller = new StudioController({
+      doc: {
+        relationships: [
+          {
+            id: 'r1',
+            sourceId: 'a',
+            sourceField: 'x',
+            targetId: 'b',
+            targetField: 'y',
+            type: 'many-to-one' as const,
+          },
+        ],
+      },
+    });
+    controller.setDashboardTitle('edit');
+    controller.undo(); // redo pending
+    expect(controller.canRedo()).toBe(true);
+
+    const before = controller.getState();
+    controller.updateRelationship('r1', { targetId: 'b' }); // already 'b' — value-identical
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.canRedo()).toBe(true);
+
+    // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
+    controller.updateRelationship('r1', { targetId: 'c' });
+    expect(controller.getState().doc.relationships[0].targetId).toBe('c');
+    expect(controller.canRedo()).toBe(false);
+  });
+});
+
+// ─── 2.11: transient-only wire mutations are still surfaced to the change log ──
+// `commitState` previously pushed the mutation-log label ONLY inside the undoable branch, so
+// the non-undoable `setActivePage` / `renameAIThread` routed through `applyExternalMutation`
+// were silently dropped — contradicting `applyExternalMutation`'s "logging unchanged" contract
+// and `setActivePage`'s "only the AI-driven path logs setActivePage" comment.
+describe('StudioController.applyExternalMutation — transient mutations are logged (2.11)', () => {
+  it('records a mutation-log line for a non-undoable setActivePage from the wire', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+
+    controller.applyExternalMutation({ type: 'setActivePage', args: { pageId: 'page-2' } });
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toContain('setActivePage:page-2');
+  });
+
+  it('records a mutation-log line for a non-undoable renameAIThread from the wire', () => {
+    const controller = new StudioController({
+      doc: {
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old name', createdAt: '2020-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      },
+    });
+
+    controller.applyExternalMutation({
+      type: 'renameAIThread',
+      args: { name: 'New name', updatedAt: '2020-02-02T00:00:00.000Z', threadId: 't1' },
+    });
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toContain('renameAIThread');
+  });
+
+  it('user-driven setActivePage stays unlogged (label: null) — only the wire path logs it', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+
+    controller.setActivePage('page-2'); // user navigation
+
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+});

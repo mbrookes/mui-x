@@ -304,10 +304,30 @@ export function saveFilterPreset(doc: StudioDoc, id: string, name: string): Stud
     (f: StudioFilterState) =>
       f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
   );
+  // Re-key each captured filter id to `${id}-${f.id}` so applying the preset can mint
+  // page-independent copies (1.7). `dependsOn` (cascade references to OTHER page filters'
+  // ids — stateTypes.ts:99) must be re-keyed through the SAME scheme (2.8): otherwise the
+  // saved cascade still points at the original page-filter ids, which never re-materialize on
+  // apply, and `FilterBody` silently drops the dangling ids — the Country→City narrowing
+  // quietly stops working. Drop references to filters not captured in this preset (a
+  // dependency outside the saved set can't be re-linked when the preset is applied).
+  const capturedIds = new Set(pageFilters.map((f: StudioFilterState) => f.id));
   const preset: StudioFilterPreset = {
     id,
     name,
-    filters: pageFilters.map((f: StudioFilterState) => ({ ...f, id: `${id}-${f.id}` })),
+    filters: pageFilters.map((f: StudioFilterState) => {
+      const rekeyed = { ...f, id: `${id}-${f.id}` };
+      if (!f.dependsOn) {
+        return rekeyed;
+      }
+      const remappedDependsOn = f.dependsOn
+        .filter((depId: string) => capturedIds.has(depId))
+        .map((depId: string) => `${id}-${depId}`);
+      return {
+        ...rekeyed,
+        dependsOn: remappedDependsOn.length > 0 ? remappedDependsOn : undefined,
+      };
+    }),
   };
   return { ...doc, filterPresets: [...(doc.filterPresets ?? []), preset] };
 }
@@ -324,6 +344,14 @@ export function saveFilterPreset(doc: StudioDoc, id: string, name: string): Stud
  * would silently mutate page B's supposedly-independent copy. Nothing tracks preset origin via
  * the id derivation (only `saveFilterPreset` produces it and only this function consumes it),
  * so a plain id swap is sufficient — no `sourcePresetId` marker is needed.
+ *
+ * `filter.dependsOn` (cascade references to other page filters' ids) is remapped through the
+ * SAME oldId→freshId map the ids themselves get (2.8) — the fresh ids replace the preset-baked
+ * ones, so a cascade left un-remapped would point at ids that no longer exist and `FilterBody`
+ * would silently drop them (the Country→City narrowing quietly stops working, and dangling ids
+ * persist). Ids that don't resolve within the preset are dropped (a dependency outside the
+ * saved set can't be re-linked). `saveFilterPreset` already re-keyed `dependsOn` into the
+ * preset-internal `${presetId}-*` id space, so the two remaps compose end-to-end.
  */
 export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   const preset = (doc.filterPresets ?? []).find((p: StudioFilterPreset) => p.id === presetId);
@@ -331,6 +359,12 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
     return doc;
   }
   const activePageId = doc.dashboard.activePageId;
+  // Build the oldId→freshId map up front so `dependsOn` can be rewritten through the same
+  // remapping the ids get, mirroring the id-remap pattern the other id-minting paths follow.
+  const idMap = new Map<string, string>();
+  for (const f of preset.filters) {
+    idMap.set(f.id, createFilterId());
+  }
   return {
     ...doc,
     filters: [
@@ -339,12 +373,25 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
         (f: StudioFilterState) =>
           f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
       ),
-      // Apply preset filters scoped to the current page, each with a fresh unique id.
-      ...preset.filters.map((f: StudioFilterState) => ({
-        ...f,
-        id: createFilterId(),
-        scope: { kind: 'page' as const, pageId: activePageId },
-      })),
+      // Apply preset filters scoped to the current page, each with a fresh unique id and
+      // `dependsOn` rewritten through the same id map (dangling refs dropped).
+      ...preset.filters.map((f: StudioFilterState) => {
+        const rematerialized = {
+          ...f,
+          id: idMap.get(f.id)!,
+          scope: { kind: 'page' as const, pageId: activePageId },
+        };
+        if (!f.dependsOn) {
+          return rematerialized;
+        }
+        const remappedDependsOn = f.dependsOn
+          .map((depId: string) => idMap.get(depId))
+          .filter((depId: string | undefined): depId is string => depId !== undefined);
+        return {
+          ...rematerialized,
+          dependsOn: remappedDependsOn.length > 0 ? remappedDependsOn : undefined,
+        };
+      }),
     ],
   };
 }

@@ -483,4 +483,61 @@ describe('docTransforms preset family', () => {
     // controller's reference-equality no-op guard skips it entirely.
     expect(docTransforms.deleteFilterPreset(doc, 'nope')).toBe(doc);
   });
+
+  // ─── 2.8: filter presets preserve `dependsOn` (cascading-filter) linkage ─────
+  // A cascading Country → City page filter (City.dependsOn = [Country.id]) saved as a preset
+  // and later applied must keep the cascade working. Before the fix neither `saveFilterPreset`
+  // (re-keys ids to `${id}-${f.id}`) nor `applyFilterPreset` (mints fresh ids) remapped
+  // `dependsOn`, so the dependency pointed at ids that no longer existed and `FilterBody`
+  // silently dropped the dangling refs — the narrowing quietly stopped working.
+
+  it('saveFilterPreset re-keys dependsOn into the preset id space, dropping refs outside the set (2.8)', () => {
+    const country = pageFilter('country', 'page-1');
+    const city = { ...pageFilter('city', 'page-1'), dependsOn: ['country', 'not-in-preset'] };
+    const doc = makeDoc({ filters: [country, city] });
+    const next = docTransforms.saveFilterPreset(doc, 'preset-1', 'Geo');
+    const preset = next.filterPresets!.find((p) => p.id === 'preset-1')!;
+    const savedCity = preset.filters.find((f) => f.id === 'preset-1-city')!;
+    // The intra-preset dependency is re-keyed to match the re-keyed Country id; the ref that
+    // was not captured in the preset is dropped (it can't be re-linked on apply).
+    expect(savedCity.dependsOn).toEqual(['preset-1-country']);
+  });
+
+  it('applyFilterPreset remaps dependsOn through the fresh id map so the cascade survives a round-trip (2.8)', () => {
+    const country = pageFilter('country', 'page-1');
+    const city = { ...pageFilter('city', 'page-1'), dependsOn: ['country'] };
+    const saved = docTransforms.saveFilterPreset(
+      makeDoc({ filters: [country, city] }),
+      'preset-1',
+      'Geo',
+    );
+    // Apply the preset onto a fresh page-1 (no originals) to isolate the applied copies.
+    const target = makeDoc({ filterPresets: saved.filterPresets });
+    const next = docTransforms.applyFilterPreset(target, 'preset-1');
+    const appliedCountry = next.filters.find((f) => f.field === 'value' && !f.dependsOn)!;
+    const appliedCity = next.filters.find((f) => f.dependsOn)!;
+    expect(appliedCountry).toBeTruthy();
+    expect(appliedCity).toBeTruthy();
+    // City's dependsOn points at the APPLIED Country's fresh id — not the preset-baked
+    // `preset-1-country`, and not the original `country`.
+    expect(appliedCity.dependsOn).toEqual([appliedCountry.id]);
+    expect(appliedCity.dependsOn).not.toContain('preset-1-country');
+    expect(appliedCity.dependsOn).not.toContain('country');
+  });
+
+  it('applyFilterPreset drops dependsOn refs that do not resolve within the preset (2.8)', () => {
+    // A preset filter whose dependsOn points at an id absent from the preset must not leak a
+    // dangling ref into the applied doc — the whole `dependsOn` collapses to `undefined`.
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [{ ...pageFilter('preset-1-a'), dependsOn: ['ghost'] }],
+    };
+    const doc = makeDoc({ filterPresets: [preset] });
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+    const applied = next.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    )!;
+    expect(applied.dependsOn).toBeUndefined();
+  });
 });

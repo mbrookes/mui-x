@@ -30,7 +30,7 @@ import {
   selectDataSources,
   selectRelationships,
   selectGlobalCrossFilterMode,
-  makeSelectExpressionFieldsForSource,
+  makeSelectExpressionFieldsForSources,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
@@ -38,7 +38,11 @@ import { computeGridSummary } from '../../../utils/gridSummary';
 import { aggregateValues } from '../../../utils/gridGrouping';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { getRowIdentity } from '../../../internals/rowIdentity';
-import { buildManyToOneRelationshipIndex } from '../../../internals/dataSourceGraph';
+import {
+  buildManyToOneRelationshipIndex,
+  getReachableSourceIds,
+} from '../../../internals/dataSourceGraph';
+import { enrichWithCrossSourceFields } from '../../../internals/crossSourceEnrichment';
 import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
@@ -203,11 +207,20 @@ export function computeOrderedFieldIds(
  * a real, enriched value on every row, but no `GridColDef` was ever built for it and
  * it never rendered (architecture review finding 1.1). Exported so both the
  * component and its tests exercise the identical resolution.
+ *
+ * A related source's **calculated column** (an expression field owned by `c.sourceId`)
+ * is also offered by `GridSetupPanel`, but has no physical field def — it is resolved
+ * here by falling back to the related source's non-measure `expressionFields`, normalized
+ * to the `StudioDataField` shape (so its label/format/type feed the column def and CSV
+ * export the same way a physical cross-source column does). Without this the calculated
+ * cross-source column was selectable but produced no column def, so it never rendered
+ * (architecture review finding 2.3).
  */
 export function resolveCrossSourceFieldDefs(
   configColumns: StudioWidgetConfig['columns'],
   ownSourceId: string | undefined,
   dataSources: Record<string, StudioDataSource>,
+  expressionFields: StudioExpressionField[] = [],
 ): Map<string, StudioDataField> {
   const map = new Map<string, StudioDataField>();
   for (const c of configColumns ?? []) {
@@ -217,6 +230,23 @@ export function resolveCrossSourceFieldDefs(
     const field = dataSources[c.sourceId]?.fields.find((f) => f.id === c.fieldId);
     if (field) {
       map.set(c.fieldId, field);
+      continue;
+    }
+    // Related-source calculated column (finding 2.3) — resolve from the related source's
+    // own non-measure expression fields.
+    const ef = expressionFields.find(
+      (candidate) =>
+        candidate.id === c.fieldId && candidate.sourceId === c.sourceId && !candidate.isMeasure,
+    );
+    if (ef) {
+      map.set(c.fieldId, {
+        id: ef.id,
+        label: ef.label,
+        type: ef.type ?? 'number',
+        format: ef.format,
+        precision: ef.precision,
+        currencyCode: ef.currencyCode,
+      });
     }
   }
   return map;
@@ -370,11 +400,33 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
-  const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
+  // Full data-source map — needed to resolve cross-source configured columns'
+  // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
+  // enrichment resolves their VALUES.
+  const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
+  // Expression fields for the widget's own source AND every one-hop related source.
+  // The related-source subset is needed so a cross-source column that is a related
+  // source's calculated column (`GridSetupPanel` offers these) can be resolved to a
+  // column def and enriched with a real value (finding 2.3); mirrors the own+related
+  // scoping `useWidgetRows` already subscribes to.
+  const relevantSourceIds = React.useMemo(
+    () =>
+      widget.sourceId ? getReachableSourceIds(widget.sourceId, relationships) : new Set<string>(),
+    [widget.sourceId, relationships],
   );
-  const expressionFields = useStudioSelector(selectExpressionFields);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
+  );
+  const allExpressionFields = useStudioSelector(selectExpressionFields);
+  // Own-source expression fields only — these are the widget's own calculated columns,
+  // resolved/rendered as native columns. Related-source expression fields must NOT leak
+  // into this list, or `buildGridColumnDefs`/`allFieldIds` would treat them as own columns.
+  const expressionFields = React.useMemo(
+    () => allExpressionFields.filter((ef) => ef.sourceId === widget.sourceId),
+    [allExpressionFields, widget.sourceId],
+  );
   const visibleFields = React.useMemo(
     () =>
       widget.config.columns?.length
@@ -404,23 +456,58 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const [mutationError, setMutationError] = React.useState<string | null>(null);
   const apiRef = useGridApiRef();
 
-  // Full data-source map — needed to resolve cross-source configured columns'
-  // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
-  // enrichment resolves their VALUES.
-  const dataSources = useStudioSelector(selectDataSources);
-  const relationships = useStudioSelector(selectRelationships);
-
   const crossSourceFieldDefs = React.useMemo(
-    () => resolveCrossSourceFieldDefs(widget.config.columns, widget.sourceId, dataSources),
-    [widget.config.columns, widget.sourceId, dataSources],
+    () =>
+      resolveCrossSourceFieldDefs(
+        widget.config.columns,
+        widget.sourceId,
+        dataSources,
+        allExpressionFields,
+      ),
+    [widget.config.columns, widget.sourceId, dataSources, allExpressionFields],
   );
 
   // fieldId → FK field, for every configured cross-source column that is fanned out
   // by row enrichment — used to dedupe fan-out double-counting in the native
-  // grouping aggregation below (finding 2.7).
+  // grouping aggregation below (finding 2.7) and the footer summary (finding 1.2).
   const crossSourceFkFields = React.useMemo(
     () => resolveCrossSourceFkFields(widget.config.columns, widget.sourceId, relationships),
     [widget.config.columns, widget.sourceId, relationships],
+  );
+
+  // Related-source EXPRESSION columns (finding 2.3): `useWidgetRows`'s cross-source
+  // enrichment reads the related source's RAW rows, so a related-source *calculated*
+  // column resolves to `undefined`. Supplementally L2-enrich just those columns here,
+  // reusing the shared (now L2-aware) `enrichWithCrossSourceFields`, so their value both
+  // renders on screen and feeds the footer summary. Physical cross-source columns are
+  // already enriched upstream, so they are deliberately excluded here to avoid a second
+  // clone pass. A no-op (reference-stable) when the widget has no such columns.
+  const relatedExpressionColumnRefs = React.useMemo(() => {
+    const ownSourceId = widget.sourceId;
+    return (widget.config.columns ?? []).flatMap((c) => {
+      if (!c.sourceId || c.sourceId === ownSourceId) {
+        return [];
+      }
+      const isRelatedExpression = allExpressionFields.some(
+        (ef) => ef.id === c.fieldId && ef.sourceId === c.sourceId && !ef.isMeasure,
+      );
+      return isRelatedExpression ? [{ fieldId: c.fieldId, sourceId: c.sourceId }] : [];
+    });
+  }, [widget.config.columns, widget.sourceId, allExpressionFields]);
+
+  const enrichRelatedExpressionColumns = React.useCallback(
+    (input: Record<string, unknown>[]): Record<string, unknown>[] =>
+      relatedExpressionColumnRefs.length > 0
+        ? enrichWithCrossSourceFields(
+            input,
+            widget.sourceId,
+            relatedExpressionColumnRefs,
+            dataSources,
+            relationships,
+            allExpressionFields,
+          )
+        : input,
+    [relatedExpressionColumnRefs, widget.sourceId, dataSources, relationships, allExpressionFields],
   );
 
   const aggregationFunctions = React.useMemo<Record<string, GridAggregationFunction>>(
@@ -556,7 +643,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   }, [hasChartCrossFilters, crossFilterMode, filteredRows, rowMatchKey]);
 
   const rows = React.useMemo(() => {
-    return baseRows.map((row, index) => ({
+    // Resolve related-source calculated columns before building grid rows (finding 2.3);
+    // reference-stable no-op when the widget has none.
+    return enrichRelatedExpressionColumns(baseRows).map((row, index) => ({
       ...row,
       // Spread `row` FIRST, then set `id`, so the synthetic-id fallback always wins when the
       // row carries an `id` property that is null/undefined (a nullable database id column).
@@ -567,7 +656,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // `getRowClassName` below never needs to re-derive matching from `row.id`.
       __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
     }));
-  }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey]);
+  }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey, enrichRelatedExpressionColumns]);
 
   // Native DataGridPremium row grouping
   const rowGroupingModel = React.useMemo(
@@ -731,19 +820,56 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const summaryConfig = widget.config.gridGroupByField
     ? undefined
     : resolveAggregationFieldKeys(widget.config.gridSummaryFields);
-  const summaryBasisRows =
-    hasChartCrossFilters && crossFilterMode === 'cross-highlight' ? filteredRows : rows;
+  const summaryBasisRows = React.useMemo(
+    () =>
+      hasChartCrossFilters && crossFilterMode === 'cross-highlight'
+        ? enrichRelatedExpressionColumns(filteredRows)
+        : rows,
+    [hasChartCrossFilters, crossFilterMode, filteredRows, rows, enrichRelatedExpressionColumns],
+  );
+
+  // Field defs the footer summary resolves against — the widget's own physical fields,
+  // its own calculated columns, AND resolvable cross-source columns (finding 1.2). Without
+  // the last two a configured `sum`/`avg`/`min`/`max` on a cross-source or expression-field
+  // column found no def, resolved as non-numeric, and silently degraded to a `count`.
+  const summaryFieldDefs = React.useMemo<StudioDataField[]>(() => {
+    const defs: StudioDataField[] = [...(dataSource?.fields ?? [])];
+    for (const ef of expressionFields) {
+      defs.push({
+        id: ef.id,
+        label: ef.label,
+        type: ef.type ?? 'number',
+        format: ef.format,
+        precision: ef.precision,
+        currencyCode: ef.currencyCode,
+      });
+    }
+    for (const def of crossSourceFieldDefs.values()) {
+      defs.push(def);
+    }
+    return defs;
+  }, [dataSource?.fields, expressionFields, crossSourceFieldDefs]);
+
   const summaryValues = React.useMemo(() => {
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
       return null;
     }
     return computeGridSummary(
       summaryBasisRows,
-      dataSource.fields,
+      summaryFieldDefs,
       { fields: summaryConfig },
       localeText,
+      // FK-dedup a fanned-out cross-source footer sum the same way the group totals do.
+      crossSourceFkFields,
     );
-  }, [summaryBasisRows, dataSource, summaryConfig, localeText]);
+  }, [
+    summaryBasisRows,
+    dataSource,
+    summaryFieldDefs,
+    summaryConfig,
+    localeText,
+    crossSourceFkFields,
+  ]);
 
   // Build a pinned bottom row for DataGridPremium using the summary values.
   // We use a separate `__rowId` field for the row identity so that the `id`

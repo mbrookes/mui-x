@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { enrichWithCrossSourceColumns } from './crossSourceEnrichment';
-import type { StudioDataSource, StudioRelationship } from '../models';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 
 const relationships: StudioRelationship[] = [
   {
@@ -185,5 +185,65 @@ describe('enrichWithCrossSourceColumns', () => {
       relationships,
     );
     expect(result).toBe(orderRows);
+  });
+
+  // ─── Related-source EXPRESSION (calculated) columns (finding 2.3) ──────────────
+  //
+  // A related source's calculated column (a non-measure expression field owned by that
+  // source) has no value on its RAW rows — it only exists after an L2 pass. The setup
+  // panel offers such columns, but without passing `expressionFields` the enrichment
+  // indexes the raw related rows and resolves every value to `undefined`. Passing
+  // `expressionFields` routes the related source through the shared L2 cache first.
+
+  // customers.bonus = spend * 2 (a calculated column owned by the customers source).
+  const customerBonusExpr: StudioExpressionField = {
+    id: 'bonus',
+    label: 'Bonus',
+    sourceId: 'customers',
+    isMeasure: false,
+    expression: {
+      operator: 'multiply',
+      inputs: [{ id: 'spend' }, { type: 'number', value: 2 }],
+    },
+  } as unknown as StudioExpressionField;
+
+  const customersWithSpend: StudioDataSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'spend', label: 'Spend', type: 'number' },
+    ],
+    rows: [
+      { id: 'c1', spend: 100 },
+      { id: 'c2', spend: 50 },
+    ],
+  };
+
+  it('resolves a related-source calculated column to undefined when expressionFields are omitted', () => {
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      [{ fieldId: 'bonus', sourceId: 'customers' }],
+      { customers: customersWithSpend },
+      relationships,
+      // No expressionFields passed — the raw related rows have no `bonus`.
+    );
+    expect(result[0].bonus).toBeUndefined();
+  });
+
+  it('resolves a related-source calculated column via the L2 pass when expressionFields are provided', () => {
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      [{ fieldId: 'bonus', sourceId: 'customers' }],
+      { customers: customersWithSpend },
+      relationships,
+      [customerBonusExpr],
+    );
+    // bonus = spend * 2 → c1: 200, c2: 100; fanned onto every order sharing the FK.
+    expect(result[0]).toMatchObject({ id: 'o1', customerId: 'c1', bonus: 200 });
+    expect(result[1]).toMatchObject({ id: 'o2', customerId: 'c2', bonus: 100 });
+    expect(result[2]).toMatchObject({ id: 'o3', customerId: 'c1', bonus: 200 });
   });
 });

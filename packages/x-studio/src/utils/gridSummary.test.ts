@@ -211,6 +211,81 @@ describe('computeGridSummary', () => {
     // Should include a currency symbol
     expect(result.revenue).toMatch(/Total:.*\$.*3/);
   });
+
+  // ─── Cross-source / expression column footer totals (finding 1.2) ──────────────
+  //
+  // A footer Sum on a cross-source (many-to-one joined) column whose value is fanned
+  // out onto every widget row sharing the same FK must dedupe by FK before summing —
+  // otherwise it counts each linked one-side record once per many-side row, disagreeing
+  // with the grid's *grouped* view of the same column. And its field def must be resolved
+  // (as `number`) from the merged cross-source/expression field list, or the numeric
+  // aggregation silently degrades to a `count`.
+
+  it('degrades a cross-source sum to count when no field def is resolved (the finding-1.2 bug)', () => {
+    // `order_items` grid rows enriched with `orders.total`; no def for `total` → non-numeric.
+    const rows = [
+      { id: 'i1', orderId: 'ord1', total: 100 },
+      { id: 'i2', orderId: 'ord1', total: 100 },
+      { id: 'i3', orderId: 'ord2', total: 50 },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [], { fields: { total: 'sum' } });
+    // No resolved def → isNumeric false → count fallback (the broken behaviour).
+    expect(result.total).toBe('Count: 3');
+  });
+
+  it('FK-dedupes a fanned-out cross-source footer sum when the FK map is provided', () => {
+    const rows = [
+      { id: 'i1', orderId: 'ord1', total: 100 },
+      { id: 'i2', orderId: 'ord1', total: 100 }, // same order → fanned out
+      { id: 'i3', orderId: 'ord2', total: 50 },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(
+      rows,
+      [numField('total')],
+      { fields: { total: 'sum' } },
+      undefined,
+      new Map([['total', 'orderId']]),
+    );
+    // 100 (ord1, once) + 50 (ord2) = 150 — matches the grouped view, NOT the 250 a naive
+    // per-row sum would produce.
+    expect(result.total).toBe('Total: 150');
+  });
+
+  it('without the FK map, the same fanned-out column double-counts (baseline for the fix)', () => {
+    const rows = [
+      { id: 'i1', orderId: 'ord1', total: 100 },
+      { id: 'i2', orderId: 'ord1', total: 100 },
+      { id: 'i3', orderId: 'ord2', total: 50 },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [numField('total')], { fields: { total: 'sum' } });
+    expect(result.total).toBe('Total: 250');
+  });
+
+  it('FK-dedup drops an unlinked (null FK) row rather than counting it', () => {
+    const rows = [
+      { id: 'i1', orderId: 'ord1', total: 100 },
+      { id: 'i2', orderId: null, total: 999 }, // unlinked → contributes nothing
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(
+      rows,
+      [numField('total')],
+      { fields: { total: 'sum' } },
+      undefined,
+      new Map([['total', 'orderId']]),
+    );
+    expect(result.total).toBe('Total: 100');
+  });
+
+  it('resolves an expression-field footer sum from the merged field list (no count degrade)', () => {
+    // A calculated `price - cost` margin column: given its resolved (number) def, the
+    // footer sums instead of degrading to count.
+    const rows = [
+      { id: '1', margin: 10 },
+      { id: '2', margin: 15 },
+    ] as Record<string, unknown>[];
+    const result = computeGridSummary(rows, [numField('margin')], { fields: { margin: 'sum' } });
+    expect(result.margin).toBe('Total: 25');
+  });
 });
 
 describe('aggregationLabel', () => {

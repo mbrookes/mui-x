@@ -338,6 +338,159 @@ describe('runWidgetExport', () => {
     expect(passedExpressionFields).toEqual([ownField]);
   });
 
+  // ─── Cross-source column defs + related-source calculated columns (findings 2.6, 2.3) ──
+
+  it('passes resolved cross-source field defs to exportGridToCsv so the CSV header/format matches the grid (2.6)', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+      ],
+      rows: [{ id: 'o1', customerId: 'c1' }],
+    };
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        {
+          id: 'lifetimeValue',
+          label: 'Lifetime Value',
+          type: 'number',
+          format: 'currency',
+          currencyCode: 'USD',
+        },
+      ],
+      rows: [{ id: 'c1', lifetimeValue: 999 }],
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+      },
+    ];
+    const widget: StudioWidget = {
+      id: 'w9',
+      kind: 'grid',
+      title: 'Orders',
+      sourceId: 'orders',
+      config: {
+        columns: [{ fieldId: 'id' }, { fieldId: 'lifetimeValue', sourceId: 'customers' }],
+      } as StudioWidgetConfig,
+    };
+    const controller = new StudioController({
+      doc: { widgets: { [widget.id]: widget }, relationships },
+      runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
+    });
+
+    runWidgetExport({
+      widget,
+      source: ordersSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , rows, , crossSourceFieldDefs] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(rows[0]).toMatchObject({ id: 'o1', lifetimeValue: 999 });
+    // The resolved def (the related source's physical field) is threaded through so the CSV
+    // header uses "Lifetime Value" and the value gets currency formatting.
+    expect(crossSourceFieldDefs).toEqual([
+      {
+        id: 'lifetimeValue',
+        label: 'Lifetime Value',
+        type: 'number',
+        format: 'currency',
+        currencyCode: 'USD',
+      },
+    ]);
+  });
+
+  it('resolves a related-source calculated cross-source column value + def in the export (2.3)', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+      ],
+      rows: [{ id: 'o1', customerId: 'c1' }],
+    };
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'spend', label: 'Spend', type: 'number' },
+      ],
+      rows: [{ id: 'c1', spend: 100 }],
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'orders',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+      },
+    ];
+    // customers.bonus = spend * 2 — a related-source calculated column.
+    const bonusExpr: StudioExpressionField = {
+      id: 'bonus',
+      label: 'Bonus',
+      sourceId: 'customers',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'spend' }, { type: 'number', value: 2 }],
+      },
+    } as unknown as StudioExpressionField;
+    const widget: StudioWidget = {
+      id: 'w10',
+      kind: 'grid',
+      title: 'Orders',
+      sourceId: 'orders',
+      config: {
+        columns: [{ fieldId: 'id' }, { fieldId: 'bonus', sourceId: 'customers' }],
+      } as StudioWidgetConfig,
+    };
+    const controller = new StudioController({
+      doc: {
+        widgets: { [widget.id]: widget },
+        relationships,
+        expressionFields: [bonusExpr],
+      },
+      runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
+    });
+
+    runWidgetExport({
+      widget,
+      source: ordersSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+    });
+
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , rows, , crossSourceFieldDefs] = vi.mocked(exportGridToCsv).mock.calls[0];
+    // Value resolved via the L2 pass over the related source (bonus = 100 * 2 = 200)...
+    expect(rows[0]).toMatchObject({ id: 'o1', bonus: 200 });
+    // ...and its def resolved from the related source's expression field.
+    expect(crossSourceFieldDefs).toEqual([{ id: 'bonus', label: 'Bonus', type: 'number' }]);
+  });
+
   it('delegates pivot and custom-kind widgets to their imperative export handler', () => {
     const pivot: StudioWidget = {
       id: 'w3',

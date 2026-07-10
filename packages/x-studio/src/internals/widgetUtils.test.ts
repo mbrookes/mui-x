@@ -10,7 +10,7 @@ import {
   inferWidgetTitles,
   widgetKindRequiresDataSource,
 } from './widgetUtils';
-import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models';
+import type { StudioDataField, StudioDataSource, StudioFilterState, StudioWidget } from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 const SOURCES: Record<string, StudioDataSource> = {
@@ -603,6 +603,58 @@ describe('buildCsvContent — number formatting', () => {
     // String cells always go through `escapeCsvCell` (finding 1.8), which always
     // quotes — the value itself is untouched.
     expect(csv.split('\n')[1]).toBe('"Alice"');
+  });
+});
+
+// ─── Cross-source column header/format parity with the rendered grid (finding 2.6) ──
+//
+// A cross-source column (a grid column whose `sourceId` differs from the widget's own
+// source) is resolved on screen via `resolveCrossSourceFieldDefs`. Without folding those
+// same resolved defs into the CSV field map, the export drifted: the header fell back to
+// the raw field id and the value skipped number/currency formatting.
+describe('buildCsvContent — cross-source column defs', () => {
+  const src: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+    rows: [],
+  };
+  const widget: StudioWidget = {
+    id: 'w1',
+    kind: 'grid',
+    title: 'Orders',
+    config: {
+      columns: [{ fieldId: 'id' }, { fieldId: 'lifetimeValue', sourceId: 'customers' }],
+    },
+  };
+  // The value is already enriched onto the row (mirroring the display/export enrichment).
+  const rows = [{ id: 'o1', lifetimeValue: 1234.5 }];
+
+  it('drifts to the raw field id and unformatted value without cross-source defs (baseline)', () => {
+    const csv = buildCsvContent(widget, src, rows);
+    const [header, dataLine] = csv.split('\n');
+    // Header falls back to the raw field id; the value is emitted raw (quoted number).
+    expect(header).toBe('"Order ID","lifetimeValue"');
+    expect(dataLine).toBe('"o1","1234.5"');
+  });
+
+  it('matches the rendered grid header label and number/currency formatting when the defs are passed', () => {
+    const crossSourceFieldDefs: StudioDataField[] = [
+      {
+        id: 'lifetimeValue',
+        label: 'Lifetime Value',
+        type: 'number',
+        format: 'currency',
+        currencyCode: 'USD',
+      },
+    ];
+    const csv = buildCsvContent(widget, src, rows, [], crossSourceFieldDefs);
+    const [header, dataLine] = csv.split('\n');
+    // Header now uses the related source's field label, matching the on-screen column.
+    expect(header).toBe('"Order ID","Lifetime Value"');
+    // Currency formatting applied ($1,235) and the numeric cell is quoted so its grouping
+    // comma cannot split the row — exactly what the grid renders.
+    expect(dataLine).toMatch(/^"o1","\$1[,.]?23[45]"$/);
   });
 });
 

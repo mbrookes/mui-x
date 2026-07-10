@@ -1,10 +1,12 @@
 import type {
   StudioDataSource,
+  StudioExpressionField,
   StudioGridColumn,
   StudioGridSummaryAggregation,
   StudioRelationship,
 } from '../models';
 import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
+import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
 import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
 
@@ -128,6 +130,13 @@ export function buildGroupedGridRows(
   relationships?: StudioRelationship[],
   /** Optional: the widget's primary source ID. */
   widgetSourceId?: string,
+  /**
+   * Optional: expression fields — used to L2-enrich a related source's rows when a
+   * cross-source column is that source's calculated column (finding 2.3), so its value
+   * is present before the per-PK lookup map is built. Physical cross-source columns are
+   * unaffected.
+   */
+  expressionFields?: StudioExpressionField[],
 ) {
   // Build per-column cross-source context once (before grouping loop)
   const crossSourceMeta = new Map<
@@ -153,12 +162,26 @@ export function buildGroupedGridRows(
       if (!relatedSource?.rows) {
         continue;
       }
+      // A cross-source column that is the related source's calculated column has no value
+      // on the raw related rows — route them through the shared L2 cache (scoped to just
+      // this field id) first, matching the display/export enrichment path (finding 2.3).
+      const isRelatedExpression = (expressionFields ?? []).some(
+        (ef) => ef.id === col.fieldId && ef.sourceId === col.sourceId && !ef.isMeasure,
+      );
+      const relatedRows =
+        isRelatedExpression && expressionFields
+          ? (getCachedEnrichedRows(
+              relatedSource.rows as Record<string, unknown>[],
+              col.sourceId,
+              expressionFields,
+              dataSources,
+              relationships,
+              new Set([col.fieldId]),
+            ) as Record<string, unknown>[])
+          : (relatedSource.rows as Record<string, unknown>[]);
       // Index related rows by their PK for fast look-up, using the shared join-key
       // policy (internals/joinKeys.ts) so a numeric PK matches a string FK etc.
-      const relatedRowMap = indexRowsByKey(
-        relatedSource.rows as Record<string, unknown>[],
-        rel.targetField,
-      );
+      const relatedRowMap = indexRowsByKey(relatedRows, rel.targetField);
       crossSourceMeta.set(col.fieldId, { fkField: rel.sourceField, relatedRowMap });
     }
   }

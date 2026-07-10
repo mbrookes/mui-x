@@ -92,7 +92,11 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   // Numeric fields: from all visible sources + expression fields.
   // Similar to allStringFields, we show the full universe so the value field
   // can be picked from any source (including related ones). The join enrichment
-  // in useWidgetRows handles the actual data binding for cross-source fields.
+  // in useWidgetRows handles the actual data binding for cross-source fields, and
+  // `StudioMapWidget`'s region aggregation FK-dedups a fanned-out many-to-one value so
+  // a cross-source measure is not double-counted per widget row (finding 1.1) — matching
+  // how the grid's group-by aggregation (`utils/gridGrouping.ts`'s `symmetricAggregate`)
+  // handles the same fan-in topology.
   const numericFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     const all: DataSourceFieldEntry[] = [];
 

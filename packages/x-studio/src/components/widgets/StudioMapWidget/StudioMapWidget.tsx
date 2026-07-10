@@ -13,10 +13,13 @@ import {
   useStudioSelector,
   makeSelectActiveCrossFilter,
   selectDataSources,
+  selectRelationships,
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
+import { buildManyToOneRelationshipIndex } from '../../../internals/dataSourceGraph';
+import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
@@ -156,7 +159,27 @@ export function StudioMapWidget({
     [widget.sourceId],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const relationships = useStudioSelector(selectRelationships);
   const valueSourceId = config.mapValueSourceId;
+
+  // Fan-in dedup key (finding 1.1): when the value field lives on a many-to-one *related*
+  // source, `useWidgetRows`' cross-source enrichment copies that one-side value onto EVERY
+  // many-side widget row that joins to it. Reducing `row[valueField]` once per widget row
+  // would then multiply the related value by the join's fan-out degree — silently inflating
+  // sum (and fan-out-weighting avg/min/max). This is the exact fan-in topology charts/KPI
+  // fail closed on (`analyzeChartSupport`'s `mixed_cross_source_fields`) and the grid dedupes
+  // by FK (`utils/gridGrouping.ts`'s `symmetricAggregate`). Resolve the FK field on the
+  // widget's own rows so `regionData` can count each underlying related row exactly once per
+  // region — `null` when the value field is same-source (no fan-out) or its relationship is
+  // not a resolvable many-to-one, in which case the per-row reduce is already correct.
+  const valueFkField = React.useMemo<string | null>(() => {
+    if (!valueField || !valueSourceId || !widget.sourceId || valueSourceId === widget.sourceId) {
+      return null;
+    }
+    const rel = buildManyToOneRelationshipIndex(widget.sourceId, relationships).get(valueSourceId);
+    return rel?.sourceField ?? null;
+  }, [valueField, valueSourceId, widget.sourceId, relationships]);
+
   const fieldDef = React.useMemo(() => {
     if (valueSourceId && valueSourceId !== widget.sourceId) {
       return dataSources[valueSourceId]?.fields.find((f) => f.id === valueField);
@@ -245,6 +268,11 @@ export function StudioMapWidget({
     // null/non-numeric disappeared from the map entirely under 'count'.
     const rowCounts = new Map<string, number>();
     const rawKeys = new Map<string, unknown[]>();
+    // Fan-in dedup (finding 1.1): for a cross-source (many-to-one) value field, track the
+    // set of related-record FK keys already counted per region so a related row fanned out
+    // across several widget rows is aggregated exactly once per region — the map analogue of
+    // the grid's `symmetricAggregate`. `null` (same-source value field) means no dedup.
+    const seenFksByRegion = valueFkField ? new Map<string, Set<string>>() : null;
     for (const row of rows) {
       const id = normalize(row[countryField]);
       if (!id) {
@@ -256,6 +284,26 @@ export function StudioMapWidget({
         rawKeys.set(id, [rawCountryValue]);
       } else if (!existingRawKeys.some((v) => crossFilterValueEquals(v, rawCountryValue))) {
         existingRawKeys.push(rawCountryValue);
+      }
+
+      // Skip a row whose related record (identified by its FK) was already counted for this
+      // region — the fanned-out duplicate. A row with no FK never joins to a related value,
+      // so it contributes nothing (matching `symmetricAggregate`). Runs only for cross-source
+      // value fields; same-source fields keep the plain per-row reduce below.
+      if (seenFksByRegion) {
+        const fkKey = normalizeJoinKey(row[valueFkField as string]);
+        if (fkKey === null) {
+          continue;
+        }
+        let seenFks = seenFksByRegion.get(id);
+        if (!seenFks) {
+          seenFks = new Set();
+          seenFksByRegion.set(id, seenFks);
+        }
+        if (seenFks.has(fkKey)) {
+          continue;
+        }
+        seenFks.add(fkKey);
       }
 
       rowCounts.set(id, (rowCounts.get(id) ?? 0) + 1);
@@ -286,7 +334,7 @@ export function StudioMapWidget({
       }
     }
     return [result, rawKeys];
-  }, [rows, countryField, valueField, aggFn, normalize]);
+  }, [rows, countryField, valueField, aggFn, normalize, valueFkField]);
 
   // Compute min/max for color scale
   const [minVal, maxVal] = React.useMemo(() => {

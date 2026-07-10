@@ -18,6 +18,29 @@ import type { StudioStateBox } from './types';
 /** Dependencies required to serve the MCP prompt + completion handlers. */
 export interface PromptHandlerDeps {
   stateBox: StudioStateBox;
+  /**
+   * Authorization gate for the `query_data_source_examples` prompt's `prompts/get`
+   * content generation (finding T2-2). This prompt is not a listing surface — it
+   * serves a per-source schema slice (source id/label, the first categorical and
+   * first numeric field's id/label, and `defaultAggregationFn`, for every
+   * non-hidden queryable source), a strict subset of the `get_dashboard_state` /
+   * `studio://schema/{id}` payload. Without this gate, a host that excludes
+   * `get_dashboard_state` from `allowedTools` (or denies it via `toolPolicy`)
+   * still leaked that schema slice through `prompts/get`.
+   *
+   * The composition root (`mcp.ts`) wires this to the SAME
+   * `isToolAllowed('get_dashboard_state')` + args-only policy consult +
+   * approval bridge that gates `studio://schema/{id}` (`authorizeStateAccess` in
+   * `mcp/resources.ts`). Resolves to a deny-reason string when the read is NOT
+   * authorized, or `null` when it may proceed. When omitted, no gate is applied
+   * (used only by unit tests that construct the handlers directly).
+   *
+   * `prompts/list` and `completion/complete` stay ungated by design (listing /
+   * autocomplete surfaces, parity with `resources/list`) — only this prompt's
+   * content generation is gated.
+   * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
+   */
+  authorizeStateAccess?: () => Promise<string | null>;
 }
 
 /**
@@ -25,7 +48,7 @@ export interface PromptHandlerDeps {
  * `server`.
  */
 export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps): void {
-  const { stateBox } = deps;
+  const { stateBox, authorizeStateAccess } = deps;
 
   // ── prompts/list + prompts/get ────────────────────────────────────────────
 
@@ -53,6 +76,18 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
     const { name, arguments: promptArgs } = request.params;
 
     if (name === 'query_data_source_examples') {
+      // Same `get_dashboard_state` gate `studio://schema/{id}` runs (finding T2-2):
+      // this prompt serves a per-source schema slice of the SAME payload family
+      // (source id/label, two field ids/labels, `defaultAggregationFn`), so it must
+      // not bypass `allowedTools` / `toolPolicy` just because it is a prompt instead
+      // of a resource or tool call.
+      if (authorizeStateAccess) {
+        const denied = await authorizeStateAccess();
+        if (denied) {
+          throw new Error(denied);
+        }
+      }
+
       const requestedId = promptArgs?.sourceId;
       const allSources = Object.values(stateBox.current.runtime.dataSources).filter(
         (s) => !s.hidden && s.tableName,

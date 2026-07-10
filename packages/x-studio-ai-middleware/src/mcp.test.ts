@@ -1660,3 +1660,112 @@ describe('buildStudioMcpServer — prompts/get unknown-sourceId sanitization (T2
     ).rejects.toThrow(/Unknown sourceId: "unknown-id"\. Available: source-orders\./);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// prompts/get — authorization parity with studio://schema/{id} (T2-2)
+//
+// `query_data_source_examples` serves a per-source schema slice (source
+// id/label, two field ids/labels, defaultAggregationFn) — a strict subset of
+// the `get_dashboard_state` / `studio://schema/{id}` payload. Before this fix,
+// `prompts/get` was the one MCP content-read surface with no `allowedTools`/
+// `toolPolicy` gate: a host that excluded `get_dashboard_state` (or every tool,
+// via `allowedTools: []`) still leaked this schema slice through the prompt.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('buildStudioMcpServer — prompts/get authorization (T2-2)', () => {
+  const GET_PROMPT = 'prompts/get';
+
+  it('denies query_data_source_examples when allowedTools is [] (host excludes every tool)', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: [] });
+    await expect(
+      getHandler(
+        server,
+        GET_PROMPT,
+      )({
+        params: { name: 'query_data_source_examples' },
+        method: GET_PROMPT,
+      }),
+    ).rejects.toThrow(/allowedTools|get_dashboard_state/);
+  });
+
+  it('denies query_data_source_examples when allowedTools excludes get_dashboard_state', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: ['render_chart'] });
+    await expect(
+      getHandler(
+        server,
+        GET_PROMPT,
+      )({
+        params: { name: 'query_data_source_examples' },
+        method: GET_PROMPT,
+      }),
+    ).rejects.toThrow(/allowedTools|get_dashboard_state/);
+  });
+
+  it('denies query_data_source_examples when toolPolicy denies get_dashboard_state', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'get_dashboard_state'
+          ? { action: 'deny', reason: 'policy: no dashboard state' }
+          : { action: 'allow' },
+    });
+    await expect(
+      getHandler(
+        server,
+        GET_PROMPT,
+      )({
+        params: { name: 'query_data_source_examples' },
+        method: GET_PROMPT,
+      }),
+    ).rejects.toThrow(/policy: no dashboard state/);
+  });
+
+  it('serves query_data_source_examples when get_dashboard_state is allowed (no regression)', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, {
+      allowedTools: ['get_dashboard_state'],
+    });
+    const result = (await getHandler(
+      server,
+      GET_PROMPT,
+    )({
+      params: { name: 'query_data_source_examples' },
+      method: GET_PROMPT,
+    })) as any;
+    const messages = result.messages as Array<{ role: string; content: { text: string } }>;
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content.text).toContain('source-orders');
+  });
+
+  it('serves query_data_source_examples under the default allow-all policy (no regression)', async () => {
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox);
+    const result = (await getHandler(
+      server,
+      GET_PROMPT,
+    )({
+      params: { name: 'query_data_source_examples' },
+      method: GET_PROMPT,
+    })) as any;
+    const messages = result.messages as Array<{ role: string; content: { text: string } }>;
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content.text).toContain('source-orders');
+  });
+
+  it('leaves prompts/list ungated (listing surface, by design) even when allowedTools is []', async () => {
+    const LIST_PROMPTS = 'prompts/list';
+    const stateBox = { current: makeStableState() };
+    const server = buildStudioMcpServer(stateBox, { allowedTools: [] });
+    const result = (await getHandler(
+      server,
+      LIST_PROMPTS,
+    )({
+      params: {},
+      method: LIST_PROMPTS,
+    })) as any;
+    expect(result.prompts.map((p: { name: string }) => p.name)).toContain(
+      'query_data_source_examples',
+    );
+  });
+});

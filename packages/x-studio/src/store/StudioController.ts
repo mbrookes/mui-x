@@ -862,6 +862,16 @@ export class StudioController {
     if (!existing) {
       return;
     }
+    // Value-equality no-op guard (2.6): `{ ...existing, ...updates }` always allocates a fresh
+    // field object (and a fresh array below), so `commitDocPatch`'s reference-equality guard can
+    // never fire even for a value-identical write — re-saving the expression dialog with no edits
+    // (open, glance, hit Save) would push a dead undo entry and wipe the redo stack. Bail when
+    // every patched key already holds its incoming value, matching the sibling value-equality
+    // writers (`updateActivePage`, `updateRelationship`).
+    const updateKeys = Object.keys(updates) as (keyof typeof updates)[];
+    if (updateKeys.every((key) => updates[key] === existing[key])) {
+      return;
+    }
     const updatedField = { ...existing, ...updates };
     const nextFields = state.doc.expressionFields.map((ef: StudioExpressionField) =>
       ef.id === fieldId ? updatedField : ef,
@@ -1651,6 +1661,16 @@ export class StudioController {
             }
             return filter;
           }
+          // Value-equality no-op guard (2.6): `{ ...filter, ...changes }` always builds a fresh
+          // filter object, so a value-identical `changes` payload (a drawer control re-committing
+          // its current value on blur) would defeat `mapPreservingIdentity` (fresh array) and
+          // `commitDocPatch` (fresh `filters`), pushing a phantom redo-clearing undo entry. Return
+          // the SAME `filter` when every changed key already holds its incoming value, matching the
+          // sibling value-equality writers (`updateRelationship`).
+          const changeKeys = Object.keys(changes) as (keyof StudioFilterState)[];
+          if (changeKeys.every((key) => changes[key] === filter[key])) {
+            return filter;
+          }
           return { ...filter, ...changes };
         }),
       },
@@ -2101,6 +2121,43 @@ export class StudioController {
       type: 'setWidgetLayout',
       args: { rows: targetRows.filter((r) => r.length > 0), pageId: targetPageId },
     });
+    // Rank-filter uniqueness guard (2.2): a cross-page move carries the widget's widget-scoped
+    // rank (Top-N) filter into the TARGET page's context — a widget rank filter resolves its page
+    // via that page's `widgetRows` (`resolveRankFilterPageId`). If the target page already has a
+    // conflicting rank filter (a page-scoped one, or another widget's), the move would land TWO
+    // rank filters in one page context — exactly the state `addFilter`/`updateFilter`/
+    // `duplicateWidget` reject and the filters drawer assumes cannot exist. Both `moveWidget`
+    // (canvas drag-and-drop) and `moveWidgetToPage` (context menu) route here, so this single
+    // guard covers both sibling entry points. Drop the moved widget's conflicting rank filter,
+    // guard-and-continue style, via a `removeFilter` folded into the SAME commit, using the shared
+    // `hasConflictingRankFilter` check. The widget isn't on the target page at check time, so model
+    // its post-move context as a page-scoped target on `targetPageId` (otherwise
+    // `resolveRankFilterPageId` would still resolve to the SOURCE page and misjudge the conflict).
+    // Same-page moves can't create a new conflict (the widget's page context is unchanged), so the
+    // check is scoped to cross-page moves.
+    if (sourcePageId !== targetPageId) {
+      for (const f of state.doc.filters) {
+        if (
+          f.filterMode === 'rank' &&
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === widgetId &&
+          hasConflictingRankFilter(
+            f.id,
+            { ...f, scope: { kind: 'page' as const, pageId: targetPageId } },
+            state.doc.filters,
+            state.doc.pages,
+          )
+        ) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+                "The moved widget's rank filter was dropped to preserve the invariant.",
+            );
+          }
+          mutations.push({ type: 'removeFilter', args: { filterId: f.id } });
+        }
+      }
+    }
     this.commitMutations(mutations, {
       label: options?.label === null ? null : (options?.label ?? `moveWidget:${widgetId}`),
       transform: options?.transform,

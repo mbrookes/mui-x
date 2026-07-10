@@ -7,6 +7,7 @@ import type {
   StudioFilterScope,
   StudioFilterState,
 } from '../models';
+import { hasConflictingRankFilter } from '../internals/rankFilterScope';
 
 /**
  * Pure `StudioDoc → StudioDoc` transforms extracted out of `StudioController`, so the
@@ -365,35 +366,61 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   for (const f of preset.filters) {
     idMap.set(f.id, createFilterId());
   }
-  return {
-    ...doc,
-    filters: [
-      // Keep all non-page filters, and keep page filters for OTHER pages.
-      ...doc.filters.filter(
-        (f: StudioFilterState) =>
-          f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
-      ),
-      // Apply preset filters scoped to the current page, each with a fresh unique id and
-      // `dependsOn` rewritten through the same id map (dangling refs dropped).
-      ...preset.filters.map((f: StudioFilterState) => {
-        const rematerialized = {
-          ...f,
-          id: idMap.get(f.id)!,
-          scope: { kind: 'page' as const, pageId: activePageId },
-        };
-        if (!f.dependsOn) {
-          return rematerialized;
-        }
-        const remappedDependsOn = f.dependsOn
-          .map((depId: string) => idMap.get(depId))
-          .filter((depId: string | undefined): depId is string => depId !== undefined);
-        return {
-          ...rematerialized,
-          dependsOn: remappedDependsOn.length > 0 ? remappedDependsOn : undefined,
-        };
-      }),
-    ],
-  };
+  // Filters that survive the apply: all non-page filters, and page filters for OTHER pages. This
+  // RETAINS the active page's widget-scoped filters (they carry no `pageId`, so they aren't
+  // page-scoped), which is exactly why the rank guard below is needed — a widget-scoped rank
+  // filter on the active page stays in the doc and must be weighed against the preset's own rank
+  // filter for conflicts.
+  const retained = doc.filters.filter(
+    (f: StudioFilterState) =>
+      f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
+  );
+  // Apply preset filters scoped to the current page, each with a fresh unique id and `dependsOn`
+  // rewritten through the same id map (dangling refs dropped).
+  const applied: StudioFilterState[] = [];
+  for (const f of preset.filters) {
+    let rematerialized: StudioFilterState = {
+      ...f,
+      id: idMap.get(f.id)!,
+      scope: { kind: 'page' as const, pageId: activePageId },
+    };
+    if (f.dependsOn) {
+      const remappedDependsOn = f.dependsOn
+        .map((depId: string) => idMap.get(depId))
+        .filter((depId: string | undefined): depId is string => depId !== undefined);
+      rematerialized = {
+        ...rematerialized,
+        dependsOn: remappedDependsOn.length > 0 ? remappedDependsOn : undefined,
+      };
+    }
+    // Rank-filter uniqueness guard (2.2): a preset can carry a page-scoped rank (Top-N) filter
+    // (`saveFilterPreset` applies no rank exclusion), and it re-materializes onto the active page.
+    // If that page already has a conflicting rank filter — a retained widget-scoped one, or an
+    // earlier preset filter just applied — this apply would land TWO rank filters in one page
+    // context, exactly the state `addFilter`/`updateFilter`/`duplicateWidget`/the move paths
+    // reject and the filters drawer assumes cannot exist. Drop the conflicting preset rank filter,
+    // guard-and-continue style, via the same shared `hasConflictingRankFilter` check (weighed
+    // against the retained set plus the filters already accepted from this same preset).
+    if (
+      rematerialized.filterMode === 'rank' &&
+      hasConflictingRankFilter(
+        rematerialized.id,
+        rematerialized,
+        [...retained, ...applied],
+        doc.pages,
+      )
+    ) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+            "The applied preset's rank filter was dropped to preserve the invariant.",
+        );
+      }
+      continue;
+    }
+    applied.push(rematerialized);
+  }
+  return { ...doc, filters: [...retained, ...applied] };
 }
 
 /**
@@ -424,8 +451,12 @@ export function renameFilterPreset(doc: StudioDoc, presetId: string, name: strin
   if (!presets) {
     return doc;
   }
+  // Value-equality no-op guard (2.6): `{ ...p, name }` always builds a fresh preset object, so a
+  // rename to the SAME name would defeat `mapPreservingIdentity` (fresh array) and
+  // `commitDocPatch`'s reference-equality guard, pushing a phantom redo-clearing undo entry. Only
+  // rebuild when the name actually differs, matching the sibling value-equality writers.
   const next = mapPreservingIdentity(presets, (p: StudioFilterPreset) =>
-    p.id === presetId ? { ...p, name } : p,
+    p.id === presetId && p.name !== name ? { ...p, name } : p,
   );
   return next === presets ? doc : { ...doc, filterPresets: next };
 }

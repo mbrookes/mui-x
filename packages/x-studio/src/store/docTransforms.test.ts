@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDefaultStudioState } from '../models';
 import type { StudioDoc, StudioFilterPreset, StudioFilterState } from '../models';
 import * as docTransforms from './docTransforms';
@@ -539,5 +539,94 @@ describe('docTransforms preset family', () => {
       (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
     )!;
     expect(applied.dependsOn).toBeUndefined();
+  });
+
+  // ─── 2.2: applyFilterPreset must not land TWO rank filters in one page context ───
+  // Sibling of the iter-9 `duplicateWidget` rank-uniqueness fix. A preset can carry a
+  // page-scoped rank (Top-N) filter (`saveFilterPreset` applies no rank exclusion); applying it
+  // onto a page that already has a widget-scoped rank filter would otherwise produce the
+  // forbidden "two rank filters on one page" state every other writer guards against.
+
+  function rankFilter(
+    id: string,
+    scope: StudioFilterState['scope'],
+    value: number,
+  ): StudioFilterState {
+    return {
+      id,
+      field: 'value',
+      operator: 'equals',
+      value,
+      filterMode: 'rank',
+      rankDirection: 'top',
+      scope,
+    } as StudioFilterState;
+  }
+
+  it('applyFilterPreset drops a preset rank filter that conflicts with an existing widget-scoped rank filter (2.2)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Active page (page-1) already has a widget (w1) carrying a widget-scoped rank filter, so a
+    // page-scoped rank filter re-materialized by the preset onto page-1 would conflict.
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [rankFilter('preset-1-rank', { kind: 'page', pageId: 'page-1' }, 10)],
+    };
+    const doc = makeDoc({
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      filters: [rankFilter('w-rank', { kind: 'widget', widgetId: 'w1' }, 5)],
+      filterPresets: [preset],
+    });
+
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+
+    // Exactly one rank filter survives — the pre-existing widget-scoped one; the preset's rank
+    // filter was dropped rather than installed, with a dev warning.
+    const rankFilters = next.filters.filter((f) => f.filterMode === 'rank');
+    expect(rankFilters).toHaveLength(1);
+    expect(rankFilters[0].scope).toEqual({ kind: 'widget', widgetId: 'w1' });
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('applyFilterPreset installs a preset rank filter when the page has no conflicting rank filter (2.2)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [rankFilter('preset-1-rank', { kind: 'page', pageId: 'page-1' }, 10)],
+    };
+    // A widget-scoped rank filter on a DIFFERENT page (page-2) does not occupy page-1's context.
+    const doc = makeDoc({
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
+      },
+      filters: [rankFilter('w-rank', { kind: 'widget', widgetId: 'w2' }, 5)],
+      filterPresets: [preset],
+    });
+
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+
+    // Both rank filters coexist — they live in different page contexts.
+    const rankFilters = next.filters.filter((f) => f.filterMode === 'rank');
+    expect(rankFilters).toHaveLength(2);
+    expect(next.filters.some((f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1')).toBe(
+      true,
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  // ─── 2.6: renameFilterPreset must not commit a value-identical rename ───
+  it('renameFilterPreset returns the ORIGINAL doc reference for a value-identical rename (2.6)', () => {
+    const preset: StudioFilterPreset = { id: 'preset-1', name: 'same', filters: [] };
+    const doc = makeDoc({ filterPresets: [preset] });
+    // Renaming to the current name must not allocate a fresh doc/array — otherwise
+    // `commitDocPatch`'s reference-equality guard is defeated and a phantom redo-clearing undo
+    // entry is pushed.
+    const next = docTransforms.renameFilterPreset(doc, 'preset-1', 'same');
+    expect(next).toBe(doc);
+    expect(next.filterPresets).toBe(doc.filterPresets);
   });
 });

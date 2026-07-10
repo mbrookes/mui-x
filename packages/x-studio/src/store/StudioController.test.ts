@@ -1370,6 +1370,107 @@ describe('StudioController.moveWidget', () => {
   });
 });
 
+// ─── 2.2: cross-page widget move must not land TWO rank filters on one page ────
+// Sibling of the iter-9 `duplicateWidget` rank-uniqueness fix, missed on the move paths.
+// Moving a widget carrying a widget-scoped rank (Top-N) filter onto a page whose context
+// already holds a rank filter would otherwise produce the forbidden "two rank filters on
+// one page" state every other writer (`addFilter`/`updateFilter`/`duplicateWidget`) guards.
+describe('StudioController move — rank-filter uniqueness (2.2)', () => {
+  function twoPageRankController(page2Filter: StudioFilterState) {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['w2']] },
+        },
+        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
+        filters: [
+          // w1 carries a widget-scoped rank filter (resolves to page-1 while w1 lives there).
+          makeFilter({
+            id: 'w1-rank',
+            filterMode: 'rank',
+            rankDirection: 'top',
+            value: 5,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          }),
+          page2Filter,
+        ],
+      },
+    });
+  }
+
+  it('moveWidgetToPage drops the moved widget rank filter when the target page already has a page-scoped rank filter', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageRankController(
+      makeFilter({
+        id: 'p2-rank',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    );
+
+    controller.moveWidgetToPage('w1', 'page-2');
+
+    const state = controller.getState();
+    expect(state.doc.pages['page-2'].widgetRows.flat()).toContain('w1');
+    // The conflicting moved rank filter was dropped; the page-2 rank filter survives.
+    expect(state.doc.filters.find((f) => f.id === 'w1-rank')).toBeUndefined();
+    expect(state.doc.filters.find((f) => f.id === 'p2-rank')).toBeTruthy();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('moveWidget (canvas drag) drops the moved widget rank filter when the target page has a conflicting widget rank filter', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageRankController(
+      makeFilter({
+        id: 'w2-rank',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'widget', widgetId: 'w2' },
+      }),
+    );
+
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w2'], ['w1']]);
+
+    const state = controller.getState();
+    expect(state.doc.pages['page-2'].widgetRows.flat()).toContain('w1');
+    // w2's rank filter (already on page-2) survives; w1's incoming rank filter is dropped.
+    expect(state.doc.filters.find((f) => f.id === 'w2-rank')).toBeTruthy();
+    expect(state.doc.filters.find((f) => f.id === 'w1-rank')).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('moveWidgetToPage keeps the moved widget rank filter when the target page has no rank filter', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageRankController(
+      // page-2 has only a plain condition filter — no rank conflict.
+      makeFilter({
+        id: 'p2-cond',
+        filterMode: 'condition',
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    );
+
+    controller.moveWidgetToPage('w1', 'page-2');
+
+    const state = controller.getState();
+    // No conflict → the widget-scoped rank filter follows its widget, unchanged.
+    expect(state.doc.filters.find((f) => f.id === 'w1-rank')).toBeTruthy();
+    expect(state.doc.filters.find((f) => f.id === 'w1-rank')!.scope).toEqual({
+      kind: 'widget',
+      widgetId: 'w1',
+    });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 // ─── StudioController — filter CRUD ──────────────────────────────────────────
 
 describe('StudioController.addFilter / removeFilter', () => {
@@ -3484,6 +3585,63 @@ describe('StudioController — value-identical page/relationship writes are no-o
     // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
     controller.updateRelationship('r1', { targetId: 'c' });
     expect(controller.getState().doc.relationships[0].targetId).toBe('c');
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  // ─── 2.6: the two sibling writers iter-9 missed ───
+  it('updateExpressionField with value-identical updates preserves the redo stack (2.6)', () => {
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [
+          {
+            id: 'ef1',
+            label: 'Margin',
+            expression: {
+              operator: 'subtract' as const,
+              inputs: [{ id: 'revenue' }, { id: 'cost' }],
+            },
+            sourceId: 'orders',
+            type: 'number' as const,
+            isMeasure: false,
+          },
+        ],
+      },
+    });
+    controller.setDashboardTitle('edit');
+    controller.undo(); // redo pending
+    expect(controller.canRedo()).toBe(true);
+
+    const before = controller.getState();
+    // Re-saving the expression dialog with no edits (open, glance, hit Save).
+    controller.updateExpressionField('ef1', { label: 'Margin' });
+
+    expect(controller.getState()).toBe(before); // no commit
+    expect(controller.canRedo()).toBe(true); // redo NOT wiped
+
+    // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
+    controller.updateExpressionField('ef1', { label: 'Gross Margin' });
+    expect(controller.getState().doc.expressionFields[0].label).toBe('Gross Margin');
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  it('updateFilter with a value-identical changes payload preserves the redo stack (2.6)', () => {
+    const controller = new StudioController({
+      doc: { filters: [makeFilter({ id: 'f1', operator: 'equals', value: 'foo' })] },
+    });
+    controller.setDashboardTitle('edit');
+    controller.undo(); // redo pending
+    expect(controller.canRedo()).toBe(true);
+
+    const before = controller.getState();
+    // A drawer control re-committing its current value on blur.
+    controller.updateFilter('f1', { operator: 'equals', value: 'foo' });
+
+    expect(controller.getState()).toBe(before); // no commit
+    expect(controller.canRedo()).toBe(true); // redo NOT wiped
+
+    // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
+    controller.updateFilter('f1', { value: 'bar' });
+    expect(controller.getState().doc.filters[0].value).toBe('bar');
     expect(controller.canRedo()).toBe(false);
   });
 });

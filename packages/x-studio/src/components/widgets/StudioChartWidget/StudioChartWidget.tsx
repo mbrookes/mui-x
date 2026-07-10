@@ -126,6 +126,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // `useWidgetRows`' pattern), so `getFieldDependencySource`/`isFieldForeignDerived` below
   // can resolve a related-source calculated field the same way `analyzeChartSupport` does,
   // instead of only ever seeing this widget's own-source expression fields (finding 2.1).
+  // For a many-to-many relationship the junction (bridge) source is included too, so a
+  // junction-owned expression field is resolvable here as well (mirrors
+  // `getReachableSourceIds`; finding 2.1).
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -133,8 +136,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       for (const rel of relationships) {
         if (rel.sourceId === widget.sourceId) {
           ids.add(rel.targetId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         } else if (rel.targetId === widget.sourceId) {
           ids.add(rel.sourceId);
+          if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+            ids.add(rel.junctionSourceId);
+          }
         }
       }
     }

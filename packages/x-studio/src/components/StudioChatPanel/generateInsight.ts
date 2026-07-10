@@ -15,8 +15,14 @@ import type { StudioKpiAggregation } from '../../models/baseTypes';
 import type { StudioState, StudioFilterState } from '../../models/stateTypes';
 import type { StudioWidget, StudioWidgetConfig } from '../../models/widgetTypes';
 import type { StudioDataSource } from '../../models/dataTypes';
+import type { StudioExpressionField } from '../../models/expressionTypes';
 import { createStudioPipeline, type StudioPipelineState } from '../../internals/StudioPipeline';
 import { selectFiltersForWidget } from '../../internals/filterScoping';
+import {
+  enrichWithCrossSourceFields,
+  enrichWithCrossSourceColumns,
+} from '../../internals/crossSourceEnrichment';
+import { normalizeToAlpha2, normalizeToStateAbbr } from '../widgets/StudioMapWidget/countryUtils';
 import {
   computeAggregate,
   findDateFilter,
@@ -118,6 +124,22 @@ function selectSampleRows(
 }
 
 type SourceField = { id: string; label?: string; type?: string; aiAggregation?: string };
+
+/**
+ * Merges a data source's own fields with its own-source expression fields (calculated
+ * columns / measures) so field-metadata lookups (numeric-stats type detection, label
+ * resolution) recognize expression-derived fields too — mirrors `widgetExport.ts`'s
+ * `ownExpressionFields` filter. Without this, `buildNumericStats` only ever saw
+ * `source.fields`, so a calculated-column value/measure field (which has no entry in
+ * `source.fields`) got no stats line even when it's exactly the field the widget
+ * aggregates (finding 2.5).
+ */
+function sourceFieldsWithExpressions(
+  source: StudioDataSource,
+  expressionFields: StudioExpressionField[],
+): SourceField[] {
+  return [...source.fields, ...expressionFields.filter((ef) => ef.sourceId === source.id)];
+}
 
 /**
  * Aggregates rows into at most MAX_DATA_ROWS buckets by computing per-bucket
@@ -246,6 +268,14 @@ function formatDate(d: Date): string {
  * `StudioState` itself) so this call site doesn't depend on `createStudioPipeline`
  * unwrapping `doc`/`runtime` internally — the flat shape is the pipeline's own
  * documented "built manually" input.
+ *
+ * Must forward `globalCrossFilterMode` and `crossFilterAllPages` (finding 2.4): the
+ * pipeline resolves its effective cross-filter mode as
+ * `globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'` and scopes
+ * cross-filters to all pages when `crossFilterAllPages` is set. Dropping them here meant
+ * the snapshot's L3 rows always resolved cross-filters as if both dashboard settings were
+ * unset, while `buildChartWidgetSummary`'s L4 `widgetFilters` (below) read them directly
+ * off `state.doc.dashboard` — the two layers could disagree within this one code path.
  */
 function toPipelineState(state: StudioState): StudioPipelineState {
   return {
@@ -253,6 +283,8 @@ function toPipelineState(state: StudioState): StudioPipelineState {
     relationships: state.doc.relationships,
     expressionFields: state.doc.expressionFields,
     filters: state.doc.filters,
+    crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
+    globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
   };
 }
 
@@ -331,7 +363,11 @@ function buildKpiWidgetSummary(
   }
 
   if (valueField) {
-    const stats = buildNumericStats(filteredRows, [valueField], source.fields);
+    const stats = buildNumericStats(
+      filteredRows,
+      [valueField],
+      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+    );
     if (stats) {
       lines.push(`Stats: ${stats}`);
     }
@@ -565,7 +601,11 @@ function buildChartWidgetSummary(
   }
 
   if (activeYFields.length > 0) {
-    const stats = buildNumericStats(filteredRows, activeYFields, source.fields);
+    const stats = buildNumericStats(
+      filteredRows,
+      activeYFields,
+      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+    );
     if (stats) {
       lines.push(`Stats: ${stats}`);
     }
@@ -602,6 +642,7 @@ function buildMapWidgetSummary(
   widget: StudioWidget,
   source: StudioDataSource,
   filteredRows: Record<string, unknown>[],
+  state: StudioState,
   maxRows: number,
 ): string {
   // Read config through the flat cross-kind `StudioWidgetConfig` patch type:
@@ -616,8 +657,49 @@ function buildMapWidgetSummary(
     return '';
   }
 
+  // `mapCountryField`/`mapValueField` can reference a related source
+  // (`mapCountrySourceId`/`mapValueSourceId` differing from `widget.sourceId`) — the
+  // rendered map joins those values onto rows via `useWidgetRows.ts`'s
+  // `mapCrossSourceFields` enrichment. `filteredRows` here only carries L2/L3
+  // (own-source expression + filters), so without the same enrichment a cross-source
+  // country/value field is blank on this path (finding 2.5). Mirror
+  // `widgetExport.ts:119-134`'s enrichment.
+  const crossSourceFieldRefs: { fieldId: string; sourceId: string }[] = [];
+  if (cfg.mapCountrySourceId && cfg.mapCountrySourceId !== widget.sourceId) {
+    crossSourceFieldRefs.push({ fieldId: countryField, sourceId: cfg.mapCountrySourceId });
+  }
+  if (valueField && cfg.mapValueSourceId && cfg.mapValueSourceId !== widget.sourceId) {
+    crossSourceFieldRefs.push({ fieldId: valueField, sourceId: cfg.mapValueSourceId });
+  }
+  const enrichedRows =
+    crossSourceFieldRefs.length > 0
+      ? enrichWithCrossSourceFields(
+          filteredRows,
+          widget.sourceId,
+          crossSourceFieldRefs,
+          state.runtime.dataSources,
+          state.doc.relationships,
+        )
+      : filteredRows;
+
+  // Merge region spelling variants the same way the rendered map does — `StudioMapWidget`
+  // normalizes every row's country value (`normalizeToStateAbbr` for the 'usa' geography,
+  // `normalizeToAlpha2` otherwise) before grouping, so 'US'/'USA'/'United States' become one
+  // region. This summary previously grouped by the raw field value with no normalization,
+  // so it reported those as three separate countries while the map merges them (finding
+  // 2.5). Rows whose value doesn't normalize (the widget's `if (!id) continue`) are dropped
+  // the same way.
+  const normalize = cfg.mapGeography === 'usa' ? normalizeToStateAbbr : normalizeToAlpha2;
+  const normalizedRows = enrichedRows.reduce<Record<string, unknown>[]>((acc, row) => {
+    const normalized = normalize(row[countryField]);
+    if (normalized) {
+      acc.push({ ...row, [countryField]: normalized });
+    }
+    return acc;
+  }, []);
+
   const result: AggregatedData = aggregateByField(
-    filteredRows,
+    normalizedRows,
     countryField,
     valueField ?? '',
     undefined,
@@ -640,7 +722,11 @@ function buildMapWidgetSummary(
   ];
 
   if (valueField) {
-    const stats = buildNumericStats(filteredRows, [valueField], source.fields);
+    const stats = buildNumericStats(
+      normalizedRows,
+      [valueField],
+      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+    );
     if (stats) {
       lines.push(`Stats: ${stats}`);
     }
@@ -731,7 +817,7 @@ export function buildWidgetDataSummary(
     // Fall through to raw-row path for scatter/gantt/sankey/blended
   }
   if (widget.kind === 'map') {
-    return prefix(buildMapWidgetSummary(widget, source, filteredRows, maxRows));
+    return prefix(buildMapWidgetSummary(widget, source, filteredRows, state, maxRows));
   }
 
   // Raw-row path: grid, pivot, and chart fallbacks
@@ -769,9 +855,29 @@ export function buildWidgetDataSummary(
     }
   }
 
-  // Deduplicate and keep only fields that actually exist in the data
+  // Cross-source grid columns (columns whose `sourceId` differs from the widget's primary
+  // source) are joined onto rows for display by `useWidgetRows.ts`'s
+  // `enrichWithCrossSourceFields` call, and again for CSV export by
+  // `widgetExport.ts:119-134` — this raw-row data-sample path never ran that enrichment at
+  // all, so a cross-source grid column was blank here and then dropped entirely by the
+  // "exists in the data" filter below (finding 2.5). Mirror that enrichment via the same
+  // `enrichWithCrossSourceColumns` convenience wrapper (a no-op when `cfg.columns` is
+  // undefined or has no cross-source entries, e.g. for pivot/chart-fallback widgets).
+  const enrichedFilteredRows = enrichWithCrossSourceColumns(
+    filteredRows,
+    widget.sourceId,
+    cfg.columns,
+    state.runtime.dataSources,
+    state.doc.relationships,
+  );
+
+  // Deduplicate and keep only fields that actually exist in the enriched data. Checking
+  // against `rawRows` (pre-L2, pre-cross-source) excluded own-source expression columns
+  // (only ever added by the pipeline's L2 enrichment) and cross-source columns (only added
+  // above) from the sample — the AI was never told about the very column a pivot/grid
+  // widget aggregates (finding 2.5).
   fieldIds = [...new Set(fieldIds)].filter(
-    (id) => id && rawRows.some((r: Record<string, unknown>) => id in r),
+    (id) => id && enrichedFilteredRows.some((r: Record<string, unknown>) => id in r),
   );
 
   if (fieldIds.length === 0) {
@@ -781,14 +887,22 @@ export function buildWidgetDataSummary(
   const { sampling = 'stride' } = options;
   const { sample, label } =
     sampling === 'aggregate'
-      ? aggregateRows(filteredRows, fieldIds, source.fields, maxRows)
-      : selectSampleRows(filteredRows, options, xFieldId);
+      ? aggregateRows(enrichedFilteredRows, fieldIds, source.fields, maxRows)
+      : selectSampleRows(enrichedFilteredRows, options, xFieldId);
 
   // Stats computed from ALL filtered rows (not just sample) for global context
-  const stats = buildNumericStats(filteredRows, fieldIds, source.fields);
+  const stats = buildNumericStats(
+    enrichedFilteredRows,
+    fieldIds,
+    sourceFieldsWithExpressions(source, state.doc.expressionFields),
+  );
 
+  // Look up header labels through the same own-source-fields + own-source-expression-fields
+  // merge as the stats above (and as `widgetUtils.tsx`'s `buildCsvContent`), so an
+  // expression column's header reads its configured label instead of its raw field id.
+  const allFieldsForLabels = sourceFieldsWithExpressions(source, state.doc.expressionFields);
   const headers = fieldIds.map((id) => {
-    const field = source.fields.find((f) => f.id === id);
+    const field = allFieldsForLabels.find((f) => f.id === id);
     return field?.label ?? id;
   });
 

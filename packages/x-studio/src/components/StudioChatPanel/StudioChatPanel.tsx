@@ -94,7 +94,11 @@ export interface StudioChatPanelProps {
    * When omitted, the panel is always rendered (persistent mode).
    */
   open?: boolean;
-  /** Called when the user dismisses the panel (close button or backdrop click). */
+  /**
+   * Called when the user dismisses the overlay panel — via the header close button
+   * or the <kbd>Escape</kbd> key. (The panel is a non-modal overlay with no backdrop,
+   * so there is no backdrop-click dismissal.)
+   */
   onClose?: () => void;
   /**
    * When true, the panel is rendered as a fixed-position overlay on the right side.
@@ -162,6 +166,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const dashboard = useStudioSelector(selectDashboard);
   const { customWidgets: contextCustomWidgets } = useStudioUIConfig();
   const localeText = useStudioLocaleText();
+
+  // Stable, instance-unique id so the overlay dialog's `aria-labelledby` can point at
+  // its "AI assistant" heading (two mounted `<Studio>`s must not collide on the id).
+  const titleId = React.useId();
 
   // Prefer explicit prop; fall back to Studio context
   const customWidgets = customWidgetsProp ?? contextCustomWidgets;
@@ -241,6 +249,47 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     }
     wasOpenRef.current = open;
   }, [open, overlay, isStreamingRef, stopStreamRef]);
+
+  // ── Overlay focus management (dialog semantics) ──────────────────────────────
+  // In overlay mode the panel is a dialog: move focus into it when it opens (so a
+  // keyboard user lands inside instead of somewhere behind it) and restore focus to
+  // whatever element opened it (typically the FAB) when it closes. Persistent mode
+  // is an inline panel, not a dialog, so this only runs when `overlay` is set.
+  const overlayRef = React.useRef<HTMLDivElement | null>(null);
+  const triggerRef = React.useRef<HTMLElement | null>(null);
+  React.useEffect(() => {
+    if (!overlay) {
+      return;
+    }
+    if (open) {
+      // Remember the trigger so focus can return to it on close.
+      triggerRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const node = overlayRef.current;
+      if (node) {
+        // Prefer the composer input; fall back to the panel root (tabIndex=-1).
+        const focusTarget =
+          node.querySelector<HTMLElement>('textarea, input, [contenteditable="true"]') ?? node;
+        focusTarget.focus();
+      }
+    } else {
+      // Restore focus to the trigger element that opened the panel.
+      triggerRef.current?.focus();
+      triggerRef.current = null;
+    }
+  }, [open, overlay]);
+
+  // Escape closes the overlay panel (dialog convention). Wired on the container so a
+  // keypress anywhere inside the panel dismisses it, matching the close button.
+  const handleOverlayKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Escape' && onClose) {
+        event.stopPropagation();
+        onClose();
+      }
+    },
+    [onClose],
+  );
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
@@ -491,6 +540,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     <Grow in={open} mountOnEnter unmountOnExit style={{ transformOrigin: 'bottom right' }}>
       <Box
         {...panelRestProps}
+        ref={overlayRef}
+        role="dialog"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={handleOverlayKeyDown}
         sx={[
           {
             position: 'fixed',
@@ -524,7 +578,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             flexShrink: 0,
           }}
         >
-          <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600 }}>
+          <Typography id={titleId} variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600 }}>
             {localeText.aiAssistantPanelTitle}
           </Typography>
           {onClose && (

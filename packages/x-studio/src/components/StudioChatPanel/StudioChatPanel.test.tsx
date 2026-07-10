@@ -9,7 +9,7 @@
  * repo runs vitest with `isolate: false` — see that module's doc comment).
  */
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
@@ -155,6 +155,36 @@ describe('StudioChatPanel: basic rendering', () => {
 
     expect(screen.getByText(frLocaleText.aiAssistantPanelTitle!)).toBeDefined();
     expect(screen.queryByText('AI Assistant')).toBeNull();
+  });
+
+  // ── Overlay dialog semantics (finding 2.22) ─────────────────────────────────
+
+  it('exposes the overlay panel as a dialog labelled by its heading', () => {
+    render(<StudioChatPanel aiConfig={aiConfig} overlay open onClose={vi.fn()} />);
+
+    const dialog = screen.getByRole('dialog');
+    // The dialog's accessible name comes from its "AI assistant" heading via
+    // aria-labelledby (previously the heading was unassociated).
+    const labelledBy = dialog.getAttribute('aria-labelledby');
+    expect(labelledBy).toBeTruthy();
+    const heading = document.getElementById(labelledBy!);
+    expect(heading?.textContent).toBe(DEFAULT_STUDIO_LOCALE_TEXT.aiAssistantPanelTitle);
+  });
+
+  it('closes the overlay panel when Escape is pressed', () => {
+    const onClose = vi.fn();
+    render(<StudioChatPanel aiConfig={aiConfig} overlay open onClose={onClose} />);
+
+    // Escape is handled via bubbling from wherever focus currently sits — the panel
+    // moves focus into the composer textarea on open, and jsdom keydown can only
+    // target the actual active element, so fire it there rather than on the dialog
+    // container.
+    const composer = screen.getByPlaceholderText(
+      DEFAULT_STUDIO_LOCALE_TEXT.chatComposerPlaceholder,
+    );
+    expect(composer).toHaveFocus();
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('starts a brand-new thread with no prior threads in state', () => {

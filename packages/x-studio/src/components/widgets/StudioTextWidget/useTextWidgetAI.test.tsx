@@ -397,6 +397,82 @@ describe('useTextWidgetAI', () => {
       expect(secondBody.pageSnapshot).toContain('999');
       expect(secondBody.pageSnapshot).not.toContain('100');
     });
+
+    // ─── Snapshot memo reactivity to filter changes (finding 1.5) ──────────────
+    //
+    // `buildPageSnapshot` runs sibling widgets through the data pipeline (L3 scoped
+    // filters), so the summary it produces depends on `doc.filters` — a partition
+    // that does NOT change `activePage`/`dashboard` identity. Before the fix, adding
+    // a page filter re-rendered every sibling widget filtered but left this hook's
+    // memoized snapshot (and its cached markdown) describing the unfiltered numbers,
+    // and a manual `refresh()` just resent the same stale snapshot. This test drives
+    // a real `addFilter` and asserts a second `/chat` request goes out reflecting the
+    // now-filtered data.
+    it('recomputes the page snapshot when a page filter is added', async () => {
+      const { controller, wrapper } = setupWithController({
+        doc: {
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] },
+          },
+          widgets: {
+            'grid-1': makeGridWidget('Grid'),
+          },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Src1',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 100 }, { amount: 999 }],
+            },
+          },
+        },
+      });
+
+      const fetchMock = mockFetchSequence([
+        makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+        makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+      ]);
+
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('First');
+      });
+      const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as {
+        pageSnapshot?: string;
+      };
+      // Both rows described before any filter is applied.
+      expect(firstBody.pageSnapshot).toContain('100');
+      expect(firstBody.pageSnapshot).toContain('999');
+
+      act(() => {
+        controller.addFilter({
+          id: 'flt-1',
+          field: 'amount',
+          operator: 'equals',
+          value: 100,
+          scope: { kind: 'page' },
+        });
+      });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Second');
+      });
+      const secondBody = JSON.parse(String(fetchMock.mock.calls[1][1].body)) as {
+        pageSnapshot?: string;
+      };
+      // The filtered-out row (999) no longer appears; the kept row (100) still does.
+      expect(secondBody.pageSnapshot).toContain('100');
+      expect(secondBody.pageSnapshot).not.toContain('999');
+      expect(secondBody.pageSnapshot).not.toBe(firstBody.pageSnapshot);
+    });
   });
 
   // ─── Tool-approval auto-approve guard (finding 3.15) ────────────────────────

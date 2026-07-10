@@ -2,19 +2,24 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
+import type { CreateDefaultStudioStateOverrides } from '../../models';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeController(): StudioController {
-  const state = createDefaultStudioState({
-    doc: {
-      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
-      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
-      widgets: {},
-    },
-  });
+const DEFAULT_STATE_OVERRIDES: CreateDefaultStudioStateOverrides = {
+  doc: {
+    dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+    pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+    widgets: {},
+  },
+};
+
+function makeController(
+  stateOverride: CreateDefaultStudioStateOverrides = DEFAULT_STATE_OVERRIDES,
+): StudioController {
+  const state = createDefaultStudioState(stateOverride);
 
   return {
     getState: vi.fn(() => state),
@@ -920,6 +925,198 @@ describe('createBackendChatAdapter: POST body', () => {
     const src2 = body.dashboardState.runtime.dataSources.src2;
     expect(src2.id).toBe('src2');
     expect(src2).not.toHaveProperty('rows');
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── privateMode (finding 2.21) ────────────────────────────────────────────────
+//
+// The single most important test in this unit given the security history: the
+// same class of bug (a privateMode bypass leaking real data/structure to the LLM
+// provider) was found and fixed twice before, in `createWidgetFromDescription.ts`
+// and `useTextWidgetAI.ts`, both of which now have dedicated privateMode tests.
+// The main chat adapter builds `pageSnapshot` (sampled sibling-widget row values),
+// `dashboardState` (full serialized state), and `richContext` (per-field stats)
+// inside one `if (!privateMode)` block. These tests pin that gate so a future
+// refactor moving one builder out of the block ships a failing test, not a silent
+// leak.
+describe('createBackendChatAdapter: privateMode', () => {
+  // A page with a data-backed grid widget so that — when privateMode is OFF —
+  // `pageSnapshot`, `dashboardState`, and `richContext` are all actually built
+  // (an empty page would leave pageSnapshot/richContext undefined regardless).
+  const stateWithDataWidget: CreateDefaultStudioStateOverrides = {
+    doc: {
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] } },
+      widgets: {
+        'grid-1': {
+          id: 'grid-1',
+          kind: 'grid',
+          title: 'Sales grid',
+          sourceId: 'src1',
+          config: { columns: [{ fieldId: 'amount' }] },
+        },
+      },
+    },
+    runtime: {
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+          rows: [{ amount: 12345 }],
+        },
+      },
+    },
+  };
+
+  function captureRequestBody(): { fetchMock: ReturnType<typeof vi.fn> } {
+    const sse = makeSseBody([{ type: 'finish', finishReason: 'stop' }]);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(ctrl) {
+          ctrl.enqueue(sse);
+          ctrl.close();
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { fetchMock };
+  }
+
+  it('sends pageSnapshot, dashboardState, and richContext and forwards privateMode:false when off', async () => {
+    const { fetchMock } = captureRequestBody();
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', privateMode: false };
+    const adapter = createBackendChatAdapter(config, makeController(stateWithDataWidget));
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('summarise')]));
+    await collectChunks(stream);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const rawBody = String(init.body);
+    const body = JSON.parse(rawBody) as {
+      privateMode?: boolean;
+      pageSnapshot?: unknown;
+      dashboardState?: unknown;
+      richContext?: unknown;
+    };
+
+    expect(body.privateMode).toBe(false);
+    expect(body.pageSnapshot).toBeDefined();
+    expect(body.dashboardState).toBeDefined();
+    expect(body.richContext).toBeDefined();
+    // The real sibling-widget row value is present on the leak path.
+    expect(rawBody).toContain('12345');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('omits pageSnapshot, dashboardState, and richContext and forwards privateMode:true when on', async () => {
+    const { fetchMock } = captureRequestBody();
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', privateMode: true };
+    const adapter = createBackendChatAdapter(config, makeController(stateWithDataWidget));
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('summarise')]));
+    await collectChunks(stream);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const rawBody = String(init.body);
+    const body = JSON.parse(rawBody) as {
+      privateMode?: boolean;
+      pageSnapshot?: unknown;
+      dashboardState?: unknown;
+      richContext?: unknown;
+    };
+
+    expect(body.privateMode).toBe(true);
+    expect(body.pageSnapshot).toBeUndefined();
+    expect(body.dashboardState).toBeUndefined();
+    expect(body.richContext).toBeUndefined();
+    // Neither the real row value nor a widget/field name leaks into the payload.
+    expect(rawBody).not.toContain('12345');
+    expect(rawBody).not.toContain('Sales grid');
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── multi-step text parts (finding 2.23) ──────────────────────────────────────
+//
+// A single agentic turn can interleave text and tool calls: preamble text → tool
+// call → final answer. Each contiguous text run must render as its own text part
+// in arrival order. With a single fixed `text-0` id, the final answer's deltas got
+// appended into the SAME part as the preamble, rendering the conclusion spliced
+// ABOVE the (earlier) tool card instead of below it.
+describe('createBackendChatAdapter: multi-step text parts', () => {
+  it('closes the preamble text part before a tool call and starts a fresh part for the final answer', async () => {
+    const sse = makeSseBody([
+      { type: 'text-delta', delta: 'Let me check.' },
+      {
+        type: 'tool-activity',
+        toolCallId: 'call-1',
+        toolName: 'query_data_source',
+        phase: 'start',
+        input: {},
+      },
+      {
+        type: 'tool-activity',
+        toolCallId: 'call-1',
+        toolName: 'query_data_source',
+        phase: 'complete',
+        output: '{"rows":1}',
+      },
+      { type: 'step-start', iteration: 2 },
+      { type: 'text-delta', delta: 'Here is the answer.' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('multi-step')]));
+
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+
+    // Two distinct text parts, each with its own start/end and its own id.
+    const textStartIds = chatChunks
+      .filter((c) => c.type === 'text-start')
+      .map((c) => (c as { type: 'text-start'; id: string }).id);
+    const textEndIds = chatChunks
+      .filter((c) => c.type === 'text-end')
+      .map((c) => (c as { type: 'text-end'; id: string }).id);
+
+    expect(textStartIds).toHaveLength(2);
+    expect(textEndIds).toHaveLength(2);
+    // The two runs use different part ids (the fix): not a single merged `text-0`.
+    expect(new Set(textStartIds).size).toBe(2);
+
+    // Ordering: the preamble part is closed BEFORE the tool card renders, and the
+    // final answer's part starts AFTER the tool output.
+    const types = chatChunks.map((c) => c.type);
+    const firstTextEndIdx = types.indexOf('text-end');
+    const toolInputStartIdx = types.indexOf('tool-input-start');
+    const toolOutputIdx = types.indexOf('tool-output-available');
+    const lastTextStartIdx = types.lastIndexOf('text-start');
+
+    expect(firstTextEndIdx).toBeGreaterThanOrEqual(0);
+    expect(firstTextEndIdx).toBeLessThan(toolInputStartIdx);
+    expect(lastTextStartIdx).toBeGreaterThan(toolOutputIdx);
+
+    // Each delta is routed to the id of its own run, never merged.
+    const deltaByRun = new Map<string, string[]>();
+    for (const c of chatChunks) {
+      if (c.type === 'text-delta') {
+        const { id, delta } = c as { type: 'text-delta'; id: string; delta: string };
+        deltaByRun.set(id, [...(deltaByRun.get(id) ?? []), delta]);
+      }
+    }
+    expect(deltaByRun.size).toBe(2);
+    const runs = [...deltaByRun.values()].map((parts) => parts.join(''));
+    expect(runs).toContain('Let me check.');
+    expect(runs).toContain('Here is the answer.');
 
     vi.unstubAllGlobals();
   });

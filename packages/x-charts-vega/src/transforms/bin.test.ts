@@ -160,12 +160,41 @@ describe('applyInlineBin', () => {
     expect(result!.rows.map((row) => row.__bin_v)).to.deep.equal(['20–30', '0–10', '10–20']);
   });
 
-  it('records a partial gap and returns null for `bin: "binned"`', () => {
+  it('records a partial gap and returns null for `bin: "binned"` when no bin-end field is found', () => {
     const gaps = createGapCollector();
     const result = applyInlineBin([{ v: 1 }], 'v', 'binned', gaps, '$', true);
     expect(result).to.equal(null);
     const gap = gaps.list().find((entry) => entry.code === 'encoding:bin-binned');
     expect(gap?.severity).to.equal('partial');
+  });
+
+  it('`bin: "binned"` builds "start–end" labels from the "<field>_end" companion, no gap', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { v: 10, v_end: 20 },
+      { v: 0, v_end: 10 },
+    ];
+    const result = applyInlineBin(rows, 'v', 'binned', gaps, '$', true);
+    expect(result).to.not.equal(null);
+    expect(result!.field).to.equal('__bin_v');
+    // Sorted ascending by bin start.
+    expect(result!.rows.map((row) => row.__bin_v)).to.deep.equal(['0–10', '10–20']);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('`bin: "binned"` reads the bin end from an explicit `endField` (channel x2)', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 0, hi: 10 }];
+    const result = applyInlineBin(rows, 'v', 'binned', gaps, '$', true, 'hi');
+    expect(result!.rows.map((row) => row.__bin_v)).to.deep.equal(['0–10']);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('`bin: "binned"` nulls the label for rows with a non-numeric start or end', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 0, v_end: 'x' }];
+    const result = applyInlineBin(rows, 'v', 'binned', gaps, '$', false);
+    expect(result!.rows.map((row) => row.__bin_v)).to.deep.equal([null]);
   });
 
   it('records a partial gap and returns null when there are no numeric values', () => {

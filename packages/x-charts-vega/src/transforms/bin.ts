@@ -143,23 +143,83 @@ function extractNumbers(
   return { perRow, values: perRow.filter((value): value is number => value != null) };
 }
 
+/*
+ * Shared tail of the inline-bin paths: turn a per-row `{ sortKey, label }` into
+ * the `"start–end"` synthetic label column. When `sortRows` is true (positional
+ * x/y channels) rows are re-sorted by `sortKey` (bin start) so the resulting
+ * category axis renders bins left-to-right in ascending order (the mark
+ * compilers align series data to the axis's category order, so sorting here is
+ * what makes that come out right); a binned COLOR channel must NOT re-sort, or
+ * it would clobber the positional row order (zig-zag line marks).
+ */
+function foldBinLabels(
+  rows: readonly DatasetRow[],
+  syntheticField: string,
+  sortRows: boolean,
+  compute: (row: DatasetRow, index: number) => { sortKey: number; label: string | null },
+): { rows: DatasetRow[]; field: string } {
+  const withBins = rows.map((row, index) => ({ row, ...compute(row, index) }));
+  if (sortRows) {
+    withBins.sort((a, b) => a.sortKey - b.sortKey);
+  }
+  return {
+    rows: withBins.map(({ row, label }) => ({ ...row, [syntheticField]: label })),
+    field: syntheticField,
+  };
+}
+
+/**
+ * Handles `bin: "binned"` — the data is ALREADY binned. `field` holds each
+ * row's bin start and a companion field holds the bin end: either the explicit
+ * `endField` (resolved by the caller from the channel's `x2`/`y2`) or, when
+ * absent, the Vega-Lite default `"${field}_end"`. The start/end pair is folded
+ * into the same synthetic `"start–end"` ordinal label the normal inline-bin
+ * path produces, so pre-binned histograms go through the band-scale path too.
+ * Returns `null` (after recording a gap) when the bin-end field can't be found.
+ */
+function applyPreBinned(
+  rows: readonly DatasetRow[],
+  field: string,
+  endField: string | undefined,
+  gaps: GapCollector,
+  path: string,
+  sortRows: boolean,
+): { rows: DatasetRow[]; field: string } | null {
+  const resolvedEnd = endField ?? `${field}_end`;
+  if (!rows.some((row) => resolvedEnd in row)) {
+    gaps.add({
+      code: 'encoding:bin-binned',
+      message: `\`bin: "binned"\` needs a bin-end field ("${resolvedEnd}") next to the bin-start field "${field}", but none was found; the field is rendered unbinned.`,
+      severity: 'partial',
+      path,
+    });
+    return null;
+  }
+  return foldBinLabels(rows, `__bin_${field}`, sortRows, (row) => {
+    const start = toNumber(row[field]);
+    const end = toNumber(row[resolvedEnd]);
+    if (start == null || end == null) {
+      return { sortKey: Number.POSITIVE_INFINITY, label: null };
+    }
+    return { sortKey: start, label: `${formatBinBound(start)}–${formatBinBound(end)}` };
+  });
+}
+
 /**
  * Bins `field` on `rows` for an inline encoding-channel `bin`: each row's
  * value is folded into a `"start–end"` label written to a synthetic column.
- * When `sortRows` is true (positional x/y channels) rows are re-sorted by
- * bin start so the resulting category axis renders bins left-to-right in
- * ascending order (the mark compilers align series data to the axis's
- * category order, so sorting here is what makes that come out right); a
- * binned COLOR channel must NOT re-sort, or it would clobber the positional
- * row order (zig-zag line marks). We deliberately render bins as an ordinal
- * "start–end" string column (rather than keeping a numeric `quantitative`
- * field) so histograms go through the existing band-scale path in scales.ts
- * and render one bar per bin with a readable label, instead of one bar per
- * distinct raw value.
+ * We deliberately render bins as an ordinal "start–end" string column (rather
+ * than keeping a numeric `quantitative` field) so histograms go through the
+ * existing band-scale path in scales.ts and render one bar per bin with a
+ * readable label, instead of one bar per distinct raw value. See
+ * `foldBinLabels` for the `sortRows` behavior.
  *
- * Returns `null` (after recording a gap) when binning can't be computed at
- * all, or when `bin: "binned"` (pre-binned data) is used — the caller should
- * then fall back to the original unbinned field.
+ * `bin: "binned"` (pre-binned data) is handled by `applyPreBinned`, reading the
+ * bin end from `endField` (the channel's `x2`/`y2`) or `"${field}_end"`.
+ *
+ * Returns `null` (after recording a gap) when binning can't be computed at all
+ * (no numeric values, or — for pre-binned data — no bin-end field); the caller
+ * should then fall back to the original unbinned field.
  */
 export function applyInlineBin(
   rows: readonly DatasetRow[],
@@ -168,16 +228,10 @@ export function applyInlineBin(
   gaps: GapCollector,
   path: string,
   sortRows: boolean,
+  endField?: string,
 ): { rows: DatasetRow[]; field: string } | null {
   if (binParam === 'binned') {
-    gaps.add({
-      code: 'encoding:bin-binned',
-      message:
-        '`bin: "binned"` (pre-binned data, expecting explicit bin-start/bin-end fields) is not supported; the field is rendered unbinned.',
-      severity: 'partial',
-      path,
-    });
-    return null;
+    return applyPreBinned(rows, field, endField, gaps, path, sortRows);
   }
   const { perRow, values } = extractNumbers(rows, field);
   const binning = computeNiceBinning(values, binParam);
@@ -190,26 +244,14 @@ export function applyInlineBin(
     });
     return null;
   }
-  const syntheticField = `__bin_${field}`;
-  const withBins = rows.map((row, index) => {
+  return foldBinLabels(rows, `__bin_${field}`, sortRows, (row, index) => {
     const value = perRow[index];
     const bin = value == null ? null : binOf(value, binning);
     if (bin == null) {
-      return { row, sortKey: Number.POSITIVE_INFINITY, label: null as string | null };
+      return { sortKey: Number.POSITIVE_INFINITY, label: null };
     }
-    return {
-      row,
-      sortKey: bin.start,
-      label: `${formatBinBound(bin.start)}–${formatBinBound(bin.end)}`,
-    };
+    return { sortKey: bin.start, label: `${formatBinBound(bin.start)}–${formatBinBound(bin.end)}` };
   });
-  if (sortRows) {
-    withBins.sort((a, b) => a.sortKey - b.sortKey);
-  }
-  return {
-    rows: withBins.map(({ row, label }) => ({ ...row, [syntheticField]: label })),
-    field: syntheticField,
-  };
 }
 
 /*

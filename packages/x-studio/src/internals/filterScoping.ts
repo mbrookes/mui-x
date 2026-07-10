@@ -16,6 +16,15 @@ import type { StudioFilterState } from '../models';
  * @param activePageId
  *   When undefined, cross-filter and interactive filters are included regardless
  *   of their pageId (used by the non-React StudioPipeline when no page context is available).
+ *
+ * @param includeWidgetRank
+ *   By default a WIDGET-scoped rank (Top-N) filter is excluded from the returned set, because
+ *   the chart widget re-applies its own widget rank as a post-aggregation reduction
+ *   (`useChartWidgetData`) and would otherwise double-apply it. Every OTHER widget kind
+ *   (grid / KPI / map / pivot / filter) has no such post-aggregation path, so a widget rank
+ *   authored on one of them was silently ignored (finding 2.1). Non-chart callers set this to
+ *   `true` so a widget-scoped rank filter is applied at L3 as a dataset-level reduction, exactly
+ *   like a page-scoped rank filter already is (both flow into `applyFilters`' "filter then rank").
  */
 export function selectFiltersForWidget(
   filters: StudioFilterState[],
@@ -25,9 +34,17 @@ export function selectFiltersForWidget(
     activePageId: string | undefined;
     include?: 'all' | 'no-cross' | 'no-chart-cross';
     crossFilterAllPages?: boolean;
+    includeWidgetRank?: boolean;
   },
 ): StudioFilterState[] {
-  const { widgetId, widgetSourceId, activePageId, include = 'all', crossFilterAllPages = false } = opts;
+  const {
+    widgetId,
+    widgetSourceId,
+    activePageId,
+    include = 'all',
+    crossFilterAllPages = false,
+    includeWidgetRank = false,
+  } = opts;
   const result: StudioFilterState[] = [];
 
   for (const f of filters) {
@@ -46,7 +63,7 @@ export function selectFiltersForWidget(
         }
         break;
       case 'widget':
-        if (sv2.widgetId === widgetId && f.filterMode !== 'rank') {
+        if (sv2.widgetId === widgetId && (includeWidgetRank || f.filterMode !== 'rank')) {
           result.push(f);
         }
         break;

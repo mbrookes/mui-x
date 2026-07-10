@@ -14,11 +14,14 @@ import {
   makeSelectActiveCrossFilter,
   selectDataSources,
   selectRelationships,
-  makeSelectExpressionFieldsForSource,
+  makeSelectExpressionFieldsForSources,
 } from '../../../context';
 import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
-import { buildManyToOneRelationshipIndex } from '../../../internals/dataSourceGraph';
+import {
+  buildManyToOneRelationshipIndex,
+  getReachableSourceIds,
+} from '../../../internals/dataSourceGraph';
 import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
@@ -154,12 +157,27 @@ export function StudioMapWidget({
   // fields and cross-source fields — the same class of fix already applied to the KPI
   // sparkline's field-def lookup, see `StudioKpiWidget.tsx`).
   const dataSources = useStudioSelector(selectDataSources);
-  const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
-  );
-  const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
+  // Subscribe to expression fields for the widget's own source AND every one-hop related
+  // source, so a related-source *calculated* value field (offered by `MapSetupPanel` from
+  // every visible source) can be resolved to a field def — mirrors the own+related scoping
+  // `useWidgetRows` / the grid already use (finding 1.1).
+  const relevantSourceIds = React.useMemo(
+    () =>
+      widget.sourceId ? getReachableSourceIds(widget.sourceId, relationships) : new Set<string>(),
+    [widget.sourceId, relationships],
+  );
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
+  );
+  const allExpressionFields = useStudioSelector(selectExpressionFields);
+  // Own-source expression fields only — the same-source `fieldDef` fallback below must not
+  // accidentally match a related source's calculated field.
+  const expressionFields = React.useMemo(
+    () => allExpressionFields.filter((ef) => ef.sourceId === widget.sourceId),
+    [allExpressionFields, widget.sourceId],
+  );
   const valueSourceId = config.mapValueSourceId;
 
   // Fan-in dedup key (finding 1.1): when the value field lives on a many-to-one *related*
@@ -182,7 +200,16 @@ export function StudioMapWidget({
 
   const fieldDef = React.useMemo(() => {
     if (valueSourceId && valueSourceId !== widget.sourceId) {
-      return dataSources[valueSourceId]?.fields.find((f) => f.id === valueField);
+      // Cross-source value field: prefer the related source's physical field, then fall back to
+      // its own (non-measure) expression fields — so a related-source *calculated* value field
+      // keeps its format/currency/precision in the tooltip + legend, mirroring the same-source
+      // fallback below and the grid's `resolveCrossSourceFieldDefs` expression fallback (finding 1.1).
+      return (
+        dataSources[valueSourceId]?.fields.find((f) => f.id === valueField) ??
+        allExpressionFields.find(
+          (f) => f.id === valueField && f.sourceId === valueSourceId && !f.isMeasure,
+        )
+      );
     }
     return (
       dataSource.fields.find((f) => f.id === valueField) ??
@@ -192,6 +219,7 @@ export function StudioMapWidget({
     dataSource.fields,
     valueField,
     expressionFields,
+    allExpressionFields,
     dataSources,
     valueSourceId,
     widget.sourceId,

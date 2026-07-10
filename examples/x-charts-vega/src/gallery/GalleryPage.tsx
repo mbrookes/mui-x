@@ -1,0 +1,166 @@
+import * as React from 'react';
+import Box from '@mui/material/Box';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import Chip from '@mui/material/Chip';
+import Link from '@mui/material/Link';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import { VegaLiteChart } from '@mui/x-charts-vega';
+import type { TranslationGap, VegaLiteSpec } from '@mui/x-charts-vega';
+import { inlineData } from './resolveData';
+import titles from './titles.json';
+
+// The verbatim Vega-Lite example specs, fetched from vega/vega-lite (see
+// resolveData.ts). Keyed by base filename.
+const specModules = import.meta.glob('./specs/*.json', { eager: true, import: 'default' });
+const titleMap = titles as Record<string, { title: string; category: string }>;
+
+interface GalleryExample {
+  name: string;
+  title: string;
+  category: string;
+  spec: VegaLiteSpec;
+}
+
+const examples: GalleryExample[] = Object.entries(specModules)
+  .map(([path, spec]) => {
+    const name = path.replace(/^.*\/([^/]+)\.json$/, '$1');
+    return {
+      name,
+      title: titleMap[name]?.title ?? name,
+      category: titleMap[name]?.category ?? '',
+      spec: spec as VegaLiteSpec,
+    };
+  })
+  .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
+
+const SEVERITY_COLOR: Record<TranslationGap['severity'], 'error' | 'warning' | 'default'> = {
+  unsupported: 'error',
+  partial: 'warning',
+  ignored: 'default',
+};
+
+function GalleryCard({ example }: { example: GalleryExample }) {
+  const [gaps, setGaps] = React.useState<TranslationGap[]>([]);
+  // Inline the referenced datasets once; the wrapper then renders the spec as-is.
+  const resolvedSpec = React.useMemo(() => inlineData(example.spec), [example.spec]);
+  const specJson = React.useMemo(() => JSON.stringify(example.spec, null, 2), [example.spec]);
+
+  return (
+    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column' }}>
+      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flexGrow: 1 }}>
+        <Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="h6" component="h2">
+              {example.title}
+            </Typography>
+            {example.category && <Chip size="small" variant="outlined" label={example.category} />}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            vega-lite example{' '}
+            <Link
+              href={`https://vega.github.io/vega-lite/examples/${example.name}.html`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {example.name}
+            </Link>
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            display: 'flex',
+            justifyContent: 'center',
+            minHeight: 320,
+          }}
+        >
+          <VegaLiteChart spec={resolvedSpec} width={460} height={300} onGaps={setGaps} />
+        </Box>
+
+        <Box>
+          <Typography variant="subtitle2" gutterBottom>
+            Gaps reported via onGaps ({gaps.length})
+          </Typography>
+          {gaps.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No untranslatable features — the spec rendered natively.
+            </Typography>
+          ) : (
+            <Stack spacing={0.5}>
+              {gaps.map((gap) => (
+                <Stack
+                  key={`${gap.code}|${gap.path ?? ''}`}
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                >
+                  <Chip size="small" color={SEVERITY_COLOR[gap.severity]} label={gap.severity} />
+                  <Typography variant="body2" component="code" sx={{ fontFamily: 'monospace' }}>
+                    {gap.code}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </Box>
+
+        <Box component="details">
+          <Box component="summary" sx={{ cursor: 'pointer' }}>
+            <Typography variant="caption" component="span">
+              Vega-Lite spec (JSON)
+            </Typography>
+          </Box>
+          <Box
+            component="pre"
+            sx={{
+              fontSize: 12,
+              overflowX: 'auto',
+              maxHeight: 320,
+              bgcolor: 'action.hover',
+              borderRadius: 1,
+              p: 1,
+              m: 0,
+              mt: 1,
+            }}
+          >
+            {specJson}
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function GalleryPage() {
+  return (
+    <React.Fragment>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 760 }}>
+        The {examples.length} official{' '}
+        <Link href="https://vega.github.io/vega-lite/examples/" target="_blank" rel="noreferrer">
+          Vega-Lite example gallery
+        </Link>{' '}
+        specs below are run verbatim through <code>&lt;VegaLiteChart /&gt;</code> to exercise the
+        breadth of the Vega-Lite API. Their datasets (from <code>vega-datasets</code>) are bundled
+        and inlined; everything the wrapper cannot translate is reported live via{' '}
+        <code>onGaps</code>, so a partial chart alongside a populated gap list is expected for the
+        more exotic specs.
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(520px, 1fr))',
+          gap: 3,
+        }}
+      >
+        {examples.map((example) => (
+          <GalleryCard key={example.name} example={example} />
+        ))}
+      </Box>
+    </React.Fragment>
+  );
+}

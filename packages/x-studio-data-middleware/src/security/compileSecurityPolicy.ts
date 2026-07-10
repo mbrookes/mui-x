@@ -141,10 +141,77 @@ export function isCompiledSecurityPolicy(value: unknown): value is CompiledSecur
 }
 
 /**
+ * Is `value` a usable SQL column-name identifier at RUNTIME?
+ *
+ * A non-empty, non-whitespace-only string. `TenancyConfig.tenantColumn: string`
+ * and the `SecurityColumnOverride` field types are compile-time only — the
+ * realistic misconfiguration is a column name wired to an unset environment
+ * variable (`undefined`) or an empty string, which this package's downstream
+ * truthiness gates (`predicates.ts` `if (securityColumns.tenant)`, the
+ * `mutationBuilder.ts` force-stamp / client-tenant-rejection sites) silently
+ * treat as "this dimension is not scoped".
+ */
+function isUsableColumnName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/** Describe an invalid column-name value for a config-error message. */
+function describeColumnValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined (e.g. an unset environment variable)';
+  }
+  if (value === null) {
+    return 'null';
+  }
+  if (value === '') {
+    return 'an empty string';
+  }
+  if (typeof value === 'string') {
+    return 'a whitespace-only string';
+  }
+  return `a ${typeof value}`;
+}
+
+/**
+ * Validate an OPTIONAL security-column override value (finding 2.1).
+ *
+ * `undefined` (inherit the default) and `null` (the documented drop / whole-entry
+ * opt-out sentinel) are both legitimate. Any OTHER value must be a usable column
+ * name: an empty / whitespace-only / non-string value is neither a rename nor the
+ * `null` drop sentinel, and — because `resolveDimension('')` returns `''`, which
+ * the downstream truthiness gate silently skips — it acts as an UNDOCUMENTED third
+ * sentinel that quietly opts the dimension out of scoping (and, for `perTable.tenant`,
+ * dodges the single-tenant contradiction check, which gates on `Boolean(entry.tenant)`).
+ * Fail closed here at the single config choke point.
+ */
+function assertOptionalColumnName(value: unknown, label: string): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isUsableColumnName(value)) {
+    throw new Error(
+      `MUI X Studio Server: ${label} is ${describeColumnValue(value)}, which is not a valid column name. ` +
+        `An empty, whitespace-only, or non-string override silently disables that security dimension — it is neither a ` +
+        `column rename (a non-empty string) nor the documented drop sentinel (null), so a scoped read/write would run ` +
+        `unscoped. Use a real column name to rename the dimension, null to explicitly drop it, or omit the field to inherit the default.`,
+    );
+  }
+}
+
+/**
  * Compile the row-level-security policy from the handler/mutation options.
  *
  * Call this ONCE at the top of `handleBatchQuery` / `handleMutation` and thread
  * the returned object down in place of the raw `(tenancy, securityColumns)` pair.
+ *
+ * Fail-closed tenant-column validation (finding 2.1): a `multi-tenant` deployment
+ * whose `tenantColumn` is empty / whitespace-only / non-string (the realistic
+ * `tenantColumn: process.env.TENANT_COLUMN!`-is-unset path) THROWS here. Without
+ * this guard the downstream truthiness gates silently emit NO tenant predicate on
+ * any read or write, skip the insert force-stamp, and skip the client-supplied-tenant
+ * rejection — a deployment that BELIEVES it is multi-tenant runs fully cross-tenant
+ * unscoped. The unsafe state must be reachable only by an explicit `single-tenant`
+ * declaration, enforced at RUNTIME (not just in the types).
  *
  * Fail-closed contradiction check: a `single-tenant` deployment that ALSO carries
  * a `perTable[table].tenant` override is a configuration contradiction ("no
@@ -154,6 +221,34 @@ export function isCompiledSecurityPolicy(value: unknown): value is CompiledSecur
  */
 export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecurityPolicy {
   const { tenancy, securityColumns } = opts;
+
+  // Fail closed: multi-tenant REQUIRES a real tenant column at runtime (finding 2.1).
+  if (tenancy.mode === 'multi-tenant' && !isUsableColumnName(tenancy.tenantColumn)) {
+    throw new Error(
+      `MUI X Studio Server: tenancy.mode is "multi-tenant" but tenancy.tenantColumn is ` +
+        `${describeColumnValue((tenancy as { tenantColumn?: unknown }).tenantColumn)}. ` +
+        `A multi-tenant deployment MUST declare a non-empty tenant-isolation column — without it every read would run ` +
+        `fully unscoped across all tenants, inserts would never be tenant-stamped, and a client could write the tenant ` +
+        `column itself (a cross-tenant data leak). This commonly happens when tenantColumn is wired to an unset ` +
+        `environment variable. Provide a real column name, or declare { mode: 'single-tenant' } if this deployment is not multi-tenant.`,
+    );
+  }
+
+  // Fail closed: an empty-string override must not silently opt a table/dimension
+  // out of scoping (finding 2.1). Applies to the top-level region/department
+  // defaults and every per-table dimension override.
+  if (securityColumns) {
+    assertOptionalColumnName(securityColumns.region, 'securityColumns.region');
+    assertOptionalColumnName(securityColumns.department, 'securityColumns.department');
+    for (const [table, entry] of Object.entries(securityColumns.perTable ?? {})) {
+      if (entry == null) {
+        continue;
+      }
+      assertOptionalColumnName(entry.tenant, `securityColumns.perTable["${table}"].tenant`);
+      assertOptionalColumnName(entry.region, `securityColumns.perTable["${table}"].region`);
+      assertOptionalColumnName(entry.department, `securityColumns.perTable["${table}"].department`);
+    }
+  }
 
   const resolvedTenantColumn = tenancy.mode === 'multi-tenant' ? tenancy.tenantColumn : undefined;
 

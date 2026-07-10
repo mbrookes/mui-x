@@ -227,6 +227,33 @@ describe('compilePointMark', () => {
     });
   });
 
+  it('renders a 1D strip plot (tick with only x) over a synthetic perpendicular band', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ p: 0.5 }, { p: 1.2 }, { p: 3.4 }] },
+      mark: 'tick',
+      encoding: {
+        x: { field: 'p', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    // No longer dropped for a missing y channel.
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:point-missing-axis');
+    // The perpendicular axis is synthesized as a one-category band.
+    expect(compiled.yAxis?.synthetic).to.equal(true);
+    expect(compiled.yAxis?.config.scaleType).to.equal('band');
+    const overlay = compiled.overlays[0] as {
+      kind: string;
+      items: Array<{ x1: unknown; y1: unknown }>;
+    };
+    expect(overlay.kind).to.equal('segments');
+    // One tick per row, each anchored to the lone synthetic category on y.
+    expect(overlay.items).to.have.length(3);
+    overlay.items.forEach((item) => {
+      expect(item.y1).to.equal('');
+    });
+    expect(overlay.items.map((item) => item.x1)).to.deep.equal([0.5, 1.2, 3.4]);
+  });
+
   it('colors tick segments per color-field group using the palette/domain order, without creating scatter series', () => {
     const spec: VegaLiteSpec = {
       data: {

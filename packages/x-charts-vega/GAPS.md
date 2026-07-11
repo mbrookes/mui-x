@@ -9,6 +9,17 @@ This document tracks what the wrapper translates natively, what renders with a v
 - **✅ supported (Premium)** — translates natively via `@mui/x-charts-pro`/`-premium` components (watermarked without a license key).
 - **❌ unsupported (all tiers)** — no x-charts equivalent in any tier.
 
+## Gap origin: whose limitation is it?
+
+Every `TranslationGap` also carries an `origin` (stamped from its `code` — see `X_CHARTS_LIMITATION_CODES` in `src/gaps/index.ts`) that separates two fundamentally different reasons a spec didn't translate cleanly:
+
+- **`origin: 'vega-lite'` — actual remaining gaps.** The Vega-Lite feature is not translated by this wrapper (out of scope, or simply not implemented yet). Closing one means teaching the wrapper a new Vega-Lite feature. These are the gaps that measure wrapper coverage.
+- **`origin: 'x-charts'` — x-charts limitations worked around.** The spec is understood, but `@mui/x-charts` cannot render it natively, so the wrapper **approximates** it (e.g. a gradient fill collapsed to a solid color, `mark.opacity` baked into an rgba series color) or renders it through a **custom overlay** built on the public `useXScale`/`useYScale` hooks. These are limits of the render target, not wrapper omissions; closing one means x-charts gaining the capability (or the workaround improving).
+
+The x-charts-origin gap codes are: `encoding:shape`, `mark:point-square-shape`, `mark:point-filled`, `mark:point-size-approximation`, `mark:point-styling`, `mark:point-transparent`, `mark:trail-width`, `encoding:opacity`, `encoding:opacity-field-unsupported`, `mark:bar-corner-radius`, `mark:bar-corner-radius-conflict`, `mark:bar-corner-radius-per-corner`, `mark:bar-size`, `mark:gradient-fill`, `mark:rect-opacity`, `mark:rect-stroke`, `mark:rect-ranged`, `mark:interpolate-approximate`, `mark:interpolate-unsupported`, `scale:band-padding`, `scale:nice-count`, `scale:zero-approximation`, `scale:temporal-point-approximation`, `encoding:color-legend-config-ignored`, `resolve:independent-scale`.
+
+**x-charts limitations worked around silently (no gap emitted — they render correctly via custom components/hacks):** the `boxplot`/`errorbar`/`errorband`/`text`/`image` marks and `x`→`x2`/`y`→`y2` span rules render through the custom overlay pipeline (`src/overlays`, plain SVG surface children on `useXScale`/`useYScale`); a 1D `tick` strip plot and a `line`/`area` over a continuous quantitative x render as `segments`/`band` overlays; a static `mark.opacity`/`fillOpacity` is baked into the resolved series color as an rgba alpha; and an id-keyed choropleth is colored by joining the `lookup` values onto each feature and bridging the feature `id` into `properties.name` (x-charts joins map shapes only by name). These don't count against Vega-Lite coverage — they exist because x-charts has no native primitive for them.
+
 ---
 
 ## Marks

@@ -41,6 +41,13 @@ const SEVERITY_COLOR: Record<TranslationGap['severity'], 'error' | 'warning' | '
   ignored: 'default',
 };
 
+// The gap's origin: a genuine Vega-Lite coverage gap vs. an x-charts limitation
+// the wrapper approximates or works around.
+const ORIGIN_LABEL: Record<'vega-lite' | 'x-charts', string> = {
+  'vega-lite': 'vega-lite',
+  'x-charts': 'x-charts',
+};
+
 function GalleryCard({ example }: { example: GalleryExample }) {
   const [gaps, setGaps] = React.useState<TranslationGap[]>([]);
   // Inline the referenced datasets once; the wrapper then renders the spec as-is.
@@ -83,30 +90,62 @@ function GalleryCard({ example }: { example: GalleryExample }) {
         </Box>
 
         <Box>
-          <Typography variant="subtitle2" gutterBottom>
-            Gaps reported via onGaps ({gaps.length})
-          </Typography>
-          {gaps.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No untranslatable features — the spec rendered natively.
-            </Typography>
-          ) : (
-            <Stack spacing={0.5}>
-              {gaps.map((gap) => (
-                <Stack
-                  key={`${gap.code}|${gap.path ?? ''}`}
-                  direction="row"
-                  spacing={1}
-                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                >
-                  <Chip size="small" color={SEVERITY_COLOR[gap.severity]} label={gap.severity} />
-                  <Typography variant="body2" component="code" sx={{ fontFamily: 'monospace' }}>
-                    {gap.code}
+          {(() => {
+            const originOf = (gap: TranslationGap) => gap.origin ?? 'vega-lite';
+            const vegaLiteCount = gaps.filter((gap) => originOf(gap) === 'vega-lite').length;
+            const xChartsCount = gaps.length - vegaLiteCount;
+            return (
+              <React.Fragment>
+                <Typography variant="subtitle2" gutterBottom>
+                  Gaps reported via onGaps ({gaps.length})
+                </Typography>
+                {gaps.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    No untranslatable features — the spec rendered natively.
                   </Typography>
-                </Stack>
-              ))}
-            </Stack>
-          )}
+                ) : (
+                  <React.Fragment>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      {vegaLiteCount} Vega-Lite feature{vegaLiteCount === 1 ? '' : 's'} not supported ·{' '}
+                      {xChartsCount} x-charts limitation{xChartsCount === 1 ? '' : 's'} worked around
+                    </Typography>
+                    <Stack spacing={0.5}>
+                      {gaps.map((gap) => {
+                        const origin = originOf(gap);
+                        return (
+                          <Stack
+                            key={`${gap.code}|${gap.path ?? ''}`}
+                            direction="row"
+                            spacing={1}
+                            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                          >
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color={origin === 'x-charts' ? 'info' : 'default'}
+                              label={ORIGIN_LABEL[origin]}
+                            />
+                            <Chip
+                              size="small"
+                              color={SEVERITY_COLOR[gap.severity]}
+                              label={gap.severity}
+                            />
+                            <Typography
+                              variant="body2"
+                              component="code"
+                              sx={{ fontFamily: 'monospace' }}
+                            >
+                              {gap.code}
+                            </Typography>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  </React.Fragment>
+                )}
+              </React.Fragment>
+            );
+          })()}
         </Box>
 
         <Box component="details">

@@ -37,7 +37,7 @@ export function TextSetupPanel(props: { widgetId: string }) {
 
   const handleTitleBlur = () => {
     if (form.title !== widget?.title) {
-      controller.updateWidget(widgetId, { title: form.title });
+      controller.updateWidget(widgetId, { title: form.title, titleMode: 'manual' });
     }
   };
 

@@ -28,11 +28,24 @@ export function buildInsightPrompt(type: StudioWidgetInsightType, widgetTitle: s
  * Builds the ready-to-send chat prompt for the "explain anomalies" AI-insight action,
  * one line per detected annotation. Extracted from `StudioWidgetCard`'s
  * `handleAnomalyExplain` alongside `buildInsightPrompt` (see there for rationale).
+ *
+ * `privateMode` is a hard client-side trust boundary: with `aiConfig.privateMode`
+ * on, no real row/x-axis data values may reach the outgoing chat message — the same
+ * stance enforced by `studioBackendAdapter`, `createWidgetFromDescription`, and
+ * `useTextWidgetAI`. Each anomaly annotation's `value` is a literal x-axis data
+ * value (e.g. a date, region, or customer name), so under private mode the
+ * per-annotation value lines are omitted entirely and only the anomaly count is sent.
  */
 export function buildAnomalyExplainPrompt(
   widgetTitle: string,
   annotations: StudioChartAnnotation[],
+  privateMode = false,
 ): string {
+  if (privateMode) {
+    const count = annotations.length;
+    const noun = count === 1 ? 'anomaly' : 'anomalies';
+    return `Explain the ${count} ${noun} detected in the "${widgetTitle}" widget. The underlying data values are withheld (private mode); reason about likely causes in general terms.`;
+  }
   const annotationDetails = annotations
     .map((annotation) => {
       const axisLabel = annotation.axis === 'x' ? 'X-axis' : 'Y-axis';

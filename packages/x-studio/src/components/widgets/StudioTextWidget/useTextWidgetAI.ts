@@ -216,16 +216,31 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
   const [markdown, setMarkdown] = React.useState<string | null>(() => readCache(cacheKey));
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [refreshSeq, setRefreshSeq] = React.useState(0);
+  // `forKey` records which `cacheKey` the current `seq` was bumped for. A manual
+  // `refresh()` bumps `seq` to force one cache-bypassing fetch for the key in effect
+  // at the time of the click. Without resetting, `seq !== 0` would stay true forever,
+  // so every later page/filter/prompt change (a new `cacheKey`) would also skip a
+  // perfectly valid cache entry for that new key (finding 3.7). The `if` below follows
+  // the "adjust state while rendering" pattern (not an effect) so the reset is visible
+  // to the very next effect run, with no extra committed render.
+  const [refreshState, setRefreshState] = React.useState<{ seq: number; forKey: string }>({
+    seq: 0,
+    forKey: cacheKey,
+  });
+  if (refreshState.forKey !== cacheKey) {
+    setRefreshState({ seq: 0, forKey: cacheKey });
+  }
 
-  const refresh = React.useCallback(() => setRefreshSeq((s) => s + 1), []);
+  const refresh = React.useCallback(() => {
+    setRefreshState((prev) => ({ seq: prev.seq + 1, forKey: cacheKey }));
+  }, [cacheKey]);
 
   React.useEffect(() => {
     if (!aiConfig?.endpoint || !prompt.trim()) {
       return undefined;
     }
 
-    if (refreshSeq === 0) {
+    if (refreshState.seq === 0) {
       const cached = readCache(cacheKey);
       if (cached) {
         setMarkdown(cached);
@@ -318,7 +333,7 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
   }, [
     cacheKey,
     hash,
-    refreshSeq,
+    refreshState,
     aiConfig,
     snapshot,
     prompt,

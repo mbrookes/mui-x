@@ -263,6 +263,94 @@ describe('useTextWidgetAI', () => {
     expect(freshKey).toBeDefined();
   });
 
+  // ─── Manual refresh no longer permanently disables the cache (finding 3.7) ──
+  //
+  // `refreshSeq` used to only ever increment and never reset, so the cache-read
+  // fast path (`if (refreshSeq === 0) { ... }`) was gated off for the rest of the
+  // hook's mount lifetime after a single `refresh()` click — even once `cacheKey`
+  // moved on to an unrelated page/filter/prompt change with its own valid cache
+  // entry. This test drives exactly that sequence: refresh once, change the
+  // cache key (via a sibling widget title edit, cache miss, real fetch), then
+  // change back to the original cache key (a cache HIT) and assert no further
+  // network request goes out.
+  it('does not skip a valid cache entry for a different cacheKey after a manual refresh', async () => {
+    const { controller, wrapper } = setupWithController({
+      doc: {
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-1']] },
+        },
+        widgets: {
+          'grid-1': makeGridWidget('Original Title'),
+        },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Src1',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [{ amount: 100 }],
+          },
+        },
+      },
+    });
+
+    const fetchMock = mockFetchSequence([
+      makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+      makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+      makeSseBody([{ type: 'text-delta', delta: 'ThirdViaRefresh' }, { type: 'finish' }]),
+    ]);
+
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
+      wrapper,
+    });
+
+    // 1. Initial fetch at cacheKey A (title "Original Title").
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('First');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // 2. Manual refresh while still at cacheKey A: bypasses the (valid) cache on
+    //    purpose and overwrites the cache entry for A with the fresh content.
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('Second');
+    });
+
+    // 3. Move to cacheKey B (different sibling-widget title -> different page
+    //    snapshot -> different hash). No cache entry exists yet for B, so this is
+    //    a legitimate cache miss and fetches from the network either way.
+    act(() => {
+      controller.updateWidget('grid-1', { title: 'Renamed Title' });
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('ThirdViaRefresh');
+    });
+
+    // 4. Move back to cacheKey A. A valid cache entry exists for A (written in
+    //    step 2: "Second"). Before the fix, `refreshSeq` never reset, so this
+    //    would incorrectly skip the cache and issue a 4th network request (which
+    //    would fail here, since only 3 mock responses were queued). After the
+    //    fix, `cacheKey` changing away from and back to A resets `{seq, forKey}`,
+    //    so the cache is consulted again and no further fetch happens.
+    act(() => {
+      controller.updateWidget('grid-1', { title: 'Original Title' });
+    });
+    await waitFor(() => {
+      expect(result.current.markdown).toBe('Second');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   // ─── Snapshot memo reactivity (finding 3.15) ────────────────────────────────
   //
   // The memo computing `snapshot`/`hash`/`cacheKey` used to depend only on

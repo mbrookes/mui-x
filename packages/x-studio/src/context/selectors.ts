@@ -524,15 +524,21 @@ export function makeSelectWidgetSource(
 }
 
 /**
- * Returns the active rank filter for a chart widget (scope=widget, filterMode=rank,
- * value > 0), or null if the widget is not a chart or has no active rank filter.
+ * Returns the active rank filter for a widget (scope=widget, filterMode=rank,
+ * value > 0), or null if the widget doesn't exist or has no active rank filter.
+ *
+ * Deliberately NOT gated by widget kind (finding 3.9): widget-scoped rank
+ * ("Top N") filters are authorable and enforced for every widget kind
+ * (`includeWidgetRank`), not just charts. The "can rank" capability is therefore
+ * derived from the filter set — the presence of a widget-scoped rank filter owned
+ * by this widget — rather than a hardcoded chart-only kind list, so a grid / KPI /
+ * map / pivot Top-N gets its "Top N" chip too.
  */
 export function makeSelectWidgetRankFilter(
   widgetId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.doc.widgets[widgetId];
-    if (w?.kind !== 'chart') {
+    if (!state.doc.widgets[widgetId]) {
       return null;
     }
     return (
@@ -573,17 +579,22 @@ export function makeSelectWidgetSliderFilter(
 }
 
 /**
- * Returns the active cross-filter emitted by this chart/grid widget on the
- * given page, or null if the widget kind doesn't emit cross-filters or has
- * none active.
+ * Returns the active cross-filter emitted by this widget on the given page, or
+ * null if the widget doesn't exist or has none active.
+ *
+ * Deliberately NOT gated by widget kind (finding 3.9): any widget that emits a
+ * cross-filter (chart, grid, map, …) owns exactly one `cross-filter`-scoped entry
+ * keyed by its id, so the "can emit" capability is derived from the filter set
+ * rather than a hardcoded chart/grid kind list — a map's emitted cross-filter now
+ * gets the card chip + onDelete clear affordance too. Routes through
+ * `isActiveCrossFilter` so the `disabled` flag is always honored.
  */
 export function makeSelectWidgetActiveCrossFilter(
   widgetId: string,
   pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.doc.widgets[widgetId];
-    if (w?.kind !== 'chart' && w?.kind !== 'grid') {
+    if (!state.doc.widgets[widgetId]) {
       return null;
     }
     return state.doc.filters.find((f) => isActiveCrossFilter(f, widgetId, pageId)) ?? null;

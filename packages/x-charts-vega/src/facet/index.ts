@@ -662,7 +662,26 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
     columns = Math.max(1, (numericSize(spec.columns) ?? entries.length) || 1);
   }
   const gridRows = Math.max(1, Math.ceil(entries.length / columns) || 1);
-  const { width, height } = cellSize(options, columns, gridRows, gaps);
+  // Concat subplots are full-size views, not the shrink-to-fit small multiples
+  // of a facet grid: Vega-Lite lays each out at its natural size and lets the
+  // composition grow. So the width is divided across columns (to sit side by
+  // side within the available width), but each row keeps the full requested
+  // height instead of dividing it — otherwise a vconcat's lower panel is
+  // compressed until its marks (e.g. binned-scatter bubbles) overlap.
+  const rawWidth = Math.floor(options.width / columns);
+  const width = Math.max(MIN_CELL_WIDTH, rawWidth);
+  const height = Math.max(MIN_CELL_HEIGHT, options.height);
+  if (rawWidth < MIN_CELL_WIDTH) {
+    gaps.push({
+      code: 'facet:min-cell-size',
+      message:
+        `The ${columns}-column concatenation does not fit in the available ${options.width}px ` +
+        'width; cells are clamped to a minimum width and the layout overflows. Increase `width` ' +
+        'or reduce the number of concatenated views.',
+      severity: 'partial',
+      path: 'facet',
+    });
+  }
 
   const cells = entries.map((entry, index) => {
     // The entry title is surfaced as the cell header, so strip it from the spec

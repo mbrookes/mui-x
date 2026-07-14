@@ -265,6 +265,21 @@ describe('planFacets', () => {
     expect((plan.cells[1].spec.data as { values: unknown[] }).values).to.deep.equal([{ x: 1 }]);
   });
 
+  it('gives each concat cell the full height (full-size subplots, not shrunk small multiples)', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1 }] },
+      vconcat: [{ mark: 'bar' }, { mark: 'point' }],
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    // width divides across the single column (fits the panel), but height is NOT
+    // divided by the 2 rows — each subplot keeps the full height and the
+    // composition grows vertically, matching Vega-Lite.
+    for (const cell of plan.cells) {
+      expect(cell.width).to.equal(SIZE.width);
+      expect(cell.height).to.equal(SIZE.height);
+    }
+  });
+
   it('wraps a `concat` grid to the requested column count', () => {
     const spec: VegaLiteSpec = {
       columns: 2,

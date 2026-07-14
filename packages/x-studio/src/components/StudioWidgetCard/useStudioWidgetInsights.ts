@@ -2,6 +2,7 @@
 import * as React from 'react';
 import type { StudioWidget } from '../../models';
 import type { StudioChartAnnotation } from '../../models/widgetTypes';
+import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
 import {
   buildInsightPrompt,
   buildAnomalyExplainPrompt,
@@ -39,6 +40,14 @@ export function useStudioWidgetInsights({
   widgetId,
   onInsightRequest,
 }: UseStudioWidgetInsightsParams): StudioWidgetInsights {
+  // Private mode is a hard client-side trust boundary: with `aiConfig.privateMode`
+  // on, no real x-axis data value from a detected anomaly may reach the outgoing
+  // chat message. `buildAnomalyExplainPrompt` omits the per-annotation value lines
+  // when this is set — mirroring the gating in `studioBackendAdapter`,
+  // `createWidgetFromDescription`, and `useTextWidgetAI`.
+  const { aiConfig } = useStudioUIConfig();
+  const privateMode = aiConfig?.privateMode === true;
+
   const handleInsightRequest = React.useCallback(
     (type: StudioWidgetInsightType) => {
       if (!onInsightRequest || !widget) {
@@ -67,9 +76,9 @@ export function useStudioWidgetInsights({
     }
     onInsightRequest(
       widgetId,
-      buildAnomalyExplainPrompt(widget.title || widget.kind, anomalyAnnotations),
+      buildAnomalyExplainPrompt(widget.title || widget.kind, anomalyAnnotations, privateMode),
     );
-  }, [onInsightRequest, anomalyAnnotations, widget, widgetId]);
+  }, [onInsightRequest, anomalyAnnotations, widget, widgetId, privateMode]);
 
   return {
     handleInsightRequest,

@@ -114,14 +114,21 @@ function createLoader<K, V>(
 
 /**
  * Mutable per-endpoint config the shared simple-mode loader reads on every batch dispatch.
- * Keeping `fetchFn` / `batchDelayMs` behind a live reference (rather than baking them into the
- * loader's closure at creation time) lets a recreated adapter refresh them — e.g. a rotated auth
- * token in a new `fetchFn` — instead of silently pinning the FIRST adapter instance's closure
- * forever (finding 3.14).
+ * Keeping `fetchFn` / `batchDelayMs` / `expressionFields` behind a live reference (rather than
+ * baking them into the loader's closure at creation time) lets a recreated adapter refresh them —
+ * e.g. a rotated auth token in a new `fetchFn` (finding 3.14), or a newly-added calculated column
+ * in `expressionFields` (finding 3.6) — instead of silently pinning the FIRST adapter instance's
+ * closure forever. A stale `expressionFields` list would leave the `groupByIsExpressionField`
+ * guard evaluating against the old set, re-emitting the `ORDER BY <expression-id>` that guard
+ * exists to prevent.
  */
 interface LoaderRegistryEntry {
   loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
-  config: { fetchFn: typeof fetch; batchDelayMs: number };
+  config: {
+    fetchFn: typeof fetch;
+    batchDelayMs: number;
+    expressionFields: StudioExpressionField[] | undefined;
+  };
 }
 
 /** Registry of simple-mode loaders — one per endpoint URL, with a refreshable config. */
@@ -282,15 +289,17 @@ export function createBatchingAdapter(
     mutationEndpoint,
   } = options;
 
-  // `getFetch` is read on every dispatch so a shared simple-mode loader always uses the LATEST
-  // adapter instance's fetch (finding 3.14). Relationship-aware mode passes its own instance
-  // `fetchFn` directly (dedicated loader — no staleness possible).
+  // `getFetch` / `getExpressionFields` are read on every dispatch so a shared simple-mode loader
+  // always uses the LATEST adapter instance's fetch (finding 3.14) and expression-field list
+  // (finding 3.6). Relationship-aware mode passes its own instance values directly (dedicated
+  // loader — no staleness possible).
   function createBatchFn(
     getFetch: () => typeof fetch,
+    getExpressionFields: () => StudioExpressionField[] | undefined,
   ): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
     return async (descriptors) => {
       const builtDescriptors = descriptors.map((d) =>
-        buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields),
+        buildBatchWidgetDescriptor(d, dataSources, relationships, getExpressionFields()),
       );
 
       const body = {
@@ -418,7 +427,10 @@ export function createBatchingAdapter(
     // dataSources/relationships closure. Don't use the shared registry because
     // the resolver is specific to this adapter instance's state snapshot.
     loader = createLoader(
-      createBatchFn(() => fetchFn),
+      createBatchFn(
+        () => fetchFn,
+        () => expressionFields,
+      ),
       (cb) => setTimeout(cb, batchDelayMs),
     );
   } else {
@@ -426,12 +438,16 @@ export function createBatchingAdapter(
     // at the same endpoint share one DataLoader (batching still works across instances).
     let entry = loaderRegistry.get(endpoint);
     if (!entry) {
-      const config = { fetchFn, batchDelayMs };
+      const config = { fetchFn, batchDelayMs, expressionFields };
       entry = {
         // Both the batch fn and the schedule fn read the live `config`, so a later adapter
-        // recreated at the same endpoint (e.g. rotated token) is honoured (finding 3.14).
+        // recreated at the same endpoint (e.g. rotated token or newly-added calculated column) is
+        // honoured (findings 3.14 / 3.6).
         loader: createLoader(
-          createBatchFn(() => config.fetchFn),
+          createBatchFn(
+            () => config.fetchFn,
+            () => config.expressionFields,
+          ),
           (cb) => setTimeout(cb, config.batchDelayMs),
         ),
         config,
@@ -441,6 +457,7 @@ export function createBatchingAdapter(
       // Refresh the shared loader's config instead of pinning the first instance's closure.
       entry.config.fetchFn = fetchFn;
       entry.config.batchDelayMs = batchDelayMs;
+      entry.config.expressionFields = expressionFields;
     }
     loader = entry.loader;
   }
@@ -909,12 +926,41 @@ function buildBatchWidgetDescriptor(
     const partition = partitionFilterNode(d.filter, (leaf) =>
       warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
     );
+
+    // An own-source expression (calculated-column) field has no physical column of the same name,
+    // so simple mode — which has no relationship graph and cannot resolve it to one — must not
+    // send it in a WHERE (server predicate) or a SELECT (client-residual projection): either fails
+    // the batch entry with "no such column". Relationship-aware mode handles this via resolve()'s
+    // `skip` (server predicate) + the isPlainPrimaryField check (residual projection); simple mode
+    // needs the same two guards. The predicate is dropped and the leaf's client residual is
+    // rejected — never silently (finding 2.6). (The returned raw rows aren't enriched with the
+    // calculated value, so a client-side residual over them cannot be evaluated faithfully either.)
+    const isOwnSourceExpressionField = (fieldId: string): boolean =>
+      expressionFields?.some((ef) => ef.id === fieldId && ef.sourceId === d.sourceId) ?? false;
+
+    const serverPredicates = partition.predicates.filter((pred) => {
+      if (isOwnSourceExpressionField(pred.column)) {
+        warnAdapterDivergence(
+          warnDedupe,
+          `A filter on the calculated field "${pred.column}" for source "${d.sourceId}" cannot be ` +
+            `executed by a simple-mode data adapter (the server has no column of that name), so it ` +
+            `was dropped from the query and the widget may show more rows than expected. ` +
+            `Calculated-field filters work correctly on in-memory sources.`,
+        );
+        return false;
+      }
+      return true;
+    });
+
     const clientFilter = resolveClientResidual(
       partition,
       Boolean(aggregations),
       d.sourceId,
       warnDedupe,
       (fieldId) => {
+        if (isOwnSourceExpressionField(fieldId)) {
+          return false;
+        }
         if (!columns.includes(fieldId)) {
           columns.push(fieldId);
         }
@@ -938,7 +984,7 @@ function buildBatchWidgetDescriptor(
         table: tableName,
         columns,
         aggregations,
-        filters: partition.predicates.length > 0 ? partition.predicates : undefined,
+        filters: serverPredicates.length > 0 ? serverPredicates : undefined,
         orderBy:
           d.groupBy && !groupByIsExpressionField
             ? [{ column: d.groupBy, direction: 'asc' as const }]
@@ -1082,6 +1128,18 @@ function buildBatchWidgetDescriptor(
       return [];
     }
     if (r.unresolved) {
+      // The predicate's field resolves to no column in this source or any directly related source
+      // (typically a field 2+ relationship hops away, e.g. `orders.date` filtering a `products`
+      // widget). Emitting it would produce a "no such column" SQL error, so it is dropped — but,
+      // like the `skip` branch above, never silently: the widget will show MORE rows than the same
+      // dashboard on an in-memory source, and that divergence must be surfaced (finding 2.5).
+      warnAdapterDivergence(
+        warnDedupe,
+        `A filter on "${pred.column}" for source "${d.sourceId}" could not be resolved to any ` +
+          `column in this source or a directly related source (the field may live two or more ` +
+          `relationship hops away), so it was dropped from the query and the widget may show more ` +
+          `rows than expected. This filter works correctly on in-memory sources.`,
+      );
       return [];
     }
     // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
@@ -1313,15 +1371,20 @@ function warnServerLeafDivergence(
 }
 
 /**
- * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
- * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
- * conversion and the AND-combined second condition (`op2` / `value2`).
+ * Resolve a filter value to its wire form for one (operator, value) pair:
+ *  - relative-date values (e.g. "7 days ago") are resolved to a concrete `YYYY-MM-DD` string;
+ *  - a `between` value authored as a `{ from, to }` object (how `setDashboardDateRange` /
+ *    `setWidgetDateRange` / the drawer's `SecondCondition` store it) is converted to the
+ *    `[lo, hi]` tuple the server's queryBuilder expects.
+ *
+ * Applied to BOTH the first predicate AND the `op2`/`value2` second condition — the object→tuple
+ * conversion was previously inlined in the first-predicate branch only, so a second-condition
+ * `between` (e.g. "amount > 0 AND amount between 10–20") shipped its raw `{ from, to }` object,
+ * which the middleware rejects for a non-array `between` value → the whole batch entry errors
+ * (finding 1.5).
  */
-function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
-  const operator = mapOperator(leaf.op)!;
-  let value = isRelativeDateValue(leaf.value) ? resolveRelativeDate(leaf.value) : leaf.value;
-  // setDashboardDateRange / setWidgetDateRange store between values as { from, to } objects.
-  // Convert to the [lo, hi] tuple that the server's queryBuilder expects.
+function toWirePredicateValue(operator: FilterPredicate['operator'], rawValue: unknown): unknown {
+  const value = isRelativeDateValue(rawValue) ? resolveRelativeDate(rawValue) : rawValue;
   if (
     operator === 'between' &&
     value !== null &&
@@ -1329,15 +1392,24 @@ function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
     !Array.isArray(value)
   ) {
     const range = value as { from?: unknown; to?: unknown };
-    value = [range.from, range.to] as unknown;
+    return [range.from, range.to] as unknown;
   }
+  return value;
+}
+
+/**
+ * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
+ * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
+ * conversion and the AND-combined second condition (`op2` / `value2`).
+ */
+function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
+  const operator = mapOperator(leaf.op)!;
+  const value = toWirePredicateValue(operator, leaf.value);
   const predicates: FilterPredicate[] = [{ column: leaf.field, operator, value }];
   // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds.
   if (leaf.op2 && leaf.value2 !== undefined) {
     const op2 = mapOperator(leaf.op2)!;
-    const value2 = isRelativeDateValue(leaf.value2)
-      ? resolveRelativeDate(leaf.value2)
-      : leaf.value2;
+    const value2 = toWirePredicateValue(op2, leaf.value2);
     predicates.push({ column: leaf.field, operator: op2, value: value2 });
   }
   return predicates;

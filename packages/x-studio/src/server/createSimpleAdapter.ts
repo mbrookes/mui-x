@@ -61,6 +61,42 @@ function resolveDescriptorRelativeDates(descriptor: StudioQueryDescriptor): Stud
   return { ...descriptor, filter: resolveFilterNodeRelativeDates(descriptor.filter) };
 }
 
+/**
+ * Strip server-side aggregations from a descriptor that carries an incoming chart-click
+ * cross-filter or interactive (filter-widget) selection, so the widget doesn't empty out
+ * (finding 2.7 — the same class as `createBatchingAdapter`'s guard).
+ *
+ * Those scopes are deliberately excluded from the server query and enforced client-side over the
+ * returned rows, but a server-aggregated response is one row per group with only the grouped/alias
+ * columns — the cross-filter's own field reads `undefined` on every row and empties the widget.
+ * Returning raw rows lets the widget apply the cross-filter to real per-row data before its own
+ * (always-on) aggregation step runs. A host that ignores `aggregations` entirely already returns
+ * raw rows, so this is a no-op for it; it only matters for a host faithfully honouring the
+ * (documented) `aggregations` contract.
+ */
+function stripAggregationsForIncomingCrossFilter(
+  descriptor: StudioQueryDescriptor,
+): StudioQueryDescriptor {
+  if (
+    !descriptor.hasIncomingCrossOrInteractiveFilters ||
+    !descriptor.aggregations ||
+    descriptor.aggregations.length === 0
+  ) {
+    return descriptor;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `MUI X Studio: A server-side aggregation for source "${descriptor.sourceId}" was stripped ` +
+        `before sending to the data adapter because the widget has an incoming cross-filter or ` +
+        `interactive filter-widget selection, which is enforced client-side over the returned ` +
+        `rows. A server-aggregated response would contain only the grouped/alias columns, so the ` +
+        `cross-filter's field would read undefined on every row and empty the widget. Raw rows ` +
+        `are requested instead and aggregated client-side.`,
+    );
+  }
+  return { ...descriptor, aggregations: undefined };
+}
+
 export interface SimpleAdapterOptions {
   /**
    * Custom fetch implementation. Defaults to global `fetch`.
@@ -98,8 +134,12 @@ export function createSimpleAdapter(
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       // Resolve relative-date values (e.g. "7 days ago") to concrete dates before sending —
       // the host receives a plain, self-describing descriptor rather than a client-only
-      // relative spec it cannot interpret (finding 2.19).
-      const resolvedDescriptor = resolveDescriptorRelativeDates(descriptor);
+      // relative spec it cannot interpret (finding 2.19). Then strip server aggregations when an
+      // incoming cross/interactive filter would make an aggregated response empty the widget
+      // (finding 2.7).
+      const resolvedDescriptor = stripAggregationsForIncomingCrossFilter(
+        resolveDescriptorRelativeDates(descriptor),
+      );
       const body = transformDescriptor
         ? transformDescriptor(resolvedDescriptor)
         : resolvedDescriptor;

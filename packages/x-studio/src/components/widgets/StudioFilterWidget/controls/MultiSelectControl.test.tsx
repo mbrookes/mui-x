@@ -75,6 +75,21 @@ describe('MultiSelectControl', () => {
     expect(onApply).toHaveBeenCalledWith(['US', 'DE', 'FR']);
   });
 
+  // Regression coverage for architecture-review finding 3.13: "Select all" used to apply
+  // every `values` regardless of the active search, disagreeing with the drawer's
+  // `SelectionFilterInput`, whose select-all operates on the filtered subset only.
+  it('applies only the filtered subset when "Select all" is clicked with an active search', async () => {
+    const { user, onApply } = setup();
+    await openSelect(user);
+
+    const search = screen.getByRole('textbox', { name: localeText.filterSearchValues });
+    await user.type(search, 'de');
+
+    await user.click(screen.getByRole('button', { name: localeText.filterWidgetSelectAllLabel }));
+
+    expect(onApply).toHaveBeenCalledWith(['DE']);
+  });
+
   it('clears the selection when "Clear all" is clicked', async () => {
     const { user, onClear } = setup({ selected: ['US', 'DE'] });
     await openSelect(user);

@@ -11,6 +11,7 @@ import {
 } from '../../context';
 import type { StudioFilterState, StudioPage } from '../../models';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
+import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
 
 export function CrossFilterSection({
   filters,
@@ -93,7 +94,10 @@ export function CrossFilterSection({
                 }}
               >
                 <Typography variant="body2">
-                  {localeText.filterSectionValueDisplay(fieldLabel, String(filter.value))}
+                  {localeText.filterSectionValueDisplay(
+                    fieldLabel,
+                    formatCrossFilterValueLabel(filter.value),
+                  )}
                 </Typography>
                 {widgetTitle && (
                   <Typography variant="caption" color="text.secondary">

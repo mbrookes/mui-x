@@ -145,7 +145,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 aria-label={localeText.filterWidgetSelectAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
-                  handleSelectionChange(values);
+                  handleSelectionChange(filtered);
                 }}
                 sx={{ ...inlineButtonSx, color: 'primary.main' }}
               >

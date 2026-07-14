@@ -127,6 +127,24 @@ describe('summarizeFilter — condition mode', () => {
     expect(summarizeFilter(makeFilter({ operator: 'between', value: null }))).toMatch(/between/i);
   });
 
+  // Regression coverage for architecture-review finding 3.12: `summarizeFilter` used a
+  // truthiness check on `range.from`/`range.to`, so a genuine `0` bound (falsy but present)
+  // was treated as absent — "between 0 and 100" summarized as "until 100". Fixed by routing
+  // through the same `hasBetweenBound` null/empty-string check the evaluator uses.
+  it('between with a genuine 0 lower bound shows both bounds, not just "until"', () => {
+    expect(
+      summarizeFilter(
+        makeFilter({ operator: 'between', value: { from: 0, to: 100 }, fieldType: 'number' }),
+      ),
+    ).toBe('between: 0 — 100');
+  });
+
+  it('between with only a genuine 0 lower bound (no upper) shows "from 0"', () => {
+    expect(
+      summarizeFilter(makeFilter({ operator: 'between', value: { from: 0 }, fieldType: 'number' })),
+    ).toBe('from 0');
+  });
+
   it('relative date value is formatted as human text', () => {
     const result = summarizeFilter(
       makeFilter({

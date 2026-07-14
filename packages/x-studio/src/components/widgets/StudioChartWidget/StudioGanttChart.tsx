@@ -133,8 +133,21 @@ export function StudioGanttChart({
     return null;
   }
 
-  const minMs = Math.min(...items.map((i) => i.startMs));
-  const maxMs = Math.max(...items.map((i) => i.endMs));
+  // Reduce over the items rather than spreading them into `Math.min`/`Math.max`
+  // (finding 3.5): the `maxRows` cap is applied later, so `items` can hold one entry per
+  // filtered row, and spreading a large array into a variadic call throws `RangeError`
+  // (call-stack overflow) past ~125k args — the same crash class fixed with reduce loops
+  // in `aggregate.ts`, `gridGrouping.ts`, `gridSummary.ts`, and `generateInsight.ts`.
+  let minMs = items[0].startMs;
+  let maxMs = items[0].endMs;
+  for (const item of items) {
+    if (item.startMs < minMs) {
+      minMs = item.startMs;
+    }
+    if (item.endMs > maxMs) {
+      maxMs = item.endMs;
+    }
+  }
   const rangeMs = Math.max(maxMs - minMs, 1);
 
   // Available height for rows (minus axis)

@@ -58,6 +58,7 @@ type AssertKeysCovered<T, K extends readonly (keyof T)[]> =
 const SHARED_CONFIG_KEYS = [
   'titleFontSize',
   'cardExpandTitle',
+  'crossFilterMode',
   'measures',
   'dimensions',
   'customConfig',
@@ -84,15 +85,15 @@ void GRID_KEYS_COVERED;
 // ── Per-chartType config-key layer ──────────────────────────────────────────────
 //
 // One key tuple + `AssertKeysCovered` compile-lock per CHART FAMILY (the 10
-// `StudioChart*Config` interfaces), each tuple listing its family's COMPLETE key
-// set INCLUDING the shared `crossFilterMode` (base) and `chartSortBy`/
-// `chartSortDirection` (sort) keys it inherits — so `getAllowedChartConfigKeys`
-// can return the tuple verbatim with no separate base/sort union. Families sharing
-// a config interface (bar/bar-stacked/bar-100 → one tuple; line/area/area-stacked/
-// area-100 → one; pie/donut → one) reuse the same tuple in the chartType map below.
+// `StudioChart*Config` interfaces), each tuple listing its family's OWN key set
+// INCLUDING the `chartSortBy`/`chartSortDirection` (sort) keys it inherits. The
+// shared card-chrome keys (`crossFilterMode`, `titleFontSize`, …) are NOT listed
+// per family — they live in `SHARED_CONFIG_KEYS` and `getAllowedChartConfigKeys`
+// unions them in. Families sharing a config interface (bar/bar-stacked/bar-100 →
+// one tuple; line/area/area-stacked/area-100 → one; pie/donut → one) reuse the
+// same tuple in the chartType map below.
 
 const BAR_FAMILY_CHART_KEYS = [
-  'crossFilterMode',
   'chartSortBy',
   'chartSortDirection',
   'chartType',
@@ -119,7 +120,6 @@ const BAR_FAMILY_KEYS_COVERED: AssertKeysCovered<
 void BAR_FAMILY_KEYS_COVERED;
 
 const LINE_AREA_FAMILY_CHART_KEYS = [
-  'crossFilterMode',
   'chartSortBy',
   'chartSortDirection',
   'chartType',
@@ -141,7 +141,6 @@ const LINE_AREA_FAMILY_KEYS_COVERED: AssertKeysCovered<
 void LINE_AREA_FAMILY_KEYS_COVERED;
 
 const MIXED_CHART_KEYS = [
-  'crossFilterMode',
   'chartSortBy',
   'chartSortDirection',
   'chartType',
@@ -160,7 +159,6 @@ const MIXED_KEYS_COVERED: AssertKeysCovered<StudioMixedChartConfig, typeof MIXED
 void MIXED_KEYS_COVERED;
 
 const HEATMAP_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'xField',
   'heatYField',
@@ -180,7 +178,6 @@ const HEATMAP_KEYS_COVERED: AssertKeysCovered<StudioHeatmapChartConfig, typeof H
 void HEATMAP_KEYS_COVERED;
 
 const FUNNEL_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'xField',
   'yField',
@@ -201,7 +198,6 @@ const FUNNEL_KEYS_COVERED: AssertKeysCovered<StudioFunnelChartConfig, typeof FUN
 void FUNNEL_KEYS_COVERED;
 
 const GANTT_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'ganttLabelField',
   'ganttStartField',
@@ -212,7 +208,6 @@ const GANTT_KEYS_COVERED: AssertKeysCovered<StudioGanttChartConfig, typeof GANTT
 void GANTT_KEYS_COVERED;
 
 const SANKEY_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'xField',
   'yField',
@@ -226,7 +221,6 @@ const SANKEY_KEYS_COVERED: AssertKeysCovered<StudioSankeyChartConfig, typeof SAN
 void SANKEY_KEYS_COVERED;
 
 const PIE_FAMILY_CHART_KEYS = [
-  'crossFilterMode',
   'chartSortBy',
   'chartSortDirection',
   'chartType',
@@ -248,7 +242,6 @@ const PIE_FAMILY_KEYS_COVERED: AssertKeysCovered<
 void PIE_FAMILY_KEYS_COVERED;
 
 const SCATTER_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'xField',
   'yField',
@@ -266,7 +259,6 @@ const SCATTER_KEYS_COVERED: AssertKeysCovered<StudioScatterChartConfig, typeof S
 void SCATTER_KEYS_COVERED;
 
 const GAUGE_CHART_KEYS = [
-  'crossFilterMode',
   'chartType',
   'yField',
   'yAggregation',
@@ -321,7 +313,14 @@ const CHART_CONFIG_KEYS = [
   ...SCATTER_CHART_KEYS,
   ...GAUGE_CHART_KEYS,
 ] as const satisfies readonly (keyof StudioChartConfig)[];
-const CHART_KEYS_COVERED: AssertKeysCovered<StudioChartConfig, typeof CHART_CONFIG_KEYS> = true;
+// `CHART_CONFIG_KEYS` is the union of the chart families' OWN keys, so it covers
+// `StudioChartConfig` minus the shared card-chrome keys (which `StudioChartConfig`
+// now inherits from `StudioSharedWidgetConfig` and which are validated by the
+// SHARED layer, not the per-family tuples).
+const CHART_KEYS_COVERED: AssertKeysCovered<
+  Omit<StudioChartConfig, keyof StudioSharedWidgetConfig>,
+  typeof CHART_CONFIG_KEYS
+> = true;
 void CHART_KEYS_COVERED;
 
 const KPI_CONFIG_KEYS = [
@@ -487,7 +486,11 @@ export function getAllowedChartConfigKeys(chartType: StudioChartType): Set<strin
   if (!Object.hasOwn(CHART_TYPE_CONFIG_KEYS, chartType)) {
     return new Set<string>();
   }
-  return new Set<string>(CHART_TYPE_CONFIG_KEYS[chartType]);
+  // Shared card-chrome keys (including `crossFilterMode`, now a shared key read by
+  // every widget kind — not chart-only) are valid on a chart config too, so they
+  // are always allowed alongside the family-specific keys. Mirrors how
+  // `getAllowedConfigKeys` composes SHARED ∪ own keys at the kind level.
+  return new Set<string>([...SHARED_CONFIG_KEYS, ...CHART_TYPE_CONFIG_KEYS[chartType]]);
 }
 
 /**

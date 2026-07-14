@@ -203,15 +203,16 @@ export interface StudioGridConfig {
 // and `chartTypeRegistry.ts`), so e.g. a `gauge` config can no longer statically
 // carry `sankeyTargetField`.
 
-/** Keys shared by EVERY chart sub-shape, regardless of `chartType`. */
-export interface StudioChartConfigBase {
-  /**
-   * How this chart widget responds to incoming cross-filters from other widgets.
-   * See {@link StudioCrossFilterMode} for details.
-   * @default 'cross-highlight'
-   */
-  crossFilterMode?: StudioCrossFilterMode;
-}
+/**
+ * Keys shared by EVERY chart sub-shape, regardless of `chartType`.
+ *
+ * `crossFilterMode` used to live here, but it is read by every widget kind's
+ * runtime (not chart-only), so it now lives on {@link StudioSharedWidgetConfig}.
+ * This interface is retained as the chart-family base (currently empty) so the
+ * family interfaces and `StudioChartConfig` keep a stable common ancestor.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface StudioChartConfigBase {}
 
 /**
  * Category/value sort keys shared by the cartesian families that support axis
@@ -741,6 +742,11 @@ export type StudioChartConfigOfType<T extends StudioChartType> = StudioChartConf
 export interface StudioChartConfig
   extends
     StudioChartConfigBase,
+    // `crossFilterMode` and the other card-chrome keys are shared across every
+    // widget kind (see `StudioSharedWidgetConfig`); the flat chart patch view
+    // still surfaces them so cross-type consumers (the reducer, the AI system
+    // prompt builder) can read them off a chart config.
+    Partial<StudioSharedWidgetConfig>,
     Partial<Omit<StudioBarFamilyChartConfig, 'chartType'>>,
     Partial<Omit<StudioLineAreaFamilyChartConfig, 'chartType'>>,
     Partial<Omit<StudioMixedChartConfig, 'chartType'>>,
@@ -950,6 +956,13 @@ export interface StudioSharedWidgetConfig {
   titleFontSize?: number;
   /** Override title shown in the expand dialog. Falls back to widget.title when unset. */
   cardExpandTitle?: string;
+  /**
+   * How this widget responds to incoming cross-filters from other widgets.
+   * Read by every widget kind's runtime (not chart-only), so it lives on the shared
+   * config surface. See {@link StudioCrossFilterMode} for details.
+   * @default 'cross-highlight'
+   */
+  crossFilterMode?: StudioCrossFilterMode;
   /** Numeric fields to aggregate (used by some custom widgets). */
   measures?: string[];
   /** Categorical / grouping fields (used by some custom widgets). */

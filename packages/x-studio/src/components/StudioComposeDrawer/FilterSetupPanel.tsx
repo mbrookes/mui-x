@@ -15,6 +15,9 @@ import {
   useStudioSelector,
   selectWidgets,
   selectDataSources,
+  selectFilters,
+  selectRelationships,
+  selectExpressionFields,
   useStudioLocaleText,
 } from '../../context';
 import type {
@@ -22,7 +25,9 @@ import type {
   StudioWidgetConfig,
   StudioWidgetConfigForKind,
 } from '../../models';
+import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 /**
  * Slider min/max/step numeric input (architecture review finding 2.3): parsing and
@@ -88,7 +93,15 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
+  const allFilters = useStudioSelector(selectFilters);
+  const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
+
+  const fieldCatalog = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
 
   const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'filter'>;
   const filterWidgetTypes: { value: StudioFilterWidgetType; label: string; description: string }[] =
@@ -170,10 +183,27 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     // sourceId, old field) the UI never produced. `clearInteractiveFilter` is a separate
     // non-undoable (session-scoped) commit and never adds an undo entry.
     if (newSourceId && newSourceId !== widget.sourceId) {
-      controller.updateWidget(widgetId, {
-        sourceId: newSourceId,
-        config: { ...config, ...configUpdate },
-      });
+      // Fold in the removal of any widget-scoped filter that no longer resolves against
+      // the new source (finding 2.10) — filter widgets support widget-scoped filters, so
+      // left in place a stale filter's field is absent from the new source and renders as
+      // broken raw-id rows in the edit dialog, leaving permanent doc garbage. Every other
+      // source-adopting setup panel (Chart/Gauge/KPI/Grid) folds this into the same commit.
+      controller.updateWidget(
+        widgetId,
+        {
+          sourceId: newSourceId,
+          config: { ...config, ...configUpdate },
+        },
+        {
+          removeFilterIds: collectStaleWidgetFilterIds(
+            allFilters,
+            widgetId,
+            newSourceId,
+            fieldCatalog,
+            relationships,
+          ),
+        },
+      );
     } else {
       controller.updateWidgetConfig(widgetId, configUpdate);
     }

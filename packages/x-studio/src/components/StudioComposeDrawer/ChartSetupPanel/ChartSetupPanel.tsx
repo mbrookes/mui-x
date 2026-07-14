@@ -148,6 +148,23 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [config.ySeries, config.yField],
   );
 
+  // finding 2.9: blended mixed charts carry foreign-source series
+  // (`StudioChartSeries.sourceId`). The renderer resolves those separately
+  // (`useChartWidgetData.ts` `activeYFields`) and validates only native-source fields
+  // against the widget's own source. The panel must validate the SAME field set —
+  // feeding a foreign series id into `analyzeChartSupport` against the widget's own
+  // source spuriously reports the chart "unsupported" (and disables valid options)
+  // while the canvas renders fine.
+  const nativeYFieldIds = React.useMemo(
+    () =>
+      ySeries.flatMap((series) =>
+        series.fieldId && !(series.sourceId && series.sourceId !== widgetSourceId)
+          ? [series.fieldId]
+          : [],
+      ),
+    [ySeries, widgetSourceId],
+  );
+
   const supportsMultipleSeries =
     chartType === 'bar' ||
     chartType === 'bar-stacked' ||
@@ -225,7 +242,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       analyzeChartSupport(
         widgetSourceId ?? supportSourceId,
         config.xField,
-        ySeries.flatMap((series) => (series.fieldId ? [series.fieldId] : [])),
+        nativeYFieldIds,
         config.seriesField,
         chartType,
         dataSources,
@@ -239,7 +256,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       widgetSourceId,
       supportSourceId,
       config.xField,
-      ySeries,
+      nativeYFieldIds,
       config.seriesField,
       chartType,
       dataSources,
@@ -263,7 +280,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       analyzeChartSupport(
         widgetSourceId ?? supportSourceId,
         overrides.xField ?? config.xField,
-        overrides.yFields ?? ySeries.flatMap((series) => (series.fieldId ? [series.fieldId] : [])),
+        overrides.yFields ?? nativeYFieldIds,
         overrides.seriesField ?? config.seriesField,
         chartType,
         dataSources,
@@ -280,7 +297,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       config.seriesField,
       config.scatterColorField,
       config.scatterSizeField,
-      ySeries,
+      nativeYFieldIds,
       chartType,
       dataSources,
       relationships,
@@ -321,8 +338,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     commitYSeries(ySeries.filter((_, i) => i !== index));
   };
 
-  const handleSeriesFieldChange = (index: number, fieldId: string) => {
-    commitYSeries(ySeries.map((s, i) => (i === index ? { ...s, fieldId } : s)));
+  const handleSeriesFieldChange = (index: number, fieldId: string, sourceId: string) => {
+    // finding 2.9: set/clear the series' `sourceId` from the PICKED field's source rather
+    // than preserving a stale foreign one. An own-source pick clears `sourceId` (native
+    // series); a foreign-source pick stamps it (blended series). Preserving the previous
+    // foreign `sourceId` after re-pointing at an own-source field made the renderer
+    // aggregate the new field against the OLD source's rows → a silent all-zero series.
+    const nextSourceId = sourceId && sourceId !== widgetSourceId ? sourceId : undefined;
+    commitYSeries(
+      ySeries.map((s, i) => (i === index ? { ...s, fieldId, sourceId: nextSourceId } : s)),
+    );
   };
 
   const handleSeriesTypeChange = (index: number, seriesType: 'bar' | 'line') => {
@@ -697,15 +722,24 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                       <DataSourceFieldSelect
                         value={s.fieldId ?? ''}
-                        onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
+                        onChange={(fieldId, sourceId) =>
+                          handleSeriesFieldChange(index, fieldId, sourceId)
+                        }
                         fields={numericFields}
                         getOptionDisabled={(option) =>
                           (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
                           (option.id !== s.fieldId &&
                             !analyzeCombination({
+                              // Mirror the support memo: validate only native-source series
+                              // (finding 2.9), with the candidate option taking this slot.
                               yFields: ySeries.flatMap((series, seriesIndex) => {
-                                const fieldId = seriesIndex === index ? option.id : series.fieldId;
-                                return fieldId ? [fieldId] : [];
+                                if (seriesIndex === index) {
+                                  return option.id ? [option.id] : [];
+                                }
+                                if (series.sourceId && series.sourceId !== widgetSourceId) {
+                                  return [];
+                                }
+                                return series.fieldId ? [series.fieldId] : [];
                               }),
                             }).supported)
                         }
@@ -870,6 +904,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           allFields={allFields}
           dateFields={dateFields}
           categoryFields={categoryFields}
+          widgetSourceId={widgetSourceId}
+          allFilters={allFilters}
+          relationships={relationships}
         />
       )}
 

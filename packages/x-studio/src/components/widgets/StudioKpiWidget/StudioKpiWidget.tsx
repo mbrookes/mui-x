@@ -4,6 +4,7 @@ import { Box, Tooltip } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type {
+  StudioDataField,
   StudioDataSource,
   StudioWidgetOf,
   StudioWidgetConfigForKind,
@@ -249,6 +250,18 @@ function computeFilterBasedTrend(params: {
     periodValueParams,
   } = params;
 
+  // The filter-based trend derives the previous-period value from the in-memory
+  // `dataSource.rows` (via the `getCachedEnrichedRows`/`resolveRows` pair below). For an
+  // adapter-backed source those rows are empty (or a stale preview set by
+  // `setDataSourceRows`), while the current headline value comes from adapter-fetched
+  // rows — so the previous side would be 0 and the badge a bogus ∞ ("new") delta, or an
+  // arbitrary number from stale preview rows. Show no badge instead of a wrong one on an
+  // adapter-backed source (finding 2.1). The fixed-period trend and the sparkline both
+  // window `currentRows` (adapter-aware) instead, so this is the only trend path affected.
+  if (dataSource.adapter) {
+    return null;
+  }
+
   // In this branch kpiValueField is set (guaranteed by the caller's gate).
   const previousKpiValueField = config.kpiValueField!;
 
@@ -447,6 +460,57 @@ function useKpiGrainAnchoredRows(
 }
 
 /**
+ * Resolve the KPI value field's definition — the source of its `format` / `currencyCode` /
+ * `precision` and the `type: 'boolean'` avg→percent scaling — with a fall back to the field's
+ * OWNING (related/anchor) source.
+ *
+ * A grain-anchored KPI (value field owned by a related "many" source, e.g. a `customers` KPI
+ * aggregating `orders.total` — reachable via AI/host `update_widget` since `KpiSetupPanel`
+ * re-sources on cross-source picks) has a value field that is NOT a column on the widget's own
+ * `dataSource.fields` at all. Looking it up only against `dataSource.fields` + `expressionFields`
+ * therefore returned `undefined`, silently dropping the field's format/currency/precision from
+ * both the headline and the sparkline tooltip (finding 3.1). `analyzeChartSupport`'s precomputed
+ * `fieldOwners` gives us the owning source so we can read the def off it — mirroring the map
+ * widget's cross-source value-field def resolution.
+ */
+function resolveKpiValueFieldDef(
+  valueFieldId: string | undefined,
+  dataSource: StudioDataSource | undefined,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+): StudioDataField | StudioExpressionField | undefined {
+  if (!valueFieldId) {
+    return undefined;
+  }
+  const own = dataSource?.fields.find((f) => f.id === valueFieldId);
+  if (own) {
+    return own;
+  }
+  const expr = expressionFields.find((ef) => ef.id === valueFieldId);
+  if (expr) {
+    return expr;
+  }
+  // Not on the widget's own source or an expression field — fall back to the field's owning
+  // (related/anchor) source, if any, so a grain-anchored value field keeps its formatting.
+  const support = analyzeChartSupport(
+    dataSource?.id,
+    undefined,
+    [valueFieldId],
+    undefined,
+    undefined,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
+  const ownerSourceId = support.fieldOwners?.get(valueFieldId);
+  if (ownerSourceId && ownerSourceId !== dataSource?.id) {
+    return dataSources[ownerSourceId]?.fields.find((f) => f.id === valueFieldId);
+  }
+  return undefined;
+}
+
+/**
  * Headline value: aggregation defaulting, the no-data guard, the value computation (over
  * grain-anchored or measure rows), and boolean-avg/percent display formatting. Returns the
  * raw numeric value and measure/aggregation metadata that the sparkline and trend hooks reuse.
@@ -457,6 +521,12 @@ function useKpiValue(params: {
   currentRows: Record<string, unknown>[];
   grainAnchoredRows: Record<string, unknown>[];
   expressionFields: StudioExpressionField[];
+  /**
+   * The value field's resolved def (own source → expression field → owning related source),
+   * from `resolveKpiValueFieldDef`. Threaded in rather than re-derived so a grain-anchored
+   * value field keeps its format/currency/precision here AND in the sparkline (finding 3.1).
+   */
+  valueFieldDef: StudioDataField | StudioExpressionField | undefined;
 }): {
   displayValue: string;
   hasData: boolean;
@@ -466,7 +536,8 @@ function useKpiValue(params: {
   measureExprField: StudioExpressionField | undefined;
   measureKey: string;
 } {
-  const { config, dataSource, currentRows, grainAnchoredRows, expressionFields } = params;
+  const { config, dataSource, currentRows, grainAnchoredRows, expressionFields, valueFieldDef } =
+    params;
   return React.useMemo(() => {
     // With no value field the only meaningful aggregation is a row "count" (the setup
     // panel locks the selector to Count in that state). Default accordingly so a KPI
@@ -528,9 +599,9 @@ function useKpiValue(params: {
       };
     }
 
-    const fieldDef =
-      dataSource.fields.find((f) => f.id === config.kpiValueField) ??
-      expressionFields.find((ef) => ef.id === config.kpiValueField);
+    // `valueFieldDef` already resolves the own-source / expression-field / owning-related-source
+    // fallback (finding 3.1) so a grain-anchored value field keeps its formatting here.
+    const fieldDef = valueFieldDef;
     // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
     const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
     const semanticValue = isBooleanAvg ? value * 100 : value;
@@ -552,7 +623,7 @@ function useKpiValue(params: {
       measureExprField,
       measureKey,
     };
-  }, [config, dataSource, currentRows, grainAnchoredRows, expressionFields]);
+  }, [config, dataSource, currentRows, grainAnchoredRows, expressionFields, valueFieldDef]);
 }
 
 /**
@@ -1027,6 +1098,22 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     kpiWidgetFilters,
   );
 
+  // The value field's resolved def (own source → expression field → owning related source).
+  // Computed once here and shared by both the headline (useKpiValue) and the sparkline tooltip
+  // so a grain-anchored value field on a related "many" source keeps its format/currency/
+  // precision in both places (finding 3.1).
+  const valueFieldDef = React.useMemo(
+    () =>
+      resolveKpiValueFieldDef(
+        config.kpiValueField,
+        dataSource,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    [config.kpiValueField, dataSource, dataSources, relationships, expressionFields],
+  );
+
   const {
     displayValue,
     hasData,
@@ -1035,7 +1122,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     aggregation,
     measureExprField,
     measureKey,
-  } = useKpiValue({ config, dataSource, currentRows, grainAnchoredRows, expressionFields });
+  } = useKpiValue({
+    config,
+    dataSource,
+    currentRows,
+    grainAnchoredRows,
+    expressionFields,
+    valueFieldDef,
+  });
 
   const { sparklineData, sparklineTimeField } = useKpiSparkline({
     config,
@@ -1076,12 +1170,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     enabled: hasData,
   });
 
-  // Also check expressionFields (not just dataSource.fields) so a measure/calculated
-  // field's format/currency/precision isn't dropped from the sparkline tooltip —
-  // matching the lookup useKpiValue already does for the headline (finding 2.6).
-  const fieldDef =
-    dataSource?.fields.find((f) => f.id === config.kpiValueField) ??
-    expressionFields.find((ef) => ef.id === config.kpiValueField);
+  // Reuse the shared value-field def so the sparkline tooltip's format/currency/precision
+  // matches the headline — including for a measure/calculated field (finding 2.6) AND for a
+  // grain-anchored value field owned by a related source (finding 3.1).
+  const fieldDef = valueFieldDef;
 
   const filterSubtitle = React.useMemo(() => {
     if (!dataSource) {

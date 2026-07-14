@@ -22,6 +22,7 @@ import {
   selectDataSources,
   selectRelationships,
   selectExpressionFields,
+  selectCrossFilterAllPages,
   makeSelectPartitionedBaseFiltersForPage,
   makeSelectWidget,
   makeSelectIsWidgetSelected,
@@ -185,6 +186,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
   const pages = useStudioSelector(selectPages);
   const allFilters = useStudioSelector(selectFilters);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const allDataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);

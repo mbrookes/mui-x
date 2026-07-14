@@ -53,6 +53,12 @@ export interface CompiledChart {
   grid: { vertical?: boolean; horizontal?: boolean };
   hasLegend: boolean;
   colors: readonly string[];
+  /**
+   * Scatter series ids that render with hollow (stroke-only) markers — the
+   * `point` mark's Vega-Lite default (and any `filled: false` mark). The shell
+   * feeds these to a custom scatter marker slot.
+   */
+  hollowSeriesIds?: string[];
   title?: string;
   width?: number;
   height?: number;
@@ -241,6 +247,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const overlays: CompiledOverlay[] = [];
   const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
+  const hollowSeriesIds: string[] = [];
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
   // Static opacity per series index (from the originating layer's mark), applied
@@ -288,6 +295,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     overlays.push(...(compiled.overlays ?? []));
     overlayLegend.push(...(compiled.overlayLegend ?? []));
     zAxis.push(...(compiled.zAxis ?? []));
+    hollowSeriesIds.push(...(compiled.hollowSeriesIds ?? []));
     // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
     // requests one wins; a conflicting later request is reported as a gap.
     if (compiled.barBorderRadius !== undefined) {
@@ -434,6 +442,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     grid: axes.grid,
     hasLegend,
     colors: palette,
+    hollowSeriesIds: hollowSeriesIds.length > 0 ? hollowSeriesIds : undefined,
     title: normalized.title,
     width: normalized.width,
     height: normalized.height,

@@ -10,15 +10,19 @@ describe('resolveTimeUnit', () => {
     expect(gaps.list()).to.have.length(0);
   });
 
-  it('truncates quarter / yearquarter', () => {
+  it('maps cyclic `quarter` onto the reference year but keeps the real year for `yearquarter`', () => {
     const gaps = createGapCollector();
-    expect(resolveTimeUnit(d, 'quarter', gaps, '$')).to.deep.equal(new Date(2024, 3, 1));
+    // Bare `quarter` is cyclic: the year drops to the 2012 reference so quarters
+    // collapse across years; `yearquarter` retains the real year.
+    expect(resolveTimeUnit(d, 'quarter', gaps, '$')).to.deep.equal(new Date(2012, 3, 1));
     expect(resolveTimeUnit(d, 'yearquarter', gaps, '$')).to.deep.equal(new Date(2024, 3, 1));
   });
 
-  it('truncates month / yearmonth', () => {
+  it('maps cyclic `month` onto the reference year but keeps the real year for `yearmonth`', () => {
     const gaps = createGapCollector();
-    expect(resolveTimeUnit(d, 'month', gaps, '$')).to.deep.equal(new Date(2024, 5, 1));
+    // Bare `month` is cyclic (every year's June collapses to 2012-June-01);
+    // `yearmonth` retains the real year for a true time-series axis.
+    expect(resolveTimeUnit(d, 'month', gaps, '$')).to.deep.equal(new Date(2012, 5, 1));
     expect(resolveTimeUnit(d, 'yearmonth', gaps, '$')).to.deep.equal(new Date(2024, 5, 1));
   });
 
@@ -29,26 +33,27 @@ describe('resolveTimeUnit', () => {
     expect(resolveTimeUnit(d, 'yearweek', gaps, '$')).to.deep.equal(new Date(2024, 5, 9));
   });
 
-  it('truncates date / yearmonthdate / monthdate to midnight', () => {
+  it('carries only the named components, referencing the rest, for date units', () => {
     const gaps = createGapCollector();
-    const expected = new Date(2024, 5, 15);
-    expect(resolveTimeUnit(d, 'date', gaps, '$')).to.deep.equal(expected);
-    expect(resolveTimeUnit(d, 'yearmonthdate', gaps, '$')).to.deep.equal(expected);
-    expect(resolveTimeUnit(d, 'monthdate', gaps, '$')).to.deep.equal(expected);
+    // `yearmonthdate` keeps the real date; the cyclic `date`/`monthdate` drop the
+    // components they don't name to the 2012-January reference.
+    expect(resolveTimeUnit(d, 'yearmonthdate', gaps, '$')).to.deep.equal(new Date(2024, 5, 15));
+    expect(resolveTimeUnit(d, 'date', gaps, '$')).to.deep.equal(new Date(2012, 0, 15));
+    expect(resolveTimeUnit(d, 'monthdate', gaps, '$')).to.deep.equal(new Date(2012, 5, 15));
   });
 
-  it('truncates hours / minutes / seconds and the composites', () => {
+  it('carries only the named time components, referencing the date, for time units', () => {
     const gaps = createGapCollector();
-    expect(resolveTimeUnit(d, 'hours', gaps, '$')).to.deep.equal(new Date(2024, 5, 15, 13));
-    expect(resolveTimeUnit(d, 'minutes', gaps, '$')).to.deep.equal(new Date(2024, 5, 15, 13, 45));
+    // Time-of-day units are cyclic across days, so the date drops to the
+    // 2012-January-01 reference and only the named clock fields are kept.
+    expect(resolveTimeUnit(d, 'hours', gaps, '$')).to.deep.equal(new Date(2012, 0, 1, 13));
+    expect(resolveTimeUnit(d, 'minutes', gaps, '$')).to.deep.equal(new Date(2012, 0, 1, 0, 45));
     expect(resolveTimeUnit(d, 'hoursminutes', gaps, '$')).to.deep.equal(
-      new Date(2024, 5, 15, 13, 45),
+      new Date(2012, 0, 1, 13, 45),
     );
-    expect(resolveTimeUnit(d, 'seconds', gaps, '$')).to.deep.equal(
-      new Date(2024, 5, 15, 13, 45, 30),
-    );
+    expect(resolveTimeUnit(d, 'seconds', gaps, '$')).to.deep.equal(new Date(2012, 0, 1, 0, 0, 30));
     expect(resolveTimeUnit(d, 'hoursminutesseconds', gaps, '$')).to.deep.equal(
-      new Date(2024, 5, 15, 13, 45, 30),
+      new Date(2012, 0, 1, 13, 45, 30),
     );
   });
 
@@ -95,10 +100,10 @@ describe('resolveTimeUnit', () => {
       new Date(Date.UTC(2024, 0, 1)),
     );
     expect(resolveTimeUnit(instant, 'utcmonth', gaps, '$')).to.deep.equal(
-      new Date(Date.UTC(2024, 5, 1)),
+      new Date(Date.UTC(2012, 5, 1)),
     );
     expect(resolveTimeUnit(instant, 'utchours', gaps, '$')).to.deep.equal(
-      new Date(Date.UTC(2024, 5, 15, 13)),
+      new Date(Date.UTC(2012, 0, 1, 13)),
     );
     expect(gaps.list()).to.have.length(0);
   });
@@ -132,7 +137,7 @@ describe('applyTimeUnitTransform', () => {
       gaps,
       '$',
     );
-    expect(result).to.deep.equal([{ ts: d, m: new Date(2024, 5, 1) }]);
+    expect(result).to.deep.equal([{ ts: d, m: new Date(2012, 5, 1) }]);
   });
 
   it('parses string/number date values via toDate', () => {
@@ -168,7 +173,7 @@ describe('applyTimeUnitTransform', () => {
       gaps,
       '$',
     );
-    expect((result[0] as { m: Date }).m).to.deep.equal(new Date(Date.UTC(2024, 5, 1)));
+    expect((result[0] as { m: Date }).m).to.deep.equal(new Date(Date.UTC(2012, 5, 1)));
     expect(gaps.list()).to.have.length(0);
   });
 });
@@ -179,7 +184,7 @@ describe('applyInlineTimeUnit', () => {
     const rows = [{ ts: d }];
     const result = applyInlineTimeUnit(rows, 'ts', 'month', gaps, '$');
     expect(result!.field).to.equal('__timeUnit_month_ts');
-    expect(result!.rows).to.deep.equal([{ ts: d, __timeUnit_month_ts: new Date(2024, 5, 1) }]);
+    expect(result!.rows).to.deep.equal([{ ts: d, __timeUnit_month_ts: new Date(2012, 5, 1) }]);
   });
 
   it('returns null (after a gap) for an unsupported unit so the caller can fall back to the raw field', () => {
@@ -197,7 +202,7 @@ describe('applyInlineTimeUnit', () => {
     expect(result).not.to.equal(null);
     expect(result!.field).to.equal('__timeUnit_utcmonth_ts');
     expect((result!.rows[0] as Record<string, unknown>)[result!.field]).to.deep.equal(
-      new Date(Date.UTC(2024, 5, 1)),
+      new Date(Date.UTC(2012, 5, 1)),
     );
   });
 });

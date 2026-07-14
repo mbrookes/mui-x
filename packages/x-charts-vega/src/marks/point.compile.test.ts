@@ -288,8 +288,10 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    const filledGap = compiled.gaps.find((entry) => entry.code === 'mark:point-filled');
-    expect(filledGap?.severity).to.equal('ignored');
+    // `filled: false` now renders hollow markers (via the shell's marker slot)
+    // instead of being dropped with a gap: the series id is flagged as hollow.
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:point-filled');
+    expect(compiled.hollowSeriesIds).to.include((compiled.series[0] as { id: string }).id);
     // A constant opacity is applied via the color's alpha, not reported as a gap.
     expect(compiled.gaps.map((entry) => entry.code)).not.to.include('encoding:opacity');
     const color = (compiled.series[0] as { color?: string }).color ?? '';
@@ -306,6 +308,28 @@ describe('compilePointMark', () => {
     });
     const strokeGap = withStroke.gaps.find((entry) => entry.code === 'encoding:opacity');
     expect(strokeGap?.severity).to.equal('ignored');
+  });
+
+  it('flags a bare `point` mark as hollow by default, but not `circle`', () => {
+    const encoding = {
+      x: { field: 'x', type: 'quantitative' as const },
+      y: { field: 'y', type: 'quantitative' as const },
+    };
+    const values = [{ x: 1, y: 1 }];
+
+    const point = compileSpec({ data: { values }, mark: 'point', encoding });
+    expect(point.hollowSeriesIds).to.include((point.series[0] as { id: string }).id);
+
+    const circle = compileSpec({ data: { values }, mark: 'circle', encoding });
+    expect(circle.hollowSeriesIds).to.equal(undefined);
+
+    // An explicit `filled: true` overrides the `point` default back to solid.
+    const filledPoint = compileSpec({
+      data: { values },
+      mark: { type: 'point', filled: true },
+      encoding,
+    });
+    expect(filledPoint.hollowSeriesIds).to.equal(undefined);
   });
 
   it('drops the layer with an unsupported gap when a positional channel is missing', () => {

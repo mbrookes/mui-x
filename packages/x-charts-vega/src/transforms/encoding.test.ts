@@ -273,7 +273,7 @@ describe('applyEncodingTransforms / inline timeUnit', () => {
     expect((result.encoding.x as { timeUnit?: unknown }).timeUnit).to.equal(undefined);
     expect(
       result.rows.every(
-        (row) => (row.__timeUnit_month_x as Date).getTime() === new Date(2024, 5, 1).getTime(),
+        (row) => (row.__timeUnit_month_x as Date).getTime() === new Date(2012, 5, 1).getTime(),
       ),
     ).to.equal(true);
   });
@@ -293,7 +293,7 @@ describe('applyEncodingTransforms / inline timeUnit', () => {
     );
     expect(result.rows).to.have.length(2);
     const june = result.rows.find(
-      (row) => (row.__timeUnit_month_x as Date).getTime() === new Date(2024, 5, 1).getTime(),
+      (row) => (row.__timeUnit_month_x as Date).getTime() === new Date(2012, 5, 1).getTime(),
     );
     expect(june?.__sum_v).to.equal(3);
   });

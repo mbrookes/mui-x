@@ -190,6 +190,13 @@ export interface CompiledUnit {
   overlayLegend?: OverlayLegendItem[];
   /** Chart-wide bar corner radius requested by this layer's bar mark. */
   barBorderRadius?: number;
+  /**
+   * Ids of scatter series this layer produced that should render with hollow
+   * (stroke-only) markers — Vega-Lite's default for the `point` mark (and any
+   * mark with `filled: false`). The shell renders these through a custom
+   * scatter marker slot; unlisted series keep the default solid-filled marker.
+   */
+  hollowSeriesIds?: string[];
 }
 
 /** One entry in an overlay's custom legend (a colored swatch + label). */

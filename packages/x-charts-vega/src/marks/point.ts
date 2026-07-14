@@ -295,19 +295,15 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
+  // Vega-Lite's `filled` default is mark-dependent: `point` marks are hollow
+  // (stroke-only), while `circle`/`square` are solid. An explicit `filled`
+  // overrides either way. Hollow markers render through the shell's custom
+  // scatter marker slot (keyed by the series ids collected below).
+  const hollow = !isTick && (unit.mark.filled ?? markType !== 'point') === false;
+
   // "filled"/opacity styling only applies to genuine circular markers — tick
   // segments have their own stroke-based styling via buildTickStyle instead.
   if (!isTick) {
-    if (unit.mark.filled === false) {
-      gaps.add({
-        code: 'mark:point-filled',
-        message:
-          'x-charts scatter markers are always solid-filled; "filled: false" (hollow markers) is ignored.',
-        severity: 'ignored',
-        path: `${path}.mark.filled`,
-      });
-    }
-
     // A constant `mark.opacity`/`fillOpacity` (or a value-def `opacity`
     // encoding) is now baked into the marker color centrally (see
     // `staticMarkOpacity` in compile/index.ts); a field-driven `opacity`
@@ -485,5 +481,8 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     series,
     plots: series.length > 0 ? ['scatter'] : [],
     ...(zAxis ? { zAxis } : {}),
+    ...(hollow && series.length > 0
+      ? { hollowSeriesIds: series.map((entry) => String(entry.id)) }
+      : {}),
   };
 }

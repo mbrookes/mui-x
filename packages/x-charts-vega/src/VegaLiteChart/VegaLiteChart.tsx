@@ -38,6 +38,7 @@ import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
 import { VegaTooltip, resolveTooltipFields } from './VegaTooltip';
+import { createHollowScatterMarker } from './HollowScatterMarker';
 
 type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' };
 
@@ -341,6 +342,18 @@ function SingleViewChart(props: VegaLiteChartProps) {
     () => compileSpec(spec, { data, datasets, palette: colors, params: paramValues }),
     [spec, data, datasets, colors, paramValues],
   );
+
+  // A custom scatter marker slot that draws hollow (stroke-only) circles for the
+  // `point`-mark / `filled: false` series the compiler flagged, matching
+  // Vega-Lite's default point style. Kept stable across renders so x-charts does
+  // not remount every marker; unset when no series need it.
+  const scatterSlots = React.useMemo(() => {
+    if (!compiled.hollowSeriesIds || compiled.hollowSeriesIds.length === 0) {
+      return undefined;
+    }
+    return { marker: createHollowScatterMarker(new Set(compiled.hollowSeriesIds)) };
+  }, [compiled.hollowSeriesIds]);
+
   const clipId = useId();
 
   const reportedRef = React.useRef<string | null>(null);
@@ -447,7 +460,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
       )}
       {compiled.plots.includes('area') && <AreaPlot />}
       {compiled.plots.includes('line') && <LinePlot />}
-      {compiled.plots.includes('scatter') && <ScatterPlot />}
+      {compiled.plots.includes('scatter') && <ScatterPlot slots={scatterSlots} />}
       {compiled.plots.includes('marks') && <MarkPlot />}
       {compiled.plots.includes('lineHighlight') && <LineHighlightPlot />}
       {compiled.plots.includes('pie') && <PiePlot />}

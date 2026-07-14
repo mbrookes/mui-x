@@ -79,5 +79,11 @@ export default defineConfig({
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+    // The wrapper mounts `@mui/x-charts-pro`/`-premium` components (Heatmap, Map,
+    // range bars), which verify a commercial license. Serving those packages from
+    // raw source means the `__ALLOW_TEST_LICENSES__` placeholder is never compiled
+    // away, so define it here to let `main.tsx` register the shared test license
+    // key and render the charts without the "Missing license key" watermark.
+    __ALLOW_TEST_LICENSES__: 'true',
   },
 });

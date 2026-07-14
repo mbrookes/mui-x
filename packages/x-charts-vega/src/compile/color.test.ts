@@ -150,15 +150,27 @@ describe('resolveColor', () => {
   describe('continuous color (quantitative/temporal)', () => {
     const rows: DatasetRow[] = [{ v: 10 }, { v: 20 }, { v: 30 }];
 
-    it('computes a continuous colorMap from the data extent with the default blue ramp', () => {
+    it('computes a continuous colorMap from the data extent with the default yellow-green-blue ramp', () => {
       const { result, gaps } = resolve({ color: { field: 'v', type: 'quantitative' } }, rows);
       expect(result.hasLegend).to.equal(false);
       expect(result.colorMap).to.include({ type: 'continuous', min: 10, max: 30 });
-      expect(result.colorMap && 'color' in result.colorMap && result.colorMap.color).to.have.length(
-        2,
-      );
+      // Vega-Lite's default continuous scheme (`yellowgreenblue`) is multi-hue,
+      // so it resolves to an interpolator function rather than a two-color pair.
+      const color = result.colorMap && 'color' in result.colorMap ? result.colorMap.color : null;
+      expect(color).to.be.a('function');
+      expect((color as (t: number) => string)(0)).to.match(/^#/);
+      expect((color as (t: number) => string)(1)).to.match(/^#/);
       const gap = gaps.find((g) => g.code === 'encoding:color-continuous');
       expect(gap?.severity).to.equal('partial');
+    });
+
+    it('resolves a multi-hue sequential scheme (yellowgreenblue) to an interpolator', () => {
+      const { result } = resolve(
+        { color: { field: 'v', type: 'quantitative', scale: { scheme: 'yellowgreenblue' } } },
+        rows,
+      );
+      const color = result.colorMap && 'color' in result.colorMap ? result.colorMap.color : null;
+      expect(color).to.be.a('function');
     });
 
     it('maps a known sequential scheme name to palette endpoints', () => {

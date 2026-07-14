@@ -70,7 +70,8 @@ describe('transforms pipeline (via compileSpec)', () => {
     };
     const compiled = compileSpec(spec);
     expect(compiled.xAxis?.fieldType).to.equal('temporal');
-    expect(compiled.xAxis?.categories).to.deep.equal([new Date(2024, 0, 1), new Date(2024, 1, 1)]);
+    // Bare `month` is cyclic, so both dates collapse onto the 2012 reference year.
+    expect(compiled.xAxis?.categories).to.deep.equal([new Date(2012, 0, 1), new Date(2012, 1, 1)]);
   });
 
   it('records a filter gap but keeps rows for an unsupported filter expression, without throwing', () => {

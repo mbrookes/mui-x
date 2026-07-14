@@ -45,12 +45,14 @@ describe('compileRectMark', () => {
       type: string;
       min?: number;
       max?: number;
-      color: readonly [string, string];
+      color: readonly [string, string] | ((t: number) => string);
     };
     expect(colorMap.type).to.equal('continuous');
     expect(colorMap.min).to.equal(1);
     expect(colorMap.max).to.equal(8);
-    expect(colorMap.color).to.have.length(2);
+    // The default continuous scheme (`yellowgreenblue`) is multi-hue, so the
+    // colorMap carries an interpolator function rather than a two-color pair.
+    expect(colorMap.color).to.be.a('function');
 
     expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:rect-not-implemented');
   });

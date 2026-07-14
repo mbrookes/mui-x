@@ -7,17 +7,18 @@ import { toDate } from '../compile/fieldTypes';
  * for the `timeUnit` transform and inline `timeUnit` on encoding channels
  * (`applyInlineTimeUnit`, wired in from encoding.ts).
  *
- * Simplification (documented, not a gap): unlike real Vega-Lite — where a
- * *single* unit like `month` normalizes every other component to a common
- * reference year/date so same-month values are comparable across years —
- * this wrapper always truncates in place and keeps the real calendar date
- * (so `month` and `yearmonth` produce the same result: the first of the real
- * month). That is the more useful behavior for the primary use case here
- * (time-series axes), at the cost of not supporting cross-year cyclic
- * alignment. The two genuinely cyclic units, `day` (day-of-week) and
- * `dayofyear`, have no truncation-only equivalent, so they are mapped onto a
- * canonical reference week / reference leap year (2012, matching Vega-Lite's
- * own convention) and flagged with a 'partial' gap.
+ * Cyclic alignment: matching real Vega-Lite, a unit keeps only the calendar
+ * components it names and resets every *unnamed* component to a canonical
+ * reference (year 2012 — a leap year — January 1, midnight). So a bare `month`
+ * collapses the same month across every year into one bucket (2012-<month>-01),
+ * which is what makes `x: {timeUnit: 'month'}, y: {aggregate: 'count'}` render
+ * twelve bars rather than one per (year, month). A year-prefixed composite like
+ * `yearmonth` keeps the real year, so it still walks the true time-series axis.
+ * The two genuinely cyclic units, `day` (day-of-week) and `dayofyear`, are
+ * mapped onto a canonical reference week / reference leap year and flagged with
+ * a 'partial' gap. The lone exception is the `week` family, which still
+ * truncates in place (keeping the real year) — a week-of-year reference frame
+ * has no simple calendar-field construction.
  *
  * UTC: any unit may be prefixed with `utc` (e.g. `utcyear`, `utcyearmonth`,
  * `utcday`) to truncate using UTC calendar fields instead of local time —
@@ -59,6 +60,62 @@ const UNIT_GRANULARITY: Partial<Record<string, Granularity>> = {
   hoursminutes: 'minutes',
   hoursminutesseconds: 'seconds',
 };
+
+// The calendar components a unit carries from the source date. Every component
+// a unit does *not* list falls back to the reference base below, which is what
+// gives non-year units their cyclic behavior (e.g. `month` drops the real year,
+// so all years' Januaries collapse into one bucket). Year-prefixed composites
+// list `year`, so they retain the true year. The `week` family is handled by
+// the truncation path instead (no simple field construction) and is omitted.
+type CalendarField = 'year' | 'quarter' | 'month' | 'date' | 'hours' | 'minutes' | 'seconds';
+
+const UNIT_FIELDS: Partial<Record<string, CalendarField[]>> = {
+  year: ['year'],
+  quarter: ['quarter'],
+  month: ['month'],
+  date: ['date'],
+  hours: ['hours'],
+  minutes: ['minutes'],
+  seconds: ['seconds'],
+  yearquarter: ['year', 'quarter'],
+  yearmonth: ['year', 'month'],
+  yearmonthdate: ['year', 'month', 'date'],
+  monthdate: ['month', 'date'],
+  hoursminutes: ['hours', 'minutes'],
+  hoursminutesseconds: ['hours', 'minutes', 'seconds'],
+};
+
+// Reference base for components a unit does not carry, matching Vega-Lite's own
+// convention: year 2012 (a leap year, so a carried Feb 29 stays valid), January,
+// the 1st, at midnight.
+const REFERENCE_YEAR = 2012;
+
+/**
+ * Builds the truncated date for a unit expressed as a set of carried calendar
+ * fields: components the unit names are read off `date`, everything else takes
+ * the reference base. `quarter` snaps the month to its quarter start.
+ */
+function buildFromFields(date: Date, fields: CalendarField[], utc: boolean): Date {
+  const get = {
+    year: utc ? date.getUTCFullYear() : date.getFullYear(),
+    month: utc ? date.getUTCMonth() : date.getMonth(),
+    date: utc ? date.getUTCDate() : date.getDate(),
+    hours: utc ? date.getUTCHours() : date.getHours(),
+    minutes: utc ? date.getUTCMinutes() : date.getMinutes(),
+    seconds: utc ? date.getUTCSeconds() : date.getSeconds(),
+  };
+  const out = { year: REFERENCE_YEAR, month: 0, date: 1, hours: 0, minutes: 0, seconds: 0 };
+  for (const field of fields) {
+    if (field === 'quarter') {
+      out.month = Math.floor(get.month / 3) * 3;
+    } else {
+      out[field] = get[field];
+    }
+  }
+  return utc
+    ? new Date(Date.UTC(out.year, out.month, out.date, out.hours, out.minutes, out.seconds, 0))
+    : new Date(out.year, out.month, out.date, out.hours, out.minutes, out.seconds, 0);
+}
 
 /** Splits a possibly-`utc`-prefixed unit into its UTC flag and base (non-prefixed) unit name. */
 function splitUtc(unit: VegaTimeUnit): { utc: boolean; base: string } {
@@ -248,6 +305,16 @@ export function resolveTimeUnit(
     return utc ? truncateDayOfYearUTC(date) : truncateDayOfYear(date);
   }
 
+  // Units expressible as a set of carried calendar fields (everything except the
+  // `week` family) build cyclically from the reference base, so non-year units
+  // collapse across years the way Vega-Lite does.
+  const fields = UNIT_FIELDS[base];
+  if (fields) {
+    return buildFromFields(date, fields, utc);
+  }
+
+  // The `week` family has no simple field construction, so it still truncates in
+  // place at week granularity (keeping the real year).
   const granularity = UNIT_GRANULARITY[base];
   if (!granularity) {
     addUnsupportedUnitGap(unit, gaps, path);

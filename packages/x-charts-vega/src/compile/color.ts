@@ -41,7 +41,10 @@ export interface ContinuousColorMapConfig {
   type: 'continuous';
   min?: number | Date;
   max?: number | Date;
-  color: readonly [string, string];
+  // A two-color endpoint ramp (single-hue schemes) or an interpolator over a
+  // multi-stop scheme (e.g. Vega-Lite's default `yellowgreenblue`). x-charts'
+  // `ContinuousColorConfig.color` accepts both forms.
+  color: readonly [string, string] | ((t: number) => string);
 }
 
 /** Structurally mirrors `@mui/x-charts`' `PiecewiseColorConfig`; see above. */
@@ -231,6 +234,64 @@ function interpolateColors(low: string, high: string, count: number): string[] {
   });
 }
 
+/**
+ * Multi-hue sequential scheme stops (ColorBrewer, lowercased Vega-Lite scheme
+ * names). Unlike the single-hue ramps in `SEQUENTIAL_SCHEME_RANGES`, these need
+ * every stop to reproduce their hue progression, so they resolve to an
+ * interpolator function rather than a two-color endpoint pair.
+ */
+const MULTI_STOP_SCHEME_STOPS: Record<string, readonly string[]> = {
+  // Vega-Lite's default scheme for a continuous quantitative color field.
+  yellowgreenblue: ['#ffffd9', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#081d58'],
+  greenblue: ['#f7fcf0', '#ccebc5', '#a8ddb5', '#7bccc4', '#4eb3d3', '#2b8cbe', '#084081'],
+  bluegreen: ['#f7fcfd', '#ccece6', '#99d8c9', '#66c2a4', '#41ae76', '#238b45', '#00441b'],
+  yelloworangered: ['#ffffcc', '#ffeda0', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#800026'],
+  yelloworangebrown: ['#ffffe5', '#fee391', '#fec44f', '#fe9929', '#ec7014', '#cc4c02', '#662506'],
+  purpleblue: ['#fff7fb', '#d0d1e6', '#a6bddb', '#74a9cf', '#3690c0', '#0570b0', '#023858'],
+  bluepurple: ['#f7fcfd', '#bfd3e6', '#9ebcda', '#8c96c6', '#8c6bb1', '#88419d', '#4d004b'],
+  purplered: ['#f7f4f9', '#d4b9da', '#c994c7', '#df65b0', '#e7298a', '#ce1256', '#67001f'],
+};
+
+// Vega-Lite defaults a continuous quantitative color scale to `yellowgreenblue`.
+const DEFAULT_CONTINUOUS_STOPS = MULTI_STOP_SCHEME_STOPS.yellowgreenblue;
+
+/**
+ * Builds a `(t: number) => color` interpolator over an ordered list of hex
+ * stops via piecewise-linear RGB, clamping `t` to `[0, 1]`. Mirrors the RGB
+ * math in `interpolateColors`; used for multi-hue schemes (and multi-stop
+ * explicit ranges) x-charts' two-color `ContinuousColorConfig` can't express.
+ */
+function interpolatorFromStops(stops: readonly string[]): (t: number) => string {
+  const rgb = stops.map((stop) => (isHexColor(stop) ? hexToRgb(stop) : null));
+  return (input: number) => {
+    const t = Math.max(0, Math.min(1, input));
+    const scaled = t * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(scaled));
+    const frac = scaled - i;
+    const a = rgb[i];
+    const b = rgb[i + 1];
+    // A non-hex stop (e.g. a CSS named color) can't be interpolated numerically;
+    // fall back to the nearer raw stop rather than a bogus NaN-derived color.
+    if (!a || !b) {
+      return stops[frac < 0.5 ? i : i + 1];
+    }
+    return rgbToHex([
+      a[0] + (b[0] - a[0]) * frac,
+      a[1] + (b[1] - a[1]) * frac,
+      a[2] + (b[2] - a[2]) * frac,
+    ]);
+  };
+}
+
+/** Samples `count` evenly spaced colors from a multi-stop ramp (for binned/piecewise output). */
+function sampleStops(stops: readonly string[], count: number): string[] {
+  if (count <= 1) {
+    return [stops[0]];
+  }
+  const interpolator = interpolatorFromStops(stops);
+  return Array.from({ length: count }, (_, i) => interpolator(i / (count - 1)));
+}
+
 function isBinnedField(fieldDef: VegaFieldDef): boolean {
   return fieldDef.bin === true || fieldDef.bin === 'binned' || typeof fieldDef.bin === 'object';
 }
@@ -255,17 +316,27 @@ function resolveContinuousColorMap(
   const schemeName = schemeNameOf(scale?.scheme);
   const explicitRange = Array.isArray(scale?.range) ? (scale?.range as string[]) : undefined;
 
-  let low: string;
-  let high: string;
+  // Resolve the color ramp as an ordered list of stops. A single-hue scheme (or
+  // a two-color explicit range) yields two stops; a multi-hue scheme — including
+  // Vega-Lite's default `yellowgreenblue` — or a multi-stop explicit range keeps
+  // every stop so the hue progression survives.
+  let stops: readonly string[];
   if (explicitRange && explicitRange.length >= 2) {
-    [low, high] = [explicitRange[0], explicitRange[explicitRange.length - 1]];
+    stops = explicitRange;
+  } else if (schemeName && MULTI_STOP_SCHEME_STOPS[schemeName]) {
+    stops = MULTI_STOP_SCHEME_STOPS[schemeName];
+  } else if (schemeName && SEQUENTIAL_SCHEME_RANGES[schemeName]) {
+    stops = SEQUENTIAL_SCHEME_RANGES[schemeName];
+  } else if (schemeName) {
+    // An unknown named scheme still falls back to the single-hue blue endpoints.
+    stops = DEFAULT_BLUE_RANGE;
   } else {
-    const mapped = (schemeName && SEQUENTIAL_SCHEME_RANGES[schemeName]) || DEFAULT_BLUE_RANGE;
-    [low, high] = mapped;
+    stops = DEFAULT_CONTINUOUS_STOPS;
   }
   if (scale?.reverse) {
-    [low, high] = [high, low];
+    stops = stops.slice().reverse();
   }
+  const [low, high] = [stops[0], stops[stops.length - 1]];
 
   const binned = isBinnedField(fieldDef);
 
@@ -318,7 +389,10 @@ function resolveContinuousColorMap(
   if (binned) {
     const binParams = typeof fieldDef.bin === 'object' ? fieldDef.bin : undefined;
     const bandCount = Math.max(2, binParams?.maxbins ?? 5);
-    const colors = interpolateColors(low, high, bandCount);
+    // Two-stop ramps use the RGB endpoint split; multi-stop ramps sample every
+    // stop so the discrete bands trace the full hue progression.
+    const colors =
+      stops.length > 2 ? sampleStops(stops, bandCount) : interpolateColors(low, high, bandCount);
     const thresholds: Array<number | Date> = [];
     for (let i = 1; i < bandCount; i += 1) {
       thresholds.push(toDomainValue(min + (max - min) * (i / bandCount)));
@@ -330,7 +404,9 @@ function resolveContinuousColorMap(
     type: 'continuous',
     min: toDomainValue(min),
     max: toDomainValue(max),
-    color: [low, high],
+    // A two-stop ramp stays a plain endpoint pair (a simpler gradient x-charts
+    // renders directly); a multi-hue ramp becomes an interpolator function.
+    color: stops.length > 2 ? interpolatorFromStops(stops) : [low, high],
   };
 }
 

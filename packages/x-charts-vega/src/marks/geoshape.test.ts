@@ -159,51 +159,51 @@ describe('compileGeoshapeMark', () => {
       expect(compiled.geo?.projection).to.equal('mercator');
     });
 
-    it('forwards rotate/scale/translate tuning params to the geo provider', () => {
+    it('maps `rotate` to the provider `initialView` and gaps the absolute scale/translate', () => {
       const ctx = makeContext({
         rows: [featureA],
         projection: { type: 'mercator', scale: 900, rotate: [-46, -6], translate: [200, 150] },
       });
       const compiled = compileGeoshapeMark(ctx);
-      expect(compiled.geo?.scale).to.equal(900);
-      expect(compiled.geo?.rotate).to.deep.equal([-46, -6]);
-      expect(compiled.geo?.translate).to.deep.equal([200, 150]);
-      expect(ctx.gaps.list().find((entry) => entry.code === 'projection:scale-invalid')).to.equal(
-        undefined,
-      );
+      // d3 `rotate: [-46, -6]` displays `[46, 6]` at the center, zoom fit-to-data.
+      expect(compiled.geo?.initialView).to.deep.equal({ zoomLevel: 1, center: [46, 6] });
+      // Absolute `scale`/`translate` (SVG pixels) have no relative-model equivalent.
+      expect(
+        ctx.gaps.list().find((entry) => entry.code === 'projection:scale-unsupported')?.severity,
+      ).to.equal('partial');
+      expect(
+        ctx.gaps.list().find((entry) => entry.code === 'projection:translate-unsupported')?.severity,
+      ).to.equal('partial');
       expect(ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-invalid')).to.equal(
         undefined,
       );
     });
 
-    it('truncates a 3-value rotate to [longitude, latitude] with a partial gap for the dropped roll', () => {
+    it('carries a 3-value rotate roll through to `initialView.roll` (no longer dropped)', () => {
       const ctx = makeContext({
         rows: [featureA],
         projection: { type: 'mercator', rotate: [-46, -6, 15] },
       });
       const compiled = compileGeoshapeMark(ctx);
-      expect(compiled.geo?.rotate).to.deep.equal([-46, -6]);
-      const gap = ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-roll-dropped');
-      expect(gap?.severity).to.equal('partial');
+      expect(compiled.geo?.initialView).to.deep.equal({
+        zoomLevel: 1,
+        center: [46, 6],
+        roll: 15,
+      });
+      expect(
+        ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-roll-dropped'),
+      ).to.equal(undefined);
     });
 
-    it('ignores a malformed rotate/scale/translate with an ignored gap instead of forwarding garbage', () => {
+    it('ignores a malformed rotate with a gap and does not produce an initialView', () => {
       const ctx = makeContext({
         rows: [featureA],
-        projection: { type: 'mercator', rotate: 'north', scale: 'huge', translate: [1] },
+        projection: { type: 'mercator', rotate: 'north' },
       });
       const compiled = compileGeoshapeMark(ctx);
-      expect(compiled.geo?.rotate).to.equal(undefined);
-      expect(compiled.geo?.scale).to.equal(undefined);
-      expect(compiled.geo?.translate).to.equal(undefined);
+      expect(compiled.geo?.initialView).to.equal(undefined);
       expect(
         ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-invalid')?.severity,
-      ).to.equal('ignored');
-      expect(
-        ctx.gaps.list().find((entry) => entry.code === 'projection:scale-invalid')?.severity,
-      ).to.equal('ignored');
-      expect(
-        ctx.gaps.list().find((entry) => entry.code === 'projection:translate-invalid')?.severity,
       ).to.equal('ignored');
     });
   });

@@ -422,9 +422,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
       <ChartsGeoDataProviderPremium
         geoData={compiled.geo?.geoData as never}
         projection={compiled.geo?.projection as never}
-        rotate={compiled.geo?.rotate as never}
-        scale={compiled.geo?.scale as never}
-        translate={compiled.geo?.translate as never}
+        initialView={compiled.geo?.initialView as never}
         series={compiled.series as never}
         zAxis={compiled.zAxis as never}
         colors={compiled.colors.slice()}

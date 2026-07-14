@@ -154,16 +154,15 @@ export interface CompiledGeo {
   /** A d3 named projection (e.g. 'naturalEarth1') or projection config. */
   projection?: string | Record<string, unknown>;
   /**
-   * Projection rotation `[longitude, latitude]`, forwarded to
-   * `ChartsGeoDataProviderPremium`'s `rotate` prop (see `useGeoProjection`'s
-   * `UseGeoProjectionParameters.rotate` — the provider only accepts a 2-tuple;
-   * a spec's 3rd "roll" value, if any, is dropped before reaching here).
+   * Initial map view derived from the spec's `projection.rotate`, forwarded to
+   * `ChartsGeoDataProviderPremium`'s `initialView` (from `useGeoProjectionZoom`'s
+   * `MapZoomView`). A d3 `rotate: [λ, φ, γ]` displays the point `[-λ, -φ]` at the
+   * center with a `γ` roll, so it maps to `{ zoomLevel: 1, center: [-λ, -φ],
+   * roll: γ }`. The provider positions maps with a relative zoom/pan model, so a
+   * projection's absolute `scale`/`translate` (raw SVG pixels) have no equivalent
+   * and are reported as gaps rather than forwarded.
    */
-  rotate?: [number, number];
-  /** Projection scale, forwarded to the provider's `scale` prop. */
-  scale?: number;
-  /** Projection translate `[x, y]`, forwarded to the provider's `translate` prop. */
-  translate?: [number, number];
+  initialView?: { zoomLevel: number; center: [number, number]; roll?: number };
   // Formats the choropleth color legend's min/max labels (from the color
   // channel's `legend.format`). x-charts ignores a z-axis `valueFormatter` for
   // the continuous color legend, so the shell applies this via the legend's

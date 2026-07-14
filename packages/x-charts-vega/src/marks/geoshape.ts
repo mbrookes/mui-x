@@ -225,32 +225,26 @@ function resolveProjection(ctx: UnitContext): string {
   return DEFAULT_PROJECTION;
 }
 
-/** Numeric `[a, b]` tuple guard used for `translate`/2-value `rotate`. */
-function isFiniteNumberPair(value: unknown): value is [number, number] {
-  return (
-    Array.isArray(value) &&
-    value.length === 2 &&
-    value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))
-  );
-}
-
 /**
- * Resolve the projection tuning params `ChartsGeoDataProviderPremium` genuinely
- * accepts (`rotate`/`scale`/`translate` — see `useGeoProjection`'s
- * `UseGeoProjectionParameters`), validating shapes and recording a gap for
- * malformed values instead of forwarding garbage into the provider.
+ * Resolve the spec's `projection` tuning into the map provider's view model.
+ * A d3 `rotate: [λ, φ, γ]` maps to `ChartsGeoDataProviderPremium`'s `initialView`
+ * (from `useGeoProjectionZoom`): it displays `[-λ, -φ]` at the center with a `γ`
+ * roll. Malformed `rotate` is ignored with a gap. The provider positions maps
+ * with a relative zoom/pan model, so a projection's absolute `scale`/`translate`
+ * (raw SVG pixels) have no equivalent and are reported as `partial` gaps rather
+ * than forwarded.
  * @param {UnitContext} ctx The unit context.
- * @returns {Pick<CompiledUnit['geo'] & {}, 'rotate' | 'scale' | 'translate'>} The forwardable subset.
+ * @returns {Pick<NonNullable<CompiledUnit['geo']>, 'initialView'>} The forwardable view.
  */
 function resolveProjectionTuning(
   ctx: UnitContext,
-): Pick<NonNullable<CompiledUnit['geo']>, 'rotate' | 'scale' | 'translate'> {
+): Pick<NonNullable<CompiledUnit['geo']>, 'initialView'> {
   const projection = ctx.unit.projection;
   if (!projection || typeof projection !== 'object') {
     return {};
   }
 
-  const tuning: Pick<NonNullable<CompiledUnit['geo']>, 'rotate' | 'scale' | 'translate'> = {};
+  const result: Pick<NonNullable<CompiledUnit['geo']>, 'initialView'> = {};
   const path = `${ctx.unit.path}.projection`;
 
   const { rotate } = projection;
@@ -259,16 +253,13 @@ function resolveProjectionTuning(
       Array.isArray(rotate) &&
       rotate.every((entry) => typeof entry === 'number' && Number.isFinite(entry));
     if (isNumberArray && (rotate.length === 2 || rotate.length === 3)) {
-      tuning.rotate = [rotate[0], rotate[1]];
-      if (rotate.length === 3) {
-        ctx.gaps.add({
-          code: 'projection:rotate-roll-dropped',
-          message:
-            'The map provider only accepts a `[longitude, latitude]` rotation; the 3rd "roll" value was dropped.',
-          severity: 'partial',
-          path: `${path}.rotate`,
-        });
-      }
+      // d3 `rotate([λ, φ, γ])` shows `[-λ, -φ]` at the center; the 3rd value is
+      // the roll (now supported by the provider's `initialView`, no longer dropped).
+      result.initialView = {
+        zoomLevel: 1,
+        center: [-rotate[0], -rotate[1]],
+        ...(rotate.length === 3 ? { roll: rotate[2] } : {}),
+      };
     } else {
       ctx.gaps.add({
         code: 'projection:rotate-invalid',
@@ -280,35 +271,21 @@ function resolveProjectionTuning(
     }
   }
 
-  const { scale } = projection;
-  if (scale !== undefined) {
-    if (typeof scale === 'number' && Number.isFinite(scale)) {
-      tuning.scale = scale;
-    } else {
+  // The provider expresses position as a zoom ratio + geographic center, not the
+  // raw SVG `scale`/`translate` pixels a d3 projection config carries, so those
+  // absolute values are reported as unsupported rather than mis-applied.
+  for (const key of ['scale', 'translate'] as const) {
+    if (projection[key] !== undefined) {
       ctx.gaps.add({
-        code: 'projection:scale-invalid',
-        message: '`scale` must be a finite number; the malformed value was ignored.',
-        severity: 'ignored',
-        path: `${path}.scale`,
+        code: `projection:${key}-unsupported`,
+        message: `The map provider positions the map with a relative zoom/pan model, so the projection's absolute \`${key}\` (in SVG pixels) has no equivalent and was ignored; drive the view via \`initialView\`/interactive zoom instead.`,
+        severity: 'partial',
+        path: `${path}.${key}`,
       });
     }
   }
 
-  const { translate } = projection;
-  if (translate !== undefined) {
-    if (isFiniteNumberPair(translate)) {
-      tuning.translate = translate;
-    } else {
-      ctx.gaps.add({
-        code: 'projection:translate-invalid',
-        message: '`translate` must be a `[x, y]` numeric tuple; the malformed value was ignored.',
-        severity: 'ignored',
-        path: `${path}.translate`,
-      });
-    }
-  }
-
-  return tuning;
+  return result;
 }
 
 /** Locate a `lookup` transform on the unit, for a precise gap path. */

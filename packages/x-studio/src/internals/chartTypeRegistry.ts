@@ -167,7 +167,15 @@ const heatmapDescriptor: ChartTypeDescriptor = {
     const aggs: AggSpec[] = [];
     const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
     if (yField && !isExpr(yField)) {
-      const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
+      // Per-series aggregation wins over the yField-level default — mirrors the
+      // single-series/multi-Y/split-by/blended/pie-ring precedence already applied
+      // elsewhere, and the client-side `renderHeatmap` (`chartTypeDefs.tsx`), so the
+      // server push-down doesn't silently downgrade to 'sum' when only the fieldId
+      // (not the aggregation) survives a chart-type switch (finding 2.2).
+      const fn =
+        (config.ySeries?.[0]?.yAggregation as AggFn | undefined) ??
+        (config.yAggregation as AggFn | undefined) ??
+        'sum';
       aggs.push({ field: yField, fn, alias: yField });
     }
     return aggs;
@@ -196,7 +204,13 @@ const funnelDescriptor: ChartTypeDescriptor = {
     const aggs: AggSpec[] = [];
     const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
     if (yField && !isExpr(yField)) {
-      const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
+      // Per-series aggregation wins over the yField-level default — see the identical
+      // heatmap fix above (finding 2.2); both must move together to keep client/server
+      // aggregation push-down parity.
+      const fn =
+        (config.ySeries?.[0]?.yAggregation as AggFn | undefined) ??
+        (config.yAggregation as AggFn | undefined) ??
+        'sum';
       aggs.push({ field: yField, fn, alias: yField });
     }
     return aggs;

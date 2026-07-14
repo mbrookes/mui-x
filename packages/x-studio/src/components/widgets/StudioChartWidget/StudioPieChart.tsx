@@ -7,6 +7,7 @@ import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
 import type { AggregatedData } from '../../../internals/chartAggregation';
 import { applyXGroupBy, isEmptyXValue, toXValue } from '../../../internals/chartValues';
+import { sortLabels } from '../../../internals/temporalUtils';
 import type { StudioChartConfig } from '../../../models';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { computeControlledHighlight } from './chartWidgetHelpers';
@@ -212,10 +213,13 @@ export function StudioPieChart({
     const useGhostBaseline = shouldShowGhost && allEnrichedRows.length > 0;
     const baseRows = useGhostBaseline ? allEnrichedRows : enrichedRows;
 
-    // Get unique category values (period-grouped xField) in stable order.
-    const categories = [...new Set(baseRows.map(categoryKeyOf))].filter(
-      (c): c is string => c != null,
-    );
+    // Get unique category values (period-grouped xField), sorted like the single-ring path
+    // (`aggregateByField` → `sortLabels`) rather than left in first-seen row order — otherwise
+    // temporal rings render in arbitrary chronological order, and the order can visibly swap
+    // when the baseline flips between `allEnrichedRows`/`enrichedRows` (finding 3.4).
+    const categories = sortLabels(
+      [...new Set(baseRows.map(categoryKeyOf))].filter((c): c is string => c != null),
+    ) as string[];
 
     // For each category, aggregate by sliceField within that category's rows.
     let rings = categories.map((category) => {

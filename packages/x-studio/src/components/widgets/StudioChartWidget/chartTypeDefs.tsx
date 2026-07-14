@@ -399,6 +399,7 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
       widgetSourceId={ctx.widgetSourceId}
       dataSources={ctx.dataSources}
       dataSource={ctx.dataSource}
+      expressionFields={ctx.expressionFields}
       height={chartHeight}
       skipAnimation={ctx.skipAnimation}
       formatLabel={ctx.formatLabel}
@@ -428,10 +429,20 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
     );
   }
 
-  const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
-  const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
+  // `resolveFieldDef` (native fields + expression fields) so a calculated x/y axis field
+  // gets its real label too (finding 3.2) — `orderedValues` is a native-field-only concept
+  // (categorical sort override, not defined on `StudioExpressionField`), so it's still read
+  // straight off `dataSource.fields`.
+  const xFieldDef = resolveFieldDef(heatXField, dataSource, expressionFields);
+  const yFieldDef = resolveFieldDef(heatYField, dataSource, expressionFields);
+  const xOrderedValues = dataSource?.fields.find((f) => f.id === heatXField)?.orderedValues;
+  const yOrderedValues = dataSource?.fields.find((f) => f.id === heatYField)?.orderedValues;
   const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
-  const heatAggregation = config.yAggregation ?? 'sum';
+  // Per-series aggregation wins over the yField-level default, mirroring the single-series/
+  // multi-Y/split-by/blended/pie-ring precedence (finding 2.2) — the value field can survive
+  // a chart-type switch via the `ySeries[0].fieldId` fallback above while its aggregation was
+  // previously read only from `config.yAggregation`, silently dropping to 'sum'.
+  const heatAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum';
   const heatData = cachedCompute(
     enrichedRows,
     JSON.stringify([
@@ -443,8 +454,8 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
       heatAggregation,
       config.heatSortBy,
       config.heatSortDirection,
-      xFieldDef?.orderedValues,
-      yFieldDef?.orderedValues,
+      xOrderedValues,
+      yOrderedValues,
     ]),
     () =>
       aggregateHeatmap(
@@ -454,8 +465,8 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
         heatValueField,
         xGroupBy,
         heatAggregation,
-        xFieldDef?.orderedValues,
-        yFieldDef?.orderedValues,
+        xOrderedValues,
+        yOrderedValues,
         config.heatSortBy,
         config.heatSortDirection,
       ),
@@ -483,7 +494,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
 function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved cross-source `funnelReachedField` + cross-filter-mode
   // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
-  const { config, dataSource, enrichedRows, chartHeight } = ctx;
+  const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const funnelXField = config.xField ?? '';
   const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
 
@@ -495,7 +506,12 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
     );
   }
 
-  const valueFieldDef = dataSource?.fields.find((f) => f.id === funnelValueField);
+  // `resolveFieldDef` so a calculated value field (offered by the panel) keeps its real
+  // currency/precision formatting instead of losing it to a native-only lookup (finding 3.2).
+  const valueFieldDef = resolveFieldDef(funnelValueField, dataSource, expressionFields);
+  // Per-series aggregation wins over the yField-level default (finding 2.2) — same precedence
+  // fix as the heatmap above, for the same config-key-retention-across-type-switch reason.
+  const funnelAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum';
 
   // Cumulative "reached stage" mode: count deals whose reached-depth is at or
   // beyond each stage → monotonically non-increasing by construction (never
@@ -540,7 +556,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
       'funnelStages',
       funnelXField,
       funnelValueField,
-      config.yAggregation,
+      funnelAggregation,
       config.chartSortBy,
       config.funnelCategoryOrder,
       fieldOrderedValues,
@@ -550,7 +566,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
         enrichedRows,
         funnelXField,
         funnelValueField,
-        config.yAggregation,
+        funnelAggregation,
         config.chartSortBy,
         config.funnelCategoryOrder,
         fieldOrderedValues,
@@ -583,7 +599,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
 function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved cross-source `sankeyTargetField` + cross-filter-mode
   // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
-  const { config, dataSource, enrichedRows, chartHeight } = ctx;
+  const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const sankeySourceField = config.xField ?? '';
   const sankeyTargetField = config.sankeyTargetField ?? '';
   const sankeyValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -596,7 +612,9 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
     );
   }
 
-  const valueFieldDef = dataSource?.fields.find((f) => f.id === sankeyValueField);
+  // `resolveFieldDef` so a calculated link-weight field keeps its real currency/precision
+  // formatting instead of losing it to a native-only lookup (finding 3.2).
+  const valueFieldDef = resolveFieldDef(sankeyValueField, dataSource, expressionFields);
   const sankeyData = cachedCompute(
     enrichedRows,
     JSON.stringify(['sankey', sankeySourceField, sankeyTargetField, sankeyValueField]),

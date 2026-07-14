@@ -15,6 +15,7 @@ import type {
 } from '../models';
 import { isWidgetOfKind } from '../models';
 import { isRelativeDateValue } from './filterUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
 import { escapeCsvCell } from './csvUtils';
@@ -335,23 +336,42 @@ function formatAbsoluteDate(value: unknown): string {
 /**
  * Returns an auto-generated subtitle for a KPI widget based on its date filter.
  * Returns `null` if no relevant date filter is found.
+ *
+ * The date-filter derivation is routed through `selectFiltersForWidget` — the single
+ * filter-scoping authority the KPI's trend/sparkline/hover-summary paths already use — before
+ * the `findDateFilter`-style matching below, so the auto subtitle honors the `pageId`, the
+ * `disabled` flag, and the `dashboard-date-range` sourceId checks (finding 2.17). Passing the
+ * raw `doc.filters` partition previously let a KPI on page B render page A's "Last 12 months"
+ * subtitle (whichever filter came first), or a disabled / different-source date filter, while
+ * its value was computed under a different (correctly scoped) filter set. Callers thread the
+ * widget's page id (and `crossFilterAllPages`) via `opts`.
  */
 export function inferKpiDateSubtitle(
   widget: StudioWidget,
   filters: StudioFilterState[],
+  opts: { activePageId?: string; crossFilterAllPages?: boolean } = {},
   localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): string | null {
   if (widget.kind !== 'kpi') {
     return null;
   }
-  const relevant = filters.filter(
+  const scoped = selectFiltersForWidget(filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId: opts.activePageId,
+    crossFilterAllPages: opts.crossFilterAllPages,
+  });
+  // Narrow the already-scoped set to the same scope kinds + date types the renderer's
+  // `findDateFilter` considers (page / dashboard-date-range / this widget's own), and take
+  // the first — cross-filter / interactive entries `selectFiltersForWidget` also returns are
+  // never surfaced as a subtitle.
+  const dateFilter = scoped.find(
     (f) =>
       (f.scope.kind === 'page' ||
         f.scope.kind === 'dashboard-date-range' ||
         (f.scope.kind === 'widget' && f.scope.widgetId === widget.id)) &&
       (f.fieldType === 'date' || f.fieldType === 'datetime'),
   );
-  const dateFilter = relevant[0];
   if (!dateFilter) {
     return null;
   }

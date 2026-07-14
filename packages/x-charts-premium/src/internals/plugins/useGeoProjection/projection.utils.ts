@@ -70,7 +70,10 @@ export function getDefaultTranslation(
     return null;
   }
 
-  projection.rotate([-center[0], -center[1]]);
+  // Composite projections (e.g. `geoAlbersUsa`) expose no `rotate`; guard the
+  // call like the other projection helpers do so fitting the map to those
+  // projections doesn't throw.
+  projection.rotate?.([-center[0], -center[1]]);
 
   const [[ux0, uy0], [ux1, uy1]] = geoPath(projection).bounds(geoData);
   const centerPoint = projection(center);

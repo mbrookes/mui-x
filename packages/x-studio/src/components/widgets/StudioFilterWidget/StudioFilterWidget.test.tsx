@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRenderer, screen, act } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import dayjs from 'dayjs';
 import type {
   StudioWidgetConfig,
   StudioWidgetConfigForKind,
@@ -43,6 +44,7 @@ function filterWidget(config: Partial<StudioWidgetConfig>): StudioWidgetOf<'filt
 function setup(
   config: Partial<StudioWidgetConfig>,
   slotKey: keyof NonNullable<React.ComponentProps<typeof StudioFilterWidget>['slots']>,
+  dataSource: StudioDataSource = DATA_SOURCE,
 ) {
   const captured: { onApply?: (...args: any[]) => void; onClear?: () => void } = {};
   function Stub(props: { onApply?: (...args: any[]) => void; onClear?: () => void }) {
@@ -56,7 +58,7 @@ function setup(
   render(
     <StudioFilterWidget
       widget={filterWidget(config)}
-      dataSource={DATA_SOURCE}
+      dataSource={dataSource}
       slots={{ [slotKey]: Stub }}
     />,
     {
@@ -136,6 +138,51 @@ describe('StudioFilterWidget', () => {
         { from: 5, to: 15 },
         { fieldType: 'number', filterSourceId: 'orders' },
       );
+    });
+
+    describe('date slider — DST fall-back commit stability (finding 3.14)', () => {
+      const originalTz = process.env.TZ;
+      const MS_PER_DAY = 86_400_000;
+
+      const DATE_SOURCE: StudioDataSource = {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'orderDate', label: 'Order date', type: 'date' }],
+        rows: [{ orderDate: '2024-11-01' }, { orderDate: '2024-11-10' }],
+      };
+
+      beforeEach(() => {
+        // Node re-reads TZ per Date call, so this reproduces a fall-back DST zone regardless of
+        // the host machine's timezone. US Eastern falls back on 2024-11-03 (a 25-hour local day).
+        process.env.TZ = 'America/New_York';
+      });
+
+      afterEach(() => {
+        process.env.TZ = originalTz;
+      });
+
+      it('commits the intended day when a slider position crosses a fall-back transition', () => {
+        const { captured, applySpy } = setup(
+          { filterWidgetType: 'slider', filterWidgetField: 'orderDate' },
+          'sliderControl',
+          DATE_SOURCE,
+        );
+        // The slider anchors min at local midnight of the earliest row and steps in fixed 24h
+        // increments. Selecting Nov 1 → Nov 10 emits `min + 9·MS_PER_DAY`, which past the Nov 3
+        // fall-back lands at 23:00 of Nov 9 — one hour short of Nov 10's local midnight.
+        const min = dayjs('2024-11-01').startOf('day').valueOf();
+        const hi = min + 9 * MS_PER_DAY;
+        act(() => captured.onApply!(min, hi));
+        expect(applySpy).toHaveBeenCalledWith(
+          'w1',
+          'orderDate',
+          'between',
+          // Calendar arithmetic keeps the upper key on Nov 10; a naive `dayjs(hi).format(...)`
+          // committed '2024-11-09' — one day early.
+          { from: '2024-11-01', to: '2024-11-10' },
+          { fieldType: 'date', filterSourceId: 'orders' },
+        );
+      });
     });
   });
 

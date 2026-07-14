@@ -332,10 +332,20 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       val = rawVal as { from?: number; to?: number };
     }
     const fieldType = isDateField ? (field?.type ?? 'date') : 'number';
+    // Reconstruct a date-slider day key by CALENDAR arithmetic from the min anchor rather than
+    // formatting the raw slider timestamp. Slider positions advance in fixed `MS_PER_DAY` steps,
+    // but a local calendar day is 23h/25h across a DST transition, so past a fall-back change
+    // `min + k·86_400_000` lands at 23:00 of the previous local day and `dayjs(v).format(...)`
+    // commits one day early (finding 3.14). Counting whole days from `sliderMin` and adding them
+    // as calendar days keeps the key on the intended day regardless of DST offsets.
+    const sliderValueToDayKey = (v: number) =>
+      dayjs(sliderMin)
+        .add(Math.round((v - sliderMin) / MS_PER_DAY), 'day')
+        .format('YYYY-MM-DD');
     const managedOnApply = (lo: number, hi: number) => {
       // For date sliders, convert timestamps back to ISO strings for filter matching
-      const from = isDateField ? dayjs(lo).format('YYYY-MM-DD') : lo;
-      const to = isDateField ? dayjs(hi).format('YYYY-MM-DD') : hi;
+      const from = isDateField ? sliderValueToDayKey(lo) : lo;
+      const to = isDateField ? sliderValueToDayKey(hi) : hi;
       controller.applyInteractiveFilter(
         widget.id,
         fieldId,

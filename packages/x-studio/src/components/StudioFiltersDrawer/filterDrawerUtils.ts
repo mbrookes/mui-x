@@ -6,6 +6,7 @@ import {
   type StudioLocaleText,
 } from '../../internals/StudioUIConfigContext';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
+import { hasBetweenBound } from '../../internals/filterUtils';
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMetadata';
 
@@ -250,8 +251,12 @@ export function summarizeFilter(
     }
     if (op === 'between') {
       const range = value as { from?: unknown; to?: unknown } | null;
-      const from = range?.from ? formatFilterValue(range.from, filter.fieldType, localeText) : '';
-      const to = range?.to ? formatFilterValue(range.to, filter.fieldType, localeText) : '';
+      const from = hasBetweenBound(range?.from)
+        ? formatFilterValue(range?.from, filter.fieldType, localeText)
+        : '';
+      const to = hasBetweenBound(range?.to)
+        ? formatFilterValue(range?.to, filter.fieldType, localeText)
+        : '';
       if (from && to) {
         return `${opLabel}: ${from} — ${to}`;
       }

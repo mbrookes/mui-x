@@ -118,7 +118,7 @@ function toDayComparable(
 }
 
 /** True when a `between` bound is actually set — a genuine `0` (or `false`) bound counts as present. */
-function hasBetweenBound(v: unknown): boolean {
+export function hasBetweenBound(v: unknown): boolean {
   return v != null && v !== '';
 }
 

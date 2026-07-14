@@ -50,10 +50,28 @@ import { CrossFilterSection } from './CrossFilterSection';
  * Content-comparison of a filter, ignoring the fields `applyFilterPreset` rewrites when it
  * materializes a preset: the re-minted `id` and the page-rescoped `scope`. Used to decide
  * whether the live page filters still equal a saved view (finding 3.10).
+ *
+ * `dependsOn` (cascade references to other filters' ids, finding 3.11) is remapped from raw
+ * ids to the referenced filter's *position* within `indexById` — a map built once per compared
+ * set (see `filtersEquivalent`). Live filter ids, `${presetId}-*` preset-baked ids, and the
+ * fresh ids `applyFilterPreset` mints all live in different id-spaces, so a live filter and its
+ * saved-preset counterpart never share a literal `dependsOn` id even when the cascade they
+ * encode is identical — comparing positions within each own set is space-independent.
  */
-function normalizeFilterForCompare(filter: StudioFilterState): string {
-  const { id, scope, ...rest } = filter;
-  return JSON.stringify(rest);
+function normalizeFilterForCompare(
+  filter: StudioFilterState,
+  indexById: Map<string, number>,
+): string {
+  const { id, scope, dependsOn, ...rest } = filter;
+  const normalizedDependsOn = dependsOn
+    ?.map((depId) => indexById.get(depId))
+    .filter((index): index is number => index !== undefined)
+    .sort((a, b) => a - b);
+  return JSON.stringify({
+    ...rest,
+    dependsOn:
+      normalizedDependsOn && normalizedDependsOn.length > 0 ? normalizedDependsOn : undefined,
+  });
 }
 
 /** True when two filter lists are content-equivalent regardless of order/id/scope. */
@@ -61,8 +79,10 @@ function filtersEquivalent(a: StudioFilterState[], b: StudioFilterState[]): bool
   if (a.length !== b.length) {
     return false;
   }
-  const sortedA = a.map(normalizeFilterForCompare).sort();
-  const sortedB = b.map(normalizeFilterForCompare).sort();
+  const indexByIdA = new Map(a.map((f, index) => [f.id, index]));
+  const indexByIdB = new Map(b.map((f, index) => [f.id, index]));
+  const sortedA = a.map((f) => normalizeFilterForCompare(f, indexByIdA)).sort();
+  const sortedB = b.map((f) => normalizeFilterForCompare(f, indexByIdB)).sort();
   return sortedA.every((value, index) => value === sortedB[index]);
 }
 
@@ -197,7 +217,14 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
   );
   const widgetFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === selectedWidgetId,
+    (f: StudioFilterState) =>
+      f.scope.kind === 'widget' &&
+      f.scope.widgetId === selectedWidgetId &&
+      // 2.4: the `widget-date-range-*` filter is managed exclusively via the KPI setup panel
+      // (see `StudioController.setWidgetDateRange`'s doc) — hide it here the same way
+      // `WidgetFiltersPanel.tsx` does, so the drawer doesn't expose a phantom card whose edits
+      // are silently discarded (its `value` is recomputed from `dateRangePreset` at query time).
+      f.dateRangePreset === undefined,
   );
   const crossFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) =>

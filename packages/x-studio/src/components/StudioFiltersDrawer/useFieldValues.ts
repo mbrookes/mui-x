@@ -20,8 +20,13 @@ function applyParentFilters(rows: Row[], parentFilters: StudioFilterState[]): Ro
       if (!Array.isArray(f.value) || f.value.length === 0) {
         continue;
       }
-      const allowed = new Set((f.value as unknown[]).map(String));
-      result = result.filter((row) => allowed.has(String(row[f.field] ?? '')));
+      const selectedSet = new Set((f.value as unknown[]).map(String));
+      // 2.8: a `not_in` parent selection excludes the selected set — narrowing TO it (the
+      // `in`/default behavior) computes the inverse of the surviving rows.
+      result =
+        f.operator === 'not_in'
+          ? result.filter((row) => !selectedSet.has(String(row[f.field] ?? '')))
+          : result.filter((row) => selectedSet.has(String(row[f.field] ?? '')));
     } else if (mode === 'condition') {
       if (f.value == null || f.value === '') {
         continue;

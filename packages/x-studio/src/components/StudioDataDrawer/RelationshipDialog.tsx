@@ -70,10 +70,39 @@ export function RelationshipDialog(props: {
     form.targetField &&
     form.sourceId !== form.targetId &&
     (!isManyToMany ||
-      (form.junctionSourceId && form.junctionSourceField && form.junctionTargetField));
+      (form.junctionSourceId &&
+        form.junctionSourceField &&
+        form.junctionTargetField &&
+        form.junctionSourceId !== form.sourceId &&
+        form.junctionSourceId !== form.targetId &&
+        form.junctionSourceField !== form.junctionTargetField));
 
   const field = (key: keyof RelationshipFormState) => (value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Clears the junction trio when a source/target edit collides with the currently
+  // selected junction data source, so a stale out-of-range junction can't be saved
+  // (the junction Select only omits the endpoints from its options going forward;
+  // it doesn't reset an already-selected value that becomes degenerate).
+  const setSourceId = (value: string) =>
+    setForm((prev) => ({
+      ...prev,
+      sourceId: value,
+      sourceField: '',
+      ...(prev.junctionSourceId && prev.junctionSourceId === value
+        ? { junctionSourceId: '', junctionSourceField: '', junctionTargetField: '' }
+        : {}),
+    }));
+
+  const setTargetId = (value: string) =>
+    setForm((prev) => ({
+      ...prev,
+      targetId: value,
+      targetField: '',
+      ...(prev.junctionSourceId && prev.junctionSourceId === value
+        ? { junctionSourceId: '', junctionSourceField: '', junctionTargetField: '' }
+        : {}),
+    }));
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -111,10 +140,7 @@ export function RelationshipDialog(props: {
                     : localeText.relationshipSourceManyLabel
                 }
                 value={form.sourceId}
-                onChange={(event) => {
-                  field('sourceId')(event.target.value);
-                  field('sourceField')('');
-                }}
+                onChange={(event) => setSourceId(event.target.value)}
               >
                 {sourceList.map((s) => (
                   <MenuItem key={s.id} value={s.id}>
@@ -154,10 +180,7 @@ export function RelationshipDialog(props: {
                     : localeText.relationshipTargetOneLabel
                 }
                 value={form.targetId}
-                onChange={(event) => {
-                  field('targetId')(event.target.value);
-                  field('targetField')('');
-                }}
+                onChange={(event) => setTargetId(event.target.value)}
               >
                 {sourceList.flatMap((s) =>
                   s.id !== form.sourceId

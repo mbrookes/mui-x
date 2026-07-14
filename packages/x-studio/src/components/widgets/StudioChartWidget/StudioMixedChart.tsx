@@ -12,9 +12,9 @@ import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
 import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
 import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
 import { normalizeChartSeries } from '@mui/x-studio-schema';
-import type { StudioChartConfig, StudioDataSource } from '../../../models';
+import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
 import type { MultiYSeriesData } from '../../../internals/chartAggregation';
-import { makeValueFormatter } from './chartWidgetHelpers';
+import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
 
 type YSeriesConfig = NonNullable<StudioChartConfig['ySeries']>[number];
 
@@ -30,6 +30,15 @@ export interface StudioMixedChartProps {
   widgetSourceId?: string;
   dataSources: Record<string, StudioDataSource>;
   dataSource?: StudioDataSource;
+  /**
+   * Doc-wide computed (expression) fields. Resolved via `resolveFieldDef` alongside each
+   * series/axis's native fields (bar, line/area via `lineSeries.ts`, pie, and scatter all
+   * already do this) so a calculated mixed-chart measure gets its real label/format
+   * instead of rendering its raw field id (finding 3.3). Expression field ids are unique
+   * doc-wide, so the same list resolves foreign-source blended series correctly too — no
+   * per-source filtering is needed.
+   */
+  expressionFields?: StudioExpressionField[];
   height: number;
   skipAnimation: boolean;
   /**
@@ -56,6 +65,7 @@ export function StudioMixedChart({
   widgetSourceId,
   dataSources,
   dataSource,
+  expressionFields = [],
   height,
   skipAnimation,
   formatLabel,
@@ -91,12 +101,16 @@ export function StudioMixedChart({
     const seriesId = `${s.fieldId}-${index}`;
     const color = resolvedChartColors[index % resolvedChartColors.length];
     // The field may live in a foreign source for blended series — fall back across
-    // all sources, then to the explicit series label, then the field id.
+    // all sources, then to the explicit series label, then the field id. `resolveFieldDef`
+    // also checks `expressionFields` (doc-wide, so this covers a foreign source's
+    // expression fields too), matching every sibling chart family (finding 3.3).
     const seriesSourceId = seriesConfig?.sourceId ?? widgetSourceId;
     const fieldDef =
-      (seriesSourceId ? dataSources[seriesSourceId] : dataSource)?.fields.find(
-        (f) => f.id === s.fieldId,
-      ) ?? dataSource?.fields.find((f) => f.id === s.fieldId);
+      resolveFieldDef(
+        s.fieldId,
+        seriesSourceId ? dataSources[seriesSourceId] : dataSource,
+        expressionFields,
+      ) ?? resolveFieldDef(s.fieldId, dataSource, expressionFields);
     const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
     // Series values must honour the field's format/currencyCode/precision the same way
     // the y-axes already do (lines below) — otherwise the tooltip shows raw numbers
@@ -135,7 +149,7 @@ export function StudioMixedChart({
       return undefined;
     }
     const srcId = sc.sourceId ?? widgetSourceId;
-    return (srcId ? dataSources[srcId] : dataSource)?.fields.find((f) => f.id === sc.fieldId);
+    return resolveFieldDef(sc.fieldId, srcId ? dataSources[srcId] : dataSource, expressionFields);
   };
   const leftSeriesConfig =
     ySeries.find((sc) => (normalizeChartSeries(sc).type ?? 'bar') === 'bar') ?? ySeries[0];

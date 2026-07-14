@@ -2,8 +2,31 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// The x-charts pro/premium packages carry a `'__RELEASE_INFO__'` placeholder
+// that the repo's Babel build replaces with a base64 release timestamp; the
+// license verifier parses it in production builds (`NODE_ENV === 'production'`).
+// Serving the packages from raw source here bypasses that Babel step, so an
+// un-replaced placeholder makes a production `vite build` throw "release
+// information is invalid". Replace it the same way Babel does (see
+// `scripts/generateReleaseInfo.mjs`).
+const releaseDate = new Date();
+releaseDate.setHours(0, 0, 0, 0);
+const RELEASE_INFO = Buffer.from(String(releaseDate.getTime())).toString('base64');
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'x-charts-vega-replace-release-info',
+      enforce: 'pre',
+      transform(code) {
+        if (!code.includes('__RELEASE_INFO__')) {
+          return null;
+        }
+        return { code: code.replaceAll('__RELEASE_INFO__', RELEASE_INFO), map: null };
+      },
+    },
+  ],
   // Both `@mui/x-charts-vega` and `@mui/x-charts` are unpublished/unbuilt
   // workspace packages here — alias them to `src` (same approach as
   // examples/x-studio/vite.config.ts) so Vite serves TS source directly

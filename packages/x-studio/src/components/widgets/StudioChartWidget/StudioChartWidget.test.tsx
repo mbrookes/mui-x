@@ -2364,7 +2364,7 @@ describe('<StudioChartWidget />', () => {
       label?: string;
     };
 
-    function renderedAnnotationLines(): Array<React.ReactElement<AnnotationLineProps>> {
+    function collectAnnotationLines(): Array<React.ReactElement<AnnotationLineProps>> {
       const props = barChartSpy.mock.calls.at(-1)?.[0] as { children?: React.ReactNode };
       return React.Children.toArray(props.children) as Array<
         React.ReactElement<AnnotationLineProps>
@@ -2380,7 +2380,7 @@ describe('<StudioChartWidget />', () => {
 
       renderChart(widget, dataSource);
 
-      const lines = renderedAnnotationLines();
+      const lines = collectAnnotationLines();
       expect(lines).toHaveLength(2);
       expect(lines.every((line) => line.type === ChartsReferenceLine)).toBe(true);
 
@@ -2402,7 +2402,7 @@ describe('<StudioChartWidget />', () => {
 
       renderChart(widget, dataSource);
 
-      const lines = renderedAnnotationLines();
+      const lines = collectAnnotationLines();
       expect(lines).toHaveLength(2);
 
       // The numeric threshold now lands on the physical x-axis (which carries the measure

@@ -211,7 +211,6 @@ export interface StudioGridConfig {
  * This interface is retained as the chart-family base (currently empty) so the
  * family interfaces and `StudioChartConfig` keep a stable common ancestor.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface StudioChartConfigBase {}
 
 /**

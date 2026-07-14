@@ -1497,10 +1497,10 @@ function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
  * Resolve the client-side residual of a partitioned filter into the `StudioFilterState[]` to
  * re-apply after fetching, warning (never silently) for anything that cannot be recovered.
  *
- * @param aggregated - whether the server will aggregate. When true the returned rows are
- *   pre-aggregated and a raw-field predicate cannot be re-applied, so it is dropped with a
+ * @param {boolean} aggregated - whether the server will aggregate. When true the returned rows
+ *   are pre-aggregated and a raw-field predicate cannot be re-applied, so it is dropped with a
  *   warning instead of a (wrong) client-side pass.
- * @param tryProjectField - ensures the leaf's field will be present (by its logical id) in the
+ * @param {(fieldId: string) => boolean} tryProjectField - ensures the leaf's field will be present (by its logical id) in the
  *   returned raw rows; returns false when the column cannot be projected (e.g. a cross-source
  *   field whose row key would not be the logical id), in which case the leaf is dropped+warned.
  */

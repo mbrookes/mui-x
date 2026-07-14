@@ -207,9 +207,11 @@ describe('<StudioFiltersDrawer /> hides the managed date-range filter (finding 2
     });
 
     // The widget filter section renders but shows the empty-state, not a filter card for
-    // the managed date-range filter.
+    // the managed date-range filter. Both the page-filters and widget-filters sections are
+    // empty, so "No filters applied." appears twice — confirming the managed filter yields
+    // no widget card.
     expect(screen.getByText('Widget: Revenue KPI')).not.toBe(null);
-    expect(screen.getByText('No filters applied.')).not.toBe(null);
+    expect(screen.getAllByText('No filters applied.')).toHaveLength(2);
   });
 
   it('still shows a regular widget filter alongside a hidden managed date-range filter', () => {
@@ -235,7 +237,10 @@ describe('<StudioFiltersDrawer /> hides the managed date-range filter (finding 2
       ],
     });
 
-    expect(screen.queryByText('No filters applied.')).toBe(null);
+    // The widget section shows the real region filter (not empty), so only the empty
+    // page-filters section renders "No filters applied." — exactly once. The managed
+    // date-range filter still produces no card.
+    expect(screen.getAllByText('No filters applied.')).toHaveLength(1);
     expect(screen.getByDisplayValue('EMEA')).not.toBe(null);
   });
 });

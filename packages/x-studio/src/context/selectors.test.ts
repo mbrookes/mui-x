@@ -429,8 +429,15 @@ describe('makeSelectWidgetRankFilter', () => {
     expect(makeSelectWidgetRankFilter('w1')(s)).toBe(rankFilter);
   });
 
-  it('returns null for a non-chart widget', () => {
+  it('returns a widget-scoped rank filter for a non-chart widget (finding 3.9)', () => {
+    // "Can rank" is derived from the filter set, not a chart-only kind gate: a grid /
+    // KPI / map / pivot Top-N gets its "Top N" chip too.
     const s = state({ widgets: { w1: widget('w1', 'grid') }, filters: [rankFilter] });
+    expect(makeSelectWidgetRankFilter('w1')(s)).toBe(rankFilter);
+  });
+
+  it('returns null when the widget has no widget-scoped rank filter', () => {
+    const s = state({ widgets: { w1: widget('w1', 'grid') }, filters: [] });
     expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
   });
 
@@ -487,8 +494,15 @@ describe('makeSelectWidgetActiveCrossFilter', () => {
     expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBe(crossFilter);
   });
 
-  it('returns null for a widget kind that does not emit cross-filters', () => {
-    const s = state({ widgets: { w1: widget('w1', 'kpi') }, filters: [crossFilter] });
+  it('returns a map widget cross-filter (capability derived from the filter set, finding 3.9)', () => {
+    // "Can emit" is derived from the filter set, not a chart/grid-only kind gate: a
+    // map's emitted cross-filter now gets the card chip + clear affordance too.
+    const s = state({ widgets: { w1: widget('w1', 'map') }, filters: [crossFilter] });
+    expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBe(crossFilter);
+  });
+
+  it('returns null when the widget has no active cross-filter', () => {
+    const s = state({ widgets: { w1: widget('w1', 'kpi') }, filters: [] });
     expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
   });
 });

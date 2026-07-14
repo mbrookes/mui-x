@@ -22,6 +22,8 @@ import {
   selectWidgets,
   selectDataSources,
   selectFilters,
+  selectActivePageId,
+  selectCrossFilterAllPages,
   useStudioLocaleText,
 } from '../../context';
 import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
@@ -100,6 +102,8 @@ export function FormatPanel(props: { widgetId: string }) {
   const config = widget?.config as StudioWidgetConfig | undefined;
   const dataSources = useStudioSelector(selectDataSources);
   const allFilters = useStudioSelector(selectFilters);
+  const activePageId = useStudioSelector(selectActivePageId);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
   const [formState, setFormState] = React.useState({
     title: widget?.title ?? '',
@@ -125,10 +129,17 @@ export function FormatPanel(props: { widgetId: string }) {
       return null;
     }
     if (widget.kind === 'kpi') {
-      return inferKpiDateSubtitle(widget, allFilters, localeText) ?? '';
+      return (
+        inferKpiDateSubtitle(
+          widget,
+          allFilters,
+          { activePageId, crossFilterAllPages },
+          localeText,
+        ) ?? ''
+      );
     }
     return null;
-  }, [widget, isAutoSubtitle, allFilters, localeText]);
+  }, [widget, isAutoSubtitle, allFilters, activePageId, crossFilterAllPages, localeText]);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- form state is intentionally reset when widget/page changes
   React.useEffect(() => {

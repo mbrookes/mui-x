@@ -228,7 +228,13 @@ export function RelationshipDialog(props: {
                   }}
                 >
                   {sourceList.flatMap((s) =>
-                    s.id !== form.sourceId && s.id !== form.targetId
+                    // Omit the endpoints so a NEW junction can't be picked as a degenerate
+                    // self-join, but keep the currently-selected value in the list even when it
+                    // collides with an endpoint (e.g. loaded from older/degenerate data) so the
+                    // Select renders it without an out-of-range warning — `isValid` keeps Update
+                    // disabled until it's corrected.
+                    (s.id !== form.sourceId && s.id !== form.targetId) ||
+                    s.id === form.junctionSourceId
                       ? [
                           <MenuItem key={s.id} value={s.id}>
                             {s.label}

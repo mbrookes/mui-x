@@ -183,7 +183,7 @@ describe('RelationshipDialog', () => {
     expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', true);
 
     const junctionSourceSelect = screen.getAllByRole('combobox')[5];
-    expect(junctionSourceSelect).toHaveProperty('textContent', '');
+    expect(junctionSourceSelect.textContent?.replace(/\u200B/g, '')).toBe('');
   });
 
   it('clears the junction trio when the target is changed to collide with it', async () => {
@@ -205,6 +205,6 @@ describe('RelationshipDialog', () => {
     expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', true);
 
     const junctionSourceSelect = screen.getAllByRole('combobox')[5];
-    expect(junctionSourceSelect).toHaveProperty('textContent', '');
+    expect(junctionSourceSelect.textContent?.replace(/\u200B/g, '')).toBe('');
   });
 });

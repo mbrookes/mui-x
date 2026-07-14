@@ -15,6 +15,7 @@ const controller = {
 
 const mockState = {
   doc: {
+    dashboard: { activePageId: 'page-1', crossFilterAllPages: false },
     widgets: {
       'widget-1': {
         id: 'widget-1',

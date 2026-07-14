@@ -1024,7 +1024,7 @@ describe('inferKpiDateSubtitle — locale tokens', () => {
       dateFilterUnitDay: 'Tag',
       dateFilterUnitDays: 'Tage',
     } as StudioLocaleText;
-    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')], lt);
+    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')], {}, lt);
     expect(subtitle).toBe('Letzte 30 Tage');
   });
 

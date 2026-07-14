@@ -519,7 +519,8 @@ describe('applyFilters — bare-date bounds on datetime columns (finding 1.3)', 
       }),
     ]);
     // Only rows at or before noon on Jul 10 — the whole-day inclusivity does NOT apply.
-    expect(result.map((r) => r.id)).toEqual([1, 2, 3]);
+    // id 3 (15:30) is in the afternoon, so `<= 12:00` correctly excludes it.
+    expect(result.map((r) => r.id)).toEqual([1, 2]);
   });
 });
 

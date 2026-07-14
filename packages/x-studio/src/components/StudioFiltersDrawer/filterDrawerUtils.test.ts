@@ -136,7 +136,7 @@ describe('summarizeFilter — condition mode', () => {
       summarizeFilter(
         makeFilter({ operator: 'between', value: { from: 0, to: 100 }, fieldType: 'number' }),
       ),
-    ).toBe('between: 0 — 100');
+    ).toBe('Between: 0 — 100');
   });
 
   it('between with only a genuine 0 lower bound (no upper) shows "from 0"', () => {

@@ -418,6 +418,111 @@ describe('applyFilters — date operators', () => {
   });
 });
 
+// ─── Bare-date bounds vs datetime columns (finding 1.3) ───────────────────────
+// A user-authored date-only bound ('2026-07-10') against a datetime column must compare at
+// DAY granularity: `>=`/`<=`/`between`-bounds inclusive of the WHOLE day, `>`/`<` exclusive of
+// it. Previously `toComparable('2026-07-10', 'datetime')` became midnight, so `<= Jul 10`
+// dropped every non-midnight row of Jul 10 while `equals Jul 10` matched the whole day.
+describe('applyFilters — bare-date bounds on datetime columns (finding 1.3)', () => {
+  const dtRows = [
+    { id: 1, ts: '2026-07-09T23:00:00.000Z' },
+    { id: 2, ts: '2026-07-10T00:00:00.000Z' },
+    { id: 3, ts: '2026-07-10T15:30:00.000Z' },
+    { id: 4, ts: '2026-07-10T23:59:00.000Z' },
+    { id: 5, ts: '2026-07-11T00:30:00.000Z' },
+  ];
+
+  it('less_than_or_equal includes the whole last day (the core bug)', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'less_than_or_equal',
+        value: '2026-07-10',
+        fieldType: 'datetime',
+      }),
+    ]);
+    // All of Jul 10 kept (2,3,4) plus the earlier day (1); the Jul 11 row (5) excluded.
+    expect(result.map((r) => r.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('less_than excludes the whole named day', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'less_than',
+        value: '2026-07-10',
+        fieldType: 'datetime',
+      }),
+    ]);
+    // Only rows strictly before Jul 10 survive — no Jul 10 row is kept.
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('greater_than_or_equal includes the whole named day', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'greater_than_or_equal',
+        value: '2026-07-10',
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('greater_than excludes the whole named day', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'greater_than',
+        value: '2026-07-10',
+        fieldType: 'datetime',
+      }),
+    ]);
+    // Every Jul 10 row excluded; only the Jul 11 row survives.
+    expect(result.map((r) => r.id)).toEqual([5]);
+  });
+
+  it('between with bare-date bounds is inclusive of both whole days', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'between',
+        value: { from: '2026-07-10', to: '2026-07-10' },
+        fieldType: 'datetime',
+      }),
+    ]);
+    // The single-day window covers all of Jul 10, not just its midnight instant.
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it('between mixes a bare-date lower bound with an explicit end-of-day upper bound', () => {
+    // Mirrors the resolved-preset shape: `from` bare date, `to` an explicit UTC end-of-day.
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'between',
+        value: { from: '2026-07-10', to: '2026-07-10T23:59:59.999Z' },
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it('a bound carrying an explicit time keeps full-timestamp precision', () => {
+    const result = applyFilters(dtRows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'less_than_or_equal',
+        value: '2026-07-10T12:00:00.000Z',
+        fieldType: 'datetime',
+      }),
+    ]);
+    // Only rows at or before noon on Jul 10 — the whole-day inclusivity does NOT apply.
+    expect(result.map((r) => r.id)).toEqual([1, 2, 3]);
+  });
+});
+
 // ─── Relative date values ─────────────────────────────────────────────────────
 
 describe('applyFilters — relative date values', () => {
@@ -830,11 +935,13 @@ describe('resolveDateRangePresets', () => {
     expect(range.to).toBe(new Date().toISOString().slice(0, 10));
   });
 
-  it('appends T23:59:59 to the to date for datetime fields', () => {
+  it('resolves the to date to a UTC end-of-day for datetime fields (finding 1.3)', () => {
     const filter = makePresetFilter({ dateRangePreset: 'last_3_months', fieldType: 'datetime' });
     const [resolved] = resolveDateRangePresets([filter]);
     const range = resolved.value as { from: string; to: string };
-    expect(range.to).toMatch(/T23:59:59$/);
+    // End-of-day anchored in UTC (`…T23:59:59.999Z`) so both bounds share one timezone: the
+    // bare-date `from` also parses as UTC midnight. A zone-less `…T23:59:59` parsed as local.
+    expect(range.to).toMatch(/T23:59:59\.999Z$/);
     expect(range.from).not.toContain('T');
   });
 

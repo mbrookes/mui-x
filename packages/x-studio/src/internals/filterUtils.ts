@@ -29,7 +29,12 @@ export function resolveDateRangePreset(filter: StudioFilterState): StudioFilterS
     return filter;
   }
   const { from, to } = computeDateRangePreset(filter.dateRangePreset);
-  const resolvedTo = filter.fieldType === 'datetime' ? `${to}T23:59:59` : to;
+  // For a datetime column the end bound must cover the whole last day. Anchor it to the end of
+  // the day in UTC (`…T23:59:59.999Z`) so BOTH bounds share one timezone interpretation: the
+  // bare-date `from` parses as UTC midnight, and rows are normalized to UTC ISO on ingestion, so
+  // a UTC end-of-day keeps the two ends of the window in the same zone. A zone-less
+  // `…T23:59:59` parsed as LOCAL time, mixing zones across the one preset window (finding 1.3).
+  const resolvedTo = filter.fieldType === 'datetime' ? `${to}T23:59:59.999Z` : to;
   return { ...filter, value: { from, to: resolvedTo } };
 }
 
@@ -120,6 +125,47 @@ function toDayComparable(
 /** True when a `between` bound is actually set — a genuine `0` (or `false`) bound counts as present. */
 function hasBetweenBound(v: unknown): boolean {
   return v != null && v !== '';
+}
+
+/**
+ * True when a date/datetime filter-side value carries NO time-of-day — a bare `YYYY-MM-DD`
+ * string, or a `RelativeDateValue` (which resolves to a bare `YYYY-MM-DD` via
+ * `resolveRelativeDate`).
+ *
+ * Such a bound must be compared at DAY granularity against a `datetime` column so it covers
+ * the whole calendar day rather than only the exact-midnight instant its full-ISO form
+ * (`…T00:00:00.000Z`) would (finding 1.3): `>=`/`<=`/`between` bounds become inclusive of the
+ * entire day and `>`/`<` exclusive of it. A value carrying an explicit time (e.g. a preset's
+ * resolved end-of-day instant) keeps full-timestamp precision.
+ */
+function isDateOnlyFilterValue(val: unknown): boolean {
+  if (isRelativeDateValue(val)) {
+    return true;
+  }
+  return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val);
+}
+
+/**
+ * Builds the comparable filter constant and a matching row-value comparator for a single
+ * date/datetime ordering bound, choosing day granularity when the filter value is date-only
+ * (see `isDateOnlyFilterValue`). Both sides always use the SAME granularity so the comparison
+ * is well-defined. Row values still route through `toComparable`/`toDayComparable` so numeric
+ * timestamps (e.g. from columnar sources) are normalized to ISO before comparison.
+ */
+function compileDateBound(
+  filterVal: unknown,
+  fieldType: StudioFilterState['fieldType'],
+): { cmpVal: number | string; rowComparable: (rv: unknown) => number | string } {
+  if (isDateOnlyFilterValue(filterVal)) {
+    return {
+      cmpVal: toDayComparable(filterVal, fieldType),
+      rowComparable: (rv) => toDayComparable(rv, fieldType),
+    };
+  }
+  return {
+    cmpVal: toComparable(filterVal, fieldType),
+    rowComparable: (rv) => toComparable(rv, fieldType),
+  };
 }
 
 /**
@@ -270,17 +316,19 @@ function compileSingleCondition(
     case 'is_not_empty':
       return (row) => row[field] != null && String(row[field]) !== '';
     case 'greater_than': {
-      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'date' || fieldType === 'datetime') {
-        // Use toComparable on row values so numeric timestamps (e.g. from columnar data
-        // sources) are normalized to ISO strings before comparison. toComparable has a
-        // fast path for already-canonical ISO strings so there is no perf regression
-        // when rows have been pre-normalized by normalizeDataSourceRows.
+        // A bare-date filter value compares at day granularity so `>` a date excludes the
+        // WHOLE of that day on a datetime column (finding 1.3); a value with an explicit time
+        // keeps full precision. Row values route through the same comparator so numeric
+        // timestamps (e.g. from columnar sources) are normalized to ISO before comparison —
+        // with a fast path for already-canonical ISO strings, so no perf regression.
+        const { cmpVal, rowComparable } = compileDateBound(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv != null && toComparable(rv, fieldType) > cmpVal;
+          return rv != null && rowComparable(rv) > cmpVal;
         };
       }
+      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
         return (row) => Number(row[field]) > n;
@@ -288,13 +336,15 @@ function compileSingleCondition(
       return (row) => toComparable(row[field], fieldType) > cmpVal;
     }
     case 'less_than': {
-      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'date' || fieldType === 'datetime') {
+        // Day granularity for a bare-date value so `<` a date excludes the whole of that day.
+        const { cmpVal, rowComparable } = compileDateBound(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv != null && toComparable(rv, fieldType) < cmpVal;
+          return rv != null && rowComparable(rv) < cmpVal;
         };
       }
+      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
         return (row) => Number(row[field]) < n;
@@ -302,13 +352,15 @@ function compileSingleCondition(
       return (row) => toComparable(row[field], fieldType) < cmpVal;
     }
     case 'greater_than_or_equal': {
-      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'date' || fieldType === 'datetime') {
+        // Day granularity for a bare-date value so `>=` a date includes the whole of that day.
+        const { cmpVal, rowComparable } = compileDateBound(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv != null && toComparable(rv, fieldType) >= cmpVal;
+          return rv != null && rowComparable(rv) >= cmpVal;
         };
       }
+      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
         return (row) => Number(row[field]) >= n;
@@ -316,13 +368,17 @@ function compileSingleCondition(
       return (row) => toComparable(row[field], fieldType) >= cmpVal;
     }
     case 'less_than_or_equal': {
-      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'date' || fieldType === 'datetime') {
+        // Day granularity for a bare-date value so `<=` a date includes the WHOLE of that day
+        // on a datetime column, instead of excluding everything after its midnight — the
+        // "at or before Jul 10 drops all of Jul 10" bug (finding 1.3).
+        const { cmpVal, rowComparable } = compileDateBound(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
-          return rv != null && toComparable(rv, fieldType) <= cmpVal;
+          return rv != null && rowComparable(rv) <= cmpVal;
         };
       }
+      const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
         return (row) => Number(row[field]) <= n;
@@ -336,24 +392,30 @@ function compileSingleCondition(
       }
       // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
       // "between 0 and 100") is treated as present rather than absent (finding 2.14/2.25).
-      const from = hasBetweenBound(range.from) ? toComparable(range.from, fieldType) : null;
-      const to = hasBetweenBound(range.to) ? toComparable(range.to, fieldType) : null;
       if (fieldType === 'date' || fieldType === 'datetime') {
+        // Each bound is compiled independently: a date-only bound compares at day granularity
+        // so a bare-date `to` covers the WHOLE last day of a datetime column (inclusive) rather
+        // than excluding everything after its midnight (finding 1.3). The two bounds can differ
+        // in granularity — e.g. a resolved preset leaves `from` a bare date but `to` an explicit
+        // end-of-day instant — and each side compares row values at its own granularity.
+        const lower = hasBetweenBound(range.from) ? compileDateBound(range.from, fieldType) : null;
+        const upper = hasBetweenBound(range.to) ? compileDateBound(range.to, fieldType) : null;
         return (row) => {
           const rv = row[field];
           if (rv == null) {
             return false;
           }
-          const s = toComparable(rv, fieldType);
-          if (from !== null && s < from) {
+          if (lower !== null && lower.rowComparable(rv) < lower.cmpVal) {
             return false;
           }
-          if (to !== null && s > to) {
+          if (upper !== null && upper.rowComparable(rv) > upper.cmpVal) {
             return false;
           }
           return true;
         };
       }
+      const from = hasBetweenBound(range.from) ? toComparable(range.from, fieldType) : null;
+      const to = hasBetweenBound(range.to) ? toComparable(range.to, fieldType) : null;
       if (fieldType === 'number') {
         const numFrom = from as number | null;
         const numTo = to as number | null;

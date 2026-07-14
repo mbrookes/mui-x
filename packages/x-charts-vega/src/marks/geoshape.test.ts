@@ -217,7 +217,10 @@ describe('compileGeoshapeMark', () => {
       } as VegaLiteSpec);
 
       expect(compiled.chartKind).to.equal('geo');
-      expect(compiled.plots).to.include('geoBase');
+      // A choropleth renders only the colored features (like Vega-Lite), with no
+      // base `geoBase` layer that would fill color-join-skipped features (e.g.
+      // the Great Lakes) with the default dark shape color.
+      expect(compiled.plots).to.not.include('geoBase');
       expect(compiled.plots).to.include('mapShape');
       expect(compiled.series).to.have.length(1);
 

@@ -142,7 +142,9 @@ describe('compilePointMark', () => {
     expect(zAxis.min).to.equal(5);
     expect(zAxis.max).to.equal(15);
     expect(zAxis.sizeMap?.type).to.equal('continuous');
-    expect(zAxis.sizeMap?.size).to.deep.equal([4, 20]);
+    // Radius range matching Vega-Lite's default point size (area up to 361 →
+    // radius ≈ 10.7), with a `sqrt` interpolator so area ∝ value.
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
   });
 
   it('reports a partial gap for a non-quantitative size field (no x-charts size-scale equivalent)', () => {

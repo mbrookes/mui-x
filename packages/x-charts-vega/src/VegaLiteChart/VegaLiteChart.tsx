@@ -46,10 +46,12 @@ type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' }
  * Maps a Vega-Lite color-legend `orient` to the x-charts wrapper's legend
  * placement (`legendPosition` + `legendDirection`, the mechanism that actually
  * moves the composed HTML legend — `<ChartsLegend>` itself drops a `position`
- * prop). Returns `undefined` for unset / unsupported orients so the default
- * placement is preserved.
+ * prop). An unset / unsupported orient defaults to a right-side vertical legend,
+ * matching Vega-Lite's default placement (x-charts would otherwise stack a
+ * horizontal legend across the top, which wraps to several rows and squeezes the
+ * plot for series-heavy charts).
  */
-function resolveLegendLayout(orient: string | undefined): LegendLayout | undefined {
+function resolveLegendLayout(orient: string | undefined): LegendLayout {
   switch (orient) {
     case 'top':
       return { position: { vertical: 'top', horizontal: 'center' }, direction: 'horizontal' };
@@ -58,9 +60,8 @@ function resolveLegendLayout(orient: string | undefined): LegendLayout | undefin
     case 'left':
       return { position: { vertical: 'middle', horizontal: 'start' }, direction: 'vertical' };
     case 'right':
-      return { position: { vertical: 'middle', horizontal: 'end' }, direction: 'vertical' };
     default:
-      return undefined;
+      return { position: { vertical: 'middle', horizontal: 'end' }, direction: 'vertical' };
   }
 }
 

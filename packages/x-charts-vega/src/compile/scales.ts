@@ -568,6 +568,17 @@ function resolveChannelAxis(
           path: `${first.unit.path}.encoding.${channel}.scale`,
         });
       }
+      // A binned histogram axis (the synthetic `__bin_*` column produced by an
+      // inline `bin`) should render contiguous bars — Vega-Lite draws bins edge
+      // to edge with no inter-bar gap. Default the band gap to 0 when the spec
+      // didn't set its own padding.
+      if (
+        categoryGapRatio === undefined &&
+        typeof field === 'string' &&
+        field.startsWith('__bin_')
+      ) {
+        categoryGapRatio = 0;
+      }
     }
 
     const config = {

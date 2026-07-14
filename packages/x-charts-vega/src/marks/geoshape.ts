@@ -598,7 +598,13 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
 
   return {
     series: [series],
-    plots: ['geoBase', 'mapShape'],
+    // A choropleth draws only the colored features, matching Vega-Lite (which
+    // renders the geoshape mark alone, with no base layer). Rendering the base
+    // `GeoDataPlot` here would fill every feature the color join skipped — most
+    // visibly the Great Lakes, which have no `id`/rate — with the default dark
+    // shape color, so it is omitted. Outline-only maps (no color field) still
+    // return `['geoBase']` above.
+    plots: ['mapShape'],
     geo: geoWithLegend,
     // A quantitative/temporal color field surfaces a real color axis, keyed
     // so the shell can pick the matching (continuous vs. piecewise) legend.

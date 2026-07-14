@@ -402,7 +402,12 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         {
           min,
           max,
-          sizeMap: { type: 'continuous', size: [4, 20], interpolator: 'sqrt' },
+          // `size` is the marker *radius* and the `sqrt` interpolator makes area
+          // proportional to the value (Vega-Lite's `size` semantics). Match
+          // Vega-Lite's default point size range of [0, 361] in *area*, i.e. a
+          // radius up to sqrt(361/π) ≈ 10.7px, rather than the previous 20px
+          // radius that rendered bubbles at roughly double Vega-Lite's size.
+          sizeMap: { type: 'continuous', size: [0, 11], interpolator: 'sqrt' },
         },
       ];
     }

@@ -9,7 +9,14 @@ import Typography from '@mui/material/Typography';
 import { VegaLiteChart } from '@mui/x-charts-vega';
 import type { TranslationGap, VegaLiteSpec } from '@mui/x-charts-vega';
 import { inlineData } from './resolveData';
+import VegaEmbed from './VegaEmbed';
 import titles from './titles.json';
+
+// Chart panel size shared by both sides of every comparison. Slightly taller
+// than wide, closer to Vega-Lite's own default proportions than a wide
+// dashboard tile, without going as narrow as Vega's square default.
+const CHART_WIDTH = 440;
+const CHART_HEIGHT = 340;
 
 // The verbatim Vega-Lite example specs, fetched from vega/vega-lite (see
 // resolveData.ts). Keyed by base filename.
@@ -48,6 +55,59 @@ const ORIGIN_LABEL: Record<'vega-lite' | 'x-charts', string> = {
   'x-charts': 'x-charts',
 };
 
+/** A titled, bordered panel holding one chart of a side-by-side comparison. */
+function ComparisonPanel({
+  label,
+  labelColor,
+  children,
+}: {
+  label: string;
+  labelColor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Typography
+        variant="overline"
+        sx={{
+          px: 1,
+          py: 0.25,
+          color: labelColor,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'action.hover',
+          fontWeight: 600,
+          lineHeight: 2,
+        }}
+      >
+        {label}
+      </Typography>
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          p: 1,
+          minHeight: CHART_HEIGHT + 20,
+          overflowX: 'auto',
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
 function GalleryCard({ example }: { example: GalleryExample }) {
   const [gaps, setGaps] = React.useState<TranslationGap[]>([]);
   // Inline the referenced datasets once; the wrapper then renders the spec as-is.
@@ -78,15 +138,22 @@ function GalleryCard({ example }: { example: GalleryExample }) {
 
         <Box
           sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            display: 'flex',
-            justifyContent: 'center',
-            minHeight: 320,
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+            gap: 1.5,
           }}
         >
-          <VegaLiteChart spec={resolvedSpec} width={460} height={300} onGaps={setGaps} />
+          <ComparisonPanel label="@mui/x-charts-vega" labelColor="primary.main">
+            <VegaLiteChart
+              spec={resolvedSpec}
+              width={CHART_WIDTH}
+              height={CHART_HEIGHT}
+              onGaps={setGaps}
+            />
+          </ComparisonPanel>
+          <ComparisonPanel label="Vega-Lite reference" labelColor="success.main">
+            <VegaEmbed spec={resolvedSpec} width={CHART_WIDTH} height={CHART_HEIGHT} />
+          </ComparisonPanel>
         </Box>
 
         <Box>
@@ -105,39 +172,52 @@ function GalleryCard({ example }: { example: GalleryExample }) {
                   </Typography>
                 ) : (
                   <React.Fragment>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                      {vegaLiteCount} Vega-Lite feature{vegaLiteCount === 1 ? '' : 's'} not supported ·{' '}
-                      {xChartsCount} x-charts limitation{xChartsCount === 1 ? '' : 's'} worked around
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: 'block', mb: 0.5 }}
+                    >
+                      {vegaLiteCount} Vega-Lite feature{vegaLiteCount === 1 ? '' : 's'} not
+                      supported · {xChartsCount} x-charts limitation{xChartsCount === 1 ? '' : 's'}{' '}
+                      worked around
                     </Typography>
                     <Stack spacing={0.5}>
                       {gaps.map((gap) => {
                         const origin = originOf(gap);
                         return (
-                          <Stack
-                            key={`${gap.code}|${gap.path ?? ''}`}
-                            direction="row"
-                            spacing={1}
-                            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                          >
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              color={origin === 'x-charts' ? 'info' : 'default'}
-                              label={ORIGIN_LABEL[origin]}
-                            />
-                            <Chip
-                              size="small"
-                              color={SEVERITY_COLOR[gap.severity]}
-                              label={gap.severity}
-                            />
-                            <Typography
-                              variant="body2"
-                              component="code"
-                              sx={{ fontFamily: 'monospace' }}
+                          <Box key={`${gap.code}|${gap.path ?? ''}`}>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                             >
-                              {gap.code}
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                color={origin === 'x-charts' ? 'info' : 'default'}
+                                label={ORIGIN_LABEL[origin]}
+                              />
+                              <Chip
+                                size="small"
+                                color={SEVERITY_COLOR[gap.severity]}
+                                label={gap.severity}
+                              />
+                              <Typography
+                                variant="body2"
+                                component="code"
+                                sx={{ fontFamily: 'monospace' }}
+                              >
+                                {gap.code}
+                              </Typography>
+                            </Stack>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: 'block', ml: 0.5, mb: 0.5 }}
+                            >
+                              {gap.message}
                             </Typography>
-                          </Stack>
+                          </Box>
                         );
                       })}
                     </Stack>
@@ -178,21 +258,21 @@ function GalleryCard({ example }: { example: GalleryExample }) {
 export default function GalleryPage() {
   return (
     <React.Fragment>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 760 }}>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 820 }}>
         The {examples.length} official{' '}
         <Link href="https://vega.github.io/vega-lite/examples/" target="_blank" rel="noreferrer">
           Vega-Lite example gallery
         </Link>{' '}
-        specs below are run verbatim through <code>&lt;VegaLiteChart /&gt;</code> to exercise the
-        breadth of the Vega-Lite API. Their datasets (from <code>vega-datasets</code>) are bundled
-        and inlined; everything the wrapper cannot translate is reported live via{' '}
-        <code>onGaps</code>, so a partial chart alongside a populated gap list is expected for the
-        more exotic specs.
+        specs below are run verbatim through <code>&lt;VegaLiteChart /&gt;</code> (left) and, for
+        comparison, the reference <code>vega-lite</code> runtime via <code>vega-embed</code>{' '}
+        (right). Both sides receive the same spec with its <code>vega-datasets</code> already
+        inlined, so any difference is a translation difference, not a data one. Everything the
+        wrapper cannot translate is reported live via <code>onGaps</code> below each comparison.
       </Typography>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(520px, 1fr))',
+          gridTemplateColumns: '1fr',
           gap: 3,
         }}
       >

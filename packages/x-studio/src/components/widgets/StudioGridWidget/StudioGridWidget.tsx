@@ -26,11 +26,11 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioLocaleText,
-  selectFilters,
   selectDataSources,
   selectRelationships,
   selectGlobalCrossFilterMode,
   makeSelectExpressionFieldsForSources,
+  makeSelectWidgetActiveCrossFilter,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
@@ -397,7 +397,6 @@ export interface StudioGridWidgetProps {
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
   const { dataSource, widget, pageId, slotProps } = props;
   const controller = useStudioController();
-  const filters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   // Full data-source map — needed to resolve cross-source configured columns'
   // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
@@ -434,17 +433,17 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.columns, dataSource?.fields],
   );
 
-  // Check if this widget has an active cross-filter (on its own page)
-  const activeCrossFilter = React.useMemo(
-    () =>
-      filters.find(
-        (f) =>
-          f.scope.kind === 'cross-filter' &&
-          f.scope.sourceWidgetId === widget.id &&
-          f.scope.pageId === pageId,
-      ) ?? null,
-    [filters, widget.id, pageId],
+  // Check if this widget has an active cross-filter (on its own page). Routes through
+  // the shared `makeSelectWidgetActiveCrossFilter` selector (finding 3.8) so the grid
+  // can no longer diverge from chart/map on the `disabled` flag: a cross-filter that
+  // was disabled via the quick-filter-bar chip must NOT count as active here (otherwise
+  // the emitting grid still row-highlights it and clicking the same cell would clear the
+  // disabled filter instead of applying a fresh enabled one).
+  const selectActiveCrossFilter = React.useMemo(
+    () => makeSelectWidgetActiveCrossFilter(widget.id, pageId),
+    [widget.id, pageId],
   );
+  const activeCrossFilter = useStudioSelector(selectActiveCrossFilter);
 
   // Write-back: enabled when the adapter implements submitMutation and gridPkField is set.
   const pkField = widget.config.gridPkField;
@@ -465,6 +464,27 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       ),
     [widget.config.columns, widget.sourceId, dataSources, allExpressionFields],
   );
+
+  // fieldId → declared type, across own-source fields, own-source expression columns,
+  // and resolvable cross-source columns. Used by `handleCellClick` to tag a cross-filter
+  // emitted from a date/datetime cell with `fieldType` (finding 1.1) so the downstream
+  // `compileSingleCondition` day-normalizes both sides — otherwise an `equals` on an
+  // L1-normalized date cell (`'2024-01-15'`) never matches a full-ISO/Date value.
+  const fieldTypeById = React.useMemo(() => {
+    const map = new Map<string, StudioDataField['type']>();
+    for (const f of dataSource?.fields ?? []) {
+      map.set(f.id, f.type);
+    }
+    for (const ef of expressionFields) {
+      if (ef.type) {
+        map.set(ef.id, ef.type);
+      }
+    }
+    for (const [id, def] of crossSourceFieldDefs) {
+      map.set(id, def.type);
+    }
+    return map;
+  }, [dataSource?.fields, expressionFields, crossSourceFieldDefs]);
 
   // fieldId → FK field, for every configured cross-source column that is fanned out
   // by row enrichment — used to dedupe fan-out double-counting in the native
@@ -721,6 +741,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       if (params.id === '__summary__') {
         return;
       }
+      // Only leaf rows carry real field values. A grouping cell (with `gridGroupByField`,
+      // DataGridPremium renders a `group`/`pinned` node backed by the internal
+      // `__row_group_by_columns_group__` field) would otherwise emit a filter on a field
+      // no source owns — blanking every same-source widget (finding 1.1).
+      if (params.rowNode.type !== 'leaf') {
+        return;
+      }
 
       const cfField = widget.config.crossFilterField;
       const fieldId = cfField ?? params.field;
@@ -728,6 +755,23 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // field's value on the clicked ROW — not the clicked cell's own value —
       // otherwise clicking any non-configured column emits nonsense filter values.
       const value = cfField ? (params.row as Record<string, unknown>)[cfField] : params.value;
+
+      // Resolve the source that OWNS the clicked field (finding 1.1). A configured
+      // cross-source column carries its own `sourceId`; a related-source calculated
+      // column is resolved via its expression-field owner; everything else is native to
+      // the widget's own source. Passing the true owner (not `widget.sourceId`
+      // unconditionally) stops a cross-source cell from emitting a filter that reads an
+      // un-enriched `undefined` value at L3 and drops every row.
+      const exprOwner = allExpressionFields.find((ef) => ef.id === fieldId);
+      const filterSourceId =
+        widget.config.columns?.find((c) => c.fieldId === fieldId)?.sourceId ??
+        exprOwner?.sourceId ??
+        widget.sourceId;
+
+      // Tag date/datetime fields so downstream `compileSingleCondition` day-normalizes
+      // both sides (mirrors the chart's period path).
+      const columnType = fieldTypeById.get(fieldId);
+      const fieldType = columnType === 'date' || columnType === 'datetime' ? columnType : undefined;
 
       // Toggle: clicking the same field+value clears the filter
       if (
@@ -737,10 +781,19 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       ) {
         controller.clearCrossFilter(widget.id);
       } else {
-        controller.applyCrossFilter(widget.id, fieldId, value, widget.sourceId);
+        controller.applyCrossFilter(widget.id, fieldId, value, filterSourceId, 'equals', fieldType);
       }
     },
-    [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
+    [
+      controller,
+      widget.id,
+      widget.sourceId,
+      widget.config.columns,
+      activeCrossFilter,
+      widget.config.crossFilterField,
+      allExpressionFields,
+      fieldTypeById,
+    ],
   );
 
   // Conditional formatting: build an index of CSS class name → style for injection.

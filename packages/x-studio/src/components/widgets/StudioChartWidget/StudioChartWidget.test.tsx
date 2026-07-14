@@ -1536,6 +1536,168 @@ describe('<StudioChartWidget />', () => {
     expect(props.series[0].connectNulls).toBe(true);
   });
 
+  // Regression for ARCHITECTURE_REVIEW.md finding 1.2: without `xGroupBy`, a `date`-typed
+  // x-axis renders as a UTC scale delivering real `Date` labels to `onAxisClick` (the
+  // `Date → period key` handling previously existed only inside the `xGroupBy` branch).
+  // The un-grouped path must convert the clicked Date to a day key ('YYYY-MM-DD') and tag
+  // the filter `fieldType: 'date'` — otherwise the emitted filter's raw ISO string never
+  // matches an L1-normalized 'YYYY-MM-DD' cell (loose `==`), blanking every same-source
+  // widget instead of filtering it.
+  describe('un-grouped daily line/area axis click (finding 1.2)', () => {
+    const dailyDataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'date', label: 'Date', type: 'date' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', date: '2024-01-01', total: 10 },
+        { id: '2', date: '2024-01-03', total: 20 },
+      ],
+    };
+
+    it('emits a day-key, date-typed cross-filter (not a raw ISO string) on a single axis click', () => {
+      const widget: StudioWidgetOf<'chart'> = {
+        id: 'chart-daily-line',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'orders',
+        config: {
+          chartType: 'line',
+          xField: 'date',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: dailyDataSource },
+      });
+
+      renderChart(widget, dailyDataSource);
+
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        onAxisClick?: (event: unknown, params: { axisValue?: string | number | Date }) => void;
+      };
+
+      act(() => {
+        props.onAxisClick?.(null, { axisValue: new Date('2024-01-01T00:00:00.000Z') });
+      });
+
+      // Day key + fieldType: 'date' (NOT the pre-fix `label.toISOString()` full-ISO string
+      // with no fieldType, which compileSingleCondition compares via loose `==` and which
+      // never equals an L1-normalized 'YYYY-MM-DD' cell).
+      expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+        'chart-daily-line',
+        'date',
+        '2024-01-01',
+        'orders',
+        'equals',
+        'date',
+      );
+    });
+
+    it('toggles (clears) the same day back off when the already-selected point is clicked again', () => {
+      const widget: StudioWidgetOf<'chart'> = {
+        id: 'chart-daily-line-toggle',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'orders',
+        config: {
+          chartType: 'line',
+          xField: 'date',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: dailyDataSource },
+        filters: [
+          {
+            id: 'cf-daily-toggle',
+            field: 'date',
+            operator: 'equals',
+            value: '2024-01-01',
+            fieldType: 'date',
+            filterSourceId: 'orders',
+            scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+          },
+        ],
+      });
+
+      renderChart(widget, dailyDataSource);
+
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        onAxisClick?: (event: unknown, params: { axisValue?: string | number | Date }) => void;
+      };
+
+      act(() => {
+        props.onAxisClick?.(null, { axisValue: new Date('2024-01-01T00:00:00.000Z') });
+      });
+
+      expect(controller.clearCrossFilter).toHaveBeenCalledWith(widget.id);
+      expect(controller.applyCrossFilter).not.toHaveBeenCalled();
+    });
+
+    it('shift-clicking a second axis point emits an `in` filter of day keys with fieldType date', () => {
+      const widget: StudioWidgetOf<'chart'> = {
+        id: 'chart-daily-line-shift',
+        kind: 'chart',
+        title: 'Revenue Trend',
+        sourceId: 'orders',
+        config: {
+          chartType: 'line',
+          xField: 'date',
+          yField: 'total',
+        },
+      };
+
+      // Own widget already has a single day selected via a prior click.
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: dailyDataSource },
+        filters: [
+          {
+            id: 'cf-daily-existing',
+            field: 'date',
+            operator: 'equals',
+            value: '2024-01-01',
+            fieldType: 'date',
+            filterSourceId: 'orders',
+            scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+          },
+        ],
+      });
+
+      renderChart(widget, dailyDataSource);
+
+      const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+        onAxisClick?: (
+          event: { shiftKey?: boolean } | null,
+          params: { axisValue?: string | number | Date },
+        ) => void;
+      };
+
+      act(() => {
+        props.onAxisClick?.(
+          { shiftKey: true },
+          { axisValue: new Date('2024-01-03T00:00:00.000Z') },
+        );
+      });
+
+      expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+        'chart-daily-line-shift',
+        'date',
+        ['2024-01-01', '2024-01-03'],
+        'orders',
+        'in',
+        'date',
+      );
+    });
+  });
+
   describe('dual cross-filter: both category (own) and date (incoming) active simultaneously', () => {
     const orderItemsSource: StudioDataSource = {
       id: 'source-order-items',

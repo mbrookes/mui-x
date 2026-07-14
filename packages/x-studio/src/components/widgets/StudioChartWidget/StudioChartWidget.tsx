@@ -435,8 +435,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }
       }
 
-      // Convert Date to string for filtering
-      const filterValue = label instanceof Date ? label.toISOString() : label;
+      // Un-grouped date-valued axis (Group By = None): emit the day key ('YYYY-MM-DD') and
+      // mark the filter `fieldType: 'date'` so equals/in cross-filters match L1-normalized
+      // date cells at day granularity. Without `fieldType`, compileSingleCondition falls back
+      // to a loose `==` against the full ISO string, which never matches an L1 'YYYY-MM-DD'
+      // cell (see ARCHITECTURE_REVIEW.md finding 1.2).
+      const isDateLabel = label instanceof Date;
+      const filterValue = isDateLabel ? truncateToGranularity(label, 'day') : label;
+      const filterFieldType = isDateLabel ? ('date' as const) : undefined;
+
+      if (filterValue == null) {
+        return;
+      }
 
       if (!shiftKey) {
         // Regular click: single-select toggle
@@ -452,6 +462,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }
         if (isSingleActive) {
           controller.clearCrossFilter(widget.id);
+        } else if (filterFieldType) {
+          controller.applyCrossFilter(
+            widget.id,
+            config.xField,
+            filterValue,
+            filterSourceId,
+            'equals',
+            filterFieldType,
+          );
         } else {
           controller.applyCrossFilter(widget.id, config.xField, filterValue, filterSourceId);
         }
@@ -481,7 +500,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       if (next.length === 0) {
         controller.clearCrossFilter(widget.id);
       } else if (next.length === 1) {
-        controller.applyCrossFilter(widget.id, config.xField, next[0], filterSourceId);
+        if (filterFieldType) {
+          controller.applyCrossFilter(
+            widget.id,
+            config.xField,
+            next[0],
+            filterSourceId,
+            'equals',
+            filterFieldType,
+          );
+        } else {
+          controller.applyCrossFilter(widget.id, config.xField, next[0], filterSourceId);
+        }
+      } else if (filterFieldType) {
+        controller.applyCrossFilter(
+          widget.id,
+          config.xField,
+          next,
+          filterSourceId,
+          'in',
+          filterFieldType,
+        );
       } else {
         controller.applyCrossFilter(widget.id, config.xField, next, filterSourceId, 'in');
       }
@@ -639,16 +678,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       if (selectedFilterValues.size === 0) {
         return [];
       }
+      // Un-grouped date-valued axis: the active equals/in cross-filter stores day keys
+      // ('YYYY-MM-DD', see handleItemClick), so truncate raw Date labels to the same
+      // granularity before matching instead of comparing full ISO timestamps — otherwise
+      // the source chart's own selection highlight never lights up.
+      const isDateFilter = activeCrossFilter?.fieldType === 'date';
       const indices: number[] = [];
       labels.forEach((label, i) => {
-        const normalized = normalizeCrossFilterValue(label);
+        const normalized =
+          isDateFilter && label instanceof Date
+            ? truncateToGranularity(label, 'day')
+            : normalizeCrossFilterValue(label);
         if (normalized !== null && selectedFilterValues.has(normalized)) {
           indices.push(i);
         }
       });
       return indices;
     },
-    [selectedFilterValues, selectedPeriodKey, xGroupBy],
+    [selectedFilterValues, selectedPeriodKey, xGroupBy, activeCrossFilter],
   );
 
   // Non-deferred: suppresses stale hover immediately when any other widget emits a cross-filter,

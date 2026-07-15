@@ -484,14 +484,27 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     const leftTrackWidth = plan.cells[0]?.width;
     const innerTrackWidth =
       leftTrackWidth !== undefined ? leftTrackWidth - leftReduction : undefined;
-    const gridTemplateColumns =
-      shared && leftTrackWidth !== undefined && innerTrackWidth !== undefined
+    // Concat views keep their own (differing) sizes, so each grid column is sized
+    // to the widest cell in it rather than to a single uniform track. A shared
+    // trellis keeps its uniform packed tracks.
+    const concatColumnWidths = !shared
+      ? Array.from({ length: plan.columns }, (_, col) => {
+          let max = 0;
+          for (let row = 0; row * plan.columns + col < plan.cells.length; row += 1) {
+            max = Math.max(max, plan.cells[row * plan.columns + col]?.width ?? 0);
+          }
+          return max;
+        })
+      : undefined;
+    const gridTemplateColumns = shared
+      ? leftTrackWidth !== undefined && innerTrackWidth !== undefined
         ? plan.columns > 1
           ? `${leftTrackWidth}px repeat(${plan.columns - 1}, ${innerTrackWidth}px)`
           : `${leftTrackWidth}px`
-        : leftTrackWidth !== undefined
-          ? `repeat(${plan.columns}, ${leftTrackWidth}px)`
-          : `repeat(${plan.columns}, minmax(0, 1fr))`;
+        : `repeat(${plan.columns}, minmax(0, 1fr))`
+      : concatColumnWidths && concatColumnWidths.every((w) => w > 0)
+        ? concatColumnWidths.map((w) => `${w}px`).join(' ')
+        : `repeat(${plan.columns}, minmax(0, 1fr))`;
     const grid = (
       <div
         style={{

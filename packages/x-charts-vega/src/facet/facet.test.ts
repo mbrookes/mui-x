@@ -267,18 +267,19 @@ describe('planFacets', () => {
     expect((plan.cells[1].spec.data as { values: unknown[] }).values).to.deep.equal([{ x: 1 }]);
   });
 
-  it('gives each concat cell the full height (full-size subplots, not shrunk small multiples)', () => {
+  it('sizes each concat cell to its own natural dimensions (flush subplots, not shrunk)', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1 }] },
       vconcat: [{ mark: 'bar' }, { mark: 'point' }],
     } as unknown as VegaLiteSpec;
     const plan = planFacets(spec, SIZE)!;
-    // width divides across the single column (fits the panel), but height is NOT
-    // divided by the 2 rows — each subplot keeps the full height and the
-    // composition grows vertically, matching Vega-Lite.
+    // Concat views keep their own intrinsic size and butt together (Vega-Lite's
+    // `bounds: "flush"`) rather than each stretching to the whole composition, so
+    // a cell is NOT the full panel size — it's its own (default view) size.
     for (const cell of plan.cells) {
-      expect(cell.width).to.equal(SIZE.width);
-      expect(cell.height).to.equal(SIZE.height);
+      expect(cell.width).to.be.lessThan(SIZE.width);
+      expect(cell.height).to.be.greaterThan(0);
+      expect(cell.width).to.equal(plan.cells[0].width);
     }
   });
 

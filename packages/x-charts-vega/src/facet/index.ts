@@ -522,13 +522,21 @@ function vegaAxisPlotSize(
   if (typeof specSize === 'number') {
     return specSize;
   }
-  if (def && isFieldDef(def) && def.field && !def.bin) {
+  // A `timeUnit` field is binned into a handful of time buckets (12 months, 4
+  // quarters, …) at compile time, but the raw field still holds thousands of
+  // distinct dates — counting those here would size the axis enormously. Treat
+  // it as continuous (default view) instead of step-sizing over raw dates.
+  const hasTimeUnit = isFieldDef(def) && (def as { timeUnit?: unknown }).timeUnit != null;
+  if (def && isFieldDef(def) && def.field && !def.bin && !hasTimeUnit) {
     const fieldType = resolveFieldType(def, rows);
     const bandedNumericCategory =
       mark != null && BAND_MARKS.has(mark) && def.aggregate === undefined;
     if (fieldType === 'nominal' || fieldType === 'ordinal' || bandedNumericCategory) {
       const count = distinctValues(rows, def.field).length;
-      if (count > 0) {
+      // Guard against a mis-inferred discrete field with an unreasonable number of
+      // distinct values (e.g. an un-binned continuous field): beyond this the
+      // step sizing is almost certainly wrong, so fall back to the default view.
+      if (count > 0 && count <= 60) {
         const step =
           specSize &&
           typeof specSize === 'object' &&
@@ -552,6 +560,66 @@ function vegaCellSize(
   return {
     width: Math.max(MIN_CELL_WIDTH, plotWidth + CELL_Y_AXIS_ALLOWANCE),
     height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
+  };
+}
+
+/** The inter-view gap Vega-Lite leaves between concatenated views (`spacing`). */
+const CONCAT_SPACING = 15;
+/** Padding to leave beside an axis that is hidden (`axis: null`) — just a small margin. */
+const HIDDEN_AXIS_PAD = 8;
+
+/** Whether a channel draws its axis (shown unless `axis: null`), i.e. reserves label room. */
+function channelAxisShown(def: VegaChannelDef | undefined): boolean {
+  return isFieldDef(def) && def.axis !== null;
+}
+
+/**
+ * The natural (Vega-like) size of a concat sub-view, so concatenated views keep
+ * their own dimensions and butt together (`bounds: "flush"`) instead of each
+ * stretching to fill the whole composition. A nested concat combines its
+ * children — widths sum / heights max for an `hconcat`, heights sum / widths max
+ * for a `vconcat`. A leaf takes its plot size (explicit spec size, else
+ * step/continuous sizing) plus an axis allowance only for the axes it actually
+ * draws (a hidden `axis: null` reserves nothing), so a marginal histogram's
+ * 60px bar stays ~60px rather than ballooning to a full axis margin.
+ */
+function naturalConcatSize(
+  entry: VegaLiteSpec,
+  rows: readonly DatasetRow[],
+): { width: number; height: number } {
+  const hconcat = (entry as { hconcat?: VegaLiteSpec[] }).hconcat;
+  const vconcat =
+    (entry as { vconcat?: VegaLiteSpec[] }).vconcat ??
+    (entry as { concat?: VegaLiteSpec[] }).concat;
+  const children = hconcat ?? vconcat;
+  if (Array.isArray(children) && children.length > 0) {
+    const sizes = children.map((child) => naturalConcatSize(child, rows));
+    const gap = CONCAT_SPACING * (children.length - 1);
+    if (hconcat) {
+      return {
+        width: sizes.reduce((sum, size) => sum + size.width, 0) + gap,
+        height: sizes.reduce((max, size) => Math.max(max, size.height), 0),
+      };
+    }
+    return {
+      width: sizes.reduce((max, size) => Math.max(max, size.width), 0),
+      height: sizes.reduce((sum, size) => sum + size.height, 0) + gap,
+    };
+  }
+  const encoding = (entry.encoding ?? {}) as VegaEncoding;
+  const mark = markTypeOf(entry.mark);
+  const plotWidth = vegaAxisPlotSize(entry.width, encoding.x, rows, mark);
+  const plotHeight = vegaAxisPlotSize(
+    entry.height as VegaLiteSpec['width'],
+    encoding.y,
+    rows,
+    mark,
+  );
+  return {
+    // The left y-axis widens the view; the bottom x-axis heightens it — but only
+    // when that axis is actually drawn.
+    width: plotWidth + (channelAxisShown(encoding.y) ? CELL_Y_AXIS_ALLOWANCE : HIDDEN_AXIS_PAD),
+    height: plotHeight + (channelAxisShown(encoding.x) ? CELL_X_AXIS_ALLOWANCE : HIDDEN_AXIS_PAD),
   };
 }
 
@@ -834,12 +902,17 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
       entry.data == null && rootRows.length > 0
         ? ({ ...entryRest, data: { values: rootRows } } as VegaLiteSpec)
         : (entryRest as VegaLiteSpec);
+    // Size each view to its own natural dimensions so concatenated views butt
+    // together at their real sizes (Vega-Lite's `bounds: "flush"`) — a marginal
+    // histogram's 60px bar stays a thin strip beside a square heatmap, rather
+    // than every cell stretching to fill an equal share of the composition.
+    const natural = naturalConcatSize(entry, rootRows);
     return {
       key: `concat-${index}`,
       spec: cellSpec,
       header,
-      width: numericSize(entry.width) ?? width,
-      height: numericSize(entry.height) ?? height,
+      width: Math.max(40, natural.width),
+      height: Math.max(40, natural.height),
     };
   });
   return { columns, rows: gridRows, cells, gaps };

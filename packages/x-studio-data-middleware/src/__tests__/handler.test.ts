@@ -225,6 +225,7 @@ describe('extractSecurityClaims', () => {
 // ─── handleBatchQuery — fail-closed column allowlist ──────────────────────────
 
 describe('handleBatchQuery — column allowlist is fail-closed', () => {
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a referenced table with no entry in the column allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -291,6 +292,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     },
   );
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a NO-columns widget whose table has no allowlist entry (finding 1.1)', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -342,6 +344,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     expect(rows[0]).toHaveProperty('tenant_id');
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a non-asc/desc ORDER BY direction (finding 1.3)', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -366,6 +369,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('validates both sides of every join.on pair against the allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -390,6 +394,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('validates an UNQUALIFIED join.on right-side column against the JOINED table, not the primary', async () => {
     // Regression: the right side of a join `on` pair conventionally belongs to
     // the JOINED table. An unqualified column allowlisted only on the primary
@@ -429,6 +434,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   // 'ssn'/'customers.ssn' is never allowlisted on either table in the shared
   // options below — an alias resolving to it must be rejected regardless of
   // which clause (columns/filters/join.on) used it.
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it.each<[string, BatchQueryRequest['widgets'][number]]>([
     [
       'columns',
@@ -565,6 +571,7 @@ describe('handleBatchQuery — TEXT-typed region column matches a numeric region
 // ─── handleBatchQuery — allowlist ─────────────────────────────────────────────
 
 describe('handleBatchQuery — schema allowlist enforcement', () => {
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error when a requested table is not in the allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -1685,6 +1692,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // A genuinely-invalid ORDER BY column — neither allowlisted nor an
   // aggregation alias — must still be rejected. Guards against the alias
   // exclusion above becoming too permissive.
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('still rejects an ORDER BY on a non-allowlisted, non-alias column under a columnAllowlist (finding 1.1)', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -1904,6 +1912,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     expect(rows.every((r) => (r.total as number) > 100 && (r.total as number) < 260)).toBe(true);
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('HAVING alias not in aggregations returns a per-widget security error', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -1929,6 +1938,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an undeclared HAVING alias even with NO columnAllowlist (finding 1.3)', async () => {
     // The HAVING-alias check must run unconditionally — not only when a column
     // allowlist is configured. Without this, HAVING becomes an arbitrary-column
@@ -1957,6 +1967,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects HAVING when the descriptor declares no aggregations at all', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -1981,6 +1992,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it.each([
     ['a backtick', 'total`--'],
     ['a space', 'total sales'],

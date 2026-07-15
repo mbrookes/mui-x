@@ -777,6 +777,12 @@ function SingleViewChart(props: VegaLiteChartProps) {
     );
   }
 
+  // A heatmap encodes its cell value through a color scale carried on the
+  // zAxis colorMap; surface it so the shell can draw a gradient color legend.
+  const heatmapColorMap = compiled.plots.includes('heatmap')
+    ? (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)?.colorMap
+    : undefined;
+
   const chart = (
     <ChartsDataProviderPremium
       series={compiled.series}
@@ -795,6 +801,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
       >
         {!cell?.hideLegend && compiled.hasLegend && (
           <ChartsLegend direction={legendLayout?.direction} />
+        )}
+        {/* A heatmap's cell value is encoded by a continuous/piecewise color
+            scale (the zAxis colorMap), so it needs a gradient color legend
+            rather than a categorical series legend (Vega-Lite's default). */}
+        {!cell?.hideLegend && heatmapColorMap?.type === 'piecewise' && (
+          <PiecewiseColorLegend axisDirection="z" direction="vertical" />
+        )}
+        {!cell?.hideLegend && heatmapColorMap && heatmapColorMap.type !== 'piecewise' && (
+          <ContinuousColorLegend axisDirection="z" direction="vertical" />
         )}
         {!cell?.hideLegend && compiled.overlayLegend.length > 0 && (
           <OverlayLegend items={compiled.overlayLegend} />

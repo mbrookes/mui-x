@@ -177,9 +177,23 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
 
   const series: HeatmapSeriesType[] = [{ type: 'heatmap', data }];
 
+  // The color legend's title, mirroring Vega-Lite: an explicit `title` wins,
+  // else an aggregate-prefixed field name ("Mean of Horsepower"), else the field.
+  const explicitTitle = colorDef.title;
+  const legendLabel =
+    explicitTitle === null
+      ? undefined
+      : explicitTitle != null
+        ? String(explicitTitle)
+        : typeof colorDef.aggregate === 'string'
+          ? `${colorDef.aggregate.charAt(0).toUpperCase()}${colorDef.aggregate.slice(1)} of ${valueField}`
+          : valueField;
+
   return {
     series,
     plots: ['heatmap'],
-    ...(color.colorMap ? { zAxis: [{ colorMap: color.colorMap }] } : {}),
+    ...(color.colorMap
+      ? { zAxis: [{ id: 'vega-heatmap-color', colorMap: color.colorMap, label: legendLabel }] }
+      : {}),
   };
 }

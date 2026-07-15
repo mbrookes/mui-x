@@ -89,6 +89,79 @@ const FacetDepthContext = React.createContext(0);
 // axis labels; inner cells keep the space empty.
 const FACET_CELL_MARGIN = { top: 6, right: 8, bottom: 34, left: 52 };
 
+/** Vega-Lite's default band `step` (px per discrete category) when none is given. */
+const VEGA_DEFAULT_STEP = 20;
+// The continuous-axis plot size used when the spec gives no explicit size and
+// the caller passes no `width`/`height`. The gallery hands these same values to
+// the reference `vega-embed` view, so a chart with no spec size renders at the
+// same size on both sides.
+const VEGA_DEFAULT_VIEW_WIDTH = 440;
+const VEGA_DEFAULT_VIEW_HEIGHT = 340;
+// Vega-Lite's `width`/`height` size the *plot*, whereas x-charts' `width`/
+// `height` size the whole surface (plot + axes). To make our plot match the
+// reference's plot, add back the space x-charts reserves for the perpendicular
+// axis: the left y-axis widens the surface, the bottom x-axis heightens it.
+const Y_AXIS_ALLOWANCE = 60;
+const X_AXIS_ALLOWANCE = 45;
+
+/**
+ * The surface size that renders this view at Vega-Lite's plot dimensions, so the
+ * wrapper's chart matches the reference side by side. Each dimension is resolved
+ * from its own axis: a numeric spec size is the plot size; a discrete band/point
+ * axis — or an explicit `{step}` — uses Vega's step-based sizing (`step ×
+ * categoryCount`); a continuous axis (or a non-cartesian chart) falls back to
+ * the caller's size. The perpendicular axis allowance is then added so the plot
+ * (surface minus axes), not the surface, equals the reference's plot.
+ */
+function resolveVegaViewSize(
+  spec: VegaLiteSpec,
+  compiled: {
+    xAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
+    yAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
+  },
+  fallbackWidth: number | undefined,
+  fallbackHeight: number | undefined,
+): { width: number | undefined; height: number | undefined } {
+  // A binned channel is drawn on a continuous scale by Vega-Lite (the bins have
+  // numeric positions), so it sizes like a continuous axis — even though the
+  // wrapper renders it through a discrete band domain.
+  const isBinned = (channel: 'x' | 'y'): boolean => {
+    const units = Array.isArray(spec.layer) ? spec.layer : [spec];
+    return units.some((unit) => {
+      const enc = (unit as { encoding?: Record<string, unknown> }).encoding?.[channel];
+      return Boolean(enc && typeof enc === 'object' && (enc as { bin?: unknown }).bin);
+    });
+  };
+  const plotSize = (
+    size: VegaLiteSpec['width'],
+    axis: { config: { scaleType?: string; data?: readonly unknown[] } } | undefined,
+    fallback: number | undefined,
+    channel: 'x' | 'y',
+  ): number | undefined => {
+    if (typeof size === 'number') {
+      return size;
+    }
+    const scaleType = axis?.config.scaleType;
+    const isDiscrete = (scaleType === 'band' || scaleType === 'point') && !isBinned(channel);
+    const count = axis?.config.data?.length ?? 0;
+    if (isDiscrete && count > 0) {
+      const step =
+        size && typeof size === 'object' && typeof (size as { step?: unknown }).step === 'number'
+          ? (size as { step: number }).step
+          : VEGA_DEFAULT_STEP;
+      return step * count;
+    }
+    return fallback;
+  };
+  const width = plotSize(spec.width, compiled.xAxis, fallbackWidth, 'x');
+  const height = plotSize(spec.height as VegaLiteSpec['width'], compiled.yAxis, fallbackHeight, 'y');
+  return {
+    // Only pad when there's an axis to reserve space for (skip pie/arc/geo).
+    width: width !== undefined && compiled.yAxis ? width + Y_AXIS_ALLOWANCE : width,
+    height: height !== undefined && compiled.xAxis ? height + X_AXIS_ALLOWANCE : height,
+  };
+}
+
 /** Stable no-op for the trellis legend proxy, whose gaps the cells already report. */
 const NO_GAPS = () => {};
 
@@ -111,9 +184,13 @@ export interface VegaLiteChartProps {
   data?: readonly DatasetRow[];
   /** Named datasets referenced by `data: {name}` entries in the spec. */
   datasets?: Record<string, readonly DatasetRow[]>;
-  /** Overrides `spec.width`. Without either, the chart fills its container. */
+  /**
+   * The chart's surface width in px. When omitted, the wrapper sizes the view
+   * the way Vega-Lite would (the spec's `width`, `step × categoryCount` for a
+   * discrete axis, else a default) so it matches the reference renderer.
+   */
   width?: number;
-  /** Overrides `spec.height`. */
+  /** The chart's surface height in px; see `width` for the omitted behavior. */
   height?: number;
   /** Categorical palette override. */
   colors?: readonly string[];
@@ -442,8 +519,19 @@ function SingleViewChart(props: VegaLiteChartProps) {
     }
   }, [compiled.gaps, onGaps]);
 
-  const resolvedWidth = width ?? compiled.width;
-  const resolvedHeight = height ?? compiled.height;
+  // An explicit `width`/`height` prop is the authoritative surface size (the
+  // facet planner and test/consumer callers rely on this). Otherwise size the
+  // chart the way Vega-Lite sizes this view so it matches the reference: a
+  // numeric spec size, `step × categoryCount` for a discrete/`{step}` axis, or
+  // the default view size for a continuous axis (each plus the axis allowance).
+  const vegaSize = resolveVegaViewSize(
+    spec,
+    compiled,
+    VEGA_DEFAULT_VIEW_WIDTH,
+    VEGA_DEFAULT_VIEW_HEIGHT,
+  );
+  const resolvedWidth = width ?? vegaSize.width;
+  const resolvedHeight = height ?? vegaSize.height;
 
   // Color-legend placement from `encoding.color.legend.orient` (unset keeps the
   // default placement). Only field-based color channels carry a `legend`.

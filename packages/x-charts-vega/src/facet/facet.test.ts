@@ -335,7 +335,7 @@ describe('planFacets', () => {
     expect(plan.gaps.map((gap) => gap.code)).to.include('facet:no-data');
   });
 
-  it('reports a min-cell-size gap when the grid cannot fit', () => {
+  it('sizes facet cells intrinsically (Vega-like) and grows the grid instead of clamping', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: Array.from({ length: 10 }, (_, i) => ({ g: `g${i}`, c: 'a', v: i })),
@@ -348,7 +348,13 @@ describe('planFacets', () => {
       },
     };
     const plan = planFacets(spec, { width: 400, height: 300 })!;
-    expect(plan.gaps.map((gap) => gap.code)).to.include('facet:min-cell-size');
+    // Each cell keeps a full, uniform size (the grid overflows the 400px total
+    // and the shell scrolls, matching Vega) rather than being clamped to fit.
+    expect(plan.cells).to.have.length(10);
+    const first = plan.cells[0];
+    expect(first.width).to.be.greaterThan(100);
+    expect(plan.cells.every((cell) => cell.width === first.width)).to.equal(true);
+    expect(plan.gaps.map((gap) => gap.code)).to.not.include('facet:min-cell-size');
   });
 });
 

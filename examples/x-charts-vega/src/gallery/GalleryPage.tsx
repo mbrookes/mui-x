@@ -12,9 +12,11 @@ import { inlineData } from './resolveData';
 import VegaEmbed from './VegaEmbed';
 import titles from './titles.json';
 
-// Chart panel size shared by both sides of every comparison. Slightly taller
-// than wide, closer to Vega-Lite's own default proportions than a wide
-// dashboard tile, without going as narrow as Vega's square default.
+// The continuous-axis view size handed to the reference `vega-embed` view. It
+// matches the wrapper's own default (`VEGA_DEFAULT_VIEW_WIDTH`/`_HEIGHT`), so a
+// chart whose spec gives no size renders at the same size on both sides; charts
+// that declare a size (or a discrete `{step}`) size themselves identically on
+// both sides regardless.
 const CHART_WIDTH = 440;
 const CHART_HEIGHT = 340;
 
@@ -144,14 +146,13 @@ function GalleryCard({ example }: { example: GalleryExample }) {
           }}
         >
           <ComparisonPanel label="@mui/x-charts-vega" labelColor="primary.main">
-            <VegaLiteChart
-              spec={resolvedSpec}
-              width={CHART_WIDTH}
-              height={CHART_HEIGHT}
-              onGaps={setGaps}
-            />
+            {/* No explicit size: the wrapper sizes each view the way Vega-Lite
+                does (spec size / step-based / default), matching the reference. */}
+            <VegaLiteChart spec={resolvedSpec} onGaps={setGaps} />
           </ComparisonPanel>
           <ComparisonPanel label="Vega-Lite reference" labelColor="success.main">
+            {/* The same continuous default the wrapper uses, so a chart with no
+                spec size renders at the same size on both sides. */}
             <VegaEmbed spec={resolvedSpec} width={CHART_WIDTH} height={CHART_HEIGHT} />
           </ComparisonPanel>
         </Box>

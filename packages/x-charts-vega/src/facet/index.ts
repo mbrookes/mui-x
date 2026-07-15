@@ -455,6 +455,68 @@ function cellSize(
   return { width, height };
 }
 
+/** Vega-Lite's default single-view plot size (px) for a continuous cell axis. */
+const VEGA_DEFAULT_VIEW = 200;
+/** Vega-Lite's default band `step` (px per discrete category). */
+const VEGA_DEFAULT_STEP = 20;
+// A trellis cell's plot is `cell size − axis space`; these mirror the shell's
+// FACET_CELL_MARGIN so the cell's plot equals Vega's cell plot.
+const CELL_Y_AXIS_ALLOWANCE = 60;
+const CELL_X_AXIS_ALLOWANCE = 40;
+
+/** Inner-cell channel defs + explicit spec sizes, used to size a cell like Vega. */
+interface CellSizing {
+  xDef?: VegaChannelDef;
+  yDef?: VegaChannelDef;
+  specWidth?: VegaLiteSpec['width'];
+  specHeight?: VegaLiteSpec['height'];
+}
+
+/**
+ * The plot size Vega-Lite gives one axis of a view: a numeric spec size wins; a
+ * discrete (nominal/ordinal, non-binned) axis uses step-based sizing (`step ×
+ * distinctCategoryCount`, default step 20); everything else (continuous,
+ * temporal, binned) uses Vega's default view size.
+ */
+function vegaAxisPlotSize(
+  specSize: VegaLiteSpec['width'] | undefined,
+  def: VegaChannelDef | undefined,
+  rows: readonly DatasetRow[],
+): number {
+  if (typeof specSize === 'number') {
+    return specSize;
+  }
+  if (def && isFieldDef(def) && def.field && !def.bin) {
+    const fieldType = resolveFieldType(def, rows);
+    if (fieldType === 'nominal' || fieldType === 'ordinal') {
+      const count = distinctValues(rows, def.field).length;
+      if (count > 0) {
+        const step =
+          specSize &&
+          typeof specSize === 'object' &&
+          typeof (specSize as { step?: unknown }).step === 'number'
+            ? (specSize as { step: number }).step
+            : VEGA_DEFAULT_STEP;
+        return step * count;
+      }
+    }
+  }
+  return VEGA_DEFAULT_VIEW;
+}
+
+/** A trellis cell sized like Vega's cell (its plot size plus the axis allowance). */
+function vegaCellSize(
+  sizing: CellSizing | undefined,
+  rows: readonly DatasetRow[],
+): { width: number; height: number } {
+  const plotWidth = vegaAxisPlotSize(sizing?.specWidth, sizing?.xDef, rows);
+  const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows);
+  return {
+    width: Math.max(MIN_CELL_WIDTH, plotWidth + CELL_Y_AXIS_ALLOWANCE),
+    height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
+  };
+}
+
 /** Default column count for a wrapping facet (roughly square). */
 function defaultWrapColumns(count: number): number {
   return Math.max(1, Math.ceil(Math.sqrt(count)) || 1);
@@ -474,13 +536,15 @@ interface GridParams {
   /** `sort` applied to the wrapping (`facet`) field's distinct values. */
   wrapSort?: VegaSort;
   options: FacetOptions;
+  /** Inner-cell x/y defs + spec sizes, for Vega-like per-cell sizing. */
+  cellSizing?: CellSizing;
   // Build the leaf sub-spec for a partition of rows.
   makeCellSpec: (partition: readonly DatasetRow[]) => VegaLiteSpec;
 }
 
 /** Build the row-major grid for wrapping (`wrapField`) or matrix facets. */
 function buildFacetGrid(params: GridParams): FacetPlan {
-  const { rows, rowField, colField, wrapField, options, makeCellSpec } = params;
+  const { rows, rowField, colField, wrapField, makeCellSpec } = params;
   const gaps: TranslationGap[] = [];
 
   if (rows.length === 0) {
@@ -510,7 +574,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
     );
     const columns = Math.max(1, params.columns ?? defaultWrapColumns(values.length));
     const gridRows = Math.max(1, Math.ceil(values.length / columns) || 1);
-    const { width, height } = cellSize(options, columns, gridRows, gaps);
+    const { width, height } = vegaCellSize(params.cellSizing, rows);
     const cells = values.map((value, index) => ({
       key: `facet-${index}`,
       spec: makeCellSpec(rows.filter((row) => facetMatch(row, wrapField, value))),
@@ -529,7 +593,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
     : [undefined];
   const columns = Math.max(1, colValues.length);
   const gridRows = Math.max(1, rowValues.length);
-  const { width, height } = cellSize(options, columns, gridRows, gaps);
+  const { width, height } = vegaCellSize(params.cellSizing, rows);
   const cells: FacetCell[] = [];
   rowValues.forEach((rowValue, rowIndex) => {
     colValues.forEach((colValue, colIndex) => {
@@ -603,6 +667,12 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     colSort: sortOf(encoding.column),
     wrapSort: sortOf(encoding.facet),
     options,
+    cellSizing: {
+      xDef: cellEncoding.x,
+      yDef: cellEncoding.y,
+      specWidth: spec.width,
+      specHeight: spec.height,
+    },
     makeCellSpec,
   });
   return { ...plan, gaps: [...transformGaps, ...plan.gaps] };
@@ -661,6 +731,12 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
     colSort: facet.column?.sort,
     wrapSort: facet.sort,
     options,
+    cellSizing: {
+      xDef: sharedEncoding?.x ?? sub.encoding?.x,
+      yDef: sharedEncoding?.y ?? sub.encoding?.y,
+      specWidth: (sub as { width?: VegaLiteSpec['width'] }).width ?? spec.width,
+      specHeight: (sub as { height?: VegaLiteSpec['height'] }).height ?? spec.height,
+    },
     makeCellSpec,
   });
   return { ...plan, gaps: [...transformGaps, ...plan.gaps] };

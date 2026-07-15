@@ -224,10 +224,15 @@ function numericSize(
   if (typeof value === 'number') {
     return value;
   }
-  if (value !== undefined && value !== 'container') {
+  // A `{step}` (band step) size is honored by the shell's view-size resolver
+  // (`step × categoryCount`), so it is intentionally left for that stage rather
+  // than reported here. Only a genuinely unrecognized object form is gapped.
+  const isStep =
+    value != null && typeof value === 'object' && typeof (value as { step?: unknown }).step === 'number';
+  if (value !== undefined && value !== 'container' && !isStep) {
     gaps.add({
       code: `size:${prop}-step`,
-      message: `Step-based or object ${prop} sizing is not supported; the chart falls back to container sizing.`,
+      message: `Object ${prop} sizing is not supported; the chart falls back to container sizing.`,
       severity: 'ignored',
       path: prop,
     });

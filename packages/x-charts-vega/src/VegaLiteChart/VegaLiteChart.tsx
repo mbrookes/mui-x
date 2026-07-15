@@ -438,7 +438,20 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // plot areas line up, and hoist a single legend beside the grid. Concat and
     // repeat cells stay independent (their own axes and legends).
     const shared = plan.sharedAxes === true;
-    const legendSpec = shared ? plan.cells[0]?.spec : undefined;
+    // The hoisted legend must list every color group, but a facet whose facet
+    // field equals its color field (e.g. `row: gender` + `color: gender`) leaves
+    // each cell holding only one group — so the legend proxy compiles against
+    // the union of every cell's rows, not just the first cell's partition.
+    const legendSpec = (() => {
+      const first = shared ? plan.cells[0]?.spec : undefined;
+      if (!first) {
+        return undefined;
+      }
+      const unionRows = plan.cells.flatMap(
+        (cell) => (cell.spec.data as { values?: readonly unknown[] } | undefined)?.values ?? [],
+      );
+      return unionRows.length > 0 ? { ...first, data: { values: unionRows } } : first;
+    })();
     // A trellis shares one x/y axis, so its title belongs once beside/below the
     // whole grid rather than repeated in every column/row cell.
     const leafEncoding = shared ? (plan.cells[0]?.spec.encoding ?? {}) : {};

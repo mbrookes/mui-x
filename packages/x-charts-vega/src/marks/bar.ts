@@ -395,7 +395,17 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
         stackOffset = 'none';
       }
       stackReversed = color.domainDerived === true;
-      if (color.domain && color.domainDerived !== true) {
+      // Only a stack of *two or more* segments has an order that could diverge
+      // from the reference; a cell holding a single color group (e.g. a facet
+      // whose facet field equals its color field) stacks nothing, so the
+      // explicit-domain caveat would be spurious noise there.
+      const distinctGroups = new Set(
+        rows
+          .map((row) => (color.splitField ? row[color.splitField] : undefined))
+          .filter((value) => value != null)
+          .map((value) => ctx.categoryKey(value)),
+      ).size;
+      if (color.domain && color.domainDerived !== true && distinctGroups > 1) {
         gaps.add({
           code: 'mark:stack-order-explicit-domain',
           message:
@@ -421,9 +431,18 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     groups.forEach((group, groupIndex) => {
       const id = `${unit.path}:${color.splitField}:${ctx.categoryKey(group.value)}`;
       const label = String(group.value);
+      // Index the range by the group's position in the color domain, not its
+      // local index among the groups present here — a faceted cell may hold only
+      // one group (e.g. `row: gender` + `color: gender`), yet it must still take
+      // that group's shared color, not the first range entry.
+      const domainIndex =
+        color.domain && color.domain.length > 0
+          ? color.domain.findIndex((value) => ctx.categoryKey(value) === ctx.categoryKey(group.value))
+          : -1;
+      const colorIndex = domainIndex >= 0 ? domainIndex : groupIndex;
       const groupColor =
         color.range && color.range.length > 0
-          ? color.range[groupIndex % color.range.length]
+          ? color.range[colorIndex % color.range.length]
           : staticColor;
       if (rangeTwin) {
         const data = buildRangedSeriesData(ctx, group.rows, categoryAxis, valueField, rangeTwin);

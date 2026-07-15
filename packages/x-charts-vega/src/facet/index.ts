@@ -134,6 +134,17 @@ function fieldOf(def: VegaChannelDef | undefined): string | undefined {
   return isFieldDef(def) ? def.field : undefined;
 }
 
+/** The mark type name from a `mark` string or `{type}` object. */
+function markTypeOf(mark: VegaLiteSpec['mark'] | undefined): string | undefined {
+  if (typeof mark === 'string') {
+    return mark;
+  }
+  if (mark && typeof mark === 'object' && typeof (mark as { type?: unknown }).type === 'string') {
+    return (mark as { type: string }).type;
+  }
+  return undefined;
+}
+
 /** Render a facet value for a header (dates get a locale date, else `String`). */
 function formatFacetValue(value: unknown): string {
   if (value instanceof Date) {
@@ -421,6 +432,23 @@ function injectSharedScales(
       }
     }
   }
+  // Share the color scale too (Vega-Lite's default `resolve.scale.color:
+  // "shared"`): inject the union of the color field's values, ascending, as the
+  // scale domain so every cell maps the same value to the same swatch. Without
+  // it, a facet whose facet field equals its color field (e.g. `row: gender` +
+  // `color: gender`) gives each cell a single-value domain and every cell
+  // reuses the first range color. An explicit domain or channel `sort` wins.
+  const colorDef = encoding.color;
+  if (isFieldDef(colorDef) && colorDef.field && colorDef.sort === undefined) {
+    const scale =
+      colorDef.scale && typeof colorDef.scale === 'object' ? (colorDef.scale as VegaScale) : undefined;
+    if (!Array.isArray(scale?.domain)) {
+      const values = [...distinctValues(rows, colorDef.field)].sort(compareFacetValues);
+      if (values.length > 0) {
+        result.color = { ...colorDef, scale: { ...(scale ?? {}), domain: values } };
+      }
+    }
+  }
   return result;
 }
 
@@ -470,25 +498,35 @@ interface CellSizing {
   yDef?: VegaChannelDef;
   specWidth?: VegaLiteSpec['width'];
   specHeight?: VegaLiteSpec['height'];
+  /** The cell's mark type — `bar`/`rect`/`tick` band a numeric category axis. */
+  mark?: string;
 }
+
+/** Marks that draw a numeric non-value channel on a discrete band scale (as Vega does). */
+const BAND_MARKS = new Set(['bar', 'rect', 'tick']);
 
 /**
  * The plot size Vega-Lite gives one axis of a view: a numeric spec size wins; a
- * discrete (nominal/ordinal, non-binned) axis uses step-based sizing (`step ×
- * distinctCategoryCount`, default step 20); everything else (continuous,
- * temporal, binned) uses Vega's default view size.
+ * discrete axis uses step-based sizing (`step × distinctCategoryCount`, default
+ * step 20); everything else (continuous, temporal, binned) uses Vega's default
+ * view size. A bar/rect/tick mark bands even a numeric category channel (its
+ * non-aggregated positional field), so that is sized discretely too — otherwise
+ * a `{step}` on such an axis (e.g. `trellis_bar`'s numeric `age`) is ignored.
  */
 function vegaAxisPlotSize(
   specSize: VegaLiteSpec['width'] | undefined,
   def: VegaChannelDef | undefined,
   rows: readonly DatasetRow[],
+  mark: string | undefined,
 ): number {
   if (typeof specSize === 'number') {
     return specSize;
   }
   if (def && isFieldDef(def) && def.field && !def.bin) {
     const fieldType = resolveFieldType(def, rows);
-    if (fieldType === 'nominal' || fieldType === 'ordinal') {
+    const bandedNumericCategory =
+      mark != null && BAND_MARKS.has(mark) && def.aggregate === undefined;
+    if (fieldType === 'nominal' || fieldType === 'ordinal' || bandedNumericCategory) {
       const count = distinctValues(rows, def.field).length;
       if (count > 0) {
         const step =
@@ -509,8 +547,8 @@ function vegaCellSize(
   sizing: CellSizing | undefined,
   rows: readonly DatasetRow[],
 ): { width: number; height: number } {
-  const plotWidth = vegaAxisPlotSize(sizing?.specWidth, sizing?.xDef, rows);
-  const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows);
+  const plotWidth = vegaAxisPlotSize(sizing?.specWidth, sizing?.xDef, rows, sizing?.mark);
+  const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows, sizing?.mark);
   return {
     width: Math.max(MIN_CELL_WIDTH, plotWidth + CELL_Y_AXIS_ALLOWANCE),
     height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
@@ -672,6 +710,7 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
       yDef: cellEncoding.y,
       specWidth: spec.width,
       specHeight: spec.height,
+      mark: markTypeOf(spec.mark),
     },
     makeCellSpec,
   });
@@ -736,6 +775,7 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
       yDef: sharedEncoding?.y ?? sub.encoding?.y,
       specWidth: (sub as { width?: VegaLiteSpec['width'] }).width ?? spec.width,
       specHeight: (sub as { height?: VegaLiteSpec['height'] }).height ?? spec.height,
+      mark: markTypeOf(sub.mark),
     },
     makeCellSpec,
   });

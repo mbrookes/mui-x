@@ -29,7 +29,8 @@ import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import { ChartsClipPath } from '@mui/x-charts/ChartsClipPath';
 import useId from '@mui/utils/useId';
 import type { Position } from '@mui/x-charts/models';
-import type { DatasetRow, VegaFieldDef, VegaLiteSpec } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaLiteSpec } from '../types';
+import { isFieldDef } from '../types';
 import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
 import { collectBindInputs } from '../compile/params';
@@ -82,6 +83,42 @@ const SERIES_CONFIG = {
  * leaf sub-specs have no facet channels left).
  */
 const FacetDepthContext = React.createContext(0);
+
+/**
+ * The axis title Vega-Lite would show for a channel def — an explicit
+ * `axis.title`/`title` (or `null` to suppress), else an aggregate-prefixed field
+ * name ("SUM of revenue", "Count of Records"), else the field name. Used to draw
+ * one shared trellis axis title (mirrors `axisTitle` in `compile/scales.ts`).
+ */
+function facetAxisTitle(def: VegaChannelDef | undefined): string | undefined {
+  if (!isFieldDef(def)) {
+    return undefined;
+  }
+  const axis = (def as { axis?: unknown }).axis;
+  if (axis === null) {
+    return undefined;
+  }
+  if (axis && typeof axis === 'object' && 'title' in axis) {
+    const title = (axis as { title?: unknown }).title;
+    return title == null ? undefined : String(title);
+  }
+  if (def.title === null) {
+    return undefined;
+  }
+  if (def.title) {
+    return String(def.title);
+  }
+  const parts: string[] = [];
+  if (typeof def.aggregate === 'string') {
+    parts.push(def.aggregate.toUpperCase());
+  }
+  if (def.field) {
+    parts.push(def.field);
+  } else if (def.aggregate === 'count') {
+    parts.push('Count of Records');
+  }
+  return parts.length > 0 ? parts.join(' of ') : undefined;
+}
 
 // A uniform drawing-area margin for every trellis cell so their plot areas line
 // up even though only the edge cells draw axis labels (matching Vega-Lite, where
@@ -213,6 +250,8 @@ export interface VegaLiteChartProps {
   cell?: {
     hideXAxis?: boolean;
     hideYAxis?: boolean;
+    /** Keep the axis ticks but drop its title — the trellis draws one shared title. */
+    hideAxisTitles?: boolean;
     hideLegend?: boolean;
     /** Fixed drawing-area margin shared by every cell so plot areas align. */
     margin?: { top?: number; right?: number; bottom?: number; left?: number };
@@ -365,6 +404,11 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // repeat cells stay independent (their own axes and legends).
     const shared = plan.sharedAxes === true;
     const legendSpec = shared ? plan.cells[0]?.spec : undefined;
+    // A trellis shares one x/y axis, so its title belongs once beside/below the
+    // whole grid rather than repeated in every column/row cell.
+    const leafEncoding = shared ? (plan.cells[0]?.spec.encoding ?? {}) : {};
+    const sharedXTitle = shared ? facetAxisTitle(leafEncoding.x) : undefined;
+    const sharedYTitle = shared ? facetAxisTitle(leafEncoding.y) : undefined;
     // Size the grid tracks to the cells' own width so the facet grows to fit
     // its (Vega-sized) cells rather than squishing them into a fixed total.
     const cellTrackWidth = plan.cells[0]?.width;
@@ -387,6 +431,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
             ? {
                 hideYAxis: !isLeftColumn,
                 hideXAxis: hasCellBelow,
+                hideAxisTitles: true,
                 hideLegend: true,
                 margin: FACET_CELL_MARGIN,
               }
@@ -422,11 +467,42 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
         })}
       </div>
     );
+    // The grid, with one shared x-axis title centered below it (the per-cell
+    // titles were dropped via `hideAxisTitles`).
+    const gridWithXTitle = (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {grid}
+        {sharedXTitle && (
+          <div style={{ textAlign: 'center', fontSize: 12, padding: '2px 0' }}>{sharedXTitle}</div>
+        )}
+      </div>
+    );
+    // A single shared y-axis title (rotated), vertically centered to the left of
+    // the grid; then the grid; then the shared legend proxy.
+    const gridBlock = (
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+        {sharedYTitle && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              fontSize: 12,
+              padding: '0 2px',
+              writingMode: 'vertical-rl',
+              transform: 'rotate(180deg)',
+            }}
+          >
+            {sharedYTitle}
+          </div>
+        )}
+        {gridWithXTitle}
+      </div>
+    );
     content = (
       <FacetDepthContext.Provider value={depth + 1}>
         {shared && legendSpec ? (
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            {grid}
+            {gridBlock}
             <VegaLiteChart
               spec={legendSpec}
               datasets={mergedDatasets}
@@ -437,7 +513,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
             />
           </div>
         ) : (
-          grid
+          gridBlock
         )}
       </FacetDepthContext.Provider>
     );
@@ -609,6 +685,12 @@ function SingleViewChart(props: VegaLiteChartProps) {
     const stripped: Record<string, unknown> = { ...config };
     delete stripped.width;
     delete stripped.height;
+    // A trellis draws one shared axis title beside/below the grid, so each cell
+    // keeps its ticks but drops the per-cell title (which would otherwise repeat
+    // once per column/row).
+    if (cell.hideAxisTitles) {
+      stripped.label = undefined;
+    }
     return stripped as T;
   };
   const xAxis = compiled.xAxis ? [dropAutoSize(compiled.xAxis.config)] : undefined;

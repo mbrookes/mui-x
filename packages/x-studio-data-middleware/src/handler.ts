@@ -9,7 +9,8 @@
  *    a. Checks the server-side cache (security-scoped key)
  *    b. Runs a COUNT(*) pre-flight to determine routing tier
  *    c. Executes the query via the appropriate tier
- *    d. Populates the cache for server/client tiers
+ *    d. Populates the cache for server/client tiers, and for non-aggregation
+ *       db-tier results (see the `tier !== 'db' || !hasAggregations` gate below)
  * 4. Returns a BatchQueryResponse with all results
  *
  * PURE FUNCTION GUARANTEE:

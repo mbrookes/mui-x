@@ -204,6 +204,56 @@ function assignPosition(config: object, position: AxisExtras['position']): void 
   }
 }
 
+/**
+ * Formats a `timeUnit`-truncated Date for an axis label the way Vega-Lite does:
+ * a `month` axis reads "Jan" (not "1/1/2012"), `yearmonth` "Jan 2012", `year`
+ * "2012", `quarter` "Q1", `day` "Mon", etc. Falls back to a locale date string
+ * for units without a dedicated format. Selected by the `__timeUnit_<unit>_`
+ * synthetic column name the encoding pass emits.
+ */
+function timeUnitAxisFormatter(unit: string): (value: unknown) => string {
+  const base = unit.replace(/^utc/, '');
+  const asDate = (value: unknown): Date | null => (value instanceof Date ? value : toDate(value));
+  const withOptions =
+    (options: Intl.DateTimeFormatOptions) =>
+    (value: unknown): string => {
+      const date = asDate(value);
+      return date ? date.toLocaleDateString('en-US', options) : String(value);
+    };
+  switch (base) {
+    case 'year':
+      return withOptions({ year: 'numeric' });
+    case 'quarter':
+    case 'yearquarter':
+      return (value) => {
+        const date = asDate(value);
+        if (!date) {
+          return String(value);
+        }
+        const quarter = `Q${Math.floor(date.getMonth() / 3) + 1}`;
+        return base === 'yearquarter' ? `${quarter} ${date.getFullYear()}` : quarter;
+      };
+    case 'month':
+      return withOptions({ month: 'short' });
+    case 'yearmonth':
+      return withOptions({ year: 'numeric', month: 'short' });
+    case 'date':
+    case 'monthdate':
+    case 'yearmonthdate':
+      return withOptions({ month: 'short', day: 'numeric' });
+    case 'day':
+      return withOptions({ weekday: 'short' });
+    case 'hours':
+    case 'hoursminutes':
+      return withOptions({ hour: 'numeric', ...(base === 'hoursminutes' ? { minute: '2-digit' } : {}) });
+    default:
+      return (value) => {
+        const date = asDate(value);
+        return date ? date.toLocaleDateString() : String(value);
+      };
+  }
+}
+
 /** Numeric-, date-, then lexicographic-aware comparison for sort orders. */
 function compareValues(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') {
@@ -532,7 +582,14 @@ function resolveChannelAxis(
     // a formatter when `axis.format` produced one (e.g. via `formatType`).
     let discreteValueFormatter = extras.valueFormatter;
     if (isTemporal && discreteValueFormatter === undefined) {
-      discreteValueFormatter = (value) => (value as Date).toLocaleDateString();
+      // A `timeUnit` channel is rewritten to a `__timeUnit_<unit>_<field>`
+      // synthetic column; label the axis by that unit (month → "Jan") like
+      // Vega-Lite, rather than a raw locale date.
+      const timeUnitMatch =
+        typeof field === 'string' ? /^__timeUnit_([a-z]+)_/.exec(field) : null;
+      discreteValueFormatter = timeUnitMatch
+        ? timeUnitAxisFormatter(timeUnitMatch[1])
+        : (value) => (value as Date).toLocaleDateString();
     }
 
     // Band `padding`/`paddingInner` (a 0..1 inter-category gap ratio) maps to

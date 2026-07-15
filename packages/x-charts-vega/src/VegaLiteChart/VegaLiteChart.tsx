@@ -712,15 +712,31 @@ function SingleViewChart(props: VegaLiteChartProps) {
     const geoColorLabel = geoColorFormat
       ? ({ value }: { value: number | Date }) => geoColorFormat(value)
       : undefined;
+    // The color field name titles the legend (Vega-Lite's default), e.g. "rate".
+    const geoColorTitle = isFieldDef(spec.encoding?.color)
+      ? spec.encoding?.color.field
+      : undefined;
+    // Vega-Lite places a continuous color legend as a vertical gradient bar to
+    // the top-right of the map; mirror that here.
+    const withGeoLegendTitle = (legend: React.ReactNode): React.ReactNode =>
+      geoColorTitle ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{geoColorTitle}</span>
+          {legend}
+        </div>
+      ) : (
+        legend
+      );
     let geoLegend: React.ReactNode;
     if (geoColorMap?.type === 'piecewise') {
-      geoLegend = <PiecewiseColorLegend axisDirection="z" />;
+      geoLegend = withGeoLegendTitle(<PiecewiseColorLegend axisDirection="z" direction="vertical" />);
     } else if (geoColorMap) {
-      geoLegend = (
+      geoLegend = withGeoLegendTitle(
         <ContinuousColorLegend
           axisDirection="z"
+          direction="vertical"
           {...(geoColorLabel ? { minLabel: geoColorLabel, maxLabel: geoColorLabel } : {})}
-        />
+        />,
       );
     } else {
       geoLegend = compiled.hasLegend && <ChartsLegend />;
@@ -736,7 +752,10 @@ function SingleViewChart(props: VegaLiteChartProps) {
         width={resolvedWidth}
         height={resolvedHeight}
       >
-        <ChartsWrapper>
+        <ChartsWrapper
+          legendPosition={{ vertical: 'top', horizontal: 'right' }}
+          legendDirection="vertical"
+        >
           {geoLegend}
           <ChartsSurface title={compiled.title}>
             {compiled.plots.includes('geoBase') && <GeoDataPlot />}

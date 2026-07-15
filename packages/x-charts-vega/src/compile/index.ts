@@ -18,6 +18,7 @@ import type {
   CompiledZAxis,
   OverlayLegendItem,
   PlotKind,
+  SizeLegend,
   UnitContext,
 } from './context';
 import { applyAlpha } from './colorUtils';
@@ -50,6 +51,8 @@ export interface CompiledChart {
   overlays: CompiledOverlay[];
   /** Custom legend swatches for color-split overlays (dodged box plots). */
   overlayLegend: OverlayLegendItem[];
+  /** Bubble-size legend for a scatter layer with a quantitative `size` field. */
+  sizeLegend?: SizeLegend;
   grid: { vertical?: boolean; horizontal?: boolean };
   hasLegend: boolean;
   colors: readonly string[];
@@ -264,6 +267,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
   const hollowSeriesIds: string[] = [];
+  let sizeLegend: SizeLegend | undefined;
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
   // Static opacity per series index (from the originating layer's mark), applied
@@ -310,6 +314,10 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     referenceLines.push(...(compiled.referenceLines ?? []));
     overlays.push(...(compiled.overlays ?? []));
     overlayLegend.push(...(compiled.overlayLegend ?? []));
+    // First layer with a bubble-size legend wins (one size scale per chart).
+    if (compiled.sizeLegend && !sizeLegend) {
+      sizeLegend = compiled.sizeLegend;
+    }
     zAxis.push(...(compiled.zAxis ?? []));
     hollowSeriesIds.push(...(compiled.hollowSeriesIds ?? []));
     // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
@@ -455,6 +463,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     referenceLines,
     overlays,
     overlayLegend,
+    sizeLegend,
     grid: axes.grid,
     hasLegend,
     colors: palette,

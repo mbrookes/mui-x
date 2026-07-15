@@ -37,6 +37,7 @@ import { VegaOverlays, ArcLabelsPlot } from '../overlays';
 import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
+import { SizeLegend } from './SizeLegend';
 import { VegaTooltip, resolveTooltipFields } from './VegaTooltip';
 import { createHollowScatterMarker } from './HollowScatterMarker';
 
@@ -287,13 +288,19 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // repeat cells stay independent (their own axes and legends).
     const shared = plan.sharedAxes === true;
     const legendSpec = shared ? plan.cells[0]?.spec : undefined;
+    // Size the grid tracks to the cells' own width so the facet grows to fit
+    // its (Vega-sized) cells rather than squishing them into a fixed total.
+    const cellTrackWidth = plan.cells[0]?.width;
     const grid = (
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${plan.columns}, minmax(0, 1fr))`,
+          gridTemplateColumns: cellTrackWidth
+            ? `repeat(${plan.columns}, ${cellTrackWidth}px)`
+            : `repeat(${plan.columns}, minmax(0, 1fr))`,
           gap: shared ? 0 : 8,
-          width: gridSize.width,
+          width: 'max-content',
+          maxWidth: '100%',
         }}
       >
         {plan.cells.map((cell, index) => {
@@ -565,7 +572,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
     );
   }
 
-  return (
+  const chart = (
     <ChartsDataProviderPremium
       series={compiled.series}
       seriesConfig={SERIES_CONFIG as never}
@@ -639,4 +646,17 @@ function SingleViewChart(props: VegaLiteChartProps) {
       </ChartsWrapper>
     </ChartsDataProviderPremium>
   );
+
+  // A bubble-size legend has no x-charts equivalent, so draw it beside the chart
+  // (Vega-Lite's default placement). Suppressed inside trellis cells, which
+  // hoist a single shared legend outside the grid.
+  if (compiled.sizeLegend && !cell) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+        {chart}
+        <SizeLegend legend={compiled.sizeLegend} color={compiled.colors[0]} />
+      </div>
+    );
+  }
+  return chart;
 }

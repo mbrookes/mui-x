@@ -76,6 +76,12 @@ const DEFAULT_TOTAL_HEIGHT = 400;
 /** Below these, sub-charts stop being legible; the grid clamps and reports it. */
 const MIN_CELL_WIDTH = 120;
 const MIN_CELL_HEIGHT = 100;
+// A Vega-like default per-cell size. A wrapped/matrix facet grows to fit cells
+// at this size (the grid may exceed the passed width/height and the card
+// scrolls) rather than shrinking every cell to divide a small total — which
+// otherwise squishes trellis cells until their marks collapse.
+const TARGET_CELL_WIDTH = 260;
+const TARGET_CELL_HEIGHT = 200;
 
 export interface FacetOptions {
   /** Host-provided rows overriding/standing in for `spec.data`. */
@@ -194,10 +200,13 @@ function sortFacetValues(
   facetField: string,
   gaps: TranslationGap[],
 ): unknown[] {
-  if (sort == null) {
+  if (sort === null) {
+    // `sort: null` explicitly opts out of ordering — keep data order.
     return values;
   }
-  if (sort === 'ascending' || sort === 'descending') {
+  if (sort === undefined || sort === 'ascending' || sort === 'descending') {
+    // Vega-Lite orders a nominal/ordinal/temporal facet ascending by default, so
+    // an absent `sort` sorts ascending too (not first-seen data order).
     const sorted = [...values].sort(compareFacetValues);
     return sort === 'descending' ? sorted.reverse() : sorted;
   }
@@ -430,8 +439,8 @@ function cellSize(
 ): { width: number; height: number } {
   const rawWidth = Math.floor(options.width / columns);
   const rawHeight = Math.floor(options.height / rows);
-  const width = Math.max(MIN_CELL_WIDTH, rawWidth);
-  const height = Math.max(MIN_CELL_HEIGHT, rawHeight);
+  const width = Math.max(TARGET_CELL_WIDTH, rawWidth);
+  const height = Math.max(TARGET_CELL_HEIGHT, rawHeight);
   if (rawWidth < MIN_CELL_WIDTH || rawHeight < MIN_CELL_HEIGHT) {
     gaps.push({
       code: 'facet:min-cell-size',
@@ -578,12 +587,18 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
   };
   const sortOf = (def: VegaChannelDef | undefined): VegaSort | undefined =>
     isFieldDef(def) ? def.sort : undefined;
+  // A wrapping `facet` channel carries `columns` either on the channel def
+  // itself (`encoding.facet.columns`, as Vega-Lite's own examples do) or at the
+  // top level (`spec.columns`); the channel def wins.
+  const facetColumns =
+    numericSize((encoding.facet as { columns?: unknown } | undefined)?.columns) ??
+    numericSize(spec.columns);
   const plan = buildFacetGrid({
     rows,
     rowField,
     colField,
     wrapField,
-    columns: numericSize(spec.columns),
+    columns: facetColumns,
     rowSort: sortOf(encoding.row),
     colSort: sortOf(encoding.column),
     wrapSort: sortOf(encoding.facet),

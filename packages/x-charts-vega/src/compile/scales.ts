@@ -638,9 +638,20 @@ function resolveChannelAxis(
       }
     }
 
+    // x-charts places the first discrete category at the TOP of a y-axis. That
+    // is right for a categorical band (nominal/ordinal — including numeric
+    // ordinals like `age`, which Vega-Lite also lays out first-at-top), but a
+    // *binned* quantitative y-axis represents a continuous range that Vega-Lite
+    // draws low-to-high from the bottom up. Reverse only the binned case so the
+    // smallest bin sits at the bottom; combine with an explicit `scale.reverse`.
+    const isBinnedField = typeof field === 'string' && field.startsWith('__bin_');
+    const reverseForBinnedY = channel === 'y' && isBinnedField;
+    const reverse = (scale?.reverse === true) !== reverseForBinnedY ? true : undefined;
+
     const config = {
       ...commonConfig,
       scaleType,
+      reverse,
       data: categories,
       ...(categoryGapRatio !== undefined ? { categoryGapRatio } : {}),
       ...(isTemporal ? { tickInterval: temporalTickInterval } : {}),

@@ -191,6 +191,12 @@ export interface CompiledUnit {
    * as a small custom legend.
    */
   overlayLegend?: OverlayLegendItem[];
+  /**
+   * A bubble-size legend for a scatter layer with a quantitative `size` field.
+   * x-charts has no native size legend, so the shell draws representative
+   * circles + value labels beside the chart (mirroring Vega-Lite's default).
+   */
+  sizeLegend?: SizeLegend;
   /** Chart-wide bar corner radius requested by this layer's bar mark. */
   barBorderRadius?: number;
   /**
@@ -206,6 +212,12 @@ export interface CompiledUnit {
 export interface OverlayLegendItem {
   label: string;
   color: string;
+}
+
+/** A bubble-size legend: representative data values with their marker radii (px). */
+export interface SizeLegend {
+  title?: string;
+  entries: Array<{ value: number; radius: number }>;
 }
 
 /**

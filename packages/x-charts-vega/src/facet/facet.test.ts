@@ -89,9 +89,11 @@ describe('planFacets', () => {
     };
     const plan = planFacets(spec, SIZE)!;
     expect(plan).not.to.equal(null);
-    // One row per derived gender value; the 1990 row was filtered out.
+    // One row per derived gender value; the 1990 row was filtered out. Facet
+    // values are ordered ascending by default (Vega-Lite's default), so
+    // 'Female' precedes 'Male' regardless of first-seen data order.
     expect(plan.cells).to.have.length(2);
-    expect(plan.cells.map((cell) => cell.header)).to.deep.equal(['Male', 'Female']);
+    expect(plan.cells.map((cell) => cell.header)).to.deep.equal(['Female', 'Male']);
     // Each cell holds only its (already-transformed) partition and drops the
     // top-level transform so it does not re-run per cell.
     const first = plan.cells[0].spec;

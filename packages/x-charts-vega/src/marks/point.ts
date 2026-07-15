@@ -1,6 +1,6 @@
 import type { ScatterValueType } from '@mui/x-charts/models';
 import { isFieldDef } from '../types';
-import type { DatasetRow } from '../types';
+import type { DatasetRow, VegaEncoding } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -10,6 +10,7 @@ import type {
   CompiledUnit,
   CompiledZAxis,
   OverlaySegment,
+  SizeLegend,
   UnitContext,
 } from '../compile/context';
 
@@ -379,6 +380,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   const candidates = resolveCandidates(ctx, colorField, sizeField);
 
   let zAxis: CompiledZAxis[] | undefined;
+  let sizeLegend: SizeLegend | undefined;
   if (sizeField !== undefined) {
     let min: number | undefined;
     let max: number | undefined;
@@ -416,6 +418,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
           sizeMap: { type: 'continuous', size: [0, 11], interpolator: 'sqrt' },
         },
       ];
+      sizeLegend = buildSizeLegend(min, max, encoding.size);
     }
   }
 
@@ -502,8 +505,70 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     series,
     plots: series.length > 0 ? ['scatter'] : [],
     ...(zAxis ? { zAxis } : {}),
+    ...(sizeLegend ? { sizeLegend } : {}),
     ...(hollow && series.length > 0
       ? { hollowSeriesIds: series.map((entry) => String(entry.id)) }
       : {}),
   };
+}
+
+/**
+ * Nice, round tick values from 0 up to `max` (a `1/2/5 × 10^n` step), matching
+ * the entries Vega-Lite shows in a symbol-size legend.
+ */
+function niceSizeTicks(max: number): number[] {
+  if (!(max > 0)) {
+    return [0];
+  }
+  const rawStep = max / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  let niceFactor = 1;
+  if (normalized >= 5) {
+    niceFactor = 5;
+  } else if (normalized >= 2) {
+    niceFactor = 2;
+  }
+  const step = niceFactor * magnitude;
+  const ticks: number[] = [];
+  for (let value = 0; value <= max + step * 1e-6; value += step) {
+    ticks.push(Math.round(value));
+  }
+  return ticks;
+}
+
+/**
+ * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to 11px via a
+ * `sqrt` interpolator over `[min, max]`), so its swatches match the plotted
+ * markers. The title follows Vega-Lite's `size` channel ("Count of Records" for
+ * an unfielded count aggregate, else the field name with its aggregate prefix).
+ */
+function buildSizeLegend(
+  min: number,
+  max: number,
+  sizeDef: VegaEncoding['size'],
+): SizeLegend | undefined {
+  if (!(max > min)) {
+    return undefined;
+  }
+  const entries = niceSizeTicks(max).map((value) => {
+    const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+    return { value, radius: 11 * Math.sqrt(t) };
+  });
+  let title: string | undefined;
+  if (isFieldDef(sizeDef)) {
+    // The aggregate rewrite (transforms/encoding.ts) already stamped a
+    // human-readable title ("Count of Records", "MEAN of v") onto the size def
+    // and renamed `field` to a synthetic column, so prefer that title; only
+    // fall back to deriving one for a raw (un-aggregated) size field.
+    const aggregate = typeof sizeDef.aggregate === 'string' ? sizeDef.aggregate : undefined;
+    if (sizeDef.title) {
+      title = sizeDef.title;
+    } else if (sizeDef.field) {
+      title = aggregate ? `${aggregate.toUpperCase()} of ${sizeDef.field}` : sizeDef.field;
+    } else if (aggregate === 'count') {
+      title = 'Count of Records';
+    }
+  }
+  return { title, entries };
 }

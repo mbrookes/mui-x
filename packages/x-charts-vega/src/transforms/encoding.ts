@@ -183,7 +183,9 @@ export function applyEncodingTransforms(
           field: binResult.field,
           type: 'ordinal',
           bin: undefined,
-          title: def.title ?? def.field,
+          // Vega-Lite suffixes a binned field's axis/legend title with
+          // "(binned)"; keep an explicit title if the spec set one.
+          title: def.title ?? (def.field ? `${def.field} (binned)` : undefined),
         };
       } else {
         // Binning failed (gap already recorded): strip the bin marker so

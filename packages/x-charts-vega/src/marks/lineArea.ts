@@ -141,6 +141,23 @@ function formatGroupLabel(value: unknown): string {
   return String(value);
 }
 
+/**
+ * The legend label for a constant `color: {datum: value}` encoding (as `repeat`
+ * layers produce, one datum per layer). Each such line is its own layer with a
+ * single constant color, so Vega-Lite shows one legend entry per datum; giving
+ * the series that label makes the shell draw the legend (and x-charts assigns
+ * each layer's line the next palette color, matching the datum domain order).
+ */
+function colorDatumLabel(colorDef: unknown): string | undefined {
+  if (colorDef && typeof colorDef === 'object' && !Array.isArray(colorDef)) {
+    const datum = (colorDef as { datum?: unknown }).datum;
+    if (datum != null && (typeof datum === 'string' || typeof datum === 'number')) {
+      return String(datum);
+    }
+  }
+  return undefined;
+}
+
 interface ContinuousPoint {
   x: number;
   y: number;
@@ -529,6 +546,9 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       );
     groups.push({
       key: SINGLE_GROUP_KEY,
+      // A constant `color: {datum: …}` (per-layer color, as `repeat` layers use)
+      // labels this line so the shell surfaces a legend entry for it.
+      label: colorDatumLabel(encoding.color),
       color: staticColor,
     });
   }

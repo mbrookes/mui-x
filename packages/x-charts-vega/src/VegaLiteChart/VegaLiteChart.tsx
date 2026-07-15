@@ -60,10 +60,12 @@ function resolveLegendLayout(orient: string | undefined): LegendLayout {
     case 'bottom':
       return { position: { vertical: 'bottom', horizontal: 'center' }, direction: 'horizontal' };
     case 'left':
-      return { position: { vertical: 'middle', horizontal: 'start' }, direction: 'vertical' };
+      return { position: { vertical: 'top', horizontal: 'start' }, direction: 'vertical' };
     case 'right':
     default:
-      return { position: { vertical: 'middle', horizontal: 'end' }, direction: 'vertical' };
+      // Vega-Lite anchors a right-side legend at the top of the plot, not its
+      // vertical middle, so match that.
+      return { position: { vertical: 'top', horizontal: 'end' }, direction: 'vertical' };
   }
 }
 

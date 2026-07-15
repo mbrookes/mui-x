@@ -108,6 +108,13 @@ export interface FacetPlan {
   rows: number;
   /** Cells in row-major order. */
   cells: FacetCell[];
+  /**
+   * Whether the cells share one x/y scale and legend (true for `row`/`column`/
+   * `facet` small multiples). The shell then draws axis labels only on the left
+   * column / bottom row and hoists a single legend. Concat and repeat cells are
+   * independent views, so they keep their own axes and legends.
+   */
+  sharedAxes?: boolean;
   /** Facet-level gaps (min cell size, empty data, malformed operator, …). */
   gaps: TranslationGap[];
 }
@@ -502,7 +509,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
       width,
       height,
     }));
-    return { columns, rows: gridRows, cells, gaps };
+    return { columns, rows: gridRows, cells, gaps, sharedAxes: true };
   }
 
   const rowValues = rowField
@@ -538,7 +545,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
       });
     });
   });
-  return { columns, rows: gridRows, cells, gaps };
+  return { columns, rows: gridRows, cells, gaps, sharedAxes: true };
 }
 
 /** True when the spec uses the `facet` operator (`facet` + `spec`). */

@@ -82,6 +82,15 @@ const SERIES_CONFIG = {
  */
 const FacetDepthContext = React.createContext(0);
 
+// A uniform drawing-area margin for every trellis cell so their plot areas line
+// up even though only the edge cells draw axis labels (matching Vega-Lite, where
+// faceted cells share one x/y axis). The left/bottom reserve room for the shared
+// axis labels; inner cells keep the space empty.
+const FACET_CELL_MARGIN = { top: 6, right: 8, bottom: 34, left: 52 };
+
+/** Stable no-op for the trellis legend proxy, whose gaps the cells already report. */
+const NO_GAPS = () => {};
+
 /**
  * Shared bound-param signal values for a single chart tree. The root
  * `VegaLiteChart` owns the state and renders the input toolbar; nested
@@ -117,6 +126,21 @@ export interface VegaLiteChartProps {
   onGaps?: (gaps: TranslationGap[]) => void;
   /** Extra children rendered inside the chart surface (composition escape hatch). */
   children?: React.ReactNode;
+  /**
+   * @ignore
+   * Internal (facet cell) rendering controls. A trellis shares one x/y axis and
+   * one legend across the grid, so inner cells suppress their own axis labels
+   * and legend while keeping a fixed margin so every cell's plot area lines up.
+   */
+  cell?: {
+    hideXAxis?: boolean;
+    hideYAxis?: boolean;
+    hideLegend?: boolean;
+    /** Fixed drawing-area margin shared by every cell so plot areas align. */
+    margin?: { top?: number; right?: number; bottom?: number; left?: number };
+    /** Render only the shared legend (no plot), used for the single trellis legend. */
+    legendOnly?: boolean;
+  };
 }
 
 /**
@@ -135,7 +159,7 @@ export interface VegaLiteChartProps {
  * `<VegaLiteChart />` instances. See GAPS.md for the full support matrix.
  */
 export function VegaLiteChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children } = props;
+  const { spec, data, datasets, width, height, colors, onGaps, children, cell } = props;
   const depth = React.useContext(FacetDepthContext);
 
   // Only the outermost instance (no inherited param context) owns the shared
@@ -257,17 +281,33 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
 
   let content: React.ReactNode;
   if (plan != null) {
-    content = (
-      <FacetDepthContext.Provider value={depth + 1}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${plan.columns}, minmax(0, 1fr))`,
-            gap: 8,
-            width: gridSize.width,
-          }}
-        >
-          {plan.cells.map((cell) => (
+    // Facet small multiples share one x/y scale and legend: draw axis labels
+    // only on the left column / bottom row, keep a uniform per-cell margin so the
+    // plot areas line up, and hoist a single legend beside the grid. Concat and
+    // repeat cells stay independent (their own axes and legends).
+    const shared = plan.sharedAxes === true;
+    const legendSpec = shared ? plan.cells[0]?.spec : undefined;
+    const grid = (
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${plan.columns}, minmax(0, 1fr))`,
+          gap: shared ? 0 : 8,
+          width: gridSize.width,
+        }}
+      >
+        {plan.cells.map((cell, index) => {
+          const isLeftColumn = index % plan.columns === 0;
+          const hasCellBelow = index + plan.columns < plan.cells.length;
+          const cellProps = shared
+            ? {
+                hideYAxis: !isLeftColumn,
+                hideXAxis: hasCellBelow,
+                hideLegend: true,
+                margin: FACET_CELL_MARGIN,
+              }
+            : undefined;
+          return (
             <div key={cell.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               {cell.header != null && (
                 <div
@@ -291,10 +331,30 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
                 height={cell.height}
                 colors={colors}
                 onGaps={handleCellGaps}
+                cell={cellProps}
               />
             </div>
-          ))}
-        </div>
+          );
+        })}
+      </div>
+    );
+    content = (
+      <FacetDepthContext.Provider value={depth + 1}>
+        {shared && legendSpec ? (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            {grid}
+            <VegaLiteChart
+              spec={legendSpec}
+              datasets={mergedDatasets}
+              height={gridSize.height}
+              colors={colors}
+              onGaps={NO_GAPS}
+              cell={{ legendOnly: true }}
+            />
+          </div>
+        ) : (
+          grid
+        )}
       </FacetDepthContext.Provider>
     );
   } else {
@@ -307,6 +367,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
         height={height}
         colors={colors}
         onGaps={onGaps}
+        cell={cell}
       >
         {children}
       </SingleViewChart>
@@ -335,7 +396,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
  * composition as an unsupported gap).
  */
 function SingleViewChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children } = props;
+  const { spec, data, datasets, width, height, colors, onGaps, children, cell } = props;
   const paramCtx = React.useContext(VegaParamsContext);
   const paramValues = paramCtx?.values;
 
@@ -468,6 +529,29 @@ function SingleViewChart(props: VegaLiteChartProps) {
     </React.Fragment>
   );
 
+  // A trellis renders one shared legend outside the grid: this "legend only"
+  // proxy mounts the provider for the color scale and draws just the legend,
+  // with no plotting surface.
+  if (cell?.legendOnly) {
+    return (
+      <ChartsDataProviderPremium
+        series={compiled.series}
+        seriesConfig={SERIES_CONFIG as never}
+        xAxis={xAxis}
+        yAxis={yAxis}
+        zAxis={compiled.zAxis}
+        colors={compiled.colors.slice()}
+        width={1}
+        height={resolvedHeight ?? 1}
+      >
+        <ChartsWrapper>
+          {compiled.hasLegend && <ChartsLegend direction="vertical" />}
+          {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
+        </ChartsWrapper>
+      </ChartsDataProviderPremium>
+    );
+  }
+
   return (
     <ChartsDataProviderPremium
       series={compiled.series}
@@ -478,13 +562,18 @@ function SingleViewChart(props: VegaLiteChartProps) {
       colors={compiled.colors.slice()}
       width={resolvedWidth}
       height={resolvedHeight}
+      margin={cell?.margin}
     >
       <ChartsWrapper
         legendPosition={legendLayout?.position}
         legendDirection={legendLayout?.direction}
       >
-        {compiled.hasLegend && <ChartsLegend direction={legendLayout?.direction} />}
-        {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
+        {!cell?.hideLegend && compiled.hasLegend && (
+          <ChartsLegend direction={legendLayout?.direction} />
+        )}
+        {!cell?.hideLegend && compiled.overlayLegend.length > 0 && (
+          <OverlayLegend items={compiled.overlayLegend} />
+        )}
         <ChartsSurface
           title={compiled.title}
           sx={compiled.background ? { backgroundColor: compiled.background } : undefined}
@@ -497,8 +586,8 @@ function SingleViewChart(props: VegaLiteChartProps) {
           )}
           {zoomEnabled && <ChartsClipPath id={clipId as string} />}
           {zoomEnabled ? <g clipPath={`url(#${clipId})`}>{plotContent}</g> : plotContent}
-          {compiled.chartKind === 'cartesian' && xAxis && <ChartsXAxis />}
-          {compiled.chartKind === 'cartesian' && yAxis && <ChartsYAxis />}
+          {compiled.chartKind === 'cartesian' && xAxis && !cell?.hideXAxis && <ChartsXAxis />}
+          {compiled.chartKind === 'cartesian' && yAxis && !cell?.hideYAxis && <ChartsYAxis />}
           {compiled.chartKind === 'cartesian' && <ChartsAxisHighlight />}
           {compiled.referenceLines.map((line, index) =>
             line.axis === 'x' ? (

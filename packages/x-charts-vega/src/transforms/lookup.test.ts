@@ -307,7 +307,7 @@ describe('applyLookupTransform', () => {
         y: { field: 'sales', type: 'quantitative' },
       },
     });
-    expect(compiled.xAxis?.categories).to.deep.equal(['West', 'East']);
+    expect(compiled.xAxis?.categories).to.deep.equal(['East', 'West']);
     expect(compiled.gaps.filter((gap) => gap.code.startsWith('transform:lookup'))).to.have.length(
       0,
     );

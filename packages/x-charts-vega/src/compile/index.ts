@@ -1,5 +1,5 @@
-import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
 import type { XAxis, YAxis } from '@mui/x-charts/models';
+import { VEGA_TABLEAU10 } from './vegaDefaults';
 import type { DatasetRow, VegaEncoding, VegaLiteSpec, VegaMarkDef } from '../types';
 import { createGapCollector } from '../gaps';
 import type { TranslationGap } from '../gaps';
@@ -26,7 +26,7 @@ import { categoryIndex, categoryKey } from './context';
 export interface CompileOptions {
   data?: readonly DatasetRow[];
   datasets?: Record<string, readonly DatasetRow[]>;
-  /** Categorical palette; defaults to the x-charts rainbowSurge palette. */
+  /** Categorical palette; defaults to Vega-Lite's `tableau10` scheme. */
   palette?: readonly string[];
   /** Resolved param/signal values, keyed by param name (threaded to expressions). */
   params?: Readonly<Record<string, unknown>>;
@@ -205,7 +205,7 @@ function applyOverlayDomains(
  */
 export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): CompiledChart {
   const gaps = createGapCollector();
-  const palette = options.palette ?? rainbowSurgePalette('light');
+  const palette = options.palette ?? VEGA_TABLEAU10;
   const normalized = normalizeSpec(spec, { data: options.data, datasets: options.datasets }, gaps);
 
   // Resolve params before the transform pass so that named variable params

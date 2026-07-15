@@ -447,7 +447,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     };
 
     if (colorRes.domain) {
-      // Respect the explicit domain's order (and, for the label, its exact
+      // Respect the explicit/sorted domain's order (and, for the label, its exact
       // values) instead of first-seen-in-data order; dedupe it first so the
       // color/range index lines up with what actually gets rendered.
       const seenDomainKeys = new Set<string>();
@@ -460,6 +460,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         seenDomainKeys.add(key);
         pushGroupSeries(key, domainValue, domainIndex);
         domainIndex += 1;
+      });
+      // Append any groups the domain didn't cover (e.g. rows whose color value is
+      // null/undefined, which the sorted default domain omits) so no data is
+      // dropped, trailing the domain-ordered series in data order.
+      groups.forEach((group, key) => {
+        if (!seenDomainKeys.has(key)) {
+          seenDomainKeys.add(key);
+          pushGroupSeries(key, group.value, domainIndex);
+          domainIndex += 1;
+        }
       });
     } else {
       let groupIndex = 0;

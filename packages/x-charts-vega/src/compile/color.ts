@@ -172,6 +172,16 @@ const SEQUENTIAL_SCHEME_RANGES: Record<string, readonly [string, string]> = {
  */
 const HONORED_LEGEND_KEYS = new Set(['orient', 'legendX', 'legendY']);
 
+/** Ascending comparison for a default color domain: numeric, then locale-aware. */
+function compareColorValues(a: unknown, b: unknown): number {
+  const numA = Number(a);
+  const numB = Number(b);
+  if (Number.isFinite(numA) && Number.isFinite(numB) && a !== '' && b !== '') {
+    return numA - numB;
+  }
+  return String(a).localeCompare(String(b));
+}
+
 function schemeNameOf(scheme: VegaScale['scheme']): string | undefined {
   if (!scheme) {
     return undefined;
@@ -514,7 +524,43 @@ export function resolveColor(
       }
     }
 
-    const domain = Array.isArray(scale?.domain) ? scale?.domain : undefined;
+    let domain = Array.isArray(scale?.domain) ? scale?.domain : undefined;
+    // Vega-Lite orders a nominal/ordinal color legend — and therefore the
+    // series → color assignment — ascending by default. When the spec gives
+    // neither an explicit `scale.domain` nor a channel `sort`, derive that
+    // default domain from the data so the color mapping matches the reference
+    // renderer instead of following first-seen data order. `sort: null` keeps
+    // data order; an explicit `sort` array is used verbatim.
+    if (!domain && fieldDef.field) {
+      const sortSpec = (fieldDef as { sort?: unknown }).sort;
+      if (Array.isArray(sortSpec)) {
+        domain = sortSpec;
+      } else if (sortSpec !== null) {
+        const seen = new Set<string>();
+        const distinct: unknown[] = [];
+        for (const row of rows) {
+          const value = row[fieldDef.field];
+          if (value == null) {
+            continue;
+          }
+          const key = String(value);
+          if (!seen.has(key)) {
+            seen.add(key);
+            distinct.push(value);
+          }
+        }
+        distinct.sort(compareColorValues);
+        if (sortSpec === 'descending') {
+          distinct.reverse();
+        }
+        // Leave the domain unset when no rows carry a value to order (e.g. an
+        // encoding resolved without rows), so downstream code keeps its
+        // data-order path rather than seeing an empty explicit domain. Rows with
+        // a missing color value form groups not listed here; the mark compilers
+        // append those leftover groups so no data is dropped.
+        domain = distinct.length > 0 ? distinct : undefined;
+      }
+    }
     if (domain && range && domain.length !== range.length) {
       gaps.add({
         code: 'encoding:color-domain-range-mismatch',

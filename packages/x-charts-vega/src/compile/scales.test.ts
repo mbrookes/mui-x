@@ -206,13 +206,13 @@ describe('scales & axes', () => {
       { c: 'C', v: 3 },
     ];
 
-    it('keeps data order by default', () => {
+    it('defaults string discrete categories to ascending order (matching Vega-Lite)', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'bar',
         encoding: { x: { field: 'c', type: 'nominal' }, y: { field: 'v' } },
       });
-      expect(compiled.xAxis?.categories).to.deep.equal(['B', 'A', 'C']);
+      expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B', 'C']);
     });
 
     it('defaults numeric discrete categories to ascending order (no explicit sort)', () => {
@@ -233,9 +233,9 @@ describe('scales & axes', () => {
       expect(compiled.xAxis?.categories).to.deep.equal([3, 4, 6, 8]);
     });
 
-    it('keeps string discrete categories in first-seen order by default', () => {
-      // String categories often carry a deliberate semantic order (e.g. weather
-      // sun/fog/drizzle/rain/snow), so data order is preserved, not alphabetized.
+    it('sorts string discrete categories ascending by default (matching Vega-Lite)', () => {
+      // Vega-Lite's default nominal/ordinal sort is ascending; a deliberate order
+      // must be requested via an explicit `sort` (or a `timeUnit`/`bin`).
       const compiled = compileSpec({
         data: {
           values: [
@@ -247,7 +247,7 @@ describe('scales & axes', () => {
         mark: 'bar',
         encoding: { x: { field: 'c', type: 'nominal' }, y: { field: 'v' } },
       });
-      expect(compiled.xAxis?.categories).to.deep.equal(['sun', 'fog', 'rain']);
+      expect(compiled.xAxis?.categories).to.deep.equal(['fog', 'rain', 'sun']);
     });
 
     it('sorts ascending lexicographically', () => {

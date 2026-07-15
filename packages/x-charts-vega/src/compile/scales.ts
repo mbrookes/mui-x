@@ -440,19 +440,15 @@ function resolveChannelAxis(
       pairs.sort((a, b) => (a.value as Date).getTime() - (b.value as Date).getTime());
     }
 
-    // A discrete axis whose category values are all numeric — an ordinal or
-    // quantitative field forced onto a band (e.g. `Cylinders`, `age`) — has no
-    // meaningful first-seen order; default to ascending numeric order, matching
-    // Vega-Lite's ordinal default, unless an explicit `sort` overrides it below.
-    // String categories keep first-seen data order, which usually reflects a
-    // deliberate semantic ordering the wrapper preserves (a deviation from
-    // Vega-Lite's alphabetical default).
-    if (
-      !isTemporal &&
-      sort === undefined &&
-      pairs.length > 0 &&
-      pairs.every((pair) => typeof pair.value === 'number')
-    ) {
+    // A discrete axis defaults to ascending order (numeric, then chronological,
+    // then locale-alphabetical), matching Vega-Lite's default nominal/ordinal
+    // sort — unless an explicit `sort` overrides it below, or a `bin`/`timeUnit`
+    // synthetic column already carries a deliberate order (those keep first-seen
+    // order so bins/months stay in their natural sequence rather than sorting
+    // "10–20" before "2–3" or "Apr" before "Jan").
+    const isPreOrderedSynthetic =
+      typeof field === 'string' && (field.startsWith('__bin_') || field.startsWith('__timeUnit_'));
+    if (!isTemporal && sort === undefined && pairs.length > 0 && !isPreOrderedSynthetic) {
       pairs.sort((a, b) => compareValues(a.value, b.value));
     }
 
@@ -752,19 +748,24 @@ export function resolveAxes(
   const xOccurrences: ChannelOccurrence[] = [];
   const yOccurrences: ChannelOccurrence[] = [];
   const grid: ResolvedAxes['grid'] = {};
+  // An explicit `axis.grid` (true/false) on any layer overrides the per-axis
+  // default computed after resolution below.
+  let explicitXGrid: boolean | undefined;
+  let explicitYGrid: boolean | undefined;
+
+  const readExplicitGrid = (def: VegaChannelDef | undefined): boolean | undefined => {
+    const axis = isFieldDef(def) ? (def.axis as { grid?: unknown } | null | undefined) : undefined;
+    return axis && typeof axis === 'object' && 'grid' in axis ? !!axis.grid : undefined;
+  };
 
   for (const { unit, rows } of units) {
     if (unit.encoding.x) {
       xOccurrences.push({ unit, rows, def: unit.encoding.x });
-      if (isFieldDef(unit.encoding.x) && unit.encoding.x.axis?.grid) {
-        grid.vertical = true;
-      }
+      explicitXGrid = readExplicitGrid(unit.encoding.x) ?? explicitXGrid;
     }
     if (unit.encoding.y) {
       yOccurrences.push({ unit, rows, def: unit.encoding.y });
-      if (isFieldDef(unit.encoding.y) && unit.encoding.y.axis?.grid) {
-        grid.horizontal = true;
-      }
+      explicitYGrid = readExplicitGrid(unit.encoding.y) ?? explicitYGrid;
     }
     // Range channels (x2/y2) describe interval marks. Bar marks translate
     // them to Premium rangeBar series and rule marks report their own
@@ -814,6 +815,17 @@ export function resolveAxes(
   const forceY = forceDiscreteBarCategory?.y ?? forcesDiscreteBarCategory('y', units);
   let x = resolveChannelAxis('x', xOccurrences, gaps, forceX) as AxisResolution<XAxis> | undefined;
   let y = resolveChannelAxis('y', yOccurrences, gaps, forceY) as AxisResolution<YAxis> | undefined;
+
+  // Vega-Lite draws grid lines on continuous (quantitative/temporal) axes by
+  // default and omits them on discrete band/point axes; an explicit `axis.grid`
+  // overrides that. Match it: a bar chart gets horizontal grid lines only, a
+  // scatter/line chart gets both.
+  const isContinuousAxis = (axis: AxisResolution | undefined): boolean => {
+    const scaleType = (axis?.config as { scaleType?: string } | undefined)?.scaleType;
+    return scaleType !== undefined && scaleType !== 'band' && scaleType !== 'point';
+  };
+  grid.vertical = explicitXGrid ?? isContinuousAxis(x);
+  grid.horizontal = explicitYGrid ?? isContinuousAxis(y);
 
   // Synthesize a one-category band axis for the perpendicular side of a mark
   // that encodes only one positional field:

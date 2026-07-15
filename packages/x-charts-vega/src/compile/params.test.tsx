@@ -444,7 +444,7 @@ describe('resolveParams via compileSpec', () => {
       },
       params: [{ name: 'cutoff', value: 20 }],
     });
-    expect(compiled.xAxis?.categories).to.deep.equal(['LO', 'HI']);
+    expect(compiled.xAxis?.categories).to.deep.equal(['HI', 'LO']);
     expect(compiled.paramValues).to.deep.equal({ cutoff: 20 });
   });
 

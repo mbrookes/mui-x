@@ -328,9 +328,10 @@ describe('Vega-Lite golden examples', () => {
     it('produces one line series per city, index-aligned to the category axis', () => {
       const compiled = compileSpec(spec);
       expect(compiled.series).to.have.length(2);
-      const [ny, la] = compiled.series as LineSeries[];
-      expect(ny.data).to.deep.equal([10, 12]);
+      // Series follow Vega-Lite's default ascending color order: LA before NY.
+      const [la, ny] = compiled.series as LineSeries[];
       expect(la.data).to.deep.equal([20, 22]);
+      expect(ny.data).to.deep.equal([10, 12]);
       expect(compiled.gaps).to.have.length(0);
     });
 

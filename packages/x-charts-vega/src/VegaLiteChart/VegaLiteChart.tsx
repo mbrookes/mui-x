@@ -205,6 +205,14 @@ function resolveVegaViewSize(
       return Boolean(enc && typeof enc === 'object' && (enc as { bin?: unknown }).bin);
     });
   };
+  // Whether the channel is genuinely encoded (vs. a synthetic single-category
+  // axis the compiler adds so a 1-D strip's ticks have somewhere to sit). A
+  // synthetic axis must not drive step-based sizing — otherwise a `tick` strip
+  // with no `y` collapses to one 20px band instead of a full-height strip.
+  const channelEncoded = (channel: 'x' | 'y'): boolean => {
+    const units = Array.isArray(spec.layer) ? spec.layer : [spec];
+    return units.some((unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[channel] != null);
+  };
   const plotSize = (
     size: VegaLiteSpec['width'],
     axis: { config: { scaleType?: string; data?: readonly unknown[] } } | undefined,
@@ -215,7 +223,8 @@ function resolveVegaViewSize(
       return size;
     }
     const scaleType = axis?.config.scaleType;
-    const isDiscrete = (scaleType === 'band' || scaleType === 'point') && !isBinned(channel);
+    const isDiscrete =
+      (scaleType === 'band' || scaleType === 'point') && !isBinned(channel) && channelEncoded(channel);
     const count = axis?.config.data?.length ?? 0;
     if (isDiscrete && count > 0) {
       const step =

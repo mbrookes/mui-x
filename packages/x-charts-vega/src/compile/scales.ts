@@ -450,6 +450,10 @@ function resolveChannelAxis(
     // `axis.ticks: false` / `axis.domain: false` → hide the tick marks / axis line.
     disableTicks: extras.disableTicks,
     disableLine: extras.disableLine,
+    // Let x-charts size the axis to its tick labels (opt-in in v9) instead of
+    // using the narrow default width/height, which otherwise ellipsizes long
+    // category names ("Glabron" → "Gla…") and large numbers ("20,000" → "20,0…").
+    ...(channel === 'y' ? { width: 'auto' as const } : { height: 'auto' as const }),
   };
 
   const forcedQuantitativeDiscrete = forceDiscrete && fieldType === 'quantitative';

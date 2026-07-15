@@ -462,7 +462,15 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const splitField = colorRes.splitField;
   const stackId = `${path}:stack`;
   const stackSetting = computeStackSetting(yDef, markType, Boolean(splitField));
-  const willStack = stackSetting !== null && stackSetting !== false && Boolean(splitField);
+  // Mirror resolveStack: only these settings actually stack (a line's default
+  // `undefined` does not), so the reversal/gap logic below never fires for an
+  // unstacked layer.
+  const willStack =
+    Boolean(splitField) &&
+    (stackSetting === 'zero' ||
+      stackSetting === true ||
+      stackSetting === 'normalize' ||
+      stackSetting === 'center');
   // Reverse the stack draw order only for an ascending, data-derived color
   // domain, where it reproduces Vega-Lite's descending-by-value stack sort. An
   // explicit, custom-ordered domain can't be matched this way (x-charts ties

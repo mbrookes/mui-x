@@ -220,7 +220,13 @@ function buildTickItems(
   });
 
   if (!colorRes.splitField) {
-    return candidates.map((candidate) => makeItem(candidate.point, colorRes.staticColor));
+    // A tick overlay is not an x-charts series, so it never receives an
+    // auto-assigned palette color the way a scatter series does; without an
+    // explicit stroke it would fall back to the theme's default (black). Use
+    // the palette's first color so an uncolored tick reads as Vega's default
+    // steel-blue mark.
+    const defaultStroke = colorRes.staticColor ?? ctx.palette[0];
+    return candidates.map((candidate) => makeItem(candidate.point, defaultStroke));
   }
 
   const colorByKey = new Map<string, string>();

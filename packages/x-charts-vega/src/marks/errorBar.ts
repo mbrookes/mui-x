@@ -207,7 +207,12 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   }
 
   const color = resolveColor(encoding, rows, gaps, path);
-  const staticColor = color.staticColor ?? mark.color;
+  // An errorband is a filled area, so an uncolored one must still pick up
+  // Vega-Lite's default mark color (the palette's first swatch, a steel blue)
+  // rather than the overlay's bare default grey. An errorbar's rules keep the
+  // overlay default (Vega renders those near-black), so only the band is nudged.
+  const staticColor =
+    color.staticColor ?? mark.color ?? (markType === 'errorband' ? ctx.palette[0] : undefined);
 
   /** Computes the per-category intervals for one set of rows, index-aligned to `categoryAxis.categories`. */
   const intervalsForRows = (groupRows: readonly DatasetRow[]): (Interval | null)[] =>

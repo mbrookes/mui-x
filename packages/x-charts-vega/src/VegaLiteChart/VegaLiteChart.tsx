@@ -503,8 +503,21 @@ function SingleViewChart(props: VegaLiteChartProps) {
     );
   }
 
-  const xAxis = compiled.xAxis ? [compiled.xAxis.config] : undefined;
-  const yAxis = compiled.yAxis ? [compiled.yAxis.config] : undefined;
+  // Inside a trellis cell the fixed per-cell margin (FACET_CELL_MARGIN) governs
+  // layout so every cell's plot area lines up; the axes' `width/height: 'auto'`
+  // (which fits labels in a standalone chart) would fight that fixed margin and
+  // collapse the drawing area, so it is stripped when rendering as a cell.
+  const dropAutoSize = <T extends Record<string, unknown>>(config: T): T => {
+    if (!cell) {
+      return config;
+    }
+    const stripped: Record<string, unknown> = { ...config };
+    delete stripped.width;
+    delete stripped.height;
+    return stripped as T;
+  };
+  const xAxis = compiled.xAxis ? [dropAutoSize(compiled.xAxis.config)] : undefined;
+  const yAxis = compiled.yAxis ? [dropAutoSize(compiled.yAxis.config)] : undefined;
 
   // Scale-bound interval selections enable gesture zoom/pan (the axis configs
   // carry `zoom: true`, read by the Premium provider). Clip the plotting area

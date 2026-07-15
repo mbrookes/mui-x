@@ -201,12 +201,41 @@ const screenRecordArray = <T>(value: unknown): T[] => {
 };
 
 /**
+ * Screen one preset-embedded filter with the SAME semantic checks the `doc.filters` load
+ * pass applies to the fields that travel VERBATIM into live `doc.filters` when a preset is
+ * applied (T2-3). `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
+ * preset filter as `{ ...f, id: fresh, scope: page }` — it re-stamps `id`/`scope` but
+ * carries `field`/`operator`/`operator2` through unchanged and performs NO validation of its
+ * own — so a junk `operator: 'equal'` (a plausible typo for `'equals'`) or `field: 42` would
+ * land in live `doc.filters` as an active, fail-open chip the moment the user clicks "apply
+ * preset": displayed data silently unfiltered while the UI claims a filter is applied. Screen
+ * for it here at load (scope checks are unnecessary — `applyFilterPreset` re-stamps scope).
+ */
+const isPresetFilterSafe = (entry: unknown): boolean => {
+  if (!isRecord(entry)) {
+    return false;
+  }
+  if (typeof entry.field !== 'string') {
+    return false;
+  }
+  if (!isStudioFilterOperator(entry.operator)) {
+    return false;
+  }
+  if (entry.operator2 !== undefined && !isStudioFilterOperator(entry.operator2)) {
+    return false;
+  }
+  return true;
+};
+
+/**
  * Screen persisted `filterPresets` (Finding 1, nested sibling site): drop any entry that
- * is not a record with an array `filters`, AND screen each preset's own `filters` array
- * with `isRecord` — a well-formed preset carrying a `null` inner filter entry crashes
- * `applyFilterPreset`'s id-remap loop (`idMap.set(f.id, …)`) the same way a top-level
- * junk entry does. Reference-stable at both levels: returns the SAME outer array (and the
- * SAME inner `filters` array on each surviving preset) when nothing is dropped.
+ * is not a record with an array `filters`, AND screen each preset's own `filters` array with
+ * {@link isPresetFilterSafe} — record-ness (a `null` inner filter entry crashes
+ * `applyFilterPreset`'s id-remap loop `idMap.set(f.id, …)` the same way a top-level junk
+ * entry does) PLUS the `field`/`operator`/`operator2` semantic checks (T2-3), because those
+ * fields travel verbatim into live `doc.filters` via `applyFilterPreset`, one indirection past
+ * the `doc.filters` load screen. Reference-stable at both levels: returns the SAME outer array
+ * (and the SAME inner `filters` array on each surviving preset) when nothing is dropped.
  */
 const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
   if (!Array.isArray(value)) {
@@ -220,7 +249,7 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
       continue;
     }
     const innerFilters = preset.filters;
-    const safeInner = innerFilters.filter((entry) => isRecord(entry));
+    const safeInner = innerFilters.filter((entry) => isPresetFilterSafe(entry));
     if (safeInner.length === innerFilters.length) {
       safe.push(preset);
     } else {
@@ -753,12 +782,21 @@ export function deserializeState(
         if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
           return false;
         }
+        // Field-is-a-string check (T2-3), symmetric with the wire boundary at
+        // `parseStateMutation.ts` ("a junk value like `field: 42` … would install an
+        // active-but-unevaluable filter that silently renders every widget in scope
+        // empty"). A hand-edited `field: 42` in persisted `filters` would otherwise load
+        // and produce that exact state, while the identical wire payload is rejected —
+        // drop the entry here so the two boundaries agree.
+        const record = f as { field?: unknown; operator?: unknown; operator2?: unknown };
+        if (typeof record.field !== 'string') {
+          return false;
+        }
         // Membership-check the closed `operator` union (Finding 2), symmetric with the
         // wire boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'`
         // (a plausible typo for `'equals'`) would otherwise install a chip that renders as
         // ACTIVE while filtering nothing — a silent fail-open. A present `operator2` is
         // held to the same membership check (absent stays legal).
-        const record = f as { operator?: unknown; operator2?: unknown };
         if (!isStudioFilterOperator(record.operator)) {
           return false;
         }

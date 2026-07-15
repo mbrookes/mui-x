@@ -2471,6 +2471,45 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 18 });
     });
 
+    it('MERGES spans when a junk widgetRows (null) accompanies a colSpans payload, not REPLACE (T2-2)', () => {
+      // A junk `widgetRows: null` is treated as ABSENT for row placement (rows preserved),
+      // and — the T2-2 fix — the spans decision keys on the SAME `Array.isArray` predicate,
+      // so it MERGES rather than REPLACES. Under the old `widgetRows === undefined` predicate,
+      // `null` took the REPLACE branch and wiped w2's concurrent/unnamed span even though
+      // rows were never re-placed. w2's span (18) must survive alongside w1's update.
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            // Separate rows so the two spans never overflow a single row's 24 columns.
+            widgetRows: [['w1'], ['w2']],
+            // w2's span is set by a prior turn / concurrent client drag-resize the batch
+            // doesn't name.
+            widgetColSpans: { w1: 12, w2: 18 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            widgetRows: null,
+            // Only w1 is named — no w2 entry.
+            widgetColSpans: { w1: 8 },
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // Rows preserved…
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      // …w1 updated, and w2's unnamed span SURVIVES the merge (would be gone under REPLACE).
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 8, w2: 18 });
+    });
+
     it('MERGES a widgetColSpans-only bulk onto existing spans, preserving an untouched widget concurrently resized (T2-2)', () => {
       // T2-2 (residual lost-update): a colSpans-only bulk names ONLY the widget whose
       // width the model changed (w1). Widget w2 already has a span set — from a prior turn

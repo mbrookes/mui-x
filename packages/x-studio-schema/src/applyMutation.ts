@@ -417,7 +417,19 @@ export function normalizePersistedPages(
           rebuilt[key] = clampSpan(page.widgetColSpans[key]);
         }
       }
-      nextSpans = Object.keys(rebuilt).length > 0 ? rebuilt : undefined;
+      // Enforce the row-overflow col-span invariant on load (T2-1): the clamp loop bounds
+      // each span INDIVIDUALLY but never checks a shared row's span SUM, so a hand-edited
+      // doc whose row's colSpans sum past `GRID_COLS` (`{ w1: 20, w2: 20 }` on one row) —
+      // or a doc the clamp itself pushes past it (`{ w1: 40, w2: 6 }` → `{ w1: 24, w2: 6 }`,
+      // sum 30 > 24) — would otherwise install verbatim and render an overflowing row until
+      // the next LIVE layout mutation happened to prune it. Run the same
+      // `enforceLayoutColSpans([], …)` pass every other layout-installing site uses (the
+      // SOLE implementation of these invariants): `oldRows = []` so a pre-existing
+      // intentional singleton span is never collapsed, while row-overflow drop, orphan
+      // drop, and empty→`undefined` collapse all apply. Reference stability is preserved by
+      // the `spansEqual` comparison below (and `enforceLayoutColSpans` collapses an empty
+      // result to `undefined`, matching the prior explicit fallback).
+      nextSpans = enforceLayoutColSpans([], sanitizedRows, rebuilt);
     }
     // Reconcile the page's own `id` field with its record KEY (finding 2.1), the page
     // analogue of the widget id↔key reconciliation in `deserializeState`. Every reducer
@@ -1279,12 +1291,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         //    active page and then `enforceLayoutColSpans` drops all their spans as orphans —
         //    the exact blank-page outcome T1-1 established a malformed layout field must
         //    never trigger. `?? []` is equally total (no `.map` throw) and strictly safer.
-        let safeRows: string[][];
-        if (Array.isArray(widgetRows)) {
-          safeRows = widgetRows;
-        } else {
-          safeRows = page.widgetRows ?? [];
-        }
+        // ONE presence predicate for BOTH the row-placement resolution below and the spans
+        // merge-vs-replace decision further down (T2-2): a present-but-non-array `widgetRows`
+        // (hand-built junk, e.g. `null`, from a parser-bypassing payload) is ABSENT for row
+        // placement AND must not flip the spans decision to REPLACE. Keying the spans decision
+        // on `widgetRows === undefined` instead let a junk `widgetRows: null` + colSpans payload
+        // wholesale-replace the receiver's span map — wiping a DIFFERENT widget's
+        // concurrent/unnamed span (the same lost-update class the rows-absent MERGE branch
+        // closes), even though rows were NOT re-placed.
+        const rowsProvided = Array.isArray(widgetRows);
+        const safeRows: string[][] = rowsProvided
+          ? (widgetRows as string[][])
+          : (page.widgetRows ?? []);
         const sanitizedRows = dedupeLayoutRows(
           safeRows
             .filter((row): row is string[] => Array.isArray(row))
@@ -1316,23 +1334,24 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           clampedSpans[key] = clampSpan(safeSpans[key]);
         }
 
-        // T2-2 (residual lost-update): a colSpans-only bulk (`widgetRows === undefined`)
-        // must MERGE its span entries onto the page's EXISTING spans, not REPLACE the whole
-        // map. The producer ships a turn-start snapshot of the page's spans; wholesale-
-        // replacing the receiver's map with it silently reverts a concurrent client
-        // drag-resize of a DIFFERENT widget (one not named in this batch) — the same
-        // lost-update class T2-4 / 2.3 closed for `widgetRows`, one field over. Merging
-        // (incoming keys win, untouched keys survive) is backward compatible with the
+        // T2-2 (residual lost-update): a bulk that did NOT re-place rows (`!rowsProvided` —
+        // rows absent OR present-but-non-array junk, keyed on the SAME predicate the
+        // row-placement resolution above uses, not a second `widgetRows === undefined` test
+        // that would classify `null` differently) must MERGE its span entries onto the page's
+        // EXISTING spans, not REPLACE the whole map. The producer ships a turn-start snapshot
+        // of the page's spans; wholesale-replacing the receiver's map with it silently reverts
+        // a concurrent client drag-resize of a DIFFERENT widget (one not named in this batch) —
+        // the same lost-update class T2-4 / 2.3 closed for `widgetRows`, one field over.
+        // Merging (incoming keys win, untouched keys survive) is backward compatible with the
         // current full-snapshot producer — a superset merge ≡ replace for the keys it
         // carries — while preserving any client-side span the snapshot doesn't know about.
         // Bulk `colSpans` entries are numbers 6–24 and cannot clear a span, so merge
-        // semantics lose nothing. When `widgetRows` IS present the producer genuinely
-        // re-placed rows and ships rows+spans together, so the wire spans ARE the intended
-        // full map for the new placement and must replace, not merge.
-        const spansToEnforce: Record<string, number> =
-          widgetRows === undefined
-            ? { ...(page.widgetColSpans ?? {}), ...clampedSpans }
-            : clampedSpans;
+        // semantics lose nothing. When rows ARE provided the producer genuinely re-placed
+        // rows and ships rows+spans together, so the wire spans ARE the intended full map for
+        // the new placement and must replace, not merge.
+        const spansToEnforce: Record<string, number> = rowsProvided
+          ? clampedSpans
+          : { ...(page.widgetColSpans ?? {}), ...clampedSpans };
         const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, spansToEnforce);
 
         // Reference-equality no-op tracking: only rebuild the active page when its rows or

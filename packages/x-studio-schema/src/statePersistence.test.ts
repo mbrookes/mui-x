@@ -719,6 +719,69 @@ describe('deserializeState', () => {
     expect(state.doc.pages['page-1'].widgetColSpans).toEqual({ w1: 24, w2: 6 });
   });
 
+  it('drops all spans of a shared row whose persisted colSpans sum past GRID_COLS (T2-1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1'), w2: chart('w2') },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          // w1 and w2 SHARE one row. Both spans are individually in range (20 ≤ 24),
+          // safe, and non-orphaned — the per-key clamp loop leaves them untouched — but
+          // together they sum to 40 > GRID_COLS (24), overflowing the row. The load
+          // boundary must run `enforceLayoutColSpans` (the row-overflow invariant), which
+          // drops every span in the offending row so it falls back to equal flex.
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 20, w2: 20 },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // Both spans dropped → the emptied map collapses to `undefined`.
+    expect(state.doc.pages['page-1'].widgetColSpans).toBeUndefined();
+  });
+
+  it('drops a shared row whose spans overflow only AFTER the clamp (T2-1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1'), w2: chart('w2') },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          // The clamp itself CREATES the overflow: `{ w1: 40, w2: 6 }` on a shared row
+          // clamps to `{ w1: 24, w2: 6 }` (sum 30 > 24). Without the post-clamp overflow
+          // pass this installs verbatim and renders a 30/24 row.
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 40, w2: 6 },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].widgetColSpans).toBeUndefined();
+  });
+
+  it('keeps a pre-existing intentional singleton span on load (T2-1 oldRows=[] contract)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: {
+        'page-1': {
+          // A lone widget in its own row with a deliberate narrow span must NOT be
+          // collapsed by the load-boundary `enforceLayoutColSpans([], …)` — `oldRows=[]`
+          // means the 2→1-collapse branch never fires for a pre-existing singleton.
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1']],
+          widgetColSpans: { w1: 12 },
+        },
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+  });
+
   it('leaves a well-formed persisted pages map reference-stable (no churn) (review 3.2)', () => {
     const serialized = {
       ...minimalSerialized,
@@ -1091,6 +1154,60 @@ describe('deserializeState', () => {
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
     expect(state.doc.filters).toHaveLength(0);
+  });
+
+  it('drops a doc.filter whose field is not a string (T2-3, symmetric with the wire boundary)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        // `field: 42` would install an active-but-unevaluable filter that silently renders
+        // every widget in scope empty — the wire boundary (`parseStateMutation`) rejects the
+        // identical payload, so the load boundary must too.
+        { id: 'bad-field', field: 42, operator: 'equals', value: '', scope: { kind: 'page' } },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  it("screens a preset's inner filters for a junk operator/field (T2-3)", () => {
+    // A preset carries only RECORD-checked inner filters through `migrateState`, but
+    // `applyFilterPreset` rematerializes them VERBATIM (minus id/scope) into live
+    // `doc.filters`, so a junk `operator: 'equal'` (typo for 'equals') or a non-string
+    // `field` must be screened at load — one indirection past the `doc.filters` screen.
+    const serialized = {
+      ...minimalSerialized,
+      filterPresets: [
+        {
+          id: 'p1',
+          name: 'Preset 1',
+          filters: [
+            { id: 'bad-op', field: 'x', operator: 'equal', value: 'EU', scope: { kind: 'page' } },
+            {
+              id: 'bad-field',
+              field: 42,
+              operator: 'equals',
+              value: 'EU',
+              scope: { kind: 'page' },
+            },
+            {
+              id: 'bad-op2',
+              field: 'x',
+              operator: 'equals',
+              operator2: 'nope',
+              value: 'EU',
+              scope: { kind: 'page' },
+            },
+            { id: 'ok', field: 'region', operator: 'equals', value: 'EU', scope: { kind: 'page' } },
+          ],
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filterPresets).toHaveLength(1);
+    // Only the well-formed inner filter survives; the three junk ones are dropped.
+    expect(state.doc.filterPresets![0].filters.map((f) => f.id)).toEqual(['ok']);
   });
 
   it('drops a filter whose scope.kind is not a member of the closed union (Finding 2)', () => {

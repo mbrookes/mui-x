@@ -84,10 +84,26 @@ function staticMarkOpacity(unit: {
   encoding: VegaEncoding;
 }): number | undefined {
   const enc = unit.encoding.opacity;
-  const encValue =
-    enc && !Array.isArray(enc) && typeof (enc as { value?: unknown }).value === 'number'
-      ? (enc as { value: number }).value
-      : undefined;
+  let encValue: number | undefined;
+  if (enc && !Array.isArray(enc)) {
+    // A `condition` bound to a point/interval selection is the interactive
+    // "selected" appearance. Vega-Lite selections default to `empty: "all"`, so
+    // with no interaction the selection matches everything and the *condition's*
+    // value applies — not the `value` fallback (which is the "unselected" look).
+    // We can't drive the interaction, so mirror Vega's initial render by taking
+    // the condition value when present (e.g. interactive_legend: opacity 1, not
+    // the 0.2 fallback that would wash the whole chart out).
+    const condition = (enc as { condition?: unknown }).condition;
+    const conditionValue =
+      condition && !Array.isArray(condition) && typeof (condition as { value?: unknown }).value === 'number'
+        ? (condition as { value: number }).value
+        : undefined;
+    encValue =
+      conditionValue ??
+      (typeof (enc as { value?: unknown }).value === 'number'
+        ? (enc as { value: number }).value
+        : undefined);
+  }
   const raw = unit.mark.opacity ?? unit.mark.fillOpacity ?? encValue;
   return typeof raw === 'number' && raw >= 0 && raw < 1 ? raw : undefined;
 }

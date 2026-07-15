@@ -50,6 +50,9 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',
+  // x-charts ties a stack's draw order to the series/legend order, so a custom
+  // color-domain order can't reproduce Vega's descending-by-value stack sort.
+  'mark:stack-order-explicit-domain',
   // Bar geometry x-charts derives automatically or applies chart-wide.
   'mark:bar-corner-radius',
   'mark:bar-corner-radius-conflict',

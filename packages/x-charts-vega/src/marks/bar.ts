@@ -378,6 +378,11 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
 
     let stackId: string | undefined;
     let stackOffset: StackOffsetType | undefined;
+    // Reverse the stack draw order only for an ascending, data-derived color
+    // domain (see lineArea.ts): there it reproduces Vega-Lite's descending-by-
+    // value stack sort. An explicit, custom-ordered domain can't be matched
+    // this way, so leave it natural and report the residual difference.
+    let stackReversed = false;
     if (wouldStack && !rangeTwin) {
       // Scoped by unit path so two independent bar layers sharing the same
       // (globally-resolved) axis don't accidentally stack into each other.
@@ -388,6 +393,16 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
         stackOffset = 'silhouette';
       } else {
         stackOffset = 'none';
+      }
+      stackReversed = color.domainDerived === true;
+      if (color.domain && color.domainDerived !== true) {
+        gaps.add({
+          code: 'mark:stack-order-explicit-domain',
+          message:
+            'Vega-Lite stacks segments in descending order of the color value; with an explicit `scale.domain` x-charts cannot decouple stack order from the legend order, so the vertical stacking sequence may differ from the reference. Colors and totals are unaffected.',
+          severity: 'partial',
+          path: `${unit.path}.encoding.color.scale.domain`,
+        });
       }
     } else if (wouldStack && rangeTwin) {
       // RangeBarSeriesType has no stack/stackOffset props — ranges have no
@@ -433,6 +448,7 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
             layout: horizontal ? ('horizontal' as const) : undefined,
             stack: stackId,
             stackOffset,
+            stackOrder: stackReversed ? ('reverse' as const) : undefined,
             color: groupColor,
           }),
         );

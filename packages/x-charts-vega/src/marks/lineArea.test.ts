@@ -234,6 +234,49 @@ describe('compileLineAreaMark', () => {
     expect(first.stackOffset).to.equal('none');
   });
 
+  it("reverses the stack draw order for a data-derived color domain (Vega's descending-by-value sort)", () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { day: 'A', temp: 1, city: 'NY' },
+          { day: 'A', temp: 5, city: 'LA' },
+        ],
+      },
+      mark: 'area',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+        color: { field: 'city', type: 'nominal' },
+      },
+    });
+    const series = compiled.series as Array<{ stackOrder?: string }>;
+    expect(series.every((s) => s.stackOrder === 'reverse')).to.equal(true);
+  });
+
+  it('does not reverse the stack for an explicit, custom-ordered color domain, and reports a gap', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { day: 'A', temp: 1, city: 'NY' },
+          { day: 'A', temp: 5, city: 'LA' },
+        ],
+      },
+      mark: 'area',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+        color: {
+          field: 'city',
+          type: 'nominal',
+          scale: { domain: ['NY', 'LA'], range: ['#111111', '#222222'] },
+        },
+      },
+    });
+    const series = compiled.series as Array<{ stackOrder?: string }>;
+    expect(series.every((s) => s.stackOrder === undefined)).to.equal(true);
+    expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:stack-order-explicit-domain');
+  });
+
   it('maps y.stack normalize/center to expand/silhouette stackOffset', () => {
     const specFor = (stack: 'normalize' | 'center' | null) =>
       compileSpec({

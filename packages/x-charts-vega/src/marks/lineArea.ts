@@ -90,18 +90,29 @@ function resolveCurve(interpolate: string | undefined, ctx: UnitContext, path: s
 interface StackConfig {
   stack?: string;
   stackOffset?: 'none' | 'expand' | 'silhouette';
+  stackOrder?: 'reverse';
 }
 
-/** Maps a Vega-Lite `stack` field-def value to x-charts stack props, sharing `stackId` across the layer's series. */
-function resolveStack(stackSetting: unknown, stackId: string): StackConfig {
+/**
+ * Maps a Vega-Lite `stack` field-def value to x-charts stack props, sharing
+ * `stackId` across the layer's series. Vega-Lite stacks in *descending* order
+ * of the color field's value, so the first legend/domain category ends up at
+ * the top of the stack. x-charts stacks the first series at the bottom, so when
+ * the series follow an ascending (derived) color domain, `stackOrder: 'reverse'`
+ * reproduces Vega's geometry exactly. For an explicit, custom-ordered domain
+ * reversing does not correspond to Vega's value sort, so it is left off (the
+ * caller reports the residual difference as a gap).
+ */
+function resolveStack(stackSetting: unknown, stackId: string, reverseStack: boolean): StackConfig {
+  const order = reverseStack ? ('reverse' as const) : undefined;
   if (stackSetting === 'zero' || stackSetting === true) {
-    return { stack: stackId, stackOffset: 'none' };
+    return { stack: stackId, stackOffset: 'none', stackOrder: order };
   }
   if (stackSetting === 'normalize') {
-    return { stack: stackId, stackOffset: 'expand' };
+    return { stack: stackId, stackOffset: 'expand', stackOrder: order };
   }
   if (stackSetting === 'center') {
-    return { stack: stackId, stackOffset: 'silhouette' };
+    return { stack: stackId, stackOffset: 'silhouette', stackOrder: order };
   }
   // `null`/`false`/anything else opts out of stacking.
   return {};
@@ -450,7 +461,23 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const colorRes = resolveColor(encoding, rows, gaps, path);
   const splitField = colorRes.splitField;
   const stackId = `${path}:stack`;
-  const stackMode = resolveStack(computeStackSetting(yDef, markType, Boolean(splitField)), stackId);
+  const stackSetting = computeStackSetting(yDef, markType, Boolean(splitField));
+  const willStack = stackSetting !== null && stackSetting !== false && Boolean(splitField);
+  // Reverse the stack draw order only for an ascending, data-derived color
+  // domain, where it reproduces Vega-Lite's descending-by-value stack sort. An
+  // explicit, custom-ordered domain can't be matched this way (x-charts ties
+  // stack order to series/legend order), so leave it natural and report it.
+  const reverseStack = willStack && colorRes.domainDerived === true;
+  if (willStack && colorRes.domain && colorRes.domainDerived !== true) {
+    gaps.add({
+      code: 'mark:stack-order-explicit-domain',
+      message:
+        'Vega-Lite stacks segments in descending order of the color value; with an explicit `scale.domain` x-charts cannot decouple stack order from the legend order, so the vertical stacking sequence may differ from the reference. Colors and totals are unaffected.',
+      severity: 'partial',
+      path: `${path}.encoding.color.scale.domain`,
+    });
+  }
+  const stackMode = resolveStack(stackSetting, stackId, reverseStack);
 
   // One implicit, unfiltered group when there's no color split; otherwise one
   // group per distinct color-field value — explicit `domain` order first

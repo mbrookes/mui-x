@@ -1,11 +1,4 @@
 import {
-  rainbowSurgePaletteLight,
-  rainbowSurgePaletteDark,
-  blueberryTwilightPaletteLight,
-  blueberryTwilightPaletteDark,
-  mangoFusionPaletteLight,
-  cheerfulFiestaPaletteLight,
-  cheerfulFiestaPaletteDark,
   bluePaletteLight,
   greenPaletteLight,
   orangePaletteLight,
@@ -16,6 +9,7 @@ import {
 import type { DatasetRow, VegaEncoding, VegaFieldDef, VegaScale } from '../types';
 import { isFieldDef, isValueDef } from '../types';
 import type { GapCollector } from '../gaps';
+import { VEGA_CATEGORICAL_SCHEMES } from './vegaDefaults';
 
 /*
  * Color-channel resolution.
@@ -59,6 +53,13 @@ export interface ColorResolution {
   splitField?: string;
   /** Explicit domain order/colors when the spec provides them. */
   domain?: unknown[];
+  /**
+   * True when `domain` was derived from the data (ascending order) rather than
+   * given explicitly by the spec. Stacked marks reverse their draw order for a
+   * derived domain to reproduce Vega-Lite's descending-by-value stack sort; an
+   * explicit, custom-ordered domain does not get that reversal.
+   */
+  domainDerived?: boolean;
   range?: string[];
   /** A single static color for all marks of the layer. */
   staticColor?: string;
@@ -87,21 +88,11 @@ export interface ColorResolution {
  *   sequential palette (the same approximation the continuous branch uses).
  */
 const CATEGORICAL_SCHEME_PALETTES: Record<string, readonly string[]> = {
-  // True categorical schemes.
-  category10: mangoFusionPaletteLight,
-  category20: mangoFusionPaletteLight,
-  category20b: mangoFusionPaletteLight,
-  category20c: mangoFusionPaletteLight,
-  tableau10: cheerfulFiestaPaletteLight,
-  tableau20: cheerfulFiestaPaletteLight,
-  accent: blueberryTwilightPaletteLight,
-  dark2: blueberryTwilightPaletteDark,
-  set1: rainbowSurgePaletteLight,
-  set2: rainbowSurgePaletteLight,
-  set3: rainbowSurgePaletteDark,
-  paired: cheerfulFiestaPaletteDark,
-  pastel1: cheerfulFiestaPaletteLight,
-  pastel2: cheerfulFiestaPaletteLight,
+  // True categorical schemes (`category*`, `tableau*`, `set*`, `accent`,
+  // `dark2`, `paired`, `pastel*`) are reproduced exactly in
+  // `VEGA_CATEGORICAL_SCHEMES` and looked up ahead of this table, so they are
+  // intentionally absent here. Only the sequential/multi-hue approximations,
+  // which have no exact discrete equivalent, remain below.
   // Single-hue sequential schemes used on discrete fields → monochromatic ramps.
   blues: bluePaletteLight,
   greens: greenPaletteLight,
@@ -511,7 +502,7 @@ export function resolveColor(
     const schemeName = schemeNameOf(scale?.scheme);
     let range = explicitRange;
     if (!range && schemeName) {
-      const mapped = CATEGORICAL_SCHEME_PALETTES[schemeName];
+      const mapped = VEGA_CATEGORICAL_SCHEMES[schemeName] ?? CATEGORICAL_SCHEME_PALETTES[schemeName];
       if (mapped) {
         range = [...mapped];
       } else {
@@ -526,6 +517,11 @@ export function resolveColor(
 
     const explicitDomain = Array.isArray(scale?.domain) ? (scale?.domain as unknown[]) : undefined;
     let domain = explicitDomain;
+    // Whether `domain` is the plain ascending order we derived from the data
+    // (as opposed to an explicit `scale.domain` or an explicit channel `sort`).
+    // Only that ascending-derived order lets a stacked mark reverse its draw
+    // order to reproduce Vega-Lite's descending-by-value stack sort.
+    let domainDerived = false;
     // Vega-Lite orders a nominal/ordinal color legend — and therefore the
     // series → color assignment — ascending by default. When the spec gives
     // neither an explicit `scale.domain` nor a channel `sort`, derive that
@@ -537,6 +533,7 @@ export function resolveColor(
       if (Array.isArray(sortSpec)) {
         domain = sortSpec;
       } else if (sortSpec !== null) {
+        domainDerived = sortSpec === undefined || sortSpec === 'ascending';
         const seen = new Set<string>();
         const distinct: unknown[] = [];
         for (const row of rows) {
@@ -599,6 +596,7 @@ export function resolveColor(
     return {
       splitField: fieldDef.field,
       domain,
+      domainDerived,
       range,
       hasLegend: fieldDef.legend !== null,
     };

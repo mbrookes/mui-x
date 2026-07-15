@@ -103,6 +103,19 @@ describe('resolveColor', () => {
       expect(gaps.map((g) => g.code)).to.not.include('encoding:color-scheme-unknown');
     });
 
+    it('reproduces a categorical scheme with its exact Vega swatch array (category20b)', () => {
+      const { result } = resolve({
+        color: { field: 'category', type: 'nominal', scale: { scheme: 'category20b' } },
+      });
+      expect(result.range?.slice(0, 4)).to.deep.equal([
+        '#393b79',
+        '#5254a3',
+        '#6b6ecf',
+        '#9c9ede',
+      ]);
+      expect(result.range).to.have.length(20);
+    });
+
     it('maps a scheme given as {name} object form', () => {
       const { result } = resolve({
         color: { field: 'category', type: 'ordinal', scale: { scheme: { name: 'Dark2' } } },

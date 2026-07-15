@@ -457,16 +457,33 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     const leafEncoding = shared ? (plan.cells[0]?.spec.encoding ?? {}) : {};
     const sharedXTitle = shared ? facetAxisTitle(leafEncoding.x) : undefined;
     const sharedYTitle = shared ? facetAxisTitle(leafEncoding.y) : undefined;
-    // Size the grid tracks to the cells' own width so the facet grows to fit
-    // its (Vega-sized) cells rather than squishing them into a fixed total.
-    const cellTrackWidth = plan.cells[0]?.width;
+    // Only the leftmost column draws the y-axis and only the bottom row draws
+    // the x-axis (a trellis shares one of each), so inner cells reserve no space
+    // for the axis they don't draw. Keeping the full axis margin on every cell
+    // would leave a wide empty gutter between columns/rows (and shrink the
+    // plots); instead inner cells drop the absent axis's margin and their
+    // width/height shrink by the same amount, so every cell's *plot* stays
+    // identical while the cells sit flush against each other — matching Vega.
+    const innerLeftMargin = FACET_CELL_MARGIN.right;
+    const innerBottomMargin = FACET_CELL_MARGIN.top;
+    const leftReduction = FACET_CELL_MARGIN.left - innerLeftMargin;
+    const bottomReduction = FACET_CELL_MARGIN.bottom - innerBottomMargin;
+    const leftTrackWidth = plan.cells[0]?.width;
+    const innerTrackWidth =
+      leftTrackWidth !== undefined ? leftTrackWidth - leftReduction : undefined;
+    const gridTemplateColumns =
+      shared && leftTrackWidth !== undefined && innerTrackWidth !== undefined
+        ? plan.columns > 1
+          ? `${leftTrackWidth}px repeat(${plan.columns - 1}, ${innerTrackWidth}px)`
+          : `${leftTrackWidth}px`
+        : leftTrackWidth !== undefined
+          ? `repeat(${plan.columns}, ${leftTrackWidth}px)`
+          : `repeat(${plan.columns}, minmax(0, 1fr))`;
     const grid = (
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: cellTrackWidth
-            ? `repeat(${plan.columns}, ${cellTrackWidth}px)`
-            : `repeat(${plan.columns}, minmax(0, 1fr))`,
+          gridTemplateColumns,
           gap: shared ? 0 : 8,
           width: 'max-content',
           maxWidth: '100%',
@@ -481,9 +498,19 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
                 hideXAxis: hasCellBelow,
                 hideAxisTitles: true,
                 hideLegend: true,
-                margin: FACET_CELL_MARGIN,
+                margin: {
+                  ...FACET_CELL_MARGIN,
+                  left: isLeftColumn ? FACET_CELL_MARGIN.left : innerLeftMargin,
+                  bottom: hasCellBelow ? innerBottomMargin : FACET_CELL_MARGIN.bottom,
+                },
               }
             : undefined;
+          // Shrink inner cells by exactly the margin they dropped so their plot
+          // area matches the labeled edge cells' plots.
+          const cellWidth =
+            shared && !isLeftColumn ? cell.width - leftReduction : cell.width;
+          const cellHeight =
+            shared && hasCellBelow ? cell.height - bottomReduction : cell.height;
           return (
             <div key={cell.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               {cell.header != null && (
@@ -504,8 +531,8 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
               <VegaLiteChart
                 spec={cell.spec}
                 datasets={mergedDatasets}
-                width={cell.width}
-                height={cell.height}
+                width={cellWidth}
+                height={cellHeight}
                 colors={colors}
                 onGaps={handleCellGaps}
                 cell={cellProps}

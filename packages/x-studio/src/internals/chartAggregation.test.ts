@@ -21,6 +21,7 @@ import {
 import type { MultiYSeriesData } from './chartAggregation';
 import { enrichRowsWithRelatedFields } from './dataSourceGraph';
 import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
+import { frLocaleText } from '../locales/fr';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
   return {
@@ -1933,6 +1934,31 @@ describe('aggregateByTwoFields', () => {
     const northIdx = result.labels.indexOf('North');
     expect(result.seriesData.A[northIdx]).toBe(2);
   });
+
+  // T3.2(a): unlike the xField (guarded by `isEmptyXValue` — dropped entirely, so its
+  // bucket label is never rendered), a null/undefined `seriesField` value is NOT
+  // dropped — it becomes its own "(empty)" series bucket. Every caller previously
+  // omitted `localeText`, so a non-English locale always showed the English literal.
+  it('renders a null seriesField value using the translated empty-category label (T3.2)', () => {
+    const rows = [
+      { region: 'North', product: 'A', revenue: 10 },
+      { region: 'North', product: null, revenue: 5 },
+    ];
+    const result = aggregateByTwoFields(
+      rows,
+      'region',
+      'product',
+      'revenue',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+      frLocaleText,
+    );
+    expect(result.seriesNames).toContain(frLocaleText.chartEmptyCategoryLabel);
+    expect(result.seriesNames).not.toContain('(empty)');
+  });
 });
 
 // ─── aggregateMultipleSeries ──────────────────────────────────────────────────
@@ -2853,6 +2879,33 @@ describe('aggregateHeatmap aggregation policy', () => {
       { x: 'Jan', y: 'EU', v: '5' },
     ];
     expect(aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum').cells.get('Jan\x00EU')).toBe(15);
+  });
+
+  // T3.2(b): the generic aggregators (`aggregateByField`/`aggregateByTwoFields`/
+  // `aggregateMultipleSeries`) all skip a null/undefined/empty x via `isEmptyXValue`
+  // before this cell is ever created; `aggregateHeatmap` previously lacked that guard,
+  // so `toXValue(null)` resolved to the truthy `'(empty)'` bucket label and the row
+  // survived as an `'(empty)'` COLUMN — disagreeing with bar/line charts over the same
+  // field, which silently dropped it.
+  it('drops rows with a null/undefined x, matching the generic aggregators (T3.2)', () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: 10 },
+      { x: null, y: 'EU', v: 5 },
+      { x: undefined, y: 'EU', v: 7 },
+    ];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    expect(data.xLabels).toEqual(['Jan']);
+    expect(data.xLabels).not.toContain('(empty)');
+    expect(data.cells.get('Jan\x00EU')).toBe(10);
+  });
+
+  it('drops rows with an empty-string x', () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: 10 },
+      { x: '', y: 'EU', v: 5 },
+    ];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    expect(data.xLabels).toEqual(['Jan']);
   });
 });
 

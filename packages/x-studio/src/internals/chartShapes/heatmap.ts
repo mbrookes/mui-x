@@ -1,5 +1,5 @@
 import { sortLabels, type XGroupBy } from '../temporalUtils';
-import { applyXGroupBy, toXValue } from '../chartValues';
+import { applyXGroupBy, isEmptyXValue, toXValue } from '../chartValues';
 import {
   accumulateValue,
   coerceAggregateValue,
@@ -71,6 +71,14 @@ export function aggregateHeatmap(
   const cellRowCount = new Map<string, number>();
 
   for (const row of rows) {
+    // Drop a null/undefined/empty x the same way the generic aggregators do (T3.2b):
+    // without this guard, `toXValue(null)` resolves to the truthy `'(empty)'` bucket
+    // label, so a null x survived as an `'(empty)'` COLUMN here while a bar/line chart
+    // over the same field silently dropped those rows — the two chart families
+    // disagreed on the same data.
+    if (isEmptyXValue(row[xField])) {
+      continue;
+    }
     const raw = toXValue(row[xField]);
     const xVal = String(applyXGroupBy(raw, xGroupBy));
     const yVal = String(row[yField] ?? '');

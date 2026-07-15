@@ -2053,6 +2053,65 @@ describe('StudioController.applyExternalMutation — transient-only wire mutatio
     controller.redo();
     expect(controller.getState().doc.dashboard.title).toBe('Edited');
   });
+
+  // T3.3: the dead-undo special-case used to hardcode mutation TYPES
+  // (`setActivePage`/`renameAIThread`). The reducer's `addPage`-for-an-existing-id
+  // branch produces the exact same shape of diff (`dashboard.activePageId` only) through
+  // a DIFFERENT mutation type, so a re-delivered AI `addPage` slipped through the
+  // type-based check and committed undoably — pushing a dead undo entry (it can never
+  // revert anything; `carryTransientDocState` re-overlays `activePageId` on every
+  // undo/redo swap) that still cleared the redo stack. Classifying by the actual
+  // resulting doc diff catches this mutation TYPE too, without hardcoding it by name.
+  it('applyExternalMutation addPage for an existing id (re-delivery) does not push an undo entry or clear the redo stack', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    // Set up a pending redo entry via a real authored edit.
+    controller.setDashboardTitle('Edited');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    // Re-delivery of an `addPage` SSE event for a page that already exists — the reducer
+    // only re-activates it (`dashboard.activePageId`), matching a fresh `addPage`'s
+    // idempotent branch. It must NOT push a dead undo entry or destroy the redo stack.
+    controller.applyExternalMutation({
+      type: 'addPage',
+      args: { id: 'page-2', title: 'Page 2' },
+    });
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    controller.redo();
+    expect(controller.getState().doc.dashboard.title).toBe('Edited');
+  });
+
+  // A GENUINE addPage (a new id) is a real authored edit and must remain undoable.
+  it('applyExternalMutation addPage for a NEW id still pushes an undoable entry', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+        },
+      },
+    });
+
+    controller.applyExternalMutation({
+      type: 'addPage',
+      args: { id: 'page-2', title: 'Page 2' },
+    });
+    expect(controller.getState().doc.pages['page-2']).toBeDefined();
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().doc.pages['page-2']).toBeUndefined();
+  });
 });
 
 describe('StudioController.loadSerializedState', () => {
@@ -2997,6 +3056,18 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
     });
   });
 
+  // T3.3: `addRelationship` had no duplicate-id guard (unlike `addExpressionField`'s
+  // `.some(...)` bail), so a double-add — e.g. a re-delivered wire/AI `addRelationship`
+  // event — appended a second entry sharing `id`, and `updateRelationship`/
+  // `removeRelationship` (both keyed on `rel.id`) would then act on both at once.
+  it('addRelationship with an already-existing id is a no-op (T3.3)', () => {
+    const controller = new StudioController({ doc: { relationships: [relationship('r1')] } });
+    assertNoOp(controller, () =>
+      controller.addRelationship({ ...relationship('r1'), targetId: 'different-target' }),
+    );
+    expect(controller.getState().doc.relationships).toHaveLength(1);
+  });
+
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('deleteFilterPreset / renameFilterPreset with an unknown id are no-ops', () => {
     const controller = new StudioController({
@@ -3181,6 +3252,65 @@ describe('StudioController.updateFilter — per-page rank scope (1.7)', () => {
     );
     expect(warnSpy).toHaveBeenCalledOnce(); // no further warning
     warnSpy.mockRestore();
+  });
+
+  // T3.3: the rank guard previously only ran when SWITCHING INTO rank mode
+  // (`switchingToRank`). An already-rank filter re-pointed to a different page via
+  // `changes.scope` bypassed it entirely, so two rank filters could land in the same
+  // page context — no shipped UI patches `scope` on an existing filter, so this is
+  // reachable only through this host API (e.g. a wire-driven `updateFilter`).
+  it('rejects re-pointing an already-rank filter into a page that already has one (T3.3)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      makeFilter({
+        id: 'rank-1',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 10,
+        scope: { kind: 'page', pageId: 'page-1' },
+      }),
+      makeFilter({
+        id: 'rank-2',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 5,
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    ]);
+
+    // rank-2 is ALREADY a rank filter; only its `scope` changes (no `filterMode` in the
+    // payload), re-pointing it onto page-1, which already has rank-1.
+    controller.updateFilter('rank-2', { scope: { kind: 'page', pageId: 'page-1' } });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+    // Rejected: rank-2 keeps its original page-2 scope.
+    expect(controller.getState().doc.filters.find((f) => f.id === 'rank-2')?.scope).toEqual({
+      kind: 'page',
+      pageId: 'page-2',
+    });
+  });
+
+  it('allows re-pointing an already-rank filter to a page with no rank filter of its own', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = twoPageController([
+      makeFilter({
+        id: 'rank-2',
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 5,
+        scope: { kind: 'page', pageId: 'page-2' },
+      }),
+    ]);
+
+    controller.updateFilter('rank-2', { scope: { kind: 'page', pageId: 'page-1' } });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    expect(controller.getState().doc.filters.find((f) => f.id === 'rank-2')?.scope).toEqual({
+      kind: 'page',
+      pageId: 'page-1',
+    });
   });
 });
 

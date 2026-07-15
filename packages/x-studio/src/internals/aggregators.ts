@@ -1,6 +1,7 @@
 import type { StudioFilterState } from '../models';
 import { sortLabels, type XGroupBy } from './temporalUtils';
 import { applyXGroupBy, isEmptyXValue, toXValue } from './chartValues';
+import type { StudioLocaleText } from './localeText';
 import {
   accumulateValue,
   coerceAggregateValue,
@@ -251,6 +252,12 @@ export function aggregateByField(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
+  /**
+   * Locale text bundle used to resolve the translated empty-category bucket label
+   * (`chartEmptyCategoryLabel`) — threaded through to `toXValue`/`isEmptyXValue` so a
+   * non-English locale doesn't fall back to the English `'(empty)'` literal (T3.2).
+   */
+  localeText?: Partial<StudioLocaleText>,
 ): AggregatedData {
   // Row counts per x-value (drive the 'count' aggregation and define the label set).
   const counts = new Map<string | number, number>();
@@ -273,10 +280,10 @@ export function aggregateByField(
   }
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField])) {
+    if (isEmptyXValue(row[xField], localeText)) {
       continue;
     }
-    const raw = toXValue(row[xField]);
+    const raw = toXValue(row[xField], localeText);
     const xVal = applyXGroupBy(raw, xGroupBy);
     counts.set(xVal, (counts.get(xVal) ?? 0) + 1);
 
@@ -324,6 +331,8 @@ export function aggregateByTwoFields(
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
+  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  localeText?: Partial<StudioLocaleText>,
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
@@ -351,12 +360,12 @@ export function aggregateByTwoFields(
   }
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField])) {
+    if (isEmptyXValue(row[xField], localeText)) {
       continue;
     }
-    const raw = toXValue(row[xField]);
+    const raw = toXValue(row[xField], localeText);
     const xVal = applyXGroupBy(raw, xGroupBy);
-    const seriesVal = toXValue(row[seriesField]);
+    const seriesVal = toXValue(row[seriesField], localeText);
 
     xValuesSet.add(xVal);
     seriesValuesSet.add(seriesVal);
@@ -419,6 +428,8 @@ export function aggregateMultipleSeries(
    * Fields absent from the map default to `'sum'`.
    */
   yAggregation: ChartAggFn | Record<string, ChartAggFn> = 'sum',
+  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  localeText?: Partial<StudioLocaleText>,
 ): MultiYSeriesData {
   // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
   // A non-numeric field is always aggregated as a count regardless of yAggregation.
@@ -453,10 +464,10 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, CellAcc>>();
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField])) {
+    if (isEmptyXValue(row[xField], localeText)) {
       continue;
     }
-    const raw = toXValue(row[xField]);
+    const raw = toXValue(row[xField], localeText);
     const xVal = applyXGroupBy(raw, xGroupBy);
     if (!labelSet.has(xVal)) {
       labelSet.add(xVal);
@@ -536,10 +547,22 @@ export function aggregateBlendedSeries(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
+  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  localeText?: Partial<StudioLocaleText>,
 ): MultiYSeriesData {
   // Aggregate each series within its own rows (independent grain per source).
   const perSeries = series.map((s) =>
-    aggregateByField(s.rows, xField, s.fieldId, xGroupBy, s.yAggregation),
+    aggregateByField(
+      s.rows,
+      xField,
+      s.fieldId,
+      xGroupBy,
+      s.yAggregation,
+      undefined,
+      undefined,
+      undefined,
+      localeText,
+    ),
   );
 
   // Per-series label → value maps, plus the union of labels in first-seen order.

@@ -197,10 +197,10 @@ export function StudioPieChart({
     const ringAggregation = yAggregation ?? 'sum';
     const categoryKeyOf = (r: Record<string, unknown>): string | null => {
       const rawX = r[xField];
-      if (isEmptyXValue(rawX)) {
+      if (isEmptyXValue(rawX, localeText)) {
         return null;
       }
-      return String(applyXGroupBy(toXValue(rawX), xGroupBy));
+      return String(applyXGroupBy(toXValue(rawX, localeText), xGroupBy));
     };
 
     // Finding 1.1: use the properly filtered rows (which honor interactive filter-widget
@@ -224,7 +224,17 @@ export function StudioPieChart({
     // For each category, aggregate by sliceField within that category's rows.
     let rings = categories.map((category) => {
       const catRows = baseRows.filter((r) => categoryKeyOf(r) === category);
-      const agg = aggregateByField(catRows, sliceField, ringYField, undefined, ringAggregation);
+      const agg = aggregateByField(
+        catRows,
+        sliceField,
+        ringYField,
+        undefined,
+        ringAggregation,
+        undefined,
+        undefined,
+        undefined,
+        localeText,
+      );
       return { id: `ring-${category}`, label: category, slices: agg };
     });
 
@@ -296,6 +306,10 @@ export function StudioPieChart({
               ringYField,
               undefined,
               ringAggregation,
+              undefined,
+              undefined,
+              undefined,
+              localeText,
             );
             // Collapse filtered labels the same way so grouped ("Other") rings dim correctly.
             return [cat, new Set(agg.labels.map(collapseLabel))];
@@ -316,6 +330,7 @@ export function StudioPieChart({
     yAggregation,
     pieMaxSlices,
     otherBucketLabel,
+    localeText,
   ]);
 
   // Per-slice dim state for the grouped-ring `RingDimmedPieArc` slot, keyed by

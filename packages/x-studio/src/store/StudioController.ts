@@ -354,6 +354,61 @@ export class StudioController {
   };
 
   /**
+   * True when `a` and `b` carry the same NON-interactive filter entries, in the same
+   * order — i.e. they may only differ in their `scope.kind === 'interactive'` entries.
+   * Shared by {@link isTransientOnlyDocDiff} with `carryTransientDocState`'s own
+   * interactive-filter overlay so both agree on what counts as "transient" filter state.
+   */
+  private static filtersEqualIgnoringInteractive(
+    a: StudioFilterState[],
+    b: StudioFilterState[],
+  ): boolean {
+    if (a === b) {
+      return true;
+    }
+    const nonInteractiveA = a.filter((f) => f.scope.kind !== 'interactive');
+    const nonInteractiveB = b.filter((f) => f.scope.kind !== 'interactive');
+    return (
+      nonInteractiveA.length === nonInteractiveB.length &&
+      nonInteractiveA.every((f, i) => f === nonInteractiveB[i])
+    );
+  }
+
+  /**
+   * True when `nextDoc` differs from `prevDoc` ONLY in transient-carried fields — the
+   * exact fields `carryTransientDocState` re-overlays onto every undo/redo swap
+   * (`dashboard.activePageId` / `globalCrossFilterMode` / `crossFilterAllPages`, `ai`,
+   * and interactive-scoped filter entries). An undo entry pushed for such a diff can
+   * never actually revert anything (the very next undo/redo swap re-overlays the
+   * CURRENT value of those fields onto whatever gets swapped in) — yet committing it
+   * undoably still clears the redo stack, a "dead" undo (T3.3).
+   *
+   * `applyExternalMutation`'s dead-undo special-case used to hardcode the mutation
+   * TYPES that can produce such a diff (`setActivePage` / `renameAIThread`), but the
+   * reducer's `addPage`-for-an-existing-id branch produces the same kind of
+   * `activePageId`-only diff through a DIFFERENT mutation type — so a re-delivered AI
+   * `addPage` slipped through the type-based check and committed undoably. Classifying
+   * by the actual resulting diff (rather than by mutation type) catches every mutation
+   * shaped this way, present or future, without enumerating them by name.
+   */
+  private isTransientOnlyDocDiff(prevDoc: StudioDoc, nextDoc: StudioDoc): boolean {
+    if (prevDoc === nextDoc) {
+      return true;
+    }
+    return (
+      prevDoc.pages === nextDoc.pages &&
+      prevDoc.widgets === nextDoc.widgets &&
+      prevDoc.relationships === nextDoc.relationships &&
+      prevDoc.expressionFields === nextDoc.expressionFields &&
+      prevDoc.filterPresets === nextDoc.filterPresets &&
+      prevDoc.dashboard.id === nextDoc.dashboard.id &&
+      prevDoc.dashboard.title === nextDoc.dashboard.title &&
+      prevDoc.dashboard.defaultTheme === nextDoc.dashboard.defaultTheme &&
+      StudioController.filtersEqualIgnoringInteractive(prevDoc.filters, nextDoc.filters)
+    );
+  }
+
+  /**
    * Commits a doc-only patch: shallow-merges `patch` onto the current `doc`, leaving
    * `session` and `runtime` untouched. The single place the doc-writer methods below
    * (relationships, filters, presets, page fields…) build their nested commit, so
@@ -457,20 +512,26 @@ export class StudioController {
    * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
-    // Undo-flag parity with the controller's own internal methods (2.1). A handful of
-    // mutation types touch ONLY transient-carried `doc` fields — `setActivePage`
-    // (`dashboard.activePageId`) and `renameAIThread` (`doc.ai`). `carryTransientDocState`
-    // overlays the CURRENT value of those fields back onto any undo/redo swap, so an undo
-    // entry pushed for one of them can never actually revert anything — yet the commit would
-    // still clear the redo stack, silently destroying a pending redo. The controller's own
-    // `setActivePage` already special-cases `undoable: false` for exactly this reason; mirror
-    // it here so the AI wire path (which reaches these mutations through `applyExternalMutation`)
-    // doesn't push dead, redo-destroying undo entries. Logging/label behaviour is unchanged:
-    // `commitState` records the label whenever the DOC changed regardless of `undoable` (2.11),
-    // so these non-undoable navigations/renames still land in the recent-mutation log the model
-    // reads back — the `label` passed below is intentionally NOT suppressed for them.
-    const isTransientOnlyMutation =
-      mutation.type === 'setActivePage' || mutation.type === 'renameAIThread';
+    // Undo-flag parity with the controller's own internal methods (2.1). Some mutations
+    // touch ONLY transient-carried `doc` fields — e.g. `setActivePage` (`dashboard.
+    // activePageId`), `renameAIThread` (`doc.ai`), or a re-delivered `addPage` for an
+    // id that already exists (which only re-points `activePageId` — T3.3).
+    // `carryTransientDocState` overlays the CURRENT value of those fields back onto any
+    // undo/redo swap, so an undo entry pushed for one of them can never actually revert
+    // anything — yet the commit would still clear the redo stack, silently destroying a
+    // pending redo. Classify by the ACTUAL resulting diff (`isTransientOnlyDocDiff`)
+    // rather than by mutation type, so every mutation shaped this way is caught — not
+    // just the ones hand-picked by name. The controller's own `setActivePage` already
+    // special-cases `undoable: false` for exactly this reason; mirror it here so the AI
+    // wire path (which reaches these mutations through `applyExternalMutation`) doesn't
+    // push dead, redo-destroying undo entries. Logging/label behaviour is unchanged:
+    // `commitState` records the label whenever the DOC changed regardless of `undoable`
+    // (2.11), so these non-undoable navigations/renames still land in the
+    // recent-mutation log the model reads back — the `label` passed below is
+    // intentionally NOT suppressed for them.
+    const prevDoc = this.store.state.doc;
+    const nextDoc = applyMutation(this.store.state, mutation).doc;
+    const isTransientOnlyMutation = this.isTransientOnlyDocDiff(prevDoc, nextDoc);
     this.commitMutation(mutation, {
       label,
       ...(isTransientOnlyMutation ? { undoable: false } : {}),
@@ -1583,6 +1644,16 @@ export class StudioController {
 
   addRelationship = (relationship: import('../models').StudioRelationship) => {
     const state = this.store.state;
+    // Idempotent, mirroring `addExpressionField` (T3.3): without this guard a double-add
+    // (e.g. a re-delivered AI/wire `addRelationship` event) appends a second entry sharing
+    // `relationship.id`, and `updateRelationship`/`removeRelationship` (both keyed on
+    // `rel.id`) would then silently act on both instead of the one the caller intended.
+    const exists = state.doc.relationships.some(
+      (rel: StudioRelationship) => rel.id === relationship.id,
+    );
+    if (exists) {
+      return;
+    }
     this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
   };
 
@@ -1631,10 +1702,19 @@ export class StudioController {
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
     const switchingToRank =
       !!target && changes.filterMode === 'rank' && target.filterMode !== 'rank';
+    // The guard must also re-run when an ALREADY-rank filter is re-pointed to a
+    // different page context via `changes.scope` (T3.3) — not just when switching INTO
+    // rank mode. Without this, a rank filter moved to a page/widget that already has its
+    // own rank filter bypasses `hasConflictingRankFilter` entirely and the one-rank-per-page
+    // invariant ends up with two rank filters sharing a page context. No shipped UI patches
+    // `scope` on an existing filter (`PageFilterRow`/`WidgetFilterRow`/`WidgetFiltersPanel`
+    // only ever pass row-level deltas), so this is reachable only through this host API.
+    const rankGuardApplies =
+      switchingToRank || (!!target && target.filterMode === 'rank' && 'scope' in changes);
     // Per-page rank guard scoped to the target's page context, not dashboard-wide.
     // Shared with the filters-drawer rows via `../internals/rankFilterScope`.
     const rejectRankChange =
-      switchingToRank &&
+      rankGuardApplies &&
       hasConflictingRankFilter(
         filterId,
         { ...target, ...changes },

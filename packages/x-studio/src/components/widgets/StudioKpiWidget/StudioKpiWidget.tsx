@@ -346,10 +346,18 @@ function computeFilterBasedTrend(params: {
   );
   // prevRows are already windowed to the previous date range at the widget's
   // own (child) grain; computePeriodValue anchors second, matching the headline.
+  //
+  // Reduce the previous side under the PREVIOUS-window filter set (`prevFilters`), not the
+  // shared `periodValueParams` (whose `widgetFilters` carry the CURRENT window's date
+  // filter). For a grain-anchored KPI, `computePeriodValue` re-applies `widgetFilters` to the
+  // anchor rows as a semi-join — so the unswapped current-window date filter would exclude
+  // every previous-period anchor row, collapse `previousValue` to ~0, and pin the badge at a
+  // bogus "new"/∞ delta despite steady data (finding F4).
+  const prevPeriodValueParams = { ...periodValueParams, widgetFilters: prevFilters };
   const previousValue = cachedCompute(
     prevRows,
     `kpi-value:${previousKpiValueField}:${measureKey}`,
-    () => computePeriodValue(prevRows, periodValueParams),
+    () => computePeriodValue(prevRows, prevPeriodValueParams),
   );
 
   if (previousValue !== 0) {
@@ -713,19 +721,20 @@ function useKpiSparkline(params: {
       let sparklineRows = rows;
       const timeFieldSourceId = config.kpiSparklineSourceId;
       if (isGrainAnchored) {
-        // The value field is on a related (parent) source. The grain-anchored rows are
-        // at the parent grain and natively contain the value field.
-        // If the time field is also from that parent source (timeFieldSourceId set to a
-        // related source, or auto-detected date filter), it is already present on the
-        // anchor rows — use grainAnchoredRows directly, no join needed.
-        // If the time field is from the widget's own (child) source, this is a
-        // contradictory configuration: the value is at the parent grain, but the time
-        // axis is from the child grain. Using grainAnchoredRows would produce an empty
-        // sparkline (the child time field is absent on parent rows), so we fall back to
-        // unanchored rows. Values will be inflated (double-counted at the child grain),
-        // but at least the sparkline renders. The recommended fix for users is to
-        // choose a time field from the same source as the value field.
-        const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
+        // The value field is on a related (anchor) source. The grain-anchored rows are at
+        // the anchor grain and natively contain the value field.
+        // The time field is on the anchor source ONLY when `timeFieldSourceId` explicitly
+        // points at a related source (`kpiSparklineSourceId` set to it) — then the field is
+        // already present on the anchor rows, so use grainAnchoredRows directly, no join.
+        // When `timeFieldSourceId` is unset (an own-source `kpiSparklineField`, or an
+        // auto-detected date filter native to the widget source — `dateFilterIsNative`), or
+        // is the widget's own source, the time field lives on the widget's OWN (child) grain,
+        // NOT on the anchor rows. Reading it off grainAnchoredRows would find the column
+        // absent on every row and silently render an empty sparkline (finding F5) — so fall
+        // back to the unanchored rows. Values may be inflated (double-counted at the child
+        // grain), but the sparkline renders. The recommended fix for users is to choose a
+        // time field from the same source as the value field.
+        const timeOnAnchorSource = !!timeFieldSourceId && timeFieldSourceId !== widget.sourceId;
         sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
       } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
         // Time field is from a related source. Use resolveChartRowsForAggregation to

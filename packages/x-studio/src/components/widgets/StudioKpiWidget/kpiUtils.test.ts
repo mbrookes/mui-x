@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
 import {
   extractDateRange,
+  filterRowsByDateRange,
   findDateFilter,
   computePreviousPeriodRange,
   computeAggregate,
@@ -188,13 +189,28 @@ describe('findDateFilter', () => {
 // ─── computePreviousPeriodRange ────────────────────────────────────────────────
 
 describe('computePreviousPeriodRange', () => {
-  it('previous-period: shifts back by the window duration', () => {
-    const start = new Date('2026-03-01');
-    const end = new Date('2026-03-31');
-    const duration = end.getTime() - start.getTime();
+  const inclusiveDayCount = (a: Date, b: Date) =>
+    Math.round(
+      (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+        Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) /
+        86400000,
+    ) + 1;
+
+  it('previous-period: previous window is the same whole-day length, ending the day before the current window starts (finding F1)', () => {
+    // Mar 1–31 is an INCLUSIVE 31-day window (L3 `between` is inclusive-day). The previous
+    // window must therefore also be 31 whole days and end on Feb 28 — the day immediately
+    // before Mar 1. The old instant math measured the window as `end − start` = 30 days
+    // (one short) and ended the previous window 1ms into the boundary day.
+    const start = new Date(2026, 2, 1); // Mar 1 (local)
+    const end = new Date(2026, 2, 31); // Mar 31 (local)
     const { start: ps, end: pe } = computePreviousPeriodRange(start, end, 'previous-period');
-    expect(ps.getTime()).toBe(start.getTime() - duration);
-    expect(pe.getTime()).toBe(start.getTime() - 1);
+
+    // Equal inclusive length — the parity the old duration-based math broke.
+    expect(inclusiveDayCount(ps, pe)).toBe(inclusiveDayCount(start, end));
+    expect(inclusiveDayCount(ps, pe)).toBe(31);
+    // Adjacent and non-overlapping: previous window ends the day before the current start.
+    expect(toLocalYmd(pe)).toBe('2026-02-28');
+    expect(pe.getTime()).toBeLessThan(start.getTime());
   });
 
   it('year-over-year: same window one year earlier', () => {
@@ -274,6 +290,87 @@ describe('computePreviousPeriodRange', () => {
     expect(ps.getMonth()).toBe(0); // January
     expect(pe.getFullYear()).toBe(2025);
     expect(pe.getMonth()).toBe(11); // December
+  });
+});
+
+// ─── Timezone safety: local-midnight parse + whole-day windows (F1/F2/F3) ──────
+
+describe('previous-period date math is timezone-safe', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // Node re-reads `TZ` per `Date` call (no restart needed), so this reliably reproduces a
+    // west-of-UTC viewer regardless of the host machine's own timezone. Under the pre-fix
+    // UTC-midnight parse (`new Date('YYYY-MM-DD')`), a bare date filter value anchored to UTC
+    // midnight lands on the PREVIOUS local calendar day for a negative-offset viewer,
+    // day-shifting every window and calendar period derived from it (findings F1/F2).
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  const betweenFilter = (from: string, to: string) =>
+    makeFilter({
+      operator: 'greater_than_or_equal',
+      value: from,
+      operator2: 'less_than_or_equal',
+      value2: to,
+      conjunction: 'and',
+      fieldType: 'date',
+    });
+
+  it('parses a bare YYYY-MM-DD filter value to LOCAL midnight, not UTC midnight (finding F1/F2)', () => {
+    const range = extractDateRange(betweenFilter('2026-07-08', '2026-07-14'));
+    expect(range).not.toBeNull();
+    // The local calendar components must echo the input string. The old UTC-midnight parse
+    // read 2026-07-07 for this negative-offset viewer.
+    expect(range!.start.getFullYear()).toBe(2026);
+    expect(range!.start.getMonth()).toBe(6); // July
+    expect(range!.start.getDate()).toBe(8);
+    expect(range!.end.getMonth()).toBe(6);
+    expect(range!.end.getDate()).toBe(14);
+  });
+
+  it('previous-period window is a non-overlapping 7 whole days ending the day before the current window (finding F1)', () => {
+    const range = extractDateRange(betweenFilter('2026-07-08', '2026-07-14'))!;
+    const prev = computePreviousPeriodRange(range.start, range.end, 'previous-period');
+    // Serialized as the widget does (via toLocalYmd): Jul 1 .. Jul 7 — seven inclusive days,
+    // ending the day before the current window's Jul 8 start.
+    expect(toLocalYmd(prev.start)).toBe('2026-07-01');
+    expect(toLocalYmd(prev.end)).toBe('2026-07-07');
+  });
+
+  it('previous-calendar-period resolves the correct calendar month west of UTC (finding F2)', () => {
+    // A whole-July window compared to the previous calendar month must resolve to JUNE.
+    // The old UTC-midnight parse shifted Jul 1 → Jun 30 local, so `getMonth()` read June and
+    // the "previous calendar month" came out as MAY (label "vs. May 2026").
+    const range = extractDateRange(betweenFilter('2026-07-01', '2026-07-31'))!;
+    const prev = computePreviousPeriodRange(range.start, range.end, 'previous-calendar-period');
+    expect(prev.start.getFullYear()).toBe(2026);
+    expect(prev.start.getMonth()).toBe(5); // June
+    expect(prev.end.getMonth()).toBe(5); // June
+  });
+
+  it('windows fixed-period rows by calendar day, classifying boundary-day date-only rows consistently (finding F3)', () => {
+    // A date-only row on the first day of the window must be included; one the day before
+    // must be excluded — regardless of the viewer's timezone. The old instant comparison
+    // (`normalizeToDate(raw)` = UTC midnight vs a locally-constructed bound) misclassified
+    // these boundary rows west of UTC.
+    const rows = [
+      { d: '2026-07-01', v: 1 }, // first day of window — included
+      { d: '2026-07-15', v: 1 }, // last day of window — included
+      { d: '2026-06-30', v: 1 }, // day before window — excluded
+      { d: '2026-07-16', v: 1 }, // day after window — excluded
+    ];
+    const windowed = filterRowsByDateRange(
+      rows,
+      'd',
+      new Date(2026, 6, 1), // Jul 1 local midnight
+      new Date(2026, 6, 15, 23, 59, 59, 999), // Jul 15 local end-of-day
+    );
+    expect(windowed.map((r) => r.d)).toEqual(['2026-07-01', '2026-07-15']);
   });
 });
 

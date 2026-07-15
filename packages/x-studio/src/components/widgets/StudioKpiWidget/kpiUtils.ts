@@ -67,7 +67,33 @@ export function computeFixedPeriodRange(
 }
 
 /**
+ * Reduce a date-like row value to its `YYYY-MM-DD` calendar-day key.
+ *
+ * Ingested date/datetime values are already canonical strings (`'YYYY-MM-DD'` /
+ * `'YYYY-MM-DDT…Z'`), so the day key is their leading 10 chars — matching how L3
+ * (`filterUtils`' `toDayComparable`) day-truncates a value before comparing. Non-string
+ * inputs (Date objects, ms timestamps) fall back to local Y/M/D components, consistent with
+ * the window bounds below.
+ */
+function toDayKey(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+    if (m) {
+      return m[1];
+    }
+  }
+  const d = normalizeToDate(raw);
+  return d ? toLocalYmd(d) : null;
+}
+
+/**
  * Filter rows to those where the given date field falls within [start, end] inclusive.
+ *
+ * Windowing is done in day-key space — both the row value and the window bounds are reduced
+ * to `YYYY-MM-DD` strings and compared lexically, exactly as L3 does — rather than as
+ * instants. Comparing a UTC-midnight-parsed row date (`new Date('YYYY-MM-DD')`) against a
+ * locally-constructed window bound (as the old `d >= start && d <= end` did) misclassified
+ * the boundary-day rows of a date-only field for non-UTC viewers (finding F3).
  */
 export function filterRowsByDateRange(
   rows: Record<string, unknown>[],
@@ -75,16 +101,18 @@ export function filterRowsByDateRange(
   start: Date,
   end: Date,
 ): Record<string, unknown>[] {
+  const startKey = toLocalYmd(start);
+  const endKey = toLocalYmd(end);
   return rows.filter((row) => {
     const raw = row[dateField];
     if (raw === null || raw === undefined) {
       return false;
     }
-    const d = normalizeToDate(raw);
-    if (!d) {
+    const key = toDayKey(raw);
+    if (key === null) {
       return false;
     }
-    return d >= start && d <= end;
+    return key >= startKey && key <= endKey;
   });
 }
 
@@ -98,6 +126,21 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     }
     // Resolve relative date values (e.g. "1 month ago") to concrete date strings first
     const str = isRelativeDateValue(v) ? relativeToAbsolute(v) : (v as string);
+    // A bare `YYYY-MM-DD` filter value must be parsed to LOCAL midnight, NOT the UTC
+    // midnight `new Date('YYYY-MM-DD')` produces. The previous-period math
+    // (`computePreviousPeriodRange`, local getters), the calendar-period classification
+    // (`getMonth`/`getFullYear`), and the boundary serialization (`toLocalYmd`, local
+    // components) all read LOCAL calendar fields — so a UTC-midnight anchor day-shifts the
+    // derived window for any viewer off UTC: the `previous-period` window comes out a day
+    // short (UTC) or overlapping the current window (UTC+), and `previous-calendar-period` /
+    // `year-over-year` resolve to the wrong calendar period entirely west of UTC
+    // (findings F1/F2). Mirror the package's documented local-components policy.
+    if (typeof str === 'string') {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+      if (m) {
+        return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      }
+    }
     const d = new Date(str);
     return Number.isNaN(d.getTime()) ? null : d;
   };
@@ -290,12 +333,24 @@ export function computePreviousPeriodRange(
     };
   }
 
-  // Default: 'previous-period' — shift by the current window duration
-  const duration = end.getTime() - start.getTime();
-  return {
-    start: new Date(start.getTime() - duration),
-    end: new Date(start.getTime() - 1),
-  };
+  // Default: 'previous-period' — the immediately-preceding window of the SAME whole-day
+  // length. Computed in whole-day space (mirroring L3's inclusive-day `between` semantics),
+  // NOT via instant subtraction: `duration = end − start` measures one day short of the
+  // inclusive window (a Jul 8–14 filter spans 7 calendar days but `end − start` is 6 days),
+  // and the `end: start − 1ms` construction lands the previous window's end 1ms after the
+  // prior day's midnight, day-shifting the boundary for non-UTC viewers (findings F1/F3).
+  // Instead: the previous window ends the day before the current window starts, and is as
+  // many whole days long as the current one — so the two windows are adjacent, equal-length,
+  // and never overlap in any timezone.
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const inclusiveDayCount = Math.round((endDay.getTime() - startDay.getTime()) / MS_PER_DAY) + 1;
+  const prevEnd = new Date(startDay);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - (inclusiveDayCount - 1));
+  return { start: prevStart, end: prevEnd };
 }
 
 // ─── Aggregation ──────────────────────────────────────────────────────────────

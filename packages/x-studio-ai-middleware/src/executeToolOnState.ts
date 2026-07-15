@@ -551,7 +551,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const pageList = Object.values(state.doc.pages).map((page) => {
         const widgetIds = (page.widgetRows ?? []).flat();
         const widgetTitles = widgetIds
-          .map((id) => state.doc.widgets[id]?.title)
+          .map((id) => getWidget(state, id)?.title)
           .filter((t): t is string => Boolean(t));
         return {
           id: page.id,
@@ -765,7 +765,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const rows = rawRows as string[][];
       const activePageId = state.doc.dashboard.activePageId;
-      if (!getPage(state, activePageId)) {
+      const activePage = getPage(state, activePageId);
+      if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
       // Reject DUPLICATE ids (RC5): a widget id appearing in more than one cell would
@@ -808,6 +809,32 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             error:
               `set_widget_layout received unknown widget IDs: ${unknownIds.join(', ')}. ` +
               'Call get_dashboard_state to get the current widget IDs.',
+          }),
+          nextState: state,
+        };
+      }
+      // Active-page OWNERSHIP (T2-A): the emitted `setWidgetLayout` mutation targets the
+      // ACTIVE page and the `setWidgetLayout` reducer does NO cross-page cleanup, so placing
+      // an id that currently lives on ANOTHER page here would leave that widget referenced by
+      // BOTH pages' `widgetRows` — one widget (sharing one config) duplicated across two pages.
+      // Mirror `set_widget_width`'s ownership guard: membership is restricted to widgets on the
+      // active page or not yet placed anywhere; reject ids owned by a non-active page.
+      const activeLayoutIds = new Set((activePage.widgetRows ?? []).flat());
+      const foreignPageIds = [...new Set(rows.flat())].filter(
+        (id) =>
+          !activeLayoutIds.has(id) &&
+          Object.values(state.doc.pages).some(
+            (page) =>
+              page.id !== activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
+          ),
+      );
+      if (foreignPageIds.length > 0) {
+        return {
+          output: JSON.stringify({
+            error:
+              `set_widget_layout received widget IDs that live on another page: ${foreignPageIds.join(', ')}. ` +
+              'A layout call only arranges the active page; call set_active_page for the page that ' +
+              'contains them before rearranging them.',
           }),
           nextState: state,
         };
@@ -1323,6 +1350,19 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           const unknownLayoutIds = [...new Set(mappedRows.flat())].filter(
             (id) => !liveWidgetIds.has(id),
           );
+          // Active-page OWNERSHIP (T2-A): like `set_widget_layout`, the `applyBulkUpdate`
+          // mutation rewrites the ACTIVE page's rows and the reducer does NO cross-page
+          // cleanup, so an id currently on another page would end up referenced by both
+          // pages — one widget duplicated across two. Active-page ids and widgets added this
+          // batch (fresh, unplaced ids) are never on `state.doc.pages`'s OTHER pages, so this
+          // rejects exactly the ids owned by a non-active page, reported alongside
+          // `unknownLayoutIds` for consistency.
+          const foreignPageLayoutIds = [...new Set(mappedRows.flat())].filter((id) =>
+            Object.values(state.doc.pages).some(
+              (page) =>
+                page.id !== activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
+            ),
+          );
           if (duplicateLayoutIds.length > 0) {
             skipped.push(
               `layout: duplicate widget IDs: ${duplicateLayoutIds.join(', ')}. ` +
@@ -1333,6 +1373,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
               `layout: unknown or removed widget IDs: ${unknownLayoutIds.join(', ')}. ` +
                 'Reference only widgets that exist after this update (added-widget titles ' +
                 'are resolved to their new IDs).',
+            );
+          } else if (foreignPageLayoutIds.length > 0) {
+            skipped.push(
+              `layout: widget IDs that live on another page: ${foreignPageLayoutIds.join(', ')}. ` +
+                'A layout op only arranges the active page; switch to the page that contains ' +
+                'them first.',
             );
           } else {
             widgetRows = mappedRows;

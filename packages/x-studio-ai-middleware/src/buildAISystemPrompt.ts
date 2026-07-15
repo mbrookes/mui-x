@@ -108,6 +108,11 @@ function getPage(
   return Object.hasOwn(pages, id) ? pages[id] : undefined;
 }
 
+/** `Object.hasOwn`-guarded widget lookup (see `getSource`). */
+function getWidget(widgets: StudioState['doc']['widgets'], id: string): StudioWidget | undefined {
+  return Object.hasOwn(widgets, id) ? widgets[id] : undefined;
+}
+
 function describeSource(source: StudioDataSource): string {
   const visibleFields = source.fields.filter((f) => !f.hidden);
   const fieldList = visibleFields
@@ -366,7 +371,7 @@ You help users configure their dashboard by creating pages, adding widgets, and 
 - A single widget reads from one primary sourceId, but a "mixed" chart CAN overlay series from different sources when they share a common categorical axis. This is the way to "merge" two metrics (e.g. pipeline value from CRM Deals and revenue from Orders) into one chart.
 - Requirements: the chart's xField must be a categorical field that exists with the SAME field id in every involved source (the shared category, e.g. "segment"), and each ySeries entry names the foreign source via its own sourceId. Each series is aggregated independently in its own source and aligned on the shared category.
 - Pattern "merge pipeline value by segment and revenue by segment into one chart":
-  → add_widget({ kind: "chart", title: "Pipeline vs Revenue by Segment", sourceId: "<dealsSourceId>", config: { chartType: "mixed", xField: "segment", ySeries: [{ fieldId: "pipelineValue", sourceId: "<dealsSourceId>", seriesType: "bar", yAggregation: "sum" }, { fieldId: "revenue", sourceId: "<ordersSourceId>", seriesType: "line", yAggregation: "sum" }] } })
+  → add_widget({ kind: "chart", title: "Pipeline vs Revenue by Segment", sourceId: "<dealsSourceId>", config: { chartType: "mixed", xField: "segment", ySeries: [{ fieldId: "pipelineValue", sourceId: "<dealsSourceId>", type: "bar", yAggregation: "sum" }, { fieldId: "revenue", sourceId: "<ordersSourceId>", type: "line", yAggregation: "sum" }] } })
 - Only refuse if there is no shared categorical field common to both sources — then explain that plainly (one sentence) and call no tool.
 
 ## Common Patterns
@@ -635,7 +640,7 @@ function buildDashboardState(
     for (const page of otherPages) {
       const ids = (page.widgetRows ?? []).flat();
       const titles = ids
-        .map((id) => widgets[id]?.title)
+        .map((id) => getWidget(widgets, id)?.title)
         .filter((t): t is string => Boolean(t))
         .map(sanitizeForPrompt);
       const widgetSummary = titles.length > 0 ? titles.join(', ') : '(no widgets)';

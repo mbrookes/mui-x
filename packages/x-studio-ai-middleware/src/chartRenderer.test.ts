@@ -240,6 +240,29 @@ describe('renderChartSvg — injection hardening', () => {
     expect(svg).toContain('#f28e2b'); // DEFAULT_COLORS[1]
   });
 
+  // Regression for T3-A: an empty `colors: []` used to survive `sanitizeColors` as `[]`,
+  // slipping past each renderer's `colors = DEFAULT_COLORS` default (which only fires for
+  // `undefined`). Then `color([], i)` → `[][NaN]` → `undefined` → `fill="undefined"`.
+  it('treats an empty colors array as absent and falls back to DEFAULT_COLORS', () => {
+    const inputs: ChartRendererInput[] = [
+      { type: 'bar', data: SIMPLE_DATA, colors: [] },
+      { type: 'line', data: SIMPLE_DATA, colors: [] },
+      { type: 'pie', data: SIMPLE_DATA, colors: [] },
+      { type: 'donut', data: SIMPLE_DATA, colors: [] },
+      {
+        type: 'stacked_bar',
+        xLabels: ['Q1', 'Q2'],
+        series: [{ name: 'A', values: [1, 2] }],
+        colors: [],
+      },
+    ];
+    for (const input of inputs) {
+      const svg = renderChartSvg(input);
+      expect(svg, `chart type ${input.type}`).not.toContain('fill="undefined"');
+      expect(svg, `chart type ${input.type}`).toContain('#4e79a7'); // DEFAULT_COLORS[0]
+    }
+  });
+
   it('falls back to default dimensions for a non-numeric width/height', () => {
     const svg = renderChartSvg({
       type: 'bar',

@@ -724,6 +724,27 @@ describe('executeToolOnState: set_widget_layout', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
   });
+
+  // Regression for T2-A: the emitted `setWidgetLayout` mutation targets the ACTIVE page and
+  // the reducer does no cross-page cleanup, so placing widget-2 (which lives on page-2) into
+  // the active page's layout would duplicate that widget across BOTH pages (one config,
+  // referenced twice). It must error and point at `set_active_page`, and commit nothing.
+  it('rejects a widget that lives on a non-active page (no cross-page duplication)', () => {
+    const state = makeMultiPageState(); // page-1 active, widget-2 on page-2
+    const result = executeToolOnState(
+      'set_widget_layout',
+      { rows: [['widget-1', 'widget-2']] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/another page/i);
+    expect(out.error).toMatch(/set_active_page/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+    // page-2 still owns widget-2 exclusively — nothing was duplicated.
+    expect(state.doc.pages['page-2'].widgetRows).toEqual([['widget-2']]);
+  });
 });
 
 describe('executeToolOnState: set_widget_width', () => {
@@ -1591,6 +1612,29 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(out.skipped).toEqual(
       expect.arrayContaining([expect.stringMatching(/layout: unknown or removed widget IDs/)]),
     );
+  });
+
+  // Regression for T2-A: the bulk layout op also rewrites the ACTIVE page's rows with no
+  // cross-page cleanup, so referencing widget-2 (on page-2) would duplicate it across pages.
+  // It must be skipped (reported like unknown ids) and the layout left unapplied.
+  it('skips a bulk layout that references a widget living on a non-active page', () => {
+    const state = makeMultiPageState(); // page-1 active, widget-2 on page-2
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { layout: [['widget-1', 'widget-2']] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { layout: boolean };
+    expect(applied.layout).toBe(false);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/layout: widget IDs that live on another page/),
+      ]),
+    );
+    // Neither page's layout changed — no duplication across pages.
+    expect(result.nextState.doc.pages['page-1'].widgetRows).toEqual([['widget-1']]);
+    expect(result.nextState.doc.pages['page-2'].widgetRows).toEqual([['widget-2']]);
   });
 
   it('rejects an out-of-range colSpan with a skipped entry instead of silently dropping it', () => {

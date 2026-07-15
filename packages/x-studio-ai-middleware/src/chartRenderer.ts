@@ -105,7 +105,10 @@ function sanitizeColors(colors: string[] | undefined): string[] | undefined {
   // runtime, so a non-array value (e.g. `"#fff"`) would throw inside `.map`. Treat any
   // non-array as absent so the renderers fall back to `DEFAULT_COLORS`, matching the
   // "coerce at one choke point" contract rather than throwing a raw `TypeError`.
-  if (!Array.isArray(colors)) {
+  // An EMPTY array is likewise treated as absent: returning `[]` would slip past the
+  // renderers' `colors = DEFAULT_COLORS` default (which only fires for `undefined`), and
+  // then `color([], i)` → `[][NaN]` → `undefined` → `fill="undefined"`.
+  if (!Array.isArray(colors) || colors.length === 0) {
     return undefined;
   }
   return colors.map((c, i) =>

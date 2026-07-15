@@ -213,8 +213,31 @@ function applyOverlayDomains(
       continue;
     }
     const padding = (max - min) * 0.05;
-    config.min = min - padding;
-    config.max = max + padding;
+    let domainMin = min - padding;
+    let domainMax = max + padding;
+    // A bar/area series on this axis is drawn from a zero baseline, so the
+    // domain must include 0 (and not pad past it) or the marks overflow the
+    // plot below the axis. Detect one whose value axis is this axis.
+    const hasBaselineSeries = series.some((entry) => {
+      const type = (entry as { type?: string }).type;
+      if (type !== 'bar' && !(entry as { area?: boolean }).area) {
+        return false;
+      }
+      const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';
+      return valueAxis === name;
+    });
+    if (hasBaselineSeries) {
+      domainMin = Math.min(domainMin, 0);
+      domainMax = Math.max(domainMax, 0);
+      if (min >= 0) {
+        domainMin = 0;
+      }
+      if (max <= 0) {
+        domainMax = 0;
+      }
+    }
+    config.min = domainMin;
+    config.max = domainMax;
   }
 }
 

@@ -246,4 +246,30 @@ describe('compileTextMark', () => {
     const items = textItems(compiled.overlays);
     expect(items?.[0]?.x).to.be.instanceOf(Date);
   });
+
+  it('keeps the zero baseline in the value domain when a text overlay sits over bars', () => {
+    // The text overlay's values (12–42) drive the shared y-domain; a bar series
+    // is drawn from 0, so the domain must still include 0 or the bars overflow
+    // below the axis. (regression: bars fell below the x-axis in the demo.)
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { category: 'A', share: 28 },
+          { category: 'B', share: 42 },
+          { category: 'C', share: 12 },
+        ],
+      },
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'share', type: 'quantitative' },
+      },
+      layer: [
+        { mark: 'bar' },
+        { mark: { type: 'text', dy: -8 }, encoding: { text: { field: 'share' } } },
+      ],
+    });
+    const yConfig = compiled.yAxis?.config as { min?: number; max?: number };
+    expect(yConfig.min).to.equal(0);
+    expect(yConfig.max).to.be.greaterThan(42);
+  });
 });

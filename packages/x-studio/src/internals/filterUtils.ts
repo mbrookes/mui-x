@@ -487,7 +487,15 @@ export function isConditionComplete(
   return value !== '' && value != null;
 }
 
-function isFilterComplete(filter: StudioFilterState): boolean {
+/**
+ * True when a filter is fully authored and should actually constrain rows. Exported so the query
+ * descriptor builder can prune incomplete filters (an empty-value condition or an empty selection)
+ * before they reach the server filter tree — otherwise the drawer's add-filter default
+ * (`{ operator: 'equals', value: '' }`) would ship as a real `col = ''` predicate and an empty
+ * selection would invert to match-nothing, both diverging from the in-memory evaluator which drops
+ * them here (findings T1.1 / T2.3).
+ */
+export function isFilterComplete(filter: StudioFilterState): boolean {
   if (!filter.field) {
     return false;
   }

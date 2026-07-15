@@ -1165,3 +1165,359 @@ describe('createBatchingAdapter — aggregation & filter push-down policy', () =
     expect(body.widgets[0].orderBy).toEqual([{ column: 'category', direction: 'asc' }]);
   });
 });
+
+// ── Wire-path filter / date / rank fixes (findings T1.1 / T1.2 / T1.3 / T2.3 / T2.4) ─────────────
+
+describe('createBatchingAdapter — incomplete-filter handling (finding T1.1)', () => {
+  it('does not push an incomplete condition (empty value) to the server; routes it to the no-op client residual', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, status: 'active' },
+          { id: 2, status: '' },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'status'],
+        // The drawer's add-filter default after picking a field but before typing a value.
+        filter: { type: 'leaf', field: 'status', op: 'equals', value: '' },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    // No `status = ''` predicate reaches the server...
+    expect(body.widgets[0].filters).toBeUndefined();
+    // ...and the client residual re-drops the incomplete filter (isFilterComplete) → all rows kept.
+    expect(result.rows.map((r) => r.id)).toEqual([1, 2]);
+  });
+});
+
+describe('createBatchingAdapter — incomplete second condition (finding T1.2)', () => {
+  it('does not emit a phantom second predicate when op2 is set but value2 is incomplete', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['amount'],
+        // The drawer's "+ Add condition" default: op2 set, value2 still empty. In-memory the
+        // secondary is ignored; the wire must NOT ship a phantom `amount = ''`.
+        filter: {
+          type: 'leaf',
+          field: 'amount',
+          op: 'greater_than',
+          value: 5,
+          op2: 'less_than',
+          value2: '',
+          conjunction: 'and',
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // Only the complete first condition is pushed — no phantom second predicate.
+    expect(body.widgets[0].filters).toEqual([{ column: 'amount', operator: 'gt', value: 5 }]);
+  });
+});
+
+describe('createBatchingAdapter — day-granular date translation (finding T1.3)', () => {
+  it('translates a bare-date "<=" on a datetime column to "< next-day"', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'less_than_or_equal',
+          value: '2026-07-10',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // A plain `<= '2026-07-10'` (midnight) would drop the rest of Jul 10 on a datetime column; the
+    // faithful day-granular form is `< '2026-07-11'`.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'lt', value: '2026-07-11' },
+    ]);
+  });
+
+  it('translates a bare-date ">" on a datetime column to ">= next-day"', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'greater_than',
+          value: '2026-07-10',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // `> day` at day granularity excludes the whole of Jul 10 → `>= '2026-07-11'`.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'gte', value: '2026-07-11' },
+    ]);
+  });
+
+  it('leaves a bare-date "<" and ">=" unchanged (already day-faithful)', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'group',
+          logic: 'and',
+          children: [
+            {
+              type: 'leaf',
+              field: 'createdAt',
+              op: 'greater_than_or_equal',
+              value: '2026-07-01',
+              fieldType: 'datetime',
+            },
+            {
+              type: 'leaf',
+              field: 'createdAt',
+              op: 'less_than',
+              value: '2026-07-10',
+              fieldType: 'datetime',
+            },
+          ],
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'gte', value: '2026-07-01' },
+      { column: 'createdAt', operator: 'lt', value: '2026-07-10' },
+    ]);
+  });
+
+  it('translates a bare-date "between" upper bound to a "< next-day" on a datetime column', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'between',
+          value: { from: '2026-07-01', to: '2026-07-10' },
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // `[from, to]` day-granular → `>= from` AND `< nextDay(to)` so the whole last day is included.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'gte', value: '2026-07-01' },
+      { column: 'createdAt', operator: 'lt', value: '2026-07-11' },
+    ]);
+  });
+
+  it('does NOT translate a datetime bound that carries an explicit time-of-day', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'less_than_or_equal',
+          value: '2026-07-10T23:59:59.999Z',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // Full-precision bound keeps `<=` as-is (matches the in-memory full-timestamp comparison).
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'lte', value: '2026-07-10T23:59:59.999Z' },
+    ]);
+  });
+});
+
+describe('createBatchingAdapter — empty-selection semantics (finding T2.3)', () => {
+  it('a selection-mode empty "in []" ("any value") matches EVERYTHING on the adapter path', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, status: 'active' },
+          { id: 2, status: 'closed' },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'status'],
+        filter: { type: 'leaf', field: 'status', op: 'in', value: [], filterMode: 'selection' },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    // Empty-`in` is not server-translatable (the middleware would drop it) → no server predicate...
+    expect(body.widgets[0].filters).toBeUndefined();
+    // ...and the residual, carrying filterMode 'selection', drops the empty selection → all rows.
+    expect(result.rows.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('a condition-mode empty "in []" still matches NOTHING (distinct from an empty selection)', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, status: 'active' },
+          { id: 2, status: 'closed' },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'status'],
+        filter: { type: 'leaf', field: 'status', op: 'in', value: [], filterMode: 'condition' },
+      }),
+    );
+
+    // Condition-mode `in []` is a complete predicate that matches nothing in-memory — the residual
+    // must preserve that, proving filterMode carry (not a blanket empty-array no-op).
+    expect(result.rows).toEqual([]);
+  });
+});
+
+describe('createBatchingAdapter — rank + aggregation push-down (finding T2.4)', () => {
+  it('routes an aggregated descriptor to raw rows when a rank filter is present', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'profit'],
+        groupBy: 'category',
+        aggregations: [{ field: 'profit', fn: 'sum', alias: 'profit' }],
+        hasRankFilters: true,
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    // Aggregation stripped → server returns raw rows so the client rank reduction can sum the
+    // rank measure per group instead of ranking over group-collapsed rows.
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still pushes the aggregation down when there is no rank filter', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'profit'],
+        groupBy: 'category',
+        aggregations: [{ field: 'profit', fn: 'sum', alias: 'profit' }],
+        hasRankFilters: false,
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: Array<{ func: string }> }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'profit', func: 'sum', alias: 'profit' },
+    ]);
+  });
+});

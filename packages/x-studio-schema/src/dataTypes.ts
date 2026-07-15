@@ -93,6 +93,15 @@ export type StudioFilterNode =
       op2?: StudioFilterOperator;
       fieldType?: StudioDataField['type'];
       filterSourceId?: string;
+      /**
+       * The authoring mode of the source filter (`condition` / `selection` / `rank`), carried onto
+       * the leaf so an adapter's client-side residual re-applies it with the SAME completeness
+       * semantics the in-memory evaluator uses. It matters for an empty selection: a selection-mode
+       * `in []` ("any value") must match EVERYTHING, whereas a condition-mode `in []` matches
+       * NOTHING. Without this, `leafToClientFilterState` re-stamped every residual as `'condition'`,
+       * inverting an empty selection to match-nothing on the adapter path (finding T2.3).
+       */
+      filterMode?: 'condition' | 'selection' | 'rank';
     }
   | { type: 'group'; logic: 'and' | 'or'; children: StudioFilterNode[] };
 
@@ -140,6 +149,18 @@ export interface StudioQueryDescriptor {
    * AFTER the cross-filter has been applied to real, ungrouped rows.
    */
   hasIncomingCrossOrInteractiveFilters?: boolean;
+  /**
+   * True when this widget currently has an active rank-mode (top/bottom-N) filter. Rank filters
+   * have no wire form and are always re-applied CLIENT-SIDE over the returned rows — but the client
+   * rank reduction must see RAW rows so it can sum `rankByField` per group itself. When the widget
+   * ALSO pushes a `sum`/`min`/`max` aggregation, the server GROUP BYs every projected non-measure
+   * column (including `rankByField`), collapsing duplicate `(groupKey, rankByFieldValue)` pairs to
+   * one row — the client then ranks over group-collapsed rows and picks the wrong Top-N. An adapter
+   * should therefore strip `aggregations` (returning raw rows) whenever this is `true`, mirroring
+   * the `hasIncomingCrossOrInteractiveFilters` guard, so the client aggregates AFTER ranking over
+   * real rows (finding T2.4).
+   */
+  hasRankFilters?: boolean;
   /**
    * Stable hash of all other fields. Use as a cache key.
    * The package computes this; the developer need not hash the descriptor.

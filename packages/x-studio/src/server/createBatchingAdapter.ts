@@ -901,6 +901,13 @@ function buildBatchWidgetDescriptor(
       // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases.
       warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
       aggregations = undefined;
+    } else if (d.hasRankFilters && d.aggregations && d.aggregations.length > 0) {
+      // A rank-by-measure filter re-applies CLIENT-SIDE and must sum `rankByField` per group over
+      // RAW rows — but a pushed-down aggregation GROUP BYs `rankByField` into a grouping dimension,
+      // collapsing duplicate rows so the client ranks over group-collapsed rows and picks the wrong
+      // Top-N (finding T2.4). Route to raw rows + client-side aggregation, like the cross-filter case.
+      warnRankAggregatedRoutedClientSide(d.sourceId, warnDedupe);
+      aggregations = undefined;
     } else if (hasCountAggregation(d.aggregations)) {
       warnCountRoutedClientSide(d.sourceId, warnDedupe);
       aggregations = undefined;
@@ -1069,6 +1076,14 @@ function buildBatchWidgetDescriptor(
     // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases below.
     if (d.hasIncomingCrossOrInteractiveFilters && d.aggregations && d.aggregations.length > 0) {
       warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
+      return undefined;
+    }
+    // A rank-by-measure filter re-applies CLIENT-SIDE over RAW rows: a pushed-down aggregation
+    // GROUP BYs `rankByField` into a grouping dimension and collapses duplicate rows, so the client
+    // ranks over group-collapsed rows and picks the wrong Top-N (finding T2.4). Fetch raw rows +
+    // aggregate client-side, mirroring the cross-filter case above.
+    if (d.hasRankFilters && d.aggregations && d.aggregations.length > 0) {
+      warnRankAggregatedRoutedClientSide(d.sourceId, warnDedupe);
       return undefined;
     }
     // A `count` aggregation is routed client-side (2.16d) — SQL COUNT(column) skips NULLs while
@@ -1307,6 +1322,15 @@ function isOpValueServerTranslatable(op: StudioFilterOperator, value: unknown): 
  * condition, the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
  */
 function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
+  // An incomplete first condition (e.g. the drawer's `{ operator: 'equals', value: '' }`
+  // add-filter default) has no in-memory effect — `applyFilters` drops it via `isFilterComplete`.
+  // Pushing it down as a real `col = ''` predicate empties a string column / errors a numeric one.
+  // Route it to the client-side residual instead, where `applyFilters` re-drops it (self-healing,
+  // finding T1.1). The normal path also prunes it in `buildQueryDescriptor`; this guards a
+  // host-authored descriptor that bypasses that builder.
+  if (!isConditionComplete(leaf.op, leaf.value)) {
+    return false;
+  }
   if (!isOpValueServerTranslatable(leaf.op, leaf.value)) {
     return false;
   }
@@ -1397,20 +1421,88 @@ function toWirePredicateValue(operator: FilterPredicate['operator'], rawValue: u
   return value;
 }
 
+/** Matches a bare `YYYY-MM-DD` date string (no time-of-day) — the day-granular filter form. */
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isDateFieldType(fieldType: StudioFilterLeaf['fieldType']): boolean {
+  return fieldType === 'date' || fieldType === 'datetime';
+}
+
+/** True for a bare `YYYY-MM-DD` string (relative-date values are already resolved to this form). */
+function isDateOnlyWireValue(value: unknown): value is string {
+  return typeof value === 'string' && DATE_ONLY_RE.test(value);
+}
+
+/** The calendar day AFTER a bare `YYYY-MM-DD` date, as a `YYYY-MM-DD` string (handles month/year rollover). */
+function nextDayIso(dateOnly: string): string {
+  const [y, m, d] = dateOnly.split('-').map(Number);
+  // Day overflow is normalized by Date (e.g. Jul 31 + 1 → Aug 1, Dec 31 + 1 → Jan 1 next year).
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * Emit the server FilterPredicate(s) for one (operator, value) pair, translating a bare-date bound
+ * on a `date`/`datetime` field so it keeps the in-memory DAY-granularity semantics on the wire
+ * (finding T1.3). In-memory, a bare-date bound compares the row's whole day (`compileDateBound`),
+ * so on a DATETIME column:
+ *  - `<= D` covers the entire day D → the wire must run `< nextDay(D)` (a plain `col <= 'D'` at
+ *    midnight would drop everything after midnight of day D);
+ *  - `> D` excludes the entire day D → the wire must run `>= nextDay(D)` (a plain `col > 'D'` would
+ *    keep day-D afternoon rows the evaluator excludes);
+ *  - `< D` (→ `< 'D'` at midnight) and `>= D` (→ `>= 'D'`) already match day granularity unchanged;
+ *  - `between [from, to]` upper bound is the same `<= to` case → emit `>= from` AND `< nextDay(to)`.
+ * A value carrying an explicit time keeps full precision (no translation), exactly like in-memory.
+ */
+function toPredicatesFor(
+  field: string,
+  operator: FilterPredicate['operator'],
+  value: unknown,
+  fieldType: StudioFilterLeaf['fieldType'],
+): FilterPredicate[] {
+  const isDate = isDateFieldType(fieldType);
+  if (isDate && operator === 'lte' && isDateOnlyWireValue(value)) {
+    return [{ column: field, operator: 'lt', value: nextDayIso(value) }];
+  }
+  if (isDate && operator === 'gt' && isDateOnlyWireValue(value)) {
+    return [{ column: field, operator: 'gte', value: nextDayIso(value) }];
+  }
+  if (isDate && operator === 'between' && Array.isArray(value) && value.length === 2) {
+    const [from, to] = value as [unknown, unknown];
+    const predicates: FilterPredicate[] = [{ column: field, operator: 'gte', value: from }];
+    predicates.push(
+      isDateOnlyWireValue(to)
+        ? { column: field, operator: 'lt', value: nextDayIso(to) }
+        : { column: field, operator: 'lte', value: to },
+    );
+    return predicates;
+  }
+  return [{ column: field, operator, value }];
+}
+
 /**
  * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
  * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
- * conversion and the AND-combined second condition (`op2` / `value2`).
+ * conversion, the faithful day-granular date translation (`toPredicatesFor`, finding T1.3), and
+ * the AND-combined second condition (`op2` / `value2`).
  */
 function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
   const operator = mapOperator(leaf.op)!;
   const value = toWirePredicateValue(operator, leaf.value);
-  const predicates: FilterPredicate[] = [{ column: leaf.field, operator, value }];
-  // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds.
-  if (leaf.op2 && leaf.value2 !== undefined) {
+  const predicates: FilterPredicate[] = toPredicatesFor(
+    leaf.field,
+    operator,
+    value,
+    leaf.fieldType,
+  );
+  // Handle the AND-combined second condition (op2 / value2) — e.g. a date-range filter emitting two
+  // bounds. Gate on `isConditionComplete` (NOT a bare `value2 !== undefined`) so it agrees exactly
+  // with `isLeafServerTranslatable`: an `op2` set with an incomplete `value2` (`value2 === ''`) is
+  // NOT a present second condition, so it must not emit a phantom `col = ''` predicate (finding
+  // T1.2). Because translatability already vetted `op2`, the `mapOperator(...)!` below is safe.
+  if (leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2)) {
     const op2 = mapOperator(leaf.op2)!;
     const value2 = toWirePredicateValue(op2, leaf.value2);
-    predicates.push({ column: leaf.field, operator: op2, value: value2 });
+    predicates.push(...toPredicatesFor(leaf.field, op2, value2, leaf.fieldType));
   }
   return predicates;
 }
@@ -1489,7 +1581,12 @@ function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
     value2: leaf.value2,
     conjunction: leaf.conjunction,
     fieldType: leaf.fieldType,
-    filterMode: 'condition',
+    // Preserve the source leaf's authoring mode instead of hardcoding `'condition'`. An empty
+    // selection ("any value") arrives as a selection-mode `in []`: in-memory `isFilterComplete`
+    // drops it (→ match everything), but a `'condition'` restamp makes `isConditionComplete('in',
+    // [])` true and re-applies `in []` as a real predicate that matches NOTHING — inverting the
+    // filter and blanking the widget on the adapter path (finding T2.3).
+    filterMode: leaf.filterMode ?? 'condition',
   } as unknown as StudioFilterState;
 }
 
@@ -1616,6 +1713,28 @@ function warnCrossFilterAggregatedRoutedClientSide(sourceId: string, dedupe: Set
       `server-aggregated response would contain only the grouped/alias columns, so the ` +
       `cross-filter's field would read undefined on every row and empty the widget. Raw rows ` +
       `are fetched for this widget and aggregated client-side instead.`,
+  );
+}
+
+/**
+ * Warn (once per build) that a server-side aggregation push-down was routed to
+ * raw-rows-then-client-aggregate because the widget also has an active rank-mode (top/bottom-N)
+ * filter (finding T2.4). Rank filters have no wire form and are always re-applied client-side over
+ * the returned rows — but the client rank reduction sums `rankByField` per group and must therefore
+ * see RAW rows. A pushed-down `sum`/`min`/`max` makes the server GROUP BY every projected
+ * non-measure column (including `rankByField`), collapsing duplicate `(groupKey, rankByFieldValue)`
+ * pairs to one row, so the client would rank over group-collapsed rows and pick the wrong Top-N.
+ * Fetching raw rows lets the client rank over real per-row data before its own aggregation runs.
+ */
+function warnRankAggregatedRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
+  warnAdapterDivergence(
+    dedupe,
+    `A server-side aggregation for source "${sourceId}" was computed client-side instead of ` +
+      `pushed to the data adapter: the widget has an active rank (top/bottom-N) filter, whose ` +
+      `client-side reduction must sum the rank measure per group over raw rows. A ` +
+      `server-aggregated response would group the rank measure into a dimension and collapse ` +
+      `rows, so the rank would select the wrong Top-N. Raw rows are fetched for this widget and ` +
+      `aggregated client-side instead.`,
   );
 }
 

@@ -97,6 +97,38 @@ function stripAggregationsForIncomingCrossFilter(
   return { ...descriptor, aggregations: undefined };
 }
 
+/**
+ * Strip server-side aggregations from a descriptor that carries an active rank-mode (top/bottom-N)
+ * filter (finding T2.4 — the same class as the cross-filter guard above).
+ *
+ * A rank filter has no wire form and is always re-applied client-side over the returned rows, but
+ * its reduction sums the rank measure per group and so must see RAW rows. A server-aggregated
+ * response GROUP BYs the rank measure into a dimension and collapses duplicate rows, so the client
+ * would rank over group-collapsed rows and pick the wrong Top-N. Returning raw rows lets the widget
+ * rank over real per-row data before its own aggregation step runs. A host that ignores
+ * `aggregations` already returns raw rows, so this is a no-op for it.
+ */
+function stripAggregationsForRankFilter(descriptor: StudioQueryDescriptor): StudioQueryDescriptor {
+  if (
+    !descriptor.hasRankFilters ||
+    !descriptor.aggregations ||
+    descriptor.aggregations.length === 0
+  ) {
+    return descriptor;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `MUI X Studio: A server-side aggregation for source "${descriptor.sourceId}" was stripped ` +
+        `before sending to the data adapter because the widget has an active rank (top/bottom-N) ` +
+        `filter, whose client-side reduction must sum the rank measure per group over raw rows. A ` +
+        `server-aggregated response would group the rank measure into a dimension and collapse ` +
+        `rows, so the rank would select the wrong Top-N. Raw rows are requested instead and ` +
+        `aggregated client-side.`,
+    );
+  }
+  return { ...descriptor, aggregations: undefined };
+}
+
 export interface SimpleAdapterOptions {
   /**
    * Custom fetch implementation. Defaults to global `fetch`.
@@ -136,9 +168,9 @@ export function createSimpleAdapter(
       // the host receives a plain, self-describing descriptor rather than a client-only
       // relative spec it cannot interpret (finding 2.19). Then strip server aggregations when an
       // incoming cross/interactive filter would make an aggregated response empty the widget
-      // (finding 2.7).
-      const resolvedDescriptor = stripAggregationsForIncomingCrossFilter(
-        resolveDescriptorRelativeDates(descriptor),
+      // (finding 2.7), or when an active rank filter needs raw rows to rank correctly (finding T2.4).
+      const resolvedDescriptor = stripAggregationsForRankFilter(
+        stripAggregationsForIncomingCrossFilter(resolveDescriptorRelativeDates(descriptor)),
       );
       const body = transformDescriptor
         ? transformDescriptor(resolvedDescriptor)

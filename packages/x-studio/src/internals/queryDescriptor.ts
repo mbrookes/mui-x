@@ -8,6 +8,7 @@ import type {
   StudioWidgetConfig,
 } from '../models';
 import { selectFiltersForWidget } from './filterScoping';
+import { isFilterComplete } from './filterUtils';
 import { isJoinFieldExpression } from '../utils/expressionEvaluator';
 import { collectExpressionRefs, collectJoinSourceIds } from './expressionRefs';
 import { stableStringify } from './stableStringify';
@@ -27,6 +28,9 @@ function filterStateToLeaf(f: StudioFilterState): StudioFilterNode {
     op2: f.operator2,
     fieldType: f.fieldType,
     filterSourceId: f.filterSourceId,
+    // Carried so the adapter's client-side residual can distinguish a selection-mode empty `in []`
+    // ("any value" → match everything) from a condition-mode `in []` (match nothing) — finding T2.3.
+    filterMode: f.filterMode,
   };
 }
 
@@ -252,9 +256,22 @@ export function buildQueryDescriptor(
     ...serverFilters.filter((f) => (f.filterMode ?? 'condition') === 'rank'),
     ...widgetScopedRankFilters,
   ];
+  // Prune incomplete filters (an empty-value condition — the drawer's `{ operator: 'equals',
+  // value: '' }` add-filter default — or an empty selection) BEFORE building the server filter
+  // tree. In-memory `applyFilters` drops them via `isFilterComplete`, so shipping them as real
+  // predicates (`col = ''`, or an empty-`in` that inverts to match-nothing) diverges from the
+  // in-memory evaluator AND churns the cacheKey on every keystroke while the user is still
+  // authoring the filter (findings T1.1 / T2.3). This fixes both the batching and simple adapters
+  // (both consume this `filter` tree) and stabilizes the cacheKey.
   const filter = filtersToFilterNode(
-    serverFilters.filter((f) => (f.filterMode ?? 'condition') !== 'rank'),
+    serverFilters.filter((f) => (f.filterMode ?? 'condition') !== 'rank' && isFilterComplete(f)),
   );
+  // Whether this widget currently carries an active rank-mode (top/bottom-N) filter. Adapters use
+  // this to strip a server-side aggregation push-down and fetch raw rows instead: the client rank
+  // reduction must sum `rankByField` per group over RAW rows, but a pushed-down aggregation
+  // GROUP BYs `rankByField` into a grouping dimension and collapses duplicate rows, so the client
+  // would rank over group-collapsed rows and pick the wrong Top-N (finding T2.4).
+  const hasRankFilters = rankFilters.length > 0;
 
   // A rank-by-measure filter (e.g. "top 5 by profit") reduces on `rankByField`, not `field`
   // (which is the group-by/dimension column for an aggregate rank, or unused for a plain
@@ -298,6 +315,10 @@ export function buildQueryDescriptor(
   // nothing to gain from it — exactly the round-trip the architecture deliberately avoids by
   // excluding cross-filters/interactive filters from the descriptor's `filter` tree in the first
   // place.
+  // Like `hasIncomingCrossOrInteractiveFilters`, `hasRankFilters` only changes the request shape
+  // (raw rows vs. aggregated) when there is an aggregation to strip — folding it into the key
+  // unconditionally would churn the cacheKey for a widget with nothing to gain.
+  const hasAggregations = Boolean(aggregations && aggregations.length > 0);
   const cacheKeySource = {
     sourceId: widget.sourceId,
     select: select.toSorted(),
@@ -305,8 +326,8 @@ export function buildQueryDescriptor(
     groupBy,
     xGroupBy,
     aggregations,
-    hasIncomingCrossOrInteractiveFilters:
-      hasIncomingCrossOrInteractiveFilters && Boolean(aggregations && aggregations.length > 0),
+    hasIncomingCrossOrInteractiveFilters: hasIncomingCrossOrInteractiveFilters && hasAggregations,
+    hasRankFilters: hasRankFilters && hasAggregations,
   };
   const cacheKey = `${widget.sourceId}:${stableStringify(cacheKeySource)}`;
 
@@ -320,6 +341,7 @@ export function buildQueryDescriptor(
     xGroupBy,
     aggregations,
     hasIncomingCrossOrInteractiveFilters,
+    hasRankFilters,
     cacheKey,
   };
 }

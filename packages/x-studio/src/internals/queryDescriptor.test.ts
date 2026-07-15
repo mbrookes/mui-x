@@ -320,6 +320,110 @@ describe('buildQueryDescriptor', () => {
     expect(desc.select).toContain('category');
   });
 
+  // ── Incomplete-filter pruning (finding T1.1) ─────────────────────────────────
+  it('prunes an incomplete condition filter (empty value) from the server filter tree', () => {
+    // The drawer's add-filter default is `{ field, operator: 'equals', value: '' }`. In-memory
+    // `applyFilters` drops it (isFilterComplete). It must not ship as a real `status = ''` predicate.
+    const incomplete = makeFilter({
+      scope: { kind: 'page' },
+      field: 'status',
+      operator: 'equals',
+      value: '',
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [incomplete], PAGE_ID);
+    expect(desc.filter).toBeUndefined();
+  });
+
+  it('keeps the cacheKey stable while a filter value is still being authored (no per-keystroke churn)', () => {
+    const widget = makeWidget({ yField: 'amount' });
+    const noFilter = buildQueryDescriptor(widget, [], PAGE_ID);
+    const emptyValue = buildQueryDescriptor(
+      widget,
+      [makeFilter({ scope: { kind: 'page' }, field: 'status', operator: 'equals', value: '' })],
+      PAGE_ID,
+    );
+    // An incomplete filter is pruned, so it must not perturb the request cacheKey (which would
+    // otherwise force a spurious server round-trip on every keystroke — finding T1.1).
+    expect(emptyValue.cacheKey).toBe(noFilter.cacheKey);
+  });
+
+  // ── Empty-selection pruning + filterMode carry (finding T2.3) ─────────────────
+  it('prunes an empty-selection ("any value") filter from the server filter tree', () => {
+    const emptySelection = makeFilter({
+      scope: { kind: 'page' },
+      field: 'status',
+      filterMode: 'selection',
+      operator: 'in',
+      value: [],
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [emptySelection], PAGE_ID);
+    // In-memory an empty selection matches EVERYTHING; it must not ship as an inverting `in []`.
+    expect(desc.filter).toBeUndefined();
+  });
+
+  it('carries filterMode onto a complete selection leaf so the adapter can preserve its semantics', () => {
+    const selection = makeFilter({
+      scope: { kind: 'page' },
+      field: 'status',
+      filterMode: 'selection',
+      operator: 'in',
+      value: ['active', 'pending'],
+    });
+    const widget = makeWidget({ yField: 'amount' });
+    const desc = buildQueryDescriptor(widget, [selection], PAGE_ID);
+    expect(desc.filter).toMatchObject({ type: 'leaf', field: 'status', filterMode: 'selection' });
+  });
+
+  // ── hasRankFilters descriptor flag (finding T2.4) ─────────────────────────────
+  it('sets hasRankFilters and folds it into the cacheKey for an aggregated widget', () => {
+    const rankFilter = makeFilter({
+      scope: { kind: 'page' },
+      field: 'amount',
+      filterMode: 'rank',
+      value: 5,
+      rankDirection: 'top',
+    });
+    const widget = makeWidget({ yField: 'amount', yAggregation: 'sum' });
+    const descNoRank = buildQueryDescriptor(widget, [], PAGE_ID);
+    const descWithRank = buildQueryDescriptor(widget, [rankFilter], PAGE_ID);
+    expect(descNoRank.aggregations?.length).toBeGreaterThan(0);
+    expect(descNoRank.hasRankFilters).toBe(false);
+    expect(descWithRank.hasRankFilters).toBe(true);
+    // The adapter reacts by stripping the aggregation and fetching raw rows, so the request shape
+    // (and cacheKey) MUST change or the stale aggregated-shape entry would rank over collapsed rows.
+    expect(descWithRank.cacheKey).not.toBe(descNoRank.cacheKey);
+  });
+
+  it('does NOT fold hasRankFilters into the cacheKey when there is no aggregation to strip', () => {
+    const rankFilter = makeFilter({
+      scope: { kind: 'page' },
+      field: 'category',
+      filterMode: 'rank',
+      value: 5,
+      rankDirection: 'top',
+    });
+    // Grid with a single (non-aggregated) column already in select — the rank field ('category')
+    // references only that same column, so `select` is identical with or without the rank filter.
+    // (An expression field is supplied purely so `expandToNativeFields` runs its Set-based dedup and
+    // the rank field-ref doesn't leave a duplicate `select` entry that would confound the cacheKey.)
+    const widget = {
+      ...makeWidget({ columns: [{ fieldId: 'category' }] }),
+      kind: 'grid' as const,
+    };
+    const descNoRank = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
+    const descWithRank = buildQueryDescriptor(widget, [rankFilter], PAGE_ID, undefined, [
+      marginExprField,
+    ]);
+    expect(descNoRank.aggregations == null || descNoRank.aggregations.length === 0).toBe(true);
+    expect(descWithRank.hasRankFilters).toBe(true);
+    expect(descNoRank.hasRankFilters).toBe(false);
+    // No aggregation to strip → the flag changes nothing about the request, so the cacheKey is
+    // unchanged (avoids a spurious round-trip when a rank filter is toggled on a raw-row widget).
+    expect(descWithRank.cacheKey).toBe(descNoRank.cacheKey);
+  });
+
   it('includes widget-scoped filters for this widget only', () => {
     const widgetFilter = makeFilter({
       scope: { kind: 'widget', widgetId: 'w1' },

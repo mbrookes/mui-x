@@ -51,6 +51,13 @@ export function autoGranularity(start: Date, end: Date): Granularity {
  * - 'month'   → last 30 days
  * - 'quarter' → last 90 days
  * - 'year'    → last 365 days
+ *
+ * The window is inclusive of both `today` (end-of-day) and the first day, so it must
+ * span exactly `days` calendar days: subtract `days - 1` from `today` for the start.
+ * Subtracting the full `days` (the previous behavior) produced an inclusive `days + 1`-day
+ * block (31/91/366) that contradicted the documented widths above (T3-1). The extra day was
+ * harmless for the delta — current and previous windows stayed equal-length — but the
+ * window should match its documentation.
  */
 export function computeFixedPeriodRange(
   period: 'month' | 'quarter' | 'year',
@@ -61,23 +68,28 @@ export function computeFixedPeriodRange(
   const end = new Date(today);
   end.setHours(23, 59, 59, 999);
   const start = new Date(today);
-  start.setDate(start.getDate() - days);
+  start.setDate(start.getDate() - (days - 1));
   start.setHours(0, 0, 0, 0);
   return { start, end };
 }
 
 /**
- * Reduce a date-like row value to its `YYYY-MM-DD` calendar-day key.
+ * Reduce a date-like row value to its LOCAL `YYYY-MM-DD` calendar-day key.
  *
- * Ingested date/datetime values are already canonical strings (`'YYYY-MM-DD'` /
- * `'YYYY-MM-DDT…Z'`), so the day key is their leading 10 chars — matching how L3
- * (`filterUtils`' `toDayComparable`) day-truncates a value before comparing. Non-string
- * inputs (Date objects, ms timestamps) fall back to local Y/M/D components, consistent with
- * the window bounds below.
+ * A bare `date` value (`'YYYY-MM-DD'`, no time-of-day) has an unambiguous calendar day —
+ * its literal string — so it is returned as-is; parsing it to a Date first would anchor it
+ * to UTC midnight and day-shift it under the LOCAL reduction below. Every other value — an
+ * ingested `datetime` string (`'YYYY-MM-DDTHH:MM:SSZ'`), a `Date`, or a ms timestamp — is a
+ * true instant and is reduced to its LOCAL calendar day. This keeps the row side in the SAME
+ * calendar space as the window bounds (`filterRowsByDateRange` reduces them via `toLocalYmd`,
+ * also LOCAL) and as the sparkline buckets (`getBucketKey`, LOCAL). The previous
+ * leading-10-chars fast path returned a datetime's UTC day, mismatching the LOCAL bounds and
+ * misclassifying near-UTC-midnight datetime rows for off-UTC viewers (T2-1).
  */
 function toDayKey(raw: unknown): string | null {
   if (typeof raw === 'string') {
-    const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+    // Bare date-only value (anchored, no time-of-day): its calendar day IS the string.
+    const m = /^(\d{4}-\d{2}-\d{2})$/.exec(raw);
     if (m) {
       return m[1];
     }
@@ -89,11 +101,15 @@ function toDayKey(raw: unknown): string | null {
 /**
  * Filter rows to those where the given date field falls within [start, end] inclusive.
  *
- * Windowing is done in day-key space — both the row value and the window bounds are reduced
- * to `YYYY-MM-DD` strings and compared lexically, exactly as L3 does — rather than as
- * instants. Comparing a UTC-midnight-parsed row date (`new Date('YYYY-MM-DD')`) against a
- * locally-constructed window bound (as the old `d >= start && d <= end` did) misclassified
- * the boundary-day rows of a date-only field for non-UTC viewers (finding F3).
+ * Windowing is done in LOCAL calendar-day space — both the row value (`toDayKey`) and the
+ * window bounds (`toLocalYmd`) are reduced to `YYYY-MM-DD` strings and compared lexically,
+ * rather than as instants. Note this is deliberately LOCAL, NOT the UTC day-truncation L3
+ * (`filterUtils`' `toDayComparable`) uses: the KPI's window bounds are built in local time
+ * (`computeFixedPeriodRange` via `setHours`) and the sparkline buckets in local time
+ * (`getBucketKey`), so unifying the row side on LOCAL keeps both sides of the comparison
+ * provably in one calendar space. Comparing a UTC-parsed row date against a locally-built
+ * bound (as the old `d >= start && d <= end` did) misclassified boundary-day rows for
+ * non-UTC viewers (finding F3 / T2-1).
  */
 export function filterRowsByDateRange(
   rows: Record<string, unknown>[],
@@ -139,6 +155,19 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
       if (m) {
         return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      }
+      // A `datetime` bound carries a UTC time-of-day — notably a `datetime` preset's end,
+      // which `resolveDateRangePreset` anchors to UTC end-of-day (`…T23:59:59.999Z`). Parsing
+      // it with `new Date` and reading LOCAL calendar fields (as `computePreviousPeriodRange`
+      // does, in whole-LOCAL-day space) lands it on the NEXT local day for viewers east of UTC,
+      // so the UTC `23:59:59.999Z` suffix inflates the inclusive-day count and shifts the
+      // derived previous window by a day (T2-2). Collapse it to LOCAL midnight of its intended
+      // calendar day (the leading `YYYY-MM-DD`, i.e. the day the preset built) so the KPI's
+      // day-granular window math stays timezone-stable. Bare `date` bounds are handled above
+      // and never reach here.
+      const dt = /^(\d{4})-(\d{2})-(\d{2})T/.exec(str);
+      if (dt) {
+        return new Date(Number(dt[1]), Number(dt[2]) - 1, Number(dt[3]));
       }
     }
     const d = new Date(str);
@@ -202,6 +231,14 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
 
 /**
  * Find the first date/datetime filter that applies to this widget (page or widget scope).
+ *
+ * CONTRACT: `filters` MUST be pre-scoped to this widget by the caller (via
+ * `selectFiltersForWidget`) before being passed in. This function does NOT verify a
+ * `dashboard-date-range` filter's `sourceId`/`filterSourceId` matches the widget's source,
+ * nor does it apply the `pageId`/`disabled`/cross-filter checks `selectFiltersForWidget`
+ * performs — it trusts every candidate is already in scope. Passing a raw, unscoped filter
+ * list here could latch onto a date filter that does not actually apply to the widget. All
+ * current callers pre-scope; keep it that way.
  *
  * Uses `filter.fieldType` when available (preferred — works across all data sources).
  * Falls back to looking up the field type in `dataSource.fields` for legacy filters

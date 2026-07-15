@@ -4,6 +4,7 @@ import {
   extractDateRange,
   filterRowsByDateRange,
   findDateFilter,
+  computeFixedPeriodRange,
   computePreviousPeriodRange,
   computeAggregate,
   autoGranularity,
@@ -293,6 +294,48 @@ describe('computePreviousPeriodRange', () => {
   });
 });
 
+// ─── computeFixedPeriodRange window width + parity (T3-1) ──────────────────────
+
+describe('computeFixedPeriodRange', () => {
+  const inclusiveDayCount = (a: Date, b: Date) =>
+    Math.round(
+      (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+        Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) /
+        86400000,
+    ) + 1;
+
+  it.each([
+    ['month', 30],
+    ['quarter', 90],
+    ['year', 365],
+  ] as const)(
+    "%s spans exactly %i inclusive calendar days ending on 'today' (T3-1)",
+    (period, days) => {
+      const today = new Date(2026, 6, 15); // Jul 15, 2026 (local)
+      const { start, end } = computeFixedPeriodRange(period, today);
+      // Documented width — the old `- days` math produced `days + 1` (31/91/366).
+      expect(inclusiveDayCount(start, end)).toBe(days);
+      // End is 'today', start is `days - 1` days earlier (inclusive of both ends).
+      expect(toLocalYmd(end)).toBe('2026-07-15');
+    },
+  );
+
+  it('current and previous windows are equal length (window-length parity)', () => {
+    // The delta compares equal-length windows: whatever width the current fixed window
+    // has, the previous-period window must match it. (Replaces a same-space tautology with
+    // a real cross-function parity check.)
+    const today = new Date(2026, 6, 15);
+    const current = computeFixedPeriodRange('quarter', today);
+    const previous = computePreviousPeriodRange(current.start, current.end, 'previous-period');
+    expect(inclusiveDayCount(current.start, current.end)).toBe(90);
+    expect(inclusiveDayCount(previous.start, previous.end)).toBe(
+      inclusiveDayCount(current.start, current.end),
+    );
+    // Adjacent, non-overlapping: previous window ends before the current window starts.
+    expect(previous.end.getTime()).toBeLessThan(current.start.getTime());
+  });
+});
+
 // ─── Timezone safety: local-midnight parse + whole-day windows (F1/F2/F3) ──────
 
 describe('previous-period date math is timezone-safe', () => {
@@ -371,6 +414,103 @@ describe('previous-period date math is timezone-safe', () => {
       new Date(2026, 6, 15, 23, 59, 59, 999), // Jul 15 local end-of-day
     );
     expect(windowed.map((r) => r.d)).toEqual(['2026-07-01', '2026-07-15']);
+  });
+});
+
+// ─── Datetime row/bound calendar-space unification (T2-1) ──────────────────────
+
+describe('filterRowsByDateRange datetime rows are windowed in LOCAL calendar space (T2-1)', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // West-of-UTC viewer: a datetime instant a few hours into the UTC day falls on the
+    // PREVIOUS local calendar day. The window bounds are reduced to their LOCAL day
+    // (`toLocalYmd`), so a datetime row must be reduced to its LOCAL day too — the old
+    // leading-10-chars fast path returned the row's UTC day, mismatching the bound space.
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it('classifies a near-UTC-midnight datetime row by its LOCAL day, not its UTC day (T2-1)', () => {
+    const rows = [
+      // 2026-07-15T02:00Z = 2026-07-14 22:00 in New York → LOCAL day Jul 14 → OUTSIDE a
+      // Jul-15-local window. The old UTC-day reduction ('2026-07-15') wrongly INCLUDED it.
+      { d: '2026-07-15T02:00:00.000Z', v: 1 },
+      // 2026-07-15T18:00Z = 2026-07-15 14:00 in New York → LOCAL day Jul 15 → INSIDE.
+      { d: '2026-07-15T18:00:00.000Z', v: 2 },
+    ];
+    const windowed = filterRowsByDateRange(
+      rows,
+      'd',
+      new Date(2026, 6, 15, 0, 0, 0, 0), // Jul 15 local midnight
+      new Date(2026, 6, 15, 23, 59, 59, 999), // Jul 15 local end-of-day
+    );
+    // Only the row whose LOCAL day is Jul 15 survives. Under the pre-fix UTC-day reduction
+    // BOTH rows shared the key '2026-07-15' and both were included — this assertion failed.
+    expect(windowed.map((r) => r.v)).toEqual([2]);
+  });
+
+  it('still classifies bare date-only rows by their literal calendar day', () => {
+    // Bare `YYYY-MM-DD` values have no time-of-day and must be unaffected by the datetime
+    // LOCAL-reduction: their calendar day is the literal string.
+    const rows = [
+      { d: '2026-07-14', v: 1 }, // excluded
+      { d: '2026-07-15', v: 2 }, // included
+    ];
+    const windowed = filterRowsByDateRange(
+      rows,
+      'd',
+      new Date(2026, 6, 15, 0, 0, 0, 0),
+      new Date(2026, 6, 15, 23, 59, 59, 999),
+    );
+    expect(windowed.map((r) => r.v)).toEqual([2]);
+  });
+});
+
+// ─── Datetime preset previous-period day-count (T2-2) ──────────────────────────
+
+describe('extractDateRange collapses a datetime preset end to its local calendar day (T2-2)', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // East-of-UTC viewer: a `…T23:59:59.999Z` end bound parses to the NEXT local day.
+    process.env.TZ = 'Asia/Tokyo'; // UTC+9
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  // Mirrors the shape `resolveDateRangePreset` produces for a `datetime` field: a bare-date
+  // `from` and a UTC-end-of-day `to`. Passed straight through by `extractDateRange` (no
+  // preset key ⇒ resolver is a no-op) so the assertion is deterministic (no dependency on
+  // the current date).
+  const datetimePresetFilter = makeFilter({
+    operator: 'between',
+    value: { from: '2026-07-01', to: '2026-07-31T23:59:59.999Z' },
+    fieldType: 'datetime',
+  });
+
+  it('extractDateRange resolves the datetime end to July 31 local, not August 1 (T2-2)', () => {
+    const range = extractDateRange(datetimePresetFilter)!;
+    expect(range).not.toBeNull();
+    // The old `new Date('2026-07-31T23:59:59.999Z')` read Aug 1 local for this UTC+9 viewer.
+    expect(range.end.getFullYear()).toBe(2026);
+    expect(range.end.getMonth()).toBe(6); // July
+    expect(range.end.getDate()).toBe(31);
+  });
+
+  it('previous-period window is a non-overlapping 31 whole days ending June 30 (T2-2)', () => {
+    const range = extractDateRange(datetimePresetFilter)!;
+    const prev = computePreviousPeriodRange(range.start, range.end, 'previous-period');
+    // July 1–31 is an inclusive 31-day window, so the previous window is 31 days ending the
+    // day before Jul 1 → May 31 .. Jun 30. The pre-fix Aug-1 end inflated the inclusive-day
+    // count to 32, shifting the previous window back a day to May 30 .. Jun 30.
+    expect(toLocalYmd(prev.end)).toBe('2026-06-30');
+    expect(toLocalYmd(prev.start)).toBe('2026-05-31');
   });
 });
 

@@ -84,6 +84,30 @@ export function serializeFieldForAI(
   return `${sanitizeForPrompt(f.id)} (${tags.join(', ')})${aiDesc}`;
 }
 
+/**
+ * `Object.hasOwn`-guarded data-source lookup (mirrors `executeToolOnState.ts`'s
+ * `getWidget`/`getPage`). `sources` is a plain object keyed by model-settable
+ * `sourceId`s — `add_widget`/`update_widget` accept any string with no existence
+ * check — so a bare `sources[id]` walks the prototype chain: an id like
+ * `"__proto__"` or `"constructor"` resolves to a truthy inherited value and the
+ * widget would be described with a phantom `source: "undefined" (undefined)`
+ * instead of "no source" (finding T2-1).
+ */
+function getSource(
+  sources: Record<string, StudioDataSource>,
+  id: string,
+): StudioDataSource | undefined {
+  return Object.hasOwn(sources, id) ? sources[id] : undefined;
+}
+
+/** `Object.hasOwn`-guarded page lookup (see `getSource`). */
+function getPage(
+  pages: StudioState['doc']['pages'],
+  id: string,
+): StudioState['doc']['pages'][string] | undefined {
+  return Object.hasOwn(pages, id) ? pages[id] : undefined;
+}
+
 function describeSource(source: StudioDataSource): string {
   const visibleFields = source.fields.filter((f) => !f.hidden);
   const fieldList = visibleFields
@@ -96,7 +120,7 @@ function describeSource(source: StudioDataSource): string {
 }
 
 function describeWidget(widget: StudioWidget, sources: Record<string, StudioDataSource>): string {
-  const source = widget.sourceId ? sources[widget.sourceId] : undefined;
+  const source = widget.sourceId ? getSource(sources, widget.sourceId) : undefined;
   const cfg = widget.config;
 
   // STRUCTURAL sanitize choke point (finding 1.1 / 3.1): every value-bearing field is
@@ -506,7 +530,10 @@ function buildDashboardState(
   const { mode } = state.session;
 
   const pageList = Object.values(pages);
-  const activePage = pages[dashboard.activePageId];
+  // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
+  // `activePageId: "__proto__"` would otherwise resolve to a truthy inherited
+  // value and render a phantom `## Active page: "undefined"` block.
+  const activePage = getPage(pages, dashboard.activePageId);
   const activeWidgetIds = (activePage?.widgetRows ?? []).flat();
   const activeWidgets = activeWidgetIds
     .map((id) => widgets[id])

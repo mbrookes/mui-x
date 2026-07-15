@@ -54,6 +54,32 @@ describe('buildPageLayoutContext', () => {
     ]);
   });
 
+  it('returns undefined for a prototype-member activePageId (finding T2-1)', () => {
+    // A crafted body `activePageId: "__proto__"` would otherwise make
+    // `state.doc.pages[pageId]` resolve `Object.prototype` (truthy) instead of "no
+    // active page".
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: '__proto__' },
+        pages: {},
+      },
+    });
+    expect(buildPageLayoutContext(state)).toBeUndefined();
+  });
+
+  it('drops a widgetRows entry with a prototype-member widgetId (finding T2-1)', () => {
+    // A widget row referencing a prototype-member id (`"constructor"`) must not
+    // resolve to a truthy inherited value and must be dropped like any other
+    // dangling widget id.
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['constructor']] } },
+      },
+    });
+    expect(buildPageLayoutContext(state)).toBeUndefined();
+  });
+
   it('ignores page-scoped filters in the cross-filter graph', () => {
     const state = createDefaultStudioState({
       doc: {

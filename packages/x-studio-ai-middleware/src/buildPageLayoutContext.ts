@@ -15,6 +15,25 @@ import type {
 } from './models/aiTypes';
 
 /**
+ * `Object.hasOwn`-guarded page lookup (mirrors `executeToolOnState.ts`'s
+ * `getWidget`/`getPage`). `state.doc.pages` is a plain object keyed by the
+ * client-supplied `activePageId`, so a bare `pages[id]` walks the prototype
+ * chain: a prototype-member id (`"__proto__"`, `"constructor"`) resolves to a
+ * truthy inherited value instead of "no active page" (finding T2-1).
+ */
+function getPage(state: StudioState, id: string): StudioState['doc']['pages'][string] | undefined {
+  return Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
+}
+
+/** `Object.hasOwn`-guarded widget lookup (see `getPage`). */
+function getWidget(
+  state: StudioState,
+  id: string,
+): StudioState['doc']['widgets'][string] | undefined {
+  return Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id] : undefined;
+}
+
+/**
  * @param {StudioState} state - The dashboard state to read the active page from.
  * @returns {StudioAIPageLayout | undefined} The active page's layout and
  *   cross-filter graph, or `undefined` when the page has no widgets and no
@@ -22,14 +41,14 @@ import type {
  */
 export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout | undefined {
   const pageId = state.doc.dashboard.activePageId;
-  const page = pageId ? state.doc.pages[pageId] : undefined;
+  const page = pageId ? getPage(state, pageId) : undefined;
   if (!page) {
     return undefined;
   }
 
   const rows: StudioAILayoutWidget[][] = (page.widgetRows ?? []).map((row) =>
     row.flatMap((widgetId) => {
-      const w = state.doc.widgets[widgetId];
+      const w = getWidget(state, widgetId);
       if (!w) {
         return [];
       }

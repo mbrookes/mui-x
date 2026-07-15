@@ -656,6 +656,57 @@ describe('buildAISystemPrompt: describeWidget chart config completeness', () => 
   });
 });
 
+// ── Prototype-member id lookups (finding T2-1) ────────────────────────────────
+
+describe('buildAISystemPrompt: prototype-member id lookups (finding T2-1)', () => {
+  it('describes a widget with a prototype-member sourceId as having no source, not "undefined"', () => {
+    // `add_widget`/`update_widget` build `sourceId` from a model-supplied string with
+    // no existence check, so a widget can end up with `sourceId: "__proto__"`. A bare
+    // `sources[widget.sourceId]` lookup would resolve `Object.prototype` (truthy),
+    // describing the widget as `source: "undefined" (undefined)` instead of "no source".
+    const widget = makeWidget('w1', { sourceId: '__proto__' });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    const widgetLine = prompt.split('\n').find((line) => line.includes('id: w1'));
+    expect(widgetLine).toBeDefined();
+    expect(widgetLine).toContain('no source');
+    expect(widgetLine).not.toContain('source: "undefined"');
+  });
+
+  it('describes a widget with a "constructor" sourceId as having no source', () => {
+    const widget = makeWidget('w1', { sourceId: 'constructor' });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    const widgetLine = prompt.split('\n').find((line) => line.includes('id: w1'));
+    expect(widgetLine).toContain('no source');
+    expect(widgetLine).not.toContain('source: "undefined"');
+  });
+
+  it('does not render a phantom active-page block for a prototype-member activePageId', () => {
+    // A crafted body `activePageId: "__proto__"` would otherwise make
+    // `pages[dashboard.activePageId]` resolve `Object.prototype` (truthy) and render a
+    // phantom `## Active page: "undefined"` block with "No widgets on this page yet.".
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Test Dashboard', activePageId: '__proto__' },
+        pages: {},
+      },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).not.toContain('## Active page');
+    // With no pages at all, the correct message is the "no pages" fallback.
+    expect(prompt).toContain('No pages yet.');
+  });
+});
+
 // ── Filter widget guidance ────────────────────────────────────────────────────
 
 describe('buildAISystemPrompt: filter widget guidance', () => {

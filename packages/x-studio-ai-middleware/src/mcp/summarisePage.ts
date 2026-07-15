@@ -88,7 +88,16 @@ export function createSummarisePageHandler(deps: {
         if (!sourceId) {
           return;
         }
-        const source = state.runtime.dataSources[sourceId];
+        // `Object.hasOwn`-guarded lookup (finding T2-1, for parity with the
+        // `pageId` guard above): `widget.sourceId` is model-settable
+        // (`add_widget`/`update_widget` accept any string with no existence
+        // check), so a bare `dataSources[sourceId]` would otherwise walk the
+        // prototype chain on an id like `"__proto__"`. This site was already
+        // safe by accident (`Object.prototype.tableName === undefined`), but
+        // the guard makes that explicit rather than incidental.
+        const source = Object.hasOwn(state.runtime.dataSources, sourceId)
+          ? state.runtime.dataSources[sourceId]
+          : undefined;
         if (!source?.tableName) {
           return;
         }

@@ -94,7 +94,7 @@ import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
  * prefix a literal, so only the intended tenant's keys are scanned. The stored key
  * format is unchanged — this touches ONLY the SCAN pattern construction.
  */
-function escapeRedisGlob(literal: string): string {
+export function escapeRedisGlob(literal: string): string {
   return literal.replace(/[*?[\]^\\]/g, (ch) => `\\${ch}`);
 }
 

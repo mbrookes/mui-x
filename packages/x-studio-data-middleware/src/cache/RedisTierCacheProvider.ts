@@ -82,7 +82,7 @@
  * across multiple deployments.
  */
 
-import { detectClientStyle, type RedisClient } from './RedisCacheProvider';
+import { detectClientStyle, escapeRedisGlob, type RedisClient } from './RedisCacheProvider';
 import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
 import type { TierCacheProvider, TierEntry } from './types';
 
@@ -150,7 +150,11 @@ export class RedisTierCacheProvider implements TierCacheProvider {
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
-    const pattern = `${this.prefix}${prefix}*`;
+    // Escape Redis glob metacharacters in the literal prefix so a tenant id containing
+    // `*`/`?`/`[` can't widen the SCAN glob into a cross-tenant over-eviction — the same
+    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix` (finding 3.1
+    // sibling site). The trailing `*` stays the only wildcard; stored key format unchanged.
+    const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
     const keys = await this.scanKeys(pattern);
     if (keys.length > 0) {
       await this.redis.del(...keys);

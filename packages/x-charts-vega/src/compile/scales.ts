@@ -328,10 +328,12 @@ function applySort(
  * Marks that need a discrete **band** scale (interior room per category) rather
  * than a point scale: bar/rect derive their width from the band, and
  * boxplot/errorbar center + dodge their per-category summary geometry inside it.
- * On a point scale the first/last categories sit exactly on the drawing-area
- * edges, so a dodged box/whisker (and its caps) spills outside the axis.
+ * A span `rule` (x→x2 anchored on a categorical axis) is bar-like too — a Gantt
+ * row per category. On a point scale the first/last categories sit exactly on
+ * the drawing-area edges, so a dodged box/whisker (or the last span bar) spills
+ * onto or outside the axis.
  */
-const BAND_SCALE_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar']);
+const BAND_SCALE_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar', 'rule']);
 
 /** `true` when any occurrence of the channel is drawn with a band-requiring mark. */
 function channelNeedsBandScale(occurrences: ChannelOccurrence[]): boolean {

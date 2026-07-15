@@ -151,8 +151,12 @@ export interface CompiledReferenceLine {
 export interface CompiledGeo {
   /** A GeoJSON FeatureCollection for the base map / shape lookup. */
   geoData: unknown;
-  /** A d3 named projection (e.g. 'naturalEarth1') or projection config. */
-  projection?: string | Record<string, unknown>;
+  /**
+   * A d3 named projection (e.g. 'naturalEarth1'), a projection config, or a
+   * pre-built projection instance (used for `albersUsa`, which needs a `rotate`
+   * shim — see `marks/geoshape.ts`).
+   */
+  projection?: string | Record<string, unknown> | ((...args: never[]) => unknown);
   /**
    * Initial map view derived from the spec's `projection.rotate`, forwarded to
    * `ChartsGeoDataProviderPremium`'s `initialView` (from `useGeoProjectionZoom`'s

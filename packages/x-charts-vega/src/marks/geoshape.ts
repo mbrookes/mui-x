@@ -1,3 +1,5 @@
+import { geoAlbersUsa } from '@mui/x-charts-vendor/d3-geo';
+import type { GeoProjection } from '@mui/x-charts-vendor/d3-geo';
 import type { CompiledSeries, CompiledUnit, UnitContext } from '../compile/context';
 import type { ContinuousColorMapConfig, PiecewiseColorMapConfig } from '../compile/color';
 import { resolveColor } from '../compile/color';
@@ -186,12 +188,31 @@ function resolveFeatureName(feature: GeoFeature): string | undefined {
 const DEFAULT_PROJECTION = 'mercator';
 
 /**
- * Resolve the Vega-Lite projection config to a d3 named projection string,
- * recording gaps for unknown projections and unforwardable tuning params.
- * @param {UnitContext} ctx The unit context.
- * @returns {string} A d3 named projection (defaults to `mercator`).
+ * `geoAlbersUsa` is a composite projection with no `rotate` method, but the map
+ * provider's fit-to-drawing-area helper (`getDefaultTranslation`) calls
+ * `projection.rotate(...)` unconditionally — so passing the *named* `'albersUsa'`
+ * string (which makes the provider build a rotate-less instance) throws
+ * "projection.rotate is not a function". Build the instance here instead and add
+ * a chainable no-op `rotate` shim (rotation is meaningless for a composite
+ * projection anyway), keeping the workaround in the wrapper rather than patching
+ * `@mui/x-charts-premium`. The provider still fits/scales the instance normally.
  */
-function resolveProjection(ctx: UnitContext): string {
+function albersUsaWithRotateShim(): GeoProjection {
+  const projection = geoAlbersUsa();
+  if (typeof (projection as { rotate?: unknown }).rotate !== 'function') {
+    (projection as unknown as { rotate: () => GeoProjection }).rotate = () => projection;
+  }
+  return projection;
+}
+
+/**
+ * Resolve the Vega-Lite projection config to a d3 named projection (or, for
+ * `albersUsa`, a shimmed instance), recording gaps for unknown projections and
+ * unforwardable tuning params.
+ * @param {UnitContext} ctx The unit context.
+ * @returns {string | GeoProjection} A d3 named projection (defaults to `mercator`).
+ */
+function resolveProjection(ctx: UnitContext): string | GeoProjection {
   const projection = ctx.unit.projection;
   if (!projection || typeof projection !== 'object') {
     return DEFAULT_PROJECTION;
@@ -214,7 +235,7 @@ function resolveProjection(ctx: UnitContext): string {
     return DEFAULT_PROJECTION;
   }
   if (D3_NAMED_PROJECTIONS.has(type)) {
-    return type;
+    return type === 'albersUsa' ? albersUsaWithRotateShim() : type;
   }
   ctx.gaps.add({
     code: 'projection:unknown',

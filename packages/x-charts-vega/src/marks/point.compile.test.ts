@@ -94,7 +94,7 @@ describe('compilePointMark', () => {
     ]);
   });
 
-  it('approximates mark.size with a square root and reports a partial gap', () => {
+  it('converts mark.size (a symbol area) to a circle radius and reports a partial gap', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1, y: 1 }] },
       mark: { type: 'point', size: 100 },
@@ -105,7 +105,8 @@ describe('compilePointMark', () => {
     };
     const compiled = compileSpec(spec);
     const series = compiled.series[0] as unknown as { markerSize?: number };
-    expect(series.markerSize).to.equal(10);
+    // Vega-Lite `size` is an area; x-charts `markerSize` is a radius: r = sqrt(area/π).
+    expect(series.markerSize).to.equal(Math.sqrt(100 / Math.PI));
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:point-size-approximation');
     expect(gap?.severity).to.equal('partial');
   });

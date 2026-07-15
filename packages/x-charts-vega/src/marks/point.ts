@@ -344,16 +344,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
 
   let markerSize: number | undefined;
   if (typeof unit.mark.size === 'number') {
-    // Vega-Lite's `size` is an area-like value (comparable to a symbol's
-    // pixel area) while x-charts `markerSize` is radius-like. There is no
-    // exact conversion available without matching Vega-Lite's exact symbol
-    // geometry, so approximate with a square root, which keeps relative
-    // ordering between differently-sized marks intact.
-    markerSize = Math.sqrt(unit.mark.size);
+    // Vega-Lite's `size` is a symbol AREA (px²); x-charts' `markerSize` is the
+    // marker's circle radius. Convert area→radius (r = sqrt(area/π)) so the
+    // point renders at the reference's diameter. x-charts only draws circular
+    // markers, so this is exact for `point`/`circle` and a close approximation
+    // for other Vega symbol shapes.
+    markerSize = Math.sqrt(unit.mark.size / Math.PI);
     gaps.add({
       code: 'mark:point-size-approximation',
       message:
-        'Vega-Lite mark.size is an area-like value while x-charts markerSize is radius-like; approximated with Math.sqrt(size) rather than an exact conversion.',
+        'Vega-Lite mark.size is a symbol area while x-charts markerSize is a circle radius; converted via r = sqrt(size/π), exact for circular markers and approximate for other symbol shapes.',
       severity: 'partial',
       path: `${path}.mark.size`,
     });
@@ -374,6 +374,15 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         path: `${path}.encoding.size`,
       });
     }
+  }
+
+  // Vega-Lite's default point size is 30 (a symbol area) → a circle of radius
+  // sqrt(30/π) ≈ 3.1. With no explicit `mark.size` and no size-field encoding,
+  // pin that radius so points render at the reference's size instead of
+  // x-charts' larger default markerSize (4). Ticks and bubbles are unaffected
+  // (ticks use segment styling; bubbles size per-point via the zAxis sizeMap).
+  if (markerSize === undefined && sizeField === undefined && !isTick) {
+    markerSize = Math.sqrt(30 / Math.PI);
   }
 
   const colorField = colorRes.splitField;

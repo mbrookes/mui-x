@@ -219,7 +219,9 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   // `staticColor` (see boxplot.ts) — reusing a static `mark.color` for every
   // group would paint all dodged groups identically, defeating the split.
   const groupColorAt = (gi: number): string =>
-    color.range?.[gi] ?? ctx.palette[gi % ctx.palette.length];
+    color.range && color.range.length > 0
+      ? color.range[gi % color.range.length]
+      : ctx.palette[gi % ctx.palette.length];
 
   if (markType === 'errorbar') {
     const items: OverlayErrorBarItem[] = [];

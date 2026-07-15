@@ -472,7 +472,10 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
         color,
       });
     };
-    colorRes.domain?.forEach((value, index) => addGroup(value, colorRes.range?.[index]));
+    const colorRange = colorRes.range;
+    colorRes.domain?.forEach((value, index) =>
+      addGroup(value, colorRange && colorRange.length > 0 ? colorRange[index % colorRange.length] : undefined),
+    );
     for (const row of rows) {
       const value = row[splitField];
       if (value != null) {

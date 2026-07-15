@@ -292,7 +292,10 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
       // paint every dodged group identically whenever `mark.color` happens
       // to be set alongside a color-field split, defeating the point of
       // dodging.
-      const groupColor = color.range?.[gi] ?? ctx.palette[gi % ctx.palette.length];
+      const groupColor =
+        color.range && color.range.length > 0
+          ? color.range[gi % color.range.length]
+          : ctx.palette[gi % ctx.palette.length];
       overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
       const grouped = collectByCategory(group.rows);
       categories.forEach((category, index) => {

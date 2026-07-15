@@ -524,7 +524,8 @@ export function resolveColor(
       }
     }
 
-    let domain = Array.isArray(scale?.domain) ? scale?.domain : undefined;
+    const explicitDomain = Array.isArray(scale?.domain) ? (scale?.domain as unknown[]) : undefined;
+    let domain = explicitDomain;
     // Vega-Lite orders a nominal/ordinal color legend — and therefore the
     // series → color assignment — ascending by default. When the spec gives
     // neither an explicit `scale.domain` nor a channel `sort`, derive that
@@ -561,10 +562,13 @@ export function resolveColor(
         domain = distinct.length > 0 ? distinct : undefined;
       }
     }
-    if (domain && range && domain.length !== range.length) {
+    // Only warn when the spec's *explicit* domain and range lengths disagree.
+    // A domain we derived from the data legitimately exceeds a fixed palette
+    // (Vega cycles the scheme in that case), so it must not trip this gap.
+    if (explicitDomain && range && explicitDomain.length !== range.length) {
       gaps.add({
         code: 'encoding:color-domain-range-mismatch',
-        message: `Color scale \`domain\` (${domain.length} values) and \`range\` (${range.length} colors) lengths differ; colors may not align with the intended categories.`,
+        message: `Color scale \`domain\` (${explicitDomain.length} values) and \`range\` (${range.length} colors) lengths differ; colors may not align with the intended categories.`,
         severity: 'partial',
         path: `${path}.encoding.color.scale`,
       });

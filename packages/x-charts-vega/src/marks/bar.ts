@@ -406,7 +406,10 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     groups.forEach((group, groupIndex) => {
       const id = `${unit.path}:${color.splitField}:${ctx.categoryKey(group.value)}`;
       const label = String(group.value);
-      const groupColor = color.range?.[groupIndex] ?? staticColor;
+      const groupColor =
+        color.range && color.range.length > 0
+          ? color.range[groupIndex % color.range.length]
+          : staticColor;
       if (rangeTwin) {
         const data = buildRangedSeriesData(ctx, group.rows, categoryAxis, valueField, rangeTwin);
         series.push(

@@ -164,7 +164,10 @@ function buildRowColor(ctx: UnitContext): ((row: DatasetRow) => string | undefin
   }
   const colorByKey = new Map<string, string>();
   order.forEach((value, index) => {
-    colorByKey.set(colorKey(value), range?.[index] ?? palette[index % palette.length]);
+    colorByKey.set(
+      colorKey(value),
+      range && range.length > 0 ? range[index % range.length] : palette[index % palette.length],
+    );
   });
   return (row) => {
     const value = row[field];

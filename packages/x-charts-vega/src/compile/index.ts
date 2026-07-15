@@ -12,6 +12,7 @@ import type { CompiledParamInput } from './params';
 import type {
   AxisResolution,
   CompiledGeo,
+  CompiledGradient,
   CompiledOverlay,
   CompiledReferenceLine,
   CompiledSeries,
@@ -62,6 +63,10 @@ export interface CompiledChart {
    * feeds these to a custom scatter marker slot.
    */
   hollowSeriesIds?: string[];
+  /** SVG linear-gradient fills (from gradient area marks); rendered as `<defs>`. */
+  gradients?: CompiledGradient[];
+  /** Title drawn above a heatmap's continuous color legend. */
+  colorLegendTitle?: string;
   title?: string;
   width?: number;
   height?: number;
@@ -290,6 +295,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
   const hollowSeriesIds: string[] = [];
+  const gradients: CompiledGradient[] = [];
+  let colorLegendTitle: string | undefined;
   let sizeLegend: SizeLegend | undefined;
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
@@ -343,6 +350,10 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
     zAxis.push(...(compiled.zAxis ?? []));
     hollowSeriesIds.push(...(compiled.hollowSeriesIds ?? []));
+    gradients.push(...(compiled.gradients ?? []));
+    if (compiled.colorLegendTitle && colorLegendTitle === undefined) {
+      colorLegendTitle = compiled.colorLegendTitle;
+    }
     // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
     // requests one wins; a conflicting later request is reported as a gap.
     if (compiled.barBorderRadius !== undefined) {
@@ -491,6 +502,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     hasLegend,
     colors: palette,
     hollowSeriesIds: hollowSeriesIds.length > 0 ? hollowSeriesIds : undefined,
+    gradients: gradients.length > 0 ? gradients : undefined,
+    colorLegendTitle,
     title: normalized.title,
     width: normalized.width,
     height: normalized.height,

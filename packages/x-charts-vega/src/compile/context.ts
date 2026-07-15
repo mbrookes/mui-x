@@ -199,6 +199,8 @@ export interface CompiledUnit {
   sizeLegend?: SizeLegend;
   /** Chart-wide bar corner radius requested by this layer's bar mark. */
   barBorderRadius?: number;
+  /** Title for a heatmap's continuous color legend (x-charts' zAxis has no title slot). */
+  colorLegendTitle?: string;
   /**
    * Ids of scatter series this layer produced that should render with hollow
    * (stroke-only) markers — Vega-Lite's default for the `point` mark (and any
@@ -206,6 +208,26 @@ export interface CompiledUnit {
    * scatter marker slot; unlisted series keep the default solid-filled marker.
    */
   hollowSeriesIds?: string[];
+  /**
+   * SVG linear-gradient fills contributed by this layer (a Vega-Lite gradient
+   * `mark.color`/`fill`). x-charts fills are a single color, so the shell emits
+   * one `<linearGradient>` def per entry and the series references it via
+   * `fill: url(#id)`.
+   */
+  gradients?: CompiledGradient[];
+}
+
+/**
+ * An SVG linear-gradient a mark fill references by id. Coordinates are in
+ * `objectBoundingBox` units (0–1), mirroring Vega-Lite's gradient `x1/y1/x2/y2`.
+ */
+export interface CompiledGradient {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  stops: Array<{ offset: number; color: string }>;
 }
 
 /** One entry in an overlay's custom legend (a colored swatch + label). */

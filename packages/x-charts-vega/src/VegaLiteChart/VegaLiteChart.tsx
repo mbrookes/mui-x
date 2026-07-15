@@ -452,7 +452,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
       const unionRows = plan.cells.flatMap(
         (cell) => (cell.spec.data as { values?: readonly unknown[] } | undefined)?.values ?? [],
       );
-      return unionRows.length > 0 ? { ...first, data: { values: unionRows } } : first;
+      return unionRows.length > 0
+        ? ({ ...first, data: { values: unionRows } } as VegaLiteSpec)
+        : first;
     })();
     // A trellis shares one x/y axis, so its title belongs once beside/below the
     // whole grid rather than repeated in every column/row cell.
@@ -755,7 +757,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         height={resolvedHeight}
       >
         <ChartsWrapper
-          legendPosition={{ vertical: 'top', horizontal: 'right' }}
+          legendPosition={{ vertical: 'top', horizontal: 'end' }}
           legendDirection="vertical"
         >
           {geoLegend}
@@ -799,6 +801,26 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const zoomEnabled = Boolean(compiled.zoom && (compiled.zoom.x || compiled.zoom.y) && clipId);
   const plotContent = (
     <React.Fragment>
+      {/* SVG gradient fills for gradient area marks; each area series references
+          its gradient by `fill: url(#id)`. Rendered in objectBoundingBox units. */}
+      {compiled.gradients && compiled.gradients.length > 0 && (
+        <defs>
+          {compiled.gradients.map((gradient) => (
+            <linearGradient
+              key={gradient.id}
+              id={gradient.id}
+              x1={gradient.x1}
+              y1={gradient.y1}
+              x2={gradient.x2}
+              y2={gradient.y2}
+            >
+              {gradient.stops.map((stop, index) => (
+                <stop key={index} offset={stop.offset} stopColor={stop.color} />
+              ))}
+            </linearGradient>
+          ))}
+        </defs>
+      )}
       {compiled.plots.includes('heatmap') && <HeatmapPlot />}
       {compiled.plots.includes('bar') && <BarPlot borderRadius={compiled.barBorderRadius} />}
       {compiled.plots.includes('rangeBar') && (
@@ -866,11 +888,17 @@ function SingleViewChart(props: VegaLiteChartProps) {
         {/* A heatmap's cell value is encoded by a continuous/piecewise color
             scale (the zAxis colorMap), so it needs a gradient color legend
             rather than a categorical series legend (Vega-Lite's default). */}
-        {!cell?.hideLegend && heatmapColorMap?.type === 'piecewise' && (
-          <PiecewiseColorLegend axisDirection="z" direction="vertical" />
-        )}
-        {!cell?.hideLegend && heatmapColorMap && heatmapColorMap.type !== 'piecewise' && (
-          <ContinuousColorLegend axisDirection="z" direction="vertical" />
+        {!cell?.hideLegend && heatmapColorMap && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+            {compiled.colorLegendTitle && (
+              <span style={{ fontSize: 12, fontWeight: 600 }}>{compiled.colorLegendTitle}</span>
+            )}
+            {heatmapColorMap.type === 'piecewise' ? (
+              <PiecewiseColorLegend axisDirection="z" direction="vertical" />
+            ) : (
+              <ContinuousColorLegend axisDirection="z" direction="vertical" />
+            )}
+          </div>
         )}
         {!cell?.hideLegend && compiled.overlayLegend.length > 0 && (
           <OverlayLegend items={compiled.overlayLegend} />

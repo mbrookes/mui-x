@@ -1,5 +1,6 @@
 import type { CurveType } from '@mui/x-charts/models';
 import type {
+  CompiledGradient,
   CompiledOverlay,
   CompiledSeries,
   CompiledUnit,
@@ -247,6 +248,47 @@ function resolveMarkColor(
     return last.color as string;
   }
   return undefined;
+}
+
+/**
+ * Reads a Vega-Lite gradient fill object (`{gradient: 'linear', x1, y1, x2, y2,
+ * stops}`) into a `CompiledGradient` the shell renders as an SVG
+ * `<linearGradient>`. Vega-Lite's gradient coordinates are already in
+ * objectBoundingBox units (0–1), so they map straight through. Returns
+ * `undefined` for a solid color or an unsupported/empty gradient.
+ */
+function buildMarkGradient(value: unknown, path: string): CompiledGradient | undefined {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    (value as { gradient?: unknown }).gradient !== 'linear' ||
+    !Array.isArray((value as { stops?: unknown }).stops)
+  ) {
+    return undefined;
+  }
+  const raw = value as {
+    x1?: number;
+    y1?: number;
+    x2?: number;
+    y2?: number;
+    stops: Array<{ offset?: number; color?: unknown }>;
+  };
+  const stops = raw.stops
+    .filter((stop) => typeof stop.color === 'string')
+    .map((stop) => ({ offset: typeof stop.offset === 'number' ? stop.offset : 0, color: stop.color as string }));
+  if (stops.length === 0) {
+    return undefined;
+  }
+  return {
+    // A stable, SVG-id-safe id per layer so the same spec re-renders identically.
+    id: `vega-grad-${path.replace(/[^a-zA-Z0-9]/g, '-')}`,
+    // Vega-Lite defaults a linear gradient to a top→bottom sweep (x1=x2=0, y1=0, y2=1).
+    x1: raw.x1 ?? 0,
+    y1: raw.y1 ?? 0,
+    x2: raw.x2 ?? 0,
+    y2: raw.y2 ?? 1,
+    stops,
+  };
 }
 
 /**
@@ -509,6 +551,7 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   // (paired with the matching `range` color), then first-appearance order for
   // any values outside the domain.
   const SINGLE_GROUP_KEY = '__single__';
+  const gradients: CompiledGradient[] = [];
   const groups: Array<{ key: string; label?: string; color?: string }> = [];
   if (splitField) {
     const seenGroups = new Set<string>();
@@ -535,15 +578,26 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       }
     }
   } else {
-    const staticColor =
-      colorRes.staticColor ??
-      resolveMarkColor(
-        markType === 'area'
-          ? (mark.fill ?? mark.color ?? mark.stroke)
-          : (mark.stroke ?? mark.color ?? mark.fill),
-        gaps,
-        path,
-      );
+    // An area's fill can be a linear gradient (`mark.color`/`fill` gradient
+    // object); render it as an SVG gradient rather than flattening to one stop.
+    const areaFillValue = mark.fill ?? mark.color ?? mark.stroke;
+    const gradient =
+      markType === 'area' && colorRes.staticColor == null
+        ? buildMarkGradient(areaFillValue, path)
+        : undefined;
+    if (gradient) {
+      gradients.push(gradient);
+    }
+    const staticColor = gradient
+      ? `url(#${gradient.id})`
+      : (colorRes.staticColor ??
+        resolveMarkColor(
+          markType === 'area'
+            ? areaFillValue
+            : (mark.stroke ?? mark.color ?? mark.fill),
+          gaps,
+          path,
+        ));
     groups.push({
       key: SINGLE_GROUP_KEY,
       // A constant `color: {datum: …}` (per-layer color, as `repeat` layers use)
@@ -601,5 +655,9 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     } as CompiledSeries;
   });
 
-  return { series, plots: Array.from(plots) };
+  return {
+    series,
+    plots: Array.from(plots),
+    ...(gradients.length > 0 ? { gradients } : {}),
+  };
 }

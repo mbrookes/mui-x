@@ -72,7 +72,7 @@ describe('compileLineAreaMark', () => {
     expect((compiled.series[0] as { area: boolean }).area).to.equal(true);
   });
 
-  it('approximates a gradient area fill by its last stop and reports an ignored gap', () => {
+  it('renders a gradient area fill as an SVG linear gradient (no gap)', () => {
     const compiled = compileSpec({
       data: {
         values: [
@@ -95,10 +95,17 @@ describe('compileLineAreaMark', () => {
         y: { field: 'temp', type: 'quantitative' },
       },
     } as never);
-    // The solid fill approximates the gradient with its highest-offset stop.
-    expect((compiled.series[0] as { color?: string }).color).to.equal('darkgreen');
+    // The area fill references an SVG gradient by id, and the gradient carries
+    // the spec's stops — no approximation, no gap.
+    const gradientId = (compiled.gradients ?? [])[0]?.id;
+    expect(gradientId).to.be.a('string');
+    expect((compiled.series[0] as { color?: string }).color).to.equal(`url(#${gradientId})`);
+    expect(compiled.gradients?.[0]?.stops).to.deep.equal([
+      { offset: 0, color: 'white' },
+      { offset: 1, color: 'darkgreen' },
+    ]);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:gradient-fill');
-    expect(gap?.severity).to.equal('ignored');
+    expect(gap).to.equal(undefined);
   });
 
   it('mark "trail" behaves like a line and records a partial gap for width-by-field', () => {

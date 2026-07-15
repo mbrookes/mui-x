@@ -179,8 +179,10 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
 
   // The color legend's title, mirroring Vega-Lite: an explicit `title` wins,
   // else an aggregate-prefixed field name ("Mean of Horsepower"), else the field.
+  // (Carried on the compiled unit; the shell draws it above the legend, since
+  // x-charts' zAxis config has no title/label slot.)
   const explicitTitle = colorDef.title;
-  const legendLabel =
+  const legendTitle =
     explicitTitle === null
       ? undefined
       : explicitTitle != null
@@ -193,7 +195,10 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
     series,
     plots: ['heatmap'],
     ...(color.colorMap
-      ? { zAxis: [{ id: 'vega-heatmap-color', colorMap: color.colorMap, label: legendLabel }] }
+      ? {
+          zAxis: [{ id: 'vega-heatmap-color', colorMap: color.colorMap }],
+          ...(legendTitle ? { colorLegendTitle: legendTitle } : {}),
+        }
       : {}),
   };
 }

@@ -266,8 +266,12 @@ export default function GalleryPage() {
         specs below are run verbatim through <code>&lt;VegaLiteChart /&gt;</code> (left) and, for
         comparison, the reference <code>vega-lite</code> runtime via <code>vega-embed</code>{' '}
         (right). Both sides receive the same spec with its <code>vega-datasets</code> already
-        inlined, so any difference is a translation difference, not a data one. Everything the
-        wrapper cannot translate is reported live via <code>onGaps</code> below each comparison.
+        inlined, so any difference is a translation difference, not a data one. To read like the
+        reference, the wrapper reproduces Vega-Lite&apos;s defaults — the <code>tableau10</code>{' '}
+        palette and exact named color schemes, ascending legend order, descending-by-value stack
+        geometry, gridlines on continuous axes, <code>timeUnit</code> month/quarter labels, and
+        label-fitting axes. Everything it still cannot translate is reported live via{' '}
+        <code>onGaps</code> below each comparison.
       </Typography>
       <Box
         sx={{

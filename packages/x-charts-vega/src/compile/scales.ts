@@ -90,7 +90,10 @@ function axisTitle(def: VegaChannelDef | undefined): string | undefined {
   if (axis && typeof axis === 'object' && 'title' in axis) {
     return axis.title == null ? undefined : axis.title;
   }
-  if (def.title === null) {
+  // `title: null` and an explicit empty `title: ""` both suppress the title
+  // (Vega-Lite draws no axis title in either case — the marginal-histogram
+  // count axes use `""` to hide their label).
+  if (def.title === null || def.title === '') {
     return undefined;
   }
   if (def.title) {

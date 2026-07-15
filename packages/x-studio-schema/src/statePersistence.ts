@@ -1,6 +1,7 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
+import { isValidFilterScope } from './parseStateMutation';
 import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
@@ -167,23 +168,6 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * The closed set of valid `StudioFilterScope` kinds (see `stateTypes.ts`), duplicated here
- * as a small local list because the wire boundary's `FILTER_SCOPE_REQUIRED_IDS` table in
- * `parseStateMutation.ts` is not exported. Used to membership-check a persisted filter's
- * `scope.kind` at the load boundary (Finding 2), symmetric with the wire boundary's own
- * `Object.hasOwn(FILTER_SCOPE_REQUIRED_IDS, kind)` check — a junk kind like `'pages'`
- * would otherwise survive as a permanent inert entry that escapes `removePage` /
- * `dropWidgetScopedFilters` cleanup (both key off the known kinds).
- */
-const VALID_FILTER_SCOPE_KINDS = new Set<string>([
-  'page',
-  'widget',
-  'cross-filter',
-  'interactive',
-  'dashboard-date-range',
-]);
-
-/**
  * Screen each ENTRY of a persisted array with `isRecord`, dropping non-record junk
  * (Finding 1) — the same per-entry screen the `filters`/`ai.threads` load paths already
  * apply, extended to `relationships` and `expressionFields`, whose entries the client
@@ -315,7 +299,12 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     if (!isRecord(filter)) {
       return `filters[${i}]`;
     }
-    if (!isRecord(filter.scope) || typeof filter.scope.kind !== 'string') {
+    // Full scope validity — kind membership AND every required id field present — via the
+    // ONE shared predicate the wire boundary uses (Finding T3-1), replacing the prior
+    // kind-only check. The wire boundary already rejects a scope missing a required id
+    // (e.g. a `dashboard-date-range` without `sourceId`, which would mis-apply a date
+    // window); reporting it missing here keeps the load boundary symmetric with it.
+    if (!isValidFilterScope(filter.scope)) {
       return `filters[${i}].scope`;
     }
   }
@@ -612,9 +601,12 @@ export function deserializeState(
         //    passes the record-widget `.filter` above and, because the reads below use
         //    optional chaining, installs a live widget whose first render throws
         //    (`config.chartType` off `null`). `deserializeState` is a public, directly-
-        //    callable "total over nested-corrupt docs" surface, so coerce the junk config to
-        //    `{}` here — the gentler, relationships-style coercion — instead of shipping a
-        //    widget that crashes the canvas at first paint.
+        //    callable surface that is total over nested corruption of an otherwise
+        //    top-level-well-formed `SerializedStudioState` (it assumes the four top-level
+        //    containers are present — that top-level shape is guaranteed upstream by
+        //    `migrateState`), so coerce the junk config to `{}` here — the gentler,
+        //    relationships-style coercion — instead of shipping a widget that crashes the
+        //    canvas at first paint.
         const rawConfig = (widget as { config?: unknown }).config;
         const configIsRecord =
           rawConfig !== null && typeof rawConfig === 'object' && !Array.isArray(rawConfig);
@@ -755,24 +747,28 @@ export function deserializeState(
       // cleanup for such filters only fires when the source widget is REMOVED, and it was
       // never present, so the page would load pre-filtered with no affordance to clear it.
       //
-      // Also DROP any entry that is not a record with a record `scope`: `migrateState`
-      // rejects such junk up front, but `deserializeState` is a public API callable on a
-      // `SerializedStudioState` directly (its documented "total over nested-corrupt docs"
-      // surface), so a `filters: [null]` / `scope: null` entry must be defensively removed
-      // here too — otherwise it installs into live `doc.filters` and then throws in
-      // `serializeDoc` and the reducer on the next commit.
+      // Also DROP any entry with an invalid `scope`: `migrateState` rejects such junk up
+      // front, but `deserializeState` is a public API callable on a `SerializedStudioState`
+      // directly (its documented surface is total over nested corruption of an otherwise
+      // top-level-well-formed `SerializedStudioState` — it assumes the four top-level
+      // containers are present, a shape `migrateState` guarantees upstream), so a
+      // `filters: [null]` / `scope: null` entry must be defensively removed here too —
+      // otherwise it installs into live `doc.filters` and then throws in `serializeDoc` and
+      // the reducer on the next commit.
       filters: serialized.filters.filter((f) => {
         if (!isRecord(f)) {
           return false;
         }
         const scope = (f as { scope?: unknown }).scope;
-        if (!isRecord(scope) || typeof scope.kind !== 'string') {
-          return false;
-        }
-        // Membership-check the closed scope-kind union (Finding 2): an unknown kind like
-        // `'pages'` would otherwise load as a permanent inert entry that escapes
-        // `removePage`/`dropWidgetScopedFilters` cleanup (both key off the known kinds).
-        if (!VALID_FILTER_SCOPE_KINDS.has(scope.kind)) {
+        // Full scope validity — record-ness, kind membership AND every required id field
+        // present — via the ONE shared predicate the wire boundary uses (Finding T3-1),
+        // replacing the prior record + kind-only check. An unknown kind like `'pages'`
+        // would otherwise load as a permanent inert entry that escapes `removePage`/
+        // `dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope missing
+        // a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
+        // mis-apply a date window) is now dropped here exactly as the wire boundary rejects
+        // the byte-identical payload.
+        if (!isValidFilterScope(scope)) {
           return false;
         }
         // Symmetric with `serializeDoc`'s strip: cross-filter/interactive entries are

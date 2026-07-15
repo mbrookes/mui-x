@@ -287,6 +287,25 @@ function validateFilterScope(scope: unknown, path: string): string | null {
 }
 
 /**
+ * Boolean predicate form of {@link validateFilterScope}: `true` when `scope` is a
+ * structurally-valid `StudioFilterScope` — a record whose `kind` is one of the five known
+ * kinds AND which carries every id field that kind requires (`widget` → `widgetId`,
+ * `cross-filter`/`interactive` → `sourceWidgetId`+`pageId`, `dashboard-date-range` →
+ * `sourceId`+`pageId`; `page` requires none).
+ *
+ * Exported as the ONE shared scope-validity check so the persistence load boundary
+ * (`statePersistence.ts`'s `deserializeState` filter screen and `findMissingRequiredField`)
+ * agrees, byte-for-byte, with this wire boundary on which scopes are well-formed — a
+ * scope missing a required id (e.g. a `dashboard-date-range` without `sourceId`, which
+ * would otherwise mis-apply a date window) is now dropped/rejected on load exactly as the
+ * identical wire payload is rejected here. Delegates to `validateFilterScope` so the two
+ * forms can never drift.
+ */
+export function isValidFilterScope(scope: unknown): scope is StudioFilterScope {
+  return validateFilterScope(scope, 'scope') === null;
+}
+
+/**
  * Shallow validation of a `StudioFilterState` embedded in `addFilter`. `id` must be a
  * safe id, `field` must be a string, `operator` (and a PRESENT `operator2`) must be a
  * member of the closed `StudioFilterOperator` union, and `scope` must be a valid scope;

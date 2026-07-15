@@ -218,6 +218,28 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
   });
 
+  // T3-1: `findMissingRequiredField` now rejects a scope missing a required id via the
+  // shared `isValidFilterScope` predicate, symmetric with the wire boundary — not just a
+  // scope-less / null-scope entry.
+  it('fails a doc whose dashboard-date-range scope is missing sourceId, naming the field (T3-1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filters: [
+          {
+            id: 'f1',
+            field: 'date',
+            operator: 'between',
+            value: '',
+            scope: { kind: 'dashboard-date-range', pageId: 'page-1' },
+          },
+        ],
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
+  });
+
   it('fails a doc with a primitive filters entry, naming the field (Tier 1)', () => {
     const result = migrateState(
       completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, filters: ['junk'] }),
@@ -1221,6 +1243,48 @@ describe('deserializeState', () => {
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
     expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  // ── load↔wire filter-scope symmetry (T3-1) ───────────────────────────────────
+  // The wire boundary (`parseStateMutation`'s `isValidFilterScope`) rejects a scope that
+  // is missing a required id field; the load boundary now shares that predicate. A
+  // `dashboard-date-range` scope without `sourceId` would otherwise mis-apply a date
+  // window, so it must be dropped on load exactly as the byte-identical wire payload is
+  // rejected.
+  it('drops a persisted dashboard-date-range filter whose scope is missing sourceId (T3-1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        // No `sourceId` — an invalid `dashboard-date-range` scope the wire boundary rejects.
+        {
+          id: 'bad-range',
+          field: 'date',
+          operator: 'between',
+          value: '',
+          scope: { kind: 'dashboard-date-range', pageId: 'page-1' },
+        },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  it('keeps a well-formed persisted dashboard-date-range filter on load (T3-1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'range',
+          field: 'date',
+          operator: 'between',
+          value: '',
+          scope: { kind: 'dashboard-date-range', sourceId: 'orders', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['range']);
   });
 
   it('drops a non-member config.chartType key, keeping the widget for the bar fallback (Finding 2)', () => {

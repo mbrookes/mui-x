@@ -281,7 +281,15 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
   let groupCount = 1;
   const overlayLegend: OverlayLegendItem[] = [];
 
-  if (color.splitField) {
+  // When the color field IS the category field (e.g. `x: Species` + `color:
+  // Species`), Vega-Lite draws one box per category, each tinted by its own
+  // value — it does NOT dodge sub-boxes within a band. Treat it as per-category
+  // coloring so each category keeps a full-width box (a dodge would slice every
+  // band into slivers), and only surface a legend when the color channel asks
+  // for one (`legend: null` suppresses it).
+  const colorIsCategory = color.splitField != null && color.splitField === categoryField;
+
+  if (color.splitField && !colorIsCategory) {
     // Grouped/dodged boxes: one box per category per color group.
     const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
     groupCount = groups.length;
@@ -296,7 +304,9 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
         color.range && color.range.length > 0
           ? color.range[gi % color.range.length]
           : ctx.palette[gi % ctx.palette.length];
-      overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
+      if (color.hasLegend) {
+        overlayLegend.push({ label: formatLegendLabel(group.value), color: groupColor });
+      }
       const grouped = collectByCategory(group.rows);
       categories.forEach((category, index) => {
         const values = grouped[index];
@@ -308,6 +318,36 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
           items.push(item);
         }
       });
+    });
+  } else if (colorIsCategory) {
+    // Color field == category field: one full-width box per category, tinted by
+    // that category's own value (no dodge). Map each category to its color from
+    // the resolved color scale (explicit `range`, else the palette by domain
+    // order, mirroring how the legend/series would be colored).
+    const domain = color.domain ?? categories;
+    const colorForCategory = (category: unknown): string | undefined => {
+      const gi = domain.findIndex((value) => String(value) === String(category));
+      if (gi < 0) {
+        return staticColor;
+      }
+      return color.range && color.range.length > 0
+        ? color.range[gi % color.range.length]
+        : ctx.palette[gi % ctx.palette.length];
+    };
+    const grouped = collectByCategory(rows);
+    categories.forEach((category, index) => {
+      const values = grouped[index];
+      if (values.length === 0) {
+        return;
+      }
+      const swatch = colorForCategory(category);
+      if (color.hasLegend) {
+        overlayLegend.push({ label: formatLegendLabel(category), color: swatch ?? '' });
+      }
+      const item = computeBox(category, values, extent, swatch);
+      if (item) {
+        items.push(item);
+      }
     });
   } else {
     // No color split: one aggregated box per category.

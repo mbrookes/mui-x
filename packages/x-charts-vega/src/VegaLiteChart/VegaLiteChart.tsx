@@ -138,8 +138,42 @@ const VEGA_DEFAULT_VIEW_HEIGHT = 340;
 // `height` size the whole surface (plot + axes). To make our plot match the
 // reference's plot, add back the space x-charts reserves for the perpendicular
 // axis: the left y-axis widens the surface, the bottom x-axis heightens it.
-const Y_AXIS_ALLOWANCE = 60;
-const X_AXIS_ALLOWANCE = 45;
+//
+// The wrapper's axes use `width/height: 'auto'` (scales.ts) so x-charts sizes
+// each axis to fit its tick labels — which for a long category ("Europe") or a
+// wide number ("20,000") reserves far more than a fixed pad. If the surface is
+// only plot + a small fixed pad, that auto-margin eats into the plot until it
+// collapses (heatmap cells shrink to a few px). So the allowance is estimated
+// from the axis's own labels: a base (rotated title + ticks + opposite-axis
+// overhang) plus the longest tick label. The resulting surface is sometimes a
+// little wider than the reference's, but the *plot* — the visual content —
+// matches instead of collapsing.
+const AXIS_LABEL_CHAR_PX = 7;
+// y-axis: title(rotated) + tick marks + right overhang of the last x label.
+const Y_AXIS_BASE_ALLOWANCE = 72;
+// x-axis: title + tick marks + one horizontal label row. x-charts' `height:'auto'`
+// axis reserves a generous bottom band (plus a small top pad), so this is sized
+// to let the plot survive it rather than the tighter space a label row implies.
+const X_AXIS_BASE_ALLOWANCE = 88;
+// Continuous axes carry no category array; assume ~6-char numeric labels ("20,000").
+const CONTINUOUS_LABEL_CHARS = 6;
+
+/** The longest tick-label length (chars) an axis will show, for margin estimation. */
+function longestAxisLabelChars(config: { data?: readonly unknown[] } | undefined): number {
+  const data = config?.data;
+  if (Array.isArray(data) && data.length > 0) {
+    return data.reduce<number>((max, value) => {
+      const text = value instanceof Date ? value.toLocaleDateString() : String(value);
+      return Math.max(max, text.length);
+    }, 1);
+  }
+  return CONTINUOUS_LABEL_CHARS;
+}
+
+/** Horizontal space x-charts' `width:'auto'` y-axis reserves (label-aware). */
+function yAxisAllowance(config: { data?: readonly unknown[] } | undefined): number {
+  return Y_AXIS_BASE_ALLOWANCE + Math.min(longestAxisLabelChars(config), 22) * AXIS_LABEL_CHAR_PX;
+}
 
 /**
  * The surface size that renders this view at Vega-Lite's plot dimensions, so the
@@ -194,8 +228,9 @@ function resolveVegaViewSize(
   const height = plotSize(spec.height as VegaLiteSpec['width'], compiled.yAxis, fallbackHeight, 'y');
   return {
     // Only pad when there's an axis to reserve space for (skip pie/arc/geo).
-    width: width !== undefined && compiled.yAxis ? width + Y_AXIS_ALLOWANCE : width,
-    height: height !== undefined && compiled.xAxis ? height + X_AXIS_ALLOWANCE : height,
+    width:
+      width !== undefined && compiled.yAxis ? width + yAxisAllowance(compiled.yAxis.config) : width,
+    height: height !== undefined && compiled.xAxis ? height + X_AXIS_BASE_ALLOWANCE : height,
   };
 }
 

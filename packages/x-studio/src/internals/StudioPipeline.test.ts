@@ -164,6 +164,29 @@ describe('createStudioPipeline', () => {
       expect(result).toHaveLength(3);
     });
 
+    it('applies a widget-scoped rank filter when includeWidgetRank is set (finding 2.1)', () => {
+      const rows = [...ROWS];
+      const state = makeState({
+        dataSources: { orders: makeSource('orders', rows) },
+        filters: [
+          makeFilter({
+            id: 'f-rank',
+            scope: { kind: 'widget', widgetId: 'w1' },
+            filterMode: 'rank',
+            rankDirection: 'top',
+            field: 'amount',
+            value: 1,
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(state);
+      // Non-chart callers opt in — the widget-scoped Top-1 rank reduces to the highest-amount row.
+      const result = pipeline.resolveWidgetRows('w1', 'orders', rows, undefined, {
+        includeWidgetRank: true,
+      });
+      expect(result.map((r) => r.id)).toEqual(['3']);
+    });
+
     it('returns an empty array when rows is empty', () => {
       const state = makeState({
         dataSources: { orders: makeSource('orders', []) },

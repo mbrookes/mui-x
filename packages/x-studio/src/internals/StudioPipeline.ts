@@ -37,19 +37,26 @@ export interface StudioPipeline {
    * Layers L2 + L3: enrich rows with expression-column values and apply all scoped
    * filters (page, widget, cross-filter, interactive) for a given widget on a page.
    *
-   * Rank filters (`filterMode === 'rank'`) are excluded — apply them after aggregation
-   * using your own logic.
+   * Page-scoped rank (Top-N) filters ARE applied — they flow through `applyFilters`'
+   * "filter then rank" reduction regardless. WIDGET-scoped rank filters are excluded by
+   * default, because the chart widget re-applies its own widget rank post-aggregation and
+   * would otherwise double-reduce it. Non-chart callers (grid / KPI / map / pivot / filter)
+   * — which have no post-aggregation rank path — set `options.includeWidgetRank = true` so a
+   * widget-scoped rank is enforced at L3 as a dataset-level reduction (finding 2.1).
    *
    * @param widgetId   Widget ID used to scope widget-level and cross-filter exclusions.
    * @param sourceId   The widget's primary source ID.
    * @param rows       Raw (pre-normalized) rows from `dataSources[sourceId].rows`.
    * @param pageId     Active page ID, used to scope cross-filters and interactive filters.
    * @param options    Opt-in cross-filter behaviour. When omitted, behaves exactly as before
-   *   (include: 'all', crossFilterAllPages: false). When provided (even `{}`), the dashboard's
-   *   `crossFilterAllPages` is honoured and the effective cross-filter mode is resolved as
+   *   (include: 'all', crossFilterAllPages: false, includeWidgetRank: false). When provided
+   *   (even `{}`), the dashboard's `crossFilterAllPages` is honoured and the effective
+   *   cross-filter mode is resolved as
    *   `state.globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'`; an
    *   effective mode of `'none'` coerces `include` to `'no-cross'`. An explicit `options.include`
-   *   always wins.
+   *   always wins. `options.includeWidgetRank` (default `false`) applies WIDGET-scoped rank
+   *   filters at L3; pass `true` for non-chart widget kinds so their authorable Top-N rank is
+   *   enforced (matching the React hook's `!isWidgetOfKind(widget, 'chart')`).
    */
   resolveWidgetRows(
     widgetId: string,
@@ -59,6 +66,7 @@ export interface StudioPipeline {
     options?: {
       widgetCrossFilterMode?: StudioCrossFilterMode;
       include?: 'all' | 'no-cross' | 'no-chart-cross';
+      includeWidgetRank?: boolean;
     },
   ): Row[];
 
@@ -159,6 +167,9 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
         widgetId,
         widgetSourceId: sourceId,
         activePageId: pageId,
+        // Widget-scoped rank (Top-N) filters are excluded by default (chart re-applies its
+        // own post-aggregation); non-chart callers opt in so their rank is enforced at L3.
+        includeWidgetRank: options?.includeWidgetRank ?? false,
       };
       // Strict backward compatibility: only engage the corrected cross-filter behaviour
       // when the caller explicitly opts in with `options`. Omitting it preserves today's

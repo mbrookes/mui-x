@@ -28,6 +28,7 @@ import {
   findDateFilter,
   extractDateRange,
   computePreviousPeriodRange,
+  toLocalYmd,
 } from '../widgets/StudioKpiWidget/kpiUtils';
 import {
   aggregateByField,
@@ -334,9 +335,12 @@ function buildKpiWidgetSummary(
       const prevDateFilter: StudioFilterState = {
         ...dateFilter,
         operator: 'greater_than_or_equal',
-        value: prevRange.start.toISOString().slice(0, 10),
+        // `computePreviousPeriodRange` builds LOCAL-time boundaries, so serialize their local
+        // calendar components — `toISOString().slice(0, 10)` round-trips through UTC and
+        // day-shifts the bound for non-UTC viewers (finding 3.1, matching the KPI widget).
+        value: toLocalYmd(prevRange.start),
         operator2: 'less_than_or_equal',
-        value2: prevRange.end.toISOString().slice(0, 10),
+        value2: toLocalYmd(prevRange.end),
         conjunction: 'and',
       };
       const prevPipeline = createStudioPipeline({
@@ -792,15 +796,31 @@ export function buildWidgetDataSummary(
     widget.sourceId,
     rawRows,
     state.doc.dashboard.activePageId,
-    // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type
-    // (this dispatcher runs before the widget's kind-specific `cfg` is narrowed below).
-    { widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode },
+    {
+      // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type
+      // (this dispatcher runs before the widget's kind-specific `cfg` is narrowed below).
+      widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
+      // Non-chart kinds (grid / pivot / KPI / map) have no post-aggregation rank path, so a
+      // widget-scoped Top-N rank must be enforced at L3 here for the raw-row summary to match
+      // what the widget shows. Charts re-apply their own rank in `buildChartWidgetSummary`
+      // (post-aggregation), so excluding it here avoids double-reducing them (finding 2.1).
+      includeWidgetRank: widget.kind !== 'chart',
+    },
   );
 
   const maxRows = options.maxRows ?? MAX_DATA_ROWS;
 
-  // Compute the active date range once — used in every widget kind's output
-  const dateFilter = findDateFilter(state.doc.filters, widget.id, source);
+  // Compute the active date range once — used in every widget kind's output.
+  // Scope the filter list first (matching the KPI widget) so `findDateFilter` can't latch
+  // onto a disabled date filter, a different page's date filter, or a `dashboard-date-range`
+  // filter for another source — `findDateFilter` itself checks none of those (finding 2.2).
+  const scopedFilters = selectFiltersForWidget(state.doc.filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId: state.doc.dashboard.activePageId,
+    crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
+  });
+  const dateFilter = findDateFilter(scopedFilters, widget.id, source);
   const currentRange = dateFilter ? extractDateRange(dateFilter) : null;
   const dateRangeLine = currentRange
     ? `Date range: ${formatDate(currentRange.start)} – ${formatDate(currentRange.end)}`

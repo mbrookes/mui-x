@@ -112,6 +112,10 @@ export function runWidgetExport({
         ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId, {
             // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
             widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
+            // Grid is a non-chart kind with no post-aggregation rank path, so a widget-scoped
+            // Top-N rank must be enforced at L3 here — otherwise the CSV exports all rows while
+            // the on-screen grid shows only the top N (finding 2.1).
+            includeWidgetRank: true,
           })
         : [];
 

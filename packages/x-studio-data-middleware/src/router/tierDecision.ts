@@ -126,6 +126,14 @@ export async function decideTierWithCache(
     // The tier decision is already computed — a cache WRITE failure must not
     // discard it. Catch and degrade to "decided, uncached" (finding 2.1,
     // mirroring the data cache's `set` guard for finding 2.6).
+    //
+    // NOTE (finding 3.2 — best-effort `rowCount`): the `rowCount` persisted here is
+    // the preflight COUNT(*) at write time. Unlike the DATA cache, the tier cache
+    // is NOT tag-invalidated on a mutation — the `TierCacheProvider` interface has
+    // only `get`/`set`/`invalidatePrefix`, no `deleteByTag` — so a subsequent
+    // tier-cache HIT can report a `rowCount` that is stale by ≤ the tier TTL after
+    // an insert/delete. The rows a widget returns are always re-read fresh; only
+    // this count is best-effort within the tier window (see `handler.ts`).
     try {
       await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
     } catch (cacheErr) {

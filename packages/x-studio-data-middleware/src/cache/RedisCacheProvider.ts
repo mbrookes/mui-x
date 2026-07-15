@@ -81,6 +81,24 @@ import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
 import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
 
 /**
+ * Escape Redis glob metacharacters so a literal key prefix matches only itself in
+ * a `SCAN MATCH` pattern.
+ *
+ * The tenant segment of a Studio cache key is `encodeURIComponent`-encoded
+ * (`security/cacheKey.ts`), which neutralizes colons but NOT the Redis glob
+ * metacharacters `*`, `?`, `[`, `]`, `^` and the escape char `\` (none are
+ * percent-encoded). Interpolating an un-escaped tenant id like `ac*e` straight into
+ * `SCAN MATCH studio:v1:ac*e*` would make the `*` a wildcard, so the eviction glob
+ * also matches unrelated tenants (`ac`, `ace`, `acme`, …) → over-eviction (extra DB
+ * load, never a cross-tenant read). Backslash-escaping each metacharacter keeps the
+ * prefix a literal, so only the intended tenant's keys are scanned. The stored key
+ * format is unchanged — this touches ONLY the SCAN pattern construction.
+ */
+function escapeRedisGlob(literal: string): string {
+  return literal.replace(/[*?[\]^\\]/g, (ch) => `\\${ch}`);
+}
+
+/**
  * Minimal structural interface compatible with both `ioredis` and `node-redis`
  * v4+. `set`/`sAdd`/`sadd`/etc. are typed loosely (rest args / `unknown`)
  * because the two client families disagree on exact call shapes — this
@@ -214,7 +232,12 @@ export class RedisCacheProvider implements CacheProvider {
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
-    const pattern = `${this.prefix}${prefix}*`;
+    // Escape glob metacharacters in the LITERAL prefix portion (host key prefix +
+    // caller-supplied tenant prefix) so only the trailing `*` acts as a wildcard —
+    // a tenant id containing `*`/`?`/`[`/`]` must not widen the eviction glob to
+    // unrelated tenants (over-eviction). The stored keys keep their raw format;
+    // only this match pattern is escaped.
+    const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
     const keys = await this.scanKeys(pattern);
     if (keys.length === 0) {
       return;

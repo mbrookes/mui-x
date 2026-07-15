@@ -441,6 +441,88 @@ describe('RedisCacheProvider', () => {
     });
   });
 
+  describe('invalidatePrefix escapes Redis glob metacharacters (finding 3.1)', () => {
+    // A Redis-glob-aware mock: unlike `makeRedisClient` (naive `startsWith` after
+    // stripping a trailing `*`), this interprets `*`/`?` as wildcards and honors
+    // backslash escaping — so it can actually distinguish an ESCAPED literal `\*`
+    // from an unescaped wildcard `*`, which is exactly what this fix turns on.
+    function globToRegExp(pattern: string): RegExp {
+      const escapeLiteral = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      let re = '^';
+      for (let i = 0; i < pattern.length; i += 1) {
+        const c = pattern[i];
+        if (c === '\\') {
+          i += 1;
+          const next = pattern[i];
+          re += next === undefined ? '\\\\' : escapeLiteral(next);
+        } else if (c === '*') {
+          re += '.*';
+        } else if (c === '?') {
+          re += '.';
+        } else {
+          re += escapeLiteral(c);
+        }
+      }
+      return new RegExp(`${re}$`);
+    }
+
+    function makeGlobAwareRedisClient() {
+      const store = new Map<string, { value: string; expiresAt: number }>();
+      const client: RedisClient & { store: typeof store } = {
+        store,
+        async get(key: string) {
+          const entry = store.get(key);
+          if (!entry || Date.now() > entry.expiresAt) {
+            return null;
+          }
+          return entry.value;
+        },
+        async set(key: string, value: string, _exMode: 'EX', ttlSeconds: number) {
+          store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+        },
+        async keys(pattern: string) {
+          const re = globToRegExp(pattern);
+          return [...store.keys()].filter((k) => re.test(k));
+        },
+        async del(...keys: string[]) {
+          for (const key of keys) {
+            store.delete(key);
+          }
+        },
+      };
+      return client;
+    }
+
+    it('does not over-evict a sibling tenant when the tenant id contains "*"', async () => {
+      const provider = new RedisCacheProvider(makeGlobAwareRedisClient());
+      // Tenant `ac*e` literally has a Redis glob wildcard in its id. An unescaped
+      // MATCH glob `studio:v1:ac*e:*` would ALSO match tenant `acme` (and `acXe`,
+      // `ace`, …), evicting unrelated tenants' entries (over-eviction).
+      await provider.set('studio:v1:ac*e:q1', ENTRY);
+      await provider.set('studio:v1:acme:q1', ENTRY);
+      await provider.set('studio:v1:ace:q1', ENTRY);
+
+      await provider.invalidatePrefix('studio:v1:ac*e:');
+
+      // Only the `ac*e` tenant's own key is evicted…
+      expect(await provider.get('studio:v1:ac*e:q1')).toBeUndefined();
+      // …the sibling tenants a naive glob would have swept up are untouched.
+      expect(await provider.get('studio:v1:acme:q1')).toEqual(ENTRY);
+      expect(await provider.get('studio:v1:ace:q1')).toEqual(ENTRY);
+    });
+
+    it('still evicts the intended keys when the tenant id contains a "?"', async () => {
+      const provider = new RedisCacheProvider(makeGlobAwareRedisClient());
+      await provider.set('studio:v1:a?c:q1', ENTRY);
+      await provider.set('studio:v1:abc:q1', ENTRY); // `?` glob would match this
+
+      await provider.invalidatePrefix('studio:v1:a?c:');
+
+      expect(await provider.get('studio:v1:a?c:q1')).toBeUndefined();
+      expect(await provider.get('studio:v1:abc:q1')).toEqual(ENTRY);
+    });
+  });
+
   describe('tag/reverse-index expiry (finding 7 — unbounded Redis growth)', () => {
     it('applies an expiry to both the forward tag index and the reverse key->tags index', async () => {
       const { client: redis, expiries } = makeNodeRedisV4Client();

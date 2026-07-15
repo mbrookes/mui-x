@@ -88,6 +88,26 @@ function makeDb() {
   return createMockDb({ sales: SALES_ROWS });
 }
 
+/**
+ * Assert that a batch produced a per-widget `{ error }` result at `index` (rows
+ * empty, error matching `pattern`) rather than rejecting the whole batch.
+ *
+ * Client-input validation — table allowlist + query-plan validation (HAVING /
+ * aggregation & output aliases / ORDER BY direction / column allowlist) — runs
+ * per widget INSIDE `processWidget`'s try/catch (finding 2.1), so a single bad
+ * widget yields its own error result and `handleBatchQuery` still RESOLVES. These
+ * used to be `.rejects.toThrow(...)` assertions on a whole-batch rejection.
+ */
+async function expectWidgetError(
+  pending: ReturnType<typeof handleBatchQuery>,
+  pattern: RegExp | string,
+  index = 0,
+): Promise<void> {
+  const result = await pending;
+  expect(result.results[index].rows).toEqual([]);
+  expect(result.results[index].error).toMatch(pattern);
+}
+
 // ─── generateCacheKey ─────────────────────────────────────────────────────────
 
 describe('generateCacheKey', () => {
@@ -205,19 +225,20 @@ describe('extractSecurityClaims', () => {
 // ─── handleBatchQuery — fail-closed column allowlist ──────────────────────────
 
 describe('handleBatchQuery — column allowlist is fail-closed', () => {
-  it('rejects a referenced table that has no entry in the column allowlist', async () => {
+  it('returns a per-widget error for a referenced table with no entry in the column allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }],
     };
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         columnAllowlist: { orders: ['id'] }, // no 'sales' entry
       }),
-    ).rejects.toThrow(/Table "sales" has no entry in the column allowlist/);
+      /Table "sales" has no entry in the column allowlist/,
+    );
   });
 
   it('supports an explicit "*" wildcard to opt a table out of column checks', async () => {
@@ -275,14 +296,15 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         columnAllowlist: { orders: ['id'] }, // no 'sales' entry
       }),
-    ).rejects.toThrow(/Table "sales" has no entry in the column allowlist/);
+      /Table "sales" has no entry in the column allowlist/,
+    );
   });
 
   it('a ["*"] wildcard still opts a NO-columns widget into SELECT *', async () => {
@@ -332,15 +354,16 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
         },
       ],
     };
-    // No columnAllowlist needed — the direction check is unconditional and
-    // rejects the whole batch.
-    await expect(
+    // No columnAllowlist needed — the direction check is unconditional. It runs
+    // per widget, so the offending widget gets its own `{ error }` result.
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
       }),
-    ).rejects.toThrow(/ORDER BY direction/);
+      /ORDER BY direction/,
+    );
   });
 
   it('validates both sides of every join.on pair against the allowlist', async () => {
@@ -355,7 +378,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
         },
       ],
     };
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales', 'customers'],
@@ -363,7 +386,8 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
         // 'sales' present, but no 'customers' entry → join.on right side is rejected.
         columnAllowlist: { sales: ['region', 'customer_id'] },
       }),
-    ).rejects.toThrow(/Table "customers" has no entry in the column allowlist \(join.on\)/);
+      /Table "customers" has no entry in the column allowlist \(join.on\)/,
+    );
   });
 
   it('validates an UNQUALIFIED join.on right-side column against the JOINED table, not the primary', async () => {
@@ -385,14 +409,15 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
         },
       ],
     };
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales', 'customers'],
         tenancy: SINGLE_TENANT,
         columnAllowlist: { sales: ['region', 'customer_id', 'id'], customers: ['name'] },
       }),
-    ).rejects.toThrow(/Column "id" on table "customers" is not in the column allowlist/);
+      /Column "id" on table "customers" is not in the column allowlist/,
+    );
   });
 
   // Pins the invariant every alias-resolution call site relies on `resolveAlias`
@@ -432,14 +457,15 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   ])(
     'rejects a columnAliases target that is not in the column allowlist (%s)',
     async (_context, widget) => {
-      await expect(
+      await expectWidgetError(
         handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
           db: makeDb(),
           schemaAllowlist: ['sales', 'customers'],
           tenancy: SINGLE_TENANT,
           columnAllowlist: { sales: ['region', 'revenue', 'customer_id'], customers: [] },
         }),
-      ).rejects.toThrow(/is not in the column allowlist/);
+        /is not in the column allowlist/,
+      );
     },
   );
 });
@@ -539,19 +565,79 @@ describe('handleBatchQuery — TEXT-typed region column matches a numeric region
 // ─── handleBatchQuery — allowlist ─────────────────────────────────────────────
 
 describe('handleBatchQuery — schema allowlist enforcement', () => {
-  it('throws when a requested table is not in the allowlist', async () => {
+  it('returns a per-widget error when a requested table is not in the allowlist', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'users' }],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
       }),
-    ).rejects.toThrow('not in schema allowlist');
+      'not in schema allowlist',
+    );
+  });
+
+  it('isolates a bad-table widget from a well-formed sibling (validation-stage isolation, finding 2.1)', async () => {
+    // The core contract: one widget failing table/plan validation must NOT take
+    // down its well-formed siblings. The bad widget gets `{ error }`; the good
+    // widget still returns rows — the whole batch resolves.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'bad', table: 'users' }, // not in the allowlist
+        { id: 'good', table: 'sales' }, // well-formed
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+    });
+
+    const bad = result.results.find((r) => r.id === 'bad')!;
+    const good = result.results.find((r) => r.id === 'good')!;
+    expect(bad.rows).toEqual([]);
+    expect(bad.error).toMatch('not in schema allowlist');
+    expect(good.error).toBeUndefined();
+    expect(good.rows.length).toBeGreaterThan(0);
+  });
+
+  it('isolates a bad column-plan widget (unsafe ORDER BY) from a well-formed sibling', async () => {
+    // Same isolation, but for the query-PLAN validation stage rather than the
+    // table stage — an unsafe ORDER BY direction on one widget must not fail a
+    // sibling whose plan is valid.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'bad',
+          table: 'sales',
+          columns: ['region'],
+          orderBy: [{ column: 'region', direction: 'asc); drop table sales --' as any }],
+        },
+        { id: 'good', table: 'sales', columns: ['region'] },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+    });
+
+    const bad = result.results.find((r) => r.id === 'bad')!;
+    const good = result.results.find((r) => r.id === 'good')!;
+    expect(bad.rows).toEqual([]);
+    expect(bad.error).toMatch(/ORDER BY direction/);
+    expect(good.error).toBeUndefined();
+    expect(good.rows.length).toBeGreaterThan(0);
   });
 
   it('allows tables in the allowlist', async () => {
@@ -1614,14 +1700,15 @@ describe('handleBatchQuery — aggregation push-down', () => {
       ],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: MULTI_TENANT,
         columnAllowlist: { sales: ['region', 'amount'] },
       }),
-    ).rejects.toThrow(/Column "product" on table "sales" is not in the column allowlist/);
+      /Column "product" on table "sales" is not in the column allowlist/,
+    );
   });
 
   // finding 2.4 — an unknown aggregation `func` must produce a clear, clean
@@ -1629,9 +1716,9 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // confusing, silently-incomplete GROUP BY with a missing measure column). The
   // throw lives in `execute.ts`'s per-widget execution path (mirroring a DB
   // error), so — like any other execution failure — it surfaces as this
-  // widget's `error` rather than rejecting the whole batch (finding 2.1's
-  // execution/validation error-isolation asymmetry is a deliberate, separate
-  // design decision, not something this fix changes).
+  // widget's `error` rather than rejecting the whole batch. The client-input
+  // VALIDATION stage is now isolated the same way (finding 2.1), so both stages
+  // uniformly scope a failure to the offending widget.
   it('rejects an aggregation with an unsupported "func" instead of silently dropping it (finding 2.4)', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -1817,7 +1904,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     expect(rows.every((r) => (r.total as number) > 100 && (r.total as number) < 260)).toBe(true);
   });
 
-  it('HAVING alias not in aggregations throws a security error', async () => {
+  it('HAVING alias not in aggregations returns a per-widget security error', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
       widgets: [
@@ -1831,14 +1918,15 @@ describe('handleBatchQuery — HAVING predicates', () => {
       ],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         columnAllowlist,
       }),
-    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+      'HAVING alias "raw_amount" does not match any aggregation alias',
+    );
   });
 
   it('rejects an undeclared HAVING alias even with NO columnAllowlist (finding 1.3)', async () => {
@@ -1858,14 +1946,15 @@ describe('handleBatchQuery — HAVING predicates', () => {
       ],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         // NO columnAllowlist supplied.
       }),
-    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+      'HAVING alias "raw_amount" does not match any aggregation alias',
+    );
   });
 
   it('rejects HAVING when the descriptor declares no aggregations at all', async () => {
@@ -1882,13 +1971,14 @@ describe('handleBatchQuery — HAVING predicates', () => {
       ],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
       }),
-    ).rejects.toThrow(/require at least one aggregation/);
+      /require at least one aggregation/,
+    );
   });
 
   it.each([
@@ -1912,14 +2002,15 @@ describe('handleBatchQuery — HAVING predicates', () => {
       ],
     };
 
-    await expect(
+    await expectWidgetError(
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
         tenancy: SINGLE_TENANT,
         columnAllowlist,
       }),
-    ).rejects.toThrow(/Aggregation alias .* contains characters outside the allowed set/);
+      /Aggregation alias .* contains characters outside the allowed set/,
+    );
   });
 
   it('accepts a normal snake_case aggregation alias', async () => {

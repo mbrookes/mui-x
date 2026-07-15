@@ -1,17 +1,20 @@
 /**
  * handleBatchQuery — the core pure function of x-studio-data-middleware.
  *
- * This function:
- * 1. Validates all requested tables against the schema allowlist
+ * This function, for each widget in the batch — with per-widget error isolation:
+ * one widget's failure produces that widget's `{ error }` result, never a
+ * whole-batch `Promise.all` rejection. This isolation now covers the client-input
+ * validation stage too (table allowlist + query-plan validation), not just
+ * cache/preflight/execute — see the `processWidget` body:
+ * 1. Validates the widget's tables against the schema allowlist
  * 2. Validates HAVING aliases (unconditionally) and column references
- *    (when a column allowlist is configured) for every widget
- * 3. For each widget in the batch:
- *    a. Checks the server-side cache (security-scoped key)
- *    b. Runs a COUNT(*) pre-flight to determine routing tier
- *    c. Executes the query via the appropriate tier
- *    d. Populates the cache for server/client tiers, and for non-aggregation
- *       db-tier results (see the `tier !== 'db' || !hasAggregations` gate below)
- * 4. Returns a BatchQueryResponse with all results
+ *    (when a column allowlist is configured)
+ * 3. Checks the server-side cache (security-scoped key)
+ * 4. Runs a COUNT(*) pre-flight to determine routing tier
+ * 5. Executes the query via the appropriate tier
+ * 6. Populates the cache for server/client tiers, and for non-aggregation
+ *    db-tier results (see the `tier !== 'db' || !hasAggregations` gate below)
+ * and returns a BatchQueryResponse with all results.
  *
  * PURE FUNCTION GUARANTEE:
  * - No HTTP imports (no express, fastify, koa, etc.)
@@ -38,7 +41,7 @@ import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
 } from './security/compileSecurityPolicy';
-import { validateQueryPlan, type ValidatedQueryPlan } from './security/validateQueryPlan';
+import { validateQueryPlan } from './security/validateQueryPlan';
 import { getDefaultCache, getDefaultTierCache } from './cache/defaultProviders';
 import { runPreflight } from './router/preflight';
 import { executeForTier } from './router/execute';
@@ -77,31 +80,16 @@ export async function handleBatchQuery(
   const tierCacheProvider =
     tierCacheTtlMs > 0 ? (options.tierCacheProvider ?? getDefaultTierCache()) : null;
 
-  // ── Validate all requested tables upfront (Zero-Knowledge Rule) ────────────
-  assertTablesAllowed(
-    body.widgets.flatMap((w: BatchWidgetDescriptor) => [
-      w.table,
-      ...(w.joins?.map((j) => j.table) ?? []),
-    ]),
-    schemaAllowlist,
-  );
-
-  // ── Compile + validate the column-reference plan ONCE per widget ───────────
-  // `validateQueryPlan` runs the unconditional HAVING/aggregation-alias validators
-  // and, when a `columnAllowlist` is configured, the fail-closed column-allowlist
-  // check — reusing the same single-source-of-truth validators as before — then
-  // resolves every column reference into a `ValidatedQueryPlan` whose fields are
-  // already-resolved `ColumnRef`s. The plan is threaded down in place of the raw
-  // descriptor's logical column names + `columnAliases` map, so `buildSecureQuery`
-  // / `executeForTier` no longer re-derive alias resolution at their own call
-  // sites. Compiled synchronously (before Promise.all) so a validation error still
-  // rejects the whole batch, exactly as the previous validation loops did.
-  const plans: ValidatedQueryPlan[] = body.widgets.map((descriptor: BatchWidgetDescriptor) =>
-    validateQueryPlan(descriptor, columnAllowlist),
-  );
-
+  // Table-allowlist validation and column-reference plan compilation are NOT
+  // precomputed here before `Promise.all` — they run per widget INSIDE
+  // `processWidget`'s try block (below), so a single widget's invalid table /
+  // HAVING alias / unsafe agg-or-output alias / non-asc|desc ORDER BY direction /
+  // column-allowlist violation becomes THAT widget's `{ error }` result instead of
+  // rejecting the whole batch's `Promise.all`. This makes the validation stage
+  // honor the same per-widget error-isolation invariant the cache/preflight/execute
+  // stages and the unsupported-operator/func throws in `executeForTier` already do.
   const results: WidgetQueryResult[] = await Promise.all(
-    body.widgets.map((descriptor: BatchWidgetDescriptor, index: number) =>
+    body.widgets.map((descriptor: BatchWidgetDescriptor) =>
       processWidget(
         db,
         claims,
@@ -111,7 +99,8 @@ export async function handleBatchQuery(
         tierCacheTtlMs,
         thresholds,
         policy,
-        plans[index],
+        schemaAllowlist,
+        columnAllowlist,
       ),
     ),
   );
@@ -131,11 +120,34 @@ async function processWidget(
   tierCacheTtlMs: number,
   thresholds: HandleBatchQueryOptions['thresholds'],
   policy: CompiledSecurityPolicy,
-  plan: ValidatedQueryPlan,
+  schemaAllowlist: HandleBatchQueryOptions['schemaAllowlist'],
+  columnAllowlist: HandleBatchQueryOptions['columnAllowlist'],
 ): Promise<WidgetQueryResult> {
   const queryOptions = policy;
 
   try {
+    // ── 0. Per-widget input validation (inside the try for error isolation) ──
+    // Both classes of client-input validation run HERE, per widget, rather than
+    // synchronously before `Promise.all`, so a validation throw becomes this
+    // widget's `{ error }` result via the catch below instead of rejecting every
+    // well-formed sibling widget too. Ordering is preserved exactly as when these
+    // ran up front: the widget's tables (primary + joins) are validated BEFORE its
+    // column-reference plan, and both BEFORE cache/preflight/execute.
+    //
+    // `assertTablesAllowed` enforces the Zero-Knowledge Rule (a table not in the
+    // allowlist is rejected before any query is built). `validateQueryPlan` runs
+    // the unconditional HAVING/aggregation-alias/output-alias/ORDER-BY-direction
+    // validators and, when a `columnAllowlist` is configured, the fail-closed
+    // column-allowlist check — then resolves every column reference into a
+    // `ValidatedQueryPlan` whose fields are already-resolved `ColumnRef`s, threaded
+    // down in place of the raw descriptor's logical column names + `columnAliases`
+    // map so `runPreflight` / `executeForTier` never re-derive alias resolution.
+    assertTablesAllowed(
+      [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])],
+      schemaAllowlist,
+    );
+    const plan = validateQueryPlan(descriptor, columnAllowlist);
+
     // Fold the compiled policy's digest into the cache key so a policy change (e.g.
     // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
     // instead of a differently-scoped node serving them (Gap B).
@@ -196,6 +208,16 @@ async function processWidget(
       tierCacheTtlMs,
     );
     const tier: 'client' | 'server' | 'db' = tierDecision.tier;
+    // NOTE (finding 3.2 — best-effort `rowCount`): for a NON-aggregation widget
+    // served from a tier-cache HIT, `tierDecision.rowCount` is the preflight
+    // COUNT(*) captured when the tier entry was written, up to the tier TTL ago
+    // (`DEFAULT_TIER_CACHE_TTL_MS`, 30s). A mutation invalidates the DATA cache by
+    // tag (`handleMutation` → `deleteByTag`), but the `TierCacheProvider` interface
+    // exposes only `get`/`set`/`invalidatePrefix` — no tag-based invalidation — so
+    // the tier entry (and its `rowCount`) is NOT evicted on a write and can lag a
+    // just-committed insert/delete by ≤ the tier TTL. The returned ROWS are always
+    // fresh (re-read from the DB on this request, or from the freshly-invalidated
+    // data cache); only this reported total is best-effort within the tier window.
     let rowCount: number = tierDecision.rowCount;
 
     // ── 4. Execute query for the selected tier ─────────────────────────────

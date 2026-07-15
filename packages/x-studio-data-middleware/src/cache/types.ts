@@ -96,6 +96,17 @@ export interface CacheProvider {
  */
 export interface TierEntry {
   tier: 'client' | 'server' | 'db';
+  /**
+   * Preflight COUNT(*) captured when this tier decision was written. Used as the
+   * reported total for a NON-aggregation cache-miss result.
+   *
+   * BEST-EFFORT after a mutation (finding 3.2): `TierCacheProvider` (below) exposes
+   * no tag-based invalidation, so — unlike the DATA cache, which `handleMutation`
+   * evicts by table tag — this entry is NOT cleared on an insert/delete. A
+   * tier-cache HIT can therefore echo a `rowCount` stale by ≤ the tier TTL after a
+   * write. The rows returned to the client are always re-read fresh; only this
+   * count may lag within the tier window.
+   */
   rowCount: number;
 }
 
@@ -107,6 +118,14 @@ export interface TierEntry {
  * so that repeated cold misses within the tier window skip the COUNT(*) preflight.
  *
  * The host app can provide a Redis-backed implementation for multi-node deployments.
+ *
+ * Deliberately has NO tag-based invalidation (`deleteByTag`), unlike
+ * `CacheProvider`: a stored `TierEntry` is a routing hint plus a preflight
+ * COUNT(*), self-expiring within the (short, ~30s) tier TTL. `handleMutation`
+ * therefore cannot evict tier entries on a write, so a tier-cache hit's
+ * `TierEntry.rowCount` is best-effort within that window after a mutation (finding
+ * 3.2). This is accepted rather than growing the interface a tag API that only the
+ * `rowCount` total would use — the rows a widget returns are always fetched fresh.
  */
 export interface TierCacheProvider {
   get(key: string): Promise<TierEntry | undefined>;

@@ -44,7 +44,18 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const controller = useStudioController();
 
   const hasField = !!filter.field;
-  const currentField = fields.find((f) => f.id === filter.field);
+  // T2.5: mirror `WidgetFilterRow`'s `filter.filterSourceId`-scoped lookup. `fields` (the
+  // include-hidden field catalog, `SimpleField[]`) is deduped by id across every source — it
+  // drops `sourceId` — so an unscoped `fields.find` picks whichever source's field happened to
+  // be seen first when two sources share a field id with different types. `fieldOptions`
+  // carries `sourceId`, so once a filter has a stamped `filterSourceId` (always true for
+  // drawer-authored cross-source picks — see the field picker below), resolve against the
+  // field on THAT source instead. Fall back to the unscoped `fields` catalog only when no
+  // `filterSourceId` is stamped (e.g. legacy/pre-source-scoping filters), matching prior
+  // behavior for the common single-source case.
+  const currentField = filter.filterSourceId
+    ? fieldOptions.find((o) => o.id === filter.field && o.sourceId === filter.filterSourceId)
+    : fields.find((f) => f.id === filter.field);
   const fieldType = filter.fieldType ?? currentField?.fieldType;
   // Memoized: this feeds the operator-repair effect's dependency array below, and
   // `getOperators` returning a fresh array every render would make that effect refire
@@ -72,14 +83,31 @@ export function PageFilterRow(props: PageFilterRowProps) {
     );
   }, [filter.dependsOn, filter.id, allPageFilters]);
 
+  // T3.4: a cross-source "Depends on" pick can never resolve — `applyParentFilters`
+  // (useFieldValues.ts) narrows by naive `row[parent.field]` against the CHILD source's own
+  // rows, so a parent field from a different source is always absent from those rows and the
+  // narrowing predicate always fails, silently emptying the child's option list. Restrict the
+  // offered dependencies to parents whose owning source matches this filter's own source, the
+  // same source resolution `currentField` above uses (stamped `filterSourceId`, falling back
+  // to a `fieldOptions` lookup by id for filters that predate source-scoping).
+  const resolveFilterSourceId = React.useCallback(
+    (f: StudioFilterState) =>
+      f.filterSourceId ?? fieldOptions.find((o) => o.id === f.field)?.sourceId,
+    [fieldOptions],
+  );
+  const childSourceId = resolveFilterSourceId(filter);
   const dependencyOptions = React.useMemo(
     () =>
-      allPageFilters.flatMap((f) =>
-        f.id !== filter.id && !!f.field
-          ? [{ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field }]
-          : [],
-      ),
-    [allPageFilters, filter.id, fields],
+      allPageFilters.flatMap((f) => {
+        if (f.id === filter.id || !f.field) {
+          return [];
+        }
+        if (resolveFilterSourceId(f) !== childSourceId) {
+          return [];
+        }
+        return [{ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field }];
+      }),
+    [allPageFilters, filter.id, fields, resolveFilterSourceId, childSourceId],
   );
 
   const fieldValues = useFieldValues(filter.field, fieldType, filter.filterSourceId, parentFilters);

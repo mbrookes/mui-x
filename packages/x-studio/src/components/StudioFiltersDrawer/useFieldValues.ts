@@ -8,11 +8,25 @@ type Row = Record<string, unknown>;
 /**
  * Apply a set of selection-mode or condition-mode filters to rows inline.
  * Used exclusively for cascading-filter option narrowing; does not handle rank/cross filters.
+ *
+ * `ds` is the data source `rows` were drawn from. T3.4: a parent filter whose field belongs to
+ * a DIFFERENT source (a cross-source "Depends on" pick) can't be resolved by the naive
+ * `row[f.field]` comparisons below — the field simply doesn't exist on this source's rows, so
+ * every row would read `undefined` and the predicate would always fail, silently emptying the
+ * child's option list. `PageFilterRow`'s `dependencyOptions` now only offers same-source
+ * parents going forward, but this guards any already-persisted or host/AI-authored
+ * cross-source `dependsOn` too: skip the inapplicable parent instead of letting it zero out
+ * the result. A real cross-source predicate would need to resolve through a declared join path
+ * (see `dataSourceGraph.resolveRows`/`findJoinPath`) — out of scope for this inline narrowing.
  */
-function applyParentFilters(rows: Row[], parentFilters: StudioFilterState[]): Row[] {
+function applyParentFilters(
+  rows: Row[],
+  parentFilters: StudioFilterState[],
+  ds: StudioDataSource,
+): Row[] {
   let result = rows;
   for (const f of parentFilters) {
-    if (!f.field) {
+    if (!f.field || !ds.fields.some((sf) => sf.id === f.field)) {
       continue;
     }
     const mode = f.filterMode ?? 'condition';
@@ -101,7 +115,7 @@ export function useFieldValues(
       }
       const rows =
         parentFilters && parentFilters.length > 0
-          ? applyParentFilters((ds.rows ?? []) as Row[], parentFilters)
+          ? applyParentFilters((ds.rows ?? []) as Row[], parentFilters, ds)
           : ((ds.rows ?? []) as Row[]);
       for (const row of rows) {
         const val = row[fieldId];

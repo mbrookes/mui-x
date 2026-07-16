@@ -269,10 +269,12 @@ export default function GalleryPage() {
         (right). Both sides receive the same spec with its <code>vega-datasets</code> already
         inlined, so any difference is a translation difference, not a data one. To read like the
         reference, the wrapper reproduces Vega-Lite&apos;s defaults — the <code>tableau10</code>{' '}
-        palette and exact named color schemes, ascending legend order, descending-by-value stack
-        geometry, gridlines on continuous axes, <code>timeUnit</code> month/quarter labels, and
-        label-fitting axes. Everything it still cannot translate is reported live via{' '}
-        <code>onGaps</code> below each comparison.
+        palette and exact named color schemes, ordered sequential ramps for schemes like{' '}
+        <code>magma</code>, ascending legend order, descending-by-value stack geometry, gridlines on
+        continuous axes, the plot-area view border, <code>timeUnit</code> month/quarter labels,
+        Vega-style typography, and label-fitting axes. Everything it still cannot translate — and
+        every x-charts limitation it works around — is reported live via <code>onGaps</code> below
+        each comparison, tagged by origin.
       </Typography>
       <Box
         sx={{

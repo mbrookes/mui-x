@@ -103,7 +103,9 @@ function staticMarkOpacity(unit: {
     // the 0.2 fallback that would wash the whole chart out).
     const condition = (enc as { condition?: unknown }).condition;
     const conditionValue =
-      condition && !Array.isArray(condition) && typeof (condition as { value?: unknown }).value === 'number'
+      condition &&
+      !Array.isArray(condition) &&
+      typeof (condition as { value?: unknown }).value === 'number'
         ? (condition as { value: number }).value
         : undefined;
     encValue =

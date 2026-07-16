@@ -18,8 +18,13 @@ function CuratedDemos() {
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 720 }}>
         Each card below feeds a Vega-Lite specification and dataset into{' '}
         <code>&lt;VegaLiteChart /&gt;</code> and renders the resulting <code>@mui/x-charts</code>{' '}
-        subcomponents. Any Vega-Lite feature the wrapper could not translate is reported live
-        through the <code>onGaps</code> callback below each chart.
+        subcomponents. To read like the reference renderer the wrapper reproduces Vega-Lite&apos;s
+        defaults (palette, ordering, stack geometry, gridlines, plot-area border, typography) and
+        draws marks x-charts has no primitive for — box plots, error bars/bands, text, span rules —
+        through custom SVG overlays. Every feature it still cannot translate, and every x-charts
+        limitation it works around, is reported live through the <code>onGaps</code> callback below
+        each chart, tagged by origin (<code>vega-lite</code> gap vs. <code>x-charts</code>{' '}
+        limitation). See <code>GAPS.md</code> for the full support matrix and gap-code index.
       </Typography>
       <Box
         sx={{

@@ -259,11 +259,61 @@ const MULTI_STOP_SCHEME_STOPS: Record<string, readonly string[]> = {
   // CATEGORICAL_SCHEME_PALETTES — so both the continuous colorMap and an
   // ordinal/nominal field carrying one of these schemes trace the real dark→
   // light hue progression instead of a cycling categorical palette.
-  magma: ['#000004', '#1c1044', '#4f127b', '#812581', '#b5367a', '#e55064', '#fb8761', '#fec287', '#fcfdbf'],
-  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9a06', '#fcffa4'],
-  plasma: ['#0d0887', '#47039f', '#7301a8', '#9c179e', '#bd3786', '#d8576b', '#ed7953', '#fa9e3b', '#fdc926'],
-  viridis: ['#440154', '#472d7b', '#3b528b', '#2c728e', '#21918c', '#28ae80', '#5ec962', '#addc30', '#fde725'],
-  cividis: ['#00204d', '#00336f', '#39486b', '#575d6d', '#707173', '#8a8779', '#a69d75', '#c4b56c', '#ffea46'],
+  magma: [
+    '#000004',
+    '#1c1044',
+    '#4f127b',
+    '#812581',
+    '#b5367a',
+    '#e55064',
+    '#fb8761',
+    '#fec287',
+    '#fcfdbf',
+  ],
+  inferno: [
+    '#000004',
+    '#1b0c41',
+    '#4a0c6b',
+    '#781c6d',
+    '#a52c60',
+    '#cf4446',
+    '#ed6925',
+    '#fb9a06',
+    '#fcffa4',
+  ],
+  plasma: [
+    '#0d0887',
+    '#47039f',
+    '#7301a8',
+    '#9c179e',
+    '#bd3786',
+    '#d8576b',
+    '#ed7953',
+    '#fa9e3b',
+    '#fdc926',
+  ],
+  viridis: [
+    '#440154',
+    '#472d7b',
+    '#3b528b',
+    '#2c728e',
+    '#21918c',
+    '#28ae80',
+    '#5ec962',
+    '#addc30',
+    '#fde725',
+  ],
+  cividis: [
+    '#00204d',
+    '#00336f',
+    '#39486b',
+    '#575d6d',
+    '#707173',
+    '#8a8779',
+    '#a69d75',
+    '#c4b56c',
+    '#ffea46',
+  ],
 };
 
 // Vega-Lite defaults a continuous quantitative color scale to `yellowgreenblue`.
@@ -541,7 +591,8 @@ export function resolveColor(
     const schemeName = schemeNameOf(scale?.scheme);
     let range = explicitRange;
     if (!range && schemeName) {
-      const mapped = VEGA_CATEGORICAL_SCHEMES[schemeName] ?? CATEGORICAL_SCHEME_PALETTES[schemeName];
+      const mapped =
+        VEGA_CATEGORICAL_SCHEMES[schemeName] ?? CATEGORICAL_SCHEME_PALETTES[schemeName];
       if (mapped) {
         range = [...mapped];
       } else {

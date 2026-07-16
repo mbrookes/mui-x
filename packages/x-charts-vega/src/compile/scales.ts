@@ -267,7 +267,10 @@ function timeUnitAxisFormatter(unit: string): (value: unknown) => string {
       return withOptions({ weekday: 'short' });
     case 'hours':
     case 'hoursminutes':
-      return withOptions({ hour: 'numeric', ...(base === 'hoursminutes' ? { minute: '2-digit' } : {}) });
+      return withOptions({
+        hour: 'numeric',
+        ...(base === 'hoursminutes' ? { minute: '2-digit' } : {}),
+      });
     default:
       return (value) => {
         const date = asDate(value);
@@ -474,7 +477,11 @@ function resolveChannelAxis(
     // black axis title (x-charts defaults are larger — 12px labels, a 16px
     // regular-weight title). Any explicit `tickLabelStyle` (angle/hidden labels)
     // is layered on top of the font default.
-    tickLabelStyle: { fontSize: VEGA_TICK_LABEL_FONT_SIZE, fill: VEGA_AXIS_INK, ...extras.tickLabelStyle },
+    tickLabelStyle: {
+      fontSize: VEGA_TICK_LABEL_FONT_SIZE,
+      fill: VEGA_AXIS_INK,
+      ...extras.tickLabelStyle,
+    },
     labelStyle: { fontSize: VEGA_AXIS_TITLE_FONT_SIZE, fontWeight: 700, fill: VEGA_AXIS_INK },
     // `axis.ticks: false` / `axis.domain: false` → hide the tick marks / axis line.
     disableTicks: extras.disableTicks,
@@ -618,8 +625,7 @@ function resolveChannelAxis(
       // A `timeUnit` channel is rewritten to a `__timeUnit_<unit>_<field>`
       // synthetic column; label the axis by that unit (month → "Jan") like
       // Vega-Lite, rather than a raw locale date.
-      const timeUnitMatch =
-        typeof field === 'string' ? /^__timeUnit_([a-z]+)_/.exec(field) : null;
+      const timeUnitMatch = typeof field === 'string' ? /^__timeUnit_([a-z]+)_/.exec(field) : null;
       discreteValueFormatter = timeUnitMatch
         ? timeUnitAxisFormatter(timeUnitMatch[1])
         : (value) => (value as Date).toLocaleDateString();

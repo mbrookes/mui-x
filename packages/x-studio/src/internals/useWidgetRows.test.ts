@@ -1181,6 +1181,7 @@ describe('deferred window enrichment field set (finding 2.1)', () => {
       expressionFields: stableExpressionFields,
       filters: [],
     });
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     act(() => {
       rerender(React.createElement(Probe));
     });
@@ -1239,6 +1240,7 @@ describe('deferred fast-path for interactive clears (finding 3.2)', () => {
     // Clear the interactive filter.
     renders.length = 0;
     mockState = createState({ dataSources: { src1: dataSource }, filters: [] });
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     act(() => {
       rerender(React.createElement(Probe));
     });

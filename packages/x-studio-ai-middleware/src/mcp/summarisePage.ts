@@ -74,7 +74,13 @@ export function createSummarisePageHandler(deps: {
     }
 
     const widgetIds = (activePage.widgetRows ?? []).flat();
-    const widgets = widgetIds.map((id) => state.doc.widgets[id]).filter(Boolean);
+    // `Object.hasOwn`-guarded lookup (finding T3-1, for parity with the pageId /
+    // sourceId guards): a widget-row id that is an `Object.prototype` member
+    // (`"constructor"`, `"toString"`, …) would otherwise resolve to an inherited
+    // function via the prototype chain instead of being dropped as absent.
+    const widgets = widgetIds
+      .filter((id) => Object.hasOwn(state.doc.widgets, id))
+      .map((id) => state.doc.widgets[id]);
     type SectionItem = { text: string };
     // Pre-sized, index-addressed array: each widget's query runs concurrently
     // (via Promise.all below), but writing to `results[i]` instead of pushing

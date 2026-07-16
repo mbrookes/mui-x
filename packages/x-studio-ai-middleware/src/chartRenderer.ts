@@ -475,6 +475,14 @@ function renderPie(input: SanitizedChartInput): string {
   const W = input.width;
   const H = input.height;
 
+  // Guard against empty / all-non-positive data (mirrors renderDonut): with no
+  // positive slice `total` is 0, every `d.value / total` is NaN, and the chart body
+  // renders blank. Emit the same "No data provided." placeholder the other renderers
+  // use so renderPie has parity (finding T3-2).
+  if (data.length === 0 || !data.some((d) => d.value > 0)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
+
   const PAD = { top: title ? 50 : 20, right: 20, bottom: 20, left: 20 };
   const legendH = Math.ceil(data.length / 3) * 22 + 10;
   const pieH = H - PAD.top - PAD.bottom - legendH;

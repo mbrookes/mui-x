@@ -152,6 +152,14 @@ export interface ToolPlanContext {
   state: StudioState;
   customWidgets?: StudioCustomWidgetDef[];
   pageSnapshot?: string;
+  /**
+   * The id of the page the `pageSnapshot` was built for — captured ONCE at request
+   * time (the active page when the request began). `summarise_page` compares the
+   * requested page against THIS, not the threaded `state.doc.dashboard.activePageId`,
+   * so a same-turn `set_active_page` cannot make it narrate the wrong page's snapshot
+   * (finding 2-2).
+   */
+  snapshotPageId?: string;
 }
 
 /**
@@ -673,13 +681,23 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         changes.sourceId = String(args.sourceId);
       }
 
-      const newConfig =
+      // Local MERGE of the incoming patch onto the widget's CURRENT config. Used ONLY
+      // for the `unsetConfigKeys` presence filter below (which must test keys against the
+      // post-merge config) — the mutation itself carries the RAW patch (`configPatch`),
+      // never this merged snapshot. Shipping the whole merged config would re-assert
+      // every pre-existing key at its turn-start value, silently reverting a concurrent
+      // client edit to a DIFFERENT config key — the same lost-update class already fixed
+      // for `apply_bulk_update` and `set_widget_forecast` (finding 2-1). The reducer
+      // key-by-key merges the raw patch onto the LIVE widget, so untouched keys survive.
+      const mergedConfig =
         args.config !== undefined
           ? ({
               ...widget.config,
               ...(args.config as StudioWidget['config']),
             } as StudioWidget['config'])
           : undefined;
+      const configPatch =
+        args.config !== undefined ? (args.config as StudioWidget['config']) : undefined;
 
       // Validate the model-supplied clear arrays before handing them to the reducer
       // (mirrors `set_widget_layout`'s shape validation): malformed model output must
@@ -698,7 +716,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         (key): key is OptionalWidgetField =>
           typeof key === 'string' && CLEARABLE_WIDGET_FIELDS.has(key as OptionalWidgetField),
       );
-      const configForUnsetCheck = newConfig ?? widget.config;
+      const configForUnsetCheck = mergedConfig ?? widget.config;
       const unsetConfigKeys = (
         Array.isArray(args.unsetConfigKeys) ? args.unsetConfigKeys : []
       ).filter(
@@ -710,7 +728,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         args: {
           widgetId,
           changes,
-          ...(newConfig !== undefined ? { config: newConfig } : {}),
+          ...(configPatch !== undefined ? { config: configPatch } : {}),
           ...(unsetFields.length > 0 ? { unsetFields } : {}),
           ...(unsetConfigKeys.length > 0 ? { unsetConfigKeys } : {}),
         },
@@ -1076,23 +1094,30 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
   summarise_page: {
     effect: 'pure',
-    plan: (args, { state, pageSnapshot }) => {
+    plan: (args, { state, pageSnapshot, snapshotPageId }) => {
       // On the chat path the only row data available is the client-provided
-      // `pageSnapshot`, which is built for the *active* page. Unlike the MCP path
-      // (which can query any page's sources live), we cannot honor a `pageId` that
-      // points at a non-active page here. The tool schema advertises `pageId`, so
-      // rather than silently mislabel the active page's data as the requested page,
-      // reject the request with actionable guidance.
+      // `pageSnapshot`, which is fixed at REQUEST time for the page that was active
+      // then (`snapshotPageId`). Unlike the MCP path (which can query any page's
+      // sources live), we cannot honor a `pageId` that points at a different page here.
+      //
+      // Compare the requested page against the snapshot's OWN page identity, NOT the
+      // threaded `state.doc.dashboard.activePageId`: a same-turn `set_active_page`
+      // mutates the threaded active page mid-turn, so comparing against it would let a
+      // `set_active_page(pageB)` + `summarise_page(pageB)` sequence pass this guard and
+      // return page A's snapshot narrated as page B (finding 2-2). The snapshot cannot
+      // be rebuilt for another page within the turn — that needs a fresh request — so we
+      // do NOT tell the model to call `set_active_page`. Fall back to the threaded active
+      // page only for legacy callers that don't thread `snapshotPageId`.
       const requestedPageId = args.pageId ? String(args.pageId) : undefined;
-      const activePageId = state.doc.dashboard.activePageId;
-      if (requestedPageId && requestedPageId !== activePageId) {
+      const coveredPageId = snapshotPageId ?? state.doc.dashboard.activePageId;
+      if (requestedPageId && requestedPageId !== coveredPageId) {
         return {
           output: JSON.stringify({
             error:
-              `summarise_page cannot summarise page "${requestedPageId}" here. ` +
-              'In chat, live row data is only available for the active page, so a non-active ' +
-              `pageId cannot be honored. Call set_active_page with "${requestedPageId}" first, ` +
-              'then summarise_page, or omit pageId to summarise the active page.',
+              `summarise_page cannot summarise page "${requestedPageId}" here. The data ` +
+              `snapshot for this request covers page "${coveredPageId}", and it cannot be ` +
+              'rebuilt for a different page within this turn. Send a new message to summarise ' +
+              `page "${requestedPageId}", or omit pageId to summarise the snapshot's page.`,
           }),
           nextState: state,
         };
@@ -1156,7 +1181,21 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // later update/validation checks match the pre-delta-refactor behavior.
       const activePageWidgetIds = new Set((activePage.widgetRows ?? []).flat());
       const liveWidgetIds = new Set(Object.keys(state.doc.widgets));
-      const removals = (args.widgetRemovals as string[] | undefined) ?? [];
+      // SHAPE-validate before iterating (finding 2-4), mirroring the `layout` op below:
+      // a bare `as string[]` cast trusts the model verbatim, so `widgetRemovals: "w1"`
+      // would `for…of` over CHARACTERS (removing widgets "w", "1", …) and report
+      // `success`, while `{}` / `42` / `[null]` would throw a raw TypeError instead of
+      // the schema-shaped errors this handler crafts. Reject a mis-shaped array with a
+      // descriptive `skipped` entry and treat it as empty.
+      const rawRemovals = args.widgetRemovals;
+      let removals: string[] = [];
+      if (rawRemovals !== undefined) {
+        if (!Array.isArray(rawRemovals) || !rawRemovals.every((id) => typeof id === 'string')) {
+          skipped.push('widgetRemovals: must be an array of widget-ID strings (e.g. ["w1","w2"]).');
+        } else {
+          removals = rawRemovals as string[];
+        }
+      }
       for (const wid of removals) {
         if (!liveWidgetIds.has(wid)) {
           skipped.push(`remove ${wid}: not found`);
@@ -1208,15 +1247,51 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         currentChartTypes.set(wid, seed);
         return seed;
       };
-      const additions =
-        (args.widgetAdditions as
-          | Array<{
-              kind: string;
-              title: string;
-              sourceId?: string;
-              config?: Record<string, unknown>;
-            }>
-          | undefined) ?? [];
+      // SHAPE-validate before iterating (finding 2-4): each addition must be a plain
+      // record carrying at least a string `kind` and string `title`. A non-array, or an
+      // element that is a string / null / array / missing those keys, would throw or
+      // silently mis-build. Reject with a descriptive `skipped` entry and treat as empty.
+      const rawAdditions = args.widgetAdditions;
+      let additions: Array<{
+        kind: string;
+        title: string;
+        sourceId?: string;
+        config?: Record<string, unknown>;
+      }> = [];
+      if (rawAdditions !== undefined) {
+        if (
+          !Array.isArray(rawAdditions) ||
+          !rawAdditions.every(
+            (a) =>
+              a !== null &&
+              typeof a === 'object' &&
+              !Array.isArray(a) &&
+              typeof (a as { kind?: unknown }).kind === 'string' &&
+              typeof (a as { title?: unknown }).title === 'string',
+          )
+        ) {
+          skipped.push(
+            'widgetAdditions: must be an array of objects each with a string `kind` and ' +
+              'string `title` (e.g. [{ "kind": "chart", "title": "Revenue" }]).',
+          );
+        } else {
+          additions = rawAdditions as typeof additions;
+        }
+      }
+      // Whether this batch carries a layout or colSpans op that resolves added-widget
+      // refs BY TITLE (finding 2-3). When it does, two additions with the SAME title are
+      // ambiguous: `addedTitleToId` is last-write-wins, so the layout/colSpans ref would
+      // resolve to only one of them and the other would land in `doc.widgets` referenced
+      // by no page — an invisible orphan that still persists, serializes, and survives
+      // undo, all reported as `applied.added` success. So when a title ref could be
+      // consulted, the SECOND (and later) addition sharing a title is skipped with an
+      // actionable message rather than silently orphaned.
+      const batchHasTitleRefs =
+        args.layout !== undefined ||
+        (args.colSpans !== null &&
+          typeof args.colSpans === 'object' &&
+          !Array.isArray(args.colSpans) &&
+          Object.keys(args.colSpans as Record<string, unknown>).length > 0);
       for (const addition of additions) {
         const built = buildWidgetFromArgs(addition, customWidgets);
         if ('error' in built) {
@@ -1224,6 +1299,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           continue;
         }
         const { widget } = built;
+        if (batchHasTitleRefs && addedTitleToId.has(widget.title)) {
+          skipped.push(
+            `add "${widget.title}": duplicate addition title is ambiguous for a layout or ` +
+              'colSpans title reference; give each widget added in this batch a unique title.',
+          );
+          continue;
+        }
         addedWidgets.push(widget);
         liveWidgetIds.add(widget.id);
         addedTitleToId.set(widget.title, widget.id);
@@ -1239,15 +1321,36 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Emit each update as a partial patch (never the merged widget snapshot). The
       // reducer merges it onto the LIVE widget, so a concurrent edit to a different
       // key on that widget survives too.
-      const updates =
-        (args.widgetUpdates as
-          | Array<{
-              widgetId: string;
-              title?: string;
-              sourceId?: string;
-              config?: Record<string, unknown>;
-            }>
-          | undefined) ?? [];
+      // SHAPE-validate before iterating (finding 2-4): each update must be a plain
+      // record carrying a string `widgetId`. A non-array, or an element that is a
+      // string / null / array / missing `widgetId`, would throw or mis-resolve. Reject
+      // with a descriptive `skipped` entry and treat as empty.
+      const rawUpdates = args.widgetUpdates;
+      let updates: Array<{
+        widgetId: string;
+        title?: string;
+        sourceId?: string;
+        config?: Record<string, unknown>;
+      }> = [];
+      if (rawUpdates !== undefined) {
+        if (
+          !Array.isArray(rawUpdates) ||
+          !rawUpdates.every(
+            (u) =>
+              u !== null &&
+              typeof u === 'object' &&
+              !Array.isArray(u) &&
+              typeof (u as { widgetId?: unknown }).widgetId === 'string',
+          )
+        ) {
+          skipped.push(
+            'widgetUpdates: must be an array of objects each with a string `widgetId` ' +
+              '(e.g. [{ "widgetId": "w1", "title": "New" }]).',
+          );
+        } else {
+          updates = rawUpdates as typeof updates;
+        }
+      }
       for (const update of updates) {
         const wid = String(update.widgetId ?? '');
         if (!liveWidgetIds.has(wid)) {
@@ -1363,6 +1466,17 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
                 page.id !== activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
             ),
           );
+          // An explicit layout op REPLACES the active page's rows wholesale (including the
+          // one-widget-per-row entries the additions loop pushed for this batch's new
+          // widgets). So every widget added in this batch MUST appear in the layout — a
+          // widget added-but-not-placed would land in `doc.widgets` referenced by no page
+          // (invisible orphan that still persists/serializes/survives undo), reported as
+          // `applied.added` + `layout:true` success (finding 2-3). Reject the layout op if
+          // any addition is unplaced so the model resends a layout that includes them.
+          const layoutIdSet = new Set(mappedRows.flat());
+          const unplacedAddedIds = addedWidgets
+            .map((w) => w.id)
+            .filter((id) => !layoutIdSet.has(id));
           if (duplicateLayoutIds.length > 0) {
             skipped.push(
               `layout: duplicate widget IDs: ${duplicateLayoutIds.join(', ')}. ` +
@@ -1379,6 +1493,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
               `layout: widget IDs that live on another page: ${foreignPageLayoutIds.join(', ')}. ` +
                 'A layout op only arranges the active page; switch to the page that contains ' +
                 'them first.',
+            );
+          } else if (unplacedAddedIds.length > 0) {
+            skipped.push(
+              `layout: widgets added in this batch are not placed in the layout: ${unplacedAddedIds.join(
+                ', ',
+              )}. A layout op replaces the active page, so every added widget must appear in ` +
+                'it (reference an added widget by its title). Layout not applied.',
             );
           } else {
             widgetRows = mappedRows;
@@ -1495,7 +1616,10 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const { name } = args as { name?: string };
-      if (!name || typeof name !== 'string') {
+      // Check the TRIMMED value, not just `!name`: a whitespace-only name (e.g. "   ")
+      // is a truthy non-empty string that passes `!name` but `trim()`s to "", which
+      // would commit an empty thread title (finding T3-3).
+      if (!name || typeof name !== 'string' || name.trim() === '') {
         return {
           output: JSON.stringify({ error: 'rename_thread requires a non-empty name string.' }),
           nextState: state,
@@ -1677,6 +1801,7 @@ export function executeToolOnState(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
   pageSnapshot?: string,
+  snapshotPageId?: string,
 ): ToolExecutionResult {
   const args = (input ?? {}) as Record<string, unknown>;
   // `Object.hasOwn`-guard the lookup so a model-supplied `toolName` that is an
@@ -1688,7 +1813,7 @@ export function executeToolOnState(
     : undefined;
 
   if (impl?.effect === 'pure') {
-    return impl.plan(args, { state, customWidgets, pageSnapshot });
+    return impl.plan(args, { state, customWidgets, pageSnapshot, snapshotPageId });
   }
 
   return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };

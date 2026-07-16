@@ -445,6 +445,7 @@ Filter type selection:
 | funnel | Ordered stage progression (pipelines, conversion funnels) | |
 | gantt | Timeline tasks — needs ganttLabelField, ganttStartField, ganttEndField | |
 | gauge | Single KPI metric vs. min/max range — no xField needed | Comparing multiple values |
+| sankey | Flows between source and target nodes — xField=source, sankeyTargetField=target, yField=flow value | No source→target relationship |
 | mixed | Overlay bar + line series on the same chart — use ySeries array; series may come from different sources via per-series sourceId (see "Combining metrics from different data sources") | |
 
 ### barLayout

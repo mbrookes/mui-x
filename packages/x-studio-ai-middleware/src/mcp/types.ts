@@ -75,9 +75,10 @@ export interface StudioMcpOptions {
    * When omitted, all tools except those with no functional MCP handler are registered.
    * - `summarise_page` works when `data` is configured (queries sources server-side);
    *   falls back to a descriptive error when `data` is not provided.
-   * - `query_data_source` works when `data` is configured; excluded from the
-   *   registered list otherwise so an opted-in call cannot dead-end on an
-   *   `Unknown tool` error.
+   * - `query_data_source` works when `data` is configured; when it is not, the tool
+   *   is left off the advertised list but its dispatch handler still exists, so an
+   *   opted-in call returns a descriptive "no data access configuration" error
+   *   rather than an `Unknown tool` error.
    */
   allowedTools?: string[];
   /**

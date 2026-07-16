@@ -339,6 +339,11 @@ export async function* runAgenticLoop(
     data,
     customWidgets,
     pageSnapshot,
+    // The page the `pageSnapshot` covers, captured ONCE from the request's initial
+    // state. Threaded so `summarise_page` compares against the snapshot's page rather
+    // than the threaded active page, which a same-turn `set_active_page` mutates
+    // (finding 2-2).
+    snapshotPageId: initialState.doc.dashboard.activePageId,
     approvalPending,
     approvalTimeoutMs,
     approvalFallback,

@@ -358,13 +358,22 @@ export async function executeToolWithPolicy(
     policy: ToolPolicy;
     customWidgets?: StudioCustomWidgetDef[];
     pageSnapshot?: string;
+    /** Page the `pageSnapshot` covers (request-time active page) — see `ToolPlanContext`. */
+    snapshotPageId?: string;
     transport: 'chat' | 'mcp';
     usage: { committedMutations: number; toolCalls: number };
   },
 ): Promise<ExecuteToolWithPolicyResult> {
   opts.usage.toolCalls += 1;
 
-  const result = executeToolOnState(toolName, input, state, opts.customWidgets, opts.pageSnapshot);
+  const result = executeToolOnState(
+    toolName,
+    input,
+    state,
+    opts.customWidgets,
+    opts.pageSnapshot,
+    opts.snapshotPageId,
+  );
 
   const effects = result.mutation
     ? computeToolEffects(state, result.mutation, result.nextState)

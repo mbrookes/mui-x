@@ -5,7 +5,7 @@ import type { BuiltinStudioWidgetKind } from './models/studioTypes';
 /** One-line description of each built-in widget kind, used in the system prompt and widget picker. */
 export const WIDGET_KIND_DESCRIPTIONS = {
   chart:
-    'Chart (bar, line, area, pie, donut, scatter, heatmap, funnel, gantt, gauge, mixed multi-series)',
+    'Chart (bar, line, area, pie, donut, scatter, heatmap, funnel, gantt, gauge, sankey, mixed multi-series)',
   grid: 'Data grid / table',
   kpi: 'KPI card (single metric with optional sparkline/gauge and trend)',
   text: 'Text / markdown card',
@@ -30,7 +30,7 @@ export const WIDGET_KIND_DESCRIPTIONS = {
  */
 export const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
   chart: [
-    'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|bar-100|area-stacked|area-100|heatmap|funnel|gantt|gauge|mixed), xField, yField, yAggregation (sum|count|avg|min|max — use "count" when yField is a string/boolean; default "sum"), seriesField;',
+    'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|bar-100|area-stacked|area-100|heatmap|funnel|gantt|gauge|sankey|mixed), xField, yField, yAggregation (sum|count|avg|min|max — use "count" when yField is a string/boolean; default "sum"), seriesField;',
     '  barLayout: "horizontal" — use for >5 categories, long names, or ranking charts; do NOT use for time-series;',
     '  chartSortBy: "value"|"category", chartSortDirection: "asc"|"desc" — for ranked bar charts;',
     '  xGroupBy: "day"|"week"|"month"|"quarter"|"year" — required when xField is date/datetime;',
@@ -46,6 +46,7 @@ export const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
     'funnel: xField (stages in display order), yField (value), yAggregation (use "count" when yField is string); optional: funnelReachedField + funnelStageSequence for cumulative "reached stage" mode;',
     'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date), ganttColorField (optional);',
     'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax;',
+    'sankey: xField (source node), sankeyTargetField (target node), yField (flow value); optional: sankeyLinkColor, sankeyShowValues (boolean);',
     'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation, sourceId}), dualYAxis (boolean) — set a per-series sourceId to overlay a metric from a different source onto the shared categorical xField (the join key must exist with the same id in every source used);',
   ],
   kpi: [
@@ -100,6 +101,7 @@ export const CHART_TYPE_DOCS: string[] = [
   'funnel: xField (stages in display order), yField, yAggregation (use "count" for string yField). Optional: funnelReachedField + funnelStageSequence for cumulative mode.',
   'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date). Optional: ganttColorField.',
   'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No x-axis.',
+  'sankey: xField (source node), sankeyTargetField (target node), yField (flow value). Optional: sankeyLinkColor, sankeyShowValues (boolean).',
   'mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation, sourceId}). Optional: dualYAxis (boolean). Set a per-series sourceId to overlay a metric from another source — xField must be a categorical field present (same id) in every source used.',
 ];
 

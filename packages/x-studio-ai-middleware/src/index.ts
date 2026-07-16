@@ -91,6 +91,12 @@ export {
   createDefaultToolPolicy,
   createEffectsAwareToolPolicy,
   executeToolWithPolicy,
+  // `Policy` (composable decision combinators) and `consultToolPolicyArgsOnly`
+  // (the args-only authorization consult custom loops use to gate a tool BEFORE it
+  // runs) are documented as the way hosts compose policies and gate custom loops;
+  // export them from the root so consumers need no forbidden deep import.
+  Policy,
+  consultToolPolicyArgsOnly,
 } from './toolPolicy';
 export type {
   ToolEffectSummary,
@@ -98,6 +104,7 @@ export type {
   ToolPolicyContext,
   ToolPolicyDecision,
   ExecuteToolWithPolicyResult,
+  ConsultToolPolicyArgsOnlyResult,
 } from './toolPolicy';
 
 // MCP (Model Context Protocol) server factory

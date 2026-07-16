@@ -166,6 +166,26 @@ describe('renderChartSvg — pie', () => {
     expect(countTag(svg, 'path')).toBe(2);
   });
 
+  it('renders the "No data provided." placeholder for empty data (finding T3-2)', () => {
+    const svg = renderChartSvg({ type: 'pie', data: [] });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+  });
+
+  it('renders the "No data provided." placeholder for all-non-positive data (finding T3-2)', () => {
+    const svg = renderChartSvg({
+      type: 'pie',
+      data: [
+        { label: 'A', value: 0 },
+        { label: 'B', value: -5 },
+      ],
+    });
+    expect(isSvg(svg)).toBe(true);
+    expect(svg).toContain('No data provided');
+    // No slice paths rendered.
+    expect(countTag(svg, 'path')).toBe(0);
+  });
+
   it('renders a visible full circle for a single positive slice (finding 3.2)', () => {
     // A single 100% slice yields `slice = 360°`; the collapsed arc would drop the
     // body and leave only the "100%" label/legend. The body must be a full circle.

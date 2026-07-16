@@ -99,4 +99,17 @@ describe('parseSSE', () => {
     );
     expect(result).toEqual([{ a: 1 }]);
   });
+
+  it('accepts data: lines with no space after the colon (finding T3-9)', async () => {
+    // The SSE spec makes the space optional; some OpenAI-compatible servers omit it.
+    const result = await collect(fakeResponse(['data:{"a":1}\n', 'data:{"b":2}\n']));
+    expect(result).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  it('honors the [DONE] sentinel with no space after the colon (finding T3-9)', async () => {
+    const result = await collect(
+      fakeResponse(['data:{"a":1}\n', 'data:[DONE]\n', 'data:{"b":2}\n']),
+    );
+    expect(result).toEqual([{ a: 1 }]);
+  });
 });

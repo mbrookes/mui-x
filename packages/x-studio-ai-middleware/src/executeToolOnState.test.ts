@@ -646,6 +646,25 @@ describe('executeToolOnState: update_widget', () => {
     expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
   });
 
+  it('carries config as a partial patch (not a pre-merged widget snapshot)', () => {
+    const state = makeState(); // widget-1 config is { chartType: 'bar' }
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', config: { xField: 'region' } },
+      state,
+    );
+    // The mutation must ship ONLY the raw patch. A pre-merged { chartType, xField }
+    // would re-assert chartType at its turn-start value, reverting a concurrent client
+    // edit to that key (finding 2-1). The reducer merges the patch onto the live widget.
+    const args = (result.mutation as { args: { config?: Record<string, unknown> } }).args;
+    expect(args.config).toEqual({ xField: 'region' });
+    // nextState is still fully merged (reducer applies the patch onto the threaded state).
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({
+      chartType: 'bar',
+      xField: 'region',
+    });
+  });
+
   it('accepts a patch that changes chartType alongside a key valid for the NEW type', () => {
     const state = makeState(); // widget-1 is kind 'chart', chartType 'bar'
     const result = executeToolOnState(
@@ -1783,6 +1802,99 @@ describe('executeToolOnState: apply_bulk_update', () => {
       expect.arrayContaining([expect.stringMatching(/colSpan widget-1: widget not found/)]),
     );
   });
+
+  // ── Finding 2-4: op-array shape validation ──────────────────────────────────
+  it('shape-rejects a string widgetRemovals instead of iterating its characters', () => {
+    const state = makeState();
+    // A bare string was previously `for…of`-iterated over its characters, removing
+    // widgets "w", "i", "d", … and reporting success.
+    const result = executeToolOnState('apply_bulk_update', { widgetRemovals: 'widget-1' }, state);
+    const out = parseOutput(result.output);
+    const applied = out.applied as { removed: number };
+    expect(applied.removed).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/widgetRemovals: must be an array/)]),
+    );
+    // widget-1 survives — no character-wise removal ran.
+    expect(result.nextState.doc.widgets['widget-1']).toBeDefined();
+  });
+
+  it('shape-rejects a non-array widgetUpdates without throwing a TypeError', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { widgetUpdates: 42 }, state);
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/widgetUpdates: must be an array/)]),
+    );
+  });
+
+  it('shape-rejects a widgetAdditions element that is not a { kind, title } record', () => {
+    const state = makeState();
+    const result = executeToolOnState('apply_bulk_update', { widgetAdditions: [null] }, state);
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/widgetAdditions: must be an array/)]),
+    );
+  });
+
+  // ── Finding 2-3: duplicate addition titles + orphan detection ────────────────
+  it('skips a second addition sharing a title when a layout op could reference it (no orphan)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetAdditions: [
+          { kind: 'chart', title: 'Dup', config: { chartType: 'bar' } },
+          { kind: 'chart', title: 'Dup', config: { chartType: 'line' } },
+        ],
+        layout: [['widget-1'], ['Dup']],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { added: number };
+    // Only one 'Dup' is added; the ambiguous second is skipped.
+    expect(applied.added).toBe(1);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/duplicate addition title is ambiguous/)]),
+    );
+    // No invisible orphan: every widget in doc.widgets is referenced by some page row.
+    const referenced = new Set(
+      Object.values(result.nextState.doc.pages).flatMap((p) => (p.widgetRows ?? []).flat()),
+    );
+    for (const id of Object.keys(result.nextState.doc.widgets)) {
+      expect(referenced.has(id)).toBe(true);
+    }
+  });
+
+  it('skips the layout op when a batch addition is left unplaced (no invisible orphan)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetAdditions: [{ kind: 'chart', title: 'New', config: { chartType: 'bar' } }],
+        // Layout references only the existing widget, leaving 'New' unplaced.
+        layout: [['widget-1']],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    const applied = out.applied as { added: number; layout: boolean };
+    expect(applied.added).toBe(1);
+    expect(applied.layout).toBe(false);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/added in this batch are not placed/)]),
+    );
+    // The added widget keeps its own row from the additions loop — never orphaned.
+    const referenced = new Set(
+      Object.values(result.nextState.doc.pages).flatMap((p) => (p.widgetRows ?? []).flat()),
+    );
+    for (const id of Object.keys(result.nextState.doc.widgets)) {
+      expect(referenced.has(id)).toBe(true);
+    }
+  });
 });
 
 // ── rename_thread ─────────────────────────────────────────────────────────────
@@ -1827,6 +1939,14 @@ describe('executeToolOnState: rename_thread', () => {
     expect(out.error).toMatch(/non-empty name/i);
     expect(result.mutation).toBeUndefined();
   });
+
+  it('rejects a whitespace-only name instead of committing an empty title (finding T3-3)', () => {
+    const state = makeState();
+    const result = executeToolOnState('rename_thread', { name: '   ' }, state);
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/non-empty name/i);
+    expect(result.mutation).toBeUndefined();
+  });
 });
 
 // ── summarise_page ────────────────────────────────────────────────────────────
@@ -1864,7 +1984,7 @@ describe('executeToolOnState: summarise_page', () => {
     expect(result.output).toBe('SNAPSHOT-DATA');
   });
 
-  it('rejects a non-active pageId instead of mislabeling the active page snapshot', () => {
+  it('rejects a page that the snapshot does not cover instead of mislabeling it', () => {
     const state = makeState(); // active page is 'page-1'
     const result = executeToolOnState(
       'summarise_page',
@@ -1875,7 +1995,55 @@ describe('executeToolOnState: summarise_page', () => {
     );
     const out = parseOutput(result.output);
     expect(out.error).toMatch(/page-2/);
-    expect(out.error).toMatch(/set_active_page/);
+    // The snapshot cannot be rebuilt within the turn, so the guidance must NOT tell the
+    // model to call set_active_page (finding 2-2).
+    expect(out.error).not.toMatch(/set_active_page/);
+  });
+
+  // Finding 2-2: after a same-turn set_active_page(page-2), the THREADED state's
+  // activePageId is page-2, but the pageSnapshot still covers the request-time active
+  // page (page-1, passed as snapshotPageId). summarise_page(page-2) must reject rather
+  // than return page-1's snapshot narrated as page-2.
+  it('compares against the snapshot page, not the threaded active page (post set_active_page)', () => {
+    const base = makeState();
+    // Simulate that set_active_page has already switched the threaded state to page-2.
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        dashboard: { ...base.doc.dashboard, activePageId: 'page-2' },
+        pages: {
+          ...base.doc.pages,
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'summarise_page',
+      { pageId: 'page-2' },
+      state,
+      undefined,
+      'SNAPSHOT-DATA',
+      'page-1', // snapshotPageId — the page the snapshot actually covers
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toBeDefined();
+    expect(out.error).toMatch(/page-1/); // reports the page the snapshot covers
+    expect(out.error).toMatch(/page-2/); // and the page that cannot be honored
+    expect(out.error).not.toMatch(/set_active_page/);
+  });
+
+  it('returns the snapshot when the requested page matches snapshotPageId', () => {
+    const state = makeState(); // active page is 'page-1'
+    const result = executeToolOnState(
+      'summarise_page',
+      { pageId: 'page-1' },
+      state,
+      undefined,
+      'SNAPSHOT-DATA',
+      'page-1',
+    );
+    expect(result.output).toBe('SNAPSHOT-DATA');
   });
 });
 

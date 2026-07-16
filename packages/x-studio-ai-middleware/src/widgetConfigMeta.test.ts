@@ -71,6 +71,21 @@ describe('widgetConfigMeta: documented keys stay in sync with the schema allowli
     expect(stray).toEqual([]);
   });
 
+  // Finding 2-5: sankey is a real closed-union chart type with a schema config family,
+  // but was undocumented for the LLM. It must now appear in every doc surface.
+  it('documents the sankey chart type across all AI-facing surfaces', () => {
+    expect(isStudioChartType('sankey')).toBe(true);
+    // Chart kind one-liner and config lines
+    expect(WIDGET_KIND_DESCRIPTIONS.chart).toContain('sankey');
+    expect(KIND_CONFIG_LINES.chart.join('\n')).toMatch(/sankey:/);
+    // Dedicated CHART_TYPE_DOCS entry
+    const sankeyEntry = CHART_TYPE_DOCS.find((e) => e.startsWith('sankey:'));
+    expect(sankeyEntry, 'CHART_TYPE_DOCS has no sankey entry').toBeDefined();
+    // The sankey-only key is documented and schema-valid for sankey
+    expect(sankeyEntry).toContain('sankeyTargetField');
+    expect(getAllowedChartConfigKeys('sankey').has('sankeyTargetField')).toBe(true);
+  });
+
   it('documents every built-in widget kind', () => {
     expect(Object.keys(KIND_CONFIG_LINES).sort()).toEqual(
       Object.keys(WIDGET_KIND_DESCRIPTIONS).sort(),

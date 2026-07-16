@@ -50,10 +50,18 @@ export function jsonResult(data: unknown, pretty = false): CallToolResult {
 
 /** Race a promise against a timeout. Rejects with a descriptive error if the timeout fires first. */
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  // Track the timer so it can be cleared once the race settles. Without this, a
+  // fast-settling `promise` leaves the timeout pending — keeping the event loop
+  // alive (and, under Node, holding the process open) until it eventually fires.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
     }),
-  ]);
+  ]).finally(() => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  });
 }

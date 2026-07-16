@@ -84,6 +84,9 @@ export interface ToolDispatchContext {
   data?: StudioAIDataConfig;
   customWidgets: StudioCustomWidgetDef[] | undefined;
   pageSnapshot?: string;
+  /** Page the `pageSnapshot` covers — the active page when the request began. Captured
+   *  once per request so a same-turn `set_active_page` can't misdirect `summarise_page`. */
+  snapshotPageId?: string;
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
   approvalTimeoutMs: number;
   /** What to do when a `require-approval` decision has no `approvalPending` channel
@@ -432,6 +435,7 @@ export async function* dispatchToolCall(
       policy: ctx.toolPolicy,
       customWidgets: ctx.customWidgets,
       pageSnapshot: ctx.pageSnapshot,
+      snapshotPageId: ctx.snapshotPageId,
       transport: 'chat',
       usage: ctx.usage,
     });

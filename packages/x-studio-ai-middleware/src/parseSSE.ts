@@ -27,8 +27,11 @@ export async function* parseSSE(response: Response): AsyncGenerator<Record<strin
     buffer = lines.pop() ?? '';
 
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const payload = line.slice(6).trim();
+      // Accept both `data: ` (with the conventional single space) and `data:` with no
+      // space — the SSE spec makes the space optional and some OpenAI-compatible
+      // servers omit it, so a strict `data: ` prefix would silently drop those events.
+      if (line.startsWith('data:')) {
+        const payload = line.slice(5).trim();
         if (payload === '[DONE]') {
           return;
         }

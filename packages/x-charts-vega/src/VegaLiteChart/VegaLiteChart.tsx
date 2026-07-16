@@ -219,10 +219,24 @@ function resolveVegaViewSize(
   compiled: {
     xAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
     yAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
+    series?: readonly unknown[];
   },
   fallbackWidth: number | undefined,
   fallbackHeight: number | undefined,
 ): { width: number | undefined; height: number | undefined } {
+  // Dodged (grouped) bars split each category band into one sub-band per
+  // `xOffset`/`yOffset` group, so the discrete axis needs `subgroupCount ×` the
+  // room a single series would take (Vega sizes each leaf bar to a step). The
+  // subgroup count is the number of dodged series.
+  const dodgeFactor = (channel: 'x' | 'y'): number => {
+    const offsetKey = channel === 'x' ? 'xOffset' : 'yOffset';
+    const units = Array.isArray(spec.layer) ? spec.layer : [spec];
+    const hasOffset =
+      (spec as { encoding?: Record<string, unknown> }).encoding?.[offsetKey] != null ||
+      units.some((unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[offsetKey] != null);
+    const seriesCount = compiled.series?.length ?? 1;
+    return hasOffset && seriesCount > 1 ? seriesCount : 1;
+  };
   // A binned channel is drawn on a continuous scale by Vega-Lite (the bins have
   // numeric positions), so it sizes like a continuous axis — even though the
   // wrapper renders it through a discrete band domain.
@@ -264,7 +278,7 @@ function resolveVegaViewSize(
         size && typeof size === 'object' && typeof (size as { step?: unknown }).step === 'number'
           ? (size as { step: number }).step
           : VEGA_DEFAULT_STEP;
-      return step * count;
+      return step * count * dodgeFactor(channel);
     }
     return fallback;
   };

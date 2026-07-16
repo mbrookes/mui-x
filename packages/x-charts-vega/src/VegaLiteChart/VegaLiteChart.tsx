@@ -1066,13 +1066,29 @@ function SingleViewChart(props: VegaLiteChartProps) {
   // A bubble-size legend has no x-charts equivalent, so draw it beside the chart
   // (Vega-Lite's default placement). Suppressed inside trellis cells, which
   // hoist a single shared legend outside the grid.
-  if (compiled.sizeLegend && !cell) {
-    return (
+  const chartWithLegend =
+    compiled.sizeLegend && !cell ? (
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
         {chart}
         <SizeLegend legend={compiled.sizeLegend} color={compiled.colors[0]} />
       </div>
+    ) : (
+      chart
+    );
+
+  // Vega-Lite draws the spec `title` as a bold heading centered above the view.
+  // x-charts' `ChartsSurface` title is only an accessibility <title>, so render
+  // a visible heading here. Skipped inside trellis/concat cells (the grid draws
+  // their headers) — a cell never carries the top-level title anyway.
+  if (compiled.title && !cell) {
+    return (
+      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'rgb(0, 0, 0)', padding: '0 0 4px' }}>
+          {compiled.title}
+        </div>
+        {chartWithLegend}
+      </div>
     );
   }
-  return chart;
+  return chartWithLegend;
 }

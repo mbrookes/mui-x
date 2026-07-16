@@ -306,6 +306,35 @@ describe('sync path (no adapter)', () => {
     expect(result.current.filteredRowsNoChartCross).toBe(result.current.filteredRows);
   });
 
+  it('a DISABLED interactive filter does not make hasCrossFilters spuriously true', () => {
+    // A disabled interactive filter lingers in `partitionFilters` output (it is not
+    // stripped) — `toggleFilter` can disable one. Without the `!f.disabled` guard on
+    // the interactive branch it would flip `hasCrossFilters` to true, costing the
+    // `filteredRowsNoCross` reference short-circuit and skipping chart entrance
+    // animations, even though the filter is inert.
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-interactive-disabled',
+          scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'condition',
+          disabled: true,
+        }),
+      ],
+    });
+    const widget = makeWidget({ id: 'w1' });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    // Inert filter → no cross-filters, and the reference short-circuit is preserved.
+    expect(result.current.hasCrossFilters).toBe(false);
+    expect(result.current.filteredRowsNoCross).toBe(result.current.filteredRows);
+    expect(result.current.filteredRows).toHaveLength(rows.length);
+  });
+
   it('returns empty array when dataSource has no rows', () => {
     mockState = createState();
     const widget = makeWidget();

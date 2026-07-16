@@ -279,6 +279,13 @@ export function useWidgetRows(
       ) ||
       deferredPartitioned.interactive.some(
         (f) =>
+          // `!f.disabled`: `partitionFilters` keeps disabled filters and `toggleFilter`
+          // can disable an interactive one, so without this a lingering disabled
+          // interactive filter would make `hasCrossFilters` spuriously true — costing
+          // the `filteredRowsNoCross` reference short-circuit and skipping chart
+          // entrance animations. Mirrors the `cross` branch above and the parallel
+          // `hasChartCrossFilters` / KPI `hasIgnoredInteractiveFilters` guards.
+          !f.disabled &&
           f.scope.kind === 'interactive' &&
           f.scope.sourceWidgetId !== widget.id &&
           f.scope.pageId === pageId,

@@ -506,12 +506,15 @@ export function buildStudioMcpServer(
         const isMultiSourceRawRowTool = MULTI_SOURCE_RAW_ROW_TOOLS.has(toolName);
         const policyToolName =
           isRawRowDataTool || isMultiSourceRawRowTool ? 'query_data_source' : toolName;
-        const consultInput = isRawRowDataTool
-          ? { sourceId: (args as { sourceId?: unknown } | undefined)?.sourceId }
-          : isMultiSourceRawRowTool
-            ? // Source-agnostic (no single sourceId) — see MULTI_SOURCE_RAW_ROW_TOOLS.
-              {}
-            : (args ?? {});
+        // Consult input: a raw-row tool threads its single `sourceId`;
+        // `summarise_page` is source-agnostic (it spans the whole page — `{}` — see
+        // MULTI_SOURCE_RAW_ROW_TOOLS); every other tool consults with its full args.
+        let consultInput: Record<string, unknown> = args ?? {};
+        if (isRawRowDataTool) {
+          consultInput = { sourceId: (args as { sourceId?: unknown } | undefined)?.sourceId };
+        } else if (isMultiSourceRawRowTool) {
+          consultInput = {};
+        }
         const gate = await consultToolPolicyArgsOnly(
           policyToolName,
           consultInput,

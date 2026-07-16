@@ -55,6 +55,16 @@ interface ChannelOccurrence {
   def: VegaChannelDef;
 }
 
+/**
+ * Vega-Lite's default axis typography (config.axis defaults): 10px tick labels,
+ * an 11px bold axis title, both pure black. x-charts' own defaults are larger
+ * (12px labels, a 16px regular title) and 87%-opacity ink, so we override them
+ * to read like the reference.
+ */
+const VEGA_TICK_LABEL_FONT_SIZE = 10;
+const VEGA_AXIS_TITLE_FONT_SIZE = 11;
+const VEGA_AXIS_INK = 'rgb(0, 0, 0)';
+
 /** Discrete-axis enrichment pulled from a field def's `axis` config. */
 interface AxisExtras {
   tickNumber?: number;
@@ -451,7 +461,12 @@ function resolveChannelAxis(
     reverse: scale?.reverse === true || undefined,
     tickNumber: extras.tickNumber,
     tickInterval: extras.tickInterval,
-    tickLabelStyle: extras.tickLabelStyle,
+    // Match Vega-Lite's axis typography: 10px black tick labels and an 11px bold
+    // black axis title (x-charts defaults are larger — 12px labels, a 16px
+    // regular-weight title). Any explicit `tickLabelStyle` (angle/hidden labels)
+    // is layered on top of the font default.
+    tickLabelStyle: { fontSize: VEGA_TICK_LABEL_FONT_SIZE, fill: VEGA_AXIS_INK, ...extras.tickLabelStyle },
+    labelStyle: { fontSize: VEGA_AXIS_TITLE_FONT_SIZE, fontWeight: 700, fill: VEGA_AXIS_INK },
     // `axis.ticks: false` / `axis.domain: false` → hide the tick marks / axis line.
     disableTicks: extras.disableTicks,
     disableLine: extras.disableLine,

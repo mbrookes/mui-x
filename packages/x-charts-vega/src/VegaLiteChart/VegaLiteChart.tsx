@@ -53,6 +53,10 @@ type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' }
  * horizontal legend across the top, which wraps to several rows and squeezes the
  * plot for series-heavy charts).
  */
+// Vega-Lite draws 10px legend labels; x-charts' default is 12px. Shrink the
+// series-legend label text to match (applied via `sx` on every `ChartsLegend`).
+const LEGEND_SX = { '& .MuiChartsLegend-label': { fontSize: 10 } } as const;
+
 function resolveLegendLayout(orient: string | undefined): LegendLayout {
   switch (orient) {
     case 'top':
@@ -765,7 +769,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         />,
       );
     } else {
-      geoLegend = compiled.hasLegend && <ChartsLegend />;
+      geoLegend = compiled.hasLegend && <ChartsLegend sx={LEGEND_SX} />;
     }
     return (
       <ChartsGeoDataProviderPremium
@@ -875,7 +879,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         height={resolvedHeight ?? 1}
       >
         <ChartsWrapper>
-          {compiled.hasLegend && <ChartsLegend direction="vertical" />}
+          {compiled.hasLegend && <ChartsLegend direction="vertical" sx={LEGEND_SX} />}
           {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
         </ChartsWrapper>
       </ChartsDataProviderPremium>
@@ -905,7 +909,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         legendDirection={legendLayout?.direction}
       >
         {!cell?.hideLegend && compiled.hasLegend && (
-          <ChartsLegend direction={legendLayout?.direction} />
+          <ChartsLegend direction={legendLayout?.direction} sx={LEGEND_SX} />
         )}
         {/* A heatmap's cell value is encoded by a continuous/piecewise color
             scale (the zAxis colorMap), so it needs a gradient color legend

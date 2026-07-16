@@ -572,7 +572,8 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.tickLabelStyle).to.deep.equal({ angle: 45 });
+      // The Vega font defaults (10px black) are merged in; the angle is layered on top.
+      expect(compiled.xAxis?.config.tickLabelStyle).to.include({ angle: 45 });
     });
 
     it('maps tickCount to tickNumber and values to tickInterval', () => {
@@ -597,7 +598,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.tickLabelStyle).to.deep.equal({ display: 'none' });
+      expect(compiled.xAxis?.config.tickLabelStyle).to.include({ display: 'none' });
     });
 
     it('maps axis.orient to the axis position', () => {

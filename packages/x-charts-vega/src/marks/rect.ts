@@ -210,14 +210,16 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
   // (Carried on the compiled unit; the shell draws it above the legend, since
   // x-charts' zAxis config has no title/label slot.)
   const explicitTitle = colorDef.title;
-  const legendTitle =
-    explicitTitle === null
-      ? undefined
-      : explicitTitle != null
-        ? String(explicitTitle)
-        : typeof colorDef.aggregate === 'string'
-          ? `${colorDef.aggregate.charAt(0).toUpperCase()}${colorDef.aggregate.slice(1)} of ${valueField}`
-          : valueField;
+  let legendTitle: string | undefined;
+  if (explicitTitle === null) {
+    legendTitle = undefined;
+  } else if (explicitTitle != null) {
+    legendTitle = String(explicitTitle);
+  } else if (typeof colorDef.aggregate === 'string') {
+    legendTitle = `${colorDef.aggregate.charAt(0).toUpperCase()}${colorDef.aggregate.slice(1)} of ${valueField}`;
+  } else {
+    legendTitle = valueField;
+  }
 
   return {
     series,

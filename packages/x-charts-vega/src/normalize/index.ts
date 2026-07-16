@@ -195,7 +195,37 @@ function mergeEncoding(
   parent: VegaEncoding | undefined,
   child: VegaEncoding | undefined,
 ): VegaEncoding {
-  return { ...parent, ...child };
+  if (!parent) {
+    return { ...child };
+  }
+  if (!child) {
+    return { ...parent };
+  }
+  // Vega-Lite merges a layer's encoding over the parent's per channel *property*,
+  // not per channel: a shared `x: {type, title, axis}` and a layer `x: {field}`
+  // resolve to `x: {type, title, axis, field}`. A plain `{...parent, ...child}`
+  // would let the layer's channel def wholly replace the parent's, dropping the
+  // inherited title/type/scale (e.g. co2's "Year into Decade" axis title lives on
+  // the shared x while the field lives on each layer). Merge the two channel
+  // objects a level deeper so inherited channel properties survive.
+  const merged: VegaEncoding = { ...parent };
+  for (const key of Object.keys(child) as Array<keyof VegaEncoding>) {
+    const parentDef = parent[key];
+    const childDef = child[key];
+    if (
+      parentDef &&
+      childDef &&
+      !Array.isArray(parentDef) &&
+      !Array.isArray(childDef) &&
+      typeof parentDef === 'object' &&
+      typeof childDef === 'object'
+    ) {
+      merged[key] = { ...parentDef, ...childDef } as VegaEncoding[keyof VegaEncoding];
+    } else {
+      merged[key] = childDef;
+    }
+  }
+  return merged;
 }
 
 function normalizeMark(mark: VegaUnitSpec['mark']): VegaMarkDef {

@@ -251,6 +251,16 @@ const MULTI_STOP_SCHEME_STOPS: Record<string, readonly string[]> = {
   purpleblue: ['#fff7fb', '#d0d1e6', '#a6bddb', '#74a9cf', '#3690c0', '#0570b0', '#023858'],
   bluepurple: ['#f7fcfd', '#bfd3e6', '#9ebcda', '#8c96c6', '#8c6bb1', '#88419d', '#4d004b'],
   purplered: ['#f7f4f9', '#d4b9da', '#c994c7', '#df65b0', '#e7298a', '#ce1256', '#67001f'],
+  // Perceptually-uniform multi-hue schemes (d3-scale-chromatic), sampled to 9
+  // stops. Kept as ordered ramps — not the discrete multi-hue approximation in
+  // CATEGORICAL_SCHEME_PALETTES — so both the continuous colorMap and an
+  // ordinal/nominal field carrying one of these schemes trace the real dark→
+  // light hue progression instead of a cycling categorical palette.
+  magma: ['#000004', '#1c1044', '#4f127b', '#812581', '#b5367a', '#e55064', '#fb8761', '#fec287', '#fcfdbf'],
+  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9a06', '#fcffa4'],
+  plasma: ['#0d0887', '#47039f', '#7301a8', '#9c179e', '#bd3786', '#d8576b', '#ed7953', '#fa9e3b', '#fdc926'],
+  viridis: ['#440154', '#472d7b', '#3b528b', '#2c728e', '#21918c', '#28ae80', '#5ec962', '#addc30', '#fde725'],
+  cividis: ['#00204d', '#00336f', '#39486b', '#575d6d', '#707173', '#8a8779', '#a69d75', '#c4b56c', '#ffea46'],
 };
 
 // Vega-Lite defaults a continuous quantitative color scale to `yellowgreenblue`.
@@ -295,6 +305,32 @@ function sampleStops(stops: readonly string[], count: number): string[] {
 
 function isBinnedField(fieldDef: VegaFieldDef): boolean {
   return fieldDef.bin === true || fieldDef.bin === 'binned' || typeof fieldDef.bin === 'object';
+}
+
+/**
+ * An ordered `count`-length swatch ramp for a *discrete* field (nominal/ordinal)
+ * whose scheme is sequential/multi-hue (`magma`, `blues`, …). Vega-Lite samples
+ * the scheme's interpolator at evenly spaced points across the domain, so the
+ * swatches trace the scheme's real dark→light progression; the discrete
+ * multi-hue palettes in `CATEGORICAL_SCHEME_PALETTES` only cycle a fixed set of
+ * hues, which scrambles a sequential field's order. Returns `undefined` for a
+ * genuinely categorical scheme (e.g. `tableau10`), which has no ordered ramp.
+ */
+function sampleDiscreteSchemeRamp(
+  schemeName: string,
+  reverse: boolean | undefined,
+  count: number,
+): string[] | undefined {
+  let stops = MULTI_STOP_SCHEME_STOPS[schemeName] ?? SEQUENTIAL_SCHEME_RANGES[schemeName];
+  if (!stops || count < 1) {
+    return undefined;
+  }
+  if (reverse) {
+    stops = stops.slice().reverse();
+  }
+  return stops.length > 2
+    ? sampleStops(stops, count)
+    : interpolateColors(stops[0], stops[stops.length - 1], count);
 }
 
 /**
@@ -557,6 +593,19 @@ export function resolveColor(
         // a missing color value form groups not listed here; the mark compilers
         // append those leftover groups so no data is dropped.
         domain = distinct.length > 0 ? distinct : undefined;
+      }
+    }
+
+    // A sequential/multi-hue scheme on a discrete field (e.g. co2's `magma`
+    // decade ramp) samples the scheme interpolator across the domain rather
+    // than picking cycling categorical swatches. Do this once the domain size
+    // is known, overriding the discrete-palette `range` resolved above; a
+    // genuinely categorical scheme (tableau, category10) returns undefined here
+    // and keeps its palette.
+    if (!explicitRange && schemeName && domain && domain.length > 0) {
+      const ramp = sampleDiscreteSchemeRamp(schemeName, scale?.reverse, domain.length);
+      if (ramp) {
+        range = ramp;
       }
     }
     // Only warn when the spec's *explicit* domain and range lengths disagree.

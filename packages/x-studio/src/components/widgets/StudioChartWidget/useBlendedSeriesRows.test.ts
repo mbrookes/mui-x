@@ -263,6 +263,57 @@ describe('useBlendedSeriesRows — refetch failure must not serve stale rows (fi
   });
 });
 
+describe('useBlendedSeriesRows — a source that drops its adapter must not keep serving stale async rows (finding 2.2)', () => {
+  it('prunes the stale asyncForeignRows entry once a foreign source is no longer adapter-backed', async () => {
+    const getRows = vi.fn().mockResolvedValue({
+      rows: [{ category: 'Electronics', stock: 999 }],
+    });
+    const adapterInventory: StudioDataSource = {
+      ...inventorySource,
+      rows: undefined,
+      adapter: { getRows },
+    };
+    const widget = inventoryBlendedWidget('stock');
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, inventory: adapterInventory },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result, rerender } = renderHook(() => useBlendedSeriesRows(widget, 'page-1'));
+
+    // The adapter fetch resolves — the foreign rows come from the server (marked stock: 999).
+    await waitFor(() => {
+      expect(result.current.foreignRowsBySource.get('inventory')).toEqual([
+        { category: 'Electronics', stock: 999 },
+      ]);
+    });
+
+    // The host drops the adapter (e.g. `setDataSourceAdapter('inventory', undefined)` or a
+    // `dataAdapters` swap): the source becomes plain in-memory again, with its own fresh rows.
+    mockState = {
+      ...mockState,
+      runtime: {
+        ...mockState.runtime,
+        dataSources: { orders: ordersSource, inventory: inventorySource },
+      },
+    };
+    rerender();
+
+    // Without the prune, the last-fetched async rows (stock: 999) would linger in
+    // `asyncForeignRows` forever and — since the merge applies async AFTER sync — permanently
+    // shadow the freshly-resolved in-memory rows. After the fix the in-memory rows win.
+    await waitFor(() => {
+      const current = result.current.foreignRowsBySource.get('inventory');
+      expect(current?.some((r) => r.stock === 999)).toBe(false);
+    });
+    const rows = result.current.foreignRowsBySource.get('inventory');
+    expect(rows?.map((r) => r.stock).sort((a, b) => (a as number) - (b as number))).toEqual([
+      12, 40,
+    ]);
+  });
+});
+
 describe('useBlendedSeriesRows — page-scoped filters must not leak across pages (finding 2.2, facet a)', () => {
   it('does not apply a page filter scoped to a DIFFERENT page to a foreign sync source', () => {
     const widget = inventoryBlendedWidget('stock');

@@ -40,23 +40,34 @@ export const selectAi = (state: StudioState) => state.doc.ai;
 
 /**
  * Returns a stable memoized selector for the active interactive filter
- * emitted by the given filter widget.
+ * emitted by the given filter widget on the given page.
+ *
+ * `pageId` is enforced (matching `f.scope.pageId`), exactly like the slider sibling
+ * `makeSelectWidgetSliderFilter` (T1.1): an interactive filter's scope is pinned to the page it
+ * was authored on, so a page-blind lookup could advertise a control as "selected" while its
+ * selection applies to a different page (e.g. after the emitting widget is moved across pages, or
+ * for a widget mounted on an inactive page) — filtering nothing there. Requiring the page id makes
+ * the control unable to surface a selection that isn't actually applying on this page.
  *
  * @example
  * const sel = React.useMemo(
- *   () => makeSelectActiveInteractiveFilter(widget.id),
- *   [widget.id],
+ *   () => makeSelectActiveInteractiveFilter(widget.id, activePageId),
+ *   [widget.id, activePageId],
  * );
  * const activeFilter = useStudioSelector(sel);
  */
-export function makeSelectActiveInteractiveFilter(widgetId: string) {
+export function makeSelectActiveInteractiveFilter(widgetId: string, pageId: string) {
   return (state: StudioState) =>
     state.doc.filters.find(
       // `!f.disabled` mirrors every data path (`selectFiltersForWidget`, `isActiveCrossFilter`):
       // once `toggleFilter` disables the interactive filter — or a persisted widget carries
       // `disabled: true` — it no longer filters rows, so this selector must not advertise it as
       // active either (finding 3.1).
-      (f) => !f.disabled && f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId,
+      (f) =>
+        !f.disabled &&
+        f.scope.kind === 'interactive' &&
+        f.scope.sourceWidgetId === widgetId &&
+        f.scope.pageId === pageId,
     ) ?? null;
 }
 

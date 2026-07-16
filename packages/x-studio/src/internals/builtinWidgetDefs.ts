@@ -107,6 +107,7 @@ function FilterWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioFilterWidget, {
     widget: props.widget as StudioWidgetOf<'filter'>,
     dataSource: props.dataSource,
+    pageId: props.pageId,
     ...(props.extraProps as Partial<Omit<StudioFilterWidgetProps, 'widget' | 'dataSource'>>),
   });
 }

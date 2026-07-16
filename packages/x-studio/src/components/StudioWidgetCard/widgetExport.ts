@@ -4,6 +4,7 @@ import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
 import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
+import { getCachedNormalizedDataSource } from '../../internals/normalizedRowsCache';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
 
@@ -77,7 +78,13 @@ export function runWidgetExport({
       cacheMiss = cached === undefined;
       sourceRows = cached?.rows ?? [];
     } else {
-      sourceRows = source?.rows ?? [];
+      // Normalize the raw source rows through the SAME L1 pass the on-screen grid uses
+      // (`getCachedNormalizedDataSource`, via `useWidgetRows`) before feeding them to
+      // `resolveWidgetRows` — whose contract is raw, pre-normalized rows. Without this, exported
+      // date/datetime cells keep their raw ingestion form instead of the canonical YYYY-MM-DD / ISO
+      // the grid renders (finding 3.2). All fields are normalized (the '*' slot) since a CSV export
+      // includes every column.
+      sourceRows = source ? (getCachedNormalizedDataSource(source).rows ?? []) : [];
     }
 
     // The grid hasn't fetched (or its cache entry was invalidated) — there is genuinely

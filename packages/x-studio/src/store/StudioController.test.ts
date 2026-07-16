@@ -1471,6 +1471,105 @@ describe('StudioController move — rank-filter uniqueness (2.2)', () => {
   });
 });
 
+// ─── StudioController.commitWidgetMove — emitted-scope cleanup (T1.1) ─────────
+// A cross-page move must also drop any filter the moved widget EMITS whose scope is pinned
+// to the source page (interactive / cross-filter), otherwise the old page stays hard-filtered
+// with no controlling widget while the moved control advertises a selection that filters nothing.
+
+describe('StudioController.commitWidgetMove — emitted-scope cleanup (T1.1)', () => {
+  function twoPageWithFilters(filters: StudioFilterState[]) {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+        filters,
+      },
+    });
+  }
+
+  it('drops an interactive filter the moved widget emits (moveWidget / canvas drag)', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'i1',
+        scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().doc.filters.find((f) => f.id === 'i1')).toBeUndefined();
+  });
+
+  it('drops a cross-filter the moved widget emits (moveWidgetToPage / context menu)', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'x1',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidgetToPage('w1', 'page-2');
+    expect(controller.getState().doc.filters.find((f) => f.id === 'x1')).toBeUndefined();
+  });
+
+  it('leaves another widget’s emitted filters untouched', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'i-other',
+        scope: { kind: 'interactive', sourceWidgetId: 'w-other', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().doc.filters.find((f) => f.id === 'i-other')).toBeTruthy();
+  });
+
+  it('does not touch emitted filters on a same-page move', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'i1',
+        scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidget('w1', 'page-1', 'page-1', [['w1']]);
+    expect(controller.getState().doc.filters.find((f) => f.id === 'i1')).toBeTruthy();
+  });
+
+  it('folds the cross-filter cleanup into the SAME commit — one undo restores it (undoable by design)', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'x1',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().doc.filters.find((f) => f.id === 'x1')).toBeUndefined();
+    controller.undo();
+    const state = controller.getState();
+    // One undo step restores BOTH the source-page layout and the cross-filter (cross-filters
+    // are NOT transient-carried, so they time-travel with the doc).
+    expect(state.doc.pages['page-1'].widgetRows.flat()).toContain('w1');
+    expect(state.doc.filters.find((f) => f.id === 'x1')).toBeTruthy();
+  });
+
+  it('carryTransientDocState never resurrects the removed interactive entry after undo', () => {
+    const controller = twoPageWithFilters([
+      makeFilter({
+        id: 'i1',
+        scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+      }),
+    ]);
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().doc.filters.find((f) => f.id === 'i1')).toBeUndefined();
+    controller.undo();
+    const state = controller.getState();
+    // The layout is restored, but the interactive selection is transient-carried from the CURRENT
+    // (now empty) set, so undo must NOT bring back a filter the move deliberately cleared.
+    expect(state.doc.pages['page-1'].widgetRows.flat()).toContain('w1');
+    expect(state.doc.filters.find((f) => f.id === 'i1')).toBeUndefined();
+  });
+});
+
 // ─── StudioController — filter CRUD ──────────────────────────────────────────
 
 describe('StudioController.addFilter / removeFilter', () => {

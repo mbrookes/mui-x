@@ -219,14 +219,28 @@ export const StudioDashboard = React.memo(function StudioDashboard({
     prevConfigRef.current = config;
   }, [config]);
 
-  // Register/update data adapters whenever they change.
+  // Register/update data adapters whenever they change, AND unregister any the host dropped.
+  // Tracks the set of source ids registered on the previous run so a key removed from
+  // `dataAdapters` gets its adapter cleared (T3.4). The effect previously iterated only the NEW
+  // map, so a removed key kept its previously-registered adapter forever — its last fetched rows
+  // would then keep shadowing freshly-resolved in-memory rows (this is what makes finding 2.2
+  // reachable, addressed together here).
+  const prevAdapterSourceIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    if (!dataAdapters) {
-      return;
+    const nextIds = new Set(dataAdapters ? Object.keys(dataAdapters) : []);
+    if (dataAdapters) {
+      for (const [sourceId, adapter] of Object.entries(dataAdapters)) {
+        innerRef.current?.setDataSourceAdapter(sourceId, adapter);
+      }
     }
-    for (const [sourceId, adapter] of Object.entries(dataAdapters)) {
-      innerRef.current?.setDataSourceAdapter(sourceId, adapter);
+    // Clear adapters for sources present last run but absent now. `setDataSourceAdapter(sid,
+    // undefined)` is a clean no-op when the source doesn't exist, so this is always safe.
+    for (const sourceId of prevAdapterSourceIdsRef.current) {
+      if (!nextIds.has(sourceId)) {
+        innerRef.current?.setDataSourceAdapter(sourceId, undefined);
+      }
     }
+    prevAdapterSourceIdsRef.current = nextIds;
   }, [dataAdapters]);
 
   return (

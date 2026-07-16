@@ -51,6 +51,8 @@ export interface StudioFilterWidgetSlotProps {
 export interface StudioFilterWidgetProps {
   widget: StudioWidgetOf<'filter'>;
   dataSource?: StudioDataSource;
+  /** ID of the page this filter widget belongs to. Scopes the active-interactive-filter lookup. */
+  pageId: string;
   slots?: StudioFilterWidgetSlots;
   slotProps?: StudioFilterWidgetSlotProps;
 }
@@ -60,7 +62,7 @@ export interface StudioFilterWidgetProps {
 export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   props: StudioFilterWidgetProps,
 ) {
-  const { widget, dataSource, slots, slotProps } = props;
+  const { widget, dataSource, pageId, slots, slotProps } = props;
   const { config } = widget;
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -135,8 +137,8 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   // Current interactive filter value for this widget (stable selector, not inline arrow)
   const selectActiveFilter = React.useMemo(
-    () => makeSelectActiveInteractiveFilter(widget.id),
-    [widget.id],
+    () => makeSelectActiveInteractiveFilter(widget.id, pageId),
+    [widget.id, pageId],
   );
   const activeFilter = useStudioSelector(selectActiveFilter);
 

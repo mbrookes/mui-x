@@ -1072,29 +1072,28 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // the KPI always shows the absolute total, ignoring chart-click selections.
   // In 'cross-filter' or 'cross-highlight' mode we use effectiveRows, which respects
   // the active cross-filter (same as the chart widget does).
-  const { filteredRowsNoCross, effectiveRows, isError, errorMessage } = useWidgetRows(
-    widget,
-    dataSource,
-    pageId,
-  );
+  const {
+    filteredRowsNoCross,
+    effectiveRows,
+    isError,
+    errorMessage,
+    // The widget's fully resolved/scoped filter sets, now EXPOSED by `useWidgetRows` and derived
+    // from the SAME deferred filter snapshot `currentRows` came from — rather than re-derived here
+    // from the live `filters` array. During a deferred window the live-array derivation paired
+    // stale L3 rows with a newer filter list, so the headline's L4 re-anchoring semi-join rendered
+    // the intersection of two filter states (a transient flash toward empty) (finding 2.1).
+    resolvedFiltersAll,
+    resolvedFiltersNoCross,
+  } = useWidgetRows(widget, dataSource, pageId);
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
   // The widget's fully resolved/scoped filter set, matching the scope `currentRows` was
   // produced at above ('no-cross' → filteredRowsNoCross, 'all' → effectiveRows). Threaded into
   // `useKpiGrainAnchoredRows` so the headline value's L4 re-anchoring re-applies the same
   // anchor-source-scoped filters L3 already enforced as a semi-join, instead of silently
-  // re-widening them back to every anchor row (finding 1.2).
-  const kpiWidgetFilters = React.useMemo(
-    () =>
-      selectFiltersForWidget(filters, {
-        widgetId: widget.id,
-        widgetSourceId: widget.sourceId,
-        activePageId: pageId,
-        include: crossFilterMode === 'none' ? 'no-cross' : 'all',
-        crossFilterAllPages,
-      }),
-    [filters, widget.id, widget.sourceId, pageId, crossFilterMode, crossFilterAllPages],
-  );
+  // re-widening them back to every anchor row (finding 1.2). Sourced from the deferred-snapshot
+  // sets above so it never skews against `currentRows` during a deferred window (finding 2.1).
+  const kpiWidgetFilters = crossFilterMode === 'none' ? resolvedFiltersNoCross : resolvedFiltersAll;
 
   // Grain-aware rows for KPI value and sparkline computation (see useKpiGrainAnchoredRows).
   const { grainAnchoredRows, isGrainAnchored } = useKpiGrainAnchoredRows(

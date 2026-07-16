@@ -142,7 +142,12 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   }, [dataSources, expressionFields]);
 
   function update(changes: Partial<typeof config>) {
-    controller.updateWidget(widgetId, { config: { ...config, ...changes } });
+    // Route config edits through `updateWidgetConfig` (T3.3): it shallow-merges only the changed
+    // keys and runs the write-side `validateConfigKeysForKind` guard, instead of `updateWidget`
+    // replacing the whole config object wholesale from a render-time `config` snapshot (which
+    // bypasses the guard and can clobber a concurrent edit). The source-adoption branch below
+    // legitimately stays on `updateWidget` — it folds a `sourceId` change alongside the config.
+    controller.updateWidgetConfig(widgetId, changes);
   }
 
   /**

@@ -30,13 +30,11 @@ import {
   selectRelationships,
   makeSelectExpressionFieldsForSources,
   selectGlobalCrossFilterMode,
-  selectCrossFilterAllPages,
 } from '../../../context';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
-import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(
@@ -76,7 +74,6 @@ export function useChartWidgetData(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
-  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   // Subscribe to the widget's own source PLUS every directly-related (one-hop) source,
   // mirroring `useWidgetRows`' `relevantSourceIds`/`makeSelectExpressionFieldsForSources`
   // pattern exactly. `analyzeChartSupport` below (and `ChartSetupPanel`'s own support
@@ -148,38 +145,17 @@ export function useChartWidgetData(
     isRecomputing,
     isError,
     errorMessage,
+    // The widget's fully resolved/scoped filter sets, now EXPOSED by `useWidgetRows` and derived
+    // from the SAME deferred filter snapshot the rows came from — rather than recomputed here from
+    // the live `selectFilters` array. During a `useDeferredValue` window the urgent render would
+    // otherwise pair stale L3 rows with a freshly-resolved filter list, so `resolveRowsAtGrain`'s
+    // L4 semi-join rendered the intersection of two filter states (a transient flash to empty).
+    // `resolvedFiltersNoCross` ('page' + 'widget' only) matches `filteredRowsNoCross`;
+    // `resolvedFiltersAll` ('all') matches `filteredRows` (finding 2.1).
+    resolvedFiltersAll,
+    resolvedFiltersNoCross,
   } = useWidgetRows(widget, dataSource, pageId);
 
-  // The widget's fully resolved/scoped filter set — recomputed here (rather than exposed by
-  // `useWidgetRows`) via the exact same `selectFiltersForWidget` call and params it uses
-  // internally, so this hook's L4 anchor-filter re-application (finding 1.4, threaded through
-  // `useChartRows` below) can never disagree with what L3 actually enforced as a semi-join.
-  // `resolvedFiltersNoCross` ('page' + 'widget' only) matches `filteredRowsNoCross`;
-  // `resolvedFiltersAll` ('all' — page + widget + cross-filter + interactive) matches
-  // `filteredRows`. `effectiveRows` is `filteredRowsNoCross` in `crossFilterMode: 'none'` and
-  // `filteredRows` otherwise — mirroring `useWidgetRows`'s own `effectiveRows` resolution exactly.
-  const resolvedFiltersNoCross = React.useMemo(
-    () =>
-      selectFiltersForWidget(filters, {
-        widgetId: widget.id,
-        widgetSourceId: widget.sourceId,
-        activePageId: pageId,
-        include: 'no-cross',
-        crossFilterAllPages,
-      }),
-    [filters, widget.id, widget.sourceId, pageId, crossFilterAllPages],
-  );
-  const resolvedFiltersAll = React.useMemo(
-    () =>
-      selectFiltersForWidget(filters, {
-        widgetId: widget.id,
-        widgetSourceId: widget.sourceId,
-        activePageId: pageId,
-        include: 'all',
-        crossFilterAllPages,
-      }),
-    [filters, widget.id, widget.sourceId, pageId, crossFilterAllPages],
-  );
   const chartCrossFilterMode =
     globalCrossFilterMode ??
     (widget.config as StudioWidgetConfig)?.crossFilterMode ??

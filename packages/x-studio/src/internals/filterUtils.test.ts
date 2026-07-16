@@ -719,6 +719,31 @@ describe('applyFilters — rank mode', () => {
     expect(result.map((r) => r.id).sort()).toEqual(['a', 'c', 'd']);
   });
 
+  it('coerces a non-numeric rankByField sentinel instead of poisoning the group total (finding 3.5)', () => {
+    // The 'Y' group carries a non-numeric sentinel ("N/A") in `revenue`. With the shared
+    // `coerceAggregateValue` policy the sentinel contributes 0, so Y totals 300 and is the
+    // clear top-1 group — both its rows survive. Before the fix, `Number('N/A' ?? 0)` was NaN,
+    // which poisoned Y's running total to NaN and corrupted the top-N ordering (NaN comparisons
+    // are always false), dropping the group that should have won.
+    const rowsWithSentinel = [
+      { id: 'a', revenue: 100, category: 'X' },
+      { id: 'b', revenue: 'N/A', category: 'Y' },
+      { id: 'c', revenue: 300, category: 'Y' },
+      { id: 'd', revenue: 50, category: 'Z' },
+    ];
+    const result = applyFilters(rowsWithSentinel, [
+      makeFilter({
+        field: 'category',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 1,
+        rankDirection: 'top',
+        rankByField: 'revenue',
+      }),
+    ]);
+    expect(result.map((r) => r.id).sort()).toEqual(['b', 'c']);
+  });
+
   it('rank N=0 is treated as incomplete and skipped', () => {
     const result = applyFilters(rows, [
       makeFilter({

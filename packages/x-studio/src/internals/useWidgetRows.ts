@@ -1,7 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../models';
 import { isWidgetOfKind } from '../models';
 import {
   useStudioSelector,
@@ -85,6 +90,19 @@ interface UseWidgetRowsResult {
    * Empty string when there is no error.
    */
   errorMessage: string;
+  /**
+   * The widget's fully resolved/scoped filter set for `include: 'all'` (page + widget +
+   * cross-filter + interactive), derived from the SAME deferred filter snapshot the rows were
+   * produced from. Consumers doing L4 re-anchoring (chart `useChartRows`, KPI grain-anchoring)
+   * must use this rather than re-deriving from the live `selectFilters` array, so a deferred-window
+   * render never pairs stale rows with a newer filter list (finding 2.1). Pairs with `filteredRows`.
+   */
+  resolvedFiltersAll: StudioFilterState[];
+  /**
+   * The widget's resolved/scoped filter set for `include: 'no-cross'` (page + widget only),
+   * derived from the same deferred snapshot as the rows. Pairs with `filteredRowsNoCross`.
+   */
+  resolvedFiltersNoCross: StudioFilterState[];
 }
 
 /**
@@ -219,6 +237,27 @@ export function useWidgetRows(
           widgetSourceId: widget.sourceId,
           activePageId: pageId,
           include: 'all',
+          crossFilterAllPages,
+        },
+      ),
+    [deferredPartitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+  );
+
+  // The 'no-cross' companion to `reachableFilters` (page + widget only), built from the SAME
+  // `deferredPartitioned` snapshot. Exposed as `resolvedFiltersNoCross` so L4 re-anchoring
+  // consumers (chart / KPI) can pair the filter set with `filteredRowsNoCross` — which came from
+  // the same deferred snapshot — instead of re-deriving from the live `selectFilters` array and
+  // skewing during a deferred window (finding 2.1). `reachableFilters` (include:'all') is exposed
+  // as `resolvedFiltersAll`.
+  const resolvedFiltersNoCross = React.useMemo(
+    () =>
+      selectFiltersForWidget(
+        [...deferredPartitioned.page, ...(deferredPartitioned.byWidgetId.get(widget.id) ?? [])],
+        {
+          widgetId: widget.id,
+          widgetSourceId: widget.sourceId,
+          activePageId: pageId,
+          include: 'no-cross',
           crossFilterAllPages,
         },
       ),
@@ -611,5 +650,8 @@ export function useWidgetRows(
     isRecomputing,
     isError,
     errorMessage,
+    // `reachableFilters` is exactly the include:'all' scoped set (finding 2.1).
+    resolvedFiltersAll: reachableFilters,
+    resolvedFiltersNoCross,
   };
 }

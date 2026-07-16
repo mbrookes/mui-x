@@ -15,7 +15,9 @@ import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
+  getConfiguredStudioState,
 } from '../../../../test/studioContextMock';
+import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,
@@ -37,13 +39,36 @@ const rowsHolder = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../internals/useWidgetRows', () => ({
-  useWidgetRows: () => ({
-    filteredRowsNoCross: rowsHolder.current,
-    effectiveRows: rowsHolder.effective ?? rowsHolder.current,
-    isLoading: false,
-    isError: false,
-    errorMessage: undefined,
-  }),
+  useWidgetRows: (widget: StudioWidgetOf<'kpi'>, _dataSource: unknown, pageId: string) => {
+    // The real `useWidgetRows` now also exposes the widget's resolved/scoped filter sets so the
+    // KPI's L4 grain-anchoring consumes them from the SAME snapshot the rows came from (finding
+    // 2.1). Derive them here from the configured mock state via the real scoping authority so the
+    // anchor-filter tests still exercise store filters — the mocked rows stay fixture-driven.
+    let filters: StudioFilterState[] = [];
+    let crossFilterAllPages = false;
+    try {
+      const state = getConfiguredStudioState<StudioState>();
+      filters = state?.doc?.filters ?? [];
+      crossFilterAllPages = state?.doc?.dashboard?.crossFilterAllPages ?? false;
+    } catch {
+      filters = [];
+    }
+    const base = {
+      widgetId: widget.id,
+      widgetSourceId: widget.sourceId,
+      activePageId: pageId,
+      crossFilterAllPages,
+    } as const;
+    return {
+      filteredRowsNoCross: rowsHolder.current,
+      effectiveRows: rowsHolder.effective ?? rowsHolder.current,
+      isLoading: false,
+      isError: false,
+      errorMessage: undefined,
+      resolvedFiltersAll: selectFiltersForWidget(filters, { ...base, include: 'all' }),
+      resolvedFiltersNoCross: selectFiltersForWidget(filters, { ...base, include: 'no-cross' }),
+    };
+  },
 }));
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs

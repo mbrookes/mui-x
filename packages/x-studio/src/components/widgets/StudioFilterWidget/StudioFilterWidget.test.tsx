@@ -59,6 +59,7 @@ function setup(
     <StudioFilterWidget
       widget={filterWidget(config)}
       dataSource={dataSource}
+      pageId="page-1"
       slots={{ [slotKey]: Stub }}
     />,
     {
@@ -75,6 +76,7 @@ describe('StudioFilterWidget', () => {
       <StudioFilterWidget
         widget={filterWidget({ filterWidgetType: 'multi-select' })}
         dataSource={DATA_SOURCE}
+        pageId="page-1"
       />,
       {
         wrapper,

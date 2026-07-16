@@ -107,21 +107,20 @@ describe('MapSetupPanel', () => {
     expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Total');
   });
 
-  it('merges a full config update when the map type changes', async () => {
+  it('commits only the changed key via updateWidgetConfig when the map type changes (T3.3)', async () => {
     const { user } = render(<MapSetupPanel widgetId="widget-1" />);
 
     await user.click(screen.getByText('World'));
     const usaOption = await screen.findByRole('option', { name: 'United States' });
     await user.click(usaOption);
 
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
-      config: {
-        mapGeography: 'usa',
-        mapCountryField: 'country',
-        mapValueField: 'total',
-        mapAggregation: 'sum',
-      },
+    // `update()` now routes through `updateWidgetConfig` (which shallow-merges and runs the
+    // write-side kind guard) with ONLY the changed key, instead of `updateWidget` replacing the
+    // whole config from a render-time snapshot.
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      mapGeography: 'usa',
     });
+    expect(controller.updateWidget).not.toHaveBeenCalled();
   });
 
   it('toggles legend-scale-from-zero from the switch', async () => {
@@ -129,15 +128,10 @@ describe('MapSetupPanel', () => {
 
     await user.click(screen.getByRole('switch', { name: 'Scale from zero' }));
 
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
-      config: {
-        mapGeography: 'world',
-        mapCountryField: 'country',
-        mapValueField: 'total',
-        mapAggregation: 'sum',
-        mapLegendZeroMin: true,
-      },
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      mapLegendZeroMin: true,
     });
+    expect(controller.updateWidget).not.toHaveBeenCalled();
   });
 
   it('locks the aggregation to a disabled Count when no value field is selected', () => {
@@ -258,13 +252,14 @@ describe('MapSetupPanel', () => {
       .closest('.MuiAutocomplete-root') as HTMLElement;
     await user.click(within(valueRoot).getByLabelText('Clear field'));
 
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
-      config: expect.objectContaining({
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      expect.objectContaining({
         mapValueField: undefined,
         mapValueSourceId: undefined,
         // Locked "Count" label and renderer now agree: no stale avg/min/max over per-row 1s.
         mapAggregation: 'count',
       }),
-    });
+    );
   });
 });

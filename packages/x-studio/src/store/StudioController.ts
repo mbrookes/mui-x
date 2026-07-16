@@ -529,12 +529,14 @@ export class StudioController {
     // (2.11), so these non-undoable navigations/renames still land in the
     // recent-mutation log the model reads back — the `label` passed below is
     // intentionally NOT suppressed for them.
-    const prevDoc = this.store.state.doc;
-    const nextDoc = applyMutation(this.store.state, mutation).doc;
-    const isTransientOnlyMutation = this.isTransientOnlyDocDiff(prevDoc, nextDoc);
     this.commitMutation(mutation, {
       label,
-      ...(isTransientOnlyMutation ? { undoable: false } : {}),
+      // Classify the transient-only diff from the SAME reducer fold `commitMutations` already
+      // performs, rather than running `applyMutation` a second time here just to inspect the
+      // resulting doc (T3.1). `resolveUndoable` receives the fold's result (before `transform`),
+      // and `this.store.state` is still the PRE-commit state at call time, so this is the exact
+      // prev→next diff the old two-pass code computed — pure dedup, no behavior change.
+      resolveUndoable: (folded) => !this.isTransientOnlyDocDiff(this.store.state.doc, folded.doc),
       // Reset a dangling widget selection (2.2). An AI-driven `removeWidget` (or a
       // `removePage` that removes the selected widget) would otherwise leave
       // `session.shell.selectedWidgetId` pointing at a widget no longer in the doc —
@@ -575,6 +577,12 @@ export class StudioController {
       /** Recent-mutation-log label. `null` = do not log; omit = reducer default. */
       label?: string | null;
       undoable?: boolean;
+      /**
+       * Derive `undoable` from the reducer fold's result (before `transform`). Takes
+       * precedence over `undoable`. Lets `applyExternalMutation` classify a transient-only
+       * diff from the SAME fold instead of running `applyMutation` twice (T3.1).
+       */
+      resolveUndoable?: (folded: StudioState) => boolean;
       /** Client-only state layering, applied AFTER the reducer. */
       transform?: (next: StudioState) => StudioState;
     },
@@ -611,6 +619,13 @@ export class StudioController {
       /** Recent-mutation-log label. `null` = do not log; omit = reducer default. */
       label?: string | null;
       undoable?: boolean;
+      /**
+       * Derive `undoable` from the reducer fold's result (before `transform`). Takes
+       * precedence over `undoable`. Evaluated against the fold's `next` while `this.store.state`
+       * is still the pre-commit state, so callers can classify the exact prev→next doc diff
+       * without a second `applyMutation` pass (T3.1).
+       */
+      resolveUndoable?: (folded: StudioState) => boolean;
       /** Client-only state layering, applied AFTER the reducer fold. */
       transform?: (next: StudioState) => StudioState;
     },
@@ -631,8 +646,12 @@ export class StudioController {
       options?.label === null
         ? undefined
         : (options?.label ?? mutations.map(mutationLabel).join(' + '));
+    // `resolveUndoable` (T3.1) classifies from the fold's `next` (evaluated while
+    // `this.store.state` is still the pre-commit state); otherwise fall back to the explicit
+    // `undoable` flag (default handled by `commitState`).
+    const undoable = options?.resolveUndoable ? options.resolveUndoable(next) : options?.undoable;
     this.commitState(transformed, {
-      undoable: options?.undoable,
+      undoable,
       label,
     });
   };
@@ -2234,6 +2253,25 @@ export class StudioController {
                 "The moved widget's rank filter was dropped to preserve the invariant.",
             );
           }
+          mutations.push({ type: 'removeFilter', args: { filterId: f.id } });
+        }
+      }
+      // Emitted-scope cleanup (T1.1): a cross-page move must also drop any filter this widget
+      // EMITS whose scope is pinned to the source page — an `interactive` (filter-widget /
+      // slider) selection or a `cross-filter` (chart-click) entry, both keyed by
+      // `scope.sourceWidgetId` and carrying a `scope.pageId`. The move only rewrites page
+      // layouts; it never re-points those filters, so their `scope.pageId` would keep pointing
+      // at the SOURCE page — leaving the old page hard-filtered with no controlling widget
+      // present, while on the new page the control still advertises a "live" selection that
+      // filters nothing. A selection made in page A's context has no defined meaning on page B,
+      // so clearing is the correct resolution: fold one `removeFilter` per hit into the SAME
+      // commit (mirrors the rank-filter cleanup above). Widget-scoped rank filters travel with
+      // the widget and are handled by the loop above — a different `scope.kind`, so no overlap.
+      for (const f of state.doc.filters) {
+        if (
+          (f.scope.kind === 'interactive' || f.scope.kind === 'cross-filter') &&
+          f.scope.sourceWidgetId === widgetId
+        ) {
           mutations.push({ type: 'removeFilter', args: { filterId: f.id } });
         }
       }

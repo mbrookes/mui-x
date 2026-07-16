@@ -3,6 +3,7 @@ import type { RelativeDateValue } from './filterTypes';
 import type { StudioFilterState } from '../models';
 import { normalizeToDate } from './temporalUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
+import { coerceAggregateValue } from './aggregate';
 
 type Row = Record<string, unknown>;
 
@@ -547,7 +548,15 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       const totals = new Map<unknown, number>();
       for (const row of result) {
         const key = row[fieldId];
-        totals.set(key, (totals.get(key) ?? 0) + Number(row[f.rankByField] ?? 0));
+        // Route the rank-by measure through the SHARED numeric-coercion policy
+        // (`coerceAggregateValue`) that every other aggregation path uses, rather than
+        // `Number(... ?? 0)`. A non-numeric sentinel ("N/A") would otherwise coerce to NaN,
+        // poison the whole group's running total, and corrupt the top-N ordering (NaN
+        // comparisons are always false). Null / non-numeric values are skipped (contribute
+        // nothing) while the group key is still registered so an all-null group keeps a
+        // concrete `0` total, matching the chart aggregators (finding 3.5).
+        const coerced = coerceAggregateValue(row[f.rankByField]);
+        totals.set(key, (totals.get(key) ?? 0) + (coerced ?? 0));
       }
       const sorted = Array.from(totals.entries()).sort((a, b) =>
         dir === 'top' ? b[1] - a[1] : a[1] - b[1],

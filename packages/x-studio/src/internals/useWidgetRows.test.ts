@@ -232,6 +232,39 @@ describe('sync path (no adapter)', () => {
     expect(result.current.filteredRowsNoCross).toHaveLength(3);
   });
 
+  it('exposes resolvedFiltersAll / resolvedFiltersNoCross paired with the row sets (finding 2.1)', () => {
+    // The scoped filter sets consumers use for L4 re-anchoring must come from useWidgetRows itself
+    // (same deferred snapshot as the rows) rather than a live re-derivation. `resolvedFiltersAll`
+    // ('all') includes the cross-filter that shaped `filteredRows`; `resolvedFiltersNoCross`
+    // ('no-cross') carries only page+widget filters, matching `filteredRowsNoCross`.
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-page',
+          scope: { kind: 'page', pageId: 'page-1' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+        }),
+        makeFilter({
+          id: 'f-cross',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+          field: 'amount',
+          operator: 'greater_than',
+          value: 120,
+        }),
+      ],
+    });
+    const widget = makeWidget({ id: 'w1' });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    const allIds = result.current.resolvedFiltersAll.map((f) => f.id).sort();
+    const noCrossIds = result.current.resolvedFiltersNoCross.map((f) => f.id).sort();
+    expect(allIds).toEqual(['f-cross', 'f-page']);
+    expect(noCrossIds).toEqual(['f-page']);
+  });
+
   it('filteredRowsNoChartCross equals filteredRows when no chart cross-filters are active', () => {
     mockState = createState();
     const widget = makeWidget({ id: 'w1' });

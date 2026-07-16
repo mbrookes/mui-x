@@ -316,6 +316,25 @@ export function useBlendedSeriesRows(
 
   // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- async fetch results are merged per-source as they resolve
   React.useEffect(() => {
+    // Prune stale async entries whose source is no longer adapter-backed (finding 2.2). When a
+    // foreign source drops its adapter (`setDataSourceAdapter(sid, undefined)` or a `dataAdapters`
+    // swap dropping the key), it disappears from `foreignDescriptors` — but its last fetched rows
+    // would otherwise linger in `asyncForeignRows` forever and, since the merge applies async AFTER
+    // sync, permanently shadow the now freshly-resolved in-memory rows. One prune keyed on the
+    // current descriptor sids drops them so the sync path wins again. Returns `prev` unchanged when
+    // nothing is stale, so this is a no-op (no re-render) in the steady state.
+    setAsyncForeignRows((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const sid of prev.keys()) {
+        if (!foreignDescriptors.has(sid)) {
+          next.delete(sid);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
     if (foreignDescriptors.size === 0) {
       return undefined;
     }

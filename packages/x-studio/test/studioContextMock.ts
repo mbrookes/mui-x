@@ -81,3 +81,13 @@ export function configureStudioContextMock(config: {
   mockUseStudioSelector.mockImplementation(selectorImpl);
   mockUseStudioController.mockImplementation(controllerImpl);
 }
+
+/**
+ * Reads the currently-configured per-file mock state. Used by hook mocks (e.g. a mocked
+ * `useWidgetRows`) that need to derive store-dependent values — such as the resolved/scoped
+ * filter sets exposed for L4 re-anchoring (finding 2.1) — from the SAME state the context
+ * selectors resolve against, rather than re-declaring a parallel fixture.
+ */
+export function getConfiguredStudioState<T = unknown>(): T {
+  return getState() as T;
+}

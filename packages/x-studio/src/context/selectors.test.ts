@@ -138,12 +138,12 @@ describe('plain accessors', () => {
 // ── makeSelectActiveInteractiveFilter ──────────────────────────────────────────
 
 describe('makeSelectActiveInteractiveFilter', () => {
-  it('returns the interactive filter emitted by the widget', () => {
+  it('returns the interactive filter emitted by the widget on the given page', () => {
     const f = filter({
       id: 'i1',
       scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
     });
-    const sel = makeSelectActiveInteractiveFilter('w1');
+    const sel = makeSelectActiveInteractiveFilter('w1', 'page-1');
     expect(sel(state({ filters: [f] }))).toBe(f);
   });
 
@@ -152,7 +152,21 @@ describe('makeSelectActiveInteractiveFilter', () => {
       id: 'i1',
       scope: { kind: 'interactive', sourceWidgetId: 'other', pageId: 'page-1' },
     });
-    expect(makeSelectActiveInteractiveFilter('w1')(state({ filters: [f] }))).toBeNull();
+    expect(makeSelectActiveInteractiveFilter('w1', 'page-1')(state({ filters: [f] }))).toBeNull();
+  });
+
+  it('does not surface a filter emitted on a DIFFERENT page (T1.1)', () => {
+    // The interactive filter is pinned to `page-2` (e.g. authored there, or stranded after the
+    // emitting widget moved pages). A control mounted on `page-1` must not advertise it as active
+    // — it does not apply here, so a page-blind lookup would render "selected" while filtering
+    // nothing.
+    const f = filter({
+      id: 'i1',
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-2' },
+    });
+    expect(makeSelectActiveInteractiveFilter('w1', 'page-1')(state({ filters: [f] }))).toBeNull();
+    // Same filter, queried for its own page, still resolves.
+    expect(makeSelectActiveInteractiveFilter('w1', 'page-2')(state({ filters: [f] }))).toBe(f);
   });
 
   it('does not surface a DISABLED interactive filter (finding 3.1)', () => {
@@ -163,7 +177,7 @@ describe('makeSelectActiveInteractiveFilter', () => {
       disabled: true,
       scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
     });
-    expect(makeSelectActiveInteractiveFilter('w1')(state({ filters: [f] }))).toBeNull();
+    expect(makeSelectActiveInteractiveFilter('w1', 'page-1')(state({ filters: [f] }))).toBeNull();
   });
 });
 

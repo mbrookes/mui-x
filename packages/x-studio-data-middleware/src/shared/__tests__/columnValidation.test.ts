@@ -13,7 +13,12 @@
  * by the finding.
  */
 import { describe, it, expect } from 'vitest';
-import { resolveAlias, checkColumnAgainstAllowlist } from '../columnValidation';
+import {
+  resolveAlias,
+  checkColumnAgainstAllowlist,
+  validateAggregationAliases,
+  validateHavingAliases,
+} from '../columnValidation';
 import type { BatchWidgetDescriptor } from '../../security/types';
 
 const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
@@ -77,5 +82,64 @@ describe('checkColumnAgainstAllowlist — own-property gate on allowlist[table] 
     expect(() =>
       checkColumnAgainstAllowlist('id', 'constructor', { sales: ['id'] }, 'columns'),
     ).toThrow(/has no entry in the column allowlist/);
+  });
+});
+
+describe('validateAggregationAliases — alias charset (finding 1.1)', () => {
+  function descriptor(alias: string): BatchWidgetDescriptor {
+    return {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias }],
+    };
+  }
+
+  it('accepts a hyphenated alias (real expr-… / revenue-2024 logical id)', () => {
+    expect(() => validateAggregationAliases(descriptor('revenue-2024'))).not.toThrow();
+    expect(() => validateAggregationAliases(descriptor('expr-order-total'))).not.toThrow();
+  });
+
+  it('still accepts a plain underscore identifier', () => {
+    expect(() => validateAggregationAliases(descriptor('total_revenue_2024'))).not.toThrow();
+  });
+
+  it('still rejects a dangerous alias carrying SQL syntax / whitespace', () => {
+    expect(() => validateAggregationAliases(descriptor('revenue; DROP TABLE sales'))).toThrow(
+      /contains characters outside the allowed set/,
+    );
+    expect(() => validateAggregationAliases(descriptor('bad alias'))).toThrow(
+      /contains characters outside the allowed set/,
+    );
+  });
+});
+
+describe('validateHavingAliases — numeric value-shape guard (finding 2.1)', () => {
+  function descriptor(value: unknown): BatchWidgetDescriptor {
+    return {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      having: [{ alias: 'total', operator: 'gt', value: value as number }],
+    };
+  }
+
+  it('accepts a finite numeric HAVING value', () => {
+    expect(() => validateHavingAliases(descriptor(10000))).not.toThrow();
+    expect(() => validateHavingAliases(descriptor(0))).not.toThrow();
+    expect(() => validateHavingAliases(descriptor(-5))).not.toThrow();
+  });
+
+  it.each([
+    ['an array', [1, 2]],
+    ['an object', { toString: () => '1' }],
+    ['a string', '10000'],
+    ['null', null],
+    ['undefined', undefined],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+  ])('rejects a non-numeric HAVING value (%s) with a descriptive error', (_label, value) => {
+    expect(() => validateHavingAliases(descriptor(value))).toThrow(
+      /HAVING value for alias "total" must be a finite number/,
+    );
   });
 });

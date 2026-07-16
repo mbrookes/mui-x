@@ -198,6 +198,15 @@ export function validateDescriptorColumns(
  * aggregation alias; referencing an arbitrary column would turn HAVING into a
  * comparison oracle on columns the widget never selected. A descriptor that
  * supplies `having` with no `aggregations` at all is rejected.
+ *
+ * VALUE SHAPE (finding 2.1) — each `h.value` must ALSO be a finite number. The
+ * documented HAVING contract is numeric-only (see `HavingPredicate.value: number`),
+ * but the wire value is client JSON whose TS type is not a runtime guarantee.
+ * `applyHaving` binds it as `havingRaw('FUNC(??) op ?', [col, h.value])`; a
+ * non-scalar `h.value` (array / object / `undefined` / `NaN`) would expand to
+ * malformed SQL or an opaque driver error instead of a clean per-widget validation
+ * error. It is NOT injectable (still `?`-bound), so this enforces the numeric-only
+ * contract fail-closed, mirroring the filter path's scalar/in/between/like guards.
  */
 export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
   if (!descriptor.having || descriptor.having.length === 0) {
@@ -220,12 +229,32 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
           `Only aggregation aliases may be used in HAVING predicates.`,
       );
     }
+    if (typeof h.value !== 'number' || !Number.isFinite(h.value)) {
+      throw new Error(
+        `MUI X Studio Server: HAVING value for alias "${h.alias}" must be a finite number, received ${JSON.stringify(h.value)}. ` +
+          `HAVING compares a numeric aggregate, and a non-numeric value (array, object, null, NaN) would expand into malformed SQL or an opaque driver error. ` +
+          `Provide a finite number as the HAVING predicate "value".`,
+      );
+    }
   }
 }
 
 /**
  * Safe identifier charset for aggregation aliases and expression-field output
- * aliases (letters, digits, underscore).
+ * aliases (letters, digits, underscore AND hyphen).
+ *
+ * The hyphen is deliberately permitted (finding 1.1): the real x-studio client
+ * mints expression-field logical IDs as `expr-<timestamp>-<counter>` (hyphenated)
+ * and sends them verbatim as `columns` entries / aggregation aliases, mapped to a
+ * physical column via `columnAliases` (e.g. `{ 'expr-order-country': 'customers.country' }`).
+ * A hyphen-free charset rejected EVERY such join expression-field widget at the
+ * alias charset check. Allowing `-` is still injection-safe: both alias positions
+ * are Knex identifier-escaped — the expression-field output alias via
+ * `db.raw('?? as ??', [physical, outputAlias])` and the aggregation alias via
+ * Knex's object form `query.sum({ [alias]: col })` — so a hyphen becomes part of a
+ * quoted identifier and can never carry SQL syntax, exactly like an underscore.
+ * Genuinely dangerous tokens (`;`, spaces, quotes, parentheses) stay rejected.
+ * The hyphen is placed LAST in the character class so it is a literal, not a range.
  *
  * Exported (finding 3.4) — this used to be duplicated verbatim in
  * `security/validateQueryPlan.ts` (which interpolates the SAME class of
@@ -233,7 +262,7 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
  * `?? as ??`). A single shared constant means a future charset tightening
  * can't land in one file but not the other.
  */
-export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
+export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Validate every aggregation alias in a read descriptor against a safe-identifier
@@ -247,8 +276,9 @@ export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
  * barrier. It is kept (not removed) because it fails closed at the validation
  * stage with a clear per-widget message, and it guards against a future
  * query-builder refactor that reintroduces raw interpolation of the alias without
- * re-adding a guard. Constraining it to `[A-Za-z0-9_]` keeps a client-controlled
- * identifier token from ever carrying quoting, whitespace, or SQL syntax.
+ * re-adding a guard. Constraining it to `[A-Za-z0-9_-]` keeps a client-controlled
+ * identifier token from ever carrying quoting, whitespace, or SQL syntax while
+ * still admitting the hyphenated `expr-…` logical IDs the real client mints.
  */
 export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): void {
   for (const agg of descriptor.aggregations ?? []) {
@@ -256,7 +286,7 @@ export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): v
       throw new Error(
         `MUI X Studio Server: Aggregation alias "${agg.alias}" contains characters outside the allowed set. ` +
           `The alias is interpolated into the SQL projection as an identifier, so it must be a safe identifier to avoid altering the query. ` +
-          `Use only letters, digits and underscores (matching ${SAFE_ALIAS_PATTERN}).`,
+          `Use only letters, digits, underscores and hyphens (matching ${SAFE_ALIAS_PATTERN}).`,
       );
     }
   }

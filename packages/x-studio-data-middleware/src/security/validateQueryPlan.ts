@@ -242,7 +242,7 @@ function validateOutputAliases(descriptor: BatchWidgetDescriptor): void {
       throw new Error(
         `MUI X Studio Server: Output alias "${column}" contains characters outside the allowed set. ` +
           `The alias is interpolated into the SQL projection as an identifier (\`?? as ??\`), so it must be a safe identifier to avoid altering the query. ` +
-          `Use only letters, digits and underscores (matching ${SAFE_ALIAS_PATTERN}).`,
+          `Use only letters, digits, underscores and hyphens (matching ${SAFE_ALIAS_PATTERN}).`,
       );
     }
   }

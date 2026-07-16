@@ -14,6 +14,15 @@
  * 4. UPDATE/DELETE require at least one WHERE predicate
  * 5. One failed mutation does not abort the rest of the batch (per-item isolation)
  *
+ * READ vs WRITE isolation asymmetry: the read path (`handleBatchQuery`) reports a
+ * failing widget as its own per-widget `{ error }` while its siblings still
+ * succeed. The write path is only per-item isolated for errors surfaced by the
+ * per-mutation builder (invariants 2-4, unknown operation); a table-allowlist
+ * violation (invariant 1) is validated up front and throws, deliberately aborting
+ * the WHOLE batch all-or-nothing (pinned by the "table allowlist rejection"
+ * test) — a batch that references a disallowed table is treated as malformed
+ * rather than partially applied.
+ *
  * After each successful mutation:
  * - deleteByTag(table) is called automatically to evict stale query results for
  *   the affected table. The host app does not need to call /api/invalidate

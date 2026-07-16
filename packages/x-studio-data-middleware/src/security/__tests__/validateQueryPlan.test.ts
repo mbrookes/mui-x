@@ -238,6 +238,21 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     expect(() => validateQueryPlan(descriptor)).not.toThrow();
   });
 
+  // finding 1.1 — the real x-studio client mints expression-field logical IDs as
+  // `expr-<timestamp>-<counter>` (hyphenated) and sends them verbatim in `columns`
+  // with a `columnAliases` entry pointing at a DIFFERENT physical column, so the
+  // hyphenated id becomes an interpolated `?? as ??` output alias. A hyphen-free
+  // charset rejected EVERY join expression-field widget; the hyphen is now allowed.
+  it('accepts a hyphenated expression-field output alias (real expr-… logical id)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { 'expr-order-country': 'customers.country' },
+      columns: ['expr-order-country'],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
   it('does NOT validate a direct (non-renamed) column reference as an alias', () => {
     // A column with no `columnAliases` entry resolves to itself — `buildPlan`
     // never gives it an `outputAlias`, so it must not be charset-checked even if

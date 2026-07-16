@@ -178,6 +178,33 @@ interface ContinuousGroups {
  * whose x or y isn't a finite number. Shared by the continuous-x line and area
  * overlay builders (both need the same grouping, only the drawn shape differs).
  */
+/**
+ * Colors the continuous-x line/area groups by the color scale's resolved range
+ * (so a `scheme`/`range` — e.g. the CO2 chart's `magma` — wins over the default
+ * palette), indexed by each group's position in the color domain. Falls back to
+ * the chart palette when the scale gives no range.
+ */
+function continuousGroupColor(
+  ctx: UnitContext,
+  colorField: string | undefined,
+): (key: string, groupIndex: number) => string {
+  const { palette } = ctx;
+  if (!colorField) {
+    return (_key, groupIndex) => palette[groupIndex % palette.length];
+  }
+  const colorRes = resolveColor(ctx.encoding, ctx.rows, ctx.gaps, ctx.unit.path);
+  return (key, groupIndex) => {
+    if (colorRes.range && colorRes.range.length > 0) {
+      const domainIndex = colorRes.domain
+        ? colorRes.domain.findIndex((value) => String(value) === key)
+        : -1;
+      const index = domainIndex >= 0 ? domainIndex : groupIndex;
+      return colorRes.range[index % colorRes.range.length];
+    }
+    return palette[groupIndex % palette.length];
+  };
+}
+
 function groupContinuousPoints(ctx: UnitContext, xField: string, yField: string): ContinuousGroups {
   const { rows, encoding } = ctx;
   const colorDef = [encoding.color, encoding.fill, encoding.stroke].find((def) =>
@@ -308,10 +335,11 @@ function buildContinuousLineOverlay(
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
   const staticStroke = resolveMarkColor(mark.color ?? mark.stroke, ctx.gaps, ctx.unit.path);
+  const groupColorAt = continuousGroupColor(ctx, colorField);
 
   const items: OverlaySegment[] = [];
   order.forEach((key, groupIndex) => {
-    const color = colorField ? palette[groupIndex % palette.length] : (staticStroke ?? palette[0]);
+    const color = colorField ? groupColorAt(key, groupIndex) : (staticStroke ?? palette[0]);
     const points = groups
       .get(key)!
       .slice()
@@ -346,6 +374,7 @@ function buildContinuousAreaOverlay(
   const { palette } = ctx;
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
+  const groupColorAt = continuousGroupColor(ctx, colorField);
   const staticFill = resolveMarkColor(
     mark.fill ?? mark.color ?? mark.stroke,
     ctx.gaps,
@@ -372,7 +401,7 @@ function buildContinuousAreaOverlay(
     if (points.length < 2) {
       return;
     }
-    const color = colorField ? palette[groupIndex % palette.length] : (staticFill ?? palette[0]);
+    const color = colorField ? groupColorAt(key, groupIndex) : (staticFill ?? palette[0]);
     overlays.push({
       kind: 'band',
       orientation: 'vertical',

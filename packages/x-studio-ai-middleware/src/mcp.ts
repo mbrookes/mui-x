@@ -131,6 +131,23 @@ const RAW_ROW_DATA_TOOLS = new Set([
   'compute_field_stats',
 ]);
 
+/**
+ * Multi-source raw-row tools: `summarise_page` fans out live `queryDataSource`
+ * calls across EVERY widget source on the resolved page (returning up to 5 real
+ * sample rows per widget, plus per-field stats and GROUP BY anomaly aggregates).
+ * Like the raw-row siblings above it must be governed by the documented
+ * `query_data_source` contract (`resources.ts`) — otherwise a host that denies
+ * `query_data_source` to lock down ALL raw-row access still leaks rows through
+ * `summarise_page` (finding T2-α). Unlike those siblings it has no single
+ * `sourceId` (it spans the whole page), so its consult is routed under
+ * `query_data_source` SOURCE-AGNOSTICALLY — exactly mirroring the multi-source
+ * `studio://dashboard/data-health` resource, whose single source-agnostic
+ * `authorizeDataAccess()` consult a blanket `query_data_source` deny gates. A
+ * per-`sourceId` deny does not single out one widget's source here (same
+ * intentional coarseness as `data-health`); a blanket / by-name deny does.
+ */
+const MULTI_SOURCE_RAW_ROW_TOOLS = new Set(['summarise_page']);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -481,13 +498,20 @@ export function buildStudioMcpServer(
         // every raw-row surface (tool AND resource) identically. These tools stay
         // advertised / allow-listed under their OWN names (the `isToolAllowed` check
         // above is unchanged); only the policy-consult and approval-bridge tool name
-        // is remapped. Every other dispatch-table tool consults under its own name
-        // with its full args, as before.
+        // is remapped. `summarise_page` is remapped the same way but SOURCE-AGNOSTIC
+        // (it spans every widget source on the page — finding T2-α; see
+        // MULTI_SOURCE_RAW_ROW_TOOLS). Every other dispatch-table tool consults under
+        // its own name with its full args, as before.
         const isRawRowDataTool = RAW_ROW_DATA_TOOLS.has(toolName);
-        const policyToolName = isRawRowDataTool ? 'query_data_source' : toolName;
+        const isMultiSourceRawRowTool = MULTI_SOURCE_RAW_ROW_TOOLS.has(toolName);
+        const policyToolName =
+          isRawRowDataTool || isMultiSourceRawRowTool ? 'query_data_source' : toolName;
         const consultInput = isRawRowDataTool
           ? { sourceId: (args as { sourceId?: unknown } | undefined)?.sourceId }
-          : (args ?? {});
+          : isMultiSourceRawRowTool
+            ? // Source-agnostic (no single sourceId) — see MULTI_SOURCE_RAW_ROW_TOOLS.
+              {}
+            : (args ?? {});
         const gate = await consultToolPolicyArgsOnly(
           policyToolName,
           consultInput,

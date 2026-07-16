@@ -1464,6 +1464,59 @@ describe('buildStudioMcpServer — raw-row policy parity (T2-B)', () => {
     expect(ok.isError).toBeFalsy();
     expect(queryDataSource).toHaveBeenCalled();
   });
+
+  it('a by-name query_data_source deny also blocks summarise_page (raw-row rows fan out across the page)', async () => {
+    // `summarise_page` returns up to 5 real sample rows per widget via live
+    // `queryDataSource` calls, so the documented "denying `query_data_source`
+    // governs ALL raw-row access" contract must gate it (finding T2-α). It spans
+    // every widget source on the page, so — like `studio://dashboard/data-health`
+    // — its consult is routed under `query_data_source` source-agnostically; a
+    // blanket / by-name deny gates it.
+    const state = makeStableState();
+    const widgetId = 'w-orders';
+    state.doc.widgets[widgetId] = {
+      id: widgetId,
+      kind: 'grid',
+      title: 'Orders Grid',
+      sourceId: 'source-orders',
+      config: {},
+    } as any;
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
+    const stateBox = { current: state };
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ id: 'o1', total: 100, status: 'pending' }],
+        rowCount: 42,
+      }),
+    );
+    const consulted: Array<{ toolName: string; sourceId: unknown }> = [];
+    const server = buildStudioMcpServer(stateBox, {
+      data: { queryDataSource },
+      toolPolicy: (ctx) => {
+        consulted.push({ toolName: ctx.toolName, sourceId: (ctx.input as any)?.sourceId });
+        if (ctx.toolName === 'query_data_source') {
+          return { action: 'deny', reason: 'raw-row access is off-limits' };
+        }
+        return { action: 'allow' };
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const result = (await call({
+      params: { name: 'summarise_page', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError, 'summarise_page should be denied by a query_data_source deny').toBe(
+      true,
+    );
+    expect(result.content[0].text).toMatch(/off-limits/);
+    // The consult was routed under `query_data_source` (not the tool's own name),
+    // source-agnostically (no single sourceId — it spans the page).
+    expect(consulted).toEqual([{ toolName: 'query_data_source', sourceId: undefined }]);
+    // No rows ever reached the client — the DB was never touched.
+    expect(queryDataSource).not.toHaveBeenCalled();
+  });
 });
 
 // ── tools/list golden output (Stage 1 registry retrofit regression guard) ────

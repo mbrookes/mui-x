@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '@mui/x-studio-schema';
 import { applyDocMutation, applyMutation, mutationLabel } from './applyMutation';
+import { serializeDoc, deserializeState } from './statePersistence';
 import type { StudioDoc, StudioState } from './stateTypes';
 import type { StudioWidgetOf } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
@@ -1030,6 +1031,34 @@ describe('applyMutation', () => {
       expect(({} as Record<string, unknown>).polluted).toBeUndefined();
       // The safe key still applied.
       expect((next.widgets.w1.config as { chartType: string }).chartType).toBe('line');
+    });
+
+    // T2-3: the `changes.config` WHOLESALE replace channel now strips unsafe own config
+    // keys (the config-PATCH loop already did, per-key). Without the strip, the unsafe
+    // key survived as an own config property and `deserializeState`'s `hasUnsafeOwnKeys`
+    // screen would drop the ENTIRE widget on the next load — silent data loss. Reachable
+    // via a CUSTOM widget kind, whose per-kind key validation imposes no restriction.
+    it('strips an unsafe own key from a wholesale changes.config; widget survives reload (T2-3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'acme-x', title: 'W', config: { foo: 'bar' } },
+        } as unknown as StudioDoc['widgets'],
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      });
+      const config = JSON.parse('{"__proto__":{"polluted":true},"foo":"baz"}');
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config } as never },
+      });
+      // The unsafe key is stripped; the safe key applied; the prototype is untouched.
+      expect(Object.hasOwn(next.widgets.w1.config, '__proto__')).toBe(false);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect((next.widgets.w1.config as { foo: string }).foo).toBe('baz');
+      // The widget round-trips through persistence WITHOUT being dropped on load.
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.widgets.w1).toBeDefined();
+      expect((reloaded.doc.widgets.w1.config as { foo: string }).foo).toBe('baz');
     });
 
     it('unsetting an absent key is a harmless no-change', () => {
@@ -2153,6 +2182,41 @@ describe('applyMutation', () => {
       expect(Object.getPrototypeOf(next.widgets)).toBe(Object.prototype);
       expect(Object.hasOwn(next.widgets, 'constructor')).toBe(false);
       expect(next.widgets.good).toEqual(chartWidget('good'));
+    });
+
+    // T2-3: the `updatedWidgets[].config` shallow-merge channel now strips unsafe own
+    // config keys, the same defense-in-depth the `updateWidget` config-patch loop applies
+    // per-key. Without the strip, the unsafe key survived the merge as an own config
+    // property and `deserializeState`'s `hasUnsafeOwnKeys` screen dropped the ENTIRE
+    // widget on the next load — silent data loss, reachable for a CUSTOM widget kind.
+    it('strips an unsafe own key from a bulk updatedWidgets[].config; widget survives reload (T2-3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'acme-x', title: 'W', config: { foo: 'bar' } },
+        } as unknown as StudioDoc['widgets'],
+      });
+      const config = JSON.parse('{"__proto__":{"polluted":true},"foo":"baz"}');
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', config }],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        } as never,
+      });
+      // The unsafe key is stripped from the merged config; the prototype is untouched.
+      expect(Object.hasOwn(next.widgets.w1.config, '__proto__')).toBe(false);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect((next.widgets.w1.config as { foo: string }).foo).toBe('baz');
+      // The widget round-trips through persistence WITHOUT being dropped on load.
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.widgets.w1).toBeDefined();
+      expect((reloaded.doc.widgets.w1.config as { foo: string }).foo).toBe('baz');
     });
 
     it('re-delivering the same bulk does not clobber a concurrent edit to an added widget (idempotent add) (1.2)', () => {

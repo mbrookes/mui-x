@@ -940,6 +940,19 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     expect(parsed.ok).toBe(false);
   });
 
+  // T2-2: `validateFilter` now screens the filter object's OWN top-level keys, closing
+  // the parity gap with `validateWidget`. An own `__proto__`/`constructor`/`prototype`
+  // key (materialized by `JSON.parse`, not the inherited accessor) would otherwise be
+  // appended verbatim by the reducer and round-trip through `serializeDoc`.
+  it.each(unsafeIds)('rejects an addFilter whose filter carries an own "%s" key', (key) => {
+    const parsed = parseStateMutation(
+      JSON.parse(
+        `{"type":"addFilter","args":{"filter":{"id":"f","field":"x","operator":"equals","value":1,"scope":{"kind":"page"},"${key}":{"polluted":true}}}}`,
+      ),
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
   it('running every valid payload through parse + applyMutation never pollutes Object.prototype', () => {
     for (const { mutation } of VALID_CASES) {
       const wire = JSON.parse(JSON.stringify(mutation)) as unknown;

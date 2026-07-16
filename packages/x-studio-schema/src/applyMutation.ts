@@ -20,6 +20,7 @@ import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
+import { hasUnsafeOwnKeys } from './parseStateMutation';
 
 /**
  * Widget column-span unit system, and the single source of truth for it.
@@ -214,6 +215,34 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Strip the prototype-polluting own keys (`__proto__`/`constructor`/`prototype`) from a
+ * config record that is about to be installed WHOLESALE onto a widget (T2-3). The
+ * `config`-PATCH loop in `updateWidget` already screens each key via `isSafePatchKey`
+ * before a bare bracket-assign, but the two spread/merge channels —
+ * `updateWidget`'s `changes.config` wholesale replace and `applyBulkUpdate`'s
+ * `updatedWidgets[].config` shallow-merge — install a spread result directly. Object
+ * spread uses DEFINE semantics (so it never pollutes a live prototype), but it RETAINS
+ * an unsafe key as an own DATA property; on the NEXT load `deserializeState`'s
+ * `hasUnsafeOwnKeys(cfg)` screen would then drop the ENTIRE widget → silent data loss.
+ * This is reachable via the AI bulk tool for CUSTOM widget kinds (whose per-kind config
+ * validation imposes no key restriction). Routing both channels through this step keeps
+ * all THREE config channels honoring the same defense-in-depth key screen. Reference-
+ * stable: returns the SAME object when it carries no unsafe own key.
+ */
+function stripUnsafeConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
+  if (!hasUnsafeOwnKeys(config)) {
+    return config;
+  }
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (isSafePatchKey(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe;
+}
+
 // Coerce a widget whose `config` is not a record (e.g. `config: null` from a
 // server-built `addWidget`/`applyBulkUpdate.addedWidgets` that bypassed
 // `parseStateMutation`) into one carrying `config: {}`, mirroring the load-boundary
@@ -379,6 +408,18 @@ export function normalizePersistedPages(
     // `"__proto__"` page key or a `null`/primitive page value, either of which would
     // corrupt the rebuild or crash the sweep below.
     if (!isSafePatchKey(pid) || page === null || typeof page !== 'object' || Array.isArray(page)) {
+      pagesChanged = true;
+      continue;
+    }
+    // Screen the page object's OWN top-level keys against the prototype-hazard denylist
+    // (Finding T2-1), symmetric with the page-KEY screen just above and with the load
+    // boundary's widget own-key screen. The rebuild below spreads `{ ...page, id: pid, … }`
+    // with DEFINE semantics, so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA
+    // property (as `JSON.parse` materializes it on a shared/hand-edited doc) is copied
+    // straight through onto the rebuilt page and later poisons a spread/`Object.assign` of
+    // it. Drop the whole page (matching the unsafe-page-KEY drop above). Reuses the SAME
+    // `hasUnsafeOwnKeys` predicate the wire and load boundaries use.
+    if (hasUnsafeOwnKeys(page)) {
       pagesChanged = true;
       continue;
     }
@@ -769,7 +810,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             // `shallowRecordEqual` are both array-tolerant. A non-record value is simply
             // ignored rather than applied.
             if (isPlainRecord(value)) {
-              const normalized = normalizeConfigChartSeries(value as Record<string, unknown>);
+              // Strip prototype-polluting own keys before installing wholesale (T2-3), the
+              // same defense-in-depth the `config`-patch loop applies per-key — otherwise
+              // an unsafe key survives as an own config property and the next load drops
+              // the whole widget.
+              const safeValue = stripUnsafeConfigKeys(value as Record<string, unknown>);
+              const normalized = normalizeConfigChartSeries(safeValue);
               if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
                 definedChanges.config = normalized;
               }
@@ -1476,10 +1522,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // spreads either one's index keys ("0", "1", …) into the merged config (T2-2).
         // A non-record `update.config` is skipped entirely, same as an absent one.
         if (isPlainRecord(update.config)) {
-          const mergedConfig = normalizeConfigChartSeries({
-            ...existing.config,
-            ...update.config,
-          }) as StudioWidget['config'];
+          // Strip prototype-polluting own keys from the merge result before installing
+          // (T2-3), the same defense-in-depth the `updateWidget` config-patch loop applies
+          // per-key — otherwise an unsafe key in `update.config` survives as an own config
+          // property and `deserializeState` drops the whole widget on the next load.
+          const mergedConfig = normalizeConfigChartSeries(
+            stripUnsafeConfigKeys({
+              ...existing.config,
+              ...update.config,
+            }),
+          ) as StudioWidget['config'];
           if (
             !shallowRecordEqual(
               existing.config as Record<string, unknown>,

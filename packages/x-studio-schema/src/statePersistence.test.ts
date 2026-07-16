@@ -918,6 +918,70 @@ describe('deserializeState', () => {
     expect(state.doc.widgets.w1).toBeDefined();
   });
 
+  // ── widget/page/filter OBJECT own-key screen on load (T2-1 / T2-2) ────────────
+  // The crafted input from the finding: a persisted widget carrying `__proto__` as a
+  // real own DATA property (not the record KEY — that is the test above, and not the
+  // config own key — that is a separate screen). Such a widget previously passed load
+  // verbatim, round-tripped through `serializeDoc`, and a later spread of it poisoned
+  // the target's prototype. `deserializeState` now drops the whole widget, symmetric
+  // with the wire boundary's `hasUnsafeOwnKeys(widget)` rejection in `validateWidget`.
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted widget carrying an own "%s" top-level key, sparing valid siblings (T2-1)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        widgets: JSON.parse(
+          `{"w1":{"id":"w1","kind":"chart","title":"C","config":{"chartType":"bar"}},` +
+            `"w9":{"id":"w9","kind":"kpi","title":"T","config":{},"${key}":{"polluted":true}}}`,
+        ),
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      // The polluted widget is dropped; the valid sibling survives; nothing reached the
+      // prototype (a poisoned `Object.prototype.polluted` would leak onto every object).
+      expect(state.doc.widgets.w9).toBeUndefined();
+      expect(state.doc.widgets.w1).toBeDefined();
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      // And the surviving doc round-trips through serialization without carrying the key.
+      const roundTripped = serializeState(state);
+      expect(Object.hasOwn(roundTripped.widgets, 'w9')).toBe(false);
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted page carrying an own "%s" top-level key, sparing valid siblings (T2-1)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        widgets: { w1: chart('w1') },
+        pages: JSON.parse(
+          `{"page-1":{"id":"page-1","title":"P1","widgetRows":[["w1"]]},` +
+            `"page-9":{"id":"page-9","title":"Bad","widgetRows":[],"${key}":{"polluted":true}}}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.pages['page-9']).toBeUndefined();
+      expect(state.doc.pages['page-1']).toBeDefined();
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted filter carrying an own "%s" top-level key, sparing valid siblings (T2-2)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        filters: JSON.parse(
+          `[{"id":"page-f","field":"date","operator":"equals","value":"","scope":{"kind":"page"}},` +
+            `{"id":"bad","field":"x","operator":"equals","value":1,"scope":{"kind":"page"},"${key}":{"polluted":true}}]`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.filters.map((f) => f.id)).toEqual(['page-f']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
   // ── symmetric filter strip on load (finding 4 / review 2.2) ──────────────────
   it('strips a hand-carried cross-filter/interactive filter on load, symmetric with serializeDoc (finding 4)', () => {
     const serialized = {

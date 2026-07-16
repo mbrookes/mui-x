@@ -115,6 +115,11 @@ type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
  * forces a second cleanup refactor and leaves dead fields in both code and stored state
  * until someone gets around to it.
  *
+ * NOTE — the `1→2` examples below illustrate the NEXT bump, not the current registry
+ * state: `CURRENT_SCHEMA_VERSION` is presently `1`, so the only registered migration is
+ * the `0→1` identity entry in `migrations`. The `1:` snippets show the shape a future
+ * `1→2` migration would take when the schema next changes; they are not yet registered.
+ *
  * Example — bumping 1→2 (reshape `filters[].scope` from a string to a discriminated union):
  *
  *   1: (state) => {
@@ -595,6 +600,19 @@ export function deserializeState(
         ) {
           return false;
         }
+        // Screen the persisted widget object's OWN top-level keys against the
+        // prototype-hazard denylist (Finding T2-1), symmetric with the wire boundary's
+        // `hasUnsafeOwnKeys(widget)` rejection in `validateWidget`. `JSON.parse` on a
+        // shared/hand-edited doc materializes an own `"__proto__"`/`"constructor"`/
+        // `"prototype"` key as a real own DATA property (not the inherited accessor); such
+        // a widget passes load verbatim today, round-trips through `serializeDoc`, and an
+        // `Object.assign({}, loadedWidget)`/spread of it then poisons the target's
+        // prototype. The wire boundary already rejects the whole widget for this, so follow
+        // the same fail-closed drop-invalid-entry convention here (matching the config-key
+        // drop just below). Reuses the SAME `hasUnsafeOwnKeys` predicate.
+        if (hasUnsafeOwnKeys(widget)) {
+          return false;
+        }
         // Screen the persisted widget's OWN `config` keys against the prototype-hazard
         // denylist (Finding 3.2), symmetric with the wire boundary's
         // `hasUnsafeOwnKeys(widget.config)` rejection in `validateWidget`. A hand-edited/
@@ -802,6 +820,17 @@ export function deserializeState(
       // the reducer on the next commit.
       filters: serialized.filters.filter((f) => {
         if (!isRecord(f)) {
+          return false;
+        }
+        // Screen the persisted filter object's OWN keys against the prototype-hazard
+        // denylist (Finding T2-2), symmetric with the wire boundary's `hasUnsafeOwnKeys`
+        // gate now added to `validateFilter` in `parseStateMutation.ts`. The reducer's
+        // `addFilter` appends a filter verbatim (`[...state.filters, args.filter]`), and a
+        // persisted `filters` array is an untrusted boundary (`JSON.parse` on a shared/
+        // hand-edited doc materializes an own `"__proto__"`/`"constructor"`/`"prototype"`
+        // key as a real own DATA property). Drop the entry here so the byte-identical wire
+        // payload and the load payload agree. Reuses the SAME `hasUnsafeOwnKeys` predicate.
+        if (hasUnsafeOwnKeys(f)) {
           return false;
         }
         // Drop a persisted filter whose `id` is not a string (Finding 3.2), symmetric with

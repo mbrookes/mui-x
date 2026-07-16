@@ -113,11 +113,15 @@ function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
  * `isSafePatchKey` guard is the defense-in-depth backstop for server-built mutations.
  *
  * Exported so the persistence LOAD boundary (`statePersistence.ts`'s `deserializeState`)
- * can reuse the identical predicate when screening a persisted widget's `config` own keys
- * (Finding 3.2), keeping the wire and load boundaries byte-for-byte in agreement rather
- * than re-implementing the denylist check.
+ * and the reducer (`applyMutation.ts`) can reuse the identical predicate when screening a
+ * persisted widget/page/filter object's own keys, or a persisted widget's `config` own
+ * keys (Findings 3.2 / T2-1 / T2-2), keeping the wire and load boundaries byte-for-byte in
+ * agreement rather than re-implementing the denylist check. The parameter is the wide
+ * `object` (not `Record<string, unknown>`) precisely so every boundary can pass its own
+ * concrete shape — a `StudioWidget`, `StudioPage`, `StudioFilterState`, or a raw wire
+ * `Record` — without a cast; the body only reads own key NAMES, never values.
  */
-export function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
+export function hasUnsafeOwnKeys(record: object): boolean {
   return Object.keys(record).some((key) => UNSAFE_KEYS.has(key));
 }
 
@@ -359,6 +363,16 @@ export function isValidFilterScope(scope: unknown): scope is StudioFilterScope {
 function validateFilter(filter: unknown, path: string): string | null {
   if (!isRecord(filter)) {
     return `${path} must be an object`;
+  }
+  // Screen the filter object's OWN top-level keys for the prototype-hazard denylist
+  // (Finding T2-2), closing the parity gap with `validateWidget` (which already screens
+  // its widget object's own keys). The reducer's `addFilter` appends the filter verbatim
+  // (`[...state.filters, args.filter]`), so an own `__proto__`/`constructor`/`prototype`
+  // key would round-trip through `serializeDoc` and poison a later `Object.assign`/spread
+  // of the filter. Mirrored on load by `deserializeState`'s persisted-filter screen. Uses
+  // the SAME `hasUnsafeOwnKeys` predicate as every sibling check.
+  if (hasUnsafeOwnKeys(filter)) {
+    return `${path} must not carry a '__proto__'/'constructor'/'prototype' key`;
   }
   if (!isSafeId(filter.id)) {
     return `${path}.id must be a string id and not '__proto__'/'constructor'/'prototype'`;

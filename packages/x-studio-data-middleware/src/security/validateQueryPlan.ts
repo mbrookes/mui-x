@@ -184,6 +184,45 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
   }
 }
 
+/** Accepts only the three canonical SQL join types (case-insensitive). */
+const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
+
+/**
+ * Validate every JOIN `type` against a fail-closed allowlist AND normalize it to
+ * canonical lowercase on the descriptor (finding 2.3).
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), mirroring `validateOrderByDirections`.
+ * `join.type` is client JSON that `queryBuilder.ts`'s `buildSecureQuery` matches
+ * with EXACT lowercase `=== 'left'` / `=== 'right'` checks — to pick `leftJoin`/
+ * `rightJoin` vs the default inner `join`, AND (critically) to decide whether the
+ * joined-table security predicate goes in the ON clause (outer join) or the WHERE
+ * clause. An unrecognized value (`'full'`, `'cross'`), a typo, or a wrong-case
+ * `'LEFT'` would fall through EVERY exact-match check: the join silently degrades to
+ * INNER and the joined table's tenant predicate lands in WHERE instead of ON. So
+ * constrain the value to `inner`/`left`/`right` (fail-closed) and normalize it to
+ * lowercase in place so `buildSecureQuery`'s exact-match checks stay correct for a
+ * case-varying-but-valid input. Runs per widget inside `processWidget`, so a bad
+ * value yields that widget's own `{ error }` rather than rejecting the whole batch.
+ */
+function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
+  for (const join of descriptor.joins ?? []) {
+    if (join.type === undefined) {
+      continue;
+    }
+    if (typeof join.type !== 'string' || !SAFE_JOIN_TYPE.test(join.type)) {
+      throw new Error(
+        `MUI X Studio Server: JOIN type "${join.type}" is not allowed. ` +
+          `The join type decides whether a joined table's security predicate is enforced in the ON clause (outer join) or the WHERE clause, and an unrecognized value silently degrades the join to INNER with the predicate misplaced. ` +
+          `Use "inner", "left" or "right".`,
+      );
+    }
+    // Normalize to canonical lowercase so `buildSecureQuery`'s exact-match
+    // (`=== 'left'` / `=== 'right'`) checks stay correct for a case-varying input.
+    join.type = join.type.toLowerCase() as 'inner' | 'left' | 'right';
+  }
+}
+
 /**
  * Validate the row LIMIT against a fail-closed non-negative-integer guard.
  *
@@ -331,7 +370,15 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
 
   const joins: ResolvedJoin[] = (descriptor.joins ?? []).map((join) => ({
     table: join.table,
-    type: join.type,
+    // Normalize to canonical lowercase (on the request path already validated +
+    // normalized by `validateJoinTypes`). `String(...).toLowerCase()` keeps this
+    // non-throwing on the direct-caller path (`toValidatedQueryPlan`), which skips
+    // the validators — so `buildSecureQuery`'s exact-match `=== 'left'`/`'right'`
+    // checks stay correct even for a case-varying type from a direct caller.
+    type:
+      join.type === undefined
+        ? undefined
+        : (String(join.type).toLowerCase() as 'inner' | 'left' | 'right'),
     on: join.on.map(([left, right]): [ColumnRef, ColumnRef] => [resolve(left), resolve(right)]),
   }));
 
@@ -385,10 +432,13 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      projection via `?? as ??`, finding 3.4).
  *   4. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
  *      direction — the token is interpolated into the SQL ORDER BY clause).
- *   5. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
+ *   5. `validateJoinTypes`           — UNCONDITIONAL (throws on a non-inner/left/
+ *      right join type, normalizing case — an unrecognized value silently degrades
+ *      the join to INNER and misplaces the joined table's security predicate).
+ *   6. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
  *      negative `limit` — a malformed value can be silently coerced by the DB
  *      driver into returning every tenant-scoped row, finding 3.1).
- *   6. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
+ *   7. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
  * then resolves every column reference into the plan and, when a `columnAllowlist`
  * is configured for a no-columns/no-aggregations widget, synthesizes an explicit
@@ -403,9 +453,17 @@ export function validateQueryPlan(
   columnAllowlist?: Record<string, string[]>,
 ): ValidatedQueryPlan {
   validateHavingAliases(descriptor);
-  validateAggregationAliases(descriptor);
+  // Compute the projection OUTPUT ALIASES (finding 3.4) so `validateAggregationAliases`
+  // can reject an `agg.alias` that collides with one. An output alias exists only
+  // when a referenced column resolves to a DIFFERENT physical column (a renamed
+  // expression field, `?? as ??`) — mirroring `buildPlan` / `validateOutputAliases`.
+  const outputAliases = (descriptor.columns ?? []).filter(
+    (column) => resolveAlias(descriptor, column) !== column,
+  );
+  validateAggregationAliases(descriptor, outputAliases);
   validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);
+  validateJoinTypes(descriptor);
   validateLimit(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);

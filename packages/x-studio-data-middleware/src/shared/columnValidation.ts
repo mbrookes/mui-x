@@ -111,9 +111,18 @@ export function checkColumnAgainstAllowlist(
     return;
   }
   if (!allowed.includes(column)) {
-    throw new Error(
+    // INFORMATION DISCLOSURE (finding 3.3): the client-facing message names ONLY the
+    // rejected column, never the table's full allowed-column list. Enumerating every
+    // allowlisted column in an error returned verbatim to any authenticated caller
+    // (`handler.ts`'s per-widget `{ error }`) hands out the table's column map. The
+    // full list is logged server-side for operator debugging instead.
+    // eslint-disable-next-line no-console
+    console.warn(
       `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}). ` +
         `Allowed columns for "${table}": ${allowed.join(', ')}`,
+    );
+    throw new Error(
+      `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}).`,
     );
   }
 }
@@ -280,7 +289,12 @@ export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_-]+$/;
  * identifier token from ever carrying quoting, whitespace, or SQL syntax while
  * still admitting the hyphenated `expr-…` logical IDs the real client mints.
  */
-export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): void {
+export function validateAggregationAliases(
+  descriptor: BatchWidgetDescriptor,
+  outputAliases?: Iterable<string>,
+): void {
+  const outputAliasSet = outputAliases ? new Set(outputAliases) : undefined;
+  const seen = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
     if (!SAFE_ALIAS_PATTERN.test(agg.alias)) {
       throw new Error(
@@ -289,5 +303,29 @@ export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): v
           `Use only letters, digits, underscores and hyphens (matching ${SAFE_ALIAS_PATTERN}).`,
       );
     }
+    // UNIQUENESS (finding 3.4): two aggregations sharing one alias both pass the
+    // charset check, but `execute.ts` SELECTs both aggregates AS the same key
+    // (they collide onto ONE result-row key, silently dropping one) and
+    // `applyHaving` binds a HAVING on that alias to whichever `aggregations.find`
+    // returns first. Reject the duplicate as a clean per-widget error.
+    if (seen.has(agg.alias)) {
+      throw new Error(
+        `MUI X Studio Server: Duplicate aggregation alias "${agg.alias}". ` +
+          `Two aggregations sharing one alias collide on a single result-row key (one aggregate is silently dropped) and make a HAVING on that alias ambiguous. ` +
+          `Give each aggregation a distinct alias.`,
+      );
+    }
+    // An `agg.alias` colliding with a projection output alias (a renamed
+    // expression field, `?? as ??`) is the same key-collision hazard across the two
+    // SELECT sources. `outputAliases` is threaded by `validateQueryPlan`; direct
+    // aggregation-only callers omit it (no projection to collide with).
+    if (outputAliasSet?.has(agg.alias)) {
+      throw new Error(
+        `MUI X Studio Server: Aggregation alias "${agg.alias}" collides with a projection output alias. ` +
+          `The aggregate and the projected column would be SELECT-ed under the same key and collide on one result-row key. ` +
+          `Give the aggregation a distinct alias.`,
+      );
+    }
+    seen.add(agg.alias);
   }
 }

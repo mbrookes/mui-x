@@ -52,8 +52,24 @@ function normalizeRegionIds(regionIds: unknown): number[] | undefined {
     );
   }
   return regionIds.map((id, index) => {
+    // Accept ONLY a real number or a NON-EMPTY numeric string (finding 3.2).
+    // `Number(...)` coerces far too eagerly to lean on `Number.isFinite` alone:
+    // `Number(true) === 1`, `Number('') === 0`, `Number('  ') === 0` all pass, so a
+    // boolean or an empty/whitespace string would silently become a region id (`1`,
+    // `0`, …) and widen or corrupt the caller's region scope. Gate on the INPUT type
+    // first — a number, or a string that is non-empty after trimming — before
+    // coercing.
+    const isNumericString = typeof id === 'string' && id.trim() !== '';
+    if (typeof id !== 'number' && !isNumericString) {
+      throw new Error(
+        `MUI X Studio Server: JWT "regionIds[${index}]" must be a number (or a numeric string), ` +
+          `but received ${JSON.stringify(id)}. ` +
+          'A non-numeric region id cannot be safely compared against row-level region scope. ' +
+          'Ensure the token issuer emits "regionIds" as a number array (e.g. [5, 6]).',
+      );
+    }
     const numeric = typeof id === 'number' ? id : Number(id);
-    if (typeof id === 'object' || id === null || !Number.isFinite(numeric)) {
+    if (!Number.isFinite(numeric)) {
       throw new Error(
         `MUI X Studio Server: JWT "regionIds[${index}]" must be a number (or a numeric string), ` +
           `but received ${JSON.stringify(id)}. ` +

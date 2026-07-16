@@ -18,6 +18,23 @@ export function sortedStringify(obj: unknown): string {
   if (Array.isArray(obj)) {
     return `[${obj.map(sortedStringify).join(',')}]`;
   }
+  // Honor a `toJSON` method (e.g. `Date`) BEFORE the plain-object branch. A `Date`
+  // has ZERO own enumerable keys, so the object branch below would serialize every
+  // distinct date to `{}` — collapsing two widgets that differ only in a `Date`
+  // filter bound onto ONE cache entry, so one is served the other's cached rows
+  // (`computeQueryHash` in `cacheKey.ts`). `Date` filter values are a supported
+  // shape (`isScalarComparisonValue` in `shared/predicates.ts`). Routing through
+  // `JSON.stringify`, which invokes `toJSON`, serializes each date to its distinct
+  // ISO string — matching how these values already serialize everywhere else. This
+  // only changes hashes for previously-colliding inputs, so it cannot un-share a
+  // legitimately shared entry.
+  if (
+    obj !== null &&
+    typeof obj === 'object' &&
+    typeof (obj as { toJSON?: unknown }).toJSON === 'function'
+  ) {
+    return JSON.stringify(obj);
+  }
   if (obj !== null && typeof obj === 'object') {
     const sorted = Object.keys(obj as Record<string, unknown>)
       .sort()

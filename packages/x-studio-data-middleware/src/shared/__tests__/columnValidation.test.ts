@@ -113,6 +113,58 @@ describe('validateAggregationAliases — alias charset (finding 1.1)', () => {
   });
 });
 
+describe('validateAggregationAliases — duplicate/collision rejection (finding 3.4)', () => {
+  it('rejects two aggregations sharing one alias', () => {
+    // Both pass the charset check, but `execute.ts` SELECTs both aggregates AS the
+    // same key (they collide onto ONE result-row key, silently dropping one) and
+    // `applyHaving` binds a HAVING on that alias to whichever `find` returns first.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [
+        { column: 'amount', func: 'sum', alias: 'total' },
+        { column: 'amount', func: 'avg', alias: 'total' },
+      ],
+    };
+    expect(() => validateAggregationAliases(descriptor)).toThrow(/Duplicate aggregation alias/);
+  });
+
+  it('accepts distinct aliases', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [
+        { column: 'amount', func: 'sum', alias: 'total' },
+        { column: 'amount', func: 'avg', alias: 'average' },
+      ],
+    };
+    expect(() => validateAggregationAliases(descriptor)).not.toThrow();
+  });
+
+  it('rejects an aggregation alias that collides with a projection output alias', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
+    };
+    // `revenue` is also a projection output alias — the aggregate and the projected
+    // column would be SELECT-ed under the same key.
+    expect(() => validateAggregationAliases(descriptor, ['revenue'])).toThrow(
+      /collides with a projection output alias/,
+    );
+  });
+
+  it('does not flag an alias/outputAlias collision when no output aliases are threaded', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
+    };
+    // Aggregation-only callers (e.g. direct unit tests) omit the output-alias set.
+    expect(() => validateAggregationAliases(descriptor)).not.toThrow();
+  });
+});
+
 describe('validateHavingAliases — numeric value-shape guard (finding 2.1)', () => {
   function descriptor(value: unknown): BatchWidgetDescriptor {
     return {

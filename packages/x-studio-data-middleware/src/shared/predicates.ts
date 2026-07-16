@@ -82,11 +82,12 @@ const SCALAR_COMPARISON_OPERATORS = new Set<FilterPredicate['operator']>([
  * `FilterPredicate`'s TS types allow only `string | number | boolean` for these
  * operators; `Date` is additionally accepted because a date-typed column value
  * legitimately flows through the pipeline as a `Date` and must compare, not throw.
- * `null` is also allowed: Knex deliberately renders `.where(col, '=', null)` as
- * `col IS NULL` (and `!=` as `IS NOT NULL`), a supported filter the code already
- * handles — rejecting it would regress that behavior. Only a non-null object /
- * array / `undefined` (which have no meaningful single-value SQL comparison) are
- * rejected fail-closed.
+ * `null` is also allowed: the `eq`/`neq` cases in `applyPredicate` special-case it
+ * to `whereNull`/`whereNotNull` (Knex's 3-arg `.where(col, '=', null)` renders the
+ * never-true `col = NULL`, NOT `col IS NULL` — only the 2-arg / `'is'` forms get
+ * the null→whereNull conversion), a supported filter — rejecting it would regress
+ * that behavior. Only a non-null object / array / `undefined` (which have no
+ * meaningful single-value SQL comparison) are rejected fail-closed.
  */
 function isScalarComparisonValue(value: unknown): boolean {
   return (
@@ -399,10 +400,24 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
 
   switch (operator) {
     case 'eq':
-      query.where(column, '=', value);
+      // `null` must render as `IS NULL`, not the never-true `col = NULL`. Knex's
+      // 3-arg `.where(col, '=', null)` emits `col = NULL` (matches no row); only
+      // `.whereNull` produces the correct `col IS NULL`. Guarding here makes an
+      // `eq null` filter return the rows whose column IS NULL instead of zero rows.
+      if (value === null) {
+        query.whereNull(column);
+      } else {
+        query.where(column, '=', value);
+      }
       break;
     case 'neq':
-      query.where(column, '!=', value);
+      // Symmetric to `eq null`: `neq null` must render as `IS NOT NULL`, not the
+      // never-true `col != NULL`.
+      if (value === null) {
+        query.whereNotNull(column);
+      } else {
+        query.where(column, '!=', value);
+      }
       break;
     case 'in':
       // Runtime-guard the array shape (finding 3.1). `FilterPredicate.value` is

@@ -106,5 +106,34 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
       const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [{ id: 5 }] }, SECRET);
       expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
     });
+
+    // T3.2: `Number(...)` coerces far too eagerly to lean on `Number.isFinite`
+    // alone — `Number(true) === 1`, `Number('') === 0`, `Number('  ') === 0` all
+    // pass, so a boolean or an empty/whitespace string would silently become a
+    // region id (`1`, `0`, …) and widen or corrupt the caller's region scope.
+    it('rejects a boolean regionIds entry (Number(true) === 1 must not become region 1)', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [true] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+
+    it('rejects a `false` regionIds entry', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [false] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+
+    it('rejects an empty-string regionIds entry (Number("") === 0 must not become region 0)', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [''] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+
+    it('rejects a whitespace-only regionIds entry (Number("  ") === 0 must not become region 0)', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: ['  '] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
+
+    it('rejects a null regionIds entry', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', regionIds: [null] }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
+    });
   });
 });

@@ -210,6 +210,31 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     expect(viaPlan).toMatch(/contains characters outside the allowed set/);
   });
 
+  it('rejects a duplicate aggregation alias (finding 3.4)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      aggregations: [
+        { column: 'amount', func: 'sum', alias: 'total' },
+        { column: 'amount', func: 'avg', alias: 'total' },
+      ],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/Duplicate aggregation alias/);
+  });
+
+  it('rejects an aggregation alias colliding with a projection output alias (finding 3.4)', () => {
+    // `revenue` is a renamed expression-field projection (output alias) AND an
+    // aggregation alias — both SELECT-ed under the same result-row key.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { revenue: 'amount' },
+      columns: ['revenue'],
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/collides with a projection output alias/);
+  });
+
   // Regression for finding 3.4: an expression-field OUTPUT alias used to reach
   // `execute.ts`'s `db.raw('?? as ??', [physical, outputAlias])` with no charset
   // check at all — unlike its sibling `agg.alias`, which `validateAggregationAliases`
@@ -495,6 +520,58 @@ describe('validateQueryPlan — ORDER BY direction allowlist (finding 1.3)', () 
       orderBy: [{ column: 'region', direction: 'sideways' as any }],
     };
     expect(() => toValidatedQueryPlan(descriptor)).not.toThrow();
+  });
+});
+
+describe('validateQueryPlan — JOIN type allowlist (finding 2.3)', () => {
+  const joinDescriptor = (type: unknown): BatchWidgetDescriptor => ({
+    id: 'w1',
+    table: 'sales',
+    joins: [{ table: 'customers', type: type as any, on: [['sales.customer_id', 'customers.id']] }],
+  });
+
+  it('accepts an omitted join type (defaults to inner)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+    };
+    const plan = validateQueryPlan(descriptor);
+    expect(plan.joins[0].type).toBeUndefined();
+  });
+
+  it('accepts inner/left/right case-insensitively and normalizes to lowercase', () => {
+    expect(validateQueryPlan(joinDescriptor('INNER')).joins[0].type).toBe('inner');
+    expect(validateQueryPlan(joinDescriptor('Left')).joins[0].type).toBe('left');
+    expect(validateQueryPlan(joinDescriptor('RIGHT')).joins[0].type).toBe('right');
+  });
+
+  it('normalizes the descriptor in place so buildSecureQuery exact-match checks stay correct', () => {
+    // `buildSecureQuery` matches `join.type === 'left'` / `=== 'right'` exactly; a
+    // wrong-case `'LEFT'` would otherwise fall through to INNER and misplace the
+    // joined table's security predicate. Validation lowercases it on the descriptor.
+    const descriptor = joinDescriptor('LEFT');
+    validateQueryPlan(descriptor);
+    expect(descriptor.joins![0].type).toBe('left');
+  });
+
+  it('throws for an unrecognized join type (full/cross/typo)', () => {
+    for (const bad of ['full', 'cross', 'outer', 'joinx']) {
+      expect(() => validateQueryPlan(joinDescriptor(bad))).toThrow(/JOIN type/);
+    }
+  });
+
+  it('throws for a non-string join type (type is not a runtime guarantee)', () => {
+    expect(() => validateQueryPlan(joinDescriptor(1))).toThrow(/JOIN type/);
+    expect(() => validateQueryPlan(joinDescriptor({}))).toThrow(/JOIN type/);
+  });
+
+  it('toValidatedQueryPlan on a raw descriptor with a bad join type does NOT throw', () => {
+    // The direct-caller coercion path skips the validators; it only resolves +
+    // normalizes (case-folds), matching the ORDER BY-direction behavior.
+    expect(() => toValidatedQueryPlan(joinDescriptor('full'))).not.toThrow();
+    // A case-varying-but-valid type still normalizes on the coercion path.
+    expect(toValidatedQueryPlan(joinDescriptor('LEFT')).joins[0].type).toBe('left');
   });
 });
 

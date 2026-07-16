@@ -30,7 +30,9 @@ export interface JoinDescriptor {
   /**
    * Join conditions as `[leftColumn, rightColumn]` pairs.
    * Left column is from the primary table; right column is from the joined table.
-   * Both are identifier-escaped via Knex `??`.
+   * Both are identifier-escaped by Knex's join builder — `buildSecureQuery` emits
+   * them via `.on(left, '=', right)`, whose column arguments Knex quotes as
+   * identifiers (not the `??` binding used elsewhere).
    *
    * @example [['orders.customer_id', 'customers.id']]
    */

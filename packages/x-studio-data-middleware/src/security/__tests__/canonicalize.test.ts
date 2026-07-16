@@ -34,6 +34,24 @@ describe('sortedStringify', () => {
     expect(withNull).toBe('{"tenant":null}');
   });
 
+  it('serializes two distinct Dates differently (T2.1 — never collapses to {})', () => {
+    // A `Date` has ZERO own enumerable keys, so the plain-object branch would
+    // serialize EVERY date to `{}` — collapsing two query shapes that differ only
+    // in a `Date` filter bound onto one cache entry. Routing through `toJSON`
+    // (via `JSON.stringify`) serializes each date to its distinct ISO string.
+    const a = sortedStringify(new Date('2024-01-01T00:00:00.000Z'));
+    const b = sortedStringify(new Date('2024-06-15T00:00:00.000Z'));
+    expect(a).not.toBe(b);
+    expect(a).toBe('"2024-01-01T00:00:00.000Z"');
+    expect(b).toBe('"2024-06-15T00:00:00.000Z"');
+    // Neither is the empty-object serialization the plain-object branch produced.
+    expect(a).not.toBe('{}');
+    // A Date nested inside a filter-shaped object is distinguished too.
+    const nestedA = sortedStringify({ column: 'sale_date', value: new Date('2024-01-01') });
+    const nestedB = sortedStringify({ column: 'sale_date', value: new Date('2024-06-15') });
+    expect(nestedA).not.toBe(nestedB);
+  });
+
   it('pins the exact canonical output for a representative security profile', () => {
     // Exact-output snapshot: any future "improvement" to the algorithm that
     // would silently re-key every deployed cache entry / policy digest fails

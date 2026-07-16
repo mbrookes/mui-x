@@ -9,6 +9,7 @@
  * `Object.prototype.hasOwnProperty.call`-gated.
  */
 import { describe, it, expect, afterEach } from 'vitest';
+import Knex from 'knex';
 import {
   resolvePrimarySecurityColumns,
   resolveJoinSecurityColumns,
@@ -72,7 +73,14 @@ describe('applyPredicates — value-shape guards (finding 3.1)', () => {
   function recordingQuery() {
     const calls: Array<{ method: string; args: unknown[] }> = [];
     const q: any = {};
-    for (const method of ['where', 'whereIn', 'whereLike', 'whereBetween']) {
+    for (const method of [
+      'where',
+      'whereIn',
+      'whereLike',
+      'whereBetween',
+      'whereNull',
+      'whereNotNull',
+    ]) {
       q[method] = (...args: unknown[]) => {
         calls.push({ method, args });
         return q;
@@ -144,14 +152,50 @@ describe('applyPredicates — value-shape guards (finding 3.1)', () => {
     );
   });
 
-  it('allows a null "eq"/"neq" value (Knex renders it as IS NULL / IS NOT NULL)', () => {
+  // T2.2: `eq null` must route to `.whereNull` and `neq null` to `.whereNotNull`.
+  // The 3-arg `.where(col, '=', null)` renders the NEVER-TRUE `col = NULL` (Knex's
+  // null→whereNull conversion applies only to the 2-arg / `'is'` forms), so an
+  // `eq null` filter that reached `.where(col,'=',null)` would silently return zero
+  // rows instead of the rows whose column IS NULL.
+  it('routes a null "eq" value to whereNull and a null "neq" value to whereNotNull (not .where)', () => {
     const { q, calls } = recordingQuery();
     const predicates = [
       { column: 'deleted_at', operator: 'eq', value: null },
       { column: 'deleted_at', operator: 'neq', value: null },
     ] as unknown as FilterPredicate[];
     expect(() => applyPredicates(q, predicates, 'read')).not.toThrow();
-    expect(calls.filter((c) => c.method === 'where')).toHaveLength(2);
+    // Never the 3-arg `.where(col, '=', null)` (which renders `col = NULL`).
+    expect(calls.filter((c) => c.method === 'where')).toHaveLength(0);
+    expect(calls).toContainEqual({ method: 'whereNull', args: ['deleted_at'] });
+    expect(calls).toContainEqual({ method: 'whereNotNull', args: ['deleted_at'] });
+  });
+
+  // Real-Knex render pin (mirrors the outer-join / HAVING suites in
+  // queryBuilder.test.ts): renders through the real `knex` pg dialect to prove the
+  // emitted SQL is `IS NULL` / `IS NOT NULL`, and that the pre-fix 3-arg form would
+  // have produced the never-true `= NULL`.
+  it('renders IS NULL / IS NOT NULL through real Knex for null eq/neq', () => {
+    const realDb = Knex({ client: 'pg' });
+    const eqQuery = realDb('orders');
+    applyPredicates(
+      eqQuery,
+      [{ column: 'deleted_at', operator: 'eq', value: null }] as any,
+      'read',
+    );
+    expect(eqQuery.toString()).toBe('select * from "orders" where "deleted_at" is null');
+
+    const neqQuery = realDb('orders');
+    applyPredicates(
+      neqQuery,
+      [{ column: 'deleted_at', operator: 'neq', value: null }] as any,
+      'read',
+    );
+    expect(neqQuery.toString()).toBe('select * from "orders" where "deleted_at" is not null');
+
+    // Document the bug this fix closes: the 3-arg form renders the never-true
+    // `= NULL` (which matches zero rows), NOT `IS NULL`.
+    const buggy = realDb('orders').where('deleted_at', '=', null);
+    expect(buggy.toString()).toBe('select * from "orders" where "deleted_at" = NULL');
   });
 
   it('accepts legitimate scalar / string / Date values and routes them to Knex', () => {

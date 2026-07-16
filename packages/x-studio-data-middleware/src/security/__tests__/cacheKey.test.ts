@@ -121,6 +121,34 @@ describe('generateCacheKey', () => {
       );
       expect(a).not.toBe(b);
     });
+
+    it('produces different keys for descriptors differing only in a Date filter bound (T2.1)', () => {
+      // Regression: a `Date` filter value used to serialize to `{}` in the query
+      // hash (zero own enumerable keys), so two widgets differing only in a Date
+      // bound hashed identically and one was served the other's cached rows.
+      const a = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'sale_date', operator: 'gte', value: new Date('2024-01-01') } as any],
+        },
+        SECRET,
+      );
+      const b = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'sale_date', operator: 'gte', value: new Date('2024-06-15') } as any],
+        },
+        SECRET,
+      );
+      expect(a).not.toBe(b);
+      // Same tenant + security segment; only the query-hash segment differs.
+      expect(a.split(':')[3]).toBe(b.split(':')[3]);
+      expect(a.split(':')[4]).not.toBe(b.split(':')[4]);
+    });
   });
 
   describe('HMAC-secret scoping', () => {

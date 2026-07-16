@@ -299,12 +299,17 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     if (!isRecord(filter)) {
       return `filters[${i}]`;
     }
-    // Full scope validity — kind membership AND every required id field present — via the
-    // ONE shared predicate the wire boundary uses (Finding T3-1), replacing the prior
-    // kind-only check. The wire boundary already rejects a scope missing a required id
-    // (e.g. a `dashboard-date-range` without `sourceId`, which would mis-apply a date
-    // window); reporting it missing here keeps the load boundary symmetric with it.
-    if (!isValidFilterScope(filter.scope)) {
+    // CRASH-PREVENTION ONLY — deliberately WEAKER than `isValidFilterScope`. This gate runs
+    // inside `migrateState`, the MANDATORY FIRST gate in the load path, and fails HARD (a
+    // non-null return sinks the WHOLE dashboard to `{success:false,state:null}`). So it must
+    // reject only the shapes that would crash a no-optional-chaining `f.scope.kind` read in
+    // `serializeDoc`/the reducer: an entry whose `scope` is not a record, or whose
+    // `scope.kind` is not a string. A well-formed-but-incomplete scope (e.g.
+    // `scope:{kind:'widget'}` missing `widgetId`) does NOT crash those reads, so it must NOT
+    // sink the whole doc here — `deserializeState`'s per-entry `isValidFilterScope` screen
+    // (further down) gracefully DROPS just that one filter while loading everything else.
+    const scope = filter.scope;
+    if (!isRecord(scope) || typeof scope.kind !== 'string') {
       return `filters[${i}].scope`;
     }
   }
@@ -616,6 +621,23 @@ export function deserializeState(
         }
         if (!configIsRecord) {
           base = { ...base, config: {} } as StudioWidget;
+        }
+        // Screen the widget-level `titleMode`/`subtitleMode` at the load boundary (Finding
+        // T3-1), symmetric with the wire boundary's `isOptionalTitleMode` gate on these same
+        // two fields (`parseStateMutation.ts`). A hand-edited/shared `titleMode: 42` passes
+        // the record-widget `.filter` above and would load VERBATIM into the client's
+        // auto-title logic, which branches on `widget.titleMode`/`subtitleMode` — so a
+        // non-`'auto'|'manual'` value silently steers that logic while the byte-identical
+        // wire payload is rejected. Drop the offending KEY (mirroring the junk-`chartType`
+        // key-drop below, not a widget-dropping coercion) so the widget loads without it and
+        // the `'auto'` default applies. Reference-stable when both fields are already valid.
+        for (const modeKey of ['titleMode', 'subtitleMode'] as const) {
+          const modeValue = (base as unknown as Record<string, unknown>)[modeKey];
+          if (modeValue !== undefined && modeValue !== 'auto' && modeValue !== 'manual') {
+            const nextBase = { ...base };
+            delete (nextBase as unknown as Record<string, unknown>)[modeKey];
+            base = nextBase as StudioWidget;
+          }
         }
         // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
         // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild

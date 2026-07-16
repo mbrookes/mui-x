@@ -218,10 +218,11 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
   });
 
-  // T3-1: `findMissingRequiredField` now rejects a scope missing a required id via the
-  // shared `isValidFilterScope` predicate, symmetric with the wire boundary — not just a
-  // scope-less / null-scope entry.
-  it('fails a doc whose dashboard-date-range scope is missing sourceId, naming the field (T3-1)', () => {
+  // T2-1 (revert of over-correction): `findMissingRequiredField` is CRASH-PREVENTION only,
+  // so a well-formed-but-INCOMPLETE scope (a record scope with a string `kind` but a missing
+  // required id) must NOT sink the whole doc — it does not crash a `f.scope.kind` read. It
+  // migrates successfully; `deserializeState` (below) drops just that one filter.
+  it('does NOT fail a doc whose scope is a record with a string kind but a missing required id (T2-1)', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -231,9 +232,24 @@ describe('migrateState', () => {
             field: 'date',
             operator: 'between',
             value: '',
-            scope: { kind: 'dashboard-date-range', pageId: 'page-1' },
+            // `kind` is a string and `scope` is a record — no crash hazard — but `widgetId`
+            // (required for a `widget` scope) is absent. Reverted gate lets this through.
+            scope: { kind: 'widget' },
           },
         ],
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.state).not.toBeNull();
+  });
+
+  // A scope that is NOT a record (or whose `kind` is not a string) DOES crash a bare
+  // `f.scope.kind` read, so it stays a hard, named migration failure.
+  it('fails a doc whose scope.kind is not a string, naming the field (T2-1)', () => {
+    const result = migrateState(
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        filters: [{ id: 'f1', field: 'x', operator: 'equals', value: '', scope: { kind: 42 } }],
       }),
     );
     expect(result.success).toBe(false);
@@ -971,6 +987,41 @@ describe('deserializeState', () => {
     expect(() => serializeState(state)).not.toThrow();
   });
 
+  // T2-1 (revert): a doc whose ONLY defect is one filter with a well-formed-but-incomplete
+  // scope (`scope: { kind: 'widget' }`, no `widgetId`) must NOT be lost. `migrateState`'s
+  // crash-prevention gate lets it through, and `deserializeState`'s per-entry
+  // `isValidFilterScope` screen drops JUST that one filter while every page / widget /
+  // expression field / other filter loads intact.
+  it('migrates and loads a doc, dropping only a filter with an incomplete widget scope (T2-1)', () => {
+    const serialized = completeSerialized({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
+      expressionFields: [{ id: 'ef1', sourceId: 's1', name: 'total', expression: '1 + 1' }],
+      filters: [
+        // The sole defect: a well-formed-but-incomplete scope (missing `widgetId`).
+        { id: 'bad', field: 'x', operator: 'equals', value: '', scope: { kind: 'widget' } },
+        // A fully valid page-scoped filter that MUST survive.
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    });
+
+    // Previously this migrate FAILED (returned null) and the whole dashboard was lost.
+    const migration = migrateState(serialized);
+    expect(migration.success).toBe(true);
+    expect(migration.state).not.toBeNull();
+
+    const state = deserializeState(migration.state as typeof minimalSerialized, {});
+    // Only the incomplete filter is dropped; the valid one survives.
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['page-f']);
+    // Everything else is intact.
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.widgets.w1).toBeDefined();
+    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
   // ── dangling activePageId reconciliation at the load boundary (Tier 2) ───────
   // The factory and `removePage` both reconcile a dangling `activePageId`; the load
   // boundary did not. A hand-edited `activePageId` naming no page must fall back to the
@@ -1325,6 +1376,36 @@ describe('deserializeState', () => {
     // A valid chartType with no legacy columns/ySeries to normalize is a pure no-op:
     // the SAME widget reference is carried through.
     expect(state.doc.widgets.w1).toBe(serialized.widgets.w1);
+  });
+
+  // T3-1: the load boundary screens the widget-level `titleMode`/`subtitleMode`, symmetric
+  // with the wire boundary's `isOptionalTitleMode` gate. A persisted `titleMode: 42` loads
+  // with the key DROPPED (mirroring the junk-`chartType` key-drop), the rest of the widget
+  // intact, so the client's auto-title `'auto'` default applies.
+  it('drops a non-auto/manual titleMode on a persisted widget, keeping the rest (T3-1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'C',
+          titleMode: 42,
+          subtitleMode: 'manual',
+          config: { chartType: 'bar' },
+        },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    const w1 = state.doc.widgets.w1 as StudioWidget;
+    // The junk `titleMode` key is removed; the valid `subtitleMode` and the rest survive.
+    expect(w1).toBeDefined();
+    expect(Object.hasOwn(w1, 'titleMode')).toBe(false);
+    expect(w1.subtitleMode).toBe('manual');
+    expect(w1.title).toBe('C');
+    expect((w1.config as { chartType?: string }).chartType).toBe('bar');
+    expect(() => serializeState(state)).not.toThrow();
   });
 
   // ── identity-preserving normalization for already-canonical config (Finding 5)

@@ -505,9 +505,19 @@ function renderPie(input: SanitizedChartInput): string {
     }
     const slice = (d.value / total) * 360;
     const fill = color(colors, i);
-    lines.push(
-      `<path d="${arcPath(cx, cy, r, angle, angle + slice)}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`,
-    );
+    if (slice >= 359.999) {
+      // Single (or effectively-360°) slice: an arc whose start and end points
+      // coincide collapses to nothing after `.toFixed` rounding, so the SVG drops
+      // it and the chart body renders blank while the label/legend still show
+      // (finding 3.2). Emit a full circle instead.
+      lines.push(
+        `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`,
+      );
+    } else {
+      lines.push(
+        `<path d="${arcPath(cx, cy, r, angle, angle + slice)}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`,
+      );
+    }
 
     // Percentage label inside slice (only if slice is large enough)
     if (slice > 20) {
@@ -693,19 +703,40 @@ function renderDonut(input: SanitizedChartInput): string {
     const slice = (d.value / total) * 360;
     const fill = color(colors, i);
 
-    const outerStart = polarToCartesian(cx, cy, r, angle + slice);
-    const outerEnd = polarToCartesian(cx, cy, r, angle);
-    const innerStart = polarToCartesian(cx, cy, innerR, angle + slice);
-    const innerEnd = polarToCartesian(cx, cy, innerR, angle);
-    const largeArc = slice > 180 ? 1 : 0;
+    if (slice >= 359.999) {
+      // Single (or effectively-360°) slice: a wedge path whose start and end points
+      // coincide collapses to nothing after `.toFixed` rounding, blanking the chart
+      // body while the label/legend still show (finding 3.2). Emit a full ring (two
+      // semicircle arcs, `fill-rule="evenodd"` punches the donut hole) instead.
+      const oTop = polarToCartesian(cx, cy, r, 0);
+      const oBot = polarToCartesian(cx, cy, r, 180);
+      const iTop = polarToCartesian(cx, cy, innerR, 0);
+      const iBot = polarToCartesian(cx, cy, innerR, 180);
+      const ring =
+        `M ${oTop.x.toFixed(2)} ${oTop.y.toFixed(2)} ` +
+        `A ${r} ${r} 0 1 1 ${oBot.x.toFixed(2)} ${oBot.y.toFixed(2)} ` +
+        `A ${r} ${r} 0 1 1 ${oTop.x.toFixed(2)} ${oTop.y.toFixed(2)} Z ` +
+        `M ${iTop.x.toFixed(2)} ${iTop.y.toFixed(2)} ` +
+        `A ${innerR} ${innerR} 0 1 1 ${iBot.x.toFixed(2)} ${iBot.y.toFixed(2)} ` +
+        `A ${innerR} ${innerR} 0 1 1 ${iTop.x.toFixed(2)} ${iTop.y.toFixed(2)} Z`;
+      svgLines.push(
+        `<path d="${ring}" fill="${fill}" fill-rule="evenodd" stroke="#fff" stroke-width="1.5"/>`,
+      );
+    } else {
+      const outerStart = polarToCartesian(cx, cy, r, angle + slice);
+      const outerEnd = polarToCartesian(cx, cy, r, angle);
+      const innerStart = polarToCartesian(cx, cy, innerR, angle + slice);
+      const innerEnd = polarToCartesian(cx, cy, innerR, angle);
+      const largeArc = slice > 180 ? 1 : 0;
 
-    const path =
-      `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)} ` +
-      `A ${r} ${r} 0 ${largeArc} 0 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)} ` +
-      `L ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)} ` +
-      `A ${innerR} ${innerR} 0 ${largeArc} 1 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)} Z`;
+      const path =
+        `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)} ` +
+        `A ${r} ${r} 0 ${largeArc} 0 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)} ` +
+        `L ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)} ` +
+        `A ${innerR} ${innerR} 0 ${largeArc} 1 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)} Z`;
 
-    svgLines.push(`<path d="${path}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`);
+      svgLines.push(`<path d="${path}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`);
+    }
 
     if (slice > 20) {
       const midAngle = angle + slice / 2;

@@ -705,6 +705,39 @@ describe('buildAISystemPrompt: prototype-member id lookups (finding T2-1)', () =
     // With no pages at all, the correct message is the "no pages" fallback.
     expect(prompt).toContain('No pages yet.');
   });
+
+  it('does not render a phantom active-page widget for a prototype-member widget id', () => {
+    // A crafted body `widgetRows: [["constructor"]]` would otherwise make the
+    // active-page block's bare `widgets["constructor"]` lookup resolve
+    // `Object.prototype.constructor` (truthy), rendering a phantom widget
+    // (`id: undefined, kind: undefined…`) and inflating the widget count.
+    const realWidget = makeWidget('w1');
+    const state = makeState({
+      pages: {
+        [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1', 'constructor']] },
+      },
+      widgets: { w1: realWidget },
+    });
+    const prompt = buildAISystemPrompt(state);
+    // Only the one real widget is counted, not the phantom "constructor" id.
+    expect(prompt).toContain('## Widgets on "Page 1" (1)');
+    // No phantom widget / native-Object interpolation leaks into the layout line.
+    expect(prompt).not.toContain('native code');
+    expect(prompt).not.toContain('function Object');
+  });
+
+  it('does not render a phantom active-page widget for a "__proto__" widget id', () => {
+    const realWidget = makeWidget('w1');
+    const state = makeState({
+      pages: {
+        [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['__proto__', 'w1']] },
+      },
+      widgets: { w1: realWidget },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('## Widgets on "Page 1" (1)');
+    expect(prompt).not.toContain('native code');
+  });
 });
 
 // ── Filter widget guidance ────────────────────────────────────────────────────

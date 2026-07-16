@@ -541,7 +541,10 @@ function buildDashboardState(
   const activePage = getPage(pages, dashboard.activePageId);
   const activeWidgetIds = (activePage?.widgetRows ?? []).flat();
   const activeWidgets = activeWidgetIds
-    .map((id) => widgets[id])
+    // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
+    // `widgetRows: [["constructor"]]` would otherwise resolve to a truthy inherited
+    // value and render a phantom widget, inflating the active-widget count.
+    .map((id) => getWidget(widgets, id))
     .filter((w): w is StudioWidget => w != null);
 
   const sourceList = Object.values(dataSources);
@@ -596,8 +599,11 @@ function buildDashboardState(
       widgetRows.forEach((row, i) => {
         const rowDesc = row
           .map((id) => {
-            const w = widgets[id];
-            const span = widgetColSpans[id];
+            // `Object.hasOwn`-guarded lookups (finding T2-1): a crafted id naming an
+            // inherited member ("constructor", "__proto__") must not resolve `widgets`
+            // or `widgetColSpans` to a truthy prototype value and render a phantom entry.
+            const w = getWidget(widgets, id);
+            const span = Object.hasOwn(widgetColSpans, id) ? widgetColSpans[id] : undefined;
             // `widgetColSpans` is client-asserted (part of the request body), so a
             // crafted `span` could carry a `</dashboard_state>`-style break — sanitize
             // it like every other state-derived value (finding 1.1).

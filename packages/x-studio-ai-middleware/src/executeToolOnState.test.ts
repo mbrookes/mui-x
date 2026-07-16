@@ -1118,6 +1118,28 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(result.mutation?.type).toBe('applyBulkUpdate');
   });
 
+  // Finding 3.1: a crafted/legacy active page lacking `widgetRows` must not throw an
+  // opaque TypeError (breaching the pure-plan "never throw" convention). Every sibling
+  // handler guards `activePage.widgetRows` with `?? []`; this handler must too.
+  it('handles an active page with no widgetRows without throwing', () => {
+    const state = makeState();
+    // Drop `widgetRows` from the active page to model a crafted/legacy document.
+    const activePage = state.doc.pages['page-1'] as { widgetRows?: unknown };
+    delete activePage.widgetRows;
+    let result!: ReturnType<typeof executeToolOnState>;
+    expect(() => {
+      result = executeToolOnState(
+        'apply_bulk_update',
+        { widgetAdditions: [{ kind: 'chart', title: 'New Widget', sourceId: 'src1' }] },
+        state,
+      );
+    }).not.toThrow();
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const applied = out.applied as { added: number };
+    expect(applied.added).toBe(1);
+  });
+
   it('emits a DELTA-shaped mutation (remove/add/update lists), not a full widgets snapshot', () => {
     const state = makeState();
     const result = executeToolOnState(

@@ -1130,7 +1130,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const skipped: string[] = [];
       const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
 
-      let widgetRows = activePage.widgetRows.map((row) => [...row]);
+      let widgetRows = (activePage.widgetRows ?? []).map((row) => [...row]);
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
 
       // The mutation carries only DELTAS (remove/add/update), applied by the reducer
@@ -1154,7 +1154,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // are on the active page; report the rest as `skipped`, mirroring the not-found
       // handling. `liveWidgetIds` tracks the ids that exist after each delta step so
       // later update/validation checks match the pre-delta-refactor behavior.
-      const activePageWidgetIds = new Set(activePage.widgetRows.flat());
+      const activePageWidgetIds = new Set((activePage.widgetRows ?? []).flat());
       const liveWidgetIds = new Set(Object.keys(state.doc.widgets));
       const removals = (args.widgetRemovals as string[] | undefined) ?? [];
       for (const wid of removals) {

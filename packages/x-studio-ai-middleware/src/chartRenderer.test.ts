@@ -165,6 +165,35 @@ describe('renderChartSvg — pie', () => {
     // Only 2 non-zero slices
     expect(countTag(svg, 'path')).toBe(2);
   });
+
+  it('renders a visible full circle for a single positive slice (finding 3.2)', () => {
+    // A single 100% slice yields `slice = 360°`; the collapsed arc would drop the
+    // body and leave only the "100%" label/legend. The body must be a full circle.
+    const svg = renderChartSvg({ type: 'pie', data: [{ label: 'Only', value: 42 }] });
+    expect(isSvg(svg)).toBe(true);
+    // Legend swatches are <rect>, so the only <circle> is the chart body.
+    expect(countTag(svg, 'circle')).toBe(1);
+    // No collapsed slice path was emitted for the single-slice body.
+    expect(countTag(svg, 'path')).toBe(0);
+    expect(svg).toContain('100%');
+  });
+});
+
+// ── Donut chart ───────────────────────────────────────────────────────────────
+
+describe('renderChartSvg — donut', () => {
+  it('renders a visible ring for a single positive slice, preserving the hole (finding 3.2)', () => {
+    // A single 100% slice yields `slice = 360°`; the collapsed wedge path would drop
+    // the body and leave only the "100%" label/legend + centre total. The body must
+    // be a full ring (fill-rule="evenodd" punches the donut hole).
+    const svg = renderChartSvg({ type: 'donut', data: [{ label: 'Only', value: 42 }] });
+    expect(isSvg(svg)).toBe(true);
+    // A filled body path is present (not just label/legend text).
+    expect(countTag(svg, 'path')).toBe(1);
+    // The evenodd ring preserves the donut hole rather than a solid disc.
+    expect(svg).toContain('fill-rule="evenodd"');
+    expect(svg).toContain('100%');
+  });
 });
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -465,8 +494,11 @@ describe('renderChartSvg — NaN/Infinity geometry guards (T2-2)', () => {
     expect(isSvg(svg)).toBe(true);
     expect(svg).not.toContain('NaN');
     expect(svg).not.toContain('Infinity');
-    // Only the positive slice is drawn.
-    expect(countTag(svg, 'path')).toBe(1);
+    // Only the positive slice is drawn — and since the dropped negative leaves it as
+    // the lone 100% slice, its body renders as a full circle rather than a collapsed
+    // 360° arc (finding 3.2). Legend swatches are <rect>, so this <circle> is the body.
+    expect(countTag(svg, 'circle')).toBe(1);
+    expect(countTag(svg, 'path')).toBe(0);
   });
 
   it('does not emit Infinity/NaN arc geometry for a mixed-sign donut chart', () => {

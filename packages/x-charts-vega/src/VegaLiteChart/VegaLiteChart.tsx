@@ -273,6 +273,47 @@ function resolveVegaViewSize(
   };
 }
 
+/**
+ * Rotate a discrete x-axis's tick labels to vertical when they'd overlap at the
+ * resolved plot width (mirroring Vega-Lite, which rotates rather than dropping
+ * labels). Estimates the band width (plot width ÷ category count) and the widest
+ * label; if the label is wider than its band, sets a −90° angle. Continuous axes
+ * and comfortably-fitting labels are left untouched. Skipped when the spec
+ * already set an explicit `labelAngle` (honored via tickLabelStyle.angle).
+ */
+function rotateXLabelsIfCramped<T extends Record<string, unknown>>(
+  config: T,
+  surfaceWidth: number | undefined,
+  hasYAxis: boolean,
+): T {
+  const scaleType = (config as { scaleType?: string }).scaleType;
+  const data = (config as { data?: readonly unknown[] }).data;
+  const existing = (config as { tickLabelStyle?: { angle?: number } }).tickLabelStyle;
+  if (
+    (scaleType !== 'band' && scaleType !== 'point') ||
+    !Array.isArray(data) ||
+    data.length === 0 ||
+    !surfaceWidth ||
+    existing?.angle !== undefined
+  ) {
+    return config;
+  }
+  const plotWidth = surfaceWidth - (hasYAxis ? 70 : 20);
+  const bandWidth = plotWidth / data.length;
+  const longestLabelChars = data.reduce<number>((max, value) => {
+    const text = value instanceof Date ? value.toLocaleDateString() : String(value);
+    return Math.max(max, text.length);
+  }, 0);
+  // ~6px per character; leave a little slack before rotating.
+  if (longestLabelChars * 6 <= bandWidth - 4) {
+    return config;
+  }
+  return {
+    ...config,
+    tickLabelStyle: { ...existing, angle: -90, textAnchor: 'end', dominantBaseline: 'central' },
+  };
+}
+
 /** Stable no-op for the trellis legend proxy, whose gaps the cells already report. */
 const NO_GAPS = () => {};
 
@@ -841,7 +882,9 @@ function SingleViewChart(props: VegaLiteChartProps) {
     }
     return stripped as T;
   };
-  const xAxis = compiled.xAxis ? [dropAutoSize(compiled.xAxis.config)] : undefined;
+  const xAxis = compiled.xAxis
+    ? [rotateXLabelsIfCramped(dropAutoSize(compiled.xAxis.config), resolvedWidth, Boolean(compiled.yAxis))]
+    : undefined;
   const yAxis = compiled.yAxis ? [dropAutoSize(compiled.yAxis.config)] : undefined;
 
   // Scale-bound interval selections enable gesture zoom/pan (the axis configs

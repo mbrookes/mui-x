@@ -65,6 +65,12 @@ const VEGA_TICK_LABEL_FONT_SIZE = 10;
 const VEGA_AXIS_TITLE_FONT_SIZE = 11;
 const VEGA_AXIS_INK = 'rgb(0, 0, 0)';
 
+// Vega-Lite labels every category on a discrete axis; x-charts' default
+// (`tickLabelInterval: 'auto'`) hides labels that would overlap, so a month axis
+// drops to "Jan Apr Jul …". Force every discrete tick to keep its label to match
+// the reference. (Continuous axes keep 'auto', which spaces numeric ticks.)
+const SHOW_ALL_DISCRETE_LABELS = () => true;
+
 /** Discrete-axis enrichment pulled from a field def's `axis` config. */
 interface AxisExtras {
   tickNumber?: number;
@@ -673,6 +679,7 @@ function resolveChannelAxis(
       scaleType,
       reverse,
       data: categories,
+      tickLabelInterval: SHOW_ALL_DISCRETE_LABELS,
       ...(categoryGapRatio !== undefined ? { categoryGapRatio } : {}),
       ...(isTemporal ? { tickInterval: temporalTickInterval } : {}),
       ...(discreteValueFormatter ? { valueFormatter: discreteValueFormatter } : {}),

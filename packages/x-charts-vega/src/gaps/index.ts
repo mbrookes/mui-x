@@ -42,7 +42,6 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   // Scatter/line marker + line styling that x-charts renders uniformly.
   'encoding:shape',
   'mark:point-square-shape',
-  'mark:point-filled',
   'mark:point-size-approximation',
   'mark:point-styling',
   'mark:point-transparent',

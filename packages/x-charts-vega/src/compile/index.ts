@@ -223,12 +223,17 @@ function applyOverlayDomains(
     const padding = (max - min) * 0.05;
     let domainMin = min - padding;
     let domainMax = max + padding;
-    // A bar/area series on this axis is drawn from a zero baseline, so the
-    // domain must include 0 (and not pad past it) or the marks overflow the
-    // plot below the axis. Detect one whose value axis is this axis.
+    // A bar/area/line series on this axis carries Vega-Lite's `zero: true`
+    // default (bars/areas also overflow below the axis without it), so the
+    // domain must include 0 (and not pad past it). Point/boxplot/errorbar marks
+    // default `zero: false` and fit their data, so they are deliberately
+    // excluded — a layered line+errorband zeros its y (the line wins), while a
+    // point+errorbar or a bare boxplot fits the data extent, matching Vega.
+    // `line` covers `area` too (an area is a `type: 'line'` series with
+    // `area: true`). Detect one whose value axis is this axis.
     const hasBaselineSeries = series.some((entry) => {
       const type = (entry as { type?: string }).type;
-      if (type !== 'bar' && !(entry as { area?: boolean }).area) {
+      if (type !== 'bar' && type !== 'line') {
         return false;
       }
       const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';

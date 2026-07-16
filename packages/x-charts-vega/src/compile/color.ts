@@ -156,10 +156,13 @@ const SEQUENTIAL_SCHEME_RANGES: Record<string, readonly [string, string]> = {
 };
 
 /**
- * Legend config keys the x-charts shell can honor by repositioning the default
- * legend. A legend object whose keys are all in this set is fully translatable,
- * so it does not trigger the `color-legend-config-ignored` gap. Everything else
- * (`title`, `values`, `symbolType`, gradient config, …) remains unsupported.
+ * Legend config keys that do not trigger the `color-legend-config-ignored` gap.
+ * Only `orient` is actually acted on — the shell repositions the composed legend
+ * from it (`resolveLegendLayout` in `VegaLiteChart.tsx`). `legendX`/`legendY` are
+ * accepted here to suppress the gap (Vega often pairs them with `orient`), but
+ * the shell does not read them, so an absolute legend offset is silently dropped.
+ * Everything else (`title`, `values`, `symbolType`, gradient config, …) still
+ * reports the gap and is unsupported.
  */
 const HONORED_LEGEND_KEYS = new Set(['orient', 'legendX', 'legendY']);
 

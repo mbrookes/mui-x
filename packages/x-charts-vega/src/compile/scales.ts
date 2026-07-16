@@ -23,7 +23,10 @@ import { createValueFormatter } from '../format';
  *   - quantitative `scale.domain` / `zero` / `nice` / `reverse` / log-family,
  *     with `nice: true`→`domainLimit: 'nice'`, `nice: false`→`'strict'`, the
  *     `symlog` `constant`, and `zero` approximated by pinning the domain to the
- *     origin when the data is single-signed (both recorded as `partial` gaps);
+ *     origin when the data is single-signed — this is Vega-Lite's *default* for
+ *     linear position scales (applied silently), and only an *explicit*
+ *     `scale.zero: true` additionally records a `scale:zero-approximation`
+ *     `partial` gap (the opposite end is still `domainLimit`-rounded);
  *   - axis-config enrichment (`title`, `labelAngle`, `tickCount`, `values`,
  *     `grid`, `labels`, `format`, `orient`, `ticks`→`disableTicks`,
  *     `domain`→`disableLine`) from the field def's `axis`, with

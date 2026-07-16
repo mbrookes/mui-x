@@ -465,6 +465,33 @@ describe('parseStateMutation — malformed per-variant args', () => {
         },
       },
     },
+    // Finding 3.1: the widget object's OWN top-level keys are screened for the
+    // prototype-hazard denylist, symmetric with the `updateWidget.changes` path. An own
+    // `__proto__` key (materialized by `JSON.parse`) on a full-widget create payload was
+    // previously accepted and round-tripped; it is now rejected on both create channels.
+    {
+      label: 'addWidget widget carries an own __proto__ key',
+      value: {
+        type: 'addWidget',
+        args: {
+          widget: JSON.parse(
+            '{"id":"w","kind":"chart","title":"T","config":{},"__proto__":{"x":1}}',
+          ),
+        },
+      },
+    },
+    {
+      label: 'applyBulkUpdate addedWidgets entry carries an own constructor key',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [
+            JSON.parse('{"id":"w","kind":"chart","title":"T","config":{},"constructor":1}'),
+          ],
+        },
+      },
+    },
     // Architecture review 2.2: `addFilter` previously validated only `id` + `scope`, so
     // a non-string `field`/`operator` installed an active-but-unevaluable filter that
     // silently rendered every widget in scope empty. Both are read downstream, so both
@@ -957,6 +984,26 @@ describe('parseStateMutation — applyBulkUpdate widgetRows/widgetColSpans optio
       type: 'applyBulkUpdate',
       args: bulkArgsWithout(['widgetRows', 'widgetColSpans']),
     });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('type-checks an updates-only bulk with NO layout fields against the wire StateMutation type (3.3)', () => {
+    // Compile-time proof that the `applyBulkUpdate` wire type declares
+    // `widgetRows`/`widgetColSpans` as OPTIONAL: a typed producer can express the
+    // sanctioned updates-only bulk WITHOUT a cast. Were the fields required again, this
+    // literal — typed as the shared `StateMutation` union — would be a type error, so the
+    // package's `typescript` check would fail. It also round-trips through the runtime
+    // validator, which already treats their absence as valid.
+    const mutation: StateMutation = {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [{ widgetId: 'w1', title: 'Retitled' }],
+        activePageId: 'page-1',
+      },
+    };
+    const parsed = parseStateMutation(mutation);
     expect(parsed.ok).toBe(true);
   });
 

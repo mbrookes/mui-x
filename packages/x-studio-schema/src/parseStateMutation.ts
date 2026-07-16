@@ -111,8 +111,13 @@ function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
  * (e.g. `JSON.parse('{"__proto__":…}')`, where it IS an own property rather than the
  * prototype accessor) is rejected here at the wire boundary. The reducer's own
  * `isSafePatchKey` guard is the defense-in-depth backstop for server-built mutations.
+ *
+ * Exported so the persistence LOAD boundary (`statePersistence.ts`'s `deserializeState`)
+ * can reuse the identical predicate when screening a persisted widget's `config` own keys
+ * (Finding 3.2), keeping the wire and load boundaries byte-for-byte in agreement rather
+ * than re-implementing the denylist check.
  */
-function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
+export function hasUnsafeOwnKeys(record: Record<string, unknown>): boolean {
   return Object.keys(record).some((key) => UNSAFE_KEYS.has(key));
 }
 
@@ -166,6 +171,17 @@ function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
 function validateWidget(widget: unknown, path: string): string | null {
   if (!isRecord(widget)) {
     return `${path} must be an object`;
+  }
+  // Screen the widget object's OWN top-level keys for the prototype-hazard denylist
+  // (Finding 3.1), symmetric with the `updateWidget.args.changes` check below — the only
+  // other place a wholesale widget object crosses the wire. Inert today (the reducer
+  // spreads the widget rather than key-assigning its own keys), but an own
+  // `__proto__`/`constructor`/`prototype` key was previously accepted and round-tripped;
+  // rejecting it here keeps the create path (`addWidget`/`applyBulkUpdate.addedWidgets`)
+  // symmetric with the update path and with the `config`-level screen just below. Uses
+  // the SAME `hasUnsafeOwnKeys` predicate as every sibling check.
+  if (hasUnsafeOwnKeys(widget)) {
+    return `${path} must not carry a '__proto__'/'constructor'/'prototype' key`;
   }
   if (!isSafeId(widget.id)) {
     return `${path}.id must be a string id and not '__proto__'/'constructor'/'prototype'`;

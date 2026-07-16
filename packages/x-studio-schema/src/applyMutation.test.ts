@@ -537,6 +537,58 @@ describe('applyMutation', () => {
     expect(next.filters).toHaveLength(1);
   });
 
+  it('addFilter drops an orphan cross-filter whose sourceWidgetId names no existing widget (2.1)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    });
+    const orphan = {
+      id: 'f-orphan',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 'ghost', pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: orphan } });
+    // No-op-return the input reference (the reducer's unresolvable-target convention).
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter drops an orphan interactive filter whose sourceWidgetId names no existing widget (2.1)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    });
+    const orphan = {
+      id: 'f-orphan',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'interactive' as const, sourceWidgetId: 'ghost', pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: orphan } });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter installs a cross-filter whose sourceWidgetId names an existing widget (2.1)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    });
+    const valid = {
+      id: 'f-valid',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 'w1', pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
+    expect(next.filters).toHaveLength(1);
+    expect(next.filters[0].id).toBe('f-valid');
+  });
+
   it('removeFilter: unknown filterId is a no-op', () => {
     const state = twoPageState();
     const next = applyDocMutation(state, { type: 'removeFilter', args: { filterId: 'nope' } });

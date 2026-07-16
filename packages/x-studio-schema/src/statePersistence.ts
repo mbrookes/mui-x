@@ -1,7 +1,7 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
-import { isValidFilterScope } from './parseStateMutation';
+import { isValidFilterScope, hasUnsafeOwnKeys } from './parseStateMutation';
 import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
@@ -584,10 +584,33 @@ export function deserializeState(
       // would throw `Cannot read properties of null (reading 'config')` in the map below.
       // Persisted docs are an untrusted boundary (shared/hand-edited dashboards), so this
       // mirrors the wire boundary's own-key screening — dropping the offending entry.
-      .filter(
-        ([id, widget]) =>
-          isSafeKey(id) && widget !== null && typeof widget === 'object' && !Array.isArray(widget),
-      )
+      .filter(([id, widget]) => {
+        if (
+          !(
+            isSafeKey(id) &&
+            widget !== null &&
+            typeof widget === 'object' &&
+            !Array.isArray(widget)
+          )
+        ) {
+          return false;
+        }
+        // Screen the persisted widget's OWN `config` keys against the prototype-hazard
+        // denylist (Finding 3.2), symmetric with the wire boundary's
+        // `hasUnsafeOwnKeys(widget.config)` rejection in `validateWidget`. A hand-edited/
+        // shared doc can carry an own `"__proto__"`/`"constructor"`/`"prototype"` config
+        // key that `JSON.parse` materializes as a real own property; the reducer rebuilds
+        // config key-by-key on later edits, so such a key is a pollution hazard the wire
+        // boundary rejects outright. Follow the load boundary's fail-closed drop-invalid-
+        // entry convention (as for a `null`/unsafe-KEY widget above): drop the whole
+        // widget rather than load a config the wire boundary would refuse. Reuses the SAME
+        // `hasUnsafeOwnKeys` predicate the wire boundary uses.
+        const cfg = (widget as { config?: unknown }).config;
+        if (isRecord(cfg) && hasUnsafeOwnKeys(cfg)) {
+          return false;
+        }
+        return true;
+      })
       .map(([id, widget]) => {
         // Reconcile the widget's own `id` field with its record KEY (finding 2.1) and
         // coerce a non-record `config` (finding 2.4) BEFORE the legacy-shape normalization
@@ -779,6 +802,15 @@ export function deserializeState(
       // the reducer on the next commit.
       filters: serialized.filters.filter((f) => {
         if (!isRecord(f)) {
+          return false;
+        }
+        // Drop a persisted filter whose `id` is not a string (Finding 3.2), symmetric with
+        // the wire boundary's `isSafeId(filter.id)` gate in `validateFilter`. A non-string
+        // `id` (a hand-edited `id: 42`) can NEVER be matched by wire `removeFilter` (whose
+        // `f.id !== filterId` compares against a string `filterId`), so it would install a
+        // permanently-unremovable filter — exactly the state the wire boundary rejects for
+        // the byte-identical payload.
+        if (typeof (f as { id?: unknown }).id !== 'string') {
           return false;
         }
         const scope = (f as { scope?: unknown }).scope;

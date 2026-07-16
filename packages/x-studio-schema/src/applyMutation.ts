@@ -1196,6 +1196,25 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (state.filters.some((f) => f.id === args.filter.id)) {
         return state;
       }
+      // Reject an ORPHAN cross-filter/interactive filter (finding 2.1): both scope kinds
+      // carry a `sourceWidgetId`, and the reducer's ONLY cleanup path for such filters
+      // (`dropWidgetScopedFilters`) fires when that source widget is REMOVED. A filter
+      // naming a `sourceWidgetId` that no widget in the doc ever had would therefore
+      // filter its page forever with no clearing affordance — exactly the orphan state
+      // `deserializeState` drops on load. Screen it here so the wire/reducer boundary and
+      // the load boundary agree. "Existing widget" is the reducer's own notion —
+      // `Object.hasOwn(state.widgets, id)` — matching every other id-keyed guard here
+      // (`updateWidget`/`removeWidget`), and an untrusted id can't match a prototype
+      // member. No-op-return the input `state` reference, the dominant convention for an
+      // unresolvable-target mutation in this reducer (`updateWidget`/`removePage`/
+      // `setActivePage` unknown-id cases).
+      const { scope } = args.filter;
+      if (
+        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
+        !Object.hasOwn(state.widgets, scope.sourceWidgetId)
+      ) {
+        return state;
+      }
       // Applied verbatim — the filter already carries its target scope/page
       // (chosen server-side), so it is NOT re-stamped with the applying side's
       // active page (that would reintroduce a page-targeting divergence).

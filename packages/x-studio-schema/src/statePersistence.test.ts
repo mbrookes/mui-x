@@ -1244,6 +1244,22 @@ describe('deserializeState', () => {
     expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
   });
 
+  it('drops a persisted filter whose id is not a string (Finding 3.2, symmetric with the wire boundary)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        // A non-string `id` can NEVER be matched by wire `removeFilter` (`f.id !== filterId`
+        // compares against a string), so it would install a permanently-unremovable filter —
+        // the wire boundary (`isSafeId`) rejects the identical payload, so the load boundary
+        // must too.
+        { id: 42, field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
   it("screens a preset's inner filters for a junk operator/field (T2-3)", () => {
     // A preset carries only RECORD-checked inner filters through `migrateState`, but
     // `applyFilterPreset` rematerializes them VERBATIM (minus id/scope) into live
@@ -1405,6 +1421,31 @@ describe('deserializeState', () => {
     expect(w1.subtitleMode).toBe('manual');
     expect(w1.title).toBe('C');
     expect((w1.config as { chartType?: string }).chartType).toBe('bar');
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  // Finding 3.2: the load boundary screens a persisted widget's OWN `config` keys for the
+  // prototype-hazard denylist, symmetric with the wire boundary's `hasUnsafeOwnKeys` gate.
+  // Following the fail-closed drop-invalid-entry convention, the whole widget is dropped.
+  it('drops a persisted widget whose config carries an own __proto__ key (Finding 3.2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        // A `JSON.parse`d config carrying an own `__proto__` key — the wire boundary rejects
+        // the identical payload, so the load boundary drops the offending widget entry.
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'Bad',
+          config: JSON.parse('{"chartType":"bar","__proto__":{"x":1}}'),
+        },
+        w2: { id: 'w2', kind: 'chart', title: 'Good', config: { chartType: 'bar' } },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // Only the clean widget survives; the unsafe-config widget is dropped.
+    expect(Object.keys(state.doc.widgets)).toEqual(['w2']);
     expect(() => serializeState(state)).not.toThrow();
   });
 

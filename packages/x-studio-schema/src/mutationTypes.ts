@@ -164,8 +164,18 @@ export type StateMutation =
           sourceId?: string;
           config?: StudioWidget['config'];
         }>;
-        widgetRows: string[][];
-        widgetColSpans: Record<string, number>;
+        /**
+         * Active-page layout snapshot. OPTIONAL (finding T2-4): both the wire validator
+         * (`parseStateMutation`) and the reducer (`applyMutation`) treat these as
+         * protocol-optional — a bulk carrying only `updatedWidgets` (no removals,
+         * additions, or layout change) omits BOTH, and the reducer then SKIPS layout
+         * replacement rather than wiping the page. Typing them as required forced such a
+         * sanctioned updates-only producer to attach a layout snapshot (or cast), which
+         * re-opened the lost-update class this delta shape exists to close. Absent ⇒ layout
+         * untouched; present ⇒ replaces `activePageId`'s layout only.
+         */
+        widgetRows?: string[][];
+        widgetColSpans?: Record<string, number>;
         activePageId: string;
       };
     }

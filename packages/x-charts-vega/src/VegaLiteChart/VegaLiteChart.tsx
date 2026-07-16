@@ -73,6 +73,30 @@ function resolveLegendLayout(orient: string | undefined): LegendLayout {
   }
 }
 
+/**
+ * The bold title Vega-Lite draws above a series legend — the color/fill field's
+ * explicit `title`, else its field name. `undefined` when there's no field-based
+ * legend (a `datum`/value color has none, and `legend: null` suppresses it), so
+ * datum-driven legends (e.g. a `repeat` over layers) stay untitled like Vega.
+ */
+function resolveLegendTitle(spec: VegaLiteSpec): string | undefined {
+  const channelDef = spec.encoding?.color ?? spec.encoding?.fill;
+  if (!isFieldDef(channelDef)) {
+    return undefined;
+  }
+  if ((channelDef as { legend?: unknown }).legend === null) {
+    return undefined;
+  }
+  const title = (channelDef as { title?: unknown }).title;
+  if (title === null) {
+    return undefined;
+  }
+  if (typeof title === 'string') {
+    return title;
+  }
+  return channelDef.field;
+}
+
 // The premium provider's default series config registers every premium
 // series EXCEPT heatmap (only the dedicated <Heatmap> chart wires that one
 // in), so it must be merged in explicitly for heatmap series to process.
@@ -891,6 +915,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const heatmapColorMap = compiled.plots.includes('heatmap')
     ? (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)?.colorMap
     : undefined;
+  const seriesLegendTitle = resolveLegendTitle(spec);
 
   const chart = (
     <ChartsDataProviderPremium
@@ -909,7 +934,20 @@ function SingleViewChart(props: VegaLiteChartProps) {
         legendDirection={legendLayout?.direction}
       >
         {!cell?.hideLegend && compiled.hasLegend && (
-          <ChartsLegend direction={legendLayout?.direction} sx={LEGEND_SX} />
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              gap: 2,
+            }}
+          >
+            {/* Vega-Lite titles a series legend with the color field's name. */}
+            {seriesLegendTitle && (
+              <span style={{ fontSize: 11, fontWeight: 700 }}>{seriesLegendTitle}</span>
+            )}
+            <ChartsLegend direction={legendLayout?.direction} sx={LEGEND_SX} />
+          </div>
         )}
         {/* A heatmap's cell value is encoded by a continuous/piecewise color
             scale (the zAxis colorMap), so it needs a gradient color legend

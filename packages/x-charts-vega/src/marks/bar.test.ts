@@ -198,7 +198,7 @@ describe('compileBarMark', () => {
     expect(gap?.severity).to.equal('partial');
   });
 
-  it('respects an explicit scale.domain order for series ordering and colors', () => {
+  it('orders explicit-domain stacked series descending by value (Vega stack order), keeping domain colors', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [
@@ -219,8 +219,12 @@ describe('compileBarMark', () => {
     };
     const compiled = compileSpec(spec);
     const series = compiled.series as Array<{ label?: string; color?: string }>;
-    expect(series.map((entry) => entry.label)).to.deep.equal(['x', 'y']);
-    expect(series.map((entry) => entry.color)).to.deep.equal(['#111111', '#222222']);
+    // Stacked → series (and thus the legend) are ordered descending by value
+    // (`y` before `x`), matching how Vega-Lite stacks. Each series still takes
+    // its color from the scale domain (`x`→#111111, `y`→#222222), not its
+    // reordered position.
+    expect(series.map((entry) => entry.label)).to.deep.equal(['y', 'x']);
+    expect(series.map((entry) => entry.color)).to.deep.equal(['#222222', '#111111']);
   });
 
   it('compiles a ranged bar (y + y2) to a rangeBar series instead of a bar', () => {

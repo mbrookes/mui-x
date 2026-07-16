@@ -144,6 +144,26 @@ export interface RowGroup {
   rows: DatasetRow[];
 }
 
+/**
+ * Descending natural comparison of two stack color values (numeric, then
+ * chronological, then locale string) — the order Vega-Lite stacks segments in
+ * (largest value at the bottom). Reverse-alphabetical for the weather example:
+ * sun, snow, rain, fog, drizzle.
+ */
+function compareStackValuesDesc(a: unknown, b: unknown): number {
+  const na = toNumber(a);
+  const nb = toNumber(b);
+  if (na != null && nb != null) {
+    return nb - na;
+  }
+  const da = toDate(a);
+  const db = toDate(b);
+  if (da && db) {
+    return db.getTime() - da.getTime();
+  }
+  return String(b).localeCompare(String(a));
+}
+
 /** Groups rows by `splitField`, ordered by `domain` when provided, else first appearance. */
 export function groupRowsByField(
   ctx: UnitContext,
@@ -394,26 +414,14 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
       } else {
         stackOffset = 'none';
       }
+      // Vega-Lite stacks segments in descending order of the color value. For a
+      // data-derived (ascending) domain, x-charts' `reverse` reproduces that
+      // while keeping the ascending legend Vega shows. An explicit domain isn't
+      // sorted, so `reverse` can't — instead the series themselves are ordered
+      // descending-by-value below (`stackReversed` stays false), and the legend
+      // follows that order (the sanctioned trade-off, since x-charts ties stack
+      // order to series/legend order).
       stackReversed = color.domainDerived === true;
-      // Only a stack of *two or more* segments has an order that could diverge
-      // from the reference; a cell holding a single color group (e.g. a facet
-      // whose facet field equals its color field) stacks nothing, so the
-      // explicit-domain caveat would be spurious noise there.
-      const distinctGroups = new Set(
-        rows
-          .map((row) => (color.splitField ? row[color.splitField] : undefined))
-          .filter((value) => value != null)
-          .map((value) => ctx.categoryKey(value)),
-      ).size;
-      if (color.domain && color.domainDerived !== true && distinctGroups > 1) {
-        gaps.add({
-          code: 'mark:stack-order-explicit-domain',
-          message:
-            'Vega-Lite stacks segments in descending order of the color value; with an explicit `scale.domain` x-charts cannot decouple stack order from the legend order, so the vertical stacking sequence may differ from the reference. Colors and totals are unaffected.',
-          severity: 'partial',
-          path: `${unit.path}.encoding.color.scale.domain`,
-        });
-      }
     } else if (wouldStack && rangeTwin) {
       // RangeBarSeriesType has no stack/stackOffset props — ranges have no
       // meaningful "stacked on top of" semantics — so a stack that would
@@ -428,6 +436,12 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     }
 
     const groups = groupRowsByField(ctx, rows, color.splitField, color.domain);
+    // Explicit-domain stack: order the series descending by color value so the
+    // stack matches Vega-Lite (see the stackReversed note above). The legend
+    // follows this order; colors stay tied to the domain (indexed below).
+    if (stackId && !stackReversed && color.domain && color.domainDerived !== true && groups.length > 1) {
+      groups.sort((a, b) => compareStackValuesDesc(a.value, b.value));
+    }
     groups.forEach((group, groupIndex) => {
       const id = `${unit.path}:${color.splitField}:${ctx.categoryKey(group.value)}`;
       const label = String(group.value);

@@ -57,6 +57,43 @@ describe('compileRectMark', () => {
     expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:rect-not-implemented');
   });
 
+  it('anchors the colorMap extent to rendered cells, ignoring null-bin phantom counts', () => {
+    // Binning a positional field that some rows lack produces a `(bin, null)`
+    // count group. That group is skipped when building cells (the null bin has
+    // no category), but must not stretch the color extent past the darkest
+    // drawn cell — otherwise every cell renders lighter than Vega-Lite's.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          // Ten rows with no `y` at all → a single (x-bin, null) group of 10,
+          // larger than any real cell but never rendered.
+          ...Array.from({ length: 10 }, () => ({ x: 1, y: null })),
+          { x: 1, y: 5 },
+          { x: 1, y: 5 },
+          { x: 1, y: 5 }, // cell (1-bin, 5-bin) -> count 3 (the true max)
+          { x: 2, y: 5 },
+          { x: 2, y: 8 },
+        ],
+      },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'x', type: 'ordinal' },
+        y: { bin: { maxbins: 10 }, field: 'y', type: 'quantitative' },
+        color: { aggregate: 'count', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const series = compiled.series[0] as unknown as {
+      data: readonly [number, number, number][];
+    };
+    const maxCell = Math.max(...series.data.map(([, , value]) => value));
+    expect(maxCell).to.equal(3);
+    const colorMap = compiled.zAxis?.[0].colorMap as { type: string; min?: number; max?: number };
+    expect(colorMap.type).to.equal('continuous');
+    // Extent tracks the drawn cells (max 3), not the phantom null-bin group (10).
+    expect(colorMap.max).to.equal(3);
+  });
+
   it('compiles one row per cell (no aggregation) using an explicit quantitative color type', () => {
     const spec: VegaLiteSpec = {
       data: {

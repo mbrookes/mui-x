@@ -175,6 +175,34 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
     data.push([xIndex, yIndex, value]);
   }
 
+  // Re-anchor the color scale to the cells that actually render. resolveColor
+  // derives the continuous/piecewise extent from every aggregated row, which
+  // includes phantom cells where a binned positional field is null (a movie
+  // with no Rotten Tomatoes rating still forms a `(imdbBin, null)` count
+  // group). Those rows are skipped above — `categoryIndex` returns -1 for the
+  // null bin — so counting them into the color extent would stretch `max` well
+  // past the darkest drawn cell (e.g. 36 vs a true max of 19), washing every
+  // cell out lighter than Vega-Lite's. Recompute the extent from `data` unless
+  // the spec pinned the color scale `domain` explicitly.
+  const hasExplicitColorDomain = Array.isArray((colorDef.scale as { domain?: unknown })?.domain);
+  if (color.colorMap && !hasExplicitColorDomain && data.length > 0) {
+    const cellValues = data.map((cell) => cell[2]);
+    const cellMin = Math.min(...cellValues);
+    const cellMax = Math.max(...cellValues);
+    if (Number.isFinite(cellMin) && Number.isFinite(cellMax) && cellMin !== cellMax) {
+      if (color.colorMap.type === 'continuous' && typeof color.colorMap.max === 'number') {
+        color.colorMap = { ...color.colorMap, min: cellMin, max: cellMax };
+      } else if (color.colorMap.type === 'piecewise') {
+        const bandCount = color.colorMap.colors.length;
+        const thresholds = Array.from(
+          { length: bandCount - 1 },
+          (_, i) => cellMin + (cellMax - cellMin) * ((i + 1) / bandCount),
+        );
+        color.colorMap = { ...color.colorMap, thresholds };
+      }
+    }
+  }
+
   const series: HeatmapSeriesType[] = [{ type: 'heatmap', data }];
 
   // The color legend's title, mirroring Vega-Lite: an explicit `title` wins,

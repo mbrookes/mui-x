@@ -52,7 +52,11 @@ export const selectAi = (state: StudioState) => state.doc.ai;
 export function makeSelectActiveInteractiveFilter(widgetId: string) {
   return (state: StudioState) =>
     state.doc.filters.find(
-      (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId,
+      // `!f.disabled` mirrors every data path (`selectFiltersForWidget`, `isActiveCrossFilter`):
+      // once `toggleFilter` disables the interactive filter — or a persisted widget carries
+      // `disabled: true` — it no longer filters rows, so this selector must not advertise it as
+      // active either (finding 3.1).
+      (f) => !f.disabled && f.scope.kind === 'interactive' && f.scope.sourceWidgetId === widgetId,
     ) ?? null;
 }
 
@@ -544,6 +548,10 @@ export function makeSelectWidgetRankFilter(
     return (
       state.doc.filters.find(
         (f) =>
+          // `!f.disabled` mirrors `useChartWidgetData`'s rank lookup and `selectFiltersForWidget`:
+          // a disabled Top-N filter no longer reduces rows, so the "Top N" chip must not surface
+          // it either (finding 3.1).
+          !f.disabled &&
           f.scope.kind === 'widget' &&
           f.scope.widgetId === widgetId &&
           f.filterMode === 'rank' &&
@@ -570,6 +578,10 @@ export function makeSelectWidgetSliderFilter(
     return (
       state.doc.filters.find(
         (f) =>
+          // `!f.disabled` mirrors every data path (`selectFiltersForWidget`, `isActiveCrossFilter`):
+          // a disabled slider filter no longer applies, so the slider pill must not surface it
+          // either (finding 3.1).
+          !f.disabled &&
           f.scope.kind === 'interactive' &&
           f.scope.sourceWidgetId === widgetId &&
           f.scope.pageId === pageId,

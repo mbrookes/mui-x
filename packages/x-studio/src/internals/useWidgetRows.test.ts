@@ -8,8 +8,9 @@
  * Context is mocked via vi.mock so that useStudioSelector resolves against a
  * mutable `mockState` object — matching the pattern used by other widget tests.
  */
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@mui/internal-test-utils';
+import { renderHook, render, act } from '@mui/internal-test-utils';
 import type {
   StudioDataSource,
   StudioDataSourceAdapter,
@@ -1106,5 +1107,146 @@ describe('usedFieldIds cache-key scoping', () => {
     rerender();
 
     expect(result.current.filteredRows).toBe(firstFilteredRows);
+  });
+});
+
+// ── Deferred window: enrichment field set tracks the DEFERRED filters (finding 2.1) ──
+//
+// Row filtering consumes `deferredPartitioned`, but `usedFieldIds` (the enrichment field
+// set / cache-key segment) used to be derived from the LIVE `partitioned`. During the
+// deferred window, removing a filter whose field is an expression field used ONLY by that
+// filter dropped the field from `usedFieldIds` on the urgent render, while the still-deferred
+// row filtering evaluated that filter against rows no longer enriched for the field — a
+// transient flash-to-blank frame plus a guaranteed cache miss. Deriving the field set from
+// `deferredPartitioned` keeps enrichment in lockstep with what filtering actually references.
+describe('deferred window enrichment field set (finding 2.1)', () => {
+  // doubleAmount = amount * 2 — an expression field used ONLY by the filter below (never by
+  // the widget's own config), so it enters `usedFieldIds` solely because of that filter.
+  const doubleExpr = {
+    id: 'doubleAmount',
+    label: 'Double',
+    sourceId: 'src1',
+    isMeasure: false,
+    expression: { operator: 'multiply', inputs: [{ id: 'amount' }, { type: 'number', value: 2 }] },
+  } as unknown as StudioState['doc']['expressionFields'][number];
+
+  // amount: 100 → 200, 200 → 400, 150 → 300. Filter doubleAmount > 250 keeps ids 2 and 3.
+  const exprFilter = makeFilter({
+    id: 'f-expr',
+    scope: { kind: 'page' },
+    field: 'doubleAmount',
+    operator: 'greater_than',
+    value: 250,
+  });
+
+  it('removing an expression-field-only filter never flashes a blank/stale frame and keeps the cache stable', () => {
+    // Stable references for every non-filter slice of state (mirrors the `usedFieldIds
+    // cache-key scoping` tests): only `filters` changes across the two `mockState`
+    // assignments, so the resolved-rows cache entry stays valid and a genuine cache HIT is
+    // observable by reference. Recreating these on each `createState` would invalidate the
+    // entry for reasons unrelated to the field set under test.
+    const dataSource = makeDataSource(rows, {
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+    });
+    const stableDataSources = { src1: dataSource };
+    const stableRelationships: StudioState['doc']['relationships'] = [];
+    const stableExpressionFields = [doubleExpr];
+    // KPI widget with an empty config → its own field set never includes doubleAmount.
+    const widget = makeWidget({ id: 'w1', kind: 'kpi', config: {} } as Partial<StudioWidget>);
+
+    const renders: Row[][] = [];
+    function Probe() {
+      const r = useWidgetRows(widget, dataSource, 'page-1');
+      renders.push(r.filteredRows);
+      return null;
+    }
+
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [exprFilter],
+    });
+    const { rerender } = render(React.createElement(Probe));
+
+    // Steady state with the filter: doubleAmount > 250 keeps 2 rows.
+    const beforeRemoval = renders[renders.length - 1];
+    expect(beforeRemoval).toHaveLength(2);
+
+    // Remove the filter and capture EVERY commit through the deferred window.
+    renders.length = 0;
+    mockState = createState({
+      dataSources: stableDataSources,
+      relationships: stableRelationships,
+      expressionFields: stableExpressionFields,
+      filters: [],
+    });
+    act(() => {
+      rerender(React.createElement(Probe));
+    });
+
+    // No committed frame is blank/stale: with the bug the urgent commit dropped doubleAmount
+    // from the enrichment set while the deferred filter still evaluated against it → 0 rows.
+    expect(renders.every((rs) => rs.length > 0)).toBe(true);
+
+    // The intermediate (urgent) commit still reflects the deferred filter, and because the
+    // enrichment field set is unchanged, it is served from cache — the SAME reference as
+    // before removal (no cache miss / re-resolution).
+    expect(renders[0]).toBe(beforeRemoval);
+    expect(renders[0]).toHaveLength(2);
+
+    // Once the deferred value catches up, the filter is gone → all rows.
+    expect(renders[renders.length - 1]).toHaveLength(3);
+  });
+});
+
+// ── Deferred fast-path covers interactive-filter clears too (finding 3.2) ──
+//
+// Removing a cross-filter uses the live value immediately (the extra deferred cycle makes
+// removal feel sluggish and the recompute is cheap). Clearing an INTERACTIVE (filter-widget)
+// selection has the identical rationale, so it must take the same fast path instead of lagging
+// through the deferred window.
+describe('deferred fast-path for interactive clears (finding 3.2)', () => {
+  it('clearing an interactive filter reflects the removal in the first commit (no deferred lag)', () => {
+    const dataSource = makeDataSource(rows);
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    const interactiveFilter = makeFilter({
+      id: 'f-interactive',
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+      filterMode: 'condition',
+    });
+
+    const renders: Row[][] = [];
+    function Probe() {
+      const r = useWidgetRows(widget, dataSource, 'page-1');
+      renders.push(r.filteredRows);
+      return null;
+    }
+
+    mockState = createState({
+      dataSources: { src1: dataSource },
+      filters: [interactiveFilter],
+    });
+    const { rerender } = render(React.createElement(Probe));
+
+    // Filter active: 2 EU rows.
+    expect(renders[renders.length - 1]).toHaveLength(2);
+
+    // Clear the interactive filter.
+    renders.length = 0;
+    mockState = createState({ dataSources: { src1: dataSource }, filters: [] });
+    act(() => {
+      rerender(React.createElement(Probe));
+    });
+
+    // Fast path: the very first commit after the clear already shows all 3 rows. Without the
+    // interactive branch in the fast-path condition, the urgent commit would still hold the
+    // deferred (filtered) value → 2 rows → a sluggish lag before catching up.
+    expect(renders[0]).toHaveLength(3);
+    expect(renders[renders.length - 1]).toHaveLength(3);
   });
 });

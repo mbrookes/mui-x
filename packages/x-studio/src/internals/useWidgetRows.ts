@@ -119,14 +119,17 @@ export function useWidgetRows(
 
   const partitioned = useStudioSelector(selectPartitioned);
   const rawDeferredPartitioned = React.useDeferredValue(partitioned);
-  // When cross-filters are being *removed* (live count < deferred count), use the
-  // live value immediately — there's no heavy computation and the extra deferred
-  // render cycle makes removal feel sluggish. Only defer when adding filters (which
-  // requires a new row-filtering pass that may be expensive).
-  const deferredPartitioned =
-    partitioned.cross.length < rawDeferredPartitioned.cross.length
-      ? partitioned
-      : rawDeferredPartitioned;
+  // When cross-filters OR interactive (filter-widget) filters are being *removed* (live count
+  // < deferred count), use the live value immediately — there's no heavy computation and the
+  // extra deferred render cycle makes removal feel sluggish. Only defer when adding filters
+  // (which requires a new row-filtering pass that may be expensive). The interactive partition
+  // is mirrored alongside `cross` here (finding 3.2): clearing a filter-widget selection has the
+  // same "removal is cheap" rationale as clearing a chart cross-filter, so it takes the fast
+  // path too instead of lagging through the deferred cycle.
+  const isFilterRemoval =
+    partitioned.cross.length < rawDeferredPartitioned.cross.length ||
+    partitioned.interactive.length < rawDeferredPartitioned.interactive.length;
+  const deferredPartitioned = isFilterRemoval ? partitioned : rawDeferredPartitioned;
   // Separate deferred for isRecomputing — only triggers the loading overlay
   // for page/widget filter changes, not cross-filter or interactive changes.
   const basePartitioned = useStudioSelector(selectBasePartitioned);
@@ -192,16 +195,24 @@ export function useWidgetRows(
   // The filters that can actually reach this widget — same page/widget/cross/
   // interactive scoping `computeFilteredRows` applies below (via
   // `selectFiltersForWidget`), built from the already-partitioned buckets.
-  // Used ONLY to derive `usedFieldIds` below; deliberately NOT deferred so the
-  // field set stays correct even while the (deferred) row computation lags.
+  // Used ONLY to derive `usedFieldIds` below; built from `deferredPartitioned`
+  // (NOT the live `partitioned`) so the enrichment field set is driven by the SAME
+  // filter snapshot the row-filtering path actually consumes below (finding 2.1).
+  // If this used the live filters instead, then during the deferred window a removed/
+  // disabled expression-field-only filter would drop its field from `usedFieldIds` on
+  // the urgent render while the still-deferred row filtering evaluated that filter against
+  // rows no longer enriched for the field — a transient flash-to-blank plus a guaranteed
+  // cache miss (the field-set segment of the cache key changed). Deriving from
+  // `deferredPartitioned` keeps enrichment an exact superset of what filtering references
+  // at every render, without over-widening in steady state (live === deferred there).
   const reachableFilters = React.useMemo(
     () =>
       selectFiltersForWidget(
         [
-          ...partitioned.page,
-          ...(partitioned.byWidgetId.get(widget.id) ?? []),
-          ...partitioned.cross,
-          ...partitioned.interactive,
+          ...deferredPartitioned.page,
+          ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+          ...deferredPartitioned.cross,
+          ...deferredPartitioned.interactive,
         ],
         {
           widgetId: widget.id,
@@ -211,23 +222,24 @@ export function useWidgetRows(
           crossFilterAllPages,
         },
       ),
-    [partitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+    [deferredPartitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
   );
 
   // `selectFiltersForWidget`'s own 'widget' scope case unconditionally excludes
   // `filterMode === 'rank'` filters (handled as a special post-aggregation reduction
   // elsewhere, e.g. `useChartWidgetData`'s own `widgetRankFilter` lookup, not as an ordinary row
   // predicate) — so a WIDGET-scoped rank filter never appears in `reachableFilters` above.
-  // Collected directly from the already page/widget-scoped `partitioned.byWidgetId` bucket (not
-  // the raw dashboard-wide `filters`) so a widget-scoped "top N by measure" filter's field
-  // widening below isn't silently skipped, while still never widening on a rank filter that
-  // belongs to a DIFFERENT widget (finding 2.5).
+  // Collected directly from the already page/widget-scoped `deferredPartitioned.byWidgetId`
+  // bucket (not the raw dashboard-wide `filters`) so a widget-scoped "top N by measure" filter's
+  // field widening below isn't silently skipped, while still never widening on a rank filter that
+  // belongs to a DIFFERENT widget (finding 2.5). Uses `deferredPartitioned` (not live) to stay in
+  // lockstep with the row-filtering snapshot, exactly like `reachableFilters` above (finding 2.1).
   const widgetScopedRankFilters = React.useMemo(
     () =>
-      (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+      (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
         (f) => !f.disabled && (f.filterMode ?? 'condition') === 'rank',
       ),
-    [partitioned, widget.id],
+    [deferredPartitioned, widget.id],
   );
 
   // Compute the set of field IDs this widget actually uses in its config.

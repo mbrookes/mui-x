@@ -154,6 +154,17 @@ describe('makeSelectActiveInteractiveFilter', () => {
     });
     expect(makeSelectActiveInteractiveFilter('w1')(state({ filters: [f] }))).toBeNull();
   });
+
+  it('does not surface a DISABLED interactive filter (finding 3.1)', () => {
+    // After `toggleFilter` disables it, the filter no longer applies to rows, so the
+    // filter-widget selection must not be advertised as active either.
+    const f = filter({
+      id: 'i1',
+      disabled: true,
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
+    expect(makeSelectActiveInteractiveFilter('w1')(state({ filters: [f] }))).toBeNull();
+  });
 });
 
 // ── Expression-field selectors (memoized) ──────────────────────────────────────
@@ -441,6 +452,16 @@ describe('makeSelectWidgetRankFilter', () => {
     expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
   });
 
+  it('does not surface a DISABLED widget-scoped rank filter (finding 3.1)', () => {
+    // A disabled Top-N filter no longer reduces rows (mirrors `useChartWidgetData`'s rank
+    // lookup and `selectFiltersForWidget`), so the "Top N" chip must not advertise it.
+    const s = state({
+      widgets: { w1: widget('w1', 'grid') },
+      filters: [{ ...rankFilter, disabled: true }],
+    });
+    expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
+  });
+
   it('returns null when the rank value is not positive', () => {
     const s = state({
       widgets: { w1: widget('w1', 'chart') },
@@ -477,6 +498,21 @@ describe('makeSelectWidgetSliderFilter', () => {
     });
     const s = state({
       widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'dropdown' } }) },
+      filters: [f],
+    });
+    expect(makeSelectWidgetSliderFilter('w1', 'page-1')(s)).toBeNull();
+  });
+
+  it('does not surface a DISABLED slider filter (finding 3.1)', () => {
+    // A disabled slider filter no longer applies to rows, so the slider pill must not
+    // advertise it (mirrors every data path's `!f.disabled` guard).
+    const f = filter({
+      id: 'i',
+      disabled: true,
+      scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+    });
+    const s = state({
+      widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'slider' } }) },
       filters: [f],
     });
     expect(makeSelectWidgetSliderFilter('w1', 'page-1')(s)).toBeNull();

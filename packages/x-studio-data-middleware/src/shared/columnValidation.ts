@@ -241,11 +241,14 @@ export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_]+$/;
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured). `agg.column` is allowlist-validated,
- * but `agg.alias` is free-form client text that `execute.ts` interpolates into the
- * projection (`` `${col} as ${agg.alias}` ``) rather than passing through a Knex
- * `?`/`??` binding. Constraining it to `[A-Za-z0-9_]` (fail-closed) keeps the one
- * attacker-controlled token in the query-building path from carrying quoting,
- * whitespace, or SQL syntax into the identifier position.
+ * but `agg.alias` is free-form client text. `execute.ts` now feeds the alias to
+ * Knex's object form (`query.sum({ [alias]: col })`), which DOES escape the alias
+ * identifier — so this charset check is defense-in-depth rather than the sole
+ * barrier. It is kept (not removed) because it fails closed at the validation
+ * stage with a clear per-widget message, and it guards against a future
+ * query-builder refactor that reintroduces raw interpolation of the alias without
+ * re-adding a guard. Constraining it to `[A-Za-z0-9_]` keeps a client-controlled
+ * identifier token from ever carrying quoting, whitespace, or SQL syntax.
  */
 export function validateAggregationAliases(descriptor: BatchWidgetDescriptor): void {
   for (const agg of descriptor.aggregations ?? []) {

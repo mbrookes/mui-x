@@ -238,7 +238,12 @@ function resolveVegaViewSize(
   // synthetic axis must not drive step-based sizing — otherwise a `tick` strip
   // with no `y` collapses to one 20px band instead of a full-height strip.
   const channelEncoded = (channel: 'x' | 'y'): boolean => {
-    const units = Array.isArray(spec.layer) ? spec.layer : [spec];
+    // Shared top-level encoding (a layered spec's common `y`, as the errorbar
+    // example carries) counts too — not only the per-layer encodings.
+    if ((spec as { encoding?: Record<string, unknown> }).encoding?.[channel] != null) {
+      return true;
+    }
+    const units = Array.isArray(spec.layer) ? spec.layer : [];
     return units.some((unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[channel] != null);
   };
   const plotSize = (

@@ -351,6 +351,17 @@ function buildContinuousAreaOverlay(
     ctx.gaps,
     ctx.unit.path,
   );
+  // A Vega-Lite area is drawn SOLID (fillOpacity 1) — unlike a CI error *band*,
+  // which shares this overlay but wants the renderer's translucent 0.3 default.
+  // Set the opacity explicitly here so the area fills solid, honoring an explicit
+  // `fillOpacity`/`opacity` on the mark.
+  const markFillOpacity = (mark as { fillOpacity?: unknown }).fillOpacity;
+  const fillOpacity =
+    typeof markFillOpacity === 'number'
+      ? markFillOpacity
+      : typeof mark.opacity === 'number'
+        ? mark.opacity
+        : 1;
 
   const overlays: CompiledOverlay[] = [];
   order.forEach((key, groupIndex) => {
@@ -366,6 +377,7 @@ function buildContinuousAreaOverlay(
       kind: 'band',
       orientation: 'vertical',
       color,
+      opacity: fillOpacity,
       points: points.map((point) => ({ x: point.x, lower: 0, upper: point.y })),
     });
   });

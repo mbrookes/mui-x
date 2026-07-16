@@ -29,14 +29,23 @@ export default function VegaEmbed({
     let view: { finalize: () => void } | undefined;
     let cancelled = false;
     setError(null);
-    // Let Vega size the view to fit the panel; a `width`/`height` in the spec
-    // still wins (some gallery specs pin their own size).
-    embed(el, spec as VisualizationSpec, {
+    // Only impose the panel size on views that declare no size of their own, so
+    // a size-less chart renders at the same default as the wrapper (a fair
+    // comparison). A spec that pins its own `width`/`height` (e.g. the density
+    // plot's `height: 100`) keeps it — otherwise the embed override would resize
+    // the reference and make it disagree with the wrapper, which honors the spec.
+    const specObj = (spec ?? {}) as { width?: unknown; height?: unknown };
+    const embedOpts: { actions: false; renderer: 'svg'; width?: number; height?: number } = {
       actions: false,
       renderer: 'svg',
-      width,
-      height,
-    })
+    };
+    if (typeof specObj.width !== 'number') {
+      embedOpts.width = width;
+    }
+    if (typeof specObj.height !== 'number') {
+      embedOpts.height = height;
+    }
+    embed(el, spec as VisualizationSpec, embedOpts)
       .then((result) => {
         if (cancelled) {
           result.view.finalize();

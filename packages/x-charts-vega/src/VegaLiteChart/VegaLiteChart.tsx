@@ -27,6 +27,7 @@ import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium }
 import { RangeBarPlot } from '@mui/x-charts-premium/BarChartPremium';
 import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import { ChartsClipPath } from '@mui/x-charts/ChartsClipPath';
+import { useDrawingArea } from '@mui/x-charts/hooks';
 import useId from '@mui/utils/useId';
 import type { Position } from '@mui/x-charts/models';
 import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaLiteSpec } from '../types';
@@ -331,6 +332,40 @@ function rotateXLabelsIfCramped<T extends Record<string, unknown>>(
     ...config,
     tickLabelStyle: { ...existing, angle: -90, textAnchor: 'end', dominantBaseline: 'central' },
   };
+}
+
+/**
+ * A thin frame around the plotting area, matching Vega-Lite's default view
+ * border (`config.view.stroke`, light grey `#ddd`) — the top/right edges that
+ * close the box the bottom/left axes start. Drawn behind the marks so bars/
+ * lines sit on top. Suppressed when the spec sets `config.view.stroke` to a
+ * falsy/transparent value.
+ */
+const VEGA_VIEW_STROKE = 'rgb(221, 221, 221)';
+function PlotBorder({ stroke }: { stroke: string }) {
+  const { left, top, width, height } = useDrawingArea();
+  return (
+    <rect
+      x={left}
+      y={top}
+      width={width}
+      height={height}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={1}
+      shapeRendering="crispEdges"
+      pointerEvents="none"
+    />
+  );
+}
+
+/** Resolve the view-border stroke: honor `config.view.stroke`, else Vega's default. */
+function resolveViewStroke(spec: VegaLiteSpec): string | undefined {
+  const viewStroke = (spec as { config?: { view?: { stroke?: unknown } } }).config?.view?.stroke;
+  if (viewStroke === null || viewStroke === false || viewStroke === 'transparent' || viewStroke === '') {
+    return undefined;
+  }
+  return typeof viewStroke === 'string' ? viewStroke : VEGA_VIEW_STROKE;
 }
 
 /** Stable no-op for the trellis legend proxy, whose gaps the cells already report. */
@@ -978,6 +1013,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
     ? (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)?.colorMap
     : undefined;
   const seriesLegendTitle = resolveLegendTitle(spec);
+  const viewStroke = resolveViewStroke(spec);
 
   const chart = (
     <ChartsDataProviderPremium
@@ -1039,6 +1075,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
               horizontal={compiled.grid.horizontal ?? false}
             />
           )}
+          {compiled.chartKind === 'cartesian' && viewStroke && <PlotBorder stroke={viewStroke} />}
           {zoomEnabled && <ChartsClipPath id={clipId as string} />}
           {zoomEnabled ? <g clipPath={`url(#${clipId})`}>{plotContent}</g> : plotContent}
           {compiled.chartKind === 'cartesian' && xAxis && !cell?.hideXAxis && <ChartsXAxis />}

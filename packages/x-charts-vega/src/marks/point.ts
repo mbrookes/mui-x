@@ -532,11 +532,18 @@ function niceSizeTicks(max: number): number[] {
   const rawStep = max / 5;
   const magnitude = 10 ** Math.floor(Math.log10(rawStep));
   const normalized = rawStep / magnitude;
-  let niceFactor = 1;
-  if (normalized >= 5) {
+  // Round the raw step to the nearest "nice" factor (1/2/5/10) using d3's
+  // geometric thresholds (√2, √10, √50), so ~4.8 rounds UP to 5 (→ 5 ticks: 0,
+  // 5, 10, 15, 20) rather than DOWN to 2 (→ 13 ticks) — matching Vega-Lite.
+  let niceFactor: number;
+  if (normalized >= Math.sqrt(50)) {
+    niceFactor = 10;
+  } else if (normalized >= Math.sqrt(10)) {
     niceFactor = 5;
-  } else if (normalized >= 2) {
+  } else if (normalized >= Math.sqrt(2)) {
     niceFactor = 2;
+  } else {
+    niceFactor = 1;
   }
   const step = niceFactor * magnitude;
   const ticks: number[] = [];

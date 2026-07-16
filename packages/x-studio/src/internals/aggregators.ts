@@ -265,17 +265,28 @@ export function aggregateByField(
   const accumulators = new Map<string | number, CellAcc>();
 
   // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
-  // count so callers that omit yAggregation don't get NaN in the chart.
+  // count so callers that omit yAggregation don't get NaN in the chart. Treat the
+  // field as numeric if ANY non-null value coerces to a number — not just the first
+  // (a leading "N/A"/"—" sentinel ahead of real numbers must not downgrade a
+  // configured sum/avg to a row count). Reuse the row loop's `coerceAggregateValue`
+  // so the pre-detect and accumulation agree; only fall back to count when the field
+  // has non-null values but none of them are numeric.
   let effectiveAggregation = yAggregation;
   if (effectiveAggregation !== 'count') {
+    let sawNonNull = false;
+    let sawNumeric = false;
     for (const row of rows) {
       const v = row[yField];
       if (v !== null && v !== undefined) {
-        if (Number.isNaN(Number(v))) {
-          effectiveAggregation = 'count';
+        sawNonNull = true;
+        if (coerceAggregateValue(v) !== null) {
+          sawNumeric = true;
+          break;
         }
-        break;
       }
+    }
+    if (sawNonNull && !sawNumeric) {
+      effectiveAggregation = 'count';
     }
   }
 
@@ -345,17 +356,26 @@ export function aggregateByTwoFields(
   // count so callers that omit yAggregation (or misconfigure it for a
   // non-numeric measure) get row counts instead of every cell rendering
   // `null` (blank chart) — mirrors the pre-detect `aggregateByField` and
-  // `aggregateMultipleSeries` already apply (finding 2.4).
+  // `aggregateMultipleSeries` already apply (finding 2.4). Treat the field as
+  // numeric if ANY non-null value coerces to a number (not just the first), so a
+  // leading "N/A"/"—" sentinel ahead of real numbers doesn't downgrade a configured
+  // sum/avg to a row count; reuse the row loop's `coerceAggregateValue` for consistency.
   let effectiveAggregation = yAggregation;
   if (effectiveAggregation !== 'count') {
+    let sawNonNull = false;
+    let sawNumeric = false;
     for (const row of rows) {
       const v = row[yField];
       if (v !== null && v !== undefined) {
-        if (Number.isNaN(Number(v))) {
-          effectiveAggregation = 'count';
+        sawNonNull = true;
+        if (coerceAggregateValue(v) !== null) {
+          sawNumeric = true;
+          break;
         }
-        break;
       }
+    }
+    if (sawNonNull && !sawNumeric) {
+      effectiveAggregation = 'count';
     }
   }
 
@@ -433,16 +453,26 @@ export function aggregateMultipleSeries(
 ): MultiYSeriesData {
   // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
   // A non-numeric field is always aggregated as a count regardless of yAggregation.
+  // Treat a field as numeric if ANY non-null value coerces to a number (not just the
+  // first), so a leading "N/A"/"—" sentinel ahead of real numbers doesn't downgrade a
+  // configured sum/avg to a row count; reuse the row loop's `coerceAggregateValue` so
+  // the pre-detect and accumulation agree.
   const useCount = new Set<string>();
   for (const fieldId of yFields) {
+    let sawNonNull = false;
+    let sawNumeric = false;
     for (const row of rows) {
       const v = row[fieldId];
       if (v !== null && v !== undefined) {
-        if (Number.isNaN(Number(v))) {
-          useCount.add(fieldId);
+        sawNonNull = true;
+        if (coerceAggregateValue(v) !== null) {
+          sawNumeric = true;
+          break;
         }
-        break;
       }
+    }
+    if (sawNonNull && !sawNumeric) {
+      useCount.add(fieldId);
     }
   }
 

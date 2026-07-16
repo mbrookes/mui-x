@@ -292,6 +292,34 @@ describe('computePreviousPeriodRange', () => {
     expect(pe.getFullYear()).toBe(2025);
     expect(pe.getMonth()).toBe(11); // December
   });
+
+  it('previous-calendar-period (week): a ~7-day range maps to exactly 7 calendar days back', () => {
+    // A ≤10-day range is week-sized. The previous window must be shifted back by
+    // exactly 7 whole calendar days via calendar arithmetic (not raw ms subtraction),
+    // matching the month/quarter/year sibling branches.
+    const start = new Date(2026, 5, 8); // Jun 8 2026 local midnight
+    const end = new Date(2026, 5, 14); // Jun 14 2026 local midnight
+    const { start: ps, end: pe } = computePreviousPeriodRange(
+      start,
+      end,
+      'previous-calendar-period',
+    );
+    // Jun 8 − 7 days = Jun 1; Jun 14 − 7 days = Jun 7.
+    expect(ps.getFullYear()).toBe(2026);
+    expect(ps.getMonth()).toBe(5); // June
+    expect(ps.getDate()).toBe(1);
+    expect(pe.getMonth()).toBe(5); // June
+    expect(pe.getDate()).toBe(7);
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const daysBack = (a: Date, b: Date) =>
+      Math.round(
+        (new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime() -
+          new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime()) /
+          MS_PER_DAY,
+      );
+    expect(daysBack(start, ps)).toBe(7);
+    expect(daysBack(end, pe)).toBe(7);
+  });
 });
 
 // ─── computeFixedPeriodRange window width + parity (T3-1) ──────────────────────
@@ -394,6 +422,20 @@ describe('previous-period date math is timezone-safe', () => {
     expect(prev.start.getFullYear()).toBe(2026);
     expect(prev.start.getMonth()).toBe(5); // June
     expect(prev.end.getMonth()).toBe(5); // June
+  });
+
+  it('previous-calendar-period (week) does not day-shift across the spring-forward DST transition (Fix 2.1)', () => {
+    // US spring-forward is 2024-03-10. A week-sized window straddling it spans only
+    // 167 wall-clock hours, so the old raw `− 168h` subtraction landed prevEnd at
+    // 23:00 the previous calendar day; toLocalYmd then serialized it one day too
+    // early. Calendar arithmetic shifts the date component, so the bounds stay
+    // exactly 7 whole calendar days back with no 23:00 drift.
+    const start = new Date(2024, 2, 7); // Mar 7 2024 local midnight
+    const end = new Date(2024, 2, 13); // Mar 13 2024 local midnight (straddles Mar 10 DST)
+    const prev = computePreviousPeriodRange(start, end, 'previous-calendar-period');
+    // Feb 29 2024 (leap year) .. Mar 6 2024 — the old code serialized Mar 5 for the end.
+    expect(toLocalYmd(prev.start)).toBe('2024-02-29');
+    expect(toLocalYmd(prev.end)).toBe('2024-03-06');
   });
 
   it('windows fixed-period rows by calendar day, classifying boundary-day date-only rows consistently (finding F3)', () => {

@@ -383,6 +383,20 @@ describe('aggregateByField numeric-string measures (finding 1.6)', () => {
     expect(result.values[idx(result, 'A')]).toBe(2);
     expect(result.values[idx(result, 'B')]).toBe(1);
   });
+
+  it('sums a field whose first non-null value is a sentinel but the rest are numbers (any-value detection)', () => {
+    // The pre-detect inspects ALL non-null values, not just the first: a leading
+    // "N/A" sentinel ahead of real numbers must not downgrade a configured `sum`
+    // to a row count.
+    const sentinelRows = [
+      { cat: 'A', amount: 'N/A' },
+      { cat: 'A', amount: 10 },
+      { cat: 'A', amount: 20 },
+    ];
+    const result = aggregateByField(sentinelRows, 'cat', 'amount', undefined, 'sum');
+    // sum(10, 20) = 30 — NOT a row count of 3.
+    expect(result.values[idx(result, 'A')]).toBe(30);
+  });
 });
 
 describe('aggregateByTwoFields numeric-string measures (finding 1.6)', () => {

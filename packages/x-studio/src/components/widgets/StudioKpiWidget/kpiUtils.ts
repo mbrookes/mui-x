@@ -355,10 +355,15 @@ export function computePreviousPeriodRange(
       };
     }
     if (granularity === 'week') {
-      const ms = 7 * 24 * 60 * 60 * 1000;
+      // Calendar arithmetic (not raw ms subtraction): across a spring-forward DST
+      // transition a 7-day span is only 167 wall-clock hours, so `start − 168h`
+      // lands at 23:00 the previous calendar day and `toLocalYmd` then serializes
+      // `prevStart` one day too early. Shifting the calendar date by 7 keeps the
+      // previous window exactly 7 whole days back in every timezone — matching the
+      // month/quarter/year sibling branches.
       return {
-        start: new Date(start.getTime() - ms),
-        end: new Date(end.getTime() - ms),
+        start: new Date(start.getFullYear(), start.getMonth(), start.getDate() - 7),
+        end: new Date(end.getFullYear(), end.getMonth(), end.getDate() - 7),
       };
     }
     // month (default)

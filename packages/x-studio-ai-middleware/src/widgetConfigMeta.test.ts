@@ -79,7 +79,7 @@ describe('widgetConfigMeta: documented keys stay in sync with the schema allowli
     expect(WIDGET_KIND_DESCRIPTIONS.chart).toContain('sankey');
     expect(KIND_CONFIG_LINES.chart.join('\n')).toMatch(/sankey:/);
     // Dedicated CHART_TYPE_DOCS entry
-    const sankeyEntry = CHART_TYPE_DOCS.find((e) => e.startsWith('sankey:'));
+    const sankeyEntry = CHART_TYPE_DOCS.find((entry) => entry.startsWith('sankey:'));
     expect(sankeyEntry, 'CHART_TYPE_DOCS has no sankey entry').toBeDefined();
     // The sankey-only key is documented and schema-valid for sankey
     expect(sankeyEntry).toContain('sankeyTargetField');

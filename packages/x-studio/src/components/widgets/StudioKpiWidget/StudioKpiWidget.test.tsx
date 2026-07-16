@@ -618,7 +618,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     expect(sparkline?.data).toBeNull();
   });
 
-  it('still resolves the sparkline time field from a date filter scoped to this widget’s page', () => {
+  it("still resolves the sparkline time field from a date filter scoped to this widget's page", () => {
     rowsHolder.current = [
       { id: 's1', amount: 100, saleDate: '2026-07-01' },
       { id: 's2', amount: 200, saleDate: '2026-07-15' },
@@ -703,6 +703,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     configureStudioContextMock({ getState: () => mockState });
 
     const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
     // filterSubtitle must be empty (the other page's filter is excluded), which
@@ -710,7 +711,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
-  it('shows this page’s filter in the KPI hover tooltip', async () => {
+  it("shows this page's filter in the KPI hover tooltip", async () => {
     rowsHolder.current = [
       { id: 's1', amount: 100, saleDate: '2026-07-01' },
       { id: 's2', amount: 200, saleDate: '2026-07-02' },
@@ -732,6 +733,7 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     configureStudioContextMock({ getState: () => mockState });
 
     const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
     const tooltip = await screen.findByRole('tooltip');

@@ -116,7 +116,7 @@ export function checkColumnAgainstAllowlist(
     // allowlisted column in an error returned verbatim to any authenticated caller
     // (`handler.ts`'s per-widget `{ error }`) hands out the table's column map. The
     // full list is logged server-side for operator debugging instead.
-    // eslint-disable-next-line no-console
+
     console.warn(
       `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}). ` +
         `Allowed columns for "${table}": ${allowed.join(', ')}`,

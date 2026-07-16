@@ -1513,7 +1513,7 @@ describe('StudioController.commitWidgetMove — emitted-scope cleanup (T1.1)', (
     expect(controller.getState().doc.filters.find((f) => f.id === 'x1')).toBeUndefined();
   });
 
-  it('leaves another widget’s emitted filters untouched', () => {
+  it("leaves another widget's emitted filters untouched", () => {
     const controller = twoPageWithFilters([
       makeFilter({
         id: 'i-other',

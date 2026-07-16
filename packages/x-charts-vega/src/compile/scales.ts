@@ -748,9 +748,13 @@ function resolveChannelAxis(
   // approximation — a `partial` gap records it — because the opposite end is
   // still subject to `domainLimit` rounding. `scale.zero: false` forces nothing,
   // matching x-charts' floating default.
+  // Vega-Lite defaults `zero: true` for a quantitative position scale (so e.g. a
+  // Horsepower axis runs 0→240, not 46→240), unless the spec sets `zero: false`
+  // or an explicit domain. Apply that default on linear scales (log/pow/sqrt/
+  // symlog can't sensibly include 0, and Vega-Lite doesn't zero them either).
   let zeroMin: number | undefined;
   let zeroMax: number | undefined;
-  if (scale?.zero === true) {
+  if (scale?.zero !== false && scaleType === 'linear') {
     const extent = channelNumericExtent(occurrences);
     if (extent) {
       if (extent.min > 0 && explicitMin === undefined) {
@@ -759,7 +763,10 @@ function resolveChannelAxis(
         zeroMax = 0;
       }
     }
-    if (zeroMin !== undefined || zeroMax !== undefined) {
+    // Only note the approximation (the opposite end is still `domainLimit`-
+    // rounded) when the spec *explicitly* asked for zero — the default case is
+    // standard Vega-matching behavior and shouldn't add gap noise to every chart.
+    if ((zeroMin !== undefined || zeroMax !== undefined) && scale?.zero === true) {
       gaps.add({
         code: 'scale:zero-approximation',
         message:
@@ -794,6 +801,7 @@ function resolveChannelAxis(
     fieldType,
     channel: def,
     field,
+    hasExplicitDomain: explicitMin !== undefined || explicitMax !== undefined,
   };
 }
 

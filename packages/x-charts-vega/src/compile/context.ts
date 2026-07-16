@@ -250,6 +250,13 @@ export interface SizeLegend {
 export interface AxisResolution<Config extends XAxis | YAxis = XAxis | YAxis> {
   config: Config & { id: string };
   fieldType: VegaFieldType;
+  /**
+   * True when the spec pinned an explicit `scale.domain` on this axis (as
+   * opposed to a domain bound derived from the `zero` default). Overlay-domain
+   * seeding skips only genuinely explicit domains, so a zero-pinned min still
+   * lets overlay geometry extend the other end.
+   */
+  hasExplicitDomain?: boolean;
   /** Present for band/point scales — the ordered domain values. */
   categories?: Array<string | number | Date>;
   /** Serialized category keys, index-aligned with `categories`. */

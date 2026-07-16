@@ -204,7 +204,10 @@ function applyOverlayDomains(
       continue;
     }
     const config = axis.config as { min?: number | Date; max?: number | Date };
-    if (config.min !== undefined || config.max !== undefined) {
+    // Skip only a genuinely explicit spec domain. A min/max pinned by the `zero`
+    // default is not explicit, so overlay geometry may still extend the domain
+    // (e.g. seed the `max` a boxplot/errorband/text overlay needs).
+    if (axis.hasExplicitDomain) {
       continue;
     }
     const overlayValues = overlays.flatMap((overlay) => overlayAxisValues(overlay, name));

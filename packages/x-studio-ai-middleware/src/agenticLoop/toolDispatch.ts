@@ -136,8 +136,13 @@ function toError(err: unknown): Error {
  * only ever a display hint (execution keys off the id), so overriding it here does
  * not change what the tool does once approved. If the entity does not exist in
  * state (a case the executed tool then rejects), the input is left untouched.
+ *
+ * Exported so the MCP transport's approval bridge (`mcp.ts` `bridgeApproval`) can
+ * apply the SAME state-derived label enrichment before handing `input` to the host
+ * `approvalHandler` — otherwise the two transports would disagree and the MCP path
+ * would forward the raw, spoofable model label (finding T2-A).
  */
-function buildApprovalDisplayInput(
+export function buildApprovalDisplayInput(
   toolName: string,
   toolInput: unknown,
   state: StudioState,

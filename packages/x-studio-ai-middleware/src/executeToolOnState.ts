@@ -169,8 +169,8 @@ export interface PureToolImpl {
  * A tool whose execution has a side effect (I/O) and therefore must NEVER be
  * routed through the execute-then-gate dry-run path — it must be authorized
  * BEFORE it runs, args-only. `query_data_source` is the only member: its real
- * dispatch lives in `agenticLoop.ts` (chat) and `mcp/dataTools.ts` (MCP), both
- * consulting the policy first, and is intentionally NOT reachable through
+ * dispatch lives in `agenticLoop/toolDispatch.ts` (chat) and `mcp/dataTools.ts`
+ * (MCP), both consulting the policy first, and is intentionally NOT reachable through
  * `executeToolOnState` — see the `default` case below. This entry exists
  * purely so `TOOL_IMPLS` is exhaustive over every `StudioAIToolName`, letting
  * a future consumer type `executeToolWithPolicy`'s
@@ -1528,7 +1528,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   // Side-effectful (runs a live query via the app-provided `data` config) and
   // therefore must be authorized BEFORE it executes, not dry-run-then-gated —
   // see the PURITY INVARIANT documented in `toolPolicy.ts`. Its real dispatch
-  // lives in `agenticLoop.ts` (chat) and `mcp/dataTools.ts` (MCP) — both call
+  // lives in `agenticLoop/toolDispatch.ts` (chat) and `mcp/dataTools.ts` (MCP) — both call
   // `createDataToolHandlers`, never this function. This entry exists only so
   // `TOOL_IMPLS` is exhaustive over `StudioAIToolName` — calling
   // `executeToolOnState('query_data_source', ...)` directly still falls

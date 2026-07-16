@@ -74,6 +74,7 @@ import {
   EXTRA_TOOL_DEFINITIONS,
 } from './mcp/toolMetadata';
 import { createDataToolHandlers, createSummarisePageHandler } from './mcp/dataTools';
+import { buildApprovalDisplayInput } from './agenticLoop/toolDispatch';
 import { registerResourceHandlers } from './mcp/resources';
 import { registerPromptHandlers } from './mcp/prompts';
 import type { StudioMcpOptions, StudioStateBox } from './mcp/types';
@@ -111,6 +112,24 @@ const MCP_UNSUPPORTED_TOOLS = new Set(
     .filter(([, facts]) => !facts.mcpSupported)
     .map(([name]) => name),
 );
+
+/**
+ * Dispatch-table data tools that return RAW ROWS (`describe_data_source` yields up
+ * to 10 sample rows; `get_field_values` and `compute_field_stats` project raw
+ * column values). `resources.ts` documents `query_data_source` as the single tool
+ * name whose `toolPolicy` / `allowedTools` restriction governs ALL raw-row access,
+ * and the resource path (`authorizeResourceDataAccess`) maps raw-row RESOURCE reads
+ * onto that name (finding T2-B). Consulting the policy for these three sibling tools
+ * under their OWN names left a per-`sourceId` `query_data_source` deny unable to gate
+ * them — a contract violation between the tool and resource surfaces. Their policy
+ * CONSULT is therefore routed under `query_data_source` (threading `sourceId`, like
+ * the resource path); they stay advertised / allow-listed under their own names.
+ */
+const RAW_ROW_DATA_TOOLS = new Set([
+  'describe_data_source',
+  'get_field_values',
+  'compute_field_stats',
+]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
@@ -384,10 +403,19 @@ export function buildStudioMcpServer(
           'channel configured. Set StudioMcpOptions.approvalHandler to enable it.',
       };
     }
+    // Enrich human-facing approval labels from the REAL current state before handing
+    // `input` to the host (finding T2-A). The chat transport already rewrites
+    // `remove_widget`/`remove_page`/`apply_bulk_update` titles to the actual
+    // state-derived entity title via `buildApprovalDisplayInput`; without the same
+    // enrichment here, a prompt-injected model could get a destructive removal
+    // approved under a spoofed `widgetTitle`/`pageTitle` a host renders in its
+    // confirmation UI. Display-only — execution still keys off the raw id. For any
+    // non-destructive tool the helper returns the input unchanged.
+    const displayInput = buildApprovalDisplayInput(toolName, args ?? {}, stateBox.current);
     const approved = await approvalHandler({
       transport: 'mcp',
       toolName,
-      input: args ?? {},
+      input: displayInput,
       state: stateBox.current,
       proposed,
       usage: sessionUsage,
@@ -444,16 +472,37 @@ export function buildStudioMcpServer(
       // omitted) and, on require-approval, bridge to the host's approvalHandler exactly
       // like the mutation path. Only on allow/approved does the handler run.
       if (handler) {
-        const gate = await consultToolPolicyArgsOnly(toolName, args ?? {}, stateBox.current, {
-          policy: sessionToolPolicy,
-          transport: 'mcp',
-          usage: sessionUsage,
-        });
+        // Raw-row data tools (`describe_data_source` / `get_field_values` /
+        // `compute_field_stats`) consult the policy under `query_data_source` — the
+        // single tool name `resources.ts` documents as governing ALL raw-row access,
+        // and the same name the raw-row RESOURCE path (`authorizeResourceDataAccess`)
+        // maps onto (finding T2-B). Thread `sourceId` into the consult input exactly
+        // like that resource path, so one per-`sourceId` `query_data_source` rule gates
+        // every raw-row surface (tool AND resource) identically. These tools stay
+        // advertised / allow-listed under their OWN names (the `isToolAllowed` check
+        // above is unchanged); only the policy-consult and approval-bridge tool name
+        // is remapped. Every other dispatch-table tool consults under its own name
+        // with its full args, as before.
+        const isRawRowDataTool = RAW_ROW_DATA_TOOLS.has(toolName);
+        const policyToolName = isRawRowDataTool ? 'query_data_source' : toolName;
+        const consultInput = isRawRowDataTool
+          ? { sourceId: (args as { sourceId?: unknown } | undefined)?.sourceId }
+          : (args ?? {});
+        const gate = await consultToolPolicyArgsOnly(
+          policyToolName,
+          consultInput,
+          stateBox.current,
+          {
+            policy: sessionToolPolicy,
+            transport: 'mcp',
+            usage: sessionUsage,
+          },
+        );
         if (gate.kind === 'denied') {
           return errorResult(gate.reason);
         }
         if (gate.kind === 'needs-approval') {
-          const bridged = await bridgeApproval(toolName, args);
+          const bridged = await bridgeApproval(policyToolName, consultInput);
           if (!bridged.approved) {
             return errorResult(bridged.reason);
           }

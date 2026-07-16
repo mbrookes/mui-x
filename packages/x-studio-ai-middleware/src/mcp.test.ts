@@ -1342,6 +1342,130 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MCP transport parity with the chat transport (round 14)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — MCP approval-label enrichment (T2-A)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  it('rewrites a spoofed remove_widget widgetTitle to the REAL state-derived title before approval', async () => {
+    const state = makeStableState();
+    const widgetId = 'w-real';
+    state.doc.widgets[widgetId] = {
+      id: widgetId,
+      kind: 'chart',
+      title: 'Real Revenue Widget',
+      sourceId: 'source-orders',
+      config: {},
+    } as any;
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
+    const stateBox = { current: state };
+
+    let capturedInput: any;
+    // Deny so nothing commits — the enrichment happens BEFORE the decision, which is
+    // exactly what a host renders in its confirmation UI.
+    const approvalHandler = vi.fn(async (ctx: any) => {
+      capturedInput = ctx.input;
+      return false;
+    });
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'remove_widget' ? { action: 'require-approval' } : { action: 'allow' },
+      approvalHandler,
+    });
+
+    await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: {
+        name: 'remove_widget',
+        // The model spoofs a harmless-sounding label that does NOT match the real widget.
+        arguments: { widgetId, widgetTitle: 'Harmless Chart (spoofed)' },
+      },
+      method: CALL_TOOL,
+    });
+
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    // The host sees the REAL title the id points at, not the model's spoofed label.
+    expect(capturedInput.widgetTitle).toBe('Real Revenue Widget');
+    expect(capturedInput.widgetTitle).not.toBe('Harmless Chart (spoofed)');
+    // The id execution keys off is preserved untouched.
+    expect(capturedInput.widgetId).toBe(widgetId);
+  });
+});
+
+describe('buildStudioMcpServer — raw-row policy parity (T2-B)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  it('a per-sourceId query_data_source deny also blocks describe_data_source/get_field_values/compute_field_stats for that source', async () => {
+    const state = makeStableState();
+    // A second, unrestricted source the same rule must still let through.
+    state.runtime.dataSources['source-public'] = makeSource({
+      id: 'source-public',
+      label: 'Public',
+      tableName: 'public_tbl',
+    });
+    const stateBox = { current: state };
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ status: 'x', count: 1 }],
+        rowCount: 1,
+      }),
+    );
+    const consulted: Array<{ toolName: string; sourceId: unknown }> = [];
+    const server = buildStudioMcpServer(stateBox, {
+      data: { queryDataSource },
+      // One rule, keyed on `query_data_source` + a specific sourceId, must govern
+      // every raw-row surface — the three sibling data tools included.
+      toolPolicy: (ctx) => {
+        consulted.push({ toolName: ctx.toolName, sourceId: (ctx.input as any)?.sourceId });
+        if (
+          ctx.toolName === 'query_data_source' &&
+          (ctx.input as any)?.sourceId === 'source-orders'
+        ) {
+          return { action: 'deny', reason: 'source-orders is off-limits' };
+        }
+        return { action: 'allow' };
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const rawRowTools: Array<[string, Record<string, unknown>]> = [
+      ['describe_data_source', { sourceId: 'source-orders' }],
+      ['get_field_values', { sourceId: 'source-orders', fieldId: 'status' }],
+      ['compute_field_stats', { sourceId: 'source-orders', fields: ['total'] }],
+    ];
+    for (const [name, args] of rawRowTools) {
+      // eslint-disable-next-line no-await-in-loop -- sequential per-tool assertions
+      const result = (await call({
+        params: { name, arguments: args },
+        method: CALL_TOOL,
+      })) as any;
+      expect(result.isError, `${name} should be denied for source-orders`).toBe(true);
+      expect(result.content[0].text).toMatch(/off-limits/);
+    }
+    // Every consult was routed under `query_data_source`, threaded with the sourceId
+    // (matching how the resource path maps raw-row reads).
+    expect(consulted).toEqual([
+      { toolName: 'query_data_source', sourceId: 'source-orders' },
+      { toolName: 'query_data_source', sourceId: 'source-orders' },
+      { toolName: 'query_data_source', sourceId: 'source-orders' },
+    ]);
+    // The denied source never reached the DB.
+    expect(queryDataSource).not.toHaveBeenCalled();
+
+    // A DIFFERENT source still works under the very same rule.
+    const ok = (await call({
+      params: { name: 'describe_data_source', arguments: { sourceId: 'source-public' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(ok.isError).toBeFalsy();
+    expect(queryDataSource).toHaveBeenCalled();
+  });
+});
+
 // ── tools/list golden output (Stage 1 registry retrofit regression guard) ────
 //
 // `TOOL_TITLES`/`TOOL_ANNOTATIONS` (mcp/toolMetadata.ts) are now derived from

@@ -1404,3 +1404,97 @@ describe('empty-string department claim is scoped, not ignored (finding 3.3)', (
     expect(snapshot.find((r) => r.id === 2)?.status).toBe('pending');
   });
 });
+
+// ── Builder-level present-value scope check is symmetric with validateMutation (finding 3.2) ──
+//
+// `validateSecurityColumnValues` was previously called ONLY from `validateMutation`.
+// The builders re-applied tenant + insert-omission guards independently as
+// documented defense-in-depth, but NOT the present-value region/department scope
+// check — so a PRESENT out-of-scope value (e.g. `{ region_id: 999 }` from a
+// region-5 caller) was caught only by `validateMutation`. This is not reachable via
+// the public API (`handleMutation` → `processMutation` always calls
+// `validateMutation` first), but a direct/internal builder caller could bypass it.
+// The builders now re-run `validateSecurityColumnValues` at their own boundary,
+// making their defense-in-depth symmetric. In-scope values are unaffected (the
+// suites above already exercise the normal path through the builders).
+
+describe('builder present-value scope check (finding 3.2)', () => {
+  const REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5] };
+  const DEPT_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], department: 'Sales' };
+
+  it('buildUpdateMutation throws on a PRESENT out-of-scope region_id and mutates nothing', () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', region_id: 5, status: 'pending' }],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped', region_id: 999 },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => buildUpdateMutation(db, REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /outside the caller's permitted regions/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('buildInsertMutation throws on a PRESENT out-of-scope region_id and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', region_id: 999 },
+    };
+    expect(() => buildInsertMutation(db, REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /outside the caller's permitted regions/,
+    );
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('buildUpdateMutation throws on a PRESENT out-of-scope department and mutates nothing', () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', department: 'Sales', status: 'pending' }],
+    });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped', department: 'Finance' },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => buildUpdateMutation(db, DEPT_CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /outside the caller's department/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('still allows an IN-SCOPE present region_id through both builders (normal path unchanged)', async () => {
+    const insertDb = createMutableMockDb({ orders: [] });
+    await buildInsertMutation(
+      insertDb,
+      REGION_CLAIMS,
+      { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok', region_id: 5 } },
+      MT_POLICY,
+    );
+    expect(insertDb.snapshot().orders[0]).toMatchObject({ region_id: 5, tenant_id: 'acme' });
+
+    const updateDb = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', region_id: 5, status: 'pending' }],
+    });
+    await buildUpdateMutation(
+      updateDb,
+      REGION_CLAIMS,
+      {
+        id: 'm1',
+        operation: 'update',
+        table: 'orders',
+        values: { status: 'shipped', region_id: 5 },
+        where: [{ column: 'id', operator: 'eq', value: 1 }],
+      },
+      MT_POLICY,
+    );
+    expect(updateDb.snapshot().orders[0].status).toBe('shipped');
+  });
+});

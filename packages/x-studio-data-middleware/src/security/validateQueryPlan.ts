@@ -185,6 +185,33 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
+ * Validate the row LIMIT against a fail-closed non-negative-integer guard.
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (finding 3.1),
+ * independent of whether a `columnAllowlist` is configured. `descriptor.limit` is
+ * client JSON that `execute.ts` passes straight to Knex's `.limit()`. The TS type
+ * (`number`) is not a runtime guarantee — the wire value can be a string, a float,
+ * a negative number, `NaN`, or an object. Knex's dialect-specific `.limit()`
+ * coercion can then SILENTLY DROP the clause (coercing a malformed value to
+ * `NaN`/`undefined`), returning ALL tenant-scoped rows instead of the bounded page
+ * the caller asked for. Constrain it to a non-negative integer (fail-closed),
+ * mirroring the `SAFE_OPERATORS` / ORDER-BY-direction guards. `limit: 0` (a
+ * legitimate "return zero rows" request) is allowed; only `undefined` means "no
+ * limit". Runs per widget inside `processWidget`, so a malformed limit yields that
+ * widget's own `{ error }` result rather than rejecting the whole batch.
+ */
+function validateLimit(descriptor: BatchWidgetDescriptor): void {
+  const { limit } = descriptor;
+  if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 0)) {
+    throw new Error(
+      `MUI X Studio Server: Row limit "${limit}" is not allowed. ` +
+        `The limit bounds how many rows the query returns, and a malformed value can be silently coerced by the database driver into returning every tenant-scoped row. ` +
+        `Use a non-negative integer (or omit "limit" for no limit).`,
+    );
+  }
+}
+
+/**
  * Validate every expression-field OUTPUT ALIAS against the safe-identifier charset.
  *
  * Uses the SAME shared `SAFE_ALIAS_PATTERN` (`shared/columnValidation.ts`) that
@@ -358,7 +385,10 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      projection via `?? as ??`, finding 3.4).
  *   4. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
  *      direction — the token is interpolated into the SQL ORDER BY clause).
- *   5. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
+ *   5. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
+ *      negative `limit` — a malformed value can be silently coerced by the DB
+ *      driver into returning every tenant-scoped row, finding 3.1).
+ *   6. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
  * then resolves every column reference into the plan and, when a `columnAllowlist`
  * is configured for a no-columns/no-aggregations widget, synthesizes an explicit
@@ -376,6 +406,7 @@ export function validateQueryPlan(
   validateAggregationAliases(descriptor);
   validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);
+  validateLimit(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);
   }

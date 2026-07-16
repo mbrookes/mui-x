@@ -313,6 +313,15 @@ export function buildInsertMutation(
   const values: Record<string, unknown> = { ...descriptor.values };
   const cols = resolvePrimaryCols(descriptor.table, policy);
 
+  // Defense-in-depth (finding 3.2): re-run the present-value row-level-security
+  // scope check at the builder boundary, symmetric with `buildUpdateMutation`, so a
+  // direct caller that skipped `validateMutation` cannot smuggle an out-of-scope
+  // PRESENT value (e.g. `{ region_id: 999 }` from a region-5 caller, or a
+  // client-supplied tenant column) into the insert payload. Runs BEFORE the tenant
+  // force-stamp so the check sees the client's own values. Idempotent on the normal
+  // path — `validateMutation` already ran the identical check with in-scope values.
+  validateSecurityColumnValues(values, claims, cols);
+
   // Unconditionally set the tenant column — clients cannot set it to another tenant.
   if (cols.tenant) {
     values[cols.tenant] = claims.tenantId;
@@ -367,6 +376,16 @@ export function buildUpdateMutation(
   if (cols.tenant) {
     delete values[cols.tenant];
   }
+
+  // Defense-in-depth (finding 3.2): re-run the present-value row-level-security
+  // scope check at the builder boundary, symmetric with `buildInsertMutation`, so a
+  // direct caller that skipped `validateMutation` cannot smuggle an out-of-scope
+  // PRESENT value (e.g. `{ region_id: 999 }` from a region-5 caller) into the update
+  // SET clause. Runs AFTER the tenant strip above so the tenant column is already
+  // removed — this builder deliberately STRIPS a client-supplied tenant rather than
+  // throwing, so the (now-absent) tenant column makes that arm a no-op while the
+  // region/department present-value checks still run. Idempotent on the normal path.
+  validateSecurityColumnValues(values, claims, cols);
 
   return query.update(values);
 }

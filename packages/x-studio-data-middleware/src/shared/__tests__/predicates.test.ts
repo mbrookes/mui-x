@@ -9,8 +9,12 @@
  * `Object.prototype.hasOwnProperty.call`-gated.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { resolvePrimarySecurityColumns, resolveJoinSecurityColumns } from '../predicates';
-import type { SecurityColumnsConfig } from '../../security/types';
+import {
+  resolvePrimarySecurityColumns,
+  resolveJoinSecurityColumns,
+  applyPredicates,
+} from '../predicates';
+import type { SecurityColumnsConfig, FilterPredicate } from '../../security/types';
 
 const TENANT_COLUMN = 'tenant_id';
 const DEFAULT_COLUMNS = { tenant: TENANT_COLUMN, region: 'region_id', department: 'department' };
@@ -53,6 +57,116 @@ describe('resolvePrimarySecurityColumns / resolveJoinSecurityColumns — own-pro
     // country_codes: null still opts a shared/lookup table out entirely.
     const shared: SecurityColumnsConfig = { perTable: { country_codes: null } };
     expect(resolveJoinSecurityColumns('country_codes', shared, TENANT_COLUMN)).toBeUndefined();
+  });
+});
+
+// ── Value-shape guards for like / scalar comparisons (finding 3.1) ────────────
+//
+// `like`, and the scalar comparison operators (eq/neq/lt/lte/gt/gte), gained the
+// same fail-closed value-shape guard the `in` (array) and `between` (2-tuple)
+// operators already had. A malformed value throws a clear per-operator message
+// BEFORE any Knex call (so nothing is ever emitted); a legitimate value is
+// untouched and still routed to the right Knex primitive.
+describe('applyPredicates — value-shape guards (finding 3.1)', () => {
+  /** Records the Knex call each predicate makes so we can assert valid values pass through. */
+  function recordingQuery() {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const q: any = {};
+    for (const method of ['where', 'whereIn', 'whereLike', 'whereBetween']) {
+      q[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+        return q;
+      };
+    }
+    return { q, calls };
+  }
+
+  it('throws fail-closed for a non-string "like" value (array), before any Knex call', () => {
+    const { q, calls } = recordingQuery();
+    const predicate = {
+      column: 'notes',
+      operator: 'like',
+      value: ['a', 'b'],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"like" predicate on column "notes" requires a string value, but received an array/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('throws fail-closed for a non-string "like" value (number)', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'notes',
+      operator: 'like',
+      value: 42,
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"like" predicate on column "notes" requires a string value, but received number/,
+    );
+  });
+
+  it.each(['eq', 'neq', 'lt', 'lte', 'gt', 'gte'] as const)(
+    'throws fail-closed for a non-scalar "%s" value (array), before any Knex call',
+    (operator) => {
+      const { q, calls } = recordingQuery();
+      const predicate = { column: 'amount', operator, value: [1, 2] } as unknown as FilterPredicate;
+      expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+        new RegExp(
+          `"${operator}" predicate on column "amount" requires a scalar value .* but received an array`,
+        ),
+      );
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('throws fail-closed for a non-scalar scalar-comparison value (object)', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'gte',
+      value: {},
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"gte" predicate on column "amount" requires a scalar value .* but received object/,
+    );
+  });
+
+  it('throws fail-closed for an undefined scalar-comparison value', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'eq',
+      value: undefined,
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"eq" predicate on column "amount" requires a scalar value .* but received undefined/,
+    );
+  });
+
+  it('allows a null "eq"/"neq" value (Knex renders it as IS NULL / IS NOT NULL)', () => {
+    const { q, calls } = recordingQuery();
+    const predicates = [
+      { column: 'deleted_at', operator: 'eq', value: null },
+      { column: 'deleted_at', operator: 'neq', value: null },
+    ] as unknown as FilterPredicate[];
+    expect(() => applyPredicates(q, predicates, 'read')).not.toThrow();
+    expect(calls.filter((c) => c.method === 'where')).toHaveLength(2);
+  });
+
+  it('accepts legitimate scalar / string / Date values and routes them to Knex', () => {
+    const { q, calls } = recordingQuery();
+    const validPredicates = [
+      { column: 'region', operator: 'eq', value: 'west' },
+      { column: 'amount', operator: 'gte', value: 100 },
+      { column: 'active', operator: 'neq', value: true },
+      { column: 'sale_date', operator: 'lt', value: new Date('2024-01-01') },
+      { column: 'notes', operator: 'like', value: 'urgent%' },
+    ] as unknown as FilterPredicate[];
+    expect(() => applyPredicates(q, validPredicates, 'read')).not.toThrow();
+    // Four `.where(...)` scalar comparisons + one `.whereLike(...)`.
+    expect(calls.filter((c) => c.method === 'where')).toHaveLength(4);
+    expect(calls.filter((c) => c.method === 'whereLike')).toHaveLength(1);
   });
 });
 

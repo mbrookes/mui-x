@@ -63,6 +63,42 @@ export const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
 ]);
 
 /**
+ * The comparison operators that reach Knex's `.where(column, op, value)` with a
+ * single scalar value. Their `value` shape is runtime-guarded in `applyPredicate`
+ * (finding 3.1), mirroring the existing `in` (array) and `between` (2-tuple) guards.
+ */
+const SCALAR_COMPARISON_OPERATORS = new Set<FilterPredicate['operator']>([
+  'eq',
+  'neq',
+  'lt',
+  'lte',
+  'gt',
+  'gte',
+]);
+
+/**
+ * Is `value` a legitimate scalar for a comparison predicate?
+ *
+ * `FilterPredicate`'s TS types allow only `string | number | boolean` for these
+ * operators; `Date` is additionally accepted because a date-typed column value
+ * legitimately flows through the pipeline as a `Date` and must compare, not throw.
+ * `null` is also allowed: Knex deliberately renders `.where(col, '=', null)` as
+ * `col IS NULL` (and `!=` as `IS NOT NULL`), a supported filter the code already
+ * handles — rejecting it would regress that behavior. Only a non-null object /
+ * array / `undefined` (which have no meaningful single-value SQL comparison) are
+ * rejected fail-closed.
+ */
+function isScalarComparisonValue(value: unknown): boolean {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value instanceof Date
+  );
+}
+
+/**
  * Look up a table's per-table security-column override, own-property-gated.
  *
  * SECURITY (finding 2.2) — `table` is client JSON (`descriptor.table` /
@@ -345,6 +381,22 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
 
   const { column, operator, value } = predicate;
 
+  // Runtime-guard the scalar shape (finding 3.1) for the comparison operators that
+  // reach `.where(column, op, value)`. `FilterPredicate.value` is client JSON, so
+  // its TS type is not a runtime guarantee: an array reaches Knex as an unexpected
+  // multi-binding, and an object/undefined as a confusing DB error. These operators
+  // compare against exactly ONE value, so require a scalar — mirroring the `in`
+  // (array) and `between` (2-tuple) guards below. The value still stays parameterized.
+  if (SCALAR_COMPARISON_OPERATORS.has(operator) && !isScalarComparisonValue(value)) {
+    throw new Error(
+      `MUI X Studio Server: "${operator}" predicate on column "${column}" requires a scalar value (string, number, boolean, or date), but received ${
+        Array.isArray(value) ? 'an array' : typeof value
+      }. ` +
+        `A comparison filter compares against a single value, so a non-scalar value cannot be translated to a valid SQL comparison. ` +
+        `Provide a single scalar value (e.g. { operator: "${operator}", value: 42 }).`,
+    );
+  }
+
   switch (operator) {
     case 'eq':
       query.where(column, '=', value);
@@ -392,6 +444,19 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.where(column, '>=', value);
       break;
     case 'like':
+      // Runtime-guard the string shape (finding 3.1). `query.whereLike` expects a
+      // text pattern; a non-string (`['a','b']`, an object, a number) reaches Knex
+      // as a confusing DB error. Fail closed with a clear message, mirroring the
+      // `in`/`between` guards. The pattern still stays parameterized.
+      if (typeof value !== 'string') {
+        throw new Error(
+          `MUI X Studio Server: "like" predicate on column "${column}" requires a string value, but received ${
+            Array.isArray(value) ? 'an array' : typeof value
+          }. ` +
+            `A "like" filter matches a text pattern, so a non-string value cannot be translated to a valid SQL "LIKE" clause. ` +
+            `Provide a string pattern (e.g. { operator: "like", value: "%abc%" }).`,
+        );
+      }
       query.whereLike(column, value);
       break;
     case 'between': {

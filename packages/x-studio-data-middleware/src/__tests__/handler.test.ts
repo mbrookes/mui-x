@@ -811,6 +811,168 @@ describe('handleBatchQuery — user filter predicates', () => {
   });
 });
 
+// ─── handleBatchQuery — filter/limit value-shape guards (finding 3.1) ─────────
+//
+// `like`, the scalar comparison operators (eq/neq/lt/lte/gt/gte), and `limit`
+// gained the same fail-closed value-shape guard the `in` (array) and `between`
+// (2-tuple) operators already had. A malformed value produces this widget's own
+// `{ error }` result (per-widget isolation) rather than reaching Knex as a
+// confusing DB error or — for `limit` — being silently coerced into returning
+// every tenant-scoped row. Valid inputs are proven unchanged by the sibling
+// "user filter predicates" suite above.
+describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a non-string "like" value (array)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'product', operator: 'like', value: ['a', 'b'] as any }],
+        },
+      ],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /"like" predicate on column "sales.product" requires a string value, but received an array/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a non-scalar "eq" value (array)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'region', operator: 'eq', value: ['west'] as any }],
+        },
+      ],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /"eq" predicate on column "sales.region" requires a scalar value .* but received an array/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a non-scalar "gte" value (object)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'amount', operator: 'gte', value: { $gt: 100 } as any }],
+        },
+      ],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /"gte" predicate on column "sales.amount" requires a scalar value .* but received object/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a negative "limit"', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: -1 }],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /Row limit "-1" is not allowed/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a non-integer "limit"', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: 1.5 as any }],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /Row limit "1.5" is not allowed/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('returns a per-widget error for a non-numeric "limit"', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: '10' as any }],
+    };
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /Row limit "10" is not allowed/,
+    );
+  });
+
+  it('still accepts a valid string "like", scalar comparison, and integer "limit"', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [
+            { column: 'product', operator: 'like', value: 'wid%' },
+            { column: 'amount', operator: 'gte', value: 100 },
+          ],
+          limit: 5,
+        },
+      ],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+    });
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  it('still accepts "limit: 0" (return zero rows) as distinct from no limit', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: 0 }],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+    });
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows).toEqual([]);
+  });
+});
+
 // ─── handleBatchQuery — columnAliases success path ───────────────────────────
 //
 // `mockDb.ts` previously had no `db.raw()`, so any descriptor using

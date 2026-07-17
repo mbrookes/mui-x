@@ -22,14 +22,25 @@ describe('detectAnomaliesIQR', () => {
     expect(detectAnomaliesIQR(values).size).toBe(0);
   });
 
-  it('returns no anomalies when IQR === 0 even though not every value is identical', () => {
+  it('still flags a genuine spike when IQR === 0 (degenerate-spread fallback)', () => {
     // Sorted: eight 3's plus one 50. n = 9, so the lower half is indices 0-3
     // ([3,3,3,3] -> median 3) and the upper half is indices 5-8 ([3,3,3,50] ->
-    // median (3+3)/2 = 3). Q1 === Q3 === 3, so IQR === 0 and the guard fires —
-    // distinct from the "every value identical" case above, since here a single
-    // outlying value (50) exists but the fence collapse still suppresses it.
+    // median (3+3)/2 = 3). Q1 === Q3 === 3, so IQR === 0 and the standard Tukey
+    // fence collapses to a single point — but the constant-value fallback still
+    // flags the one value (50, at original index 8) that differs from the
+    // constant, rather than reporting zero anomalies for an obvious extreme spike.
     const values = [3, 3, 3, 3, 3, 3, 3, 3, 50];
-    expect(detectAnomaliesIQR(values).size).toBe(0);
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(8)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it('flags every value that differs from the constant when IQR === 0 (multiple spikes)', () => {
+    const values = [3, 3, 3, 3, 3, 3, 3, -1, 50];
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(7)).toBe(true);
+    expect(result.has(8)).toBe(true);
+    expect(result.size).toBe(2);
   });
 
   it('detects a clear negative (low) outlier', () => {

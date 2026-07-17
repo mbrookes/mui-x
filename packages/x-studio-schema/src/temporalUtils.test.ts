@@ -108,6 +108,25 @@ describe('truncateToPeriod', () => {
       expect(truncateToPeriod('2024-99-01', 'day')).toBeNull();
     });
   });
+
+  // Iteration-20 finding: a year in [0, 99] hit the `Date.UTC`/multi-arg-`Date`
+  // two-digit-year quirk (`Date.UTC(5, ...)` is interpreted as 1905, not year 5) and
+  // was emitted unpadded (`'5'` instead of `'0005'`).
+  describe('two-digit-year handling (Date.UTC quirk + zero-padding)', () => {
+    it('zero-pads a year below 1000 for day/month/quarter/year granularities', () => {
+      expect(truncateToPeriod('0005-06-15', 'day')).toBe('0005-06-15');
+      expect(truncateToPeriod('0005-06-15', 'month')).toBe('0005-06');
+      expect(truncateToPeriod('0005-06-15', 'quarter')).toBe('0005-Q2');
+      expect(truncateToPeriod('0005-06-15', 'year')).toBe('0005');
+    });
+
+    it('does not misinterpret a two-digit year as 1900+year for week granularity', () => {
+      const key = truncateToPeriod('0005-06-15', 'week');
+      expect(key).not.toBeNull();
+      expect(key).not.toMatch(/^19/);
+      expect(key).toMatch(/^0005-W\d{2}$/);
+    });
+  });
 });
 
 describe('isoWeek', () => {
@@ -121,5 +140,16 @@ describe('isoWeek', () => {
 
   it('rolls an early-January date back into the previous year week 52', () => {
     expect(isoWeek(new Date(Date.UTC(2023, 0, 1)))).toEqual({ year: 2022, week: 52 });
+  });
+
+  // Iteration-20 finding: `isoWeek` internally rebuilt a `Date` via
+  // `Date.UTC(d.getUTCFullYear(), ...)`, which reintroduces the two-digit-year quirk
+  // even for an already-correct input `Date` whose year happens to be 0-99.
+  it('does not misinterpret an input Date with a two-digit year as 1900+year', () => {
+    const d = new Date(0);
+    d.setUTCFullYear(5, 5, 15); // June 15, year 5 — set directly, no Date.UTC quirk.
+    expect(d.getUTCFullYear()).toBe(5);
+    const { year } = isoWeek(d);
+    expect(year).toBeLessThan(100);
   });
 });

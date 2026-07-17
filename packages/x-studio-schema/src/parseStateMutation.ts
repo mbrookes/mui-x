@@ -386,6 +386,17 @@ function validateFilter(filter: unknown, path: string): string | null {
   if (filter.operator2 !== undefined && !isStudioFilterOperator(filter.operator2)) {
     return `${path}.operator2 must be one of ${STUDIO_FILTER_OPERATORS.join(', ')} when present`;
   }
+  // `dependsOn` (`StudioFilterState.dependsOn?: string[]` in `stateTypes.ts`) is a list of
+  // OTHER filter ids this one cascades from. It was previously left entirely unchecked, so
+  // any shape — a non-array, or an array with non-string elements — passed the wire gate.
+  // The x-studio-side consumer (`docTransforms.ts`) does unguarded `.filter()`/`.map()` over
+  // `dependsOn`, so a malformed value (e.g. `dependsOn: 'w1'` or `dependsOn: [1, 2]`) reaching
+  // it would throw downstream; reject it here at the wire boundary instead, mirroring the
+  // `isStringArray` check every other array-of-ids field in this file already gets
+  // (`unsetFields`/`unsetConfigKeys`/`removedWidgetIds`/`rowWidgetIds`).
+  if (filter.dependsOn !== undefined && !isStringArray(filter.dependsOn)) {
+    return `${path}.dependsOn must be a string[] when present`;
+  }
   return validateFilterScope(filter.scope, `${path}.scope`);
 }
 

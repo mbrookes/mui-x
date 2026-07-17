@@ -42,7 +42,21 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
   const q3 = median(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;
   if (iqr === 0) {
-    return new Set();
+    // Degenerate spread (Q1 === Q3 — a near-constant/sparse series where the middle
+    // half of the sorted values is one repeated number): the fence formula collapses
+    // to a single point (`lower === upper === q1`), which is still meaningful, so
+    // fall through to the SAME comparison below rather than bailing out. Returning
+    // an empty Set here would report "no anomalies" even for a series like
+    // `[5, 5, 5, 5, 5, 5, 5, 1000]`, where `1000` is an obvious extreme spike against
+    // an otherwise-constant baseline — a false negative strictly worse than flagging
+    // every value that differs from the constant.
+    const result = new Set<number>();
+    for (const { value, index } of finite) {
+      if (value !== q1) {
+        result.add(index);
+      }
+    }
+    return result;
   }
   const lower = q1 - 1.5 * iqr;
   const upper = q3 + 1.5 * iqr;

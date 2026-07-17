@@ -8,14 +8,35 @@
  * `mcp/dataTools.ts`. Both consumers now import the single implementation here.
  */
 
+/**
+ * Builds a UTC `Date` for the given year/month(0-indexed)/day WITHOUT the
+ * `Date.UTC`/multi-arg-`Date`-constructor two-digit-year quirk, where a `year`
+ * in `[0, 99]` is silently reinterpreted as `1900 + year` (so year `50` becomes
+ * `1950`). `setUTCFullYear` takes the year literally at any magnitude, so
+ * constructing via a placeholder epoch and re-stamping the real components onto
+ * it is the one construction path in this file that stays correct for years 0–99.
+ */
+function utcDateFromYMD(year: number, month: number, day: number): Date {
+  const d = new Date(0);
+  d.setUTCFullYear(year, month, day);
+  return d;
+}
+
 /** ISO week number (1–53) for a given UTC date. */
 export function isoWeek(d: Date): { year: number; week: number } {
   // Shift to Thursday of the same week (ISO weeks start on Monday).
-  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const tmp = utcDateFromYMD(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const yearStart = utcDateFromYMD(tmp.getUTCFullYear(), 0, 1);
   const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return { year: tmp.getUTCFullYear(), week };
+}
+
+/** Zero-pads a year to at least 4 digits (e.g. `5` → `'0005'`) so a truncated-period
+ *  key sorts and displays correctly for years 0–999, matching the `MM`/`DD` padding
+ *  every other component of these keys already gets. */
+function padYear(year: number): string {
+  return String(year).padStart(4, '0');
 }
 
 /**
@@ -92,17 +113,19 @@ export function truncateToPeriod(value: unknown, granularity: string): string | 
 
   switch (granularity) {
     case 'day':
-      return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return `${padYear(y)}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     case 'week': {
-      const { year, week } = isoWeek(new Date(Date.UTC(y, m, day)));
-      return `${year}-W${String(week).padStart(2, '0')}`;
+      // `utcDateFromYMD` (not `new Date(Date.UTC(y, m, day))`) so a year 0–99 isn't
+      // reinterpreted as 1900+year before `isoWeek` ever sees it.
+      const { year, week } = isoWeek(utcDateFromYMD(y, m, day));
+      return `${padYear(year)}-W${String(week).padStart(2, '0')}`;
     }
     case 'month':
-      return `${y}-${String(m + 1).padStart(2, '0')}`;
+      return `${padYear(y)}-${String(m + 1).padStart(2, '0')}`;
     case 'quarter':
-      return `${y}-Q${Math.floor(m / 3) + 1}`;
+      return `${padYear(y)}-Q${Math.floor(m / 3) + 1}`;
     case 'year':
-      return String(y);
+      return padYear(y);
     default:
       return null;
   }

@@ -191,6 +191,36 @@ describe('applyMutation', () => {
     expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
   });
 
+  // Iteration-20 finding: only `isSafePatchKey` was checked on `widget.id`, not
+  // `typeof widget.id === 'string'` — `addPage` already guards its own id this way, but
+  // `addWidget`/`applyBulkUpdate.addedWidgets` didn't, so a non-string id (e.g. a number)
+  // passed the denylist check (it has no non-string members) and installed under a
+  // STRINGIFIED record key while `widget.id` itself stayed non-string — a key/field desync.
+  it('addWidget with a non-string id is a no-op (Tier 3)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget: { ...chartWidget('w1'), id: 42 }, pageId: 'page-1' } as never,
+    });
+    expect(next).toBe(state);
+    expect(Object.hasOwn(next.widgets, '42')).toBe(false);
+  });
+
+  it('applyBulkUpdate.addedWidgets with a non-string id is skipped (Tier 3)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [{ ...chartWidget('w1'), id: 42 }],
+        updatedWidgets: [],
+        activePageId: 'page-1',
+      } as never,
+    });
+    expect(Object.hasOwn(next.widgets, '42')).toBe(false);
+    expect(next.widgets).toEqual(state.widgets);
+  });
+
   it('addPage with a prototype-hazard id is a no-op (Tier 3)', () => {
     const state = twoPageState('page-1');
     const next = applyDocMutation(state, {
@@ -627,6 +657,108 @@ describe('applyMutation', () => {
     expect(next.filters[0].id).toBe('f-valid');
   });
 
+  // Iteration-20 finding: the reducer never enforced "at most one rank-type filter per
+  // page" — `StudioController` enforced it at five call sites before invoking the
+  // reducer, but the reducer (the single source of truth for mutation semantics) let a
+  // caller that skipped that check install a second rank filter on the same page.
+  describe('addFilter rank-filter uniqueness', () => {
+    it('rejects a second page-scoped rank filter on the same page', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        filters: [
+          {
+            id: 'rank-1',
+            field: 'category',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'rank-2',
+            field: 'region',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        },
+      });
+      expect(next).toBe(state);
+      expect(next.filters.map((f) => f.id)).toEqual(['rank-1']);
+    });
+
+    it('allows a second rank filter on a DIFFERENT page (rank uniqueness is per-page)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        filters: [
+          {
+            id: 'rank-1',
+            field: 'category',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'rank-2',
+            field: 'region',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-2' },
+          },
+        },
+      });
+      expect(next.filters.map((f) => f.id)).toEqual(['rank-1', 'rank-2']);
+    });
+
+    it('allows a non-rank filter on a page that already has a rank filter', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        filters: [
+          {
+            id: 'rank-1',
+            field: 'category',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'cond-1',
+            field: 'region',
+            operator: 'equals',
+            value: 'US',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        },
+      });
+      expect(next.filters.map((f) => f.id)).toEqual(['rank-1', 'cond-1']);
+    });
+  });
+
   // T2-2: the `addWidget` ADD channel strips unsafe own config keys (via `coerceWidgetConfig`),
   // so a server-built widget whose config carries an own `__proto__` key survives the next load
   // instead of being dropped wholesale by `deserializeState`'s config own-key screen.
@@ -992,6 +1124,72 @@ describe('applyMutation', () => {
       // Untouched fields survive.
       expect(next.widgets.w1.title).toBe('Table');
       expect(next.widgets.w1.config).toEqual({ columns: [] });
+    });
+
+    // Iteration-20 finding: `changes.kind` could flip a widget's kind (e.g. chart ->
+    // grid) with zero coherence check against the surviving config, leaving a widget
+    // whose `kind`/`config` shapes don't match. The reducer now reconciles the config
+    // to the NEW kind's allowed keys (via `getAllowedConfigKeys`) whenever `kind` changes.
+    it('changing kind from chart to grid strips leftover chart-only config keys (kind/config coherence)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue', titleFontSize: 14 },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { kind: 'grid' } },
+      });
+      expect(next.widgets.w1.kind).toBe('grid');
+      // Chart-only keys (chartType/xField/yField) are gone…
+      expect(next.widgets.w1.config).not.toHaveProperty('chartType');
+      expect(next.widgets.w1.config).not.toHaveProperty('xField');
+      expect(next.widgets.w1.config).not.toHaveProperty('yField');
+      // …but a SHARED key (valid on every kind) survives.
+      expect(next.widgets.w1.config).toEqual({ titleFontSize: 14 });
+    });
+
+    it('changing kind to a custom (non-built-in) kind leaves the config untouched (no restriction)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar', xField: 'month' },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { kind: 'my-custom-widget' } },
+      });
+      expect(next.widgets.w1.kind).toBe('my-custom-widget');
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'month' });
+    });
+
+    it('a `changes` that does not touch kind leaves the config untouched (no spurious reconciliation)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar', xField: 'month' },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: 'Renamed' } },
+      });
+      expect(next.widgets.w1.kind).toBe('chart');
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'month' });
     });
 
     it('unsetConfigKeys deletes the named keys from the merged config', () => {
@@ -2616,6 +2814,99 @@ describe('applyMutation', () => {
       // …and the layout was NOT wiped by the omission.
       expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
+
+    // Iteration-20 finding: `removedWidgetIds` malfunctioned as a no-op whenever the bulk
+    // omitted `widgetRows` — the active page's OWN rows still named the removed widget,
+    // so `removeWidgetIds`'s "stillReferenced" check saw it as still-live and refused to
+    // remove it from `widgets`/`filters`/spans, even though this exact mutation named it
+    // in `removedWidgetIds`.
+    it('removes a widget named in removedWidgetIds even when widgetRows is omitted (updates-only bulk)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+        filters: [
+          {
+            id: 'fw1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // w1 is genuinely gone: dropped from the flat record, its row, its span, and its filter.
+      expect(next.widgets.w1).toBeUndefined();
+      expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+      expect(next.filters.map((f) => f.id)).toEqual([]);
+      // w2 (untouched) survives.
+      expect(next.widgets.w2).toEqual(chartWidget('w2'));
+    });
+
+    it('still respects a genuine cross-page reference when widgetRows is omitted (does not remove a widget another page shows)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['shared']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['shared']] },
+        },
+        widgets: { shared: chartWidget('shared') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['shared'],
+          addedWidgets: [],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // Stripped from page-1 (the bulk's active page)…
+      expect(next.pages['page-1'].widgetRows).toEqual([]);
+      // …but page-2 still shows it, so it is NOT genuinely removed.
+      expect(next.pages['page-2'].widgetRows).toEqual([['shared']]);
+      expect(next.widgets.shared).toEqual(chartWidget('shared'));
+    });
+
+    // Iteration-20 finding: an added widget landed in the flat `widgets` record but was
+    // never placed onto any page's rows when the bulk omitted `widgetRows` (the layout-
+    // replacement block only runs when a layout field is present) — an orphan that
+    // exists but never renders anywhere.
+    it('places an added widget onto the active page even when widgetRows is omitted', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [chartWidget('new1')],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      expect(next.widgets.new1).toEqual(chartWidget('new1'));
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['new1']]);
     });
 
     it('applies a layout update carrying only widgetRows (widgetColSpans omitted) without throwing (finding 2.5)', () => {

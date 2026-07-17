@@ -1144,6 +1144,101 @@ describe('deserializeState', () => {
     expect(state.doc.filters.map((f) => f.id)).toEqual(['kept']);
   });
 
+  // Iteration-20 finding: the load boundary already dropped an orphan WIDGET-scoped
+  // filter (the test above), but had no equivalent cleanup for a filter anchored to a
+  // `pageId` that no longer exists — the PAGE-anchor mirror of that same widget-anchor
+  // check, mirroring the reducer's `removePage` cleanup (`applyMutation.ts`'s
+  // `filtersAfterPageDrop`).
+  it('drops a page-scoped filter whose pageId names no loaded page, but keeps one whose page exists (page-anchor cleanup)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {},
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
+      filters: [
+        {
+          id: 'kept',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'orphan-page',
+          field: 'y',
+          operator: 'equals',
+          value: 2,
+          scope: { kind: 'page', pageId: 'ghost-page' },
+        },
+        // A `page`-scoped filter with NO `pageId` (legacy "applies on every page") is
+        // never dropped by this cleanup.
+        {
+          id: 'no-page-id',
+          field: 'z',
+          operator: 'equals',
+          value: 3,
+          scope: { kind: 'page' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id).sort()).toEqual(['kept', 'no-page-id']);
+  });
+
+  it('drops a dashboard-date-range filter whose pageId names no loaded page', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {},
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
+      filters: [
+        {
+          id: 'orphan-range',
+          field: 'date',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'dashboard-date-range', sourceId: 'orders', pageId: 'ghost-page' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters).toEqual([]);
+  });
+
+  // Iteration-20 finding: the wire boundary (`parseStateMutation.ts`'s `validateWidget`)
+  // already rejects a widget with a missing/non-string `kind`/`title`, but the load
+  // boundary accepted the same shape. The persisted widget is now dropped whole, matching
+  // this file's other fail-closed structural checks in this same filter.
+  it('drops a persisted widget with a non-string kind', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 42, title: 'C', config: {} } },
+      pages: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.w1).toBeUndefined();
+  });
+
+  it('drops a persisted widget with a missing title', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 'chart', config: { chartType: 'bar' } } },
+      pages: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.w1).toBeUndefined();
+  });
+
+  it('keeps a well-formed persisted widget with a string kind/title', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: chart('w1') },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.widgets.w1).toBeDefined();
+  });
+
   // ── total over corrupt `filters` entries, direct deserializeState call (Tier 1) ─
   // `deserializeState` is a public API callable on a `SerializedStudioState` directly, so
   // a hand-edited/foreign doc with a junk `filters` entry must not install it into live

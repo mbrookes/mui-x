@@ -146,6 +146,24 @@ const VALID_CASES: Array<{
     assert: (next) => expect(next.doc.filters.map((f) => f.id)).toContain('f-compound'),
   },
   {
+    // A well-formed `dependsOn` (a string[]) is legal.
+    type: 'addFilter',
+    mutation: {
+      type: 'addFilter',
+      args: {
+        filter: {
+          id: 'f-depends',
+          field: 'region',
+          operator: 'equals',
+          value: 'US',
+          dependsOn: ['f-new'],
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      },
+    },
+    assert: (next) => expect(next.doc.filters.map((f) => f.id)).toContain('f-depends'),
+  },
+  {
     type: 'removeFilter',
     mutation: { type: 'removeFilter', args: { filterId: 'seed-f' } },
     assert: (next) => expect(next.doc.filters.map((f) => f.id)).not.toContain('seed-f'),
@@ -615,6 +633,42 @@ describe('parseStateMutation — malformed per-variant args', () => {
         args: {
           ...validBulkArgs(),
           updatedWidgets: [{ widgetId: 'w1', config: { chartType: 42 } }],
+        },
+      },
+    },
+    // Iteration-20 finding: `validateFilter` never checked `dependsOn` at all, so any
+    // shape passed — a non-array, or an array with non-string elements. The x-studio-side
+    // consumer (`docTransforms.ts`) does unguarded `.filter()`/`.map()` over `dependsOn`,
+    // so a malformed value reaching it would throw; this closes the wire-boundary gap.
+    {
+      label: 'addFilter filter.dependsOn is a non-array (string)',
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            dependsOn: 'other-filter',
+            scope: { kind: 'page' },
+          },
+        },
+      },
+    },
+    {
+      label: 'addFilter filter.dependsOn is an array with a non-string element',
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            dependsOn: ['other-filter', 42],
+            scope: { kind: 'page' },
+          },
         },
       },
     },

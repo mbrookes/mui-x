@@ -661,6 +661,20 @@ export function deserializeState(
         if (isRecord(cfg) && hasUnsafeOwnKeys(cfg)) {
           return false;
         }
+        // Drop a persisted widget whose `kind`/`title` is missing or non-string,
+        // symmetric with the wire boundary's `isString(widget.kind)`/`isString(widget.title)`
+        // gate in `validateWidget` (`parseStateMutation.ts`). Both fields are load-bearing —
+        // the widget factory/renderer key off `kind`, and the canvas card renders `title` —
+        // and are read with no fallback, so a hand-edited/foreign doc carrying `kind: 42` or
+        // an absent `title` would otherwise load a widget the byte-identical wire payload is
+        // rejected for, and likely crash on first render. Drop the whole widget, matching the
+        // fail-closed convention every other structural check in this filter already applies.
+        if (
+          typeof (widget as { kind?: unknown }).kind !== 'string' ||
+          typeof (widget as { title?: unknown }).title !== 'string'
+        ) {
+          return false;
+        }
         return true;
       })
       .map(([id, widget]) => {
@@ -906,6 +920,24 @@ export function deserializeState(
         // foreign doc must not install (it would permanently filter its page with no
         // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
         if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+          return false;
+        }
+        // Drop a filter anchored to a `pageId` that no longer exists in `normalizedPages` —
+        // the PAGE-anchor mirror of the widget-anchor orphan check just below. A `page`-scoped
+        // filter with an explicit `pageId`, or a `dashboard-date-range` filter (whose `pageId`
+        // is required), naming a page the doc doesn't contain would otherwise be permanent
+        // dead weight with no clearing affordance: the reducer's page-anchor cleanup
+        // (`removePage`'s `filtersAfterPageDrop` in `applyMutation.ts`) only runs for a LIVE
+        // `removePage` mutation, never for a doc that already lacks the page on load (a
+        // hand-edited/foreign doc, or a page dropped by the sweep above for carrying an
+        // unsafe key). A `page`-scoped filter with NO `pageId` (the legacy "applies on every
+        // page" shape) is left alone. `Object.hasOwn` so an untrusted `pageId` can't match a
+        // prototype member.
+        if (
+          (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
+          scope.pageId !== undefined &&
+          !Object.hasOwn(normalizedPages, scope.pageId)
+        ) {
           return false;
         }
         // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),

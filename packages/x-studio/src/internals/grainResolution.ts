@@ -63,6 +63,100 @@ function enrichSourceRowsWithExpressions(
 }
 
 /**
+ * Enriches `rows` with requested fields that are CALCULATED COLUMNS (non-measure expression
+ * fields) owned by a directly related source, one hop from `widgetSourceId` (one-to-one or
+ * many-to-one — mirrors `enrichRowsWithRelatedFields`'s own direct-relationship traversal).
+ *
+ * `enrichRowsWithRelatedFields` (the native-field display-column enrichment used by the
+ * same-source anchor branch below) filters candidate fields by `relatedSource.fields.some(...)`,
+ * so it silently skips any field id that is a calculated column rather than a physical one — the
+ * related source's raw rows carry no value for it. This mirrors the fix already applied to the
+ * many-to-one/M:N re-anchor branches (which always run their related/anchor/junction rows through
+ * `enrichSourceRowsWithExpressions` before joining): a related-source expression column used as a
+ * chart dimension must resolve to a real value, not `undefined`, whether or not a filter happens
+ * to also target that field (finding 2.x).
+ */
+function enrichForeignExpressionFields(
+  rows: Row[],
+  widgetSourceId: string,
+  requestedFields: string[],
+  fieldOwners: Map<string, string>,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+  collectReadSourceIds?: Set<string>,
+): Row[] {
+  const fieldIdsByOwner = new Map<string, Set<string>>();
+  for (const fieldId of requestedFields) {
+    const owner = fieldOwners.get(fieldId);
+    if (
+      !owner ||
+      owner === widgetSourceId ||
+      !expressionFields.some((ef) => ef.id === fieldId && ef.sourceId === owner && !ef.isMeasure)
+    ) {
+      continue;
+    }
+    let set = fieldIdsByOwner.get(owner);
+    if (!set) {
+      set = new Set<string>();
+      fieldIdsByOwner.set(owner, set);
+    }
+    set.add(fieldId);
+  }
+
+  if (fieldIdsByOwner.size === 0) {
+    return rows;
+  }
+
+  let result = rows;
+  for (const [ownerSourceId, fieldIds] of fieldIdsByOwner) {
+    const relationship = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
+    if (!relationship || relationship.type === 'many-to-many') {
+      continue;
+    }
+    const widgetJoinField =
+      relationship.sourceId === widgetSourceId
+        ? relationship.sourceField
+        : relationship.targetField;
+    const ownerJoinField =
+      relationship.sourceId === widgetSourceId
+        ? relationship.targetField
+        : relationship.sourceField;
+
+    collectReadSourceIds?.add(ownerSourceId);
+    const enrichedOwnerRows = enrichSourceRowsWithExpressions(
+      dataSources[ownerSourceId]?.rows ?? [],
+      ownerSourceId,
+      dataSources,
+      relationships,
+      expressionFields,
+      fieldIds,
+      collectReadSourceIds,
+    );
+    const ownerIndex = indexRowsByKey(enrichedOwnerRows, ownerJoinField);
+
+    result = result.map((row) => {
+      const key = normalizeJoinKey(row[widgetJoinField]);
+      const ownerRow = key === null ? undefined : ownerIndex.get(key);
+      if (!ownerRow) {
+        return row;
+      }
+      const extras: Row = {};
+      let changed = false;
+      for (const fieldId of fieldIds) {
+        if (!(fieldId in row) && ownerRow[fieldId] !== undefined) {
+          extras[fieldId] = ownerRow[fieldId];
+          changed = true;
+        }
+      }
+      return changed ? { ...row, ...extras } : row;
+    });
+  }
+
+  return result;
+}
+
+/**
  * L4 fan-out grain resolution — the shared core extracted from
  * `chartAggregation.resolveChartRowsForAggregation`.
  *
@@ -153,9 +247,19 @@ export function resolveRowsAtGrain(
       relationships,
       collectReadSourceIds,
     );
+    const relatedWithForeignExpressions = enrichForeignExpressionFields(
+      related,
+      widgetSourceId,
+      requestedFields,
+      fieldOwners,
+      dataSources,
+      relationships,
+      expressionFields,
+      collectReadSourceIds,
+    );
     return needsExpressionEnrichment
       ? enrichSourceRowsWithExpressions(
-          related,
+          relatedWithForeignExpressions,
           widgetSourceId,
           dataSources,
           relationships,
@@ -163,7 +267,7 @@ export function resolveRowsAtGrain(
           new Set(requestedFields),
           collectReadSourceIds,
         )
-      : related;
+      : relatedWithForeignExpressions;
   }
 
   const anchorRelationship = findDirectRelationship(widgetSourceId, anchorSourceId, relationships);
@@ -236,21 +340,24 @@ export function resolveRowsAtGrain(
       (f) => effectiveFilterSourceId(f, widgetSourceId, expressionFields) === remoteSourceId,
     );
     const rawRemoteRows = dataSources[remoteSourceId]?.rows ?? [];
+    // Enrich the remote rows with their own calculated columns UNCONDITIONALLY — not only when a
+    // remote-scoped filter happens to be active. A remote-owned expression column requested as a
+    // chart dimension (x/series) is read straight off `remoteRowLookup` below with no other L2
+    // pass over it, so gating this enrichment on filter presence left it `undefined` on every row
+    // whenever no filter happened to target that same field (finding 2.x).
+    const enrichedRemoteRows = enrichSourceRowsWithExpressions(
+      rawRemoteRows,
+      remoteSourceId,
+      dataSources,
+      relationships,
+      expressionFields,
+      undefined,
+      collectReadSourceIds,
+    );
     const filteredRemoteRows =
       remoteScopedFilters.length > 0
-        ? applyFilters(
-            enrichSourceRowsWithExpressions(
-              rawRemoteRows,
-              remoteSourceId,
-              dataSources,
-              relationships,
-              expressionFields,
-              undefined,
-              collectReadSourceIds,
-            ),
-            remoteScopedFilters,
-          )
-        : rawRemoteRows;
+        ? applyFilters(enrichedRemoteRows, remoteScopedFilters)
+        : enrichedRemoteRows;
     const remoteRowLookup = indexRowsByKey(filteredRemoteRows, remoteJoinField);
 
     // Junction-owned expression fields (e.g. a calculated column on the M:N junction table)

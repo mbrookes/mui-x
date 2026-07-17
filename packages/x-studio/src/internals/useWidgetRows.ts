@@ -89,7 +89,8 @@ interface UseWidgetRowsResult {
   shouldShowGhost: boolean;
   /**
    * The rows the widget should use as its primary dataset.
-   * - `'none'` mode: equals `filteredRowsNoCross` (cross-filters are ignored)
+   * - `'none'` mode: equals `filteredRowsNoChartCross` (chart cross-filters are ignored, but
+   *   interactive/hard filters still apply — see `shouldShowGhost` doc above)
    * - All other modes: equals `filteredRows`
    */
   effectiveRows: Row[];
@@ -708,7 +709,7 @@ export function useWidgetRows(
   );
 
   const enrichedEffectiveRows =
-    crossFilterMode === 'none' ? enrichedFilteredRowsNoCross : enrichedFilteredRows;
+    crossFilterMode === 'none' ? enrichedFilteredRowsNoChartCross : enrichedFilteredRows;
 
   return {
     filteredRows: enrichedFilteredRows,

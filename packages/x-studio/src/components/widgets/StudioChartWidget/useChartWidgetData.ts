@@ -501,6 +501,33 @@ export function useChartWidgetData(
   // NOTE: hasCrossFilters is declared earlier in the file (before filteredRowsNoCross) so that
   // memo can use it to short-circuit. The declaration there also includes interactive filters.
 
+  // Per-label SUM of the rank filter's `rankByField` (when specified), computed over the SAME
+  // rows and x-axis grouping as `chartData`'s own single-series aggregation below. Passed to
+  // `applyRankToAggregated` so the chart's post-aggregation Top-N ranks by the rank-by measure —
+  // matching the row-level rank reduction grid/KPI/map/pivot widgets apply (`filterUtils.ts`,
+  // which always SUMS `rankByField` per group) — instead of the displayed (possibly avg/min/max)
+  // aggregated value, which previously made a chart disagree with every other widget kind on an
+  // identical rank filter (finding 3.x). `undefined` (and ignored) when the rank filter doesn't
+  // specify a `rankByField`.
+  const rankByFieldData = React.useMemo(() => {
+    const xField = config.xField;
+    if (!filteredRankFilter?.rankByField || !xField || enrichedRows.length === 0) {
+      return undefined;
+    }
+    return aggregateByField(enrichedRows, xField, filteredRankFilter.rankByField, xGroupBy, 'sum');
+  }, [filteredRankFilter, config.xField, enrichedRows, xGroupBy]);
+
+  // Baseline (all-rows) counterpart of `rankByFieldData`, for `allChartData`'s ghost-mode
+  // ranking below — mirrors the `enrichedRows` → `allEnrichedRows` and
+  // `filteredRankFilter` → `widgetRankFilter` baseline swap `allChartData` already makes.
+  const allRankByFieldData = React.useMemo(() => {
+    const xField = config.xField;
+    if (!widgetRankFilter?.rankByField || !xField || allEnrichedRows.length === 0) {
+      return undefined;
+    }
+    return aggregateByField(allEnrichedRows, xField, widgetRankFilter.rankByField, xGroupBy, 'sum');
+  }, [widgetRankFilter, config.xField, allEnrichedRows, xGroupBy]);
+
   const chartData = React.useMemo(() => {
     const xField = config.xField;
     if (!xField || (activeYFields.length === 0 && !isFieldlessCount) || enrichedRows.length === 0) {
@@ -527,7 +554,7 @@ export function useChartWidgetData(
           chartSortDirection,
           xFieldOrderedValues,
         );
-        return applyRankToAggregated(raw, filteredRankFilter);
+        return applyRankToAggregated(raw, filteredRankFilter, rankByFieldData);
       },
     );
   }, [
@@ -538,6 +565,7 @@ export function useChartWidgetData(
     categoryYField,
     isMultiSeries,
     filteredRankFilter,
+    rankByFieldData,
     xGroupBy,
     singleSeriesYAggregation,
     chartSortBy,
@@ -618,7 +646,7 @@ export function useChartWidgetData(
           chartSortDirection,
           xFieldOrderedValues,
         );
-        return applyRankToAggregated(raw, widgetRankFilter);
+        return applyRankToAggregated(raw, widgetRankFilter, allRankByFieldData);
       },
     );
   }, [
@@ -630,6 +658,7 @@ export function useChartWidgetData(
     categoryYField,
     isMultiSeries,
     widgetRankFilter,
+    allRankByFieldData,
     xGroupBy,
     singleSeriesYAggregation,
     chartSortBy,

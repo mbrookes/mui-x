@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import type { RelativeDateValue } from './filterTypes';
 import type { StudioFilterState } from '../models';
-import { normalizeToDate } from './temporalUtils';
+import { normalizeToDate, normalizeToDateOnlyString } from './temporalUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
 import { coerceAggregateValue } from './aggregate';
 
@@ -88,11 +88,22 @@ function toComparable(
   }
   // Explicit type hint takes precedence
   if (fieldType === 'date' || fieldType === 'datetime') {
-    // Normalize Date objects, ms timestamps, and any string format to YYYY-MM-DD
-    // so comparisons are correct regardless of how the data source stores dates.
+    // Normalize Date objects, ms timestamps, and any string format so comparisons are
+    // correct regardless of how the data source stores dates.
+    if (fieldType === 'date') {
+      // Rows that went through L1 ingestion (`normalizeDataSourceRows` in temporalUtils.ts,
+      // via `normalizedRowsCache`) already carry a canonical zoned `YYYY-MM-DD` string, so
+      // reading the UTC calendar date straight off `new Date(...).toISOString()` is safe.
+      // But some rows reaching filter comparisons never went through L1 — a foreign row
+      // pulled in during a cross-filter semi-join, or an L4 re-filtered anchor/remote/
+      // junction row — and can still carry a raw local-time `Date`/non-ISO string. Reading
+      // its UTC calendar date directly would day-shift by one day for UTC+ viewers, so reuse
+      // the SAME timezone-safe day-string helper L1 itself uses rather than reimplementing it.
+      return normalizeToDateOnlyString(val) ?? String(val ?? '');
+    }
     const d = normalizeToDate(val);
     if (d) {
-      return fieldType === 'datetime' ? d.toISOString() : d.toISOString().slice(0, 10);
+      return d.toISOString();
     }
     return String(val ?? '');
   }
@@ -332,7 +343,12 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        return (row) => Number(row[field]) > n;
+        // `rv != null` guard: without it `Number(null) === 0` silently treats a null field
+        // value as zero instead of excluding the row, inconsistent with the date branch above.
+        return (row) => {
+          const rv = row[field];
+          return rv != null && Number(rv) > n;
+        };
       }
       return (row) => toComparable(row[field], fieldType) > cmpVal;
     }
@@ -348,7 +364,11 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        return (row) => Number(row[field]) < n;
+        // `rv != null` guard — see `greater_than` above.
+        return (row) => {
+          const rv = row[field];
+          return rv != null && Number(rv) < n;
+        };
       }
       return (row) => toComparable(row[field], fieldType) < cmpVal;
     }
@@ -364,7 +384,11 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        return (row) => Number(row[field]) >= n;
+        // `rv != null` guard — see `greater_than` above.
+        return (row) => {
+          const rv = row[field];
+          return rv != null && Number(rv) >= n;
+        };
       }
       return (row) => toComparable(row[field], fieldType) >= cmpVal;
     }
@@ -382,7 +406,11 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        return (row) => Number(row[field]) <= n;
+        // `rv != null` guard — see `greater_than` above.
+        return (row) => {
+          const rv = row[field];
+          return rv != null && Number(rv) <= n;
+        };
       }
       return (row) => toComparable(row[field], fieldType) <= cmpVal;
     }
@@ -421,7 +449,13 @@ function compileSingleCondition(
         const numFrom = from as number | null;
         const numTo = to as number | null;
         return (row) => {
-          const cmp = Number(row[field]);
+          const rv = row[field];
+          // `rv != null` guard: without it `Number(null) === 0` silently treats a null field
+          // value as zero instead of excluding the row, inconsistent with the date branch above.
+          if (rv == null) {
+            return false;
+          }
+          const cmp = Number(rv);
           if (numFrom !== null && cmp < numFrom) {
             return false;
           }

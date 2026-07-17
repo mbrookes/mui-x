@@ -317,6 +317,45 @@ describe('sync path (no adapter)', () => {
     expect(result.current.hasChartCrossFilters).toBe(true);
   });
 
+  it("effectiveRows under crossFilterMode:'none' keeps an active interactive filter applied (hard-filter invariant)", () => {
+    // Same fixture as 'filteredRowsNoChartCross excludes chart cross-filter but includes
+    // interactive filter' above, but the widget opts out of CHART cross-filters via
+    // `config.crossFilterMode: 'none'`. Before the fix, `effectiveRows` fell back to
+    // `filteredRowsNoCross` (page+widget only), which ALSO drops the interactive filter —
+    // contradicting the documented invariant that interactive (filter-widget) selections
+    // are hard filters that always apply, regardless of the target widget's cross-filter
+    // mode. `effectiveRows` must equal `filteredRowsNoChartCross` instead (page+widget+
+    // interactive, chart cross-filter excluded).
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-interactive',
+          scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'condition',
+        }),
+        makeFilter({
+          id: 'f-cross',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+          field: 'amount',
+          operator: 'greater_than',
+          value: 120,
+        }),
+      ],
+    });
+    const widget = makeWidget({ id: 'w1', config: { crossFilterMode: 'none' } as never });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    // effectiveRows must equal filteredRowsNoChartCross (2 EU rows) — NOT
+    // filteredRowsNoCross (3 rows, which also drops the interactive filter).
+    expect(result.current.effectiveRows).toEqual(result.current.filteredRowsNoChartCross);
+    expect(result.current.effectiveRows).toHaveLength(2);
+    expect(result.current.effectiveRows.every((r) => r.region === 'EU')).toBe(true);
+  });
+
   it('hasChartCrossFilters is false when only interactive filters are active', () => {
     mockState = createState({
       filters: [

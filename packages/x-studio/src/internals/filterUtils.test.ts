@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import dayjs from 'dayjs';
 import { applyFilters, resolveDateRangePresets } from './filterUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
@@ -224,6 +224,67 @@ describe('applyFilters — numeric operators', () => {
     ]);
     expect(result.map((r) => r.id)).toEqual([2, 4]);
   });
+
+  // A null field value must be EXCLUDED from a numeric comparison, not coerced to 0
+  // (`Number(null) === 0`) — consistent with the date-comparison branches in this same file,
+  // which already guard with `rv != null`.
+  describe('null field values are excluded, not coerced to 0', () => {
+    const rowsWithNull = [
+      { id: 1, score: -5 },
+      { id: 2, score: null },
+      { id: 3, score: 5 },
+    ];
+
+    it('greater_than: a null score does not satisfy "> -10" (would with Number(null)=0)', () => {
+      const result = applyFilters(rowsWithNull, [
+        makeFilter({ field: 'score', operator: 'greater_than', value: -10, fieldType: 'number' }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([1, 3]);
+    });
+
+    it('less_than: a null score does not satisfy "< 10" (would with Number(null)=0)', () => {
+      const result = applyFilters(rowsWithNull, [
+        makeFilter({ field: 'score', operator: 'less_than', value: 10, fieldType: 'number' }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([1, 3]);
+    });
+
+    it('greater_than_or_equal: a null score does not satisfy ">= 0"', () => {
+      const result = applyFilters(rowsWithNull, [
+        makeFilter({
+          field: 'score',
+          operator: 'greater_than_or_equal',
+          value: 0,
+          fieldType: 'number',
+        }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([3]);
+    });
+
+    it('less_than_or_equal: a null score does not satisfy "<= 0"', () => {
+      const result = applyFilters(rowsWithNull, [
+        makeFilter({
+          field: 'score',
+          operator: 'less_than_or_equal',
+          value: 0,
+          fieldType: 'number',
+        }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([1]);
+    });
+
+    it('between: a null score does not fall inside a range spanning 0', () => {
+      const result = applyFilters(rowsWithNull, [
+        makeFilter({
+          field: 'score',
+          operator: 'between',
+          value: { from: -10, to: 10 },
+          fieldType: 'number',
+        }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([1, 3]);
+    });
+  });
 });
 
 // ─── Boolean operators ────────────────────────────────────────────────────────
@@ -382,6 +443,52 @@ describe('applyFilters — date operators', () => {
       makeFilter({ field: 'date', operator: 'not_equals', value: '2024-06-15', fieldType: 'date' }),
     ]);
     expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  // Regression coverage: a row that never went through L1 ingestion normalization
+  // (`normalizeDataSourceRows`) — e.g. a foreign row pulled in during a cross-filter
+  // semi-join, or an L4 re-filtered anchor/remote/junction row — can still carry a raw,
+  // local-time-ambiguous `Date` object rather than the canonical UTC-midnight-anchored
+  // `YYYY-MM-DD` string L1 would have produced. `toComparable`'s old
+  // `d.toISOString().slice(0, 10)` read the UTC calendar date off such a value, which
+  // day-shifts by one day for any UTC-positive-offset viewer. The fix reuses the same
+  // timezone-safe day-string helper L1 itself uses (`normalizeToDateOnlyString`).
+  describe('date comparisons on rows that never went through L1 normalization', () => {
+    const originalTz = process.env.TZ;
+
+    beforeEach(() => {
+      // A positive-UTC-offset zone: local midnight Jan 15 is 18:30 UTC on Jan 14. Node
+      // re-reads `TZ` per `Date` call (no restart needed), so this reliably reproduces
+      // the day-shift for a UTC+ viewer regardless of the host machine's own timezone.
+      process.env.TZ = 'Asia/Kolkata';
+    });
+
+    afterEach(() => {
+      process.env.TZ = originalTz;
+    });
+
+    it('equals matches a raw local-midnight Date row value by its LOCAL calendar day', () => {
+      const rows = [{ id: 1, date: new Date(2024, 0, 15) }]; // local Jan 15, 00:00
+      const result = applyFilters(rows, [
+        makeFilter({ field: 'date', operator: 'equals', value: '2024-01-15', fieldType: 'date' }),
+      ]);
+      // The old `toISOString().slice(0, 10)` reads the UTC calendar date — '2024-01-14' in
+      // this positive-offset zone — silently excluding the row.
+      expect(result.map((r) => r.id)).toEqual([1]);
+    });
+
+    it('greater_than_or_equal does not exclude a raw local-midnight Date row on the boundary day', () => {
+      const rows = [{ id: 1, date: new Date(2024, 0, 15) }];
+      const result = applyFilters(rows, [
+        makeFilter({
+          field: 'date',
+          operator: 'greater_than_or_equal',
+          value: '2024-01-15',
+          fieldType: 'date',
+        }),
+      ]);
+      expect(result.map((r) => r.id)).toEqual([1]);
+    });
   });
 
   it('datetime equals matches the WHOLE day, not only exact midnight (finding 2.22)', () => {

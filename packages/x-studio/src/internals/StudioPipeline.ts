@@ -178,12 +178,13 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
         scopeOpts.crossFilterAllPages = crossFilterAllPages;
         const effectiveMode =
           globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight';
-        // Explicit include wins; otherwise 'none' excludes cross-filters, everything else keeps them.
+        // Explicit include wins; otherwise 'none' excludes chart cross-filters only — interactive
+        // (hard) filters still apply, matching the documented hard-filter invariant.
         // eslint-disable-next-line no-nested-ternary
         scopeOpts.include = options.include
           ? options.include
           : effectiveMode === 'none'
-            ? 'no-cross'
+            ? 'no-chart-cross'
             : 'all';
       }
       const allFilters = selectFiltersForWidget(filters, scopeOpts);

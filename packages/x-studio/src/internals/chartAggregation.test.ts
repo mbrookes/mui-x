@@ -113,6 +113,40 @@ describe('applyRankToAggregated', () => {
     // Both preserve the natural input order (B, C, D), not value-rank order (D, B, C).
     expect(single.labels).toEqual(['B', 'C', 'D']);
   });
+
+  it('ranks by rankByField instead of the displayed value when specified (finding 3.x)', () => {
+    // Displayed values are an AVG (e.g. average order size); ranking must use a separate
+    // SUM-of-profit measure instead — matching grid/KPI/map/pivot widgets, which always rank
+    // by an aggregate of `rankByField` regardless of the widget's own display aggregation
+    // (`filterUtils.ts`'s row-level rank branch). By display value alone, top-2 would be
+    // D (80) and B (50); by the separate rankByField score, top-2 is actually A (500) and C (400).
+    const displayed = {
+      labels: ['A', 'B', 'C', 'D'],
+      values: [10, 50, 30, 80], // e.g. avg order size
+    };
+    const rankByFieldScores = {
+      labels: ['A', 'B', 'C', 'D'],
+      values: [500, 20, 400, 5], // e.g. sum of profit
+    };
+    const result = applyRankToAggregated(
+      displayed,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top', rankByField: 'profit' }),
+      rankByFieldScores,
+    );
+    // Kept in original input order (A, C) — displaying THEIR OWN (avg) values, not the
+    // rank-by score.
+    expect(result.labels).toEqual(['A', 'C']);
+    expect(result.values).toEqual([10, 30]);
+  });
+
+  it('falls back to ranking by the displayed value when rankByFieldData is omitted, even if rankByField is set', () => {
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top', rankByField: 'profit' }),
+    );
+    // No rankByFieldData supplied — same result as ranking by `data.values` directly.
+    expect(result.labels).toEqual(['B', 'D']);
+  });
 });
 
 // ─── applyRankToMultiSeries ───────────────────────────────────────────────────

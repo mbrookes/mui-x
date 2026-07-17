@@ -67,6 +67,178 @@ describe('resolveRowsAtGrain', () => {
     expect(result.map((r) => r.region)).toEqual(['EU', 'US']);
   });
 
+  it('same-source anchor: enriches a CALCULATED COLUMN owned by a related source with no filter present', () => {
+    // widget = order_items, y = qty (widget-owned) so no anchor switch is needed. x is
+    // `regionUpper`, a calculated column (expression field) owned by the directly-related
+    // `orders` source. Before the fix, `enrichRowsWithRelatedFields` (native-field-only) never
+    // enriched it — and `needsExpressionEnrichment` only covered expression fields owned by the
+    // WIDGET source — so `regionUpper` resolved to `undefined` on every row despite
+    // `analyzeChartSupport` reporting the field as supported. No filter is present on this field
+    // (the review's confirmation that a coincidental filter previously masked the bug).
+    const orderItems: Row[] = [
+      { id: 'i1', orderId: 'o1', qty: 2 },
+      { id: 'i2', orderId: 'o2', qty: 5 },
+    ];
+    const rel: StudioRelationship = {
+      id: 'r',
+      type: 'many-to-one',
+      sourceId: 'order_items',
+      sourceField: 'orderId',
+      targetId: 'orders',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'qty', label: 'Qty', type: 'number' },
+        ],
+        rows: orderItems,
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+        rows: [
+          { id: 'o1', region: 'eu' },
+          { id: 'o2', region: 'us' },
+        ],
+      },
+    };
+    // `regionLabel = if(region == 'eu', 'EU', 'OTHER')` — a calculated column on `orders`.
+    const regionLabelExpr: StudioExpressionField = {
+      id: 'regionLabel',
+      label: 'Region Label',
+      sourceId: 'orders',
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        operator: 'if',
+        inputs: [
+          { operator: 'equals', inputs: [{ id: 'region' }, { type: 'string', value: 'eu' }] },
+          { type: 'string', value: 'EU' },
+          { type: 'string', value: 'OTHER' },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+
+    const result = resolveRowsAtGrain(
+      orderItems,
+      'order_items',
+      'order_items',
+      ['regionLabel', 'qty'],
+      new Map([
+        ['regionLabel', 'orders'],
+        ['qty', 'order_items'],
+      ]),
+      dataSources,
+      [rel],
+      [regionLabelExpr],
+    );
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.regionLabel)).toEqual(['EU', 'OTHER']);
+  });
+
+  it('M:N remote endpoint: enriches a calculated column on the remote source unconditionally, with no filter present', () => {
+    // widget = orders, anchor = order_tags (junction), remote endpoint = tags. `categoryUpper`
+    // is a calculated column owned by `tags` (the M:N remote endpoint), requested as a chart
+    // dimension. Before the fix, the remote rows were only enriched with expression fields when
+    // a remote-scoped filter happened to be active (`remoteScopedFilters.length > 0`) — with NO
+    // filter present (as here), `filteredRemoteRows` stayed raw and `categoryUpper` resolved to
+    // `undefined` on every row.
+    const orders: Row[] = [{ id: 'o1' }];
+    const tags: Row[] = [
+      { id: 't1', category: 'priority' },
+      { id: 't2', category: 'normal' },
+    ];
+    const orderTags: Row[] = [
+      { orderId: 'o1', tagId: 't1', weight: 10 },
+      { orderId: 'o1', tagId: 't2', weight: 5 },
+    ];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'ID', type: 'string' }],
+        rows: orders,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+        rows: tags,
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'tagId', label: 'Tag', type: 'string' },
+          { id: 'weight', label: 'Weight', type: 'number' },
+        ],
+        rows: orderTags,
+      },
+    };
+    // `categoryLabel = if(category == 'priority', 'HIGH', 'LOW')` — a calculated column on `tags`.
+    const categoryLabelExpr: StudioExpressionField = {
+      id: 'categoryLabel',
+      label: 'Category Label',
+      sourceId: 'tags',
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        operator: 'if',
+        inputs: [
+          {
+            operator: 'equals',
+            inputs: [{ id: 'category' }, { type: 'string', value: 'priority' }],
+          },
+          { type: 'string', value: 'HIGH' },
+          { type: 'string', value: 'LOW' },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+
+    const resolved = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'order_tags',
+      ['categoryLabel', 'weight'],
+      new Map([
+        ['categoryLabel', 'tags'],
+        ['weight', 'order_tags'],
+      ]),
+      dataSources,
+      [m2mRel],
+      [categoryLabelExpr],
+      undefined,
+      [], // no filters at all — the exact "no filter present" scenario from the review
+    );
+    expect(resolved).toHaveLength(2);
+    expect(resolved.every((r) => r.categoryLabel !== undefined)).toBe(true);
+    expect(resolved.map((r) => r.categoryLabel).sort()).toEqual(['HIGH', 'LOW']);
+  });
+
   it('many-to-one anchor switch joins a numeric PK against a string FK (regression: raw-key mismatch dropped every row)', () => {
     // widget = customers (the "one" side, numeric id); orders = the "many" side whose
     // string customerId references it. Chart measure lives on the many side.

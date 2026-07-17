@@ -45,7 +45,9 @@ export interface MultiYSeriesData {
 
 /**
  * Apply a rank filter to already-aggregated chart data.
- * Ranks by the aggregated value (the bar/slice height) and keeps top/bottom N.
+ * Ranks by the aggregated value (the bar/slice height) and keeps top/bottom N — unless
+ * `rankFilter.rankByField` is set and the caller supplies `rankByFieldData`, in which case
+ * ranking uses that separate measure instead (see the `rankByFieldData` param doc).
  *
  * The kept labels/values are returned in their ORIGINAL input order (via a keep-mask),
  * NOT in rank-score order — matching `applyRankToMultiSeries` and
@@ -58,6 +60,18 @@ export interface MultiYSeriesData {
 export function applyRankToAggregated(
   data: AggregatedData,
   rankFilter: StudioFilterState | null,
+  /**
+   * Per-label SUM of `rankFilter.rankByField`, over the SAME rows and x-axis grouping that
+   * produced `data` (e.g. `aggregateByField(rows, xField, rankByField, xGroupBy, 'sum')`).
+   * When `rankFilter.rankByField` is set, ranking uses THIS score instead of `data.values` —
+   * matching the row-level rank reduction every other widget kind applies (`filterUtils.ts`'s
+   * `rankByField` branch, which always SUMS the rank-by measure per group regardless of the
+   * widget's own display aggregation). Without it, a chart's post-aggregation Top-N ranked by
+   * the displayed (possibly avg/min/max) value and silently ignored `rankByField`, disagreeing
+   * with grid/KPI/map/pivot widgets on an identical rank filter (finding 3.x). Ignored when
+   * `rankFilter.rankByField` is unset, or when omitted — ranking then falls back to `data.values`.
+   */
+  rankByFieldData?: AggregatedData,
 ): AggregatedData {
   if (!rankFilter) {
     return data;
@@ -67,10 +81,20 @@ export function applyRankToAggregated(
     return data;
   }
   const dir = rankFilter.rankDirection ?? 'top';
+
+  let scoreOf: (i: number) => number;
+  if (rankFilter.rankByField && rankByFieldData) {
+    const scoreByLabel = new Map<string | number, number>();
+    rankByFieldData.labels.forEach((label, i) => {
+      scoreByLabel.set(label, rankByFieldData.values[i]);
+    });
+    scoreOf = (i) => scoreByLabel.get(data.labels[i]) ?? 0;
+  } else {
+    scoreOf = (i) => data.values[i];
+  }
+
   const indices = data.labels.map((_, i) => i);
-  indices.sort((a, b) =>
-    dir === 'top' ? data.values[b] - data.values[a] : data.values[a] - data.values[b],
-  );
+  indices.sort((a, b) => (dir === 'top' ? scoreOf(b) - scoreOf(a) : scoreOf(a) - scoreOf(b)));
   const keepIndices = new Set(indices.slice(0, n));
   const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {

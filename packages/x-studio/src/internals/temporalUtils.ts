@@ -93,8 +93,14 @@ function toLocalYmd(date: Date): string {
  * Normalises a raw date input to a canonical `YYYY-MM-DD` string. Timezone-aware inputs
  * round-trip through UTC (canonical ISO inputs are unaffected); local-time-ambiguous
  * inputs use their LOCAL calendar date to avoid a day-shift for UTC+ viewers.
+ *
+ * Exported so callers outside the L1 ingestion pass (`normalizeDataSourceRows` below) can
+ * apply the SAME timezone-safe day-string conversion to a raw value that never went through
+ * L1 — e.g. a foreign row pulled in during a cross-filter semi-join, or an L4 re-filtered
+ * anchor/remote/junction row — instead of reimplementing (and potentially re-breaking) the
+ * zoned/local-time distinction (`filterUtils.ts`'s `toComparable`).
  */
-function normalizeToDateOnlyString(raw: unknown): string | null {
+export function normalizeToDateOnlyString(raw: unknown): string | null {
   const d = normalizeToDate(raw);
   if (!d) {
     return null;

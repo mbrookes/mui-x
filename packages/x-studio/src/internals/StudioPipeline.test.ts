@@ -595,6 +595,31 @@ describe('createStudioPipeline', () => {
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
+    it("opting in with globalCrossFilterMode 'none' still applies an active INTERACTIVE filter (hard-filter invariant)", () => {
+      // `crossFilterMode: 'none'` only opts a widget out of CHART cross-filters — an
+      // interactive (filter-widget) selection is a hard filter that always applies,
+      // regardless of the target widget's cross-filter mode (documented in
+      // `useWidgetRows.ts`'s `shouldShowGhost`/`effectiveRows` doc comments). Before the
+      // fix, `'none'` was wrongly coerced to `include: 'no-cross'`, which also drops
+      // interactive filters — this regression test pins `'no-chart-cross'` instead.
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        globalCrossFilterMode: 'none',
+        filters: [
+          makeFilter({
+            id: 'if1',
+            scope: { kind: 'interactive', sourceWidgetId: 'w-filter', pageId: 'p1' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {});
+      expect(result.map((r) => r.id)).toEqual(['1', '3']);
+    });
+
     it('bare StudioPipelineState without the new fields behaves identically with and without options', () => {
       const rows = [...ROWS];
       // A same-page cross-filter: with default crossFilterAllPages (undefined→false) and no

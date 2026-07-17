@@ -56,7 +56,31 @@ type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' }
  */
 // Vega-Lite draws 10px legend labels; x-charts' default is 12px. Shrink the
 // series-legend label text to match (applied via `sx` on every `ChartsLegend`).
-const LEGEND_SX = { '& .MuiChartsLegend-label': { fontSize: 10 } } as const;
+//
+// A vertical (side) legend gets extra rules to match Vega-Lite's compact,
+// fixed-width symbol legend: x-charts' default row gap/mark size are tuned for
+// a handful of horizontal items, so a color field with many categories (e.g.
+// a `scheme` with 15-20 values) produces a legend column that both reads much
+// taller than Vega's tightly-packed rows and, at its unconstrained natural
+// width, can outgrow the demo's side-by-side comparison container and get
+// clipped. Capping the column width and letting long single-word category
+// names wrap (`minWidth: 0` + `overflowWrap`) keeps the legend inside its
+// container instead of relying on the container to grow around it.
+const LEGEND_SX = {
+  '& .MuiChartsLegend-label': { fontSize: 10 },
+  // `minWidth: 0` overrides the grid item's automatic minimum size (which
+  // browsers compute from the *unbroken* longest word and enforce even with
+  // `overflow-wrap: break-word` on descendants) — without it the legend's
+  // grid track refuses to shrink below "Transportation" and the label wrap
+  // below never gets a chance to apply.
+  '&.MuiChartsLegend-vertical': { gap: '2px', maxWidth: 150, minWidth: 0 },
+  '&.MuiChartsLegend-vertical .MuiChartsLegend-series': { gap: '4px', minWidth: 0 },
+  '&.MuiChartsLegend-vertical .MuiChartsLegend-label': {
+    minWidth: 0,
+    overflowWrap: 'break-word',
+  },
+  '&.MuiChartsLegend-vertical .MuiChartsLabelMark-root': { width: 9, height: 9, flexShrink: 0 },
+} as const;
 
 function resolveLegendLayout(orient: string | undefined): LegendLayout {
   switch (orient) {
@@ -218,8 +242,8 @@ function yAxisAllowance(config: { data?: readonly unknown[] } | undefined): numb
 function resolveVegaViewSize(
   spec: VegaLiteSpec,
   compiled: {
-    xAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
-    yAxis?: { config: { scaleType?: string; data?: readonly unknown[] } };
+    xAxis?: { config: { scaleType?: string; data?: readonly unknown[]; position?: string } };
+    yAxis?: { config: { scaleType?: string; data?: readonly unknown[]; position?: string } };
     series?: readonly unknown[];
   },
   fallbackWidth: number | undefined,
@@ -285,11 +309,16 @@ function resolveVegaViewSize(
   };
   const width = plotSize(spec.width, compiled.xAxis, fallbackWidth, 'x');
   const height = plotSize(spec.height as VegaLiteSpec['width'], compiled.yAxis, fallbackHeight, 'y');
+  // Only pad when the perpendicular axis is both present AND actually drawn —
+  // `axis: null` (`position: 'none'`) still compiles a yAxis/xAxis config (for
+  // its scale/domain), but draws no ticks/labels, so reserving label-width
+  // margin for it would only widen/heighten the surface for nothing.
+  const yAxisDrawn = compiled.yAxis && compiled.yAxis.config.position !== 'none';
+  const xAxisDrawn = compiled.xAxis && compiled.xAxis.config.position !== 'none';
   return {
-    // Only pad when there's an axis to reserve space for (skip pie/arc/geo).
     width:
-      width !== undefined && compiled.yAxis ? width + yAxisAllowance(compiled.yAxis.config) : width,
-    height: height !== undefined && compiled.xAxis ? height + X_AXIS_BASE_ALLOWANCE : height,
+      width !== undefined && yAxisDrawn ? width + yAxisAllowance(compiled.yAxis!.config) : width,
+    height: height !== undefined && xAxisDrawn ? height + X_AXIS_BASE_ALLOWANCE : height,
   };
 }
 

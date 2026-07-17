@@ -704,6 +704,13 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       showMark,
       connectNulls: false,
       color: group.color,
+      // Vega-Lite's default legend symbol depends on the mark: a `line` (or
+      // `trail`) mark defaults to a short stroke swatch (x-charts' own 'line'
+      // default already matches), but an `area` mark defaults to a filled
+      // circle (`defaultSymbolType` in vega-lite's legend/properties.ts) —
+      // x-charts otherwise renders every line-family series with the same
+      // stroke swatch, so area series need this override to match.
+      ...(markType === 'area' ? { labelMarkType: 'circle' } : {}),
       ...stackMode,
       // Stroke width/dash have no dedicated x-charts line-series prop, so style
       // the series' own line path by id. x-charts stamps `data-series-id` on

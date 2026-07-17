@@ -141,7 +141,14 @@ function GalleryCard({ example }: { example: GalleryExample }) {
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+            // A fixed `1fr 1fr` split squeezes both panels to ~half the card
+            // width regardless of content — fine for a plain 440px chart, but
+            // a chart with a wide side legend (many categories) then has no
+            // room for its legend column and silently scrolls/clips it.
+            // `auto-fit, minmax(...)` keeps the usual two-up layout when both
+            // panels fit, and stacks to one column (giving each panel the
+            // full card width) when they don't, instead of forcing a squeeze.
+            gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
             gap: 1.5,
           }}
         >

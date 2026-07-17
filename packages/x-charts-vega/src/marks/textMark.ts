@@ -77,11 +77,14 @@ export function resolveAxisValue(
   return raw as string | number;
 }
 
+// Vega's default text-mark font size (`config.text.fontSize`); the SVG
+// overlay otherwise falls back to the browser's ~16px default, which reads
+// noticeably larger than Vega-Lite's compact numeric/value labels.
+const DEFAULT_TEXT_FONT_SIZE = 10;
+
 function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties {
   const style: React.CSSProperties = {};
-  if (typeof mark.fontSize === 'number') {
-    style.fontSize = mark.fontSize;
-  }
+  style.fontSize = typeof mark.fontSize === 'number' ? mark.fontSize : DEFAULT_TEXT_FONT_SIZE;
   if (typeof mark.font === 'string') {
     style.fontFamily = mark.font;
   }
@@ -184,6 +187,48 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [] };
   }
 
+  // A `color` encoding (rather than a static `mark.color`) is the idiomatic
+  // way Vega-Lite gives a text-over-heatmap label enough contrast against its
+  // cell: `{value: 'white', condition: {test: 'datum.count < 40', value:
+  // 'black'}}`. The encoding takes precedence over `mark.color` when present
+  // (it's the more specific, explicitly-authored channel); a data-driven
+  // `field` color scale is a rarer case this doesn't attempt, so it's reported
+  // instead of silently ignored like today.
+  const colorDef = encoding.color;
+  let baseColor: string | undefined = typeof mark.color === 'string' ? mark.color : undefined;
+  let colorConditionResolver: ((row: DatasetRow) => unknown) | undefined;
+  if (colorDef && !Array.isArray(colorDef)) {
+    const colorCondition = (colorDef as { condition?: unknown }).condition;
+    if (colorCondition !== undefined) {
+      colorConditionResolver = compileTestConditions(
+        colorCondition,
+        ctx.signals,
+        gaps,
+        `${path}.encoding.color.condition`,
+      );
+      if (!colorConditionResolver) {
+        gaps.add({
+          code: 'encoding:text-color-condition',
+          message:
+            'This conditional `color` encoding (`condition`) on a text mark could not be translated; the base color is used for every label and the condition branches were dropped.',
+          severity: 'unsupported',
+          path: `${path}.encoding.color.condition`,
+        });
+      }
+    }
+    if (isValueDef(colorDef) && colorDef.value != null) {
+      baseColor = String(colorDef.value);
+    } else if (isFieldDef(colorDef)) {
+      gaps.add({
+        code: 'encoding:text-color-field',
+        message:
+          'A field-based `color` encoding on a text mark (a continuous/categorical color scale) is not translated; the mark/base color is used for every label instead.',
+        severity: 'unsupported',
+        path: `${path}.encoding.color`,
+      });
+    }
+  }
+
   const style = buildTextStyle(mark);
   const dx = typeof mark.dx === 'number' ? mark.dx : undefined;
   const dy = typeof mark.dy === 'number' ? mark.dy : undefined;
@@ -214,13 +259,18 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
 
     const text = conditionResolver ? String(conditionResolver(row) ?? base) : base;
 
+    const fill = colorConditionResolver
+      ? ((colorConditionResolver(row) as string | undefined) ?? baseColor)
+      : baseColor;
+    const itemStyle = fill !== undefined ? { ...style, fill } : style;
+
     items.push({
       x,
       y,
       text,
       ...(dx !== undefined ? { dx } : {}),
       ...(dy !== undefined ? { dy } : {}),
-      ...(style !== undefined ? { style } : {}),
+      ...(itemStyle !== undefined ? { style: itemStyle } : {}),
     });
   });
 

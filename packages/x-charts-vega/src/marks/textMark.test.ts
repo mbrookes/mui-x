@@ -28,8 +28,9 @@ describe('compileTextMark', () => {
     expect(compiled.plots).to.deep.equal([]);
     const items = textItems(compiled.overlays);
     // Every item carries the centered default style (Vega-Lite text marks
-    // default to align 'center' / baseline 'middle').
-    const centered = { textAnchor: 'middle', dominantBaseline: 'middle' };
+    // default to align 'center' / baseline 'middle') plus Vega's default
+    // 10px text-mark font size.
+    const centered = { fontSize: 10, textAnchor: 'middle', dominantBaseline: 'middle' };
     expect(items).to.deep.equal([
       { x: 'A', y: 10, text: '10', style: centered },
       { x: 'B', y: 20, text: '20', style: centered },
@@ -42,7 +43,7 @@ describe('compileTextMark', () => {
       encoding: { ...baseSpec.encoding, text: { value: 'fixed' } },
     });
     const items = textItems(compiled.overlays);
-    const centered = { textAnchor: 'middle', dominantBaseline: 'middle' };
+    const centered = { fontSize: 10, textAnchor: 'middle', dominantBaseline: 'middle' };
     expect(items).to.deep.equal([
       { x: 'A', y: 10, text: 'fixed', style: centered },
       { x: 'B', y: 20, text: 'fixed', style: centered },
@@ -271,6 +272,53 @@ describe('compileTextMark', () => {
     const yConfig = compiled.yAxis?.config as { min?: number; max?: number };
     expect(yConfig.min).to.equal(0);
     expect(yConfig.max).to.be.greaterThan(42);
+  });
+
+  it('resolves a test-predicate color condition per row (contrast label over a heatmap cell)', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: {
+        ...baseSpec.encoding,
+        color: { condition: { test: 'datum.amount < 15', value: 'black' }, value: 'white' },
+      },
+    });
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include(
+      'encoding:text-color-condition',
+    );
+    const items = textItems(compiled.overlays);
+    expect(items?.[0]?.style?.fill).to.equal('black');
+    expect(items?.[1]?.style?.fill).to.equal('white');
+  });
+
+  it('uses a constant value-def color for every label when there is no condition', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: { ...baseSpec.encoding, color: { value: '#123456' } },
+    });
+    const items = textItems(compiled.overlays);
+    expect(items?.every((item) => item.style?.fill === '#123456')).to.equal(true);
+  });
+
+  it('lets an encoding.color value override mark.color', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      mark: { type: 'text', color: 'red' },
+      encoding: { ...baseSpec.encoding, color: { value: 'blue' } },
+    });
+    const items = textItems(compiled.overlays);
+    expect(items?.[0]?.style?.fill).to.equal('blue');
+  });
+
+  it('reports encoding:text-color-field for a data-driven color scale (not translated)', () => {
+    const compiled = compileSpec({
+      ...baseSpec,
+      encoding: { ...baseSpec.encoding, color: { field: 'category', type: 'nominal' } },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:text-color-field');
+    expect(gap?.severity).to.equal('unsupported');
+    const items = textItems(compiled.overlays);
+    // No base color resolved — the fill style key is omitted, not set to undefined.
+    expect(items?.[0]?.style).not.to.have.property('fill');
   });
 
   it('reports an ignored x-charts-origin gap noting the custom-overlay rendering', () => {

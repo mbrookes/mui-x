@@ -1271,3 +1271,189 @@ describe('useChartWidgetData — related-source expression field support (findin
     expect(result.current.chartData).not.toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 2.2 — cross-highlight rank applied ONCE, to the baseline
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Under a cross-highlight ghost, the widget rank must rank ONLY the baseline (allChartData),
+// which defines the rendered top-N; the filtered aggregation (chartData) must stay un-ranked so
+// its full label→value map is available for the downstream ghost alignment. Ranking both
+// independently diverges the two top-N sets, so a baseline-kept category with a real filtered
+// value renders "(filtered out)" while a filtered-only category is invisible.
+describe('useChartWidgetData — cross-highlight rank (finding 2.2)', () => {
+  // Baseline totals A=100, B=90, C=80 → baseline top-2 = {A, B}.
+  // EU-filtered totals A=10, B=5, C=70 → filtered top-2 (if ranked independently) = {C, A},
+  // which DIVERGES from the baseline set (drops B, adds C).
+  const divergingSource: StudioDataSource = {
+    id: 'diverge',
+    label: 'Diverge',
+    fields: [
+      { id: 'category', label: 'Category', type: 'string' },
+      { id: 'region', label: 'Region', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: [
+      { id: 'a-eu', category: 'A', region: 'EU', total: 10 },
+      { id: 'a-us', category: 'A', region: 'US', total: 90 },
+      { id: 'b-eu', category: 'B', region: 'EU', total: 5 },
+      { id: 'b-us', category: 'B', region: 'US', total: 85 },
+      { id: 'c-eu', category: 'C', region: 'EU', total: 70 },
+      { id: 'c-us', category: 'C', region: 'US', total: 10 },
+    ],
+  };
+
+  function divergingWidget(): StudioWidgetOf<'chart'> {
+    return {
+      id: 'chart-single',
+      kind: 'chart',
+      title: 'Diverge',
+      sourceId: 'diverge',
+      config: { chartType: 'bar', xField: 'category', yField: 'total', yAggregation: 'sum' },
+    };
+  }
+
+  it('ranks the baseline top-N and keeps the filtered aggregation un-ranked (full set)', () => {
+    const widget = divergingWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { diverge: divergingSource },
+      filters: [
+        {
+          id: 'f-cross-region',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+        } as StudioFilterState,
+        {
+          id: 'f-rank',
+          field: 'total',
+          operator: 'greater_than',
+          value: 2,
+          filterMode: 'rank',
+          rankDirection: 'top',
+          scope: { kind: 'widget', widgetId: 'chart-single' },
+        } as StudioFilterState,
+      ],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, divergingSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+
+    // Baseline is ranked top-2 by its own (all-region) totals: {A, B} — NOT C.
+    const all = result.current.allChartData!;
+    expect([...all.labels].sort()).toEqual(['A', 'B']);
+    expect(all.labels).not.toContain('C');
+
+    // Filtered aggregation stays UN-ranked so every baseline-kept category can resolve its real
+    // filtered value downstream: all three categories are present, and baseline-kept B carries its
+    // genuine EU value (5) instead of being dropped and rendered "(filtered out)".
+    const filtered = result.current.chartData!;
+    expect(filtered.labels).toHaveLength(3);
+    expect(filtered.values[filtered.labels.indexOf('B')]).toBe(5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 2.6 — single-series aggregation from the entry that supplied activeYFields[0]
+// ─────────────────────────────────────────────────────────────────────────────
+describe('useChartWidgetData — single-series aggregation entry (finding 2.6)', () => {
+  it('reads yAggregation from the first ySeries entry WITH a usable fieldId, not ySeries[0]', () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-single',
+      kind: 'chart',
+      title: 'Half-configured leading series',
+      sourceId: 'revenue',
+      config: {
+        chartType: 'bar',
+        xField: 'category',
+        // Leading entry is half-configured (no fieldId) — activeYFields skips it, so the aggregated
+        // measure is `total` from the SECOND entry, whose fn is `avg`. Reading ySeries[0].yAggregation
+        // ('sum') would produce sums instead of averages.
+        ySeries: [{ yAggregation: 'sum' }, { fieldId: 'total', yAggregation: 'avg' }],
+      } as unknown as StudioWidgetOf<'chart'>['config'],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    expect(result.current.activeYFields).toEqual(['total']);
+    const data = result.current.chartData!;
+    // Electronics has totals 100 and 50 → avg 75 (a sum would be 150).
+    expect(data.values[data.labels.indexOf('Electronics')]).toBe(75);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 2.7 — scatter resolves its y measure via the ySeries fallback
+// ─────────────────────────────────────────────────────────────────────────────
+describe('useChartWidgetData — scatter ySeries fallback (finding 2.7)', () => {
+  it('builds scatterData from ySeries[0].fieldId when config.yField is absent', () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-scatter',
+      kind: 'chart',
+      title: 'Scatter via ySeries',
+      sourceId: 'revenue',
+      config: {
+        chartType: 'scatter',
+        xField: 'cost',
+        // Authored via ySeries (e.g. after a chart-type switch) with no top-level yField.
+        ySeries: [{ fieldId: 'total' }],
+      } as unknown as StudioWidgetOf<'chart'>['config'],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    // Previously null (the memo required config.yField) → empty scatter render.
+    expect(result.current.scatterData).not.toBeNull();
+    expect(result.current.scatterData).toHaveLength(revenueSource.rows!.length);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 1.4 — ghost/tooltip baseline keeps interactive (filter-widget) hard filters
+// ─────────────────────────────────────────────────────────────────────────────
+describe('useChartWidgetData — ghost baseline excludes only chart cross-filters (finding 1.4)', () => {
+  it('allEnrichedRows honours an interactive hard filter while a chart cross-filter drives the ghost', () => {
+    const widget = singleSeriesWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { revenue: revenueSource },
+      filters: [
+        // Interactive (filter-widget) selection — a HARD filter (region = EU) that must constrain
+        // the ghost/tooltip baseline too.
+        {
+          id: 'f-interactive-region',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          scope: { kind: 'interactive', sourceWidgetId: 'w-filter', pageId: 'page-1' },
+        } as StudioFilterState,
+        // Chart-click cross-filter on category — drives the highlight/ghost.
+        {
+          id: 'f-cross-category',
+          field: 'category',
+          operator: 'equals',
+          value: 'Electronics',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+        } as StudioFilterState,
+      ],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, revenueSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+    // Baseline (allEnrichedRows) must be EU-only (3 rows: r1, r3, r5) — the interactive hard filter
+    // stays applied. Resurrecting the removed US rows (the old `filteredRowsNoCross` baseline) would
+    // yield all 5 rows and ghost totals larger than anything ever displayed.
+    expect(result.current.allEnrichedRows).toHaveLength(3);
+    for (const row of result.current.allEnrichedRows) {
+      expect(row.region).toBe('EU');
+    }
+  });
+});

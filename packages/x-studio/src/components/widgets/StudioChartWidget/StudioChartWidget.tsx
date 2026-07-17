@@ -194,6 +194,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     enrichedRows,
     allEnrichedRows,
     filteredRows,
+    effectiveRows,
+    filteredRowsNoChartCross,
     isLoading,
     isError,
     errorMessage,
@@ -775,8 +777,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  // No data after filtering — show overlay instead of an empty chart canvas
-  if (chartTypeDef.runsNoDataGuard && !isLoading && filteredRows.length === 0) {
+  // No data after filtering — show overlay instead of an empty chart canvas.
+  // Guard on the row set the chart actually RENDERS from, not the include:'all' `filteredRows`
+  // (finding 1.3):
+  // - cross-highlight ghost active → the pre-chart-cross baseline (`filteredRowsNoChartCross`), so
+  //   a chart whose primary set was emptied purely by a sibling's cross-filter still renders its
+  //   dimmed ghost instead of blanking to "No data".
+  // - otherwise → the mode-appropriate `effectiveRows` (`'none'` mode ignores cross-filters, so a
+  //   `'none'`-mode chart no longer blanks when a sibling's cross-filter matches zero rows).
+  const noDataBaseline = shouldShowGhost ? filteredRowsNoChartCross : effectiveRows;
+  if (chartTypeDef.runsNoDataGuard && !isLoading && noDataBaseline.length === 0) {
     return <StudioNoDataOverlay height={chartHeight} />;
   }
 

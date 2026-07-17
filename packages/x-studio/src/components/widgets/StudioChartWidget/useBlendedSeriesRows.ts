@@ -79,6 +79,15 @@ export function useBlendedSeriesRows(
     [config.chartType, blendSeries, widget.sourceId],
   );
 
+  // NOTE (finding 3.3): this reads the LIVE `selectFilters` array, whereas the primary series'
+  // rows come from `useWidgetRows`' DEFERRED (`useDeferredValue`) filter snapshot. During a
+  // deferred window a mixed chart can therefore render its primary and foreign series in two
+  // filter states for a frame. Reconciling this would require threading `useWidgetRows`' deferred
+  // page partition into this hook, but this hook runs BEFORE `useWidgetRows` in `useChartWidgetData`
+  // (its `isBlended` output gates that hook's field resolution), so the deferred snapshot isn't yet
+  // available here without a larger hook-ordering refactor. The skew is transient and
+  // self-correcting (the next commit reconciles both series), so it is intentionally left as a
+  // documented deferral rather than fixed.
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);

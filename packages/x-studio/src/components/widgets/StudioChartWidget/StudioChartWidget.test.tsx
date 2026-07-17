@@ -2521,3 +2521,91 @@ describe('<StudioChartWidget />', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 1.3 — "No data" guard tests the mode-appropriate baseline
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The guard previously tested `filteredRows` (the include:'all' baseline, with sibling
+// cross-filters applied). A chart that renders from a DIFFERENT baseline — a `'none'`-mode chart
+// (renders from `effectiveRows`, ignoring cross-filters) or a cross-highlight ghost (renders from
+// the pre-chart-cross baseline) — would blank to "No data" whenever a sibling's cross-filter
+// happened to match zero rows, even though its own render set was non-empty.
+describe('<StudioChartWidget /> — no-data guard baseline (finding 1.3)', () => {
+  const guardSource: StudioDataSource = {
+    id: 'guard-src',
+    label: 'Guard',
+    fields: [
+      { id: 'category', label: 'Category', type: 'string' },
+      { id: 'region', label: 'Region', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: [
+      { id: 'g1', category: 'A', region: 'EU', total: 10 },
+      { id: 'g2', category: 'B', region: 'EU', total: 20 },
+    ],
+  };
+
+  // A sibling chart-click cross-filter that matches ZERO rows of `guardSource`.
+  const emptyingCrossFilter = {
+    id: 'f-cross-empty',
+    field: 'region',
+    operator: 'equals',
+    value: 'DOES_NOT_EXIST',
+    scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
+  } as unknown as StudioState['doc']['filters'][number];
+
+  beforeEach(() => {
+    barChartSpy.mockClear();
+  });
+
+  it("a 'none'-mode chart renders (not 'No data') when a sibling cross-filter matches zero rows", () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'w-none',
+      kind: 'chart',
+      title: 'None-mode',
+      sourceId: 'guard-src',
+      config: {
+        chartType: 'bar',
+        xField: 'category',
+        yField: 'total',
+        crossFilterMode: 'none',
+      } as unknown as StudioWidgetOf<'chart'>['config'],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { 'guard-src': guardSource },
+      filters: [emptyingCrossFilter],
+    });
+
+    renderChart(widget, guardSource);
+
+    // 'none' mode ignores the cross-filter → effectiveRows is the full (non-empty) set, so the bar
+    // chart renders instead of the "No data" overlay.
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(barChartSpy).toHaveBeenCalled();
+  });
+
+  it('a cross-highlight chart renders its ghost (not "No data") when the cross-filter empties the set', () => {
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'w-ghost',
+      kind: 'chart',
+      title: 'Cross-highlight',
+      sourceId: 'guard-src',
+      // Default crossFilterMode is 'cross-highlight'.
+      config: { chartType: 'bar', xField: 'category', yField: 'total' },
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { 'guard-src': guardSource },
+      filters: [emptyingCrossFilter],
+    });
+
+    renderChart(widget, guardSource);
+
+    // The pre-chart-cross baseline is non-empty, so the guard must NOT fire the "No data" overlay
+    // (`StudioNoDataOverlay` renders `role="status"`). Previously the include:'all' `filteredRows`
+    // was empty, so the overlay blanked the widget even though its baseline had data.
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+});

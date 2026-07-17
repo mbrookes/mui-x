@@ -25,7 +25,6 @@ import {
 } from '../../../internals/chartAggregation';
 import {
   useStudioSelector,
-  selectFilters,
   selectDataSources,
   selectRelationships,
   makeSelectExpressionFieldsForSources,
@@ -70,7 +69,6 @@ export function useChartWidgetData(
     return dataSource.fields.find((f) => f.id === xField)?.orderedValues;
   }, [config.xField, dataSource]);
 
-  const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
@@ -116,28 +114,12 @@ export function useChartWidgetData(
   // In CSS variables mode, palette.mode is always 'light'; use colorScheme for the real value.
   const resolvedMode = (colorScheme ?? muiTheme.palette.mode) as 'light' | 'dark';
 
-  // Separate rank widget filters (applied post-aggregation) from row-level filters
-  const widgetRankFilter = React.useMemo(
-    () =>
-      filters.find(
-        (f) =>
-          // `!f.disabled` mirrors `selectFiltersForWidget` (the scoping authority every other
-          // filter path uses): a disabled Top-N filter must NOT keep reducing the chart to N
-          // categories after the user toggles it off in the drawer (finding 2.6).
-          !f.disabled &&
-          f.scope.kind === 'widget' &&
-          f.scope.widgetId === widget.id &&
-          f.filterMode === 'rank',
-      ) ?? null,
-    [filters, widget.id],
-  );
-
   // Page-level chart colour palette (undefined → charts use their default).
   const chartColors = usePageChartColors();
 
   const {
     filteredRows,
-    filteredRowsNoCross,
+    filteredRowsNoChartCross,
     hasCrossFilters,
     shouldShowGhost,
     effectiveRows,
@@ -152,9 +134,23 @@ export function useChartWidgetData(
     // L4 semi-join rendered the intersection of two filter states (a transient flash to empty).
     // `resolvedFiltersNoCross` ('page' + 'widget' only) matches `filteredRowsNoCross`;
     // `resolvedFiltersAll` ('all') matches `filteredRows` (finding 2.1).
+    // `resolvedFiltersNoChartCross` ('page' + 'widget' + 'interactive') matches
+    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline (finding 1.4).
     resolvedFiltersAll,
     resolvedFiltersNoCross,
+    resolvedFiltersNoChartCross,
+    // The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred filter
+    // snapshot the rows came from — rather than re-derived here from the live `selectFilters`
+    // array. During a `useDeferredValue` window a live-derived rank edit would otherwise re-rank
+    // the still-deferred (stale) rows for a frame (finding 3.3).
+    widgetScopedRankFilters,
   } = useWidgetRows(widget, dataSource, pageId);
+
+  // The single active widget-scoped rank filter (post-aggregation Top-N reduction). Mirrors the
+  // former `selectFilters.find(...)` lookup, but sourced from the deferred snapshot above so the
+  // rank and the rows it reduces always come from the same filter state (finding 3.3). `!disabled`
+  // and `filterMode === 'rank'` are already applied inside `widgetScopedRankFilters`.
+  const widgetRankFilter = widgetScopedRankFilters[0] ?? null;
 
   const chartCrossFilterMode =
     globalCrossFilterMode ??
@@ -162,6 +158,16 @@ export function useChartWidgetData(
     'cross-highlight';
   const effectiveResolvedFilters =
     chartCrossFilterMode === 'none' ? resolvedFiltersNoCross : resolvedFiltersAll;
+
+  // When a cross-highlight ghost is active, the widget-scoped rank must be applied ONCE — to the
+  // baseline (all*) aggregations, which define the rendered top-N — and the FILTERED aggregations
+  // must stay un-ranked so their full label→value map is available for the downstream ghost
+  // alignment (which projects filtered values onto the baseline's kept labels). Ranking the
+  // filtered aggregation independently diverges the two top-N sets, so a baseline-kept category
+  // with a real filtered value renders "(filtered out)" while a filtered-only category is
+  // invisible (finding 2.2). When no ghost is active there is no baseline, so the filtered
+  // aggregation ranks itself as before.
+  const filteredRankFilter = shouldShowGhost ? null : widgetRankFilter;
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -215,7 +221,16 @@ export function useChartWidgetData(
   // default, mirroring the server/adapter push-down precedence in `chartTypeRegistry`
   // ("the more specific per-series fn wins over the yField-derived one") so an in-memory source
   // produces the same numbers as a pushed-down aggregation (finding 1.12).
-  const singleSeriesYAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation;
+  //
+  // Read the `yAggregation` from the SAME `ySeries` entry that supplied `activeYFields[0]`, not
+  // from `ySeries[0]` unconditionally: `activeYFields` skips fieldId-less / foreign-blended
+  // entries, so a half-configured leading entry (e.g. `[{yAggregation:'sum'}, {fieldId:'revenue',
+  // yAggregation:'avg'}]`) would otherwise aggregate `revenue` with `sum` (finding 2.6). `find`
+  // returns `undefined` when `activeYFields[0]` came from `config.yField` (no matching series),
+  // falling through to the `config.yAggregation` default.
+  const singleSeriesYAggregation =
+    config.ySeries?.find((s) => s.fieldId === activeYFields[0])?.yAggregation ??
+    config.yAggregation;
 
   // Dimension-like fields that the non-xy chart families (heatmap / funnel / sankey / gantt)
   // actually read but that are not expressed as x / y / series. Passed to `analyzeChartSupport`
@@ -293,14 +308,20 @@ export function useChartWidgetData(
     effectiveResolvedFilters,
   );
 
-  // Enriched rows from non-cross-filtered data — used to compute stable series names.
+  // Baseline enriched rows for ghost bars, stable series names, and the "filtered / total"
+  // tooltip. This is `filteredRowsNoChartCross` (page + widget + INTERACTIVE, excluding only
+  // chart-click cross-filters), NOT `filteredRowsNoCross` (page + widget only): interactive
+  // filter-widget selections are always hard filters per BI norm, so resurrecting them here made
+  // ghost bars and tooltip totals include rows the interactive hard filter removed — larger than
+  // anything ever displayed and disagreeing with the grid (finding 1.4). `resolvedFiltersNoChartCross`
+  // is the matching L4 filter set from the same deferred snapshot.
   const allEnrichedRows = useChartRows(
-    filteredRowsNoCross,
+    filteredRowsNoChartCross,
     widget,
     activeYFields,
     chartSupport,
     chartTypeExtraFields,
-    resolvedFiltersNoCross,
+    resolvedFiltersNoChartCross,
   );
 
   const isMultiSeries = activeYFields.length > 1;
@@ -385,7 +406,10 @@ export function useChartWidgetData(
     if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
       return null;
     }
-    const rkKey = JSON.stringify(widgetRankFilter);
+    // `filteredRankFilter` (null under a ghost) — see its declaration: the baseline
+    // `allSeriesFieldData` carries the rank; the filtered set stays un-ranked so its full series
+    // set is available for ghost alignment (finding 2.2).
+    const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
       `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
@@ -402,7 +426,7 @@ export function useChartWidgetData(
             xFieldOrderedValues,
             singleSeriesYAggregation,
           ),
-          widgetRankFilter,
+          filteredRankFilter,
         ),
     );
   }, [
@@ -412,7 +436,7 @@ export function useChartWidgetData(
     activeYFields,
     xGroupBy,
     singleSeriesYAggregation,
-    widgetRankFilter,
+    filteredRankFilter,
     chartSortBy,
     chartSortDirection,
     xFieldOrderedValues,
@@ -485,7 +509,10 @@ export function useChartWidgetData(
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    const rkKey = JSON.stringify(widgetRankFilter);
+    // `filteredRankFilter` (null under a ghost): the baseline `allChartData` carries the rank and
+    // defines the rendered top-N; the filtered set stays un-ranked so the downstream ghost
+    // alignment can project its full label→value map onto the baseline's kept labels (finding 2.2).
+    const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
       `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
@@ -500,7 +527,7 @@ export function useChartWidgetData(
           chartSortDirection,
           xFieldOrderedValues,
         );
-        return applyRankToAggregated(raw, widgetRankFilter);
+        return applyRankToAggregated(raw, filteredRankFilter);
       },
     );
   }, [
@@ -510,7 +537,7 @@ export function useChartWidgetData(
     isFieldlessCount,
     categoryYField,
     isMultiSeries,
-    widgetRankFilter,
+    filteredRankFilter,
     xGroupBy,
     singleSeriesYAggregation,
     chartSortBy,
@@ -527,7 +554,9 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
       return null;
     }
-    const rkKey = JSON.stringify(widgetRankFilter);
+    // `filteredRankFilter` (null under a ghost) — baseline `allMultiYData` carries the rank
+    // (finding 2.2).
+    const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
       `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
@@ -542,7 +571,7 @@ export function useChartWidgetData(
           xFieldOrderedValues,
           yAggregationByField,
         );
-        return applyRankToMultiSeries(raw, widgetRankFilter);
+        return applyRankToMultiSeries(raw, filteredRankFilter);
       },
     );
   }, [
@@ -552,7 +581,7 @@ export function useChartWidgetData(
     activeYFields,
     yAggregationByField,
     yAggByFieldKey,
-    widgetRankFilter,
+    filteredRankFilter,
     xGroupBy,
     chartSortBy,
     chartSortDirection,
@@ -699,10 +728,17 @@ export function useChartWidgetData(
     xFieldOrderedValues,
   ]);
 
+  // Scatter's y measure: mirror the `yField ?? ySeries[0].fieldId` fallback every sibling chart
+  // family has, so a chart authored via `ySeries` then switched to scatter still resolves its
+  // measure. Without it `scatterData`/`scatterSeries` stay null (they required `config.yField`)
+  // while the support guard — which reads `activeYFields`, already honoring the fallback — reports
+  // supported, producing an empty render (finding 2.7).
+  const scatterYField = config.yField ?? config.ySeries?.[0]?.fieldId;
+
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
     const xField = config.xField;
-    const yField = config.yField;
+    const yField = scatterYField;
     const sizeField = config.scatterSizeField;
 
     if (!xField || !yField || enrichedRows.length === 0) {
@@ -712,7 +748,7 @@ export function useChartWidgetData(
     return cachedCompute(enrichedRows, `scat:${xField}:${yField}:${sizeField ?? ''}`, () =>
       prepareScatterData(enrichedRows, xField, yField, sizeField),
     );
-  }, [enrichedRows, config.xField, config.yField, config.scatterSizeField]);
+  }, [enrichedRows, config.xField, scatterYField, config.scatterSizeField]);
 
   // Stable category order for scatter color-by field (from unfiltered rows)
   const scatterColorCategories = React.useMemo(() => {
@@ -736,7 +772,7 @@ export function useChartWidgetData(
   // Multiple scatter series, one per color category
   const scatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
     const xField = config.xField;
-    const yField = config.yField;
+    const yField = scatterYField;
     const colorField = config.scatterColorField;
     const sizeField = config.scatterSizeField;
 
@@ -760,7 +796,7 @@ export function useChartWidgetData(
   }, [
     enrichedRows,
     config.xField,
-    config.yField,
+    scatterYField,
     config.scatterColorField,
     config.scatterSizeField,
     scatterColorCategories,
@@ -772,7 +808,7 @@ export function useChartWidgetData(
       return null;
     }
     const xField = config.xField;
-    const yField = config.yField;
+    const yField = scatterYField;
     const sizeField = config.scatterSizeField;
     if (!xField || !yField || allEnrichedRows.length === 0) {
       return null;
@@ -780,14 +816,14 @@ export function useChartWidgetData(
     return cachedCompute(allEnrichedRows, `scat-all:${xField}:${yField}:${sizeField ?? ''}`, () =>
       prepareScatterData(allEnrichedRows, xField, yField, sizeField),
     );
-  }, [shouldShowGhost, allEnrichedRows, config.xField, config.yField, config.scatterSizeField]);
+  }, [shouldShowGhost, allEnrichedRows, config.xField, scatterYField, config.scatterSizeField]);
 
   const allScatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
     if (!shouldShowGhost || !config.scatterColorField || !scatterColorCategories) {
       return null;
     }
     const xField = config.xField;
-    const yField = config.yField;
+    const yField = scatterYField;
     const sizeField = config.scatterSizeField;
     if (!xField || !yField || allEnrichedRows.length === 0) {
       return null;
@@ -809,7 +845,7 @@ export function useChartWidgetData(
     shouldShowGhost,
     allEnrichedRows,
     config.xField,
-    config.yField,
+    scatterYField,
     config.scatterColorField,
     config.scatterSizeField,
     scatterColorCategories,
@@ -821,6 +857,11 @@ export function useChartWidgetData(
     allSeriesNames,
     chartSupport,
     filteredRows,
+    // The mode-appropriate primary baseline (`'none'` → filteredRowsNoCross, else filteredRows)
+    // and the pre-chart-cross baseline, exposed so the "No data" guard tests the same row set the
+    // chart actually renders from rather than the include:'all' `filteredRows` (finding 1.3).
+    effectiveRows,
+    filteredRowsNoChartCross,
     activeYFields,
     enrichedRows,
     allEnrichedRows,

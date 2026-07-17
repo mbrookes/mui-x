@@ -280,7 +280,11 @@ const sankeyDescriptor: ChartTypeDescriptor = {
 const gaugeDescriptor: ChartTypeDescriptor = {
   collectFields(config) {
     const fields = new Set<string>();
-    addField(fields, config.yField);
+    // `yField ?? ySeries?.[0]?.fieldId` mirrors the fallback `renderGauge` (`chartTypeDefs.tsx`)
+    // now uses, so a gauge whose measure was authored via `ySeries` (e.g. after a chart-type
+    // switch) still gets its value field into the SELECT instead of an empty projection that
+    // renders "configure gauge" (finding 2.7).
+    addField(fields, config.yField ?? config.ySeries?.[0]?.fieldId);
     return [...fields].filter(Boolean);
   },
   buildAggregationSpecs() {

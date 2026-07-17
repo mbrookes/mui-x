@@ -261,7 +261,14 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
       activeYFields={ctx.activeYFields}
       // Mirror `useChartWidgetData`'s single-ring precedence (per-series fn wins over the
       // yField-level default) so grouped rings honour the configured aggregation (finding 2.25).
-      yAggregation={config.ySeries?.[0]?.yAggregation ?? config.yAggregation}
+      // Read the fn from the SAME `ySeries` entry that supplied the ring's value field
+      // (`activeYFields[0]`), not `ySeries[0]` unconditionally — `activeYFields` skips
+      // fieldId-less/foreign entries, so an index-0 read can pair the wrong measure's fn with the
+      // field (finding 2.6). `find` misses (→ `config.yAggregation`) when the value came from `yField`.
+      yAggregation={
+        config.ySeries?.find((s) => s.fieldId === ctx.activeYFields[0])?.yAggregation ??
+        config.yAggregation
+      }
       xGroupBy={ctx.xGroupBy}
       pieLegendBelow={!!config.pieLegendBelow}
       pieArcLabel={config.pieArcLabel}
@@ -349,10 +356,13 @@ function renderLineArea(
 
 function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
   const { config } = ctx;
+  // Mirror the `yField ?? ySeries[0].fieldId` fallback the scatter data memos use (finding 2.7)
+  // so the y-axis label resolves for a chart authored via `ySeries` then switched to scatter.
+  const scatterYField = config.yField ?? config.ySeries?.[0]?.fieldId;
   const xAxisLabel =
     resolveFieldDef(config.xField, ctx.dataSource, ctx.expressionFields)?.label ?? config.xField;
   const yAxisLabel =
-    resolveFieldDef(config.yField, ctx.dataSource, ctx.expressionFields)?.label ?? config.yField;
+    resolveFieldDef(scatterYField, ctx.dataSource, ctx.expressionFields)?.label ?? scatterYField;
 
   return (
     <StudioScatterChart
@@ -442,7 +452,13 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   // multi-Y/split-by/blended/pie-ring precedence (finding 2.2) — the value field can survive
   // a chart-type switch via the `ySeries[0].fieldId` fallback above while its aggregation was
   // previously read only from `config.yAggregation`, silently dropping to 'sum'.
-  const heatAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum';
+  // Tie the fn to the RESOLVED value field: when it came from `config.yField` use `config.yAggregation`;
+  // only when it came from `ySeries[0].fieldId` use that entry's fn — otherwise a set `yField` (the
+  // field) paired with a leftover `ySeries[0].yAggregation` (a DIFFERENT measure's fn) aggregates
+  // `yField` with the wrong function (finding 2.6).
+  const heatAggregation = config.yField
+    ? (config.yAggregation ?? 'sum')
+    : (config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
   const heatData = cachedCompute(
     enrichedRows,
     JSON.stringify([
@@ -510,8 +526,12 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // currency/precision formatting instead of losing it to a native-only lookup (finding 3.2).
   const valueFieldDef = resolveFieldDef(funnelValueField, dataSource, expressionFields);
   // Per-series aggregation wins over the yField-level default (finding 2.2) — same precedence
-  // fix as the heatmap above, for the same config-key-retention-across-type-switch reason.
-  const funnelAggregation = config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum';
+  // fix as the heatmap above, for the same config-key-retention-across-type-switch reason. Tie
+  // the fn to the RESOLVED value field so a set `yField` doesn't inherit a leftover
+  // `ySeries[0].yAggregation` from a different measure (finding 2.6).
+  const funnelAggregation = config.yField
+    ? (config.yAggregation ?? 'sum')
+    : (config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
 
   // Cumulative "reached stage" mode: count deals whose reached-depth is at or
   // beyond each stage → monotonically non-increasing by construction (never
@@ -670,7 +690,14 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   // Aggregate `enrichedRows` (cross-filter-mode aware via `effectiveRows`) rather than raw
   // `filteredRows`, so a `'none'`-mode gauge doesn't react to sibling cross-filters (finding 2.5).
   const { config, enrichedRows, chartHeight } = ctx;
-  const gaugeValueField = config.yField;
+  // Mirror the `yField ?? ySeries[0].fieldId` fallback + per-series aggregation precedence every
+  // sibling family (heatmap/funnel/sankey) has, so a chart authored via `ySeries` then switched to
+  // gauge still resolves its measure instead of showing "configure gauge" (finding 2.7). The fn is
+  // tied to the resolved field: `config.yAggregation` when it came from `yField`, else the
+  // `ySeries[0]` entry's fn (finding 2.6). `ySeries` is retained at runtime across a chart-type
+  // switch but isn't on the narrowed `StudioGaugeChartConfig`, so read it through the flat patch type.
+  const gaugeYSeries = (config as StudioChartConfig).ySeries;
+  const gaugeValueField = config.yField ?? gaugeYSeries?.[0]?.fieldId;
 
   if (!gaugeValueField) {
     return (
@@ -678,7 +705,9 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
     );
   }
 
-  const gaugeAggregation = config.yAggregation ?? 'sum';
+  const gaugeAggregation = config.yField
+    ? (config.yAggregation ?? 'sum')
+    : (gaugeYSeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
   const gaugeValue = cachedCompute(
     enrichedRows,
     JSON.stringify(['gauge', gaugeValueField, gaugeAggregation]),

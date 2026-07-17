@@ -29,6 +29,27 @@ import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
 
+/**
+ * Chart types that re-apply a widget-scoped rank (Top-N) filter POST-aggregation in
+ * `useChartWidgetData` (via `applyRankToAggregated` / `applyRankToMultiSeries` /
+ * `applyRankToSeriesFieldData`). For these, the widget rank must be EXCLUDED from the L3
+ * dataset-level reduction to avoid double-application. Every other chart family
+ * (heatmap / funnel / sankey / gantt / scatter / gauge) aggregates its rows directly and
+ * never re-ranks, so its widget rank is applied at L3 like any non-chart widget (finding 2.1).
+ */
+const POST_AGGREGATION_RANK_CHART_TYPES = new Set<string>([
+  'bar',
+  'bar-stacked',
+  'bar-100',
+  'line',
+  'area',
+  'area-stacked',
+  'area-100',
+  'pie',
+  'donut',
+  'mixed',
+]);
+
 interface UseWidgetRowsResult {
   /** Rows after applying all active filters — page, widget, cross-filter, and interactive. */
   filteredRows: Row[];
@@ -103,6 +124,20 @@ interface UseWidgetRowsResult {
    * derived from the same deferred snapshot as the rows. Pairs with `filteredRowsNoCross`.
    */
   resolvedFiltersNoCross: StudioFilterState[];
+  /**
+   * The widget's resolved/scoped filter set for `include: 'no-chart-cross'` (page + widget +
+   * interactive, no chart-click cross-filters), derived from the same deferred snapshot as the
+   * rows. Pairs with `filteredRowsNoChartCross` — the correct chart ghost/tooltip "all rows"
+   * baseline (finding 1.4).
+   */
+  resolvedFiltersNoChartCross: StudioFilterState[];
+  /**
+   * The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred snapshot
+   * as the rows. Exposed so the chart's post-aggregation rank re-application consumes the deferred
+   * filter list rather than re-deriving from the live `selectFilters` array (finding 3.3). Empty
+   * for widgets with no widget-scoped rank filter.
+   */
+  widgetScopedRankFilters: StudioFilterState[];
 }
 
 /**
@@ -264,6 +299,33 @@ export function useWidgetRows(
     [deferredPartitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
   );
 
+  // The 'no-chart-cross' companion (page + widget + interactive, but WITHOUT chart-click
+  // cross-filters), built from the SAME `deferredPartitioned` snapshot. Exposed as
+  // `resolvedFiltersNoChartCross` so the chart ghost/tooltip L4 re-anchoring can pair this filter
+  // set with `filteredRowsNoChartCross` (which came from the same snapshot) — interactive
+  // filter-widget selections are always hard-filtered per BI norm, so the chart "all rows"
+  // baseline must keep them while excluding chart cross-filters (finding 1.4). Includes the
+  // `interactive` bucket (unlike `resolvedFiltersNoCross`) since `include: 'no-chart-cross'`
+  // keeps interactive filters.
+  const resolvedFiltersNoChartCross = React.useMemo(
+    () =>
+      selectFiltersForWidget(
+        [
+          ...deferredPartitioned.page,
+          ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+          ...deferredPartitioned.interactive,
+        ],
+        {
+          widgetId: widget.id,
+          widgetSourceId: widget.sourceId,
+          activePageId: pageId,
+          include: 'no-chart-cross',
+          crossFilterAllPages,
+        },
+      ),
+    [deferredPartitioned, widget.id, widget.sourceId, pageId, crossFilterAllPages],
+  );
+
   // `selectFiltersForWidget`'s own 'widget' scope case unconditionally excludes
   // `filterMode === 'rank'` filters (handled as a special post-aggregation reduction
   // elsewhere, e.g. `useChartWidgetData`'s own `widgetRankFilter` lookup, not as an ordinary row
@@ -364,11 +426,21 @@ export function useWidgetRows(
     'cross-highlight';
 
   // Widget-scoped rank (Top-N) filters are applied at L3 as a dataset-level reduction for
-  // every widget kind EXCEPT chart (finding 2.1). The chart widget re-ranks its own
-  // widget-scoped rank filter post-aggregation in `useChartWidgetData`, so applying it here
-  // too would double-reduce it — grid / KPI / map / pivot / filter have no such post-agg
-  // path, so their authorable widget rank was previously enforced by nothing.
-  const includeWidgetRank = !isWidgetOfKind(widget, 'chart');
+  // every widget kind EXCEPT the chart families that re-rank post-aggregation (finding 2.1).
+  // Bar / line / area / pie / donut / mixed re-apply their own widget-scoped rank filter
+  // post-aggregation in `useChartWidgetData` (`applyRankTo*`), so applying it at L3 too would
+  // double-reduce them. But the non-xy chart families (heatmap / funnel / sankey / gantt) and
+  // scatter aggregate `enrichedRows` directly and NEVER read the widget rank filter — so like
+  // grid / KPI / map / pivot / filter they have no post-agg path, and their authorable widget
+  // rank was previously enforced by nothing. Applying it at L3 for those (an aggregate rank over
+  // `rankByField` grouped by the rank `field`, i.e. top-N-over-aggregated categories) is the
+  // correct enforcement point, with no double-application hazard.
+  // Default an unspecified `chartType` to `'bar'` — the same default `StudioChartWidget` renders
+  // (`config.chartType ?? 'bar'`), an xy family that re-ranks post-aggregation — so a config-less
+  // chart keeps its widget rank out of L3.
+  const chartType = (widget.config as StudioWidgetConfig)?.chartType ?? 'bar';
+  const includeWidgetRank =
+    !isWidgetOfKind(widget, 'chart') || !POST_AGGREGATION_RANK_CHART_TYPES.has(chartType);
 
   // Ghost overlay should only render when:
   // 1. The widget is in 'cross-highlight' mode (default)
@@ -653,5 +725,7 @@ export function useWidgetRows(
     // `reachableFilters` is exactly the include:'all' scoped set (finding 2.1).
     resolvedFiltersAll: reachableFilters,
     resolvedFiltersNoCross,
+    resolvedFiltersNoChartCross,
+    widgetScopedRankFilters,
   };
 }

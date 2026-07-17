@@ -245,3 +245,69 @@ describe('chartTypeDefs aggregation memoization (finding 3.5)', () => {
     expect(computeAggregateSpy).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('chartTypeDefs value-field / aggregation resolution (findings 2.6 / 2.7)', () => {
+  it('gauge resolves its measure via the ySeries[0] fallback when yField is absent (2.7)', () => {
+    const rows = [{ amount: 1 }];
+    const config = {
+      chartType: 'gauge',
+      ySeries: [{ fieldId: 'amount', yAggregation: 'avg' }],
+    } as unknown as StudioWidgetConfig;
+
+    CHART_TYPE_DEFS.gauge.render(makeCtx(config, rows));
+
+    // Previously read only `config.yField`, so this rendered the "configure gauge" hint and never
+    // aggregated. Now it resolves `amount` (from ySeries) with its own `avg` fn.
+    expect(computeAggregateSpy).toHaveBeenCalledWith(rows, 'amount', 'avg');
+  });
+
+  it('gauge ties the aggregation to yField when set, ignoring a leftover ySeries fn (2.6)', () => {
+    const rows = [{ amount: 1 }];
+    const config = {
+      chartType: 'gauge',
+      yField: 'amount',
+      ySeries: [{ fieldId: 'other', yAggregation: 'avg' }],
+    } as unknown as StudioWidgetConfig;
+
+    CHART_TYPE_DEFS.gauge.render(makeCtx(config, rows));
+
+    // The value field came from `yField`, so the fn must be `config.yAggregation` (default 'sum'),
+    // NOT the unrelated `ySeries[0]` entry's 'avg'.
+    expect(computeAggregateSpy).toHaveBeenCalledWith(rows, 'amount', 'sum');
+  });
+
+  it('heatmap ties the aggregation to the resolved value field, not ySeries[0] (2.6)', () => {
+    const rows = [{ category: 'a', region: 'b', amount: 1 }];
+    const config = {
+      chartType: 'heatmap',
+      xField: 'category',
+      heatYField: 'region',
+      yField: 'amount',
+      ySeries: [{ fieldId: 'other', yAggregation: 'avg' }],
+    } as unknown as StudioWidgetConfig;
+
+    CHART_TYPE_DEFS.heatmap.render(makeCtx(config, rows));
+
+    // aggregateHeatmap(rows, x, y, value, xGroupBy, aggregation, ...) — the 6th arg (index 5) must
+    // be 'sum' (from yField), not the leftover 'avg' on ySeries[0].
+    expect(aggregateHeatmapSpy).toHaveBeenCalledTimes(1);
+    expect((aggregateHeatmapSpy.mock.calls[0] as unknown[])[5]).toBe('sum');
+  });
+
+  it('funnel resolves the value via the ySeries fallback and honours its fn (2.6 / 2.7)', () => {
+    const rows = [{ category: 'a', amount: 1 }];
+    const config = {
+      chartType: 'funnel',
+      xField: 'category',
+      ySeries: [{ fieldId: 'amount', yAggregation: 'avg' }],
+    } as unknown as StudioWidgetConfig;
+
+    CHART_TYPE_DEFS.funnel.render(makeCtx(config, rows));
+
+    // buildFunnelStages(rows, xField, valueField, aggregation, ...) — value field 'amount' (from
+    // ySeries) at index 2, its fn 'avg' at index 3.
+    expect(buildFunnelStagesSpy).toHaveBeenCalledTimes(1);
+    expect((buildFunnelStagesSpy.mock.calls[0] as unknown[])[2]).toBe('amount');
+    expect((buildFunnelStagesSpy.mock.calls[0] as unknown[])[3]).toBe('avg');
+  });
+});

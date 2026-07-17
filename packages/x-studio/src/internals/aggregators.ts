@@ -46,6 +46,14 @@ export interface MultiYSeriesData {
 /**
  * Apply a rank filter to already-aggregated chart data.
  * Ranks by the aggregated value (the bar/slice height) and keeps top/bottom N.
+ *
+ * The kept labels/values are returned in their ORIGINAL input order (via a keep-mask),
+ * NOT in rank-score order — matching `applyRankToMultiSeries` and
+ * `applyRankToSeriesFieldData`, its two siblings. Reordering here made a single-series bar
+ * render in value order while adding a second Y series flipped it back to the canonical
+ * `chartSortBy`/`orderedValues` ordering, and made the bar order jump between the ghost and
+ * non-ghost aggregations (finding 2.5). Ranking selects WHICH categories survive; the caller's
+ * `orderLabels`/`chartSortBy` choice remains the single authority on their order.
  */
 export function applyRankToAggregated(
   data: AggregatedData,
@@ -59,12 +67,15 @@ export function applyRankToAggregated(
     return data;
   }
   const dir = rankFilter.rankDirection ?? 'top';
-  const pairs = data.labels.map((label, i) => ({ label, value: data.values[i] }));
-  pairs.sort((a, b) => (dir === 'top' ? b.value - a.value : a.value - b.value));
-  const sliced = pairs.slice(0, n);
+  const indices = data.labels.map((_, i) => i);
+  indices.sort((a, b) =>
+    dir === 'top' ? data.values[b] - data.values[a] : data.values[a] - data.values[b],
+  );
+  const keepIndices = new Set(indices.slice(0, n));
+  const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {
-    labels: sliced.map((p) => p.label),
-    values: sliced.map((p) => p.value),
+    labels: data.labels.filter((_, i) => keepMask[i]),
+    values: data.values.filter((_, i) => keepMask[i]),
   };
 }
 
@@ -108,7 +119,13 @@ export function applyRankToMultiSeries(
     if (rankBy === '__min') {
       return Math.min(...data.series.map((s) => s.values[i] ?? Infinity));
     }
-    // rank by a specific series fieldId
+    // rank by a specific series fieldId.
+    // NOTE: matches on `fieldId` alone and takes the FIRST match. For blended mixed charts two
+    // series can legitimately share a `fieldId` while originating from different sources (see
+    // `MultiYSeriesData.series[].sourceId`), so this conflates them — the first source's values
+    // drive the rank score for both. `rankMultiSeriesBy` is a bare fieldId with no source
+    // component, so a full fix needs a `(fieldId, sourceId)` rank-target model extension; until
+    // then the first-match behavior is intentional and documented (finding 3.4).
     const series = data.series.find((s) => s.fieldId === rankBy);
     return series ? (series.values[i] ?? 0) : 0;
   });

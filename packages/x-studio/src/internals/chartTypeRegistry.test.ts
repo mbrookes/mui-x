@@ -99,11 +99,12 @@ describe('collectFields — bar / line / area family', () => {
   });
 });
 
-// ── collectFields: gauge (finding 2.26) ───────────────────────────────────────
+// ── collectFields: gauge (findings 2.26 / 2.7) ─────────────────────────────────
 //
-// Gauge has its own descriptor (not `xyDescriptor`): it only ever collects
-// `yField` — it has no x-axis, series, or ySeries concept, unlike the bar/line/
-// area/pie family above.
+// Gauge has its own descriptor (not `xyDescriptor`): it collects only its single
+// measure field — never an x-axis, series, or the full ySeries list — but it does
+// mirror the `yField ?? ySeries[0].fieldId` fallback `renderGauge` uses, so a gauge
+// whose measure was authored via `ySeries` still projects its value field (finding 2.7).
 
 describe('collectFields — gauge', () => {
   it('collects only yField', () => {
@@ -115,7 +116,7 @@ describe('collectFields — gauge', () => {
     expect(fields).toEqual(['revenue']);
   });
 
-  it('ignores ySeries entirely', () => {
+  it('prefers yField over ySeries when both are present', () => {
     const desc = chartDesc('gauge');
     const fields = desc.collectFields(
       {
@@ -126,6 +127,15 @@ describe('collectFields — gauge', () => {
       SOURCE_A,
     );
     expect(fields).toEqual(['revenue']);
+  });
+
+  it('falls back to ySeries[0].fieldId when yField is absent (finding 2.7)', () => {
+    const desc = chartDesc('gauge');
+    const fields = desc.collectFields(
+      { chartType: 'gauge', ySeries: [{ fieldId: 'total', sourceId: SOURCE_A }] },
+      SOURCE_A,
+    );
+    expect(fields).toEqual(['total']);
   });
 });
 

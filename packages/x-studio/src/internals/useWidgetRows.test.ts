@@ -940,6 +940,49 @@ describe('widget-scoped rank filters (finding 2.1)', () => {
 
     expect(result.current.filteredRows).toHaveLength(rankRows.length);
   });
+
+  it.each(['scatter', 'heatmap', 'funnel', 'sankey', 'gantt'] as const)(
+    'applies a widget-scoped rank filter at L3 for a %s chart (no post-aggregation re-rank path)',
+    (chartType) => {
+      // These non-xy chart families aggregate their rows directly and never re-apply the widget
+      // rank post-aggregation, so — like non-chart widgets — the rank must reduce the row set at
+      // L3, or a "Top N" widget filter is silently a no-op (finding 2.1).
+      mockState = createState({ filters: [makeWidgetRankFilter()] });
+      const chartWidget = {
+        id: 'w1',
+        kind: 'chart',
+        sourceId: 'src1',
+        title: 'Chart',
+        config: { chartType },
+      } as unknown as StudioWidget;
+      const { result } = renderHook(() =>
+        useWidgetRows(chartWidget, makeDataSource(rankRows), 'page-1'),
+      );
+
+      // Top 2 by amount: US (300) and APAC (200).
+      expect(result.current.filteredRows).toHaveLength(2);
+      expect(result.current.filteredRows.map((r) => r.id).sort()).toEqual([2, 3]);
+    },
+  );
+
+  it.each(['bar', 'line', 'area', 'pie', 'mixed'] as const)(
+    'does NOT apply a widget-scoped rank filter at L3 for a %s chart (it re-ranks post-aggregation)',
+    (chartType) => {
+      mockState = createState({ filters: [makeWidgetRankFilter()] });
+      const chartWidget = {
+        id: 'w1',
+        kind: 'chart',
+        sourceId: 'src1',
+        title: 'Chart',
+        config: { chartType },
+      } as unknown as StudioWidget;
+      const { result } = renderHook(() =>
+        useWidgetRows(chartWidget, makeDataSource(rankRows), 'page-1'),
+      );
+
+      expect(result.current.filteredRows).toHaveLength(rankRows.length);
+    },
+  );
 });
 
 // ── Related-source calculated value field enrichment on the shared path (finding 1.1) ──

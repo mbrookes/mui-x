@@ -42,16 +42,20 @@ describe('applyRankToAggregated', () => {
     values: [10, 50, 30, 80, 20],
   };
 
-  it('top 3 returns highest 3 values', () => {
+  it('top 3 keeps the highest 3 values in ORIGINAL input order', () => {
+    // Selects the top-3 categories (D=80, B=50, C=30) but returns them in their input order
+    // (B, C, D) via a keep-mask, matching `applyRankToMultiSeries`/`applyRankToSeriesFieldData`.
+    // Ranking chooses WHICH survive; the caller's `chartSortBy`/`orderedValues` owns the order
+    // (finding 2.5).
     const result = applyRankToAggregated(
       data,
       makeFilter({ filterMode: 'rank', value: 3, rankDirection: 'top' }),
     );
-    expect(result.labels).toEqual(['D', 'B', 'C']);
-    expect(result.values).toEqual([80, 50, 30]);
+    expect(result.labels).toEqual(['B', 'C', 'D']);
+    expect(result.values).toEqual([50, 30, 80]);
   });
 
-  it('bottom 2 returns lowest 2 values', () => {
+  it('bottom 2 keeps the lowest 2 values in ORIGINAL input order', () => {
     const result = applyRankToAggregated(
       data,
       makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'bottom' }),
@@ -91,6 +95,23 @@ describe('applyRankToAggregated', () => {
       const originalIndex = data.labels.indexOf(label as string);
       expect(result.values[i]).toBe(data.values[originalIndex]);
     });
+  });
+
+  it('preserves input order identically to applyRankToMultiSeries (single vs multi consistency)', () => {
+    // The single-series ranker must agree on kept-label ORDER with its multi-series sibling, so a
+    // bar chart does not re-order when a second Y series is added (finding 2.5).
+    const single = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 3, rankDirection: 'top' }),
+    );
+    const multi = applyRankToMultiSeries(
+      { labels: data.labels, series: [{ fieldId: 's', values: data.values }] },
+      makeFilter({ filterMode: 'rank', value: 3, rankDirection: 'top' }),
+    );
+    expect(single.labels).toEqual(multi.labels);
+    expect(single.values).toEqual(multi.series[0].values);
+    // Both preserve the natural input order (B, C, D), not value-rank order (D, B, C).
+    expect(single.labels).toEqual(['B', 'C', 'D']);
   });
 });
 

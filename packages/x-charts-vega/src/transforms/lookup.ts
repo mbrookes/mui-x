@@ -194,6 +194,25 @@ export function applyLookupTransform(
 ): readonly DatasetRow[] {
   const { lookup, from, default: defaultValue = null } = transform;
   const { data, key } = from;
+  // Vega-Lite also allows a selection-based lookup (`from: {param, key}`,
+  // pulling values from a point selection's current datum instead of a
+  // secondary dataset) — a materially different feature this transform
+  // doesn't implement. `data` is absent entirely in that form (not just
+  // missing `values`), so it must be checked before reading `data.values`.
+  if (data === undefined) {
+    gaps.add({
+      code: 'transform:lookup-param',
+      message:
+        'A selection-based lookup (`from.param` instead of `from.data`) is not supported; the lookup was skipped and its output fields are left at their default.',
+      severity: 'unsupported',
+      path,
+    });
+    const plan = resolveOutputPlan(transform, gaps, path);
+    if (plan.kind === 'merge') {
+      return rows;
+    }
+    return rows.map((row) => applyPlan(row, plan, undefined, defaultValue, [], key));
+  }
   const secondaryRows = data.values;
 
   if (secondaryRows === undefined) {

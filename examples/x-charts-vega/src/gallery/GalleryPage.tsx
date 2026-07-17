@@ -12,6 +12,7 @@ import { inlineData } from './resolveData';
 import VegaEmbed from './VegaEmbed';
 import { examples, exampleIds, type GalleryExample } from './examples';
 import { useScrollSpyHash } from './useScrollSpyHash';
+import { ChartErrorBoundary } from './ChartErrorBoundary';
 
 // The continuous-axis view size handed to the reference `vega-embed` view. It
 // matches the wrapper's own default (`VEGA_DEFAULT_VIEW_WIDTH`/`_HEIGHT`), so a
@@ -150,12 +151,16 @@ function GalleryCard({ example }: { example: GalleryExample }) {
           <ComparisonPanel label="@mui/x-charts-vega" labelColor="primary.main">
             {/* No explicit size: the wrapper sizes each view the way Vega-Lite
                 does (spec size / step-based / default), matching the reference. */}
-            <VegaLiteChart spec={resolvedSpec} onGaps={setGaps} />
+            <ChartErrorBoundary>
+              <VegaLiteChart spec={resolvedSpec} onGaps={setGaps} />
+            </ChartErrorBoundary>
           </ComparisonPanel>
           <ComparisonPanel label="Vega-Lite reference" labelColor="success.main">
             {/* The same continuous default the wrapper uses, so a chart with no
                 spec size renders at the same size on both sides. */}
-            <VegaEmbed spec={resolvedSpec} width={CHART_WIDTH} height={CHART_HEIGHT} />
+            <ChartErrorBoundary>
+              <VegaEmbed spec={resolvedSpec} width={CHART_WIDTH} height={CHART_HEIGHT} />
+            </ChartErrorBoundary>
           </ComparisonPanel>
         </Box>
 

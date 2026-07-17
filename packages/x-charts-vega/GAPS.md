@@ -312,7 +312,7 @@ These render but don't yet match the reference pixel-for-pixel. They are limitat
 
 ## Complete gap-code index
 
-Every `TranslationGap.code` the wrapper can emit (147 distinct codes, template forms shown with a `<…>` placeholder), with its `severity` and `origin`. `origin: 'x-charts'` marks a limitation of the render target that the wrapper works around/approximates (from `X_CHARTS_LIMITATION_CODES` in `src/gaps/index.ts`); everything else is a genuine Vega-Lite coverage gap. This index is the exhaustive counterpart to the prose sections above — no emitted code is omitted.
+Every `TranslationGap.code` the wrapper can emit (148 distinct codes, template forms shown with a `<…>` placeholder), with its `severity` and `origin`. `origin: 'x-charts'` marks a limitation of the render target that the wrapper works around/approximates (from `X_CHARTS_LIMITATION_CODES` in `src/gaps/index.ts`); everything else is a genuine Vega-Lite coverage gap. This index is the exhaustive counterpart to the prose sections above — no emitted code is omitted.
 
 ### Data (`data:*`) & type
 
@@ -334,6 +334,7 @@ Every `TranslationGap.code` the wrapper can emit (147 distinct codes, template f
 | `transform:calculate`             | unsupported | vega-lite | Expression outside the safe subset; target field left `null`.                                               |
 | `transform:filter-expression`     | unsupported | vega-lite | Filter expression string couldn't be evaluated; rows kept (fail open).                                      |
 | `transform:bin`                   | unsupported | vega-lite | A top-level `bin` transform could not be applied.                                                           |
+| `transform:lookup-param`          | unsupported | vega-lite | `lookup.from` is a selection (`param`) instead of a secondary dataset (`data`).                             |
 | `transform:lookup-url`            | unsupported | vega-lite | `lookup.from.data` is a `url` (only inline `values` supported).                                             |
 | `transform:lookup-named-dataset`  | unsupported | vega-lite | `lookup.from.data` is a named dataset.                                                                      |
 | `transform:lookup-no-data`        | unsupported | vega-lite | `lookup.from.data` has no resolvable rows.                                                                  |

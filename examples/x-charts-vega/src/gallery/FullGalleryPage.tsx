@@ -10,6 +10,7 @@ import { VegaLiteChart } from '@mui/x-charts-vega';
 import { inlineData } from './resolveData';
 import { examples, exampleIds, type GalleryExample } from './examples';
 import { useScrollSpyHash } from './useScrollSpyHash';
+import { ChartErrorBoundary } from './ChartErrorBoundary';
 
 /**
  * One example, sized to nothing but its own chart: no forced `width`/`height`
@@ -63,7 +64,9 @@ function NativeSizeCard({ example }: { example: GalleryExample }) {
             at its natural size; the side-by-side gallery already covers the
             gap report and reference comparison per spec. */}
         <Box sx={{ overflowX: 'auto' }}>
-          <VegaLiteChart spec={resolvedSpec} />
+          <ChartErrorBoundary>
+            <VegaLiteChart spec={resolvedSpec} />
+          </ChartErrorBoundary>
         </Box>
       </CardContent>
     </Card>

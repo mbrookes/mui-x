@@ -154,5 +154,605 @@
   "interactive_brush": {
     "title": "Rectangular Brush",
     "category": "Interactive"
+  },
+  "bar_size_responsive": {
+    "title": "Responsive Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "bar_aggregate_sort_by_encoding": {
+    "title": "Aggregate Bar Chart (Sorted)",
+    "category": "Single-View Plots"
+  },
+  "bar_grouped_repeated": {
+    "title": "Grouped Bar Chart (Multiple Measure with Repeat)",
+    "category": "Single-View Plots"
+  },
+  "stacked_bar_count_corner_radius_mark": {
+    "title": "Stacked Bar Chart with Rounded Corners",
+    "category": "Single-View Plots"
+  },
+  "stacked_bar_h": {
+    "title": "Horizontal Stacked Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "stacked_bar_normalize": {
+    "title": "Normalized (Percentage) Stacked Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "stacked_bar_h_normalized_labeled": {
+    "title": "Normalized (Percentage) Stacked Bar Chart With Labels",
+    "category": "Single-View Plots"
+  },
+  "bar_gantt": {
+    "title": "Gantt Chart (Ranged Bar Marks)",
+    "category": "Single-View Plots"
+  },
+  "bar_color_disabled_scale": {
+    "title": "A Bar Chart Encoding Color Names in the Data",
+    "category": "Single-View Plots"
+  },
+  "bar_layered_transparent": {
+    "title": "Layered Bar Chart",
+    "category": "Single-View Plots"
+  },
+  "bar_diverging_stack_population_pyramid": {
+    "title": "Diverging Stacked Bar Chart (Population Pyramid)",
+    "category": "Single-View Plots"
+  },
+  "bar_diverging_stack_transform": {
+    "title": "Diverging Stacked Bar Chart (with Neutral Parts)",
+    "category": "Single-View Plots"
+  },
+  "layer_bar_labels_grey": {
+    "title": "Bar Chart with Label Overlays",
+    "category": "Single-View Plots"
+  },
+  "bar_month_temporal_initial": {
+    "title": "Bar Chart showing Initials of Month Names",
+    "category": "Single-View Plots"
+  },
+  "bar_month_temporal_band_center": {
+    "title": "Bar Chart with bars center-aligned with time unit ticks",
+    "category": "Single-View Plots"
+  },
+  "bar_negative": {
+    "title": "Bar Chart with Negative Values and a Zero-Baseline",
+    "category": "Single-View Plots"
+  },
+  "bar_negative_horizontal_label": {
+    "title": "Horizontal Bar Chart with Negative Values and Labels",
+    "category": "Single-View Plots"
+  },
+  "bar_axis_space_saving": {
+    "title": "Bar Chart with a Spacing-Saving Y-Axis",
+    "category": "Single-View Plots"
+  },
+  "bar_heatlane": {
+    "title": "Heat Lane Chart",
+    "category": "Single-View Plots"
+  },
+  "bar_binned_data": {
+    "title": "Histogram (from Binned Data)",
+    "category": "Single-View Plots"
+  },
+  "histogram_log": {
+    "title": "Log-scaled Histogram",
+    "category": "Single-View Plots"
+  },
+  "histogram_nonlinear": {
+    "title": "Non-linear Histogram",
+    "category": "Single-View Plots"
+  },
+  "histogram_rel_freq": {
+    "title": "Relative Frequency Histogram",
+    "category": "Single-View Plots"
+  },
+  "area_density_stacked": {
+    "title": "Stacked Density Estimates",
+    "category": "Single-View Plots"
+  },
+  "circle_binned": {
+    "title": "2D Histogram Scatterplot",
+    "category": "Single-View Plots"
+  },
+  "rect_binned_heatmap": {
+    "title": "2D Histogram Heatmap",
+    "category": "Single-View Plots"
+  },
+  "area_cumulative_freq": {
+    "title": "Cumulative Frequency Distribution",
+    "category": "Single-View Plots"
+  },
+  "layer_cumulative_histogram": {
+    "title": "Layered Histogram and Cumulative Histogram",
+    "category": "Single-View Plots"
+  },
+  "circle_wilkinson_dotplot": {
+    "title": "Wilkinson Dot Plot",
+    "category": "Single-View Plots"
+  },
+  "isotype_bar_chart": {
+    "title": "Isotype Dot Plot",
+    "category": "Single-View Plots"
+  },
+  "isotype_bar_chart_emoji": {
+    "title": "Isotype Dot Plot with Emoji",
+    "category": "Single-View Plots"
+  },
+  "tick_strip": {
+    "title": "Strip Plot",
+    "category": "Single-View Plots"
+  },
+  "point_color_with_shape": {
+    "title": "Colored Scatterplot",
+    "category": "Single-View Plots"
+  },
+  "point_invalid_color": {
+    "title": "Scatterplot with Null Values in Grey",
+    "category": "Single-View Plots"
+  },
+  "circle_bubble_health_income": {
+    "title": "Bubble Plot (Gapminder)",
+    "category": "Single-View Plots"
+  },
+  "circle_natural_disasters": {
+    "title": "Bubble Plot (Natural Disasters)",
+    "category": "Single-View Plots"
+  },
+  "text_scatterplot_colored": {
+    "title": "Scatter Plot with Text Marks",
+    "category": "Single-View Plots"
+  },
+  "scatter_image": {
+    "title": "Image-based Scatter Plot",
+    "category": "Single-View Plots"
+  },
+  "circle_custom_tick_labels": {
+    "title": "Strip plot with custom axis tick labels",
+    "category": "Single-View Plots"
+  },
+  "point_offset_random": {
+    "title": "Dot Plot with Jittering",
+    "category": "Single-View Plots"
+  },
+  "line_overlay": {
+    "title": "Line Chart with Point Markers",
+    "category": "Single-View Plots"
+  },
+  "line_overlay_stroked": {
+    "title": "Line Chart with Stroked Point Markers",
+    "category": "Single-View Plots"
+  },
+  "line_color_halo": {
+    "title": "Multi Series Line Chart with Halo Stroke",
+    "category": "Single-View Plots"
+  },
+  "line_step": {
+    "title": "Step Chart",
+    "category": "Single-View Plots"
+  },
+  "line_monotone": {
+    "title": "Line Chart with Monotone Interpolation",
+    "category": "Single-View Plots"
+  },
+  "line_conditional_axis": {
+    "title": "Line Chart with Conditional Axis Properties",
+    "category": "Single-View Plots"
+  },
+  "connected_scatterplot": {
+    "title": "Connected Scatterplot (Lines with Custom Paths)",
+    "category": "Single-View Plots"
+  },
+  "line_bump": {
+    "title": "Bump Chart",
+    "category": "Single-View Plots"
+  },
+  "trail_color": {
+    "title": "Line Chart with Varying Size (using the trail mark)",
+    "category": "Single-View Plots"
+  },
+  "trail_comet": {
+    "title": "A comet chart showing changes between between two states",
+    "category": "Single-View Plots"
+  },
+  "line_skip_invalid_mid_overlay": {
+    "title": "Line Chart with Markers and Invalid Values",
+    "category": "Single-View Plots"
+  },
+  "sequence_line_fold": {
+    "title": "Drawing Sine and Cosine Curves with the Sequence Generator",
+    "category": "Single-View Plots"
+  },
+  "line_strokedash": {
+    "title": "Line chart with varying stroke dash",
+    "category": "Single-View Plots"
+  },
+  "line_dashed_part": {
+    "title": "Line chart with a dashed part",
+    "category": "Single-View Plots"
+  },
+  "area_overlay": {
+    "title": "Area Chart with Overlaying Lines and Point Markers",
+    "category": "Single-View Plots"
+  },
+  "stacked_area_normalize": {
+    "title": "Normalized Stacked Area Chart",
+    "category": "Single-View Plots"
+  },
+  "stacked_area_stream": {
+    "title": "Streamgraph",
+    "category": "Single-View Plots"
+  },
+  "area_horizon": {
+    "title": "Horizon Graph",
+    "category": "Single-View Plots"
+  },
+  "rect_heatmap_weather": {
+    "title": "Annual Weather Heatmap",
+    "category": "Single-View Plots"
+  },
+  "circle_github_punchcard": {
+    "title": "Table Bubble Plot (Github Punch Card)",
+    "category": "Single-View Plots"
+  },
+  "rect_lasagna": {
+    "title": "Lasagna Plot (Dense Time-Series Heatmap)",
+    "category": "Single-View Plots"
+  },
+  "rect_mosaic_labelled_with_offset": {
+    "title": "Mosaic Chart with Labels",
+    "category": "Single-View Plots"
+  },
+  "point_angle_windvector": {
+    "title": "Wind Vector Map",
+    "category": "Single-View Plots"
+  },
+  "arc_pie_normalize_tooltip": {
+    "title": "Pie Chart with percentage_tooltip",
+    "category": "Single-View Plots"
+  },
+  "layer_arc_label": {
+    "title": "Pie Chart with Labels",
+    "category": "Single-View Plots"
+  },
+  "arc_pie_pyramid": {
+    "title": "Pyramid Pie Chart",
+    "category": "Single-View Plots"
+  },
+  "joinaggregate_mean_difference_by_year": {
+    "title": "Calculate Difference from Annual Average",
+    "category": "Single-View Plots"
+  },
+  "joinaggregate_residual_graph": {
+    "title": "Calculate Residuals",
+    "category": "Single-View Plots"
+  },
+  "waterfall_chart": {
+    "title": "Waterfall Chart of Monthly Profit and Loss",
+    "category": "Single-View Plots"
+  },
+  "window_top_k": {
+    "title": "Filtering Top-K Items",
+    "category": "Single-View Plots"
+  },
+  "window_top_k_others": {
+    "title": "Top-K Plot with \"Others\"",
+    "category": "Single-View Plots"
+  },
+  "lookup": {
+    "title": "Using the lookup transform to combine data",
+    "category": "Single-View Plots"
+  },
+  "parallel_coordinate": {
+    "title": "Parallel Coordinate Plot",
+    "category": "Single-View Plots"
+  },
+  "bar_argmax": {
+    "title": "Bar Chart Showing Argmax Value",
+    "category": "Single-View Plots"
+  },
+  "layer_line_mean_point_raw": {
+    "title": "Layering Averages over Raw Values",
+    "category": "Single-View Plots"
+  },
+  "layer_line_rolling_mean_point_raw": {
+    "title": "Layering Rolling Averages over Raw Values",
+    "category": "Single-View Plots"
+  },
+  "layer_line_window": {
+    "title": "Line Chart to Show Benchmarking Results",
+    "category": "Single-View Plots"
+  },
+  "point_quantile_quantile": {
+    "title": "Quantile-Quantile Plot (QQ Plot)",
+    "category": "Single-View Plots"
+  },
+  "layer_point_line_regression": {
+    "title": "Linear Regression",
+    "category": "Single-View Plots"
+  },
+  "layer_point_line_loess": {
+    "title": "Loess Regression",
+    "category": "Single-View Plots"
+  },
+  "window_impute_null": {
+    "title": "Using window transform to impute missing values by averaging the previous and next values.",
+    "category": "Single-View Plots"
+  },
+  "ternary": {
+    "title": "Ternary chart",
+    "category": "Single-View Plots"
+  },
+  "layer_point_errorbar_stdev": {
+    "title": "Error Bars Showing Standard Deviation",
+    "category": "Composite Marks"
+  },
+  "layer_scatter_errorband_1D_stdev_global_mean": {
+    "title": "Scatterplot with Mean and Standard Deviation Overlay",
+    "category": "Composite Marks"
+  },
+  "boxplot_minmax_2D_vertical": {
+    "title": "Box Plot with Min/Max Whiskers",
+    "category": "Composite Marks"
+  },
+  "boxplot_preaggregated": {
+    "title": "Box Plot with Pre-Calculated Summaries",
+    "category": "Composite Marks"
+  },
+  "layer_bar_fruit": {
+    "title": "Simple Bar Chart with Labels and Emojis",
+    "category": "Layered Plots"
+  },
+  "layer_bar_annotations": {
+    "title": "Bar Chart Highlighting Values beyond a Threshold",
+    "category": "Layered Plots"
+  },
+  "layer_precipitation_mean": {
+    "title": "Mean overlay over precipitation chart",
+    "category": "Layered Plots"
+  },
+  "layer_histogram_global_mean": {
+    "title": "Histogram with a Global Mean Overlay",
+    "category": "Layered Plots"
+  },
+  "layer_falkensee": {
+    "title": "Line Chart with Highlighted Rectangles",
+    "category": "Layered Plots"
+  },
+  "layer_likert": {
+    "title": "Distributions and Medians of Likert Scale Ratings",
+    "category": "Layered Plots"
+  },
+  "concat_layer_voyager_result": {
+    "title": "Comparative Likert Scale Ratings",
+    "category": "Layered Plots"
+  },
+  "layer_candlestick": {
+    "title": "Candlestick Chart",
+    "category": "Layered Plots"
+  },
+  "layer_ranged_dot": {
+    "title": "Ranged Dot Plot",
+    "category": "Layered Plots"
+  },
+  "facet_bullet": {
+    "title": "Bullet Chart",
+    "category": "Layered Plots"
+  },
+  "layer_dual_axis": {
+    "title": "Layered Plot with Dual-Axis",
+    "category": "Layered Plots"
+  },
+  "bar_layered_weather": {
+    "title": "Weekly Weather Plot",
+    "category": "Layered Plots"
+  },
+  "wheat_wages": {
+    "title": "Wheat and Wages Example",
+    "category": "Layered Plots"
+  },
+  "trellis_stacked_bar": {
+    "title": "Trellis Stacked Bar Chart",
+    "category": "Multi-View Displays"
+  },
+  "trellis_bar_histogram": {
+    "title": "Trellis Histograms",
+    "category": "Multi-View Displays"
+  },
+  "trellis_anscombe": {
+    "title": "Trellis Scatter Plot Showing Anscombe's Quartet",
+    "category": "Multi-View Displays"
+  },
+  "trellis_area": {
+    "title": "Trellis Area",
+    "category": "Multi-View Displays"
+  },
+  "trellis_area_seattle": {
+    "title": "Trellis Area Plot Showing Annual Temperatures in Seattle",
+    "category": "Multi-View Displays"
+  },
+  "area_density_facet": {
+    "title": "Faceted Density Plot",
+    "category": "Multi-View Displays"
+  },
+  "facet_grid_bar": {
+    "title": "Compact Trellis Grid of Bar Charts",
+    "category": "Multi-View Displays"
+  },
+  "repeat_histogram": {
+    "title": "Horizontally Repeated Charts",
+    "category": "Multi-View Displays"
+  },
+  "interactive_splom": {
+    "title": "Interactive Scatterplot Matrix",
+    "category": "Multi-View Displays"
+  },
+  "concat_bar_scales_discretize": {
+    "title": "Discretizing scales",
+    "category": "Multi-View Displays"
+  },
+  "nested_concat_align": {
+    "title": "Nested View Concatenation Aligned with Axis `minExtent`",
+    "category": "Multi-View Displays"
+  },
+  "concat_population_pyramid": {
+    "title": "Population Pyramid",
+    "category": "Multi-View Displays"
+  },
+  "geo_circle": {
+    "title": "One Dot per Zipcode in the U.S.",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_layer": {
+    "title": "One Dot per Airport in the U.S. Overlayed on Geoshape",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_rule": {
+    "title": "Rules (line segments) Connecting SEA to every Airport Reachable via Direct Flights",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_repeat": {
+    "title": "Three Choropleths Representing Disjoint Data from the Same Table",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_text": {
+    "title": "U.S. State Capitals Overlayed on a Map of U.S.",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_line": {
+    "title": "Line between Airports in the U.S.",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_trellis": {
+    "title": "Income in the U.S. by State, Faceted over Income Brackets",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_layer_line_london": {
+    "title": "London Tube Lines",
+    "category": "Maps (Geographic Displays)"
+  },
+  "geo_params_projections": {
+    "title": "Projection explorer",
+    "category": "Maps (Geographic Displays)"
+  },
+  "interactive_geo_earthquakes": {
+    "title": "Earthquakes Example",
+    "category": "Maps (Geographic Displays)"
+  },
+  "interactive_geo_facet_species": {
+    "title": "Faceted County-Level Species Habitat Maps",
+    "category": "Maps (Geographic Displays)"
+  },
+  "interactive_histogram_full_height_hover": {
+    "title": "Histogram with Full-Height Hover Targets for Tooltip",
+    "category": "Interactive"
+  },
+  "point_href": {
+    "title": "Scatterplot with External Links and Tooltips",
+    "category": "Interactive"
+  },
+  "interactive_area_brush": {
+    "title": "Area Chart with Rectangular Brush",
+    "category": "Interactive"
+  },
+  "interactive_paintbrush": {
+    "title": "Paintbrush Highlight",
+    "category": "Interactive"
+  },
+  "selection_translate_scatterplot_drag": {
+    "title": "Scatterplot Pan & Zoom",
+    "category": "Interactive"
+  },
+  "interactive_query_widgets": {
+    "title": "Query Widgets",
+    "category": "Interactive"
+  },
+  "selection_layer_bar_month": {
+    "title": "Interactive Average",
+    "category": "Interactive"
+  },
+  "interactive_line_hover": {
+    "title": "Multi Series Line Chart with an Interactive Line Highlight",
+    "category": "Interactive"
+  },
+  "interactive_line_point_hover": {
+    "title": "Multi Series Line Chart with an Interactive Point Highlight",
+    "category": "Interactive"
+  },
+  "interactive_multi_line_label": {
+    "title": "Multi Series Line Chart with Labels",
+    "category": "Interactive"
+  },
+  "interactive_multi_line_pivot_tooltip": {
+    "title": "Multi Series Line Chart with Tooltip via Pivot",
+    "category": "Interactive"
+  },
+  "interactive_multi_line_tooltip": {
+    "title": "Multi Series Line Chart with Tooltip",
+    "category": "Interactive"
+  },
+  "isotype_grid": {
+    "title": "Isotype Grid",
+    "category": "Interactive"
+  },
+  "brush_table": {
+    "title": "Brushing Scatter Plot to show data on a table",
+    "category": "Interactive"
+  },
+  "selection_heatmap": {
+    "title": "Selectable Heatmap",
+    "category": "Interactive"
+  },
+  "bar_count_minimap": {
+    "title": "Bar Chart with a Minimap",
+    "category": "Interactive"
+  },
+  "interactive_index_chart": {
+    "title": "Interactive Index Chart",
+    "category": "Interactive"
+  },
+  "interactive_bin_extent": {
+    "title": "Focus + Context - Smooth Histogram Zooming",
+    "category": "Interactive"
+  },
+  "dynamic_color_legend": {
+    "title": "Dynamic Color Legend",
+    "category": "Interactive"
+  },
+  "param_search_input": {
+    "title": "Search Input",
+    "category": "Interactive"
+  },
+  "selection_type_point_zorder": {
+    "title": "Change zorder on hover",
+    "category": "Interactive"
+  },
+  "interactive_overview_detail": {
+    "title": "Overview and Detail",
+    "category": "Interactive"
+  },
+  "interactive_crossfilter": {
+    "title": "Crossfilter (Filter)",
+    "category": "Interactive"
+  },
+  "interactive_layered_crossfilter": {
+    "title": "Crossfilter (Highlight)",
+    "category": "Interactive"
+  },
+  "interactive_concat_layer": {
+    "title": "Interactive Dashboard with Cross Highlight",
+    "category": "Interactive"
+  },
+  "interactive_seattle_weather": {
+    "title": "Seattle Weather Exploration",
+    "category": "Interactive"
+  },
+  "airport_connections": {
+    "title": "Connections among Major U.S. Airports.",
+    "category": "Interactive"
+  },
+  "interactive_global_development": {
+    "title": "An interactive scatter plot of global health statistics by country and year.",
+    "category": "Interactive"
   }
 }

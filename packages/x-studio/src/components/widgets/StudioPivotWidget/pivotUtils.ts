@@ -267,20 +267,51 @@ function buildMeasurePivotMatrix(
 }
 
 /**
- * Natural-sort comparator for pivot row/column category strings (finding 3.4):
+ * Natural-sort comparator for pivot row/column category strings (finding 3.4, 3.5):
  * when both operands parse as finite numbers, compare numerically (so `"2"`
  * sorts before `"10"`); otherwise fall back to a plain lexicographic
  * comparison. Deliberately simple (no locale-aware collation, no dependency) —
  * this only needs to fix the numeric-looking-string case, not general natural
  * sort of mixed alphanumeric tokens.
+ *
+ * 3.5: the original version compared ANY pair whose operands both individually
+ * parsed as numbers using `numA - numB`, and fell back to lexicographic comparison
+ * otherwise — a per-pair decision. For a mixed list like `["10", "1a", "2"]`,
+ * `compare("2", "10")` used the numeric branch (`2 < 10`) while `compare("10",
+ * "1a")` and `compare("1a", "2")` fell back to lexicographic (`"10" < "1a"` and
+ * `"1a" < "2"`), producing a non-transitive comparator (`2 < 10 < 1a < 2`) whose
+ * result `Array.prototype.sort` order is implementation-defined. It also let a
+ * whitespace-only string (`Number(' ') === 0`) sort as if it were `0`, so distinct
+ * blank-looking labels compared equal instead of retaining stable relative order.
+ * Fix: partition into "this operand parses as a number" up front (blank/whitespace
+ * excluded — `Number.isFinite` on a coerced `Number(a.trim())` restricted to
+ * non-empty, non-whitespace strings), sort all-numeric operands before all
+ * non-numeric ones, and only compare same-partition operands against each other
+ * (numerically within the numeric partition, lexicographically within the rest) —
+ * this makes the comparator's ordering total and transitive.
  */
+function parseNumericLabel(v: string): number | null {
+  if (v.trim() === '') {
+    return null;
+  }
+  const num = Number(v);
+  return Number.isFinite(num) ? num : null;
+}
+
 function naturalCompare(a: string, b: string): number {
-  if (a !== '' && b !== '') {
-    const numA = Number(a);
-    const numB = Number(b);
-    if (Number.isFinite(numA) && Number.isFinite(numB)) {
-      return numA - numB;
-    }
+  const numA = parseNumericLabel(a);
+  const numB = parseNumericLabel(b);
+  if (numA !== null && numB !== null) {
+    return numA - numB;
+  }
+  // Numeric-looking labels always sort before non-numeric ones, so operands from
+  // different partitions never fall back to a lexicographic comparison that could
+  // contradict the numeric partition's own ordering.
+  if (numA !== null) {
+    return -1;
+  }
+  if (numB !== null) {
+    return 1;
   }
   if (a < b) {
     return -1;

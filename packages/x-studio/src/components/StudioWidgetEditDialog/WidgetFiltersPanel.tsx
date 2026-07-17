@@ -44,6 +44,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       id: f.id,
       label: f.label,
       type: f.type,
+      hidden: f.hidden,
     }));
     for (const rel of relationships ?? []) {
       let relatedSourceId: string | undefined;
@@ -67,6 +68,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
           type: f.type,
           sourceId: relatedSourceId,
           sourceLabel: relatedSource.label ?? relatedSourceId,
+          hidden: f.hidden,
         });
       }
     }
@@ -90,8 +92,14 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
     [allFilters, widgetId],
   );
 
+  // 3.15: seed a new filter from the first VISIBLE own field only — a hidden field is
+  // excluded from the data drawer / widget config selects everywhere else (GridSetupPanel,
+  // the filters drawer), so silently seeding a new widget filter on a hidden field here
+  // would contradict every other authoring picker.
+  const addableOwnFields = React.useMemo(() => ownFields.filter((f) => !f.hidden), [ownFields]);
+
   const handleAdd = React.useCallback(() => {
-    const firstField = ownFields[0];
+    const firstField = addableOwnFields[0];
     if (!firstField) {
       return;
     }
@@ -106,7 +114,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       value: '',
       scope: { kind: 'widget', widgetId },
     });
-  }, [controller, ownFields, widgetId]);
+  }, [controller, addableOwnFields, widgetId]);
 
   const handleRemove = React.useCallback(
     (filterId: string) => {
@@ -158,7 +166,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
         size="small"
         startIcon={<AddIcon />}
         onClick={handleAdd}
-        disabled={ownFields.length === 0}
+        disabled={addableOwnFields.length === 0}
         sx={{ alignSelf: 'flex-start' }}
       >
         {localeText.widgetFiltersPanelAddButton}

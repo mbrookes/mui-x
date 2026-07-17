@@ -370,22 +370,21 @@ export function StudioMapWidget({
     if (!values.length) {
       return [0, 1];
     }
-    const dataMin = legendZeroMin ? 0 : Math.min(...values);
+    const rawMin = Math.min(...values);
+    const dataMin = legendZeroMin ? Math.min(0, rawMin) : rawMin;
     const dataMax = Math.max(...values);
     // Degenerate case: all values are equal (common when cross-filter shows only one country).
     // Use [0, max] so the value renders at full color intensity rather than the lightest shade.
     if (dataMin === dataMax) {
       // Degenerate: single value. Use [0, max] so it renders at full intensity.
       // If max is negative use [max, 0]; if zero use [0, 1] to avoid a zero-length scale.
-      let scaleMax: number;
       if (dataMax > 0) {
-        scaleMax = dataMax;
-      } else if (dataMax < 0) {
-        scaleMax = 0;
-      } else {
-        scaleMax = 1;
+        return [0, dataMax];
       }
-      return [0, scaleMax];
+      if (dataMax < 0) {
+        return [dataMax, 0];
+      }
+      return [0, 1];
     }
     return [dataMin, dataMax];
   }, [regionData, legendZeroMin]);

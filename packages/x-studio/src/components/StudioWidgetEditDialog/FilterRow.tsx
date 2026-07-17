@@ -18,6 +18,7 @@ import {
   getOperatorsForFieldType,
 } from '../StudioFiltersDrawer/filterOperatorMetadata';
 import { isRelativeDateValue } from '../StudioFiltersDrawer/filterDrawerUtils';
+import { formatDateFilterLabel } from '../../internals/widgetUtils';
 
 export interface FieldOption {
   id: string;
@@ -26,6 +27,14 @@ export interface FieldOption {
   /** The source that owns this field. Undefined means the widget's own source. */
   sourceId?: string;
   sourceLabel?: string;
+  /**
+   * 3.15: mirrors `StudioDataField.hidden` — a hidden field is excluded from the OFFERED
+   * options in the field Select (matching every other authoring picker: GridSetupPanel,
+   * the filters drawer), but a filter already configured on a hidden field must keep
+   * resolving (label/type lookup via `fieldMeta`, and it stays visible as this row's own
+   * current selection) — only the pick list is filtered.
+   */
+  hidden?: boolean;
 }
 
 // ── Operator metadata ─────────────────────────────────────────────────────────
@@ -129,11 +138,15 @@ export function FilterRow(props: {
     ? `${filter.filterSourceId}::${filter.field}`
     : filter.field;
 
-  // Group field options by source label
-  const ownFields = fieldOptions.filter((f) => !f.sourceId);
+  // Group field options by source label. 3.15: a hidden field is excluded from the OFFERED
+  // list (matching GridSetupPanel / the filters drawer) unless it's this row's own current
+  // selection — that keeps an existing filter on a since-hidden field visible/resolvable in
+  // its own row, without offering that hidden field for a fresh pick on any row.
+  const isOffered = (f: FieldOption) => !f.hidden || encodeValue(f) === currentValue;
+  const ownFields = fieldOptions.filter((f) => !f.sourceId && isOffered(f));
   const relatedSources = Array.from(
     fieldOptions.reduce((set, f) => {
-      if (f.sourceId) {
+      if (f.sourceId && isOffered(f)) {
         set.add(f.sourceId);
       }
       return set;
@@ -155,7 +168,19 @@ export function FilterRow(props: {
             // an out-of-range value (blank + MUI dev warning) while the engine keeps applying
             // `contains` against numbers. Reset the operator to `equals` and clear the value,
             // matching the drawer's phase-1 field pickers (`PageFilterRow`/`WidgetFilterRow`).
-            const reset = { operator: 'equals' as StudioFilterOperator, value: '' };
+            //
+            // 2.10: this dialog has no second-condition UI, so a stale `operator2`/`value2`/
+            // `conjunction` from before the switch would keep silently evaluating against the
+            // NEW field (`filterUtils.ts` ANDs/ORs it in) with nothing on screen to show or
+            // remove it. Clear the second condition too — this is the only surface that can
+            // change an existing filter's field.
+            const reset = {
+              operator: 'equals' as StudioFilterOperator,
+              value: '',
+              operator2: undefined,
+              value2: undefined,
+              conjunction: undefined,
+            };
             if (sep !== -1) {
               const srcId = raw.slice(0, sep);
               const fId = raw.slice(sep + 2);
@@ -186,7 +211,7 @@ export function FilterRow(props: {
             </MenuItem>
           ))}
           {relatedSources.map((srcId) => {
-            const srcFields = fieldOptions.filter((f) => f.sourceId === srcId);
+            const srcFields = fieldOptions.filter((f) => f.sourceId === srcId && isOffered(f));
             const srcLabel = srcFields[0]?.sourceLabel ?? srcId;
             return [
               <MenuItem
@@ -265,7 +290,22 @@ export function FilterRow(props: {
           />
         </Stack>
       )}
-      {!noValue && !isBetween && (
+      {/* 2.11: a `RelativeDateValue` (`{ relative: true, amount, unit, direction }`) is a
+          non-array object, not a scalar — `String(filter.value)` would render
+          "[object Object]" and the first keystroke+blur would commit a plain string over it,
+          silently converting e.g. "3 months ago" into a literal that never matches. This
+          dialog is a condition-only editor with no relative-date UI (unlike the drawer's
+          `RelativeDateInput`), so show a read-only summary instead of an editable field —
+          editing a relative-date filter's value stays a drawer-only operation. */}
+      {!noValue && !isBetween && isRelativeDateValue(filter.value) && (
+        <TextField
+          size="small"
+          value={formatDateFilterLabel(filter, localeText)}
+          slotProps={{ input: { readOnly: true } }}
+          sx={{ flex: 1, minWidth: 80 }}
+        />
+      )}
+      {!noValue && !isBetween && !isRelativeDateValue(filter.value) && (
         <BufferedTextField
           placeholder={localeText.filterValueLabel}
           value={filter.value === undefined || filter.value === null ? '' : String(filter.value)}

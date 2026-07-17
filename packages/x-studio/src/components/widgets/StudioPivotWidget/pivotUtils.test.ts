@@ -178,6 +178,43 @@ describe('buildPivotMatrix', () => {
     expect(matrix.rowValues).toEqual(['APAC', 'EMEA']);
     expect(matrix.colValues).toEqual(['A', 'B']);
   });
+
+  // ─── Non-transitive comparator on mixed numeric/alphanumeric labels (finding 3.5) ──
+
+  it('produces a total, transitive order for a mix of numeric and alphanumeric category strings', () => {
+    const matrix = buildPivotMatrix(
+      [
+        { r: '10', c: 'x', v: 1 },
+        { r: '1a', c: 'x', v: 1 },
+        { r: '2', c: 'x', v: 1 },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    // The old per-pair comparator cycled: "2" < "10" numerically, but "10" < "1a" < "2"
+    // lexicographically — a non-transitive comparator whose sort order was
+    // implementation-defined. Numeric-looking labels ("2", "10") must sort before
+    // non-numeric ones ("1a"), and stay ordered numerically among themselves.
+    expect(matrix.rowValues).toEqual(['2', '10', '1a']);
+  });
+
+  it('does not treat distinct whitespace-only category strings as equal (Number(" ") === 0)', () => {
+    const matrix = buildPivotMatrix(
+      [
+        { r: ' ', c: 'x', v: 1 },
+        { r: '  ', c: 'x', v: 1 },
+        { r: '0', c: 'x', v: 1 },
+      ],
+      'r',
+      'c',
+      'v',
+    );
+    // All three categories are distinct and must all be present — a whitespace string
+    // must not be coerced to the number 0 and collide with the literal "0" category.
+    expect(matrix.rowValues).toHaveLength(3);
+    expect(new Set(matrix.rowValues)).toEqual(new Set([' ', '  ', '0']));
+  });
 });
 
 // ─── Measure-expression `pivotValueField` (architecture review: pivot had no

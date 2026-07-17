@@ -739,6 +739,37 @@ describe('<StudioMapWidget /> shared aggregation policy', () => {
     // null measure) — extent is "from 1 to 3", matching KPI/chart 'count' semantics.
     expect(latestLegendAriaLabel()).toContain('from 1 to 3');
   });
+
+  // ─── Color scale on all-negative aggregates (finding T2.4) ──────────────────
+
+  it('keeps a non-degenerate scale ordered [min, max] for all-negative values, even with legendZeroMin', async () => {
+    // Profit −10 (US), −5 (France). Under the old code, `legendZeroMin: true` forced
+    // dataMin to 0 unconditionally, producing the inverted, out-of-range extent
+    // "from 0 to -5" (minVal > maxVal) instead of clamping toward, not past, zero.
+    rows = [
+      { country: 'United States', sales: -10 },
+      { country: 'France', sales: -5 },
+    ];
+    await renderWithConfig({ mapAggregation: 'sum', mapLegendZeroMin: true });
+    expect(latestLegendAriaLabel()).toContain('from -10 to -5');
+  });
+
+  it('does not force a negative extent to include 0 when legendZeroMin is off', async () => {
+    rows = [
+      { country: 'United States', sales: -10 },
+      { country: 'France', sales: -5 },
+    ];
+    await renderWithConfig({ mapAggregation: 'sum', mapLegendZeroMin: false });
+    expect(latestLegendAriaLabel()).toContain('from -10 to -5');
+  });
+
+  it('uses a non-zero-length [max, 0] scale for a single negative region (degenerate case)', async () => {
+    // Old code returned `[0, 0]` here (`scaleMax = 0` when `dataMax < 0`) — a
+    // zero-length scale — despite the comment saying it should be `[max, 0]`.
+    rows = [{ country: 'United States', sales: -8 }];
+    await renderWithConfig({ mapAggregation: 'sum' });
+    expect(latestLegendAriaLabel()).toContain('from -8 to 0');
+  });
 });
 
 // Regression coverage for finding 1.1: the map's region aggregation reduced a fanned-out

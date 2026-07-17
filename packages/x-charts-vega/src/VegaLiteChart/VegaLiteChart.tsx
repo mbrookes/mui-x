@@ -983,14 +983,26 @@ function SingleViewChart(props: VegaLiteChartProps) {
   // Inside a trellis cell the fixed per-cell margin (FACET_CELL_MARGIN) governs
   // layout so every cell's plot area lines up; the axes' `width/height: 'auto'`
   // (which fits labels in a standalone chart) would fight that fixed margin and
-  // collapse the drawing area, so it is stripped when rendering as a cell.
-  const dropAutoSize = <T extends Record<string, unknown>>(config: T): T => {
+  // collapse the drawing area, so it is replaced when rendering as a cell.
+  // Dropping the key outright (rather than setting a fixed number) used to fall
+  // back to x-charts' own default axis size (`DEFAULT_AXIS_SIZE_WIDTH` = 45px) —
+  // far short of a wide formatted number's label ("150,000,000") and short
+  // enough to make the label-fit logic ellipsize it regardless of how generous
+  // `cell.margin` actually is (a chart-level margin reserves the *space*, but
+  // doesn't inform the axis's own label-fit measurement). Passing the cell's
+  // real fixed margin as the axis's width/height instead gives that measurement
+  // genuine room to work with.
+  const dropAutoSize = <T extends Record<string, unknown>>(config: T, fixedSize?: number): T => {
     if (!cell) {
       return config;
     }
     const stripped: Record<string, unknown> = { ...config };
-    delete stripped.width;
-    delete stripped.height;
+    if ('width' in stripped) {
+      stripped.width = fixedSize;
+    }
+    if ('height' in stripped) {
+      stripped.height = fixedSize;
+    }
     // A trellis draws one shared axis title beside/below the grid, so each cell
     // keeps its ticks but drops the per-cell title (which would otherwise repeat
     // once per column/row).
@@ -1000,9 +1012,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
     return stripped as T;
   };
   const xAxis = compiled.xAxis
-    ? [rotateXLabelsIfCramped(dropAutoSize(compiled.xAxis.config), resolvedWidth, Boolean(compiled.yAxis))]
+    ? [
+        rotateXLabelsIfCramped(
+          dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom),
+          resolvedWidth,
+          Boolean(compiled.yAxis),
+        ),
+      ]
     : undefined;
-  const yAxis = compiled.yAxis ? [dropAutoSize(compiled.yAxis.config)] : undefined;
+  const yAxis = compiled.yAxis ? [dropAutoSize(compiled.yAxis.config, cell?.margin?.left)] : undefined;
 
   // Scale-bound interval selections enable gesture zoom/pan (the axis configs
   // carry `zoom: true`, read by the Premium provider). Clip the plotting area

@@ -490,16 +490,21 @@ function cellSize(
   return { width, height };
 }
 
-// Vega-Lite's `config.view.continuousWidth/Height` (200) is the default for a
-// genuinely standalone top-level view — but a *child* view inside a facet,
-// concat, or repeat composition (this module's whole domain) actually
-// compiles to 300 by default, confirmed empirically against real vega-lite
-// output for a plain continuous axis (`trellis_barley`'s x), a 2D-binned
-// axis (`concat_marginal_histograms`'s heatmap, `vconcat_weather`'s bubble
-// plot), and a shared vconcat `childHeight` — all three independently render
-// at 300, not 200. Using 200 here undersized every composed chart's
-// continuous axis by a third.
-const VEGA_DEFAULT_VIEW = 300;
+// Vega-Lite's `config.view.continuousWidth/Height` default. A bare `vega-lite`
+// compile of a genuinely unconstrained top-level view resolves this to 300 —
+// but that is NOT what our reference actually renders: `GalleryPage.tsx`
+// always calls `vega-embed`'s `embed()` with an explicit `{width, height}`
+// (440×340), and under that (always-present, for us) constraint a facet/
+// concat/repeat child's continuous axis default is 200, confirmed by
+// instantiating `vega-embed`'s real `embed()` (not just `vega-lite`'s
+// compiler) with those exact options and reading the resulting Vega view's
+// internal `*_width`/`*_height` signals — verified across a facet operator
+// (`trellis_barley`'s `child_width`), a `concat` grid
+// (`concat_marginal_histograms`'s `concat_0_width`/`concat_1_height`), a
+// `vconcat` (`vconcat_weather`'s shared `childHeight`), and a wrapping facet
+// (`trellis_scatter`'s `child_width`/`child_height`) — all four resolve to
+// 200, not 300.
+const VEGA_DEFAULT_VIEW = 200;
 /** Vega-Lite's default band `step` (px per discrete category). */
 const VEGA_DEFAULT_STEP = 20;
 // A trellis cell's plot is `cell size − axis space`; these mirror the shell's
@@ -512,7 +517,15 @@ const CELL_X_AXIS_ALLOWANCE = 40;
 const AXIS_LABEL_CHAR_PX = 7;
 const CELL_Y_AXIS_ALLOWANCE_BASE = 38;
 
-/** The longest tick-label length (chars) a shared y-axis will show, for margin estimation. */
+/**
+ * The longest tick-label length (chars) a shared y-axis will show, for margin
+ * estimation. Nominal/ordinal axes measure their actual category strings; a
+ * continuous quantitative axis has no fixed category array, but its tick
+ * labels are still real, often-wide formatted numbers (e.g. a "US DVD Sales"
+ * axis ticking up to "150,000,000") — estimate from the field's own value
+ * extent, grouped the way x-charts' default number formatter renders it,
+ * rather than treating every continuous axis as a fixed-width placeholder.
+ */
 function longestCategoryLabelChars(
   def: VegaChannelDef | undefined,
   rows: readonly DatasetRow[],
@@ -521,13 +534,27 @@ function longestCategoryLabelChars(
     return 1;
   }
   const fieldType = resolveFieldType(def, rows);
-  if (fieldType !== 'nominal' && fieldType !== 'ordinal') {
-    return 1;
+  if (fieldType === 'nominal' || fieldType === 'ordinal') {
+    return distinctValues(rows, def.field).reduce<number>(
+      (max, value) => Math.max(max, String(value).length),
+      1,
+    );
   }
-  return distinctValues(rows, def.field).reduce<number>(
-    (max, value) => Math.max(max, String(value).length),
-    1,
-  );
+  if (fieldType === 'quantitative') {
+    const field = def.field;
+    const values = rows
+      .map((row) => toNumber(row[field]))
+      .filter((value): value is number => value != null);
+    if (values.length === 0) {
+      return 1;
+    }
+    const extent = [Math.min(...values), Math.max(...values)];
+    return extent.reduce<number>(
+      (max, value) => Math.max(max, Math.round(value).toLocaleString('en-US').length),
+      1,
+    );
+  }
+  return 1;
 }
 
 /** Left margin (px) a shared trellis y-axis needs for its longest category label. */

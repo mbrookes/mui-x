@@ -563,6 +563,20 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     // by the line draw-animation on a plain line series (see GAPS.md).
     strokeStyle.strokeDasharray = mark.strokeDash.join(' ');
   }
+  // An `area` mark's optional drawn line can carry its own style
+  // (`mark.line: {color, …}`), independent of `mark.color`/`fill` — the fill.
+  // x-charts has a single series `color` shared by both the line stroke and the
+  // area fill, so without this override a gradient fill (which sets `color` to
+  // `url(#…)` below) would also paint the line's stroke with the gradient
+  // instead of the distinct solid color the spec asks for.
+  const markLine = mark.line;
+  if (
+    markLine &&
+    typeof markLine === 'object' &&
+    typeof (markLine as { color?: unknown }).color === 'string'
+  ) {
+    strokeStyle.stroke = (markLine as { color: string }).color;
+  }
   const hasStrokeStyle = Object.keys(strokeStyle).length > 0;
 
   // `mark.opacity`/`fillOpacity` (and value-def `opacity`) are baked into the

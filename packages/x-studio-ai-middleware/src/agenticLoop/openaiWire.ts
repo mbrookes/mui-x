@@ -139,6 +139,19 @@ export interface ToolCallDelta {
  */
 export const SYNTHETIC_INDEX_BASE = 1_000_000;
 
+/**
+ * Seed for synthetic indices assigned to tool-call deltas that carry NEITHER an
+ * `index` NOR an `id`, which otherwise fall back to their bare position (`i`)
+ * within the current chunk's `tool_calls` array.
+ *
+ * Offset from `SYNTHETIC_INDEX_BASE` (rather than reusing it, or using raw `i`) so
+ * this positional fallback can't collide with either a real provider-supplied
+ * `index` in the same 0..n range OR an id-only delta's synthetic index — both of
+ * which would otherwise wrongly merge two distinct tool calls' fragments into one
+ * slot.
+ */
+export const POSITIONAL_INDEX_BASE = 2_000_000;
+
 export function createToolCallAccumulator(): ToolCallAccumulator {
   return { reqToolCalls: {}, idToIdx: {}, nextAutoIdx: SYNTHETIC_INDEX_BASE };
 }
@@ -163,7 +176,10 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
         acc.nextAutoIdx += 1;
       }
     } else {
-      idx = i;
+      // No `index` and no `id` — fall back to array position, offset by
+      // `POSITIONAL_INDEX_BASE` so it can't collide with a real `index` or a
+      // synthetic id-based index (see that constant's doc comment).
+      idx = POSITIONAL_INDEX_BASE + i;
     }
     if (!acc.reqToolCalls[idx]) {
       acc.reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
@@ -175,7 +191,18 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       acc.reqToolCalls[idx].extra_content = tc.extra_content;
     }
     if (tc.function?.name) {
-      acc.reqToolCalls[idx].name += tc.function.name;
+      const existingName = acc.reqToolCalls[idx].name;
+      // Some gateways resend the tool's COMPLETE function name on every chunk
+      // instead of streaming it incrementally. Naively concatenating would turn
+      // e.g. "remove_page" into "remove_pageremove_page". If the incoming
+      // fragment exactly matches what has already been accumulated, treat it as
+      // a repeated full resend rather than a new incremental fragment and don't
+      // append it again. A genuinely incremental fragment (the common case)
+      // never equals the name accumulated so far, so this never drops a real
+      // fragment.
+      if (existingName !== tc.function.name) {
+        acc.reqToolCalls[idx].name += tc.function.name;
+      }
     }
     if (tc.function?.arguments) {
       acc.reqToolCalls[idx].argsBuffer += tc.function.arguments;

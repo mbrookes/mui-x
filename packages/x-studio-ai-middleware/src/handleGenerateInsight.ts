@@ -109,8 +109,18 @@ export async function handleGenerateTitle(
     choices: Array<{ message: { content: string } }>;
   };
 
+  // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
+  // `{ choices: [] }` with a 200 status (no `!response.ok` to catch it) — without
+  // the optional chaining, `data.choices[0].message.content` throws an opaque
+  // TypeError instead of falling back like every other malformed-response case
+  // here does.
+  const content = data.choices?.[0]?.message?.content;
+  if (content === undefined) {
+    return { title: firstMessage.slice(0, 40), description: '' };
+  }
+
   try {
-    const parsed: unknown = JSON.parse(data.choices[0].message.content);
+    const parsed: unknown = JSON.parse(content);
     return normalizeGeneratedTitle(parsed, firstMessage);
   } catch {
     return { title: firstMessage.slice(0, 40), description: '' };
@@ -264,9 +274,22 @@ export async function handleCreateWidget(
     choices: Array<{ message: { content: string } }>;
   };
 
+  // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
+  // `{ choices: [] }` with a 200 status — without the optional chaining,
+  // `data.choices[0].message.content` throws an opaque TypeError instead of the
+  // descriptive `MUI X Studio:`-prefixed error this function otherwise guarantees.
+  const content = data.choices?.[0]?.message?.content;
+  if (content === undefined) {
+    throw new Error(
+      'MUI X Studio: The AI widget-creation request returned no choices. ' +
+        'This prevents the client from building a widget from the model output. ' +
+        'Check that the LLM endpoint/model returned a valid chat-completion response with at least one choice.',
+    );
+  }
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(data.choices[0].message.content);
+    parsed = JSON.parse(content);
   } catch {
     throw new Error('AI returned invalid widget configuration.');
   }

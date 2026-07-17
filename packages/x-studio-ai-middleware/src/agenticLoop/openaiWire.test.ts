@@ -11,6 +11,7 @@ import {
   createToolCallAccumulator,
   accumulateToolCallDeltas,
   SYNTHETIC_INDEX_BASE,
+  POSITIONAL_INDEX_BASE,
   type ToolCallDelta,
 } from './openaiWire';
 
@@ -200,10 +201,55 @@ describe('accumulateToolCallDeltas', () => {
     expect(acc.reqToolCalls[SYNTHETIC_INDEX_BASE].name).toBe('synthetic');
   });
 
-  it('falls back to positional index when a delta has neither index nor id', () => {
+  it('falls back to a positional index (offset by POSITIONAL_INDEX_BASE) when a delta has neither index nor id', () => {
     const acc = createToolCallAccumulator();
     accumulateToolCallDeltas([{ function: { name: 'x', arguments: '{}' } }], acc);
-    expect(acc.reqToolCalls[0]).toEqual({ id: '', name: 'x', argsBuffer: '{}' });
+    // Offset from POSITIONAL_INDEX_BASE (not raw array position `0`) so this
+    // fallback can't collide with a real provider `index: 0` in the same stream.
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE]).toEqual({
+      id: '',
+      name: 'x',
+      argsBuffer: '{}',
+    });
+    expect(acc.reqToolCalls[0]).toBeUndefined();
+  });
+
+  it('exposes POSITIONAL_INDEX_BASE as a seed disjoint from SYNTHETIC_INDEX_BASE', () => {
+    expect(POSITIONAL_INDEX_BASE).toBe(2_000_000);
+    expect(POSITIONAL_INDEX_BASE).toBeGreaterThan(SYNTHETIC_INDEX_BASE);
+  });
+
+  it('never lets a positional fallback index collide with a real provider index', () => {
+    const acc = createToolCallAccumulator();
+    // A no-index/no-id delta at array position 0, plus a real `index: 0` tool call
+    // in the SAME chunk — without the offset these would merge into one slot.
+    accumulateToolCallDeltas(
+      [
+        { function: { name: 'x', arguments: '{}' } },
+        { index: 0, id: 'real', function: { name: 'real_tool', arguments: '{}' } },
+      ],
+      acc,
+    );
+    expect(acc.reqToolCalls[0]).toEqual({ id: 'real', name: 'real_tool', argsBuffer: '{}' });
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE]).toEqual({
+      id: '',
+      name: 'x',
+      argsBuffer: '{}',
+    });
+  });
+
+  it('does not duplicate a function name a gateway resends in full on every chunk', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas([{ index: 0, function: { name: 'remove_page' } }], acc);
+    accumulateToolCallDeltas([{ index: 0, function: { name: 'remove_page' } }], acc);
+    expect(acc.reqToolCalls[0].name).toBe('remove_page');
+  });
+
+  it('still accumulates a genuinely incremental function name across chunks', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas([{ index: 0, function: { name: 'remove_' } }], acc);
+    accumulateToolCallDeltas([{ index: 0, function: { name: 'page' } }], acc);
+    expect(acc.reqToolCalls[0].name).toBe('remove_page');
   });
 
   it('records extra_content when present', () => {

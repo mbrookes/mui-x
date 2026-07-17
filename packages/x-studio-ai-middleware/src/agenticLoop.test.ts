@@ -450,6 +450,149 @@ describe('runAgenticLoop — finish-reason-only chunk with no delta key', () => 
   });
 });
 
+/** A single-turn response that streams assistant TEXT, then a tool call, in the same turn. */
+function textThenToolCallResponse(text: string, toolName: string, args: object): Response {
+  return makeSseResponse([
+    { choices: [{ delta: { content: text }, finish_reason: null }] },
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, id: 'tc_1', function: { name: toolName, arguments: '' } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, function: { arguments: JSON.stringify(args) } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+  ]);
+}
+
+describe('runAgenticLoop — assistant text preserved alongside tool_calls', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Finding: when a turn streams BOTH text and tool calls, the follow-up assistant
+  // message previously hardcoded `content: null`, silently dropping the model's own
+  // commentary from the in-flight conversation — even though `openaiWire.ts`'s
+  // `toOpenAIMessages` deliberately preserves assistant text alongside `tool_calls`
+  // for replayed history, for exactly this reason.
+  it('carries the accumulated text-delta buffer as the follow-up tool_calls message content', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        textThenToolCallResponse('Let me check that for you.', 'get_dashboard_state', {}),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // The SECOND fetch call carries the follow-up messages built from turn 1,
+    // including the assistant `tool_calls` message.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    const secondCallBody = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]!.body)) as {
+      messages: Array<{ role: string; content: unknown; tool_calls?: unknown }>;
+    };
+    const assistantMsg = secondCallBody.messages.find(
+      (m) => m.role === 'assistant' && m.tool_calls,
+    );
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.content).toBe('Let me check that for you.');
+  });
+
+  it('still sends content: null when the turn streams no text at all', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const secondCallBody = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]!.body)) as {
+      messages: Array<{ role: string; content: unknown; tool_calls?: unknown }>;
+    };
+    const assistantMsg = secondCallBody.messages.find(
+      (m) => m.role === 'assistant' && m.tool_calls,
+    );
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.content).toBeNull();
+  });
+});
+
+describe('runAgenticLoop — provider fetch timeout', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Finding: the LLM provider fetch previously had no timeout at all — a hung
+  // gateway that never resolves (and never rejects) would block the turn, and
+  // therefore the whole SSE stream, forever.
+  it('surfaces a clear error and ends the stream when the provider fetch never resolves', async () => {
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(() => {}));
+
+    const eventsPromise = collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as
+      | { message?: string }
+      | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.message).toMatch(/LLM provider request timed out after 120000ms/);
+  });
+});
+
 describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
   beforeEach(() => {
     vi.spyOn(global, 'fetch');
@@ -1932,6 +2075,78 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
 
     const mutations = events.filter((ev) => (ev as { type: string }).type === 'state-mutation');
     expect(mutations).toHaveLength(2);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  // Finding: nothing previously bounded the TOTAL number of tool calls (mutating
+  // OR read-only) a request could dispatch — a single turn could carry an
+  // unbounded number of calls (e.g. hundreds of `query_data_source` live DB
+  // queries) that neither `maxTurnsPerRequest` nor `maxMutationsPerRequest` caps.
+  // Uses a read-only tool (`get_dashboard_state`) to prove the budget applies
+  // regardless of mutation status.
+  it('denies further tool calls past maxToolCallsPerRequest without killing the stream', async () => {
+    const onLimitReached = vi.fn();
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Look twice')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS, rateLimit: { maxToolCallsPerRequest: 1, onLimitReached } },
+      ),
+    );
+
+    const completes = events.filter(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as Array<{ output?: string }>;
+    expect(completes).toHaveLength(2);
+    // First call (within budget) succeeds normally.
+    expect(completes[0].output).not.toMatch(/budget exceeded/i);
+    // Second call is denied with a clear budget error, NOT executed.
+    expect(completes[1].output).toMatch(/Tool-call budget exceeded/i);
+
+    expect(onLimitReached).toHaveBeenCalledWith('toolCalls', expect.any(Object));
+
+    // The budget denial does NOT kill the stream.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  it('allows a handful of tool calls under the default maxToolCallsPerRequest cap', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Look three times')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...BASE_OPTIONS },
+      ),
+    );
+
+    const completes = events.filter(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as Array<{ output?: string }>;
+    expect(completes).toHaveLength(3);
+    expect(completes.every((ev) => !/budget exceeded/i.test(String(ev.output)))).toBe(true);
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 

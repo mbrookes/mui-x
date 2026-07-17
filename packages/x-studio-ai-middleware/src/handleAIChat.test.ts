@@ -283,6 +283,46 @@ describe('handleAIChat', () => {
     expect(types).not.toContain('error');
   });
 
+  // Finding: the listener `handleAIChat` adds to a host-supplied `options.signal`
+  // was previously never explicitly removed on normal completion — `{ once: true }`
+  // alone only unregisters it once the signal actually FIRES. A host that reuses
+  // one long-lived `AbortSignal` across many `handleAIChat` calls would otherwise
+  // accumulate one listener per request that never fires and never gets cleaned up.
+  it('removes the external abort-signal listener once the stream finishes normally (no leak across reused signals)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('done'));
+    const ac = new AbortController();
+    const addSpy = vi.spyOn(ac.signal, 'addEventListener');
+    const removeSpy = vi.spyOn(ac.signal, 'removeEventListener');
+
+    const events = parseEvents(
+      await readAll(handleAIChat(makeBody(), { ...OPTIONS, signal: ac.signal })),
+    );
+    expect(events.at(-1)?.type).toBe('finish');
+
+    expect(addSpy).toHaveBeenCalledTimes(1);
+    const [eventName, listener] = addSpy.mock.calls[0];
+    expect(eventName).toBe('abort');
+    expect(removeSpy).toHaveBeenCalledWith('abort', listener);
+  });
+
+  it('removes the external abort-signal listener when the consumer cancels the stream', async () => {
+    vi.mocked(fetch).mockImplementation(() => {
+      // A stream that never closes — the loop is left mid-flight until cancelled.
+      const body = new ReadableStream<Uint8Array>({ start() {} });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+    const ac = new AbortController();
+    const addSpy = vi.spyOn(ac.signal, 'addEventListener');
+    const removeSpy = vi.spyOn(ac.signal, 'removeEventListener');
+
+    const reader = handleAIChat(makeBody(), { ...OPTIONS, signal: ac.signal }).getReader();
+    await reader.cancel();
+
+    const [eventName, listener] = addSpy.mock.calls[0];
+    expect(eventName).toBe('abort');
+    expect(removeSpy).toHaveBeenCalledWith('abort', listener);
+  });
+
   it('does not throw from the error path when the stream was already cancelled', async () => {
     const rejections: unknown[] = [];
     const handler = (reason: unknown) => rejections.push(reason);

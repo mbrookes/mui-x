@@ -60,9 +60,52 @@ const MAX_DISTINCT_VALUES_IN_STATE_OUTPUT = 20;
  */
 const MAX_TITLE_LENGTH = 200;
 
+/**
+ * Max length of a model-supplied filter `field`/`sourceId` string (and of a
+ * string-typed filter `value`), persisted verbatim by `add_page_filter` /
+ * `add_widget_filter`. Same rationale — and same token-bomb class — as
+ * {@link MAX_TITLE_LENGTH}: `buildAISystemPrompt.ts` re-interpolates every active
+ * filter's `field`/`value` (via `JSON.stringify(f.value)`) into the "Active
+ * Filters" block on EVERY subsequent request, so an unbounded value persists as
+ * a token bomb across the whole conversation (finding T3-3).
+ */
+const MAX_FILTER_STRING_LENGTH = 200;
+
+/**
+ * Max number of entries kept in an array-typed filter `value` (e.g. an `in`
+ * operator's value list). An unbounded array is JSON-stringified into the
+ * system prompt on every future request exactly like an oversized string.
+ */
+const MAX_FILTER_VALUE_ARRAY_LENGTH = 50;
+
+/** Cap a model-supplied string to `maxLength` characters. */
+function capString(value: string, maxLength: number): string {
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
 /** Cap a model-supplied title to {@link MAX_TITLE_LENGTH} (see the constant's rationale). */
 function capTitle(title: string): string {
-  return title.length > MAX_TITLE_LENGTH ? title.slice(0, MAX_TITLE_LENGTH) : title;
+  return capString(title, MAX_TITLE_LENGTH);
+}
+
+/**
+ * Cap a model-supplied filter `value` before persisting it — same token-bomb class
+ * `capTitle` guards against (finding T3-3). String values are truncated to
+ * {@link MAX_FILTER_STRING_LENGTH}; array values (e.g. an `in` list) are truncated
+ * to {@link MAX_FILTER_VALUE_ARRAY_LENGTH} entries. Other JSON-serializable shapes
+ * (number/boolean/null/small object) are left as-is — they can't realistically carry
+ * an unbounded payload the way a string or array can.
+ */
+function capFilterValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return capString(value, MAX_FILTER_STRING_LENGTH);
+  }
+  if (Array.isArray(value)) {
+    return value.length > MAX_FILTER_VALUE_ARRAY_LENGTH
+      ? value.slice(0, MAX_FILTER_VALUE_ARRAY_LENGTH)
+      : value;
+  }
+  return value;
 }
 
 /**
@@ -1048,15 +1091,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (!getPage(state, activePageId)) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      const field = String(args.field ?? '');
-      const sourceId = String(args.sourceId ?? '');
+      const field = capString(String(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
+      const sourceId = capString(String(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
       const operatorRaw = String(args.operator ?? 'equals');
       const operatorError = invalidFilterOperatorError(operatorRaw);
       if (operatorError) {
         return { output: JSON.stringify({ error: operatorError }), nextState: state };
       }
       const operator = operatorRaw as StudioFilterOperator;
-      const value = args.value;
+      const value = capFilterValue(args.value);
       // Validate `fieldType` against the exhaustive schema-derived set (finding T2-3),
       // mirroring the sibling `operator` gate above — an unvalidated hint would persist
       // verbatim and break the client's filter-input rendering.
@@ -1101,15 +1144,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const field = String(args.field ?? '');
-      const sourceId = String(args.sourceId ?? '');
+      const field = capString(String(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
+      const sourceId = capString(String(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
       const operatorRaw = String(args.operator ?? 'equals');
       const operatorError = invalidFilterOperatorError(operatorRaw);
       if (operatorError) {
         return { output: JSON.stringify({ error: operatorError }), nextState: state };
       }
       const operator = operatorRaw as StudioFilterOperator;
-      const value = args.value;
+      const value = capFilterValue(args.value);
       // Validate `fieldType` (finding T2-3), same as `add_page_filter`.
       const fieldTypeResult = resolveFieldType(args.fieldType);
       if ('error' in fieldTypeResult) {

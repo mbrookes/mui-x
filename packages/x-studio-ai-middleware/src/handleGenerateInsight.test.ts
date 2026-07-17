@@ -28,6 +28,20 @@ function requestBody(fn: ReturnType<typeof stubFetch>) {
   return JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string);
 }
 
+/** A 200 OK response with an EMPTY `choices` array — some rate-limit stubs return
+ *  this shape instead of a non-OK status. */
+function stubFetchEmptyChoices() {
+  const fn = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => ({ choices: [] }),
+    text: async () => '',
+  }));
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -55,6 +69,19 @@ describe('handleGenerateTitle', () => {
     await expect(handleGenerateTitle('hi', OPTIONS)).rejects.toThrow(
       /Title generation failed: 500/,
     );
+  });
+
+  // Finding: a provider/rate-limit stub can return a 200 OK with `{ choices: [] }`
+  // — `!response.ok` doesn't catch this. `data.choices[0].message.content` would
+  // throw an opaque TypeError; falls back to the truncated-message title instead,
+  // same as unparseable JSON.
+  it('falls back to a truncated title when the response has no choices (200 OK, empty choices)', async () => {
+    const message = 'a'.repeat(60);
+    stubFetchEmptyChoices();
+    expect(await handleGenerateTitle(message, OPTIONS)).toEqual({
+      title: message.slice(0, 40),
+      description: '',
+    });
   });
 
   // Regression for T2-7: valid JSON that is shaped wrong (missing/mistyped
@@ -192,6 +219,17 @@ describe('handleCreateWidget', () => {
     stubFetch('', { ok: false, status: 400 });
     await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
       /Widget creation failed: 400/,
+    );
+  });
+
+  // Finding: a provider/rate-limit stub can return a 200 OK with `{ choices: [] }`
+  // — `!response.ok` doesn't catch this. `data.choices[0].message.content` would
+  // throw an opaque TypeError; throws a descriptive `MUI X Studio:`-prefixed error
+  // instead, per this repo's error-message conventions.
+  it('throws a descriptive MUI X Studio error when the response has no choices (200 OK, empty choices)', async () => {
+    stubFetchEmptyChoices();
+    await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
+      /MUI X Studio:.*returned no choices/,
     );
   });
 

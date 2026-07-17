@@ -34,7 +34,13 @@ import { DESTRUCTIVE_TOOLS } from './studioAITools';
 
 /** Structural effects of a proposed mutation, derived by diffing prevState vs nextState. */
 export interface ToolEffectSummary {
-  mutationType: StateMutation['type'];
+  /**
+   * Absent when there is no actual proposed mutation to report a type for — e.g. a
+   * `require-approval` decision on a non-mutating (read-only) built-in tool call,
+   * which has no `StateMutation` at all. Never fabricate an unrelated real mutation
+   * type as a placeholder here (see `executeToolWithPolicy`'s fallback).
+   */
+  mutationType?: StateMutation['type'];
   removedWidgetIds: string[];
   removedPageIds: string[];
   removedFilterIds: string[];
@@ -325,6 +331,41 @@ export const Policy = {
     };
   },
 
+  /**
+   * A total-tool-call budget as a composable policy. Unlike `mutationBudget`, this
+   * applies to EVERY tool call — mutating or read-only — so a turn that dispatches
+   * an unbounded number of calls (e.g. hundreds of `query_data_source` live DB
+   * queries) is bounded too, not just ones that commit a mutation.
+   *
+   * Both `executeToolWithPolicy` and `consultToolPolicyArgsOnly` increment
+   * `usage.toolCalls` BEFORE consulting the policy, so by the time this runs,
+   * `getCalls(ctx)` already includes the call currently being gated — hence `>`,
+   * not `>=` (the `mutationBudget` counter, by contrast, is only bumped on an
+   * actual commit, which happens AFTER the policy allows, so it compares `>=`).
+   * `onExceeded` fires exactly once per breach (an internal latch). `max: undefined`
+   * means no cap — every call is allowed through to whatever policy runs next.
+   */
+  toolCallBudget(opts: {
+    max: number | undefined;
+    getCalls: (ctx: ToolPolicyContext) => number;
+    onExceeded?: () => void;
+    reason: (calls: number, max: number) => string;
+  }): ToolPolicy {
+    const { max, getCalls, onExceeded, reason } = opts;
+    let exceededFired = false;
+    return (ctx) => {
+      const calls = getCalls(ctx);
+      if (max !== undefined && calls > max) {
+        if (!exceededFired) {
+          exceededFired = true;
+          onExceeded?.();
+        }
+        return { action: 'deny', reason: reason(calls, max) };
+      }
+      return { action: 'allow' };
+    };
+  },
+
   /** Re-expression of `createDefaultToolPolicy` as a named combinator-library member. */
   approveDestructive(tools?: ReadonlySet<string>): ToolPolicy {
     return createDefaultToolPolicy(tools);
@@ -402,8 +443,12 @@ export async function executeToolWithPolicy(
       result,
       // A require-approval on a mutation always has effects; a policy that requires
       // approval on a non-mutating call gets an all-empty summary rather than crashing.
+      // `mutationType` is omitted rather than fabricated: there is no real mutation
+      // to name here (`result.mutation` is undefined on this branch — if it were
+      // defined, `effects` would already be present from the `computeToolEffects`
+      // call above), so making up an unrelated real mutation type (e.g.
+      // `'setDashboardTitle'`) would mislead any approval UI reading it.
       effects: effects ?? {
-        mutationType: (result.mutation?.type ?? 'setDashboardTitle') as StateMutation['type'],
         removedWidgetIds: [],
         removedPageIds: [],
         removedFilterIds: [],

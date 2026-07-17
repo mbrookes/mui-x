@@ -24,6 +24,7 @@ import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS, STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import { parseSSE } from './parseSSE';
 import { createDefaultToolPolicy, Policy, type ToolPolicy } from './toolPolicy';
+import { withTimeout } from './mcp/helpers';
 import type { StudioAISSEEvent } from './models/protocol';
 import {
   toOpenAIMessages,
@@ -38,6 +39,26 @@ import {
   type ToolDispatchContext,
   type ToolDispatchOutcome,
 } from './agenticLoop/toolDispatch';
+
+/**
+ * Timeout (ms) for the LLM provider's HTTP request. Without this, a hung/overloaded
+ * gateway that never responds (and never errors) would block the loop — and the
+ * whole SSE stream — indefinitely, with no signal to the caller. Mirrors the
+ * `withTimeout` pattern `mcp/summarisePage.ts` already applies to its own request-
+ * scoped operations, sized to the same order of magnitude as the approval-wait
+ * timeout (`approvalTimeoutMs`, default 120_000ms) since a legitimate multi-turn
+ * tool-calling response can take a while to stream.
+ */
+const LLM_FETCH_TIMEOUT_MS = 120_000;
+
+/**
+ * Default cap on total tool calls (mutating or read-only) dispatched across a
+ * single `runAgenticLoop` request, when `rateLimit.maxToolCallsPerRequest` is not
+ * set. Guards against a single turn requesting an unbounded number of tool calls
+ * (e.g. hundreds of `query_data_source` calls, each a live DB query) that
+ * `maxTurnsPerRequest`/`maxMutationsPerRequest` don't bound on their own.
+ */
+const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
 
 // ── Loop options ──────────────────────────────────────────────────────────────
 
@@ -218,6 +239,18 @@ export async function* runAgenticLoop(
   // the loop continues (still bounded by `maxTurnsPerRequest`). `onLimitReached('mutations', …)`
   // fires once per breach.
   const maxMutations = rateLimit?.maxMutationsPerRequest;
+  // Total tool-call budget (mutating OR read-only), same layering as the mutation
+  // budget above: it runs BEFORE the host policy via `Policy.all`, so once the
+  // per-request call count reaches the cap, EVERY further tool call — not just
+  // mutating ones — is denied outright. This is what actually bounds a single turn
+  // that requests an unbounded number of tool calls (e.g. hundreds of
+  // `query_data_source` calls, each a live DB query): `maxTurnsPerRequest` only
+  // bounds LLM round-trips, and `maxMutationsPerRequest` only bounds committed
+  // mutations, so neither caps a purely read-only tool-call flood on its own. Like
+  // the mutation budget, this must NOT kill the stream — the denial surfaces to the
+  // model as a `{ error }` tool result and the loop continues (still bounded by
+  // `maxTurnsPerRequest`). `onLimitReached('toolCalls', …)` fires once per breach.
+  const maxToolCalls = rateLimit?.maxToolCallsPerRequest ?? DEFAULT_MAX_TOOL_CALLS_PER_REQUEST;
   const toolPolicy: ToolPolicy = Policy.all(
     Policy.mutationBudget({
       max: maxMutations,
@@ -227,6 +260,15 @@ export async function* runAgenticLoop(
         'MUI X Studio: Mutation budget exceeded — this request may commit at most ' +
         `${max} state mutation${max === 1 ? '' : 's'} ` +
         `(already committed ${committed}). This change was not applied.`,
+    }),
+    Policy.toolCallBudget({
+      max: maxToolCalls,
+      getCalls: (ctx) => ctx.usage.toolCalls,
+      onExceeded: () => rateLimit?.onLimitReached?.('toolCalls', { ...usage }),
+      reason: (calls, max) =>
+        'MUI X Studio: Tool-call budget exceeded — this request may dispatch at most ' +
+        `${max} tool call${max === 1 ? '' : 's'} (already dispatched ${calls}). ` +
+        'This call was not executed.',
     }),
     hostToolPolicy,
   );
@@ -380,24 +422,36 @@ export async function* runAgenticLoop(
 
     let response: Response;
     try {
+      // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no
+      // timeout at all) — a hung/overloaded gateway that never resolves would
+      // otherwise block this turn, and therefore the whole SSE stream, forever.
+      // `withTimeout` only races the promise (it does not itself abort the
+      // in-flight request), so on a timeout the underlying `fetch` may keep running
+      // in the background; the loop below abandons it and surfaces a clear error
+      // either way, matching the same trade-off `mcp/summarisePage.ts` already
+      // accepts for its own `withTimeout`-wrapped queries.
       // eslint-disable-next-line no-await-in-loop -- sequential LLM calls; each depends on previous result
-      response = await fetch(endpoint, {
-        method: 'POST',
-        signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          model,
-          messages: currentMessages,
-          tools: effectiveTools,
-          tool_choice: 'auto',
-          stream: true,
-          stream_options: { include_usage: true },
+      response = await withTimeout(
+        fetch(endpoint, {
+          method: 'POST',
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            ...extraHeaders,
+          },
+          body: JSON.stringify({
+            model,
+            messages: currentMessages,
+            tools: effectiveTools,
+            tool_choice: 'auto',
+            stream: true,
+            stream_options: { include_usage: true },
+          }),
         }),
-      });
+        LLM_FETCH_TIMEOUT_MS,
+        'LLM provider request',
+      );
     } catch (err) {
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
@@ -416,6 +470,12 @@ export async function* runAgenticLoop(
     // Accumulate tool calls and text from this LLM response
     const acc = createToolCallAccumulator();
     let finishReason: string | null = null;
+    // Buffers this turn's `delta.content` fragments so the assistant's own
+    // commentary/reasoning can be preserved on the follow-up `tool_calls` message
+    // below, instead of always being replaced with `content: null` — mirroring
+    // `openaiWire.ts`'s `toOpenAIMessages`, which deliberately keeps assistant text
+    // alongside `tool_calls` for exactly this reason.
+    let turnTextBuffer = '';
 
     // Per-TURN usage, captured from the LAST usage-bearing chunk of this response rather
     // than summed across chunks (finding T3-4b). The OpenAI wire contract emits usage once
@@ -479,6 +539,7 @@ export async function* runAgenticLoop(
       // `text-delta` handling below.
       if (delta.content) {
         yield { type: 'text-delta', delta: delta.content };
+        turnTextBuffer += delta.content;
       }
 
       if (delta.tool_calls) {
@@ -532,7 +593,21 @@ export async function* runAgenticLoop(
       return;
     }
 
-    // Check token budget before executing tools and continuing
+    // Check token budget before executing tools and continuing.
+    //
+    // KNOWN LIMITATION: this budget is only as good as the usage data the provider
+    // actually sends. `turnInputTokens`/`turnOutputTokens` (folded into `usage`
+    // above) are populated ENTIRELY from `chunk.usage` (the `stream_options:
+    // include_usage` chunk) — if a gateway omits usage chunks altogether (some
+    // OpenAI-compatible proxies do, especially non-streaming-aware ones bolted onto
+    // a streaming endpoint), `usage.inputTokens`/`usage.outputTokens` silently stay
+    // at their initial value and this check never trips. In that case the ONLY
+    // remaining bound on spend for a misbehaving/malicious conversation is
+    // `maxTurnsPerRequest` (and, for mutations, `maxMutationsPerRequest` /
+    // `maxToolCallsPerRequest`). A full fix would estimate token usage client-side
+    // (e.g. a tokenizer over `currentMessages`) when the provider omits usage data —
+    // out of scope for this pass; flagged here so a future reader isn't surprised
+    // that `maxTokensPerRequest` silently no-ops against such a gateway.
     if (
       rateLimit?.maxTokensPerRequest !== undefined &&
       usage.inputTokens + usage.outputTokens >= rateLimit.maxTokensPerRequest
@@ -563,7 +638,12 @@ export async function* runAgenticLoop(
     }> = [];
     const assistantToolCallMsg: OpenAIAssistantMessage = {
       role: 'assistant',
-      content: null,
+      // Preserve any text the model streamed alongside its tool calls this turn
+      // (finding: this previously hardcoded `null`, silently dropping the model's
+      // own commentary/reasoning from the in-flight conversation) — mirrors
+      // `toOpenAIMessages` in `openaiWire.ts`, which preserves assistant text
+      // alongside `tool_calls` for replayed history for the exact same reason.
+      content: turnTextBuffer || null,
       tool_calls: toolCallEntries.map(([, tc]) => ({
         id: tc.id,
         type: 'function' as const,

@@ -150,6 +150,29 @@ export interface StudioAIDataConfig {
    * @default 1000
    */
   maxQueryRows?: number;
+  /**
+   * Optional server-side allowlist of physical table names that `query_data_source`
+   * (and `describe_data_source` / `get_field_values` / `compute_field_stats`) may
+   * resolve a `sourceId` to. When set, a data source whose `tableName` is not in
+   * this list is rejected with an error before `queryDataSource` is ever called.
+   *
+   * SECURITY NOTE — read this before wiring `data` on the CHAT transport
+   * (`handleAIChat`/`runAgenticLoop`): on that transport, `dashboardState` (and
+   * therefore `dashboardState.runtime.dataSources[sourceId].tableName`) comes
+   * straight from the request body, i.e. it is CLIENT-CONTROLLED. A hostile caller
+   * can submit a `dashboardState` whose `runtime.dataSources` entries claim any
+   * `sourceId` maps to any `tableName` your `queryDataSource` implementation's DB
+   * connection can reach — resolving a `sourceId` only checks that the id EXISTS in
+   * that client-supplied catalog, not that the resulting table name is one the
+   * caller is actually allowed to query. (The MCP transport does not have this gap:
+   * its state box is server-held, not request-supplied.)
+   *
+   * Set `allowedTables` to close this gap for BOTH transports, or omit it only if
+   * `queryDataSource` itself already enforces an equivalent allowlist/routing (e.g.
+   * by ignoring `params.tableName` and re-deriving the physical table from a
+   * server-side `sourceId` → table map instead of trusting the request).
+   */
+  allowedTables?: string[];
 }
 
 // ── Server-side skill ─────────────────────────────────────────────────────────
@@ -237,11 +260,32 @@ export interface StudioAIRateLimit {
    */
   maxMutationsPerRequest?: number;
   /**
+   * Maximum number of tool calls — mutating OR read-only — that may be DISPATCHED
+   * across all agentic loop iterations in a single `handleAIChat` call. Unlike
+   * `maxMutationsPerRequest` (which only bounds committed mutations) and
+   * `maxTurnsPerRequest` (which only bounds LLM round-trips), this bounds a single
+   * turn requesting an unbounded number of tool calls — e.g. hundreds of
+   * `query_data_source` calls, each a live DB query, dispatched sequentially before
+   * the turn ends. A call that would push the dispatched-call count over this cap
+   * is denied — the model is fed a `{ error }` tool result so it can adapt, and the
+   * stream is NOT killed (same behavior as `maxMutationsPerRequest`).
+   *
+   * @default 50
+   *
+   * @example
+   * // Allow at most 20 tool calls per request
+   * rateLimit: { maxToolCallsPerRequest: 20 }
+   */
+  maxToolCallsPerRequest?: number;
+  /**
    * Called when a limit is reached before the loop would naturally finish.
    * Use this to increment a quota counter, log the overage, or trigger an alert.
    *
-   * @param {'tokens' | 'turns' | 'mutations'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached; `'mutations'` — mutation budget exceeded.
+   * @param {'tokens' | 'turns' | 'mutations' | 'toolCalls'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached; `'mutations'` — mutation budget exceeded; `'toolCalls'` — tool-call budget exceeded.
    * @param {StudioAIUsage} usage  Token counts and iteration number at the point the limit was hit.
    */
-  onLimitReached?: (reason: 'tokens' | 'turns' | 'mutations', usage: StudioAIUsage) => void;
+  onLimitReached?: (
+    reason: 'tokens' | 'turns' | 'mutations' | 'toolCalls',
+    usage: StudioAIUsage,
+  ) => void;
 }

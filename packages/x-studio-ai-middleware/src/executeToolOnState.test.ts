@@ -1091,6 +1091,64 @@ describe('executeToolOnState: add_page_filter', () => {
       expect(out.success, `operator ${operator} should be accepted`).toBe(true);
     }
   });
+
+  // Finding: `field`/`sourceId`/`value` were persisted verbatim with no size cap,
+  // then re-interpolated into the system prompt on EVERY future request
+  // (`buildAISystemPrompt.ts`'s "Active Filters" block) — an unbounded token-bomb
+  // risk, the same class `MAX_TITLE_LENGTH`/`capTitle` guards against for titles.
+  it('caps an oversized field/sourceId string at MAX_FILTER_STRING_LENGTH (200 chars)', () => {
+    const state = makeState();
+    const hugeField = 'f'.repeat(500);
+    const hugeSourceId = 's'.repeat(500);
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: hugeField, sourceId: hugeSourceId, operator: 'equals', value: 1 },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { field: string; filterSourceId: string } };
+    };
+    expect(mut.args.filter.field.length).toBe(200);
+    expect(mut.args.filter.filterSourceId.length).toBe(200);
+    expect(mut.args.filter.field).toBe(hugeField.slice(0, 200));
+    expect(mut.args.filter.filterSourceId).toBe(hugeSourceId.slice(0, 200));
+  });
+
+  it('caps an oversized string filter value at MAX_FILTER_STRING_LENGTH (200 chars)', () => {
+    const state = makeState();
+    const hugeValue = 'v'.repeat(1000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: hugeValue },
+      state,
+    );
+    const mut = result.mutation as { type: string; args: { filter: { value: unknown } } };
+    expect(mut.args.filter.value).toBe(hugeValue.slice(0, 200));
+  });
+
+  it('caps an oversized array filter value (e.g. an "in" list) at 50 entries', () => {
+    const state = makeState();
+    const hugeArray = Array.from({ length: 500 }, (_, i) => i);
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'in', value: hugeArray },
+      state,
+    );
+    const mut = result.mutation as { type: string; args: { filter: { value: unknown } } };
+    expect(mut.args.filter.value).toEqual(hugeArray.slice(0, 50));
+  });
+
+  it('leaves small string/number/array filter values untouched', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 42 },
+      state,
+    );
+    const mut = result.mutation as { type: string; args: { filter: { value: unknown } } };
+    expect(mut.args.filter.value).toBe(42);
+  });
 });
 
 describe('executeToolOnState: add_widget_filter', () => {
@@ -1143,6 +1201,32 @@ describe('executeToolOnState: add_widget_filter', () => {
     expect(out.success).toBeUndefined();
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
+  });
+
+  // Same token-bomb-prevention cap as `add_page_filter` — mirrored here since
+  // `add_widget_filter` persists `field`/`sourceId`/`value` through the identical
+  // capping helpers.
+  it('caps oversized field/sourceId/value the same way add_page_filter does', () => {
+    const state = makeState();
+    const hugeField = 'f'.repeat(500);
+    const hugeValue = 'v'.repeat(1000);
+    const result = executeToolOnState(
+      'add_widget_filter',
+      {
+        widgetId: 'widget-1',
+        field: hugeField,
+        sourceId: 'src1',
+        operator: 'equals',
+        value: hugeValue,
+      },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { field: string; value: unknown } };
+    };
+    expect(mut.args.filter.field.length).toBe(200);
+    expect(mut.args.filter.value).toBe(hugeValue.slice(0, 200));
   });
 });
 

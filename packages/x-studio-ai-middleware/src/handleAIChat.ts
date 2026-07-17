@@ -409,13 +409,29 @@ export function handleAIChat(
   // actually propagates into the agentic loop. It is also linked to any external
   // `options.signal` so a host-wired abort still stops the loop.
   const abortController = new AbortController();
+  // Tracked so it can be explicitly removed once this request's stream finishes —
+  // `{ once: true }` alone only unregisters the listener once `options.signal`
+  // actually FIRES. A host that reuses one long-lived `AbortSignal` across many
+  // `handleAIChat` calls (e.g. a single process-lifetime signal) would otherwise
+  // accumulate one listener per request that never fires and is never cleaned up:
+  // a slow listener leak. `cleanupExternalAbortListener` (called from both the
+  // `finally` below and `cancel()`) removes it unconditionally once this request
+  // is done, whether or not `options.signal` ever aborted.
+  let onExternalAbort: (() => void) | undefined;
   if (options.signal) {
     if (options.signal.aborted) {
       abortController.abort();
     } else {
-      options.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+      onExternalAbort = () => abortController.abort();
+      options.signal.addEventListener('abort', onExternalAbort, { once: true });
     }
   }
+  const cleanupExternalAbortListener = () => {
+    if (options.signal && onExternalAbort) {
+      options.signal.removeEventListener('abort', onExternalAbort);
+      onExternalAbort = undefined;
+    }
+  };
 
   return new ReadableStream<string>({
     async start(controller) {
@@ -482,6 +498,7 @@ export function handleAIChat(
           // Stream already cancelled/closed — nothing to surface the error to.
         }
       } finally {
+        cleanupExternalAbortListener();
         try {
           controller.close();
         } catch {
@@ -491,6 +508,7 @@ export function handleAIChat(
     },
     cancel() {
       // Consumer stopped reading — propagate cancellation into the loop.
+      cleanupExternalAbortListener();
       abortController.abort();
     },
   });

@@ -16,10 +16,20 @@ import {
 } from '../toolPolicy';
 import type { StudioAISSEEvent, ApprovalEffectsSummary } from '../models/protocol';
 import { createDataToolHandlers } from '../mcp/dataTools';
+import { withTimeout } from '../mcp/helpers';
 import type { AccumulatedToolCall } from './openaiWire';
 
 /** Default cap on rows `query_data_source` may request, mirroring `mcp.ts`'s default. */
 const DEFAULT_MAX_QUERY_ROWS = 1000;
+
+/**
+ * Timeout (ms) for the chat-transport `query_data_source` call into the
+ * host-provided `data.queryDataSource`. Without this, a hung DB connection would
+ * block the whole agentic-loop turn (and therefore the SSE stream) indefinitely.
+ * Matches the timeout `mcp/summarisePage.ts` already applies to its own
+ * `data.queryDataSource` calls via the same `withTimeout` helper.
+ */
+const QUERY_DATA_SOURCE_TIMEOUT_MS = 15_000;
 
 // ── Tool approval ─────────────────────────────────────────────────────────────
 
@@ -450,6 +460,21 @@ export async function* dispatchToolCall(
   // query_data_source — resolved via the app-provided data config, dispatched
   // through the SAME `createDataToolHandlers` factory the MCP transport uses,
   // so both transports run the identical structured-query pipeline.
+  //
+  // SECURITY — trust boundary specific to THIS (chat) transport: `currentState`
+  // (and therefore `currentState.runtime.dataSources[sourceId].tableName`, which
+  // `resolveSource` in `mcp/queryTools.ts` resolves `sourceId` to) descends from
+  // the CLIENT-SUPPLIED request body (`body.dashboardState` in `handleAIChat`),
+  // not from server-held state. `resolveSource` only checks that `sourceId` is a
+  // key present in that client-supplied catalog — it does NOT prove the resulting
+  // `tableName` is a table the caller is actually allowed to query. A hostile
+  // caller can submit a `dashboardState` whose `runtime.dataSources` fabricates an
+  // entry pointing an innocuous-looking `sourceId` at an arbitrary table your DB
+  // connection can reach. The MCP transport does not share this gap: its state box
+  // is server-held, never request-supplied. Hosts wiring `data` here MUST either
+  // set `StudioAIDataConfig.allowedTables` (enforced inside `resolveSource`) or
+  // have their own `queryDataSource` implementation independently verify/re-derive
+  // the physical table rather than trusting `params.tableName` as-is.
   if (name === 'query_data_source') {
     // `query_data_source` is SIDE-EFFECTFUL (runs a live query) but never mutates
     // dashboard state, so the policy is consulted args-only BEFORE it runs
@@ -489,7 +514,11 @@ export async function* dispatchToolCall(
           maxQueryRows: ctx.data.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS,
           recentChanges: [],
         });
-        const result = await handlers.query_data_source(toolInput as Record<string, unknown>);
+        const result = await withTimeout(
+          Promise.resolve(handlers.query_data_source(toolInput as Record<string, unknown>)),
+          QUERY_DATA_SOURCE_TIMEOUT_MS,
+          'query_data_source',
+        );
         const textItem = result.content.find(
           (item): item is { type: 'text'; text: string } => item.type === 'text',
         );

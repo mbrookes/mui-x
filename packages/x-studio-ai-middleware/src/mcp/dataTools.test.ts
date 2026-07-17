@@ -568,6 +568,32 @@ describe('resolveSource', () => {
     const result = resolveSource(stateBox, 'source-orders');
     expect(result.ok).toBe(false);
   });
+
+  // `allowedTables` (finding: chat-transport `dataSources` catalog is client-
+  // controlled, so a resolved `sourceId` alone doesn't prove the `tableName` is
+  // one the caller should be allowed to query) — an optional server-side
+  // allowlist applied AFTER the sourceId lookup, BEFORE any query is built.
+  it('rejects a resolved source whose tableName is not in an optional allowedTables list', () => {
+    const stateBox = { current: makeState() };
+    const result = resolveSource(stateBox, 'source-orders', ['other_table']);
+    expect(result.ok).toBe(false);
+    const errorResult = result as Extract<typeof result, { ok: false }>;
+    const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
+    expect(message).toMatch(/not in the/);
+    expect(message).toMatch(/allowedTables/);
+  });
+
+  it('allows a resolved source whose tableName IS in an optional allowedTables list', () => {
+    const stateBox = { current: makeState() };
+    const result = resolveSource(stateBox, 'source-orders', ['orders', 'other_table']);
+    expect(result.ok).toBe(true);
+  });
+
+  it('allows any resolved source when allowedTables is omitted (backward compatible)', () => {
+    const stateBox = { current: makeState() };
+    const result = resolveSource(stateBox, 'source-orders');
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('createSummarisePageHandler', () => {

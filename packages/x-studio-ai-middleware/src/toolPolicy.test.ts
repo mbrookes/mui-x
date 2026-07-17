@@ -383,6 +383,33 @@ describe('executeToolWithPolicy', () => {
     });
     expect(seen).toMatchObject({ mutationType: 'removeWidget', removedWidgetIds: ['w2'] });
   });
+
+  // Finding: a `require-approval` decision on a NON-mutating (read-only) built-in
+  // tool call previously fabricated `mutationType: 'setDashboardTitle'` as a
+  // placeholder — misleading to any approval UI reading it, since no such mutation
+  // is actually happening. `mutationType` should be omitted instead.
+  it('omits mutationType (rather than fabricating one) for a require-approval decision on a read-only tool', async () => {
+    const state = makeTwoWidgetState();
+    const outcome = await executeToolWithPolicy('list_pages', {}, state, {
+      policy: () => ({ action: 'require-approval' }),
+      transport: 'chat',
+      usage: EMPTY_USAGE(),
+    });
+    expect(outcome.kind).toBe('needs-approval');
+    const effects = outcome.kind === 'needs-approval' ? outcome.effects : undefined;
+    expect(effects).toBeDefined();
+    expect(effects).not.toHaveProperty('mutationType');
+    expect(effects).toMatchObject({
+      removedWidgetIds: [],
+      removedPageIds: [],
+      removedFilterIds: [],
+      orphanedWidgetIds: [],
+      addedWidgetIds: [],
+      addedPageIds: [],
+      updatedWidgetIds: [],
+      layoutChangedPageIds: [],
+    });
+  });
 });
 
 // ── Policy.all / Policy.mutationBudget ───────────────────────────────────────

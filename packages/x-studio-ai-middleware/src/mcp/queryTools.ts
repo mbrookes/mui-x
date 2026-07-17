@@ -50,8 +50,23 @@ type ResolveSourceResult =
  * transport's agentic loop (`agenticLoop.ts`), where an MCP resource URI means
  * nothing. `get_dashboard_state` is a tool available on both transports, so it
  * is named instead as the discovery path.
+ *
+ * SECURITY NOTE: this only validates that `sourceId` is a KEY the catalog knows
+ * about — it does NOT by itself prove the resulting `tableName` is a table the
+ * caller should be allowed to query. On the chat transport, the catalog
+ * (`stateBox.current.runtime.dataSources`) descends from the client-supplied
+ * request body, so a hostile caller can assert a fabricated `dataSources` entry
+ * whose `tableName` points at an arbitrary table your DB connection can reach.
+ * `allowedTables` (from `StudioAIDataConfig`), when the host configures it, closes
+ * that gap: a resolved `tableName` outside the allowlist is rejected here, before
+ * any query is built. See `StudioAIDataConfig.allowedTables`'s doc comment for the
+ * full trust-boundary rationale.
  */
-export function resolveSource(stateBox: StudioStateBox, sourceId: string): ResolveSourceResult {
+export function resolveSource(
+  stateBox: StudioStateBox,
+  sourceId: string,
+  allowedTables?: string[],
+): ResolveSourceResult {
   // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
   // (`"constructor"`, `"__proto__"`) would otherwise resolve a truthy inherited value
   // via the prototype chain. Today the `!source.tableName` check below saves this by
@@ -64,6 +79,15 @@ export function resolveSource(stateBox: StudioStateBox, sourceId: string): Resol
       ok: false,
       error: errorResult(
         `Unknown data source: "${sourceId}". Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+      ),
+    };
+  }
+  if (allowedTables && !allowedTables.includes(source.tableName)) {
+    return {
+      ok: false,
+      error: errorResult(
+        `Data source "${sourceId}" resolves to table "${source.tableName}", which is not in the ` +
+          'server-configured allowedTables list. This request was blocked before reaching the database.',
       ),
     };
   }
@@ -121,7 +145,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return errorResult('sourceId is required');
       }
 
-      const resolved = resolveSource(stateBox, sourceId);
+      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;
       }
@@ -155,7 +179,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId) {
         return errorResult('sourceId is required');
       }
-      const resolved = resolveSource(stateBox, sourceId);
+      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;
       }
@@ -243,7 +267,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || !fieldId) {
         return errorResult('sourceId and fieldId are required');
       }
-      const resolved = resolveSource(stateBox, sourceId);
+      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;
       }
@@ -327,7 +351,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || !statFields || statFields.length === 0) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      const resolved = resolveSource(stateBox, sourceId);
+      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;
       }

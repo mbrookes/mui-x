@@ -295,6 +295,45 @@ describe('dispatchToolCall', () => {
     expect(parsed.error).toMatch(/no data access was configured/);
   });
 
+  // Finding: the chat-transport `query_data_source` call had no timeout at all — a
+  // hung DB connection would block the whole agentic-loop turn indefinitely.
+  // Mirrors the 15s timeout `mcp/summarisePage.ts` already applies to its own
+  // `data.queryDataSource` calls via the same `withTimeout` helper.
+  it('times out a hanging data.queryDataSource instead of waiting forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const state = createDefaultStudioState({
+        runtime: {
+          dataSources: {
+            src1: { id: 'src1', label: 'Source 1', tableName: 'src1_table', fields: [] },
+          },
+        },
+      });
+      const queryDataSource = vi.fn(() => new Promise<never>(() => {}));
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['query_data_source']),
+        data: { queryDataSource },
+      });
+
+      const dispatchPromise = runDispatch(
+        dispatchToolCall(
+          tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+          { sourceId: 'src1' },
+          false,
+          state,
+          ctx,
+        ),
+      );
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      const { outcome } = await dispatchPromise;
+      const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
+      expect(parsed.error).toMatch(/query_data_source timed out after 15000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports an unregistered server-tool skill (declared but no handler)', async () => {
     const ctx = makeCtx({
       advertisedToolNames: new Set(['declared_skill']),

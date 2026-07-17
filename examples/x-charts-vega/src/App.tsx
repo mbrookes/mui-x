@@ -9,32 +9,43 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import DemoCard from './DemoCard';
 import { demos } from './demos';
 import GalleryPage from './gallery/GalleryPage';
+import FullGalleryPage from './gallery/FullGalleryPage';
 
 const theme = createTheme();
 
 const GALLERY_TAB = 1;
+const FULL_GALLERY_TAB = 2;
 
-/** The tab implied by the current URL (`?tab=gallery`), so a reload — or a
- * shared link — reopens on the same tab instead of always resetting to the
- * first one. */
+// Tab index <-> `?tab=` query value, single source of truth for both
+// directions below (and for which tabs want the full-width container).
+const TAB_QUERY_VALUES: Record<number, string> = {
+  [GALLERY_TAB]: 'gallery',
+  [FULL_GALLERY_TAB]: 'full',
+};
+
+/** The tab implied by the current URL (`?tab=…`), so a reload — or a shared
+ * link — reopens on the same tab instead of always resetting to the first one. */
 function tabFromLocation(): number {
   if (typeof window === 'undefined') {
     return 0;
   }
-  return new URLSearchParams(window.location.search).get('tab') === 'gallery' ? GALLERY_TAB : 0;
+  const value = new URLSearchParams(window.location.search).get('tab');
+  const match = Object.entries(TAB_QUERY_VALUES).find(([, query]) => query === value);
+  return match ? Number(match[0]) : 0;
 }
 
 /** Mirrors the active tab into the URL's `tab` query param via `replaceState`
  * (no new history entry per click, and no navigation/scroll side effects). */
 function writeTabToLocation(tab: number): void {
   const params = new URLSearchParams(window.location.search);
-  if (tab === GALLERY_TAB) {
-    params.set('tab', 'gallery');
+  const query = TAB_QUERY_VALUES[tab];
+  if (query) {
+    params.set('tab', query);
   } else {
     params.delete('tab');
   }
-  const query = params.toString();
-  const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+  const search = params.toString();
+  const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
   window.history.replaceState(null, '', url);
 }
 
@@ -75,18 +86,27 @@ export default function App() {
     writeTabToLocation(value);
   };
 
+  // The full gallery renders every example at its own natural (sometimes
+  // quite wide, e.g. a trellis grid) size rather than a fixed comparison
+  // column, so it wants all the width the viewport actually has instead of
+  // the other tabs' capped `xl` reading width.
+  const maxWidth = tab === FULL_GALLERY_TAB ? false : 'xl';
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Container maxWidth={maxWidth} sx={{ py: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           @mui/x-charts-vega demo
         </Typography>
         <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 3 }}>
           <Tab label="Curated demos" />
           <Tab label="Vega-Lite gallery" />
+          <Tab label="Full gallery" />
         </Tabs>
-        {tab === 0 ? <CuratedDemos /> : <GalleryPage />}
+        {tab === 0 && <CuratedDemos />}
+        {tab === GALLERY_TAB && <GalleryPage />}
+        {tab === FULL_GALLERY_TAB && <FullGalleryPage />}
       </Container>
     </ThemeProvider>
   );

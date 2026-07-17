@@ -7,10 +7,11 @@ import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { VegaLiteChart } from '@mui/x-charts-vega';
-import type { TranslationGap, VegaLiteSpec } from '@mui/x-charts-vega';
+import type { TranslationGap } from '@mui/x-charts-vega';
 import { inlineData } from './resolveData';
 import VegaEmbed from './VegaEmbed';
-import titles from './titles.json';
+import { examples, exampleIds, type GalleryExample } from './examples';
+import { useScrollSpyHash } from './useScrollSpyHash';
 
 // The continuous-axis view size handed to the reference `vega-embed` view. It
 // matches the wrapper's own default (`VEGA_DEFAULT_VIEW_WIDTH`/`_HEIGHT`), so a
@@ -19,34 +20,6 @@ import titles from './titles.json';
 // both sides regardless.
 const CHART_WIDTH = 440;
 const CHART_HEIGHT = 340;
-
-// The verbatim Vega-Lite example specs, fetched from vega/vega-lite (see
-// resolveData.ts). Keyed by base filename.
-const specModules = import.meta.glob('./specs/*.json', { eager: true, import: 'default' });
-const titleMap = titles as Record<string, { title: string; category: string }>;
-
-interface GalleryExample {
-  name: string;
-  title: string;
-  category: string;
-  spec: VegaLiteSpec;
-}
-
-const examples: GalleryExample[] = Object.entries(specModules)
-  .map(([path, spec]) => {
-    const name = path.replace(/^.*\/([^/]+)\.json$/, '$1');
-    return {
-      name,
-      title: titleMap[name]?.title ?? name,
-      category: titleMap[name]?.category ?? '',
-      spec: spec as VegaLiteSpec,
-    };
-  })
-  .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
-
-// Stable (module-scope) id list, in the same order as rendered — the scroll
-// spy's "current section" is the first id in this order still in view.
-const exampleIds = examples.map((example) => example.name);
 
 const SEVERITY_COLOR: Record<TranslationGap['severity'], 'error' | 'warning' | 'default'> = {
   unsupported: 'error',
@@ -283,82 +256,6 @@ function GalleryCard({ example }: { example: GalleryExample }) {
       </CardContent>
     </Card>
   );
-}
-
-// How far from the top of the viewport a section title has to scroll before
-// it's considered "current" — matches roughly where a reader's eye lands.
-const SCROLL_SPY_ACTIVATION_LINE = 96;
-
-/**
- * Keeps the URL hash pointed at whichever example is currently in view, so
- * scrolling through the gallery is shareable/bookmarkable/back-button-able
- * without an explicit click on an anchor. On every (rAF-throttled) scroll,
- * walks the section titles (see the `id={example.name}` on `GalleryCard`'s
- * heading) in document order and takes the last one that has scrolled up to
- * or past the activation line — i.e. the most recent heading the reader has
- * scrolled past, not merely whatever overlaps the (tall) viewport. Unlike an
- * `IntersectionObserver` band, this can't land in a gap between two distant
- * headings and momentarily lose the "current" id. `history.replaceState` is
- * used rather than `location.hash` so updating it doesn't itself trigger a
- * scroll or push a new (back-button) history entry per section.
- */
-function useScrollSpyHash(ids: readonly string[]): void {
-  React.useEffect(() => {
-    if (ids.length === 0) {
-      return undefined;
-    }
-    let current = '';
-    let ticking = false;
-
-    const computeCurrent = () => {
-      ticking = false;
-      let next = '';
-      // `ids` is in document order, so the first heading still below the
-      // activation line means every later one is too — stop there.
-      for (const id of ids) {
-        const el = document.getElementById(id);
-        if (!el || el.getBoundingClientRect().top > SCROLL_SPY_ACTIVATION_LINE) {
-          break;
-        }
-        next = id;
-      }
-      if (next === current) {
-        return;
-      }
-      current = next;
-      const { pathname, search } = window.location;
-      window.history.replaceState(
-        null,
-        '',
-        next ? `${pathname}${search}#${next}` : `${pathname}${search}`,
-      );
-    };
-
-    const handleScroll = () => {
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(computeCurrent);
-      }
-    };
-
-    // A hash present on mount (a shared/bookmarked deep link) needs an
-    // explicit scroll: the browser's own "scroll to the fragment" pass runs
-    // once, before this client-rendered SPA has mounted anything to scroll
-    // to, so it silently does nothing. Honor it here instead, and seed
-    // `current` so the scroll listener doesn't immediately overwrite it
-    // before the browser has caught up with the jump.
-    const initialId = window.location.hash.slice(1);
-    const initialEl =
-      initialId && ids.includes(initialId) ? document.getElementById(initialId) : null;
-    if (initialEl) {
-      initialEl.scrollIntoView({ block: 'start' });
-      current = initialId;
-    } else {
-      computeCurrent();
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [ids]);
 }
 
 export default function GalleryPage() {

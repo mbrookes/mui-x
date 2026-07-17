@@ -121,7 +121,14 @@ function GalleryCard({ example }: { example: GalleryExample }) {
   const specJson = React.useMemo(() => JSON.stringify(example.spec, null, 2), [example.spec]);
 
   return (
-    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column' }}>
+    // `overflow: 'visible'` overrides Card's default `overflow: 'hidden'`
+    // (there for rounded-corner clipping) — at very narrow viewports a
+    // legend-heavy comparison can still be a few px wider than the card even
+    // after the grid/legend sizing above, and ComparisonPanel's own
+    // `overflowX: 'auto'` inner box (see below) should be the one deciding
+    // what happens to any residual overflow (a scrollbar), not the card
+    // silently discarding it.
+    <Card variant="outlined" sx={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
       <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flexGrow: 1 }}>
         <Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -152,7 +159,12 @@ function GalleryCard({ example }: { example: GalleryExample }) {
             // `auto-fit, minmax(...)` keeps the usual two-up layout when both
             // panels fit, and stacks to one column (giving each panel the
             // full card width) when they don't, instead of forcing a squeeze.
-            gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+            // The `min(400px, 100%)` floor matters on a narrower-than-400px
+            // viewport (mobile): plain `minmax(400px, 1fr)` still enforces
+            // the 400px minimum even then, so the single column overflows
+            // its own card — which clips it via the card's `overflow:
+            // hidden` — instead of shrinking to fit.
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(400px, 100%), 1fr))',
             gap: 1.5,
           }}
         >

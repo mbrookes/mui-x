@@ -249,9 +249,15 @@ interface ForecastData {
   historicalSeries: (number | null)[];
   /** Nulls for historical points followed by forecast values. */
   forecastSeries: (number | null)[];
-  /** Upper confidence band (null for historical). null when showConfidenceBands is false. */
+  /**
+   * Upper confidence band, expressed as the band WIDTH above `lowerBand` (not the
+   * absolute upper bound) — `StudioLineAreaChart` renders it as a series stacked
+   * (d3-stack `offset: 'none'`, which SUMS stacked values) directly on top of
+   * `lowerBand`, so `lowerBand[i] + upperBand[i]` must equal the absolute upper
+   * bound. null for historical. null when showConfidenceBands is false.
+   */
   upperBand: (number | null)[] | null;
-  /** Lower confidence band (null for historical). null when showConfidenceBands is false. */
+  /** Lower confidence band, as an absolute value (null for historical). null when showConfidenceBands is false. */
   lowerBand: (number | null)[] | null;
 }
 
@@ -306,20 +312,29 @@ export function computeWidgetForecast(
   let lowerBand: (number | null)[] | null = null;
 
   if (showConfidenceBands) {
-    upperBand = [
-      ...Array(n - 1).fill(null),
-      values[n - 1],
-      ...forecastValues.map((v) => v + stdError),
-    ];
     // Only floor the lower band at 0 when the historical series itself never went
     // negative (e.g. counts/revenue) — a series that legitimately takes negative values
     // (net margin, balance, temperature, …) would otherwise have its lower confidence
     // band incorrectly clamped to 0 (finding 3.12).
     const hasNegativeHistory = values.some((v) => v != null && v < 0);
-    lowerBand = [
+    const lowerBoundValues = forecastValues.map((v) =>
+      hasNegativeHistory ? v - stdError : Math.max(0, v - stdError),
+    );
+    const upperBoundValues = forecastValues.map((v) => v + stdError);
+
+    lowerBand = [...Array(n - 1).fill(null), values[n - 1], ...lowerBoundValues];
+    // `upperBand` is stacked on top of `lowerBand` in the chart via d3-stack with
+    // `offset: 'none'`, which SUMS stacked series values rather than treating them as
+    // independent y-positions. Carrying the absolute upper bound here would make the
+    // rendered top land at `lowerBand + upperBound` (≈ double the intended value), so
+    // this carries the band WIDTH instead — `lowerBoundValues[i] + (upperBoundValues[i]
+    // - lowerBoundValues[i]) === upperBoundValues[i]`, reconstructing the absolute upper
+    // bound once stacked. The connection point (index n - 1) gets a width of 0 so the
+    // stacked top lands exactly on `values[n - 1]`, same as `lowerBand`'s connection point.
+    upperBand = [
       ...Array(n - 1).fill(null),
-      values[n - 1],
-      ...forecastValues.map((v) => (hasNegativeHistory ? v - stdError : Math.max(0, v - stdError))),
+      0,
+      ...upperBoundValues.map((v, i) => v - lowerBoundValues[i]),
     ];
   }
 

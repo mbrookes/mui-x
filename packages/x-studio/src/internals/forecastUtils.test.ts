@@ -160,8 +160,11 @@ describe('computeWidgetForecast', () => {
     // With zero residual error the bands collapse onto the forecast line. Points
     // (0,10),(1,20) fit y = 10x + 10 exactly, so with periods:2 the series is
     // [null, 20 (connection point), 30 (x=2), 40 (x=3)] — index 3 is the SECOND
-    // forecast point, not the connection point.
-    expect(result!.upperBand![3]).toBe(40);
+    // forecast point, not the connection point. `upperBand` carries the band WIDTH
+    // (stacked on top of `lowerBand`), which collapses to 0 with zero residual error,
+    // and `lowerBand` (absolute) matches the forecast line exactly.
+    expect(result!.upperBand![3]).toBe(0);
+    expect(result!.lowerBand![3]).toBe(40);
     expect(result!.forecastSeries[3]).toBe(40);
   });
 
@@ -185,9 +188,43 @@ describe('computeWidgetForecast', () => {
     expect(result!.upperBand).not.toBeNull();
     expect(result!.lowerBand).not.toBeNull();
     expect(result!.upperBand!).toHaveLength(6);
-    // Upper band values in forecast range should be >= lower band values
+    // `upperBand` is the stacked band WIDTH (not an absolute value), so it must be
+    // non-negative — the chart stacks it on top of `lowerBand` (offset: 'none' sums
+    // the two), and a negative width would invert/shrink the rendered band.
     for (let i = 4; i < 6; i += 1) {
-      expect(result!.upperBand![i]! >= result!.lowerBand![i]!).toBe(true);
+      expect(result!.upperBand![i]!).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  // Regression coverage for the Tier 1 finding: `upperBand` used to carry the ABSOLUTE
+  // upper bound (forecast + stdError), but `StudioLineAreaChart` stacks it on top of
+  // `lowerBand` via d3-stack `offset: 'none'`, which SUMS stacked values rather than
+  // treating them as independent y-positions — so the rendered top edge landed at
+  // `lowerBand + (forecast + stdError)` (~double the intended value) instead of
+  // `forecast + stdError`. The fix makes `upperBand` carry the band WIDTH so that
+  // `lowerBand[i] + upperBand[i] === forecast[i] + stdError` once stacked.
+  it('upperBand + lowerBand reconstructs the absolute upper bound when stacked (Tier 1 forecast-band fix)', () => {
+    // A perfectly linear, noise-free series still exercises the general formula since
+    // stdError is 0 in that case; use a noisy series so stdError > 0 and the fix is
+    // actually exercised numerically.
+    const noisyValues: (number | null)[] = [10, 22, 28, 43];
+    const result = computeWidgetForecast(historicalLabels, noisyValues, {
+      enabled: true,
+      periods: 2,
+      showConfidenceBands: true,
+    });
+    expect(result).not.toBeNull();
+
+    const regression = linearRegression(noisyValues)!;
+    const n = noisyValues.length;
+    for (let i = n; i < n + 2; i += 1) {
+      const forecastValue = regression.slope * i + regression.intercept;
+      const expectedAbsoluteUpperBound = forecastValue + regression.stdError;
+      const stackedTop = result!.lowerBand![i]! + result!.upperBand![i]!;
+      // e.g. forecast≈100, stdError≈10 -> lowerBand≈90, upperBand (width)≈20,
+      // stacked top = 90 + 20 = 110 = forecast + stdError — NOT ~200 (the pre-fix
+      // doubling bug from stacking two absolute-valued series).
+      expect(stackedTop).toBeCloseTo(expectedAbsoluteUpperBound, 5);
     }
   });
 

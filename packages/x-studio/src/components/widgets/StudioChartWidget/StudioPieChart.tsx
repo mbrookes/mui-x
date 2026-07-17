@@ -68,8 +68,13 @@ export interface StudioPieChartProps {
   /** 'pie' draws full slices; 'donut' adds a centre hole. */
   chartType: 'pie' | 'donut';
   height: number;
-  /** Filtered single-series aggregation (labels + values). Guaranteed non-empty by the caller. */
-  chartData: AggregatedData;
+  /**
+   * Filtered single-series aggregation (labels + values). Non-empty whenever
+   * `shouldShowGhost && allChartData && preserveXFieldBaseline` is false (guaranteed by the
+   * caller); null (with a non-null `allChartData`) is only reachable when that ghost gate is
+   * true, in which case `pieBaseData` below ignores this in favor of `allChartData`.
+   */
+  chartData: AggregatedData | null;
   /** Unfiltered single-series aggregation for ghost/cross-highlight; null when not applicable. */
   allChartData: AggregatedData | null;
   /** Enriched (filtered) rows — used to build grouped concentric rings when a series field is set. */
@@ -538,8 +543,13 @@ export function StudioPieChart({
       ? pieSingleOuterRadius + donutLabelOverhang
       : undefined;
 
-  // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
-  const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
+  // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level).
+  // `chartData` can only be null when `isPieHighlightActive` is true (the caller only ever
+  // omits it in favor of a ghost baseline), so the `?? { labels: [], values: [] }` fallback
+  // is defensive only — it's never actually exercised on the `!isPieHighlightActive` branch.
+  const pieBaseData = isPieHighlightActive
+    ? allChartData!
+    : (chartData ?? { labels: [], values: [] });
 
   // Apply "Other" grouping if pieMaxSlices is configured.
   // Trigger when we have >= pieMaxSlices items (>= so N items collapses the last one).

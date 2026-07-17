@@ -548,6 +548,14 @@ export function StudioLineAreaChart({
                 } as const,
                 // Confidence bands are line-only — the area variant never renders them
                 // (pre-existing asymmetry, preserved as-is).
+                //
+                // Both bands share `stack: 'confidence'`, so x-charts stacks them via
+                // d3-stack with `offset: 'none'`, which SUMS the two series' values rather
+                // than treating them as independent y-positions. `__forecast_lower__`
+                // carries the absolute lower bound, and `forecastData.upperBand` is
+                // therefore the band WIDTH (not the absolute upper bound) — summing
+                // reconstructs the absolute upper bound at the rendered top edge. See
+                // `computeWidgetForecast` in forecastUtils.ts for how the two are derived.
                 ...(!isArea && forecastData.upperBand
                   ? [
                       {

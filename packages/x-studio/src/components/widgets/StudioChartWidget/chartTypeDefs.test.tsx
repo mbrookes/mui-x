@@ -49,6 +49,12 @@ vi.mock('../StudioKpiWidget/kpiUtils', async (importOriginal) => {
 
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { CHART_TYPE_DEFS, type ChartRenderContext } from './chartTypeDefs';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioBarChart } from './StudioBarChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioPieChart } from './StudioPieChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioLineAreaChart } from './StudioLineAreaChart';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -309,5 +315,151 @@ describe('chartTypeDefs value-field / aggregation resolution (findings 2.6 / 2.7
     expect(buildFunnelStagesSpy).toHaveBeenCalledTimes(1);
     expect((buildFunnelStagesSpy.mock.calls[0] as unknown[])[2]).toBe('amount');
     expect((buildFunnelStagesSpy.mock.calls[0] as unknown[])[3]).toBe('avg');
+  });
+});
+
+// ─── Cross-highlight ghost rendering when a cross-filter empties the widget ──
+//
+// `renderBar` / `renderPieDonut` / `renderLineArea` used to bail out to
+// `EmptyChartBox` as soon as the cross-filtered `chartData` was empty, without
+// ever checking whether `allChartData` (the un-cross-filtered fallback the
+// orchestrator threads down specifically for ghost-rendering, gated on
+// `shouldShowGhost`/`preserveXFieldBaseline` — see `StudioChartWidget.tsx`
+// around line 788) was available. That defeated the ghost entirely: a widget
+// whose current rows an incoming cross-filter emptied rendered nothing instead
+// of its dimmed prior data.
+describe('chart-family renderers consult allChartData before bailing to EmptyChartBox (ghost fix)', () => {
+  it('renderBar renders the bar chart (not EmptyChartBox) when chartData is empty but a ghost is available', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'bar',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
+
+    const element = CHART_TYPE_DEFS.bar.render({
+      ...ctx,
+      chartData: null,
+      allChartData: { labels: ['a', 'b'], values: [1, 2] },
+      shouldShowGhost: true,
+      preserveXFieldBaseline: true,
+    });
+
+    expect(element.type).toBe(StudioBarChart);
+  });
+
+  it('renderBar still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'bar',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
+
+    const element = CHART_TYPE_DEFS.bar.render({
+      ...ctx,
+      chartData: null,
+      allChartData: null,
+      shouldShowGhost: false,
+    });
+
+    expect(element.type).not.toBe(StudioBarChart);
+  });
+
+  it('renderPieDonut renders the pie chart (not EmptyChartBox) when chartData is empty but a ghost is available', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'pie',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'pie' | 'donut'>(config, []);
+
+    const element = CHART_TYPE_DEFS.pie.render({
+      ...ctx,
+      chartData: null,
+      allChartData: { labels: ['a', 'b'], values: [1, 2] },
+      shouldShowGhost: true,
+      preserveXFieldBaseline: true,
+    });
+
+    expect(element.type).toBe(StudioPieChart);
+  });
+
+  it('renderPieDonut still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'pie',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'pie' | 'donut'>(config, []);
+
+    const element = CHART_TYPE_DEFS.pie.render({
+      ...ctx,
+      chartData: null,
+      allChartData: null,
+      shouldShowGhost: false,
+    });
+
+    expect(element.type).not.toBe(StudioPieChart);
+  });
+
+  it('renderLineArea renders the line/area chart (not EmptyChartBox) when chartData is empty but a ghost is available', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'line',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'line' | 'area' | 'area-stacked' | 'area-100'>(config, []);
+
+    const element = CHART_TYPE_DEFS.line.render({
+      ...ctx,
+      chartData: null,
+      allChartData: { labels: ['a', 'b'], values: [1, 2] },
+      shouldShowGhost: true,
+      preserveXFieldBaseline: true,
+    });
+
+    expect(element.type).toBe(StudioLineAreaChart);
+  });
+
+  it('renderLineArea still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'line',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'line' | 'area' | 'area-stacked' | 'area-100'>(config, []);
+
+    const element = CHART_TYPE_DEFS.line.render({
+      ...ctx,
+      chartData: null,
+      allChartData: null,
+      shouldShowGhost: false,
+    });
+
+    expect(element.type).not.toBe(StudioLineAreaChart);
+  });
+
+  // A ghost must never render when `preserveXFieldBaseline` is false — the chart
+  // components' own internal ghost gates (e.g. `StudioBarChart`'s single-series
+  // `effectiveSingleSeriesData`) require it too, and bypassing `EmptyChartBox`
+  // without it would hand the chart a null baseline (crash risk).
+  it('renderBar does not bypass EmptyChartBox when preserveXFieldBaseline is false, even with a ghost available', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'bar',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
+
+    const element = CHART_TYPE_DEFS.bar.render({
+      ...ctx,
+      chartData: null,
+      allChartData: { labels: ['a', 'b'], values: [1, 2] },
+      shouldShowGhost: true,
+      preserveXFieldBaseline: false,
+    });
+
+    expect(element.type).not.toBe(StudioBarChart);
   });
 });

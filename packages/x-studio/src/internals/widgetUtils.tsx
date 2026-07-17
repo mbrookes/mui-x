@@ -703,11 +703,18 @@ export function exportGridToCsv(
  * Export chart as PNG image
  */
 /**
- * Walk all elements in an SVG and inline their computed styles.
- * This ensures fonts, colors, and other CSS-driven properties survive serialization
- * into a standalone SVG/PNG (where stylesheets and CSS variables are unavailable).
+ * Walk all elements of a (live, connected) source SVG and inline their computed styles onto
+ * the corresponding elements of a structurally-identical target SVG (a clone of the source).
+ * This ensures fonts, colors, and other CSS-driven properties survive serialization into a
+ * standalone SVG/PNG (where stylesheets and CSS variables are unavailable).
+ *
+ * `getComputedStyle` only returns meaningful values for elements connected to the document, so
+ * the styles must be READ from `sourceSvg` (the live, on-screen SVG) — a detached clone has no
+ * cascade to compute from. They're WRITTEN onto `targetSvg` only, so the live SVG's own inline
+ * styles are never mutated (a prior version inlined onto the live SVG in place before cloning,
+ * which could pin stale theme colors onto the on-screen chart, surviving a later theme toggle).
  */
-function inlineComputedStyles(svgElement: SVGElement): void {
+function inlineComputedStyles(sourceSvg: SVGElement, targetSvg: SVGElement): void {
   // Properties that need to be inlined for a faithful export
   const STYLE_PROPS = [
     'fill',
@@ -727,13 +734,15 @@ function inlineComputedStyles(svgElement: SVGElement): void {
     'letter-spacing',
   ];
 
-  const elements = svgElement.querySelectorAll('*');
-  elements.forEach((el) => {
-    if (!(el instanceof Element)) {
+  const sourceElements = sourceSvg.querySelectorAll('*');
+  const targetElements = targetSvg.querySelectorAll('*');
+  sourceElements.forEach((el, i) => {
+    const targetEl = targetElements[i];
+    if (!(el instanceof Element) || !(targetEl instanceof Element)) {
       return;
     }
     const computed = window.getComputedStyle(el);
-    const existing = (el as SVGElement).style;
+    const existing = (targetEl as SVGElement).style;
     for (const prop of STYLE_PROPS) {
       const value = computed.getPropertyValue(prop);
       if (value && !existing.getPropertyValue(prop)) {
@@ -781,12 +790,11 @@ export function exportChartToPng(
     return;
   }
 
-  // Inline computed styles on the live SVG elements before cloning so that
-  // theme fonts and MUI CSS variables are captured in the serialized output.
-  inlineComputedStyles(svg);
-
-  // Clone the SVG to avoid modifying the original
+  // Clone the SVG first, then inline computed styles onto the CLONE only — reading computed
+  // values from the live `svg` (styles can only be computed from a document-connected element)
+  // but writing them onto `clonedSvg` so the live, on-screen chart is never mutated.
   const clonedSvg = svg.cloneNode(true) as SVGElement;
+  inlineComputedStyles(svg, clonedSvg);
 
   const svgRect = svg.getBoundingClientRect();
   clonedSvg.setAttribute('width', String(svgRect.width));

@@ -10,6 +10,7 @@ import {
   type GridAggregationModel,
   type GridRowClassNameParams,
   type GridValidRowModel,
+  type GridSortModel,
 } from '@mui/x-data-grid-premium';
 
 import type {
@@ -672,6 +673,18 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     );
   }, [widget.config.gridAggregations]);
 
+  // Drive sorting externally (like `rowGroupingModel`/`aggregationModel` above) so a
+  // config-only edit to `gridSortField`/`gridSortDirection` takes effect immediately.
+  // `initialState.sorting` is only read once at mount by DataGridPremium, so a later edit
+  // to the config had no effect until the grid happened to remount.
+  const sortModel = React.useMemo<GridSortModel>(
+    () =>
+      widget.config.gridSortField
+        ? [{ field: widget.config.gridSortField, sort: widget.config.gridSortDirection ?? 'asc' }]
+        : [],
+    [widget.config.gridSortField, widget.config.gridSortDirection],
+  );
+
   // Drive column visibility externally so toggling always reflects widget config,
   // even when a field has previously been used as a group-by column.
   // Grouped columns must be hidden from the data view (DataGridPremium renders them
@@ -982,18 +995,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           }
           return '';
         }}
-        initialState={{
-          ...(widget.config.gridSortField && {
-            sorting: {
-              sortModel: [
-                {
-                  field: widget.config.gridSortField,
-                  sort: widget.config.gridSortDirection ?? 'asc',
-                },
-              ],
-            },
-          }),
-        }}
+        sortModel={sortModel}
+        onSortModelChange={() => {}}
         // Use controlled layout mode so the pinned summary row uses `position: absolute`
         // rather than `position: sticky`. At very large row counts (~470k+), the total
         // content height can exceed CSS height limits in some browsers, causing sticky

@@ -781,6 +781,39 @@ describe('exportChartToPng', () => {
       Object.defineProperty(HTMLImageElement.prototype, 'src', srcDescriptor);
     }
   });
+
+  // Regression coverage for the Tier 3 finding: `inlineComputedStyles` used to mutate the
+  // LIVE, on-screen SVG's inline styles in place (to bake in computed CSS values before
+  // rasterizing to PNG) BEFORE cloning it — permanently pinning stale computed colors onto
+  // the live chart, which could survive a later light/dark theme toggle. The fix clones the
+  // SVG FIRST and only ever writes the inlined styles onto the clone.
+  it("does not mutate the live, on-screen SVG's inline styles", () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-url');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      scale: vi.fn(),
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+
+    const container = document.createElement('div');
+    // `color` set on the root <svg> (not on <text>) so <text>'s computed 'color' is
+    // inherited — this exercises a real computed-style read, not just an already-inline one.
+    container.innerHTML =
+      '<svg width="100" height="50" style="color: rgb(9, 8, 7)"><text>Chart</text></svg>';
+    document.body.appendChild(container);
+    const liveText = container.querySelector('text')!;
+    expect(liveText.getAttribute('style')).toBeNull();
+
+    const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+    exportChartToPng(widget, container);
+
+    // The live, on-screen <text> must be untouched — `inlineComputedStyles` only ever
+    // wrote onto the (detached, since-discarded) clone used for rasterization.
+    expect(liveText.getAttribute('style')).toBeNull();
+
+    document.body.innerHTML = '';
+  });
 });
 
 // ─── Locale token tests ────────────────────────────────────────────────────────

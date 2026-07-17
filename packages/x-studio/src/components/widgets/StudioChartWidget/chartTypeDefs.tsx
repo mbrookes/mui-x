@@ -182,8 +182,20 @@ function renderBar(ctx: ChartRenderContext<'bar' | 'bar-stacked' | 'bar-100'>): 
   // This mirrors the pre-registry orchestrator's two separate bar dispatch call sites: one
   // above its shared empty-`chartData` guard (multi-Y), one below it (seriesField/single-series).
   const hasMultiY = !!multiYData && multiYData.labels.length > 0;
+  // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
+  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // unconditionally here defeats the orchestrator's ghost-rendering guard in
+  // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
+  // Mirrors `StudioBarChart`'s own single-series ghost gate (`shouldShowGhost &&
+  // allChartData && preserveXFieldBaseline`) so this bypass is only taken when the chart
+  // itself will actually find a non-null baseline to render from.
+  const hasGhostData =
+    ctx.shouldShowGhost &&
+    !!ctx.allChartData &&
+    ctx.allChartData.labels.length > 0 &&
+    ctx.preserveXFieldBaseline;
 
-  if (!hasMultiY && (!chartData || chartData.labels.length === 0)) {
+  if (!hasMultiY && !hasGhostData && (!chartData || chartData.labels.length === 0)) {
     return <EmptyChartBox height={chartHeight} />;
   }
 
@@ -236,7 +248,20 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
   const { config, chartData, chartHeight } = ctx;
   const chartType = config.chartType;
 
-  if (!chartData || chartData.labels.length === 0) {
+  // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
+  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // unconditionally here defeats the orchestrator's ghost-rendering guard in
+  // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
+  // Mirrors `StudioPieChart`'s own `isPieHighlightActive` gate (`shouldShowGhost &&
+  // allChartData && preserveXFieldBaseline`) so this bypass is only taken when the chart
+  // itself will actually find a non-null baseline to render from.
+  const hasGhostData =
+    ctx.shouldShowGhost &&
+    !!ctx.allChartData &&
+    ctx.allChartData.labels.length > 0 &&
+    ctx.preserveXFieldBaseline;
+
+  if (!hasGhostData && (!chartData || chartData.labels.length === 0)) {
     return <EmptyChartBox height={chartHeight} />;
   }
 
@@ -307,8 +332,20 @@ function renderLineArea(
   // check below, mirroring `renderBar`. `StudioLineAreaChart` has a complete multi-Y render path
   // that was dead code while this guard fell straight through to `EmptyChartBox` (finding 1.8).
   const hasMultiY = !!multiYData && multiYData.labels.length > 0;
+  // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
+  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // unconditionally here defeats the orchestrator's ghost-rendering guard in
+  // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
+  // Mirrors `StudioLineAreaChart`'s own single-series `ghostLineValues` gate
+  // (`shouldShowGhost && allChartData && preserveXFieldBaseline`) so this bypass is only
+  // taken when the chart itself will actually find a non-null baseline to render from.
+  const hasGhostData =
+    ctx.shouldShowGhost &&
+    !!ctx.allChartData &&
+    ctx.allChartData.labels.length > 0 &&
+    ctx.preserveXFieldBaseline;
 
-  if (!hasMultiY && (!chartData || chartData.labels.length === 0)) {
+  if (!hasMultiY && !hasGhostData && (!chartData || chartData.labels.length === 0)) {
     return <EmptyChartBox height={chartHeight} />;
   }
 

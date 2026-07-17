@@ -147,10 +147,10 @@ describe('validateAggregationAliases — duplicate/collision rejection (finding 
       table: 'sales',
       aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
     };
-    // `revenue` is also a projection output alias — the aggregate and the projected
+    // `revenue` is also a projected column key — the aggregate and the projected
     // column would be SELECT-ed under the same key.
     expect(() => validateAggregationAliases(descriptor, ['revenue'])).toThrow(
-      /collides with a projection output alias/,
+      /collides with a projected column/,
     );
   });
 

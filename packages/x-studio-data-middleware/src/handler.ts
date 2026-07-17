@@ -51,6 +51,7 @@ import {
   TIER_CACHE_KEY_PREFIX,
 } from './router/tierDecision';
 import { assertTablesAllowed } from './shared/assertTablesAllowed';
+import { sanitizeBoundaryError } from './shared/sanitizeError';
 import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
@@ -67,7 +68,8 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
-  const { db, schemaAllowlist, columnAllowlist, thresholds, tenancy, securityColumns } = options;
+  const { db, schemaAllowlist, columnAllowlist, thresholds, tenancy, securityColumns, cacheScope } =
+    options;
   // ── Compile the row-level-security policy ONCE for the whole request ───────
   // The single compiled object is threaded down in place of the raw
   // `(tenancy, securityColumns)` pair: the resolution chain now runs once here
@@ -101,6 +103,7 @@ export async function handleBatchQuery(
         policy,
         schemaAllowlist,
         columnAllowlist,
+        cacheScope,
       ),
     ),
   );
@@ -122,6 +125,7 @@ async function processWidget(
   policy: CompiledSecurityPolicy,
   schemaAllowlist: HandleBatchQueryOptions['schemaAllowlist'],
   columnAllowlist: HandleBatchQueryOptions['columnAllowlist'],
+  cacheScope: HandleBatchQueryOptions['cacheScope'],
 ): Promise<WidgetQueryResult> {
   const queryOptions = policy;
 
@@ -156,7 +160,7 @@ async function processWidget(
     // and every widget-scoped operation must honor the per-widget error-isolation
     // invariant — a throw here must produce this widget's `{ error }` result, not
     // reject the whole batch's `Promise.all`.
-    const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest);
+    const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest, cacheScope);
 
     // ── 1. Data cache check ────────────────────────────────────────────────
     // The cache is a best-effort layer in FRONT of the authoritative DB: a cache
@@ -275,7 +279,16 @@ async function processWidget(
       rows: [],
       tier: 'db',
       rowCount: 0,
-      error: err instanceof Error ? err.message : String(err),
+      // Never return a raw DB-driver error verbatim (finding T3.5): our own
+      // validation messages pass through, but a driver error (e.g. `no such column`)
+      // is a schema oracle, so it is logged server-side and replaced with a generic
+      // message here — even when no `columnAllowlist` is configured.
+      error: sanitizeBoundaryError(
+        err,
+        `MUI X Studio Server: The query for this widget could not be completed. ` +
+          `The underlying cause has been logged server-side; inspect the server logs to diagnose it. ` +
+          `If it persists, verify the widget's table, column, and filter configuration.`,
+      ),
     };
   }
 }

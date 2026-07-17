@@ -138,8 +138,13 @@ describe('validateQueryPlan — alias-resolution parity', () => {
         expect(plan.aggregations.map((a) => a.physical)).toEqual(
           (descriptor.aggregations ?? []).map((a) => resolveAlias(descriptor, a.column)),
         );
+        // A pure measure is `FUNC(col) AS <col's own result key>` — the alias equals
+        // the LAST dot-segment of the resolved physical column (finding 2.2), so a
+        // qualified measure like `SUM(orders.amount) AS amount` still counts.
         expect(plan.aggregations.map((a) => a.pureMeasure)).toEqual(
-          (descriptor.aggregations ?? []).map((a) => a.alias === a.column),
+          (descriptor.aggregations ?? []).map(
+            (a) => a.alias === (resolveAlias(descriptor, a.column).split('.').pop() ?? ''),
+          ),
         );
       });
 
@@ -232,7 +237,58 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
       columns: ['revenue'],
       aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
     };
-    expect(() => validateQueryPlan(descriptor)).toThrow(/collides with a projection output alias/);
+    expect(() => validateQueryPlan(descriptor)).toThrow(/collides with a projected column/);
+  });
+
+  it('rejects an aggregation alias colliding with a DIRECT projected dimension column (finding 2.1)', () => {
+    // `category` is BOTH a direct projected dimension (SELECT-ed as `orders.category`
+    // → row key `category`) AND the aggregation's output alias — the two SELECT
+    // outputs collapse onto one `category` key, last-wins, silently dropping a field.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['category'],
+      aggregations: [{ column: 'revenue', func: 'sum', alias: 'category' }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/collides with a projected column/);
+  });
+
+  it('rejects the collision even when the projected dimension is table-qualified (finding 2.1)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.category'],
+      aggregations: [{ column: 'revenue', func: 'sum', alias: 'category' }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/collides with a projected column/);
+  });
+
+  it('does NOT flag a pure measure whose alias equals its own projected column key (finding 2.1)', () => {
+    // `SUM(amount) AS amount` projected alongside `amount` is the legitimate
+    // pure-measure shape: the `amount` column goes ONLY into the aggregate clause,
+    // never a separate SELECT dimension, so there is no real key collision.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columns: ['region', 'amount'],
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'amount' }],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('recognises a table-qualified pure measure and keeps it out of GROUP BY (finding 2.2)', () => {
+    // `SUM(orders.amount) AS amount` is a pure measure even though `agg.column` is
+    // qualified — the old raw-string `alias === column` test could never match a
+    // dotted column, wrongly leaving it a GROUP BY dimension.
+    const plan = validateQueryPlan({
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.amount', 'customers.region'],
+      joins: [{ table: 'customers', type: 'left', on: [['orders.customer_id', 'customers.id']] }],
+      aggregations: [{ column: 'orders.amount', func: 'sum', alias: 'amount' }],
+    });
+    const amountAgg = plan.aggregations.find((a) => a.alias === 'amount');
+    expect(amountAgg?.pureMeasure).toBe(true);
   });
 
   // Regression for finding 3.4: an expression-field OUTPUT alias used to reach
@@ -546,13 +602,15 @@ describe('validateQueryPlan — JOIN type allowlist (finding 2.3)', () => {
     expect(validateQueryPlan(joinDescriptor('RIGHT')).joins[0].type).toBe('right');
   });
 
-  it('normalizes the descriptor in place so buildSecureQuery exact-match checks stay correct', () => {
-    // `buildSecureQuery` matches `join.type === 'left'` / `=== 'right'` exactly; a
-    // wrong-case `'LEFT'` would otherwise fall through to INNER and misplace the
-    // joined table's security predicate. Validation lowercases it on the descriptor.
+  it('does NOT mutate the caller descriptor, but canonicalizes the type on the plan (finding T3.4)', () => {
+    // `buildSecureQuery` matches `join.type === 'left'` / `=== 'right'` exactly, so the
+    // canonical lowercase type must reach it — but via the PLAN, not by mutating the
+    // host-owned descriptor. The descriptor keeps its original casing; the plan is
+    // lowercased.
     const descriptor = joinDescriptor('LEFT');
-    validateQueryPlan(descriptor);
-    expect(descriptor.joins![0].type).toBe('left');
+    const plan = validateQueryPlan(descriptor);
+    expect(descriptor.joins![0].type).toBe('LEFT');
+    expect(plan.joins[0].type).toBe('left');
   });
 
   it('throws for an unrecognized join type (full/cross/typo)', () => {

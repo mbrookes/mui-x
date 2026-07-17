@@ -136,6 +136,32 @@ describe('executeForTier — "db" tier', () => {
     expect(calls.some((c) => c.method === 'sum')).toBe(true);
   });
 
+  // Regression (finding 2.2): a table-qualified pure measure (`SUM(orders.amount)
+  // AS amount`) must be recognised as a measure and kept OUT of GROUP BY. The old
+  // raw-string `alias === column` test never matched a dotted `agg.column`, so the
+  // measure column landed in GROUP BY and the aggregate ran per (amount, region)
+  // instead of per region — wrong data, silently.
+  it('keeps a table-qualified pure measure out of GROUP BY (finding 2.2)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        table: 'orders',
+        columns: ['orders.amount', 'customers.region'],
+        aggregations: [{ column: 'orders.amount', func: 'sum', alias: 'amount' }],
+        joins: [{ table: 'customers', type: 'left', on: [['orders.customer_id', 'customers.id']] }],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    const groupByCalls = calls.filter((c) => c.method === 'groupBy');
+    expect(groupByCalls).toHaveLength(1);
+    // Only the dimension is grouped — the pure measure `orders.amount` is absent.
+    expect(groupByCalls[0].args[0]).toEqual(['customers.region']);
+    expect(calls.some((c) => c.method === 'sum')).toBe(true);
+  });
+
   // Regression (finding 3.1): all three tier branches used to gate `.limit()` on
   // truthiness (`if (queryPlan.limit) {...}`), so `limit: 0` — a legitimate
   // "return zero rows" request — was silently treated as "no limit" and never

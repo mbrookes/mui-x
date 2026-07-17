@@ -370,5 +370,5 @@
   "370": "MUI X Studio Server: Requested table(s) not in schema allowlist: %s. Add the table(s) to the schema allowlist if they should be queryable.",
   "371": "MUI X Studio Server: Column \"%s\" on table \"%s\" is not in the column allowlist (%s).",
   "372": "MUI X Studio Server: Duplicate aggregation alias \"%s\". Two aggregations sharing one alias collide on a single result-row key (one aggregate is silently dropped) and make a HAVING on that alias ambiguous. Give each aggregation a distinct alias.",
-  "373": "MUI X Studio Server: Aggregation alias \"%s\" collides with a projection output alias. The aggregate and the projected column would be SELECT-ed under the same key and collide on one result-row key. Give the aggregation a distinct alias."
+  "373": "MUI X Studio Server: Aggregation alias \"%s\" collides with a projected column. The aggregate and the projected column would be SELECT-ed under the same result-row key (one value would silently overwrite the other). Give the aggregation a distinct alias."
 }

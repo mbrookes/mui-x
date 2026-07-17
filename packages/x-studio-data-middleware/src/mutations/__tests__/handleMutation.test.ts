@@ -256,6 +256,37 @@ describe('handleMutation — per-mutation error isolation', () => {
     expect(good.rowsAffected).toBe(1);
   });
 
+  it('sanitizes a raw DB-driver error rather than leaking it verbatim (finding T3.5)', async () => {
+    // A db whose write rejects with a driver-style error (a schema oracle).
+    const throwingDb = (_table: string) => {
+      const qb: any = {
+        where: () => qb,
+        whereIn: () => qb,
+        insert: () => qb,
+        update: () => qb,
+        delete: () => qb,
+        then: (_resolve: unknown, reject?: (err: Error) => void) => {
+          reject?.(new Error('insert into "orders" — no such column: secret_col'));
+        },
+      };
+      return qb;
+    };
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'pending' } },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db: throwingDb,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(results[0].ok).toBe(false);
+    // Generic message returned; the raw driver text (a schema oracle) is not leaked.
+    expect(results[0].error).toMatch(/could not be completed/);
+    expect(results[0].error).not.toMatch('secret_col');
+  });
+
   it('surfaces an unknown operation error per-item without aborting the batch', async () => {
     const db = createMutableMockDb({ orders: [] });
     const body: BatchMutationRequest = {

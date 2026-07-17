@@ -291,9 +291,9 @@ export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_-]+$/;
  */
 export function validateAggregationAliases(
   descriptor: BatchWidgetDescriptor,
-  outputAliases?: Iterable<string>,
+  projectionKeys?: Iterable<string>,
 ): void {
-  const outputAliasSet = outputAliases ? new Set(outputAliases) : undefined;
+  const projectionKeySet = projectionKeys ? new Set(projectionKeys) : undefined;
   const seen = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
     if (!SAFE_ALIAS_PATTERN.test(agg.alias)) {
@@ -315,14 +315,20 @@ export function validateAggregationAliases(
           `Give each aggregation a distinct alias.`,
       );
     }
-    // An `agg.alias` colliding with a projection output alias (a renamed
-    // expression field, `?? as ??`) is the same key-collision hazard across the two
-    // SELECT sources. `outputAliases` is threaded by `validateQueryPlan`; direct
-    // aggregation-only callers omit it (no projection to collide with).
-    if (outputAliasSet?.has(agg.alias)) {
+    // An `agg.alias` colliding with a PROJECTED COLUMN'S RESULT KEY is the same
+    // key-collision hazard across the two SELECT sources — whether that column is a
+    // renamed expression field (SELECT-ed AS its logical id via `?? as ??`, finding
+    // 3.4) OR a direct dimension column (SELECT-ed under the last dot-segment of its
+    // physical name, e.g. `orders.category` → `category`, finding 2.1). Both land on
+    // ONE result-row key that row-object drivers collapse last-wins, silently
+    // dropping a field. `projectionKeys` is threaded by `validateQueryPlan` (already
+    // excluding any column that IS an aggregation's own pure measure — that column
+    // is projected only inside the aggregate clause, so it produces no separate
+    // key); direct aggregation-only callers omit it (no projection to collide with).
+    if (projectionKeySet?.has(agg.alias)) {
       throw new Error(
-        `MUI X Studio Server: Aggregation alias "${agg.alias}" collides with a projection output alias. ` +
-          `The aggregate and the projected column would be SELECT-ed under the same key and collide on one result-row key. ` +
+        `MUI X Studio Server: Aggregation alias "${agg.alias}" collides with a projected column. ` +
+          `The aggregate and the projected column would be SELECT-ed under the same result-row key (one value would silently overwrite the other). ` +
           `Give the aggregation a distinct alias.`,
       );
     }

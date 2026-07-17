@@ -100,7 +100,8 @@ export type TenancyConfig =
  * table (they default to `'region_id'` and `'department'` respectively). The
  * global tenant column is declared in exactly one place — `tenancy.tenantColumn`
  * — never here. Per-table overrides — and the explicit opt-out that marks a
- * **joined** table as an unscoped shared/lookup table — go in `perTable`.
+ * shared/lookup table as unscoped whether it is queried as the PRIMARY table or a
+ * JOINED one (finding 2.3) — go in `perTable`.
  *
  * SECURITY — joined tables are scoped by DEFAULT (fail-closed). A joined table
  * with no `perTable` entry inherits the primary table's resolved
@@ -109,8 +110,10 @@ export type TenancyConfig =
  * column names for a table using a different convention.
  *
  * OPT-OUT — a genuinely shared/lookup table with no tenant column (e.g. a
- * country-codes table) opts out with `perTable[table] = null`, which joins it
- * unscoped. A table joins unscoped ONLY when explicitly declared shared.
+ * country-codes table) opts out with `perTable[table] = null`. It then resolves to
+ * NO security columns whether it is the PRIMARY table of a query/mutation or a
+ * JOINED table (finding 2.3) — a table runs unscoped ONLY when explicitly declared
+ * shared, never merely because the host forgot to register it.
  *
  * @example
  * securityColumns: {
@@ -140,8 +143,8 @@ export interface SecurityColumnsConfig {
    *   a single dimension DROPS just that dimension (keeping the others — e.g.
    *   `{ region: null }` stays tenant-scoped but emits no region predicate).
    * - `null` for the whole entry marks a shared/lookup table that has no tenant
-   *   column and must join unscoped (opts the table OUT of the default inheritance
-   *   entirely).
+   *   column and runs unscoped — as the PRIMARY table of a query/mutation OR as a
+   *   JOINED table (finding 2.3) — opting it OUT of the default inheritance entirely.
    */
   perTable?: Record<string, SecurityColumnOverride | null>;
 }

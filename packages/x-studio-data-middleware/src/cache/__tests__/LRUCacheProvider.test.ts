@@ -27,6 +27,22 @@ describe('LRUCacheProvider', () => {
     expect((await cache.get('k1'))?.rows).toEqual([{ v: 2 }]);
   });
 
+  it('returns an independent copy so mutating a warm hit does not corrupt the cache (finding T3.6)', async () => {
+    const cache = new LRUCacheProvider();
+    await cache.set('k1', entry([{ v: 1 }]));
+
+    const first = await cache.get('k1');
+    // A consumer mutates the rows it got back…
+    (first!.rows[0] as { v: number }).v = 999;
+    first!.rows.push({ v: 2 });
+
+    // …a later reader must still see the ORIGINAL cached value, unmutated.
+    const second = await cache.get('k1');
+    expect(second?.rows).toEqual([{ v: 1 }]);
+    // And the two reads are not the same object reference.
+    expect(second).not.toBe(first);
+  });
+
   describe('TTL expiry under continuous reads (regression for updateAgeOnGet)', () => {
     beforeEach(() => {
       // `lru-cache` uses `performance.now()` (not `Date.now()`) as its clock

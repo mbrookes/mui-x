@@ -40,6 +40,18 @@ export interface CacheSetOpts {
 }
 
 export interface CacheEntry {
+  /**
+   * The cached result rows.
+   *
+   * SERIALIZABILITY CONTRACT (finding T3.6): rows MUST be JSON-serializable
+   * (plain objects of JSON scalars/arrays/objects). A remote provider round-trips
+   * them through `JSON.stringify`/`JSON.parse`, so non-JSON values do not survive a
+   * warm hit the way they do on an in-process provider — a `Date` comes back as an
+   * ISO string, a `Map`/`Set`/`undefined`/`BigInt` is dropped or mangled. Do NOT
+   * rely on a warm cache hit preserving non-JSON value types; normalize such
+   * columns (e.g. to ISO strings) before caching so cold and warm hits are
+   * value-identical across every provider.
+   */
   rows: Record<string, unknown>[];
   cachedAt: number;
   /**
@@ -61,6 +73,15 @@ export interface CacheProvider {
   /**
    * Retrieve a cached result. Returns undefined on miss.
    * Implementations must be safe to call concurrently.
+   *
+   * NO-MUTATION CONTRACT (finding T3.6): the caller MUST treat the returned entry
+   * (and its `rows`) as read-only. An in-process provider may return the stored
+   * object (or a shallow view of it), so mutating it would corrupt the cached entry
+   * for every other reader — whereas a remote provider hands back a fresh
+   * deserialized copy, so a host that mutates the result would behave differently on
+   * a warm vs. cold hit. Callers that need to transform rows must copy first. (The
+   * built-in `LRUCacheProvider` additionally structured-clones on read as
+   * defense-in-depth, so a warm hit is an independent copy like a cold DB fetch.)
    */
   get(key: string): Promise<CacheEntry | undefined>;
 

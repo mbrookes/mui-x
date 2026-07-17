@@ -163,10 +163,13 @@ export interface WidgetQueryResult {
   id: string;
   rows: Record<string, unknown>[];
   /**
-   * Routing tier that served this widget:
-   *   'client'  — raw rows returned, client should filter in-browser
-   *   'server'  — server aggregated from in-memory cache
-   *   'db'      — full DB push-down aggregation
+   * Routing tier that served this widget (finding T3.2 — corrected to match
+   * `executeForTier`'s actual behavior):
+   *   'client'  — raw filtered rows returned; the client filters/aggregates in-browser
+   *   'server'  — raw filtered rows returned; the middleware caches them for reuse
+   *   'db'      — DB push-down: aggregated/grouped rows for an aggregation widget, OR
+   *               a plain raw row slice for a NON-aggregation query whose preflight
+   *               COUNT(*) exceeded the server-memory tier (that slice is cached too)
    */
   tier: 'client' | 'server' | 'db';
   rowCount: number;

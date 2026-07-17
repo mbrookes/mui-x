@@ -96,10 +96,13 @@ export interface PlanAggregation {
   /** Output alias — already validated as a safe identifier by `validateAggregationAliases`. */
   alias: string;
   /**
-   * True when the RAW aggregation's alias equalled its RAW column (a pure measure
-   * such as `SUM(total) AS total`) — such columns go only in the aggregation
-   * clause, never in GROUP BY. Precomputed on the raw values to match the
-   * pre-refactor `a.alias === a.column` check.
+   * True when the aggregation's alias equals its column's RESULT KEY — the last
+   * dot-segment of the resolved physical column (a pure measure such as
+   * `SUM(total) AS total` or `SUM(orders.amount) AS amount`). Such columns go only
+   * in the aggregation clause, never in GROUP BY. Computed on the last dot-segment
+   * (not the raw `agg.column`) so a table-qualified measure is still recognised
+   * (finding 2.2) — `SAFE_ALIAS_PATTERN` forbids '.', so a raw-string `alias === column`
+   * test could never match a qualified column and left it wrongly in GROUP BY.
    */
   pureMeasure: boolean;
 }
@@ -156,6 +159,17 @@ function asColumnRef(physical: string): ColumnRef {
   return physical as ColumnRef;
 }
 
+/**
+ * The result-row KEY a directly-projected physical column lands under — the last
+ * dot-segment of its (possibly table-qualified) name, e.g. `orders.category` →
+ * `category`. Knex assigns a bare `SELECT orders.category` this key on the row
+ * object, so it is the key an aggregation alias can collide with (findings 2.1/2.2).
+ */
+function resultKeyOf(physical: string): string {
+  const dot = physical.lastIndexOf('.');
+  return dot === -1 ? physical : physical.slice(dot + 1);
+}
+
 /** Accepts only the two canonical SQL sort directions (case-insensitive). */
 const SAFE_ORDER_BY_DIRECTION = /^(asc|desc)$/i;
 
@@ -188,8 +202,7 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
 const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
 
 /**
- * Validate every JOIN `type` against a fail-closed allowlist AND normalize it to
- * canonical lowercase on the descriptor (finding 2.3).
+ * Validate every JOIN `type` against a fail-closed allowlist (finding 2.3).
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), mirroring `validateOrderByDirections`.
@@ -200,10 +213,16 @@ const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
  * clause. An unrecognized value (`'full'`, `'cross'`), a typo, or a wrong-case
  * `'LEFT'` would fall through EVERY exact-match check: the join silently degrades to
  * INNER and the joined table's tenant predicate lands in WHERE instead of ON. So
- * constrain the value to `inner`/`left`/`right` (fail-closed) and normalize it to
- * lowercase in place so `buildSecureQuery`'s exact-match checks stay correct for a
- * case-varying-but-valid input. Runs per widget inside `processWidget`, so a bad
- * value yields that widget's own `{ error }` rather than rejecting the whole batch.
+ * constrain the value to `inner`/`left`/`right` (fail-closed).
+ *
+ * NON-MUTATING (finding T3.4): this validator does NOT rewrite `join.type` on the
+ * caller's descriptor — the descriptor is the host-owned parsed request body, and a
+ * pure validator must not mutate it. Canonical lowercasing happens where it is
+ * actually consumed: `buildPlan` lowercases `join.type` onto the PLAN (so
+ * `buildSecureQuery`'s exact-match checks stay correct), and `computeQueryHash`
+ * lowercases it on a hash-input COPY (so `LEFT`/`left` share a cache entry). Runs per
+ * widget inside `processWidget`, so a bad value yields that widget's own `{ error }`
+ * rather than rejecting the whole batch.
  */
 function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
   for (const join of descriptor.joins ?? []) {
@@ -217,9 +236,6 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
           `Use "inner", "left" or "right".`,
       );
     }
-    // Normalize to canonical lowercase so `buildSecureQuery`'s exact-match
-    // (`=== 'left'` / `=== 'right'`) checks stay correct for a case-varying input.
-    join.type = join.type.toLowerCase() as 'inner' | 'left' | 'right';
   }
 }
 
@@ -382,12 +398,23 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
     on: join.on.map(([left, right]): [ColumnRef, ColumnRef] => [resolve(left), resolve(right)]),
   }));
 
-  const aggregations: PlanAggregation[] = (descriptor.aggregations ?? []).map((agg) => ({
-    physical: resolve(agg.column),
-    func: agg.func,
-    alias: agg.alias,
-    pureMeasure: agg.alias === agg.column,
-  }));
+  const aggregations: PlanAggregation[] = (descriptor.aggregations ?? []).map((agg) => {
+    const physical = resolve(agg.column);
+    return {
+      physical,
+      func: agg.func,
+      alias: agg.alias,
+      // A pure measure is `FUNC(col) AS <col's own name>` — the alias equals the
+      // column's RESULT KEY (its last dot-segment), NOT the raw `agg.column` string
+      // (finding 2.2). `SAFE_ALIAS_PATTERN` forbids '.', so a qualified `agg.column`
+      // (`orders.amount`) could never equal a valid alias under the old raw-string
+      // `agg.alias === agg.column` test — structurally killing the pure-measure dedup
+      // for exactly the qualified refs the join docs tell clients to use, so the
+      // measure landed in GROUP BY (wrong grain). Comparing on the last segment
+      // restores it: `SUM(orders.amount) AS amount` is recognised as a pure measure.
+      pureMeasure: agg.alias === resultKeyOf(physical),
+    };
+  });
 
   const orderBy: PlanOrderBy[] = (descriptor.orderBy ?? []).map((ob) => {
     // Normalize the direction (on the request path already validated by
@@ -453,14 +480,36 @@ export function validateQueryPlan(
   columnAllowlist?: Record<string, string[]>,
 ): ValidatedQueryPlan {
   validateHavingAliases(descriptor);
-  // Compute the projection OUTPUT ALIASES (finding 3.4) so `validateAggregationAliases`
-  // can reject an `agg.alias` that collides with one. An output alias exists only
-  // when a referenced column resolves to a DIFFERENT physical column (a renamed
-  // expression field, `?? as ??`) — mirroring `buildPlan` / `validateOutputAliases`.
-  const outputAliases = (descriptor.columns ?? []).filter(
-    (column) => resolveAlias(descriptor, column) !== column,
-  );
-  validateAggregationAliases(descriptor, outputAliases);
+  // Compute the RESULT-ROW KEY of every projected column (findings 2.1 / 3.4) so
+  // `validateAggregationAliases` can reject an `agg.alias` that would collide with
+  // one on the row object:
+  //   - a renamed expression field (resolveAlias(col) !== col) is SELECT-ed AS its
+  //     logical id, so its key is that id (`?? as ??`);
+  //   - a direct column lands under the last dot-segment of its resolved physical
+  //     name (`orders.category` → `category`).
+  // A projected column that IS an aggregation's own pure measure is EXCLUDED here:
+  // `execute.ts` projects it only inside the aggregate clause (not as a SELECT
+  // dimension), so it yields no separate key and must not count as a collision.
+  // Membership is compared on primary-table-qualified physicals, exactly as
+  // `execute.ts`'s `measureColSet` / `dimensionColumns` split does, so an
+  // unqualified column and its qualified aggregation still match.
+  const qualify = (physical: string): string =>
+    physical.includes('.') ? physical : `${descriptor.table}.${physical}`;
+  const measurePhysicals = new Set<string>();
+  for (const agg of descriptor.aggregations ?? []) {
+    const physical = resolveAlias(descriptor, agg.column);
+    if (agg.alias === resultKeyOf(physical)) {
+      measurePhysicals.add(qualify(physical));
+    }
+  }
+  const projectionKeys = (descriptor.columns ?? []).flatMap((column) => {
+    const physical = resolveAlias(descriptor, column);
+    if (measurePhysicals.has(qualify(physical))) {
+      return [];
+    }
+    return [physical !== column ? column : resultKeyOf(physical)];
+  });
+  validateAggregationAliases(descriptor, projectionKeys);
   validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);
   validateJoinTypes(descriptor);

@@ -132,6 +132,11 @@ function lookupPerTableOverride(
  * per-table override still wins for a table using a different tenant-column name.
  * The region/department names fall back to the historical hardcoded defaults
  * (`region_id`, `department`).
+ *
+ * WHOLE-TABLE OPT-OUT (finding 2.3) — `perTable[table] = null` returns an empty
+ * `SecurityColumns` (no predicates), so a host-declared shared/lookup table behaves
+ * identically whether it is the PRIMARY table or a JOINED one. See the resolver body
+ * and `resolveJoinSecurityColumns`.
  */
 export function resolvePrimarySecurityColumns(
   table: string,
@@ -139,6 +144,20 @@ export function resolvePrimarySecurityColumns(
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns {
   const override: SecurityColumnOverride | null | undefined = lookupPerTableOverride(config, table);
+  // Whole-table opt-out (finding 2.3): `perTable[table] = null` is the host's
+  // explicit "shared/lookup table with no security columns" sentinel. The joined
+  // resolver already honors it; the primary resolver MUST too, or a shared table
+  // (e.g. `country_codes`) queried AS the primary table — or mutated — emits a
+  // predicate on a non-existent tenant/region/department column and fails every
+  // such request forever. This mirrors `resolveJoinSecurityColumns`'s `null` branch:
+  // the config is host-authored and already means "no security columns". An empty
+  // `SecurityColumns` drops every predicate (via the downstream truthiness gates)
+  // while keeping the object shape the mutation/predicate sites read (`cols.tenant`,
+  // `cols.region`, `cols.department`) — the write path resolves through this same
+  // function via `forPrimaryTable`, so it is aligned automatically.
+  if (override === null) {
+    return {};
+  }
   return {
     tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
     region: resolveDimension(override?.region, config?.region ?? 'region_id'),

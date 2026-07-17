@@ -43,12 +43,19 @@ function computeSecurityHash(
   claims: JwtSecurityClaims,
   hmacSecret: string,
   policyDigest: string,
+  cacheScope: string | undefined,
 ): string {
   const securityProfile = sortedStringify({
     tenantId: claims.tenantId,
     regionIds: claims.regionIds ? [...claims.regionIds].sort((a, b) => a - b) : undefined,
     department: claims.department,
     policyDigest,
+    // Fold in the host-provided cache scope (finding 2.4) so two option sets that
+    // point at DIFFERENT logical databases in ONE process never collide on the same
+    // (claims, policy, query) key and serve DB-A's rows for DB-B. Included via a
+    // conditional spread so an omitted scope keeps the profile — and therefore every
+    // existing key — byte-identical (fully backward compatible).
+    ...(cacheScope !== undefined && { cacheScope }),
   });
 
   const memoKey = `${hmacSecret}::${securityProfile}`;
@@ -80,6 +87,22 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
   // Exclude the widget `id` so two widgets with an identical query shape share a key.
   const queryShape: Record<string, unknown> = { ...descriptor };
   delete queryShape.id;
+  // Canonicalize the case-insensitive SQL tokens that `buildPlan` lowercases onto the
+  // PLAN — `join[].type` and `orderBy[].direction` — so a case-varying-but-equivalent
+  // descriptor (`LEFT`/`left`, `ASC`/`asc`) hashes to the SAME key instead of
+  // fragmenting the cache (finding T3.4). Both are normalized on hash-input COPIES so
+  // the host-owned descriptor is never mutated (the validators are pure). A non-string
+  // token is left as-is — the per-widget validators reject it before it is queried.
+  if (Array.isArray(descriptor.joins)) {
+    queryShape.joins = descriptor.joins.map((join) =>
+      typeof join.type === 'string' ? { ...join, type: join.type.toLowerCase() } : join,
+    );
+  }
+  if (Array.isArray(descriptor.orderBy)) {
+    queryShape.orderBy = descriptor.orderBy.map((ob) =>
+      typeof ob.direction === 'string' ? { ...ob, direction: ob.direction.toLowerCase() } : ob,
+    );
+  }
   return createHash('sha256').update(sortedStringify(queryShape)).digest('hex').slice(0, 16);
 }
 
@@ -95,12 +118,20 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
  *   share cache entries. Defaults to the single-tenant policy digest so direct
  *   callers (e.g. unit tests) that don't pass one stay deterministic and match a
  *   single-tenant deployment.
+ * @param cacheScope - Optional host-provided identity for the DATA SOURCE behind
+ *   this request (`HandleBatchQueryOptions.cacheScope`, finding 2.4). The cache key
+ *   otherwise carries no data-source dimension, so a single process serving TWO
+ *   logical databases through ONE shared cache provider would produce identical keys
+ *   for the same (claims, policy, descriptor) and serve one DB's rows for the other.
+ *   Supply a stable per-database string to keep their entries distinct. Omitted →
+ *   byte-identical to the pre-2.4 key (backward compatible).
  */
 export function generateCacheKey(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   hmacSecret: string = process.env.CACHE_HMAC_SECRET ?? process.env.JWT_SECRET ?? '',
   policyDigest: string = SINGLE_TENANT_POLICY_DIGEST,
+  cacheScope?: string,
 ): string {
   if (!hmacSecret) {
     throw new Error(
@@ -109,7 +140,7 @@ export function generateCacheKey(
         'Set CACHE_HMAC_SECRET (or JWT_SECRET) or pass an explicit secret to generateCacheKey().',
     );
   }
-  const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest);
+  const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest, cacheScope);
   const queryHash = computeQueryHash(descriptor);
   // Encode the tenant segment so a `tenantId` containing ':' cannot corrupt the
   // segment boundaries that prefix-based invalidation relies on (finding 3.2).

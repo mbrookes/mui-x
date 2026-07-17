@@ -52,6 +52,7 @@ import {
   buildDeleteMutation,
 } from './mutationBuilder';
 import { assertTablesAllowed } from '../shared/assertTablesAllowed';
+import { sanitizeBoundaryError } from '../shared/sanitizeError';
 import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
@@ -191,7 +192,16 @@ async function processMutation(
     return {
       id: descriptor.id,
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      // Never return a raw DB-driver error verbatim (finding T3.5): our own
+      // validation messages pass through, but a driver error (e.g. a constraint or
+      // `no such column` message) is a schema oracle, so it is logged server-side
+      // and replaced with a generic message here.
+      error: sanitizeBoundaryError(
+        err,
+        `MUI X Studio Server: The mutation could not be completed. ` +
+          `The underlying cause has been logged server-side; inspect the server logs to diagnose it. ` +
+          `If it persists, verify the mutation's table, column, and where-predicate configuration.`,
+      ),
     };
   }
 }

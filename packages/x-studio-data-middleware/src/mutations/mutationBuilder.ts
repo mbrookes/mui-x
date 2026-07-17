@@ -13,8 +13,12 @@
  *      BEFORE reaching these functions (see `validateMutation` below).
  *   4. UPDATE and DELETE require at least one `where` predicate to prevent
  *      accidental full-table mutations.
- *   5. The tenant column is stripped from client-supplied `values` for updates —
- *      a client can never move a row to a different tenant. Table-qualified
+ *   5. A client-supplied tenant column in `values` is REJECTED fail-closed, not
+ *      silently overridden/stripped: `validateMutation` → `validateSecurityColumnValues`
+ *      THROWS on it before any write is built, so a client can never move a row to,
+ *      or stamp one into, a different tenant. The INSERT force-stamp and the UPDATE
+ *      tenant-strip below are defense-in-depth for DIRECT builder callers that skip
+ *      `validateMutation` (INSERT also re-runs the throwing check first). Table-qualified
  *      `values` keys (`table.column`) are rejected outright: mutation values
  *      always target exactly one table, so a qualified key is malformed input and
  *      would otherwise bypass the row-level-security scope check below (which
@@ -295,8 +299,10 @@ export function validateMutation(
  * Build a parameterized INSERT query.
  *
  * The tenant column (resolved from the required `TenancyConfig`, with an optional
- * `securityColumns.perTable` override) is unconditionally injected from `claims`,
- * overriding any client-supplied value.
+ * `securityColumns.perTable` override) is unconditionally injected from `claims`. A
+ * client-supplied tenant value never reaches this stamp: `validateMutation` — and
+ * the re-check at the top of this builder, for direct callers that skip it — THROWS
+ * on it fail-closed rather than silently overriding it.
  *
  * Returns a Knex query builder — await the result to execute and get the
  * inserted row ID(s) or row count.

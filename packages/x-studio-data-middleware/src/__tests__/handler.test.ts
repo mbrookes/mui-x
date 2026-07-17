@@ -2245,7 +2245,11 @@ describe('handleBatchQuery — HAVING predicates', () => {
     });
 
     expect(result.results[0].rows).toEqual([]);
-    expect(result.results[0].error).toMatch('no such column: computed_revenue');
+    // The raw DB-driver error must NOT leak verbatim (finding T3.5): it is a schema
+    // oracle, so it is replaced with a generic message (the real cause is logged
+    // server-side) even though no `columnAllowlist` is configured here.
+    expect(result.results[0].error).toMatch(/could not be completed/);
+    expect(result.results[0].error).not.toMatch('computed_revenue');
   });
 });
 
@@ -2377,6 +2381,9 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     expect(okResult.rows.length).toBeGreaterThan(0);
     expect(okResult.error).toBeUndefined();
     expect(errResult.rows).toEqual([]);
-    expect(errResult.error).toMatch('db connection failed');
+    // Per-widget isolation still holds, but the raw driver error is sanitized to a
+    // generic message rather than leaked verbatim (finding T3.5).
+    expect(errResult.error).toMatch(/could not be completed/);
+    expect(errResult.error).not.toMatch('db connection failed');
   });
 });

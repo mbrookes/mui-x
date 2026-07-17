@@ -109,7 +109,17 @@ export class LRUCacheProvider implements CacheProvider {
   }
 
   async get(key: string): Promise<CacheEntry | undefined> {
-    return this.cache.get(key);
+    const entry = this.cache.get(key);
+    if (entry === undefined) {
+      return undefined;
+    }
+    // Return an independent deep copy (finding T3.6). `lru-cache` stores the entry
+    // by reference, so without this a caller that mutates the returned rows would
+    // corrupt the shared cached entry for every other reader, and a warm hit would
+    // behave differently from a cold DB fetch (which always yields fresh rows). A
+    // structured clone makes a warm hit an independent copy, matching the
+    // no-mutation contract documented on `CacheProvider.get`.
+    return structuredClone(entry);
   }
 
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {

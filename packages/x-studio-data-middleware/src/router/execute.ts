@@ -128,10 +128,15 @@ export async function executeForTier(
   // column (e.g. SUM(total) AS total). They must not appear in GROUP BY —
   // only in the aggregation clause. Dimension columns (date, category, …)
   // remain in both SELECT and GROUP BY.
+  // Compare on PRIMARY-TABLE-QUALIFIED physicals (finding 2.2): a pure measure may
+  // be qualified (`orders.amount`) while the matching projection column is not
+  // (`amount`), or vice-versa, so a raw-string `.has(c.physical)` would miss the
+  // match and leave the measure column in GROUP BY (wrong grain). Qualifying both
+  // sides makes the membership test grain-correct.
   const measureColSet = new Set(
-    queryPlan.aggregations.filter((a) => a.pureMeasure).map((a) => a.physical),
+    queryPlan.aggregations.filter((a) => a.pureMeasure).map((a) => qualify(a.physical)),
   );
-  const dimensionColumns = queryPlan.columns.filter((c) => !measureColSet.has(c.physical));
+  const dimensionColumns = queryPlan.columns.filter((c) => !measureColSet.has(qualify(c.physical)));
 
   if (dimensionColumns.length > 0) {
     query.select(dimensionColumns.map(projectColumn));

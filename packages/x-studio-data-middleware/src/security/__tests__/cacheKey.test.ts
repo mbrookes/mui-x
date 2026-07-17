@@ -151,6 +151,63 @@ describe('generateCacheKey', () => {
     });
   });
 
+  describe('case-insensitive SQL tokens share a cache entry (finding T3.4)', () => {
+    it('hashes join.type case-insensitively (LEFT === left)', () => {
+      const make = (type: string): BatchWidgetDescriptor => ({
+        id: 'w1',
+        table: 'sales',
+        joins: [
+          { table: 'customers', type: type as any, on: [['sales.customer_id', 'customers.id']] },
+        ],
+      });
+      expect(generateCacheKey(CLAIMS, make('LEFT'), SECRET)).toBe(
+        generateCacheKey(CLAIMS, make('left'), SECRET),
+      );
+    });
+
+    it('hashes orderBy.direction case-insensitively (ASC === asc)', () => {
+      const make = (direction: string): BatchWidgetDescriptor => ({
+        id: 'w1',
+        table: 'sales',
+        orderBy: [{ column: 'amount', direction: direction as any }],
+      });
+      expect(generateCacheKey(CLAIMS, make('ASC'), SECRET)).toBe(
+        generateCacheKey(CLAIMS, make('asc'), SECRET),
+      );
+    });
+
+    it('does not mutate the descriptor while canonicalizing for the hash', () => {
+      const descriptor: BatchWidgetDescriptor = {
+        id: 'w1',
+        table: 'sales',
+        joins: [
+          { table: 'customers', type: 'LEFT' as any, on: [['sales.customer_id', 'customers.id']] },
+        ],
+        orderBy: [{ column: 'amount', direction: 'ASC' as any }],
+      };
+      generateCacheKey(CLAIMS, descriptor, SECRET);
+      expect(descriptor.joins![0].type).toBe('LEFT');
+      expect(descriptor.orderBy![0].direction).toBe('ASC');
+    });
+  });
+
+  describe('cacheScope data-source dimension (finding 2.4)', () => {
+    it('produces different keys for different cache scopes', () => {
+      const a = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, undefined, 'db-a');
+      const b = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, undefined, 'db-b');
+      expect(a).not.toBe(b);
+      // Only the security-hash segment differs; the query-hash segment is identical.
+      expect(a.split(':')[4]).toBe(b.split(':')[4]);
+      expect(a.split(':')[3]).not.toBe(b.split(':')[3]);
+    });
+
+    it('omitting cacheScope is byte-identical to the pre-2.4 key (backward compatible)', () => {
+      expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET, undefined, undefined)).toBe(
+        generateCacheKey(CLAIMS, DESCRIPTOR, SECRET),
+      );
+    });
+  });
+
   describe('HMAC-secret scoping', () => {
     it('produces a different security hash for a different secret', () => {
       const a = generateCacheKey(CLAIMS, DESCRIPTOR, 'secret-a');

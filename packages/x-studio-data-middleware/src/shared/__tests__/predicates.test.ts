@@ -59,6 +59,20 @@ describe('resolvePrimarySecurityColumns / resolveJoinSecurityColumns — own-pro
     const shared: SecurityColumnsConfig = { perTable: { country_codes: null } };
     expect(resolveJoinSecurityColumns('country_codes', shared, TENANT_COLUMN)).toBeUndefined();
   });
+
+  it('honors the whole-table null opt-out for the PRIMARY table too (finding 2.3)', () => {
+    // A host that declares a shared lookup table `country_codes: null` must get NO
+    // security columns whether it is JOINED or the PRIMARY table of the query — the
+    // joined resolver already returned undefined; the primary resolver used to ignore
+    // the null and inherit the fallback tenant column, emitting a predicate on a
+    // non-existent column and failing every such widget/mutation forever.
+    const shared: SecurityColumnsConfig = { perTable: { country_codes: null } };
+    const primary = resolvePrimarySecurityColumns('country_codes', shared, TENANT_COLUMN);
+    expect(primary).toEqual({});
+    expect(primary.tenant).toBeUndefined();
+    expect(primary.region).toBeUndefined();
+    expect(primary.department).toBeUndefined();
+  });
 });
 
 // ── Value-shape guards for like / scalar comparisons (finding 3.1) ────────────

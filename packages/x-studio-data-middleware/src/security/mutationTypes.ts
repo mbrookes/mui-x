@@ -145,8 +145,30 @@ export interface HandleBatchQueryOptions {
   /**
    * Cache provider (default: built-in LRU).
    * The host app can swap in a Redis provider for multi-node deployments.
+   *
+   * ONE CACHE ⇒ ONE LOGICAL DATABASE (finding 2.4): a given cache provider (the
+   * built-in module-singleton default, or any instance you pass) must serve exactly
+   * ONE logical data source. The cache key is derived from the caller's claims, the
+   * compiled security policy, and the query descriptor — it carries NO data-source
+   * dimension — so pointing two option sets with different `db` connections at the
+   * SAME provider makes them collide on identical keys and serve one database's rows
+   * for the other's for the entry TTL. If a single process must serve multiple
+   * logical databases through one shared provider, give each a distinct `cacheScope`
+   * (below) so their entries stay separate; otherwise use a separate provider per DB.
    */
   cacheProvider?: import('../cache/types').CacheProvider;
+  /**
+   * Optional stable identity for the DATA SOURCE behind this request (finding 2.4).
+   *
+   * Folded into the cache key (via `generateCacheKey`) so a single process serving
+   * MULTIPLE logical databases through one shared `cacheProvider` keeps their entries
+   * distinct instead of colliding on the same (claims, policy, descriptor) key and
+   * serving one DB's rows for the other. Use a stable per-database string (e.g. the
+   * database name or a connection identifier). Omit it for the common single-database
+   * case — an omitted scope produces byte-identical keys to before this option
+   * existed (fully backward compatible).
+   */
+  cacheScope?: string;
   /**
    * Allowlist of table names the middleware may query.
    * Zero-Knowledge Rule: if a requested table is not in this list, the

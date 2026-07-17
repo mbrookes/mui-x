@@ -467,23 +467,83 @@ describe('buildQueryDescriptor', () => {
     expect(desc.filter).toBeUndefined();
   });
 
-  it('cross-filter application does not change the cacheKey for a non-aggregated widget', () => {
-    // Because cross-filters never enter the descriptor's filter tree, adding one must not
-    // perturb the request cacheKey for a widget with no server-side aggregation to strip —
-    // there is nothing about the request shape a cross-filter could change (would otherwise
-    // force a spurious server round-trip on every chart click).
+  it('cross-filter field is projected into select; cacheKey is stable across value changes (finding T1.1)', () => {
+    // The cross-filter is enforced CLIENT-SIDE over the fetched raw rows, but the data
+    // middleware projects only `select` — so the cross-filter's field MUST be widened into
+    // `select`, otherwise the residual reads `undefined` on every row and empties the widget.
+    // The field set (not the per-value selection) feeds the cacheKey: the first cross-filter on
+    // a new field refetches once; clicking different values on the same field does not.
     const widget = makeWidget({});
     const descNoCross = buildQueryDescriptor(widget, [], PAGE_ID);
     expect(descNoCross.aggregations).toBeUndefined();
-    const crossFilter = makeFilter({
+    expect(descNoCross.select).not.toContain('category');
+    const crossA = makeFilter({
       scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
       field: 'category',
       value: 'Electronics',
     });
-    const descWithCross = buildQueryDescriptor(widget, [crossFilter], PAGE_ID);
-    expect(descWithCross.cacheKey).toBe(descNoCross.cacheKey);
-    expect(descWithCross.hasIncomingCrossOrInteractiveFilters).toBe(true);
+    const crossB = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'category',
+      value: 'Furniture',
+    });
+    const descA = buildQueryDescriptor(widget, [crossA], PAGE_ID);
+    const descB = buildQueryDescriptor(widget, [crossB], PAGE_ID);
+    // The incoming cross-filter's field is now part of the projection.
+    expect(descA.select).toContain('category');
+    // First landing on a new field refetches (cacheKey differs from the no-cross-filter key)...
+    expect(descA.cacheKey).not.toBe(descNoCross.cacheKey);
+    // ...but a different VALUE on the same field does not (only the field set feeds the key).
+    expect(descB.cacheKey).toBe(descA.cacheKey);
+    expect(descA.hasIncomingCrossOrInteractiveFilters).toBe(true);
     expect(descNoCross.hasIncomingCrossOrInteractiveFilters).toBe(false);
+  });
+
+  it('interactive-filter field is projected into select; cacheKey is stable across value changes (finding T1.1)', () => {
+    const widget = makeWidget({});
+    const descNone = buildQueryDescriptor(widget, [], PAGE_ID);
+    const interactiveA = makeFilter({
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: PAGE_ID },
+      field: 'region',
+      value: 'EU',
+    });
+    const interactiveB = makeFilter({
+      scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: PAGE_ID },
+      field: 'region',
+      value: 'US',
+    });
+    const descA = buildQueryDescriptor(widget, [interactiveA], PAGE_ID);
+    const descB = buildQueryDescriptor(widget, [interactiveB], PAGE_ID);
+    expect(descA.select).toContain('region');
+    expect(descA.cacheKey).not.toBe(descNone.cacheKey);
+    expect(descB.cacheKey).toBe(descA.cacheKey);
+  });
+
+  it('cross-SOURCE cross-filter widens select with the relationship FK column, not the foreign field (finding T1.1)', () => {
+    // orders -(customerId)-> customers. A cross-filter on a `customers` field is applied to the
+    // foreign source and semi-joined back to the widget's `orders` rows on the FK column
+    // (`customerId`). That FK — not the foreign `tier` column, which does not exist on orders —
+    // must be projected so the client-side semi-join has a key to match on.
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'source-orders',
+        sourceField: 'customerId',
+        targetId: 'source-customers',
+        targetField: 'id',
+      },
+    ];
+    const widget = makeWidget({});
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'tier',
+      filterSourceId: 'source-customers',
+      value: 'gold',
+    });
+    const desc = buildQueryDescriptor(widget, [crossFilter], PAGE_ID, undefined, [], relationships);
+    expect(desc.select).toContain('customerId');
+    expect(desc.select).not.toContain('tier');
   });
 
   it('cross-filter application DOES change the cacheKey for a server-aggregated widget (finding 2.9)', () => {

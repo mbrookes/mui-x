@@ -225,13 +225,17 @@ export function buildQueryDescriptor(
   // raw rows instead — a server-aggregated response is one row per group with only the grouped/
   // alias columns, so a cross-filter on any other field would read `undefined` on every row and
   // empty the widget (finding 2.9).
-  const hasIncomingCrossOrInteractiveFilters = selectFiltersForWidget(filters, {
+  const incomingFilters = selectFiltersForWidget(filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
     activePageId,
     include: 'all',
     crossFilterAllPages,
-  }).some((f) => f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive');
+  });
+  const crossOrInteractiveFilters = incomingFilters.filter(
+    (f) => f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive',
+  );
+  const hasIncomingCrossOrInteractiveFilters = crossOrInteractiveFilters.length > 0;
   // Rank-mode filters (top/bottom-N) have no wire representation: `filterStateToLeaf` drops
   // `filterMode`, so a page-scoped rank filter would serialize as a bogus `field = <rankValue>`
   // predicate (the leaf's `value` is the N, e.g. 10) and the actual top-N reduction would never
@@ -284,10 +288,46 @@ export function buildQueryDescriptor(
     [f.field, f.rankByField].filter((v): v is string => Boolean(v)),
   );
 
+  // Incoming cross-filter / interactive-filter fields must also be widened into `select`. The
+  // adapter's client-side enforcement (`useWidgetRows`) is the SOLE enforcement point for these
+  // scopes and evaluates them against the FETCHED raw rows, while `x-studio-data-middleware`
+  // deliberately projects ONLY `select` (= `plan.columns`). A cross/interactive field that is not
+  // already part of the widget's own config (xField/yField/columns) would therefore be MISSING
+  // from every returned row, so the residual `row[field] == value` is `undefined == value` →
+  // false for every row and the widget empties (finding T1.1).
+  //
+  // Only the FIELD SET is folded in here — never the per-value selection. `select` feeds the
+  // cacheKey, so this changes the key at most once, when a cross/interactive filter first lands on
+  // a NEW field (one refetch); clicking different values on the same field leaves the field set —
+  // and thus the cacheKey — unchanged. Hosts that ignore `select` and return full rows are
+  // unaffected.
+  const crossOrInteractiveFieldRefs = crossOrInteractiveFilters.flatMap((f) => {
+    if (!f.field) {
+      return [];
+    }
+    // Same-source filter: the filtered column lives on the widget's own source, so project it.
+    if (!f.filterSourceId || f.filterSourceId === widget.sourceId) {
+      return [f.field];
+    }
+    // Cross-source filter: the residual semi-joins the foreign match set back to the widget's
+    // rows on the relationship FK column, so THAT column (on the widget's source) must be
+    // projected — the foreign field itself belongs to another source and can't be selected here.
+    // Mirror the direct-relationship resolution in `dataSourceGraph.findJoinPath`.
+    const rel = relationships.find(
+      (r) =>
+        (r.sourceId === widget.sourceId && r.targetId === f.filterSourceId) ||
+        (r.targetId === widget.sourceId && r.sourceId === f.filterSourceId),
+    );
+    if (!rel) {
+      return [];
+    }
+    return [rel.sourceId === widget.sourceId ? rel.sourceField : rel.targetField];
+  });
+
   // Expression columns are expanded to the native columns they depend on — the server
   // returns the raw inputs and the expression is re-derived client-side.
   const select = expandToNativeFields(
-    [...collectSelectFields(widget), ...rankFilterFieldRefs],
+    [...collectSelectFields(widget), ...rankFilterFieldRefs, ...crossOrInteractiveFieldRefs],
     expressionFields,
     widget.sourceId,
     relationships,

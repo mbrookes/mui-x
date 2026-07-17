@@ -476,6 +476,40 @@ describe('makeSelectWidgetRankFilter', () => {
     expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
   });
 
+  it('surfaces a rank filter whose value is a numeric string (finding T3.8)', () => {
+    // The engine (`isFilterComplete`, `applyRankToAggregated`) coerces the rank N with
+    // `Number(...)`, so a host- or wire-authored `value: '5'` is enforced by every data path.
+    // The chip selector must use the same coercion rather than requiring a native number,
+    // otherwise the enforced Top-N would never surface its chip.
+    const s = state({
+      widgets: { w1: widget('w1', 'chart') },
+      filters: [
+        filter({
+          id: 'r',
+          scope: { kind: 'widget', widgetId: 'w1' },
+          filterMode: 'rank',
+          value: '5' as unknown as number,
+        }),
+      ],
+    });
+    expect(makeSelectWidgetRankFilter('w1')(s)).not.toBeNull();
+  });
+
+  it('returns null for a non-numeric rank value (finding T3.8)', () => {
+    const s = state({
+      widgets: { w1: widget('w1', 'chart') },
+      filters: [
+        filter({
+          id: 'r',
+          scope: { kind: 'widget', widgetId: 'w1' },
+          filterMode: 'rank',
+          value: 'N/A' as unknown as number,
+        }),
+      ],
+    });
+    expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
+  });
+
   it('returns null when the rank value is not positive', () => {
     const s = state({
       widgets: { w1: widget('w1', 'chart') },

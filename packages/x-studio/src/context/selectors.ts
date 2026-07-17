@@ -566,8 +566,14 @@ export function makeSelectWidgetRankFilter(
           f.scope.kind === 'widget' &&
           f.scope.widgetId === widgetId &&
           f.filterMode === 'rank' &&
-          typeof f.value === 'number' &&
-          f.value > 0,
+          // Coerce with `Number(...)` rather than requiring `typeof f.value === 'number'`: the
+          // engine (`isFilterComplete`, `applyRankToAggregated`) accepts a numeric string, so a
+          // host- or wire-authored rank filter whose value is `"5"` is enforced by every data
+          // path. Requiring a native number here would suppress the "Top N" chip for it, diverging
+          // from what actually filters the rows (finding T3.8). The `Number.isFinite` guard rejects
+          // NaN so a non-numeric value ("N/A") still yields no chip.
+          Number.isFinite(Number(f.value)) &&
+          Number(f.value) > 0,
       ) ?? null
     );
   };

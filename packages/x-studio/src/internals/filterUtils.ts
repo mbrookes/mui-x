@@ -564,10 +564,15 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       const topKeys = new Set(sorted.slice(0, n).map(([k]) => k));
       result = result.filter((row) => topKeys.has(row[fieldId]));
     } else {
-      // Numeric rank: sort rows by the field value directly
+      // Numeric rank: sort rows by the field value directly. Route through the SHARED
+      // numeric-coercion policy (`coerceAggregateValue`) — the same one the `rankByField`
+      // branch above uses — rather than `Number(... ?? 0)`. A non-numeric sentinel ("N/A")
+      // would otherwise coerce to NaN, making every comparison false so `toSorted` leaves the
+      // rows in an arbitrary engine-dependent order and top-N picks a meaningless subset
+      // (finding T3.1). Null / non-numeric values fall back to 0, matching the aggregate branch.
       const sorted = result.toSorted((a, b) => {
-        const av = Number(a[fieldId] ?? 0);
-        const bv = Number(b[fieldId] ?? 0);
+        const av = coerceAggregateValue(a[fieldId]) ?? 0;
+        const bv = coerceAggregateValue(b[fieldId]) ?? 0;
         return dir === 'top' ? bv - av : av - bv;
       });
       result = sorted.slice(0, n);

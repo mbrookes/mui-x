@@ -689,6 +689,31 @@ describe('applyFilters — rank mode', () => {
     expect(result.map((r) => r.id)).toEqual(['d', 'a']);
   });
 
+  it('coerces a non-numeric sentinel in a direct numeric rank instead of NaN-poisoning the sort (finding T3.1)', () => {
+    // Row 'x' carries a non-numeric sentinel ("N/A") in the ranked field. Before the fix,
+    // `Number('N/A' ?? 0)` was NaN — every comparison against it returned false, leaving
+    // `toSorted` in an arbitrary engine-dependent order so the "top 3" was a meaningless subset.
+    // With `coerceAggregateValue` the sentinel falls back to 0 (sorts to the bottom for `top`),
+    // so the three real numeric winners are selected deterministically.
+    const rowsWithSentinel = [
+      { id: 'a', revenue: 100 },
+      { id: 'b', revenue: 300 },
+      { id: 'c', revenue: 200 },
+      { id: 'x', revenue: 'N/A' },
+      { id: 'e', revenue: 400 },
+    ];
+    const result = applyFilters(rowsWithSentinel, [
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 3,
+        rankDirection: 'top',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['e', 'b', 'c']);
+  });
+
   it('top N by aggregate rankByField — keeps all rows belonging to top groups', () => {
     // Top 1 category by total revenue: Y = 700, X = 300, Z = 50 → only Y rows kept
     const result = applyFilters(rows, [

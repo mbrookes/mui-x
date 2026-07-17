@@ -1306,12 +1306,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // convention for an unresolvable-target mutation in this reducer (`updateWidget`/
       // `removePage`/`setActivePage` unknown-id cases).
       const { scope } = args.filter;
-      const orphanAnchorId =
-        scope.kind === 'cross-filter' || scope.kind === 'interactive'
-          ? scope.sourceWidgetId
-          : scope.kind === 'widget'
-            ? scope.widgetId
-            : undefined;
+      let orphanAnchorId: string | undefined;
+      if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+        orphanAnchorId = scope.sourceWidgetId;
+      } else if (scope.kind === 'widget') {
+        orphanAnchorId = scope.widgetId;
+      }
       if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
         return state;
       }

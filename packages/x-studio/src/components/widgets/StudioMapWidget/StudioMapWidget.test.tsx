@@ -1056,7 +1056,11 @@ describe('<StudioMapWidget /> geography loader staleness & error recovery', () =
         label: 'World',
         fieldLabel: 'Country field',
         fieldHint: '',
-        loader: () => worldDeferreds[worldCallCount++].promise,
+        loader: () => {
+          const deferred = worldDeferreds[worldCallCount];
+          worldCallCount += 1;
+          return deferred.promise;
+        },
       },
       usa: {
         label: 'USA',
@@ -1174,6 +1178,7 @@ describe('<StudioMapWidget /> geography loader staleness & error recovery', () =
       await Promise.resolve();
     });
 
+    // eslint-disable-next-line testing-library/prefer-screen-queries -- `view` is needed for rerender() below; screen is not imported in this suite
     expect(view.getByRole('alert')).toBeTruthy();
     expect(loadCount).toBe(1);
 

@@ -7,14 +7,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { createDefaultStudioState } from '../models/studioTypes';
 import type { StudioState } from '../models/studioTypes';
 import type { StudioAISkill } from '../models/aiTypes';
-import type { ToolPolicy } from '../toolPolicy';
+import type { ToolPolicy, ToolEffectSummary } from '../toolPolicy';
 import {
   waitForApproval,
   dispatchToolCall,
   buildApprovalEffectsSummary,
   type ToolDispatchContext,
 } from './toolDispatch';
-import type { ToolEffectSummary } from '../toolPolicy';
 import type { AccumulatedToolCall } from './openaiWire';
 
 const INITIAL_STATE = createDefaultStudioState();

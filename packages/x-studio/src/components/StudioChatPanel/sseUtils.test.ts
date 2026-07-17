@@ -5,11 +5,12 @@ import { serializeDashboardState } from './sseUtils';
 // ── serializeDashboardState: doc.ai trimming ─────────────────────────────────
 //
 // `doc.ai` persists the FULL transcript of every chat thread, not just the
-// active one. The server-side handler only ever reads `activeThreadId` off of
-// it (the live conversation travels separately as the request's `messages`
-// array), so shipping the whole `threads` array on every chat/widget request
-// is unbounded and unnecessary. `serializeDashboardState` must trim it down to
-// `activeThreadId` only, without mutating what's stored in `doc.ai` client-side.
+// active one. The server-side handler only ever reads `activeThreadId` off
+// this value (the live conversation travels separately as the request's
+// `messages` array), so shipping the whole `threads` array on every
+// chat/widget request is unbounded and unnecessary. `serializeDashboardState`
+// must trim this down to `activeThreadId` only, without mutating what's
+// stored in `doc.ai` client-side.
 
 describe('serializeDashboardState', () => {
   it('keeps activeThreadId but drops the full thread transcript array', () => {

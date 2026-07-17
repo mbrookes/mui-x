@@ -337,7 +337,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
 
-    const element = CHART_TYPE_DEFS.bar.render({
+    const view = CHART_TYPE_DEFS.bar.render({
       ...ctx,
       chartData: null,
       allChartData: { labels: ['a', 'b'], values: [1, 2] },
@@ -345,7 +345,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
       preserveXFieldBaseline: true,
     });
 
-    expect(element.type).toBe(StudioBarChart);
+    expect(view.type).toBe(StudioBarChart);
   });
 
   it('renderBar still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
@@ -356,14 +356,14 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
 
-    const element = CHART_TYPE_DEFS.bar.render({
+    const view = CHART_TYPE_DEFS.bar.render({
       ...ctx,
       chartData: null,
       allChartData: null,
       shouldShowGhost: false,
     });
 
-    expect(element.type).not.toBe(StudioBarChart);
+    expect(view.type).not.toBe(StudioBarChart);
   });
 
   it('renderPieDonut renders the pie chart (not EmptyChartBox) when chartData is empty but a ghost is available', () => {
@@ -374,7 +374,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'pie' | 'donut'>(config, []);
 
-    const element = CHART_TYPE_DEFS.pie.render({
+    const view = CHART_TYPE_DEFS.pie.render({
       ...ctx,
       chartData: null,
       allChartData: { labels: ['a', 'b'], values: [1, 2] },
@@ -382,7 +382,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
       preserveXFieldBaseline: true,
     });
 
-    expect(element.type).toBe(StudioPieChart);
+    expect(view.type).toBe(StudioPieChart);
   });
 
   it('renderPieDonut still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
@@ -393,14 +393,14 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'pie' | 'donut'>(config, []);
 
-    const element = CHART_TYPE_DEFS.pie.render({
+    const view = CHART_TYPE_DEFS.pie.render({
       ...ctx,
       chartData: null,
       allChartData: null,
       shouldShowGhost: false,
     });
 
-    expect(element.type).not.toBe(StudioPieChart);
+    expect(view.type).not.toBe(StudioPieChart);
   });
 
   it('renderLineArea renders the line/area chart (not EmptyChartBox) when chartData is empty but a ghost is available', () => {
@@ -411,7 +411,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'line' | 'area' | 'area-stacked' | 'area-100'>(config, []);
 
-    const element = CHART_TYPE_DEFS.line.render({
+    const view = CHART_TYPE_DEFS.line.render({
       ...ctx,
       chartData: null,
       allChartData: { labels: ['a', 'b'], values: [1, 2] },
@@ -419,7 +419,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
       preserveXFieldBaseline: true,
     });
 
-    expect(element.type).toBe(StudioLineAreaChart);
+    expect(view.type).toBe(StudioLineAreaChart);
   });
 
   it('renderLineArea still bails to EmptyChartBox when there is genuinely no ghost to show', () => {
@@ -430,14 +430,14 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'line' | 'area' | 'area-stacked' | 'area-100'>(config, []);
 
-    const element = CHART_TYPE_DEFS.line.render({
+    const view = CHART_TYPE_DEFS.line.render({
       ...ctx,
       chartData: null,
       allChartData: null,
       shouldShowGhost: false,
     });
 
-    expect(element.type).not.toBe(StudioLineAreaChart);
+    expect(view.type).not.toBe(StudioLineAreaChart);
   });
 
   // A ghost must never render when `preserveXFieldBaseline` is false — the chart
@@ -452,7 +452,7 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     } as StudioWidgetConfig;
     const ctx = makeCtx<'bar' | 'bar-stacked' | 'bar-100'>(config, []);
 
-    const element = CHART_TYPE_DEFS.bar.render({
+    const view = CHART_TYPE_DEFS.bar.render({
       ...ctx,
       chartData: null,
       allChartData: { labels: ['a', 'b'], values: [1, 2] },
@@ -460,6 +460,6 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
       preserveXFieldBaseline: false,
     });
 
-    expect(element.type).not.toBe(StudioBarChart);
+    expect(view.type).not.toBe(StudioBarChart);
   });
 });

@@ -60,12 +60,12 @@ describe('StudioMessageActions', () => {
     };
     render(<StudioMessageActions messageId="assistant-1" />);
 
+    fireEvent.click(
+      screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip }),
+    );
+    // Flush the microtask queue so the in-flight guard's `finally` (which
+    // resolves after `regenerateSpy`'s promise) settles.
     await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip }),
-      );
-      // Flush the microtask queue so the in-flight guard's `finally` (which
-      // resolves after `regenerateSpy`'s promise) settles within this `act`.
       await Promise.resolve();
       await Promise.resolve();
     });

@@ -468,20 +468,22 @@ export function StudioLineAreaChart({
   // path did not (finding 2.29). Forecast and ghost are mutually exclusive (forecast is disabled
   // when `ghostLineValues` is set), so the branches below never overlap.
   // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill.
-  const effectiveLabels = forecastData
-    ? forecastData.labels
-    : ghostLineValues && allChartData
-      ? allChartData.labels
-      : singleChartData!.labels;
-  const mainSeriesData: (number | null)[] = forecastData
-    ? forecastData.historicalSeries
-    : ghostLineValues && allChartData
-      ? alignFilteredToAllLabels(
-          allChartData.labels,
-          singleChartData!.labels,
-          singleChartData!.values,
-        )
-      : singleChartData!.values;
+  let effectiveLabels: (string | number)[];
+  let mainSeriesData: (number | null)[];
+  if (forecastData) {
+    effectiveLabels = forecastData.labels;
+    mainSeriesData = forecastData.historicalSeries;
+  } else if (ghostLineValues && allChartData) {
+    effectiveLabels = allChartData.labels;
+    mainSeriesData = alignFilteredToAllLabels(
+      allChartData.labels,
+      singleChartData!.labels,
+      singleChartData!.values,
+    );
+  } else {
+    effectiveLabels = singleChartData!.labels;
+    mainSeriesData = singleChartData!.values;
+  }
   // Highlight index is computed against the RENDERED (effective) label order so an own-selection
   // resolves to the correct axis position even when the ghost axis uses the baseline labels.
   const selectedDataIndices = getSelectedDataIndices(effectiveLabels);

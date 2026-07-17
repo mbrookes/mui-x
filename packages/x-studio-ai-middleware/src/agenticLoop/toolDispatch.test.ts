@@ -13,6 +13,7 @@ import {
   dispatchToolCall,
   buildApprovalEffectsSummary,
   type ToolDispatchContext,
+  type PendingApproval,
 } from './toolDispatch';
 import type { AccumulatedToolCall } from './openaiWire';
 
@@ -27,6 +28,7 @@ function makeCtx(overrides: Partial<ToolDispatchContext> = {}): ToolDispatchCont
     data: undefined,
     customWidgets: undefined,
     pageSnapshot: undefined,
+    threadId: undefined,
     approvalPending: undefined,
     approvalTimeoutMs: 1000,
     approvalFallback: 'deny',
@@ -61,34 +63,34 @@ async function runDispatch(
 
 describe('waitForApproval', () => {
   it('resolves with the human decision and removes its own map entry', async () => {
-    const pending = new Map<string, (approved: boolean, reason?: string) => void>();
-    const promise = waitForApproval('id1', pending, undefined, 1000);
+    const pending = new Map<string, PendingApproval>();
+    const promise = waitForApproval('id1', pending, undefined, 1000, undefined);
     // The resolver is registered synchronously.
     expect(pending.has('id1')).toBe(true);
-    pending.get('id1')!(true, 'looks good');
+    pending.get('id1')!.resolve(true, 'looks good');
     const outcome = await promise;
     expect(outcome).toEqual({ kind: 'resolved', approved: true, reason: 'looks good' });
     expect(pending.has('id1')).toBe(false);
   });
 
   it('times out when no decision arrives, and cleans up the entry', async () => {
-    const pending = new Map<string, (approved: boolean, reason?: string) => void>();
-    const outcome = await waitForApproval('id1', pending, undefined, 5);
+    const pending = new Map<string, PendingApproval>();
+    const outcome = await waitForApproval('id1', pending, undefined, 5, undefined);
     expect(outcome).toEqual({ kind: 'timeout' });
     expect(pending.has('id1')).toBe(false);
   });
 
   it('resolves aborted immediately when the signal is already aborted', async () => {
-    const pending = new Map<string, (approved: boolean, reason?: string) => void>();
-    const outcome = await waitForApproval('id1', pending, AbortSignal.abort(), 1000);
+    const pending = new Map<string, PendingApproval>();
+    const outcome = await waitForApproval('id1', pending, AbortSignal.abort(), 1000, undefined);
     expect(outcome).toEqual({ kind: 'aborted' });
     expect(pending.has('id1')).toBe(false);
   });
 
   it('resolves aborted when the signal fires later', async () => {
-    const pending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const pending = new Map<string, PendingApproval>();
     const controller = new AbortController();
-    const promise = waitForApproval('id1', pending, controller.signal, 1000);
+    const promise = waitForApproval('id1', pending, controller.signal, 1000, undefined);
     controller.abort();
     const outcome = await promise;
     expect(outcome).toEqual({ kind: 'aborted' });
@@ -96,10 +98,10 @@ describe('waitForApproval', () => {
   });
 
   it('refuses a duplicate toolCallId without touching the existing entry', async () => {
-    const pending = new Map<string, (approved: boolean, reason?: string) => void>();
-    const existing = vi.fn();
+    const pending = new Map<string, PendingApproval>();
+    const existing: PendingApproval = { resolve: vi.fn() };
     pending.set('id1', existing);
-    const outcome = (await waitForApproval('id1', pending, undefined, 1000)) as {
+    const outcome = (await waitForApproval('id1', pending, undefined, 1000, undefined)) as {
       kind: string;
       approved: boolean;
       reason: string;
@@ -109,6 +111,22 @@ describe('waitForApproval', () => {
     expect(outcome.reason).toMatch(/duplicate toolCallId/);
     // The pre-existing entry must be left intact (not overwritten or deleted).
     expect(pending.get('id1')).toBe(existing);
+  });
+
+  it('binds the entry to the given threadId', async () => {
+    const pending = new Map<string, PendingApproval>();
+    const promise = waitForApproval('id1', pending, undefined, 1000, 'thread-42');
+    expect(pending.get('id1')?.threadId).toBe('thread-42');
+    pending.get('id1')!.resolve(true);
+    await promise;
+  });
+
+  it('leaves threadId undefined when none is provided', async () => {
+    const pending = new Map<string, PendingApproval>();
+    const promise = waitForApproval('id1', pending, undefined, 1000, undefined);
+    expect(pending.get('id1')?.threadId).toBeUndefined();
+    pending.get('id1')!.resolve(true);
+    await promise;
   });
 });
 
@@ -336,7 +354,7 @@ describe('dispatchToolCall', () => {
 
     it('yields tool-approval-request and executes once approved', async () => {
       const execute = vi.fn(async () => ({ output: 'approved-run', nextState: INITIAL_STATE }));
-      const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+      const approvalPending = new Map<string, PendingApproval>();
       const ctx = makeCtx({
         advertisedToolNames: new Set(['approve_skill']),
         skillHandlers: [makeApprovalSkill(execute)],
@@ -351,7 +369,7 @@ describe('dispatchToolCall', () => {
       const pendingStep = gen.next();
       // Let the generator register its resolver before we approve.
       await Promise.resolve();
-      approvalPending.get('call_1')!(true);
+      approvalPending.get('call_1')!.resolve(true);
       const done = await pendingStep;
       expect(done.done).toBe(true);
       expect(done.value).toEqual({
@@ -362,9 +380,35 @@ describe('dispatchToolCall', () => {
       expect(execute).toHaveBeenCalledOnce();
     });
 
-    it('returns the denial output and skips execution when denied', async () => {
-      const execute = vi.fn(async () => ({ output: 'should-not-run', nextState: INITIAL_STATE }));
-      const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    // Finding T2/T3 (approval-hijack): the pending entry must carry the request's
+    // `ctx.threadId` — the same AI-chat-thread identity `rename_thread` stamps onto
+    // mutations — so a host that also threads it through its approval endpoint can
+    // refuse a resolution presented for a different conversation.
+    it('binds the pending approval entry to ctx.threadId', async () => {
+      const execute = vi.fn(async () => ({ output: 'approved-run', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: approvalPolicy,
+        approvalPending,
+        threadId: 'thread-abc',
+      });
+
+      const gen = dispatchToolCall(tc('approve_skill'), {}, false, INITIAL_STATE, ctx);
+      await gen.next();
+      const pendingStep = gen.next();
+      // The entry is registered once the generator resumes past the yield and calls
+      // `waitForApproval` — let that microtask run before inspecting the map.
+      await Promise.resolve();
+      expect(approvalPending.get('call_1')?.threadId).toBe('thread-abc');
+      approvalPending.get('call_1')!.resolve(true);
+      await pendingStep;
+    });
+
+    it('leaves the pending entry unbound when ctx.threadId is not set', async () => {
+      const execute = vi.fn(async () => ({ output: 'approved-run', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
       const ctx = makeCtx({
         advertisedToolNames: new Set(['approve_skill']),
         skillHandlers: [makeApprovalSkill(execute)],
@@ -376,7 +420,27 @@ describe('dispatchToolCall', () => {
       await gen.next();
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!(false, 'user said no');
+      expect(approvalPending.has('call_1')).toBe(true);
+      expect(approvalPending.get('call_1')?.threadId).toBeUndefined();
+      approvalPending.get('call_1')!.resolve(true);
+      await pendingStep;
+    });
+
+    it('returns the denial output and skips execution when denied', async () => {
+      const execute = vi.fn(async () => ({ output: 'should-not-run', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: approvalPolicy,
+        approvalPending,
+      });
+
+      const gen = dispatchToolCall(tc('approve_skill'), {}, false, INITIAL_STATE, ctx);
+      await gen.next();
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get('call_1')!.resolve(false, 'user said no');
       const done = await pendingStep;
       expect(execute).not.toHaveBeenCalled();
       const parsed = JSON.parse((done.value as { output: string }).output) as {
@@ -436,7 +500,7 @@ describe('dispatchToolCall', () => {
           },
         },
       });
-      const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+      const approvalPending = new Map<string, PendingApproval>();
       const ctx = makeCtx({
         advertisedToolNames: new Set(['remove_widget']),
         toolPolicy: approvalPolicy,
@@ -461,13 +525,13 @@ describe('dispatchToolCall', () => {
       // Drain: approve so the generator completes cleanly.
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!(true);
+      approvalPending.get('call_1')!.resolve(true);
       await pendingStep;
     });
 
     it('ends with an aborted outcome when the approval is aborted mid-wait', async () => {
       const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
-      const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+      const approvalPending = new Map<string, PendingApproval>();
       const controller = new AbortController();
       const ctx = makeCtx({
         advertisedToolNames: new Set(['approve_skill']),

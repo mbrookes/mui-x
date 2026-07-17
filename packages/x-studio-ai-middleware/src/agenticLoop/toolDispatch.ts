@@ -29,6 +29,27 @@ type ApprovalOutcome =
   | { kind: 'aborted' };
 
 /**
+ * A pending tool-call approval: the resolver a host calls with the human's
+ * decision, plus the AI chat thread (`state.doc.ai?.activeThreadId` — the SAME
+ * identity `rename_thread` in `executeToolOnState.ts` already stamps onto
+ * mutations, not a newly invented concept) this approval was raised under.
+ *
+ * Storing this alongside the resolver — rather than a bare callback — is what
+ * lets a host bind a resolution request to the conversation that raised it: a
+ * predictable/leaked `toolCallId` alone is no longer sufficient to resolve
+ * someone else's pending approval, because the host can additionally require
+ * the resolving request's thread id to match `threadId` before ever calling
+ * `resolve` (see `examples/x-studio-dev-server/src/routes/ai.ts`'s `/approval`
+ * route). `threadId` is optional and a host that has not wired thread-id
+ * passthrough into its approval UI can still resolve by id alone — this is a
+ * defense-in-depth addition, not a hard requirement.
+ */
+export interface PendingApproval {
+  resolve: (approved: boolean, reason?: string) => void;
+  threadId?: string;
+}
+
+/**
  * Waits for a destructive tool's approval, but never unconditionally: races the
  * approval callback against the abort signal and a timeout so an abandoned prompt
  * can't hang the stream and leak the map entry forever. The `approvalPending`
@@ -36,9 +57,10 @@ type ApprovalOutcome =
  */
 export function waitForApproval(
   toolCallId: string,
-  approvalPending: Map<string, (approved: boolean, reason?: string) => void>,
+  approvalPending: Map<string, PendingApproval>,
   signal: AbortSignal | undefined,
   timeoutMs: number,
+  threadId: string | undefined,
 ): Promise<ApprovalOutcome> {
   // Cross-request collision guard: `approvalPending` is a host-shared, module-level
   // map keyed by bare `toolCallId`. If another in-flight request already registered
@@ -57,9 +79,10 @@ export function waitForApproval(
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   return new Promise<ApprovalOutcome>((resolve) => {
-    approvalPending.set(toolCallId, (a, r) =>
-      resolve({ kind: 'resolved', approved: a, reason: r }),
-    );
+    approvalPending.set(toolCallId, {
+      resolve: (a, r) => resolve({ kind: 'resolved', approved: a, reason: r }),
+      threadId,
+    });
     timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
     if (signal) {
       if (signal.aborted) {
@@ -92,7 +115,15 @@ export interface ToolDispatchContext {
   /** Page the `pageSnapshot` covers — the active page when the request began. Captured
    *  once per request so a same-turn `set_active_page` can't misdirect `summarise_page`. */
   snapshotPageId?: string;
-  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  /**
+   * The AI chat thread (`state.doc.ai?.activeThreadId`) captured once from the
+   * request's initial state, mirroring how `snapshotPageId` captures the
+   * active page. Threaded into `waitForApproval` so a pending approval this
+   * request raises is bound to the conversation that raised it (see
+   * `PendingApproval`).
+   */
+  threadId?: string;
+  approvalPending?: Map<string, PendingApproval>;
   approvalTimeoutMs: number;
   /** What to do when a `require-approval` decision has no `approvalPending` channel
    *  to pause on. `'deny'` (default) refuses the call; `'allow'` auto-approves it and
@@ -305,6 +336,7 @@ async function* runApprovalFlow(
     ctx.approvalPending,
     ctx.signal,
     ctx.approvalTimeoutMs,
+    ctx.threadId,
   );
   if (outcome.kind === 'aborted') {
     return { kind: 'aborted' };

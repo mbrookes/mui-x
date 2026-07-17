@@ -5,6 +5,7 @@ import {
   handleGenerateTitle,
   handleCreateWidget,
   type StudioAIContextEnricher,
+  type PendingApproval,
 } from '@mui/x-studio-ai-middleware';
 import type { Config } from '../config.js';
 import { error } from '../logger.js';
@@ -95,11 +96,13 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
   const contextEnricher = createContextEnricher(salesDb, crmDb);
 
   /**
-   * Approval resolvers keyed by toolCallId.
-   * Each entry is created by the agentic loop just before it yields
-   * `tool-approval-request` and is resolved by POST /approval.
+   * Approval resolvers keyed by toolCallId (now a `crypto.randomUUID()` — see
+   * `agenticLoop.ts` — rather than a predictable `call-${turn}-${idx}` scheme).
+   * Each entry is a `PendingApproval` (resolver + the AI chat thread id the approval
+   * was raised under, when known), created by the agentic loop just before it yields
+   * `tool-approval-request` and resolved by POST /approval.
    */
-  const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
+  const pendingApprovals = new Map<string, PendingApproval>();
 
   router.post('/chat', async (req: Request, res: Response): Promise<void> => {
     if (!config.llm.apiKey) {
@@ -160,19 +163,39 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
   });
 
   router.post('/approval', (req: Request, res: Response): void => {
-    const { id, approved, reason } = req.body as {
+    // Same auth check as POST /chat: resolving a pending approval must not be
+    // reachable by an unauthenticated caller. Without this, a random id (previously
+    // a guessable `call-${turn}-${idx}`, and reachable by anyone regardless of
+    // auth) was enough to resolve or deny another user's pending tool approval.
+    try {
+      resolveClaims(req, config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(401).json({ error: message });
+      return;
+    }
+
+    const { id, approved, reason, threadId } = req.body as {
       id: string;
       approved: boolean;
       reason?: string;
+      threadId?: string;
     };
-    const resolve = pendingApprovals.get(id);
-    if (resolve) {
-      resolve(approved, reason);
-      pendingApprovals.delete(id);
-      res.json({ ok: true });
-    } else {
+    const entry = pendingApprovals.get(id);
+    if (!entry) {
       res.status(404).json({ error: `No pending approval for id: ${id}` });
+      return;
     }
+    // Ownership binding: when this approval was raised under a known AI chat thread
+    // and the caller also asserts one, they must match — a resolution meant for a
+    // different conversation is refused rather than trusted on id alone.
+    if (entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId) {
+      res.status(403).json({ error: 'This approval belongs to a different chat thread.' });
+      return;
+    }
+    pendingApprovals.delete(id);
+    entry.resolve(approved, reason);
+    res.json({ ok: true });
   });
 
   router.post('/title', async (req: Request, res: Response): Promise<void> => {

@@ -110,6 +110,22 @@ describe('handleGenerateTitle', () => {
       expect(result).toEqual({ title: 'Sales Review', description: 'A look at sales.' });
     });
   });
+
+  // Finding: `maxTokens` was documented as a hard cap but never actually read —
+  // each handler hardcoded its own `max_tokens` value instead.
+  describe('maxTokens threading', () => {
+    it('sends the default max_tokens (100) when maxTokens is not provided', async () => {
+      const fn = stubFetch(JSON.stringify({ title: 'T', description: 'D' }));
+      await handleGenerateTitle('hi', OPTIONS);
+      expect(requestBody(fn).max_tokens).toBe(100);
+    });
+
+    it('sends options.maxTokens as max_tokens when provided', async () => {
+      const fn = stubFetch(JSON.stringify({ title: 'T', description: 'D' }));
+      await handleGenerateTitle('hi', { ...OPTIONS, maxTokens: 42 });
+      expect(requestBody(fn).max_tokens).toBe(42);
+    });
+  });
 });
 
 describe('handleCreateWidget', () => {
@@ -127,13 +143,27 @@ describe('handleCreateWidget', () => {
     ],
   };
 
-  it('returns the parsed widget configuration', async () => {
+  it('returns the VALIDATED/NORMALIZED widget configuration (built.widget), not the raw parsed response', async () => {
+    // Finding: `handleCreateWidget` used to return the raw `parsed` response even
+    // though `buildWidgetFromArgs` (which merges in kind-default config) had already
+    // run — so the validation step was ceremony that never affected the output. The
+    // response omits `config` entirely; the returned `config` must be the chart
+    // kind's factory default (`{ chartType: 'bar' }`), proving it came from
+    // `built.widget`, not `parsed`.
     stubFetch(JSON.stringify({ kind: 'chart', title: 'Revenue by Region', sourceId: 'src-sales' }));
     expect(await handleCreateWidget(request, OPTIONS)).toEqual({
       kind: 'chart',
       title: 'Revenue by Region',
       sourceId: 'src-sales',
+      config: { chartType: 'bar' },
     });
+  });
+
+  it('caps an oversized title at MAX_TITLE_LENGTH (200), matching every other title-write path', async () => {
+    const longTitle = 'x'.repeat(500);
+    stubFetch(JSON.stringify({ kind: 'chart', title: longTitle, sourceId: 'src-sales' }));
+    const result = await handleCreateWidget(request, OPTIONS);
+    expect(result.title).toHaveLength(200);
   });
 
   it('includes the available sources and their fields in the system prompt', async () => {
@@ -210,10 +240,30 @@ describe('handleCreateWidget', () => {
 
     it('still accepts a minimal well-formed response with only kind + title', async () => {
       stubFetch(JSON.stringify({ kind: 'text', title: 'A note' }));
+      // `sourceId`/`config` come from `built.widget` (factory defaults for 'text'),
+      // not the raw `parsed` response, which omitted both.
       await expect(handleCreateWidget(request, OPTIONS)).resolves.toEqual({
         kind: 'text',
         title: 'A note',
+        sourceId: undefined,
+        config: { textBody: '', textSubtitle: '' },
       });
+    });
+  });
+
+  // Finding: `maxTokens` was documented as a hard cap but never actually read —
+  // each handler hardcoded its own `max_tokens` value instead.
+  describe('maxTokens threading', () => {
+    it('sends the default max_tokens (500) when maxTokens is not provided', async () => {
+      const fn = stubFetch(JSON.stringify({ kind: 'text', title: 't' }));
+      await handleCreateWidget(request, OPTIONS);
+      expect(requestBody(fn).max_tokens).toBe(500);
+    });
+
+    it('sends options.maxTokens as max_tokens when provided', async () => {
+      const fn = stubFetch(JSON.stringify({ kind: 'text', title: 't' }));
+      await handleCreateWidget(request, { ...OPTIONS, maxTokens: 77 });
+      expect(requestBody(fn).max_tokens).toBe(77);
     });
   });
 

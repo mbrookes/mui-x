@@ -1340,6 +1340,118 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     expect(titles).toContain('B');
     expect(onStateChange).toHaveBeenCalledTimes(2);
   });
+
+  // Finding: get_dashboard_state / list_pages are documented as read-only tools that
+  // stay concurrent, but previously fell through to the same `runMutation` path as any
+  // write and got serialized behind `mutationChain` — including a mutation stuck for the
+  // full duration of a slow `approvalHandler`.
+  it('get_dashboard_state stays concurrent with a slow in-flight mutation (does not wait on the mutex)', async () => {
+    const stateBox = { current: makeStableState() };
+    const order: string[] = [];
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page' ? { action: 'require-approval' } : { action: 'allow' },
+      approvalHandler: async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 30);
+        });
+        order.push('add_page-approved');
+        return true;
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const mutationPromise = call({
+      params: { name: 'add_page', arguments: { title: 'Slow Page' } },
+      method: CALL_TOOL,
+    }).then((r) => {
+      order.push('add_page-done');
+      return r;
+    });
+
+    // Give the mutating call a tick to enter its (slow) approval wait before firing
+    // the read — this is the exact window a per-session mutex would otherwise block.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+
+    const readResult = (await call({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    order.push('get_dashboard_state-done');
+
+    expect(readResult.isError).toBeFalsy();
+    await mutationPromise;
+    // The read completed BEFORE the slow mutation resolved — proof it never queued
+    // behind `mutationChain`.
+    expect(order).toEqual(['get_dashboard_state-done', 'add_page-approved', 'add_page-done']);
+  });
+
+  it('list_pages stays concurrent with a slow in-flight mutation (does not wait on the mutex)', async () => {
+    const stateBox = { current: makeStableState() };
+    const order: string[] = [];
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page' ? { action: 'require-approval' } : { action: 'allow' },
+      approvalHandler: async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 30);
+        });
+        order.push('add_page-approved');
+        return true;
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const mutationPromise = call({
+      params: { name: 'add_page', arguments: { title: 'Slow Page' } },
+      method: CALL_TOOL,
+    }).then((r) => {
+      order.push('add_page-done');
+      return r;
+    });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+
+    const readResult = (await call({
+      params: { name: 'list_pages', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    order.push('list_pages-done');
+
+    expect(readResult.isError).toBeFalsy();
+    await mutationPromise;
+    expect(order).toEqual(['list_pages-done', 'add_page-approved', 'add_page-done']);
+  });
+
+  it('get_dashboard_state / list_pages still commit no mutation and never bump committedMutations', async () => {
+    const stateBox = { current: makeStableState() };
+    const call = getHandler(
+      buildStudioMcpServer(stateBox, {
+        rateLimit: { maxMutationsPerSession: 0 },
+      }),
+      CALL_TOOL,
+    );
+
+    const stateResult = (await call({
+      params: { name: 'get_dashboard_state', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const pagesResult = (await call({
+      params: { name: 'list_pages', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    // A `maxMutationsPerSession: 0` budget would deny any tool that actually tries to
+    // commit a mutation — both calls succeeding proves neither one does.
+    expect(stateResult.isError).toBeFalsy();
+    expect(pagesResult.isError).toBeFalsy();
+    const parsedState = JSON.parse(JSON.parse(stateResult.content[0].text).output);
+    expect(parsedState.doc.dashboard.title).toBe('Test');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

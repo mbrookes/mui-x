@@ -1290,6 +1290,32 @@ describe('executeToolOnState: apply_bulk_update', () => {
     expect(Object.hasOwn(args, 'widgetColSpans')).toBe(false);
   });
 
+  // Finding: every other title-write source in this file caps at MAX_TITLE_LENGTH
+  // (200) via `capTitle`, but `widgetUpdates[].title` did not — reopening a
+  // token-bomb path where an LLM tool call injects an arbitrarily long title that
+  // later gets fed back into prompts.
+  it('caps an oversized widgetUpdates[].title at 200 characters', () => {
+    const state = makeState();
+    const longTitle = 'x'.repeat(500);
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', title: longTitle }] },
+      state,
+    );
+    expect(result.nextState.doc.widgets['widget-1'].title).toHaveLength(200);
+    expect(result.nextState.doc.widgets['widget-1'].title).toBe('x'.repeat(200));
+  });
+
+  it('leaves a normal-length widgetUpdates[].title untouched', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', title: 'Short Title' }] },
+      state,
+    );
+    expect(result.nextState.doc.widgets['widget-1'].title).toBe('Short Title');
+  });
+
   it('still attaches widgetRows/widgetColSpans when the batch contains a removal', () => {
     const state = makeState();
     const result = executeToolOnState('apply_bulk_update', { widgetRemovals: ['widget-1'] }, state);

@@ -7,6 +7,7 @@
  * Yields `StudioAISSEEvent` objects. Callers should encode these as SSE and stream
  * them to the client.
  */
+import { randomUUID } from 'node:crypto';
 import type { ChatMessage } from '@mui/x-chat-headless';
 import { STUDIO_AI_TOOL_REGISTRY, type StudioAIToolFacts } from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
@@ -33,6 +34,7 @@ import {
 } from './agenticLoop/openaiWire';
 import {
   dispatchToolCall,
+  type PendingApproval,
   type ToolDispatchContext,
   type ToolDispatchOutcome,
 } from './agenticLoop/toolDispatch';
@@ -101,8 +103,12 @@ export interface AgenticLoopOptions {
    *
    * When not provided, the `approvalFallback` option decides whether a
    * require-approval tool is denied (default) or auto-approved.
+   *
+   * Each entry is a {@link PendingApproval} (a resolver plus the AI chat thread
+   * id the approval was raised under), not a bare callback — see that type for
+   * the ownership-binding rationale.
    */
-  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  approvalPending?: Map<string, PendingApproval>;
   /**
    * What to do when a tool's policy decision is `require-approval` but no
    * `approvalPending` channel is configured to pause on.
@@ -344,6 +350,11 @@ export async function* runAgenticLoop(
     // than the threaded active page, which a same-turn `set_active_page` mutates
     // (finding 2-2).
     snapshotPageId: initialState.doc.dashboard.activePageId,
+    // Same identity `rename_thread` (`executeToolOnState.ts`) stamps onto mutations —
+    // captured once from the request's initial state, mirroring `snapshotPageId`, so a
+    // pending approval this request raises can be bound to the conversation that
+    // raised it (see `PendingApproval`).
+    threadId: initialState.doc.ai?.activeThreadId,
     approvalPending,
     approvalTimeoutMs,
     approvalFallback,
@@ -423,7 +434,7 @@ export async function* runAgenticLoop(
       }
 
       const choices = chunk.choices as Array<{
-        delta: {
+        delta?: {
           content?: string | null;
           tool_calls?: Array<{
             index: number;
@@ -449,7 +460,10 @@ export async function* runAgenticLoop(
       }
 
       const choice = choices[0];
-      const delta = choice.delta;
+      // A finish-reason-only chunk (real behavior for some OpenAI-compatible gateways) may
+      // omit `delta` entirely — default to `{}` so the checks below degrade gracefully
+      // instead of throwing on `undefined.content`.
+      const delta = choice.delta ?? {};
       if (choice.finish_reason) {
         finishReason = choice.finish_reason;
       }
@@ -481,11 +495,17 @@ export async function* runAgenticLoop(
     // The accumulator seeds `id: ''` when a delta carries no `id`; two such calls in one
     // turn would both address as `toolCallId: ''`, so the second is wrongly rejected by the
     // approval-dispatch duplicate guard with a misleading "duplicate across concurrent
-    // requests" message. A `call-${turn}-${idx}` id is unique per call within the request
-    // and stable across the retries of a single turn.
-    for (const [idx, tc] of toolCallEntries) {
+    // requests" message. This id also becomes the key into the shared `approvalPending`
+    // map for destructive tools (see `toolDispatch.ts`), so it must be unguessable, not
+    // merely unique — a deterministic `call-${turn}-${idx}` scheme let anyone who can
+    // observe (or simply enumerate) a few requests predict another in-flight request's
+    // pending-approval id and resolve/deny it themselves. `randomUUID()` is unique per
+    // call AND cryptographically unpredictable, closing that hole while keeping the
+    // OpenAI-wire-protocol `tool_calls[].id` field (which this same value fills) a plain
+    // opaque string, exactly as the wire format requires.
+    for (const [, tc] of toolCallEntries) {
       if (!tc.id) {
-        tc.id = `call-${turn}-${idx}`;
+        tc.id = randomUUID();
       }
     }
     usage.iterations += 1;

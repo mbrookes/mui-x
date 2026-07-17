@@ -17,7 +17,11 @@ export interface GenerateInsightOptions {
   model?: string;
   /** Extra headers forwarded to the LLM endpoint */
   headers?: Record<string, string>;
-  /** Hard cap on output tokens. Omit to use the model's default (unlimited). */
+  /**
+   * Hard cap on output tokens, sent as `max_tokens` to the LLM endpoint. Omit to
+   * use this handler's built-in default (100 for `handleGenerateTitle`, 500 for
+   * `handleCreateWidget`).
+   */
   maxTokens?: number;
 }
 
@@ -71,7 +75,7 @@ export async function handleGenerateTitle(
   firstMessage: string,
   options: GenerateInsightOptions,
 ): Promise<{ title: string; description: string }> {
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = options;
+  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 100 } = options;
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -92,7 +96,7 @@ export async function handleGenerateTitle(
         },
         { role: 'user', content: firstMessage },
       ],
-      max_tokens: 100,
+      max_tokens: maxTokens,
       temperature: 0.3,
     }),
   });
@@ -204,7 +208,7 @@ export async function handleCreateWidget(
   options: GenerateInsightOptions,
 ): Promise<CreateWidgetResponse> {
   const { description, sources } = request;
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = options;
+  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 500 } = options;
 
   // Source labels/ids and field ids/types/labels are state-derived and
   // attacker-influenceable (they can carry data read back from a poisoned source),
@@ -247,7 +251,7 @@ export async function handleCreateWidget(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: description },
       ],
-      max_tokens: 500,
+      max_tokens: maxTokens,
       temperature: 0.2,
     }),
   });
@@ -287,5 +291,15 @@ export async function handleCreateWidget(
         'Ensure the model returns a supported "kind" and a "config" whose keys match that kind.',
     );
   }
-  return parsed;
+  // Return the VALIDATED/NORMALIZED widget fields (title capped, config merged
+  // with kind defaults) rather than the raw `parsed` response — otherwise the
+  // `buildWidgetFromArgs` validation above is pure ceremony: an unbounded title
+  // or an untouched hallucinated config key would still reach the client via
+  // `parsed` even though `built` already caught and normalized it.
+  return {
+    kind: built.widget.kind,
+    title: built.widget.title,
+    sourceId: built.widget.sourceId,
+    config: built.widget.config as Record<string, unknown>,
+  };
 }

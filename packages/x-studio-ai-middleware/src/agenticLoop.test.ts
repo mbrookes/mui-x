@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAgenticLoop } from './agenticLoop';
+import type { PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioAISkill } from './models/aiTypes';
@@ -397,6 +398,58 @@ describe('runAgenticLoop — rate limiting', () => {
   });
 });
 
+describe('runAgenticLoop — finish-reason-only chunk with no delta key', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Some OpenAI-compatible gateways emit a final chunk carrying only `finish_reason`
+  // (and/or `usage`) with NO `delta` key at all — not even `delta: {}`. Before the fix
+  // `const delta = choice.delta;` followed by `delta.content` threw a TypeError on such
+  // a chunk. Build the SSE stream by hand (not via the `textResponse` helper, which
+  // always emits `delta: {}`) so the finish chunk genuinely omits `delta`.
+  it('does not throw and still finishes normally', async () => {
+    const chunks = [
+      { choices: [{ delta: { content: 'Hello' }, finish_reason: null }] },
+      // No `delta` key whatsoever on this choice.
+      { choices: [{ finish_reason: 'stop' }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ];
+    const body = `${chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('')}data: [DONE]\n\n`;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+        controller.close();
+      },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(stream, { status: 200 }));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const types = events.map((ev) => (ev as { type: string }).type);
+    expect(types).toContain('text-delta');
+    expect(types).toContain('finish');
+    const finishEvent = events.find((ev) => (ev as { type: string }).type === 'finish') as {
+      finishReason: string;
+    };
+    expect(finishEvent.finishReason).toBe('stop');
+  });
+});
+
 describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
   beforeEach(() => {
     vi.spyOn(global, 'fetch');
@@ -455,6 +508,54 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
     expect(startIds).toHaveLength(2);
     expect(startIds.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
     expect(new Set(startIds).size).toBe(2);
+  });
+
+  // Finding T2/T3 (approval-hijack): the minted id is also the lookup key into the
+  // shared `approvalPending` map, so it must be unguessable, not merely unique. A
+  // deterministic `call-${turn}-${idx}` scheme let an attacker predict another
+  // in-flight request's pending-approval id. Assert the minted id is a UUID
+  // (`crypto.randomUUID()`'s format), not the old predictable shape.
+  it('mints a cryptographically random (UUID-shaped) id, not a predictable call-N-M scheme', async () => {
+    const oneIdlessCall = makeSseResponse([
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { name: 'get_dashboard_state', arguments: '{}' } },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(oneIdlessCall)
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Go')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const startId = events.find(
+      (ev): ev is { type: string; phase: string; toolCallId: string } =>
+        (ev as { type?: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'start',
+    )?.toolCallId;
+
+    expect(startId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(startId).not.toMatch(/^call-/);
   });
 });
 
@@ -573,7 +674,7 @@ describe('runAgenticLoop — tool approval', () => {
       .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
       .mockResolvedValueOnce(textResponse('done', 10, 5));
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const events = await collectEvents(
       runAgenticLoop(
@@ -608,7 +709,7 @@ describe('runAgenticLoop — tool approval', () => {
   it('ends silently when the request is aborted during an approval wait', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }));
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
     const ac = new AbortController();
 
     const gen = runAgenticLoop(
@@ -661,7 +762,7 @@ describe('runAgenticLoop — tool approval', () => {
       },
     };
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const gen = runAgenticLoop(
       [userMsg('Remove the widget')],
@@ -680,7 +781,7 @@ describe('runAgenticLoop — tool approval', () => {
         const id = (ev as { toolCallId: string }).toolCallId;
         // The loop registers its resolver only once it resumes past this yield, so
         // grant approval on the next tick when the map entry exists.
-        setTimeout(() => approvalPending.get(id)?.(true), 0);
+        setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
 
@@ -724,7 +825,7 @@ describe('runAgenticLoop — tool approval', () => {
       },
     };
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const events: unknown[] = [];
     for await (const ev of runAgenticLoop(
@@ -739,7 +840,7 @@ describe('runAgenticLoop — tool approval', () => {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
         const id = (ev as { toolCallId: string }).toolCallId;
-        setTimeout(() => approvalPending.get(id)?.(true), 0);
+        setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
 
@@ -843,7 +944,7 @@ describe('runAgenticLoop — tool approval', () => {
         : toolCallResponse('remove_widget', { widgetId: 'w1' });
     });
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
     const seeded = seedWidgetState('Confidential');
 
     // Start request A in the background; it pauses on approval, registering tc_1.
@@ -884,7 +985,7 @@ describe('runAgenticLoop — tool approval', () => {
 
     // A's entry survived the collision — approve it and A commits its mutation.
     expect(approvalPending.has('tc_1')).toBe(true);
-    approvalPending.get('tc_1')!(true);
+    approvalPending.get('tc_1')!.resolve(true);
     await runA;
     expect(eventsA.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
   });
@@ -894,7 +995,7 @@ describe('runAgenticLoop — tool approval', () => {
       .mockResolvedValueOnce(toolCallResponse('apply_bulk_update', { widgetRemovals: ['w1'] }))
       .mockResolvedValueOnce(textResponse('done', 10, 5));
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const events: unknown[] = [];
     for await (const ev of runAgenticLoop(
@@ -909,7 +1010,7 @@ describe('runAgenticLoop — tool approval', () => {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
         const id = (ev as { toolCallId: string }).toolCallId;
-        setTimeout(() => approvalPending.get(id)?.(true), 0);
+        setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
 
@@ -1340,7 +1441,7 @@ describe('runAgenticLoop — host skillHandlers name collides with a built-in de
       .mockResolvedValueOnce(toolCallResponse('remove_page', { pageId: 'page-extra' }))
       .mockResolvedValueOnce(textResponse('removed', 10, 5));
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const events: unknown[] = [];
     for await (const ev of runAgenticLoop(
@@ -1360,7 +1461,7 @@ describe('runAgenticLoop — host skillHandlers name collides with a built-in de
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
         const id = (ev as { toolCallId: string }).toolCallId;
-        setTimeout(() => approvalPending.get(id)?.(true), 0);
+        setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
 
@@ -1731,7 +1832,7 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
       .mockResolvedValueOnce(toolCallResponse('set_widget_layout', { rows: [['w1']] }))
       .mockResolvedValueOnce(textResponse('done', 10, 5));
 
-    const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+    const approvalPending = new Map<string, PendingApproval>();
 
     const events: unknown[] = [];
     for await (const ev of runAgenticLoop(
@@ -1751,7 +1852,7 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
         const id = (ev as { toolCallId: string }).toolCallId;
-        setTimeout(() => approvalPending.get(id)?.(true), 0);
+        setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
 

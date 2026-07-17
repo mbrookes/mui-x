@@ -148,6 +148,19 @@ const RAW_ROW_DATA_TOOLS = new Set([
  */
 const MULTI_SOURCE_RAW_ROW_TOOLS = new Set(['summarise_page']);
 
+/**
+ * Built-in tools registered as dashboard-mutation tools (not dispatch-table
+ * handlers) but marked `readOnly: true` in `STUDIO_AI_TOOL_REGISTRY` — they
+ * always return `nextState` as the SAME object reference passed in (see the
+ * `plan` functions in `executeToolOnState.ts`), so they never have anything to
+ * commit. Falling through to the mutating branch's `mutationChain` would
+ * needlessly serialize them behind any in-flight mutation (including one
+ * paused for minutes on a human approval), contradicting the documented
+ * concurrency contract that read-only tools stay concurrent. Dispatched via
+ * `runReadOnlyTool` instead, which never touches `mutationChain`.
+ */
+const READ_ONLY_NO_MUTEX_TOOLS = new Set(['get_dashboard_state', 'list_pages']);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -401,6 +414,46 @@ export function buildStudioMcpServer(
   }
 
   /**
+   * Runs a `READ_ONLY_NO_MUTEX_TOOLS` member OUTSIDE the `mutationChain` mutex —
+   * see that constant's rationale. Still goes through the same policy chokepoint
+   * (`executeToolWithPolicy`) and approval bridge as the mutating path, but never
+   * writes `stateBox.current` back: a read-only tool's `nextState` is always the
+   * same object reference it was given, so there is nothing to commit, no
+   * subscriber notification to send, and no `committedMutations` bump — and
+   * skipping the write-back also avoids clobbering `stateBox.current` with a
+   * stale snapshot if a concurrent mutation commits while this call is paused on
+   * approval.
+   */
+  async function runReadOnlyTool(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+  ): Promise<CallToolResult> {
+    try {
+      const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
+        policy: sessionToolPolicy,
+        customWidgets,
+        transport: 'mcp',
+        usage: sessionUsage,
+      });
+
+      if (outcome.kind === 'denied') {
+        return errorResult(outcome.reason);
+      }
+
+      if (outcome.kind === 'needs-approval') {
+        const bridged = await bridgeApproval(toolName, args);
+        if (!bridged.approved) {
+          return errorResult(bridged.reason);
+        }
+      }
+
+      return jsonResult({ output: outcome.result.output });
+    } catch (err) {
+      return errorResult(String(err));
+    }
+  }
+
+  /**
    * Bridge a `require-approval` decision to the host's `approvalHandler` (MCP has no
    * built-in pause channel). Returns `{ approved, reason }` — a clean deny (never a
    * throw) when no handler is configured or the handler declines. Shared by the
@@ -535,6 +588,14 @@ export function buildStudioMcpServer(
           }
         }
         return await handler(args);
+      }
+
+      // Registered (non-dispatch-table) tools marked `readOnly: true` in
+      // `STUDIO_AI_TOOL_REGISTRY` (`get_dashboard_state`, `list_pages`) — dispatch
+      // outside `mutationChain` (see `READ_ONLY_NO_MUTEX_TOOLS`) so they stay
+      // concurrent with any in-flight mutation, matching the documented contract.
+      if (READ_ONLY_NO_MUTEX_TOOLS.has(toolName)) {
+        return await runReadOnlyTool(toolName, args);
       }
 
       // ── dashboard-mutation tools ──────────────────────────────────────────

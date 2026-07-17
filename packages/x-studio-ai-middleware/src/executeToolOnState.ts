@@ -1451,7 +1451,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
         updatedWidgets.push({
           widgetId: wid,
-          ...(update.title !== undefined ? { title: String(update.title) } : {}),
+          ...(update.title !== undefined ? { title: capTitle(String(update.title)) } : {}),
           ...(update.sourceId !== undefined ? { sourceId: String(update.sourceId) } : {}),
           ...(update.config ? { config: update.config as StudioWidget['config'] } : {}),
         });

@@ -55,6 +55,7 @@
  * ```
  */
 import { runAgenticLoop } from './agenticLoop';
+import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
@@ -208,10 +209,22 @@ export interface StudioAIHandlerOptions {
    * holds open while awaiting approval. Your approval endpoint resolves the pending
    * entry using the `toolCallId` as the key.
    *
+   * Each entry is a {@link PendingApproval} — `{ resolve, threadId? }`, not a bare
+   * callback. `threadId` (the AI chat thread the approval was raised under, when
+   * known) lets your approval endpoint refuse a resolution presented for the wrong
+   * conversation instead of trusting the id alone — important because an id can be
+   * observed or guessed by another caller. `toolCallId`s are also now generated with
+   * `crypto.randomUUID()` (not a predictable scheme), so an id alone is no longer
+   * practically guessable either; the `threadId` check is defense in depth on top of
+   * that, and requires your route to also thread a thread/session identifier through
+   * your approval UI — omit it and the check is simply skipped.
+   *
    * @example
    * ```ts
+   * import type { PendingApproval } from '@mui/x-studio-ai-middleware';
+   *
    * // Shared state (module-level in your route file)
-   * const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
+   * const pendingApprovals = new Map<string, PendingApproval>();
    *
    * // Chat route — pass the map to handleAIChat
    * app.post('/api/ai/chat', (req, res) => {
@@ -219,16 +232,24 @@ export interface StudioAIHandlerOptions {
    *   // ... stream to response
    * });
    *
-   * // Approval route — resolve the pending approval
+   * // Approval route — resolve the pending approval, requiring the caller's own
+   * // auth (mirroring the chat route's auth) AND, when both sides have one, a
+   * // matching thread id.
    * app.post('/api/ai/approval', (req, res) => {
-   *   const { id, approved, reason } = req.body;
-   *   const resolve = pendingApprovals.get(id);
-   *   if (resolve) { resolve(approved, reason); pendingApprovals.delete(id); }
+   *   const claims = resolveClaims(req); // same auth check as /chat
+   *   const { id, approved, reason, threadId } = req.body;
+   *   const entry = pendingApprovals.get(id);
+   *   if (!entry) return res.status(404).json({ error: `No pending approval for id: ${id}` });
+   *   if (entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId) {
+   *     return res.status(403).json({ error: 'This approval belongs to a different chat thread.' });
+   *   }
+   *   pendingApprovals.delete(id);
+   *   entry.resolve(approved, reason);
    *   res.json({ ok: true });
    * });
    * ```
    */
-  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  approvalPending?: Map<string, PendingApproval>;
   /**
    * What to do when a tool's policy decision is `require-approval` but no
    * `approvalPending` channel is configured (or wired) to pause on.

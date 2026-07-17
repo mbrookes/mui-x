@@ -82,6 +82,9 @@ export { createDefaultWidget } from './widgetFactory';
 // Re-exported for consumers who want to build custom loops
 export { runAgenticLoop } from './agenticLoop';
 export type { AgenticLoopOptions } from './agenticLoop';
+// The `approvalPending` map's value type — a resolver bound to the AI chat thread
+// (when known) it was raised under. See `StudioAIHandlerOptions.approvalPending`.
+export type { PendingApproval } from './agenticLoop/toolDispatch';
 export { executeToolOnState } from './executeToolOnState';
 export type { ToolExecutionResult } from './executeToolOnState';
 

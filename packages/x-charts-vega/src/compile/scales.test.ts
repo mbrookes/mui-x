@@ -99,7 +99,10 @@ describe('scales & axes', () => {
   });
 
   describe('explicit scale.type on categorical channels', () => {
-    it('lets scale.type: "point" win over the bar-mark band inference', () => {
+    it('keeps a band scale for a bar mark even with an explicit scale.type: "point"', () => {
+      // x-charts has no way to size a bar series without a band scale — honoring
+      // `scale.type: "point"` here would reach x-charts with no band width to
+      // draw from and crash (see the `histogram_nonlinear` gallery example).
       const compiled = compileSpec({
         data: { values: [{ c: 'A', v: 1 }] },
         mark: 'bar',
@@ -108,7 +111,8 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
+      expect(compiled.gaps.some((gap) => gap.code === 'scale:point-forced-band')).to.equal(true);
     });
 
     it('lets scale.type: "band" win for a non-bar mark', () => {

@@ -65,6 +65,7 @@ import { createGapCollector } from '../gaps';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
 import { applyTransforms } from '../transforms';
+import { applyInlineTimeUnit } from '../transforms/timeUnit';
 import { titleText } from '../normalize';
 
 /** Maximum levels of nested faceting/concat the shell will expand (gap beyond). */
@@ -822,13 +823,51 @@ function hasFacetChannels(spec: VegaLiteSpec): boolean {
   return !!encoding && (!!encoding.row || !!encoding.column || !!encoding.facet);
 }
 
+/**
+ * Applies a facet channel's inline `timeUnit` (e.g. `{field: 'date', timeUnit:
+ * 'hours'}`), if any, before partitioning. Without this, faceting groups on
+ * the raw field — for a `timeUnit`'d channel that means one (near-empty) cell
+ * per distinct raw timestamp instead of one cell per time-unit bucket (24
+ * cells for `hours`, 12 for `month`, …), which both mis-renders the trellis
+ * and is combinatorially slow for a large dataset. Returns the rows with a
+ * synthetic truncated column added (mirroring `applyInlineTimeUnit`'s other
+ * callers) and the field name to actually group/sort/match on.
+ */
+function resolveFacetTimeUnit(
+  def: VegaChannelDef | undefined,
+  rows: readonly DatasetRow[],
+  gaps: TranslationGap[],
+  path: string,
+): { rows: readonly DatasetRow[]; field: string | undefined } {
+  if (!def || !isFieldDef(def) || !def.field) {
+    return { rows, field: undefined };
+  }
+  const timeUnit = def.timeUnit;
+  if (!timeUnit) {
+    return { rows, field: def.field };
+  }
+  const collector = createGapCollector();
+  const result = applyInlineTimeUnit(rows, def.field, timeUnit, collector, path);
+  gaps.push(...collector.list());
+  if (!result) {
+    // Unsupported unit: `applyInlineTimeUnit` already recorded the gap; fall
+    // back to the raw field rather than an all-null synthetic column.
+    return { rows, field: def.field };
+  }
+  return { rows: result.rows, field: result.field };
+}
+
 /** Plan the `row`/`column`/`facet` encoding-channel form (unit spec + mark). */
 function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
-  const { rows, gaps: transformGaps } = transformedRootRows(spec, options);
+  const { rows: rootRows, gaps: transformGaps } = transformedRootRows(spec, options);
   const encoding = spec.encoding ?? {};
-  const rowField = fieldOf(encoding.row);
-  const colField = fieldOf(encoding.column);
-  const wrapField = fieldOf(encoding.facet);
+  const rowRes = resolveFacetTimeUnit(encoding.row, rootRows, transformGaps, 'encoding.row');
+  const colRes = resolveFacetTimeUnit(encoding.column, rowRes.rows, transformGaps, 'encoding.column');
+  const wrapRes = resolveFacetTimeUnit(encoding.facet, colRes.rows, transformGaps, 'encoding.facet');
+  const rows = wrapRes.rows;
+  const rowField = rowRes.field;
+  const colField = colRes.field;
+  const wrapField = wrapRes.field;
   const facetFields = [rowField, colField, wrapField].filter(Boolean) as string[];
   const cellEncoding = stripFacetChannels(injectSharedScales(encoding, rows, facetFields));
   const makeCellSpec = (partition: readonly DatasetRow[]): VegaLiteSpec => {
@@ -874,9 +913,11 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
   // Outer transforms run once on the whole dataset before partitioning; the
   // cell is the inner `spec` (which carries its own per-cell transforms), so
   // the outer transforms are naturally excluded from each cell.
-  const { rows, gaps: transformGaps } = transformedRootRows(spec, options);
+  const { rows: rootRows, gaps: transformGaps } = transformedRootRows(spec, options);
   const facet = (spec.facet ?? {}) as {
     field?: string;
+    type?: VegaFieldDef['type'];
+    timeUnit?: VegaFieldDef['timeUnit'];
     row?: VegaFieldDef;
     column?: VegaFieldDef;
     sort?: VegaSort;
@@ -898,9 +939,16 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
       ],
     };
   }
-  const rowField = facet.row?.field;
-  const colField = facet.column?.field;
-  const wrapField = facet.field;
+  const rowRes = resolveFacetTimeUnit(facet.row, rootRows, transformGaps, 'facet.row');
+  const colRes = resolveFacetTimeUnit(facet.column, rowRes.rows, transformGaps, 'facet.column');
+  // The flat wrapping form (`facet: {field, timeUnit, …}` with no row/column)
+  // carries its own field/timeUnit directly on `facet`.
+  const wrapDef = facet.field !== undefined ? (facet as VegaFieldDef) : undefined;
+  const wrapRes = resolveFacetTimeUnit(wrapDef, colRes.rows, transformGaps, 'facet');
+  const rows = wrapRes.rows;
+  const rowField = rowRes.field;
+  const colField = colRes.field;
+  const wrapField = wrapRes.field;
   const facetFields = [rowField, colField, wrapField].filter(Boolean) as string[];
   const sharedEncoding = sub.encoding
     ? injectSharedScales(sub.encoding, rows, facetFields)

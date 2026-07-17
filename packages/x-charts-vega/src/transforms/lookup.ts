@@ -1,6 +1,7 @@
 import type { DatasetRow, VegaLookupTransform } from '../types';
 import type { GapCollector } from '../gaps';
 import { looseEquals } from './calculate';
+import { extractTopojsonFeatureRows } from '../normalize';
 
 /*
  * OWNERSHIP: the "transforms" work unit owns this file.
@@ -213,7 +214,17 @@ export function applyLookupTransform(
     }
     return rows.map((row) => applyPlan(row, plan, undefined, defaultValue, [], key));
   }
-  const secondaryRows = data.values;
+  // A topojson secondary dataset (a common "choropleth via lookup" pattern —
+  // joining map geometry onto a primary table by id) needs the same
+  // topology→GeoJSON conversion `normalize/index.ts` applies to primary geo
+  // data, but exploded to one row per Feature (keyed by its `id`) rather than
+  // one row holding the whole FeatureCollection — a lookup matches per-row,
+  // not against the collection as a single candidate.
+  const format = (data as { format?: { type?: unknown } }).format;
+  const secondaryRows =
+    format?.type === 'topojson'
+      ? extractTopojsonFeatureRows(data as never, gaps, path)
+      : data.values;
 
   if (secondaryRows === undefined) {
     if (data.url !== undefined) {

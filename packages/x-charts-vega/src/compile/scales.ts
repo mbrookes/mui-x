@@ -500,6 +500,13 @@ function resolveChannelAxis(
     forcedQuantitativeDiscrete
   ) {
     const isTemporal = fieldType === 'temporal';
+    // Computed once up front: a per-category mark (bar/rect/boxplot/errorbar)
+    // needs a band scale to derive its width/summary geometry, and an explicit
+    // `scale.type` on any occurrence can request a specific discrete scale —
+    // both the temporal continuous-vs-discrete decision below and the
+    // band-vs-point decision further down depend on them.
+    const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences);
+    const explicitDiscrete = explicitDiscreteScaleType(occurrences);
     const pairs: CategoryPair[] = [];
     const seen = new Set<string>();
     for (const occurrence of occurrences) {
@@ -563,8 +570,6 @@ function resolveChannelAxis(
       // A temporal channel maps to a *continuous* time/utc scale unless a
       // per-category mark (bar/rect/boxplot/errorbar), an explicit discrete
       // `scale.type`, or a non-chronological `sort` forces a band/point domain.
-      const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences);
-      const explicitDiscrete = explicitDiscreteScaleType(occurrences);
       const chronologicalSort = sort === undefined || sort === 'ascending';
       if (!forcedDiscreteMark && explicitDiscrete === undefined && chronologicalSort) {
         // Continuous time scale. `categories`/`categoryKeys` stay populated so
@@ -612,10 +617,24 @@ function resolveChannelAxis(
     }
 
     // Discrete band/point domain: nominal/ordinal channels, or a temporal
-    // channel forced discrete above. Bars need a band scale to derive width.
-    const scaleType =
-      explicitDiscreteScaleType(occurrences) ??
-      (channelNeedsBandScale(occurrences) ? 'band' : 'point');
+    // channel forced discrete above. Bars need a band scale to derive width —
+    // that need wins even over an explicit `scale.type: "point"`/`"ordinal"`,
+    // since x-charts has no way to size a bar series without one (an explicit
+    // point scale on a bar/rect/boxplot/errorbar channel would otherwise
+    // reach x-charts with no band width to draw from and crash).
+    const explicitConflictsWithBar = forcedDiscreteMark && explicitDiscrete === 'point';
+    if (explicitConflictsWithBar) {
+      gaps.add({
+        code: 'scale:point-forced-band',
+        message:
+          `An explicit \`scale.type: "point"\` is not usable here — this channel's mark ` +
+          '(bar/rect/boxplot/errorbar) needs a band scale to derive its width/summary geometry, ' +
+          'so "band" is used instead.',
+        severity: 'partial',
+        path: `${first.unit.path}.encoding.${channel}.scale.type`,
+      });
+    }
+    const scaleType = forcedDiscreteMark ? 'band' : (explicitDiscrete ?? 'point');
 
     // A temporal discrete axis defaults to a locale date string (unless a
     // translatable `axis.format` overrides it); nominal/ordinal axes only carry

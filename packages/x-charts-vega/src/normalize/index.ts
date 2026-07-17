@@ -42,11 +42,17 @@ export interface NormalizeOptions {
 }
 
 /**
- * Converts a TopoJSON payload (`data.format.type: 'topojson'`) into GeoJSON
- * rows: the named `format.feature` object becomes a single FeatureCollection
- * row, which the geoshape mark compiler already understands.
+ * Validates a TopoJSON payload (`data.format.type: 'topojson'`) and returns
+ * one deduped GeoJSON Feature per row, extracted from the named
+ * `format.feature` object. Shared by two consumers: a primary geoshape data
+ * source (`resolveTopojsonRows` below wraps these into a single
+ * FeatureCollection row, which the geoshape mark compiler understands) and a
+ * `lookup` transform whose secondary data is topojson (a common
+ * "choropleth via lookup" pattern — `transforms/lookup.ts` needs one row per
+ * feature, keyed by its `id`, to join against — joining the whole
+ * FeatureCollection row would never match a primary row's id).
  */
-function resolveTopojsonRows(
+export function extractTopojsonFeatureRows(
   data: VegaData,
   gaps: GapCollector,
   path: string,
@@ -94,9 +100,21 @@ function resolveTopojsonRows(
     type: string;
     features: GeoFeatureLike[];
   };
-  return [
-    { ...collection, features: dedupeFeaturesById(collection.features) } as unknown as DatasetRow,
-  ];
+  return dedupeFeaturesById(collection.features) as unknown as DatasetRow[];
+}
+
+/**
+ * Converts a TopoJSON payload (`data.format.type: 'topojson'`) into GeoJSON
+ * rows: the named `format.feature` object becomes a single FeatureCollection
+ * row, which the geoshape mark compiler already understands.
+ */
+function resolveTopojsonRows(
+  data: VegaData,
+  gaps: GapCollector,
+  path: string,
+): readonly DatasetRow[] | undefined {
+  const features = extractTopojsonFeatureRows(data, gaps, path);
+  return features ? [{ type: 'FeatureCollection', features } as unknown as DatasetRow] : undefined;
 }
 
 interface GeoFeatureLike {

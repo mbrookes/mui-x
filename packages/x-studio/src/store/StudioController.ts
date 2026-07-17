@@ -1892,6 +1892,29 @@ export class StudioController {
     );
   };
 
+  /**
+   * Resolves the id of the page that owns `widgetId` by scanning every page's
+   * layout (`widgetRows`). Interactive/cross filters must be stamped with the
+   * EMITTING widget's own page — not `activePageId` at commit time — because a
+   * debounced commit (e.g. `DateRangeControl`'s 300ms debounce) can land after
+   * the user has already navigated to a different page, which would otherwise
+   * pin the filter to the wrong page and hard-filter its widgets by a field the
+   * originating control (scoped to its own page) shows as inactive. Falls back
+   * to `activePageId` when the widget is not found in any layout (e.g. a source
+   * widget that was just removed), preserving the prior behaviour for that edge.
+   */
+  private resolveWidgetPageId = (widgetId: string): string => {
+    const { doc } = this.store.state;
+    for (const [pageId, page] of Object.entries(doc.pages)) {
+      for (const row of page.widgetRows ?? []) {
+        if (row.includes(widgetId)) {
+          return pageId;
+        }
+      }
+    }
+    return doc.dashboard.activePageId;
+  };
+
   applyInteractiveFilter = (
     sourceWidgetId: string,
     field: string,
@@ -1914,7 +1937,11 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'interactive', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
+      scope: {
+        kind: 'interactive',
+        sourceWidgetId,
+        pageId: this.resolveWidgetPageId(sourceWidgetId),
+      },
       ...(options?.filterMode && { filterMode: options.filterMode }),
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
@@ -1962,7 +1989,11 @@ export class StudioController {
       field,
       operator,
       value,
-      scope: { kind: 'cross-filter', sourceWidgetId, pageId: state.doc.dashboard.activePageId },
+      scope: {
+        kind: 'cross-filter',
+        sourceWidgetId,
+        pageId: this.resolveWidgetPageId(sourceWidgetId),
+      },
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };

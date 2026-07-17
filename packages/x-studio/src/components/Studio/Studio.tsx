@@ -171,7 +171,8 @@ export interface StudioProps extends StudioSlots {
   tableSourceMode?: 'explicit' | 'implicit';
   /**
    * Runtime feature flags controlling which UI features are available to end users.
-   * All flags default to `true` when not specified.
+   * Most flags default to `true` when not specified; `quickFilter` and `crossFilterBar`
+   * default to `false` (opt-in features).
    * @example
    * ```tsx
    * // Embed in view-only mode with no AI or edit UI:

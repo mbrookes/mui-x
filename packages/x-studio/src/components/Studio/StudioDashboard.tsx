@@ -46,7 +46,7 @@ export interface StudioDashboardProps {
    * Map of source ID → async data adapter.
    * Adapters are registered automatically whenever the component mounts or the map changes.
    *
-   * Each adapter is an object with a `fetchRows` method (see `StudioDataSourceAdapter`).
+   * Each adapter is an object with a `getRows` method (see `StudioDataSourceAdapter`).
    * When a source does not have an adapter, it falls back to the static `rows` data baked
    * into the `config` (useful for small reference tables or demo data).
    *
@@ -54,7 +54,7 @@ export interface StudioDashboardProps {
    * ```tsx
    * const adapters = {
    *   orders: {
-   *     async fetchRows(descriptor) {
+   *     async getRows(descriptor) {
    *       const res = await fetch(`/api/orders?${serializeDescriptor(descriptor)}`);
    *       return res.json();
    *     },

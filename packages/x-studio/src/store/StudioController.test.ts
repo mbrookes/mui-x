@@ -399,6 +399,63 @@ describe('StudioController.removeWidget — interactive filter cleanup', () => {
   });
 });
 
+// ─── StudioController — filter scope pageId stamping ─────────────────────────
+
+describe('StudioController — interactive/cross filter pageId stamping', () => {
+  function twoPageController() {
+    // `source-w` lives on page-2, but page-1 is the active page — mimicking a
+    // debounced commit (e.g. DateRangeControl) firing after the user navigated away.
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['other-w']] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['source-w']] },
+        },
+        widgets: {
+          'other-w': makeWidget('other-w'),
+          'source-w': makeWidget('source-w'),
+        },
+      },
+    });
+  }
+
+  it('stamps an interactive filter with the SOURCE widget page, not activePageId', () => {
+    const controller = twoPageController();
+
+    controller.applyInteractiveFilter('source-w', 'category', 'in', ['Books']);
+
+    const [f] = controller.getState().doc.filters;
+    expect(f.scope).toMatchObject({
+      kind: 'interactive',
+      sourceWidgetId: 'source-w',
+      pageId: 'page-2',
+    });
+  });
+
+  it('stamps a cross-filter with the SOURCE widget page, not activePageId', () => {
+    const controller = twoPageController();
+
+    controller.applyCrossFilter('source-w', 'category', 'Books');
+
+    const [f] = controller.getState().doc.filters;
+    expect(f.scope).toMatchObject({
+      kind: 'cross-filter',
+      sourceWidgetId: 'source-w',
+      pageId: 'page-2',
+    });
+  });
+
+  it('falls back to activePageId when the source widget is not in any layout', () => {
+    const controller = twoPageController();
+
+    controller.applyCrossFilter('ghost-w', 'category', 'Books');
+
+    const [f] = controller.getState().doc.filters;
+    expect(f.scope.kind === 'cross-filter' && f.scope.pageId).toBe('page-1');
+  });
+});
+
 // ─── StudioController — widget CRUD ──────────────────────────────────────────
 
 function makeWidget(id: string, overrides: Partial<StudioWidget> = {}): StudioWidget {

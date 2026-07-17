@@ -217,7 +217,10 @@ function resolveSubFlag<T extends object>(
   return ((widgetFlag as T)[subKey] as boolean | undefined) ?? true;
 }
 
-/** Returns the active feature flags as a flat resolved object. All flags default to `true`. */
+/**
+ * Returns the active feature flags as a flat resolved object. Most flags default to `true`;
+ * `quickFilter` and `crossFilterBar` default to `false` (opt-in features).
+ */
 export function useStudioFeatures(): ResolvedStudioFeatures {
   const { featureFlags } = useStudioUIConfig();
   const { kpi, chart, grid } = featureFlags;

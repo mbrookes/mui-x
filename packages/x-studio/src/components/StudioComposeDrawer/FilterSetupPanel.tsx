@@ -150,9 +150,15 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     // Only clear the field if it's known to be incompatible; otherwise preserve it.
     let clearField = false;
     if (fieldId) {
-      const currentField = Object.values(dataSources)
-        .flatMap((ds) => ds.fields)
-        .find((f) => f.id === fieldId);
+      // Resolve the configured field scoped to its own source first (finding 3.14): a bare-id
+      // lookup across every source lets an id collision on an unrelated source decide the type,
+      // wiping (or wrongly keeping) the configured field on a control-type switch. Fall back to
+      // the unscoped lookup only when no source is known.
+      const scopeSourceId = config.filterWidgetSourceId ?? widget.sourceId;
+      const currentField =
+        (scopeSourceId
+          ? fieldCatalog.find((f) => f.id === fieldId && f.sourceId === scopeSourceId)
+          : undefined) ?? fieldCatalog.find((f) => f.id === fieldId);
       if (currentField) {
         const fieldType = currentField.type;
         if (newType === 'date-range') {
@@ -167,14 +173,28 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     }
     controller.updateWidgetConfig(widgetId, {
       filterWidgetType: newType,
-      ...(clearField ? { filterWidgetField: undefined } : {}),
+      // When the field is cleared as incompatible, drop its source id too (finding 3.13) —
+      // a lingering `filterWidgetSourceId` with no field is stale doc garbage.
+      ...(clearField ? { filterWidgetField: undefined, filterWidgetSourceId: undefined } : {}),
     });
     controller.clearInteractiveFilter(widgetId);
   };
 
   const handleFieldChange = (newFieldId: string, newSourceId: string) => {
+    if (!newFieldId) {
+      // Clearing the field: drop both the field and its source id, storing `undefined` (not
+      // the `''` the empty `newSourceId` would otherwise leave via the `!== widget.sourceId`
+      // comparison when the widget has no source) — a persisted empty-string source id is
+      // stale doc garbage that no lookup resolves (finding 3.13).
+      controller.updateWidgetConfig(widgetId, {
+        filterWidgetField: undefined,
+        filterWidgetSourceId: undefined,
+      });
+      controller.clearInteractiveFilter(widgetId);
+      return;
+    }
     const configUpdate: Partial<StudioWidgetConfig> = {
-      filterWidgetField: newFieldId || undefined,
+      filterWidgetField: newFieldId,
       filterWidgetSourceId: newSourceId !== widget.sourceId ? newSourceId : undefined,
     };
     // When the picked field belongs to a different source, adopt that source AND write

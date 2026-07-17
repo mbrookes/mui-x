@@ -16,13 +16,17 @@ import {
   selectWidgets,
   selectDataSources,
   selectExpressionFields,
+  selectFilters,
+  selectRelationships,
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
+import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { CrossFilterModeSection } from './CrossFilterModeSection';
+import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 interface MapSetupPanelProps {
   widgetId: string;
@@ -33,6 +37,8 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const allFilters = useStudioSelector(selectFilters);
+  const relationships = useStudioSelector(selectRelationships);
   const allGeographies = useStudioGeographies();
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
@@ -141,6 +147,13 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     return all;
   }, [dataSources, expressionFields]);
 
+  // Full cross-source field catalog, used to detect widget-scoped filters that no longer
+  // resolve after the map adopts a source (finding 1.6) — mirrors the sibling setup panels.
+  const fieldCatalog = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
+
   function update(changes: Partial<typeof config>) {
     // Route config edits through `updateWidgetConfig` (T3.3): it shallow-merges only the changed
     // keys and runs the write-side `validateConfigKeysForKind` guard, instead of `updateWidget`
@@ -162,11 +175,28 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       return;
     }
     if (!widget?.sourceId) {
-      // No primary source yet — adopt the country field's source as primary
-      controller.updateWidget(widgetId, {
-        sourceId,
-        config: { ...config, mapCountryField: fieldId, mapCountrySourceId: undefined },
-      });
+      // No primary source yet — adopt the country field's source as primary. Fold in the
+      // removal of any widget-scoped filter that no longer resolves against the adopted
+      // source (finding 1.6): a filter added to this source-less map keeps matching by
+      // `widgetId`, and once its field is absent from the new source's rows the
+      // `filterUtils.ts` branches exclude every row, silently blanking the map. Every other
+      // source-adopting setup panel (Chart/KPI/Grid/Filter) folds this into the same commit.
+      controller.updateWidget(
+        widgetId,
+        {
+          sourceId,
+          config: { ...config, mapCountryField: fieldId, mapCountrySourceId: undefined },
+        },
+        {
+          removeFilterIds: collectStaleWidgetFilterIds(
+            allFilters,
+            widgetId,
+            sourceId,
+            fieldCatalog,
+            relationships,
+          ),
+        },
+      );
       return;
     }
     if (sourceId === widget.sourceId) {
@@ -215,7 +245,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         label={localeText.mapSetupValueFieldLabel}
         helperText={localeText.mapSetupValueFieldHelperText}
         value={config.mapValueField ?? ''}
-        valueSourceId={config.mapValueSourceId}
+        valueSourceId={config.mapValueSourceId ?? widget?.sourceId}
         fields={numericFields}
         onChange={(fieldId, sourceId) =>
           update(

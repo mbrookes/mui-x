@@ -30,6 +30,7 @@ const mockState = {
     },
     relationships: [],
     expressionFields: [],
+    filters: [] as any[],
   },
   runtime: {
     dataSources: {
@@ -81,8 +82,9 @@ describe('MapSetupPanel', () => {
   });
 
   afterEach(() => {
-    // Some tests populate expression fields; reset so they don't leak (isolate: false).
+    // Some tests populate expression fields / filters; reset so they don't leak (isolate: false).
     mockState.doc.expressionFields = [];
+    mockState.doc.filters = [];
   });
 
   it('shows the region field section for the default (world) geography', () => {
@@ -166,10 +168,87 @@ describe('MapSetupPanel', () => {
     const countryOptions = await screen.findAllByRole('option', { name: /Country$/ });
     await user.click(countryOptions[1]);
 
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
+    expect(controller.updateWidget).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        sourceId: 'customers',
+        config: { mapCountryField: 'country', mapCountrySourceId: undefined },
+      },
+      // No widget-scoped filters in this fixture, so nothing to fold in (finding 1.6).
+      { removeFilterIds: [] },
+    );
+  });
+
+  // ─── Finding 1.6 ────────────────────────────────────────────────────────────
+  it('folds removal of a now-stale widget-scoped filter into the source-adoption commit', async () => {
+    // Source-less map with a widget-scoped filter on source A's ('orders') field. Adopting
+    // an unrelated source B ('customers') via the country picker leaves that A-scoped filter
+    // matching by widgetId, so its field never resolves against B and every row is excluded —
+    // a silently blank map. The adoption commit must remove the stale filter (finding 1.6).
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'map',
+      sourceId: undefined,
+      config: {} as StudioWidgetConfig,
+    };
+    mockState.doc.filters = [
+      {
+        id: 'f-stale',
+        scope: { kind: 'widget', widgetId: 'widget-1' },
+        field: 'total',
+        // No filterSourceId → targets the widget's (about-to-be-adopted) source.
+      },
+    ];
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    const countryInput = screen.getByLabelText('Country field', { exact: false });
+    await user.click(countryInput);
+    const countryOptions = await screen.findAllByRole('option', { name: /Country$/ });
+    // Pick the customers ('B') country field — unrelated to the orders-scoped 'total' filter.
+    await user.click(countryOptions[1]);
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(
+      'widget-1',
+      expect.objectContaining({ sourceId: 'customers' }),
+      { removeFilterIds: ['f-stale'] },
+    );
+
+    mockState.doc.filters = [];
+  });
+
+  // ─── Finding 3.12 ───────────────────────────────────────────────────────────
+  it('resolves the value field against the widget source on an id collision (own-source fallback)', () => {
+    // The map's value field lives on 'customers', but 'orders' (which iterates FIRST in the
+    // numeric-field list) exposes a colliding 'total' id. With no explicit mapValueSourceId,
+    // the unscoped lookup would surface the orders entry ("Total"); the `?? widget?.sourceId`
+    // fallback must anchor on the widget's own source ('customers') → "Customer Total".
+    mockState.runtime.dataSources.customers.fields = [
+      { id: 'country', label: 'Country', type: 'string' },
+      { id: 'total', label: 'Customer Total', type: 'number' },
+    ] as any;
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'map',
       sourceId: 'customers',
-      config: { mapCountryField: 'country', mapCountrySourceId: undefined },
-    });
+      config: {
+        mapGeography: 'world',
+        mapCountryField: 'country',
+        mapValueField: 'total',
+        mapValueSourceId: undefined,
+        mapAggregation: 'sum',
+      } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Customer Total');
+
+    mockState.runtime.dataSources.customers.fields = [
+      { id: 'country', label: 'Country', type: 'string' },
+    ] as any;
   });
 
   // Pinning tests for the migration onto the shared CrossFilterModeSection (previously

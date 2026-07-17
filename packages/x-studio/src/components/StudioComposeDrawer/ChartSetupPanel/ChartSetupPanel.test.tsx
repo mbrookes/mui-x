@@ -796,6 +796,83 @@ describe('ChartSetupPanel', () => {
       }
     });
   });
+
+  // Finding 2.9: a chart has no separate source picker — the X field IS how it adopts a
+  // source. So an unrelated-source X candidate must NOT be permanently disabled; selecting it
+  // adopts that source. The picker validates the candidate against its OWN source as anchor.
+  it('keeps an unrelated-source X field selectable (its pick adopts that source) (finding 2.9)', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+
+    try {
+      // An UNRELATED source — no declared relationship references it.
+      (mockState.runtime.dataSources as Record<string, unknown>).warehouse = {
+        id: 'warehouse',
+        label: 'Warehouse',
+        fields: [{ id: 'zone', label: 'Zone', type: 'string' }],
+        rows: [],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { chartType: 'bar', xField: 'id' },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      const xInput = screen.getByLabelText('X / Category field', { exact: false });
+      await user.click(xInput);
+
+      const zoneOption = await screen.findByRole('option', { name: /Zone$/ });
+      // Anchored on 'warehouse' (its own source), the candidate is a valid direct field →
+      // enabled. Before the fix it was validated against 'orders' → field_not_found → disabled.
+      expect(zoneOption.getAttribute('aria-disabled')).toBe('false');
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      delete (mockState.runtime.dataSources as Record<string, unknown>).warehouse;
+    }
+  });
+
+  // Finding 2.12: `selectedXField` (which sets `supportSourceId`, anchoring every other
+  // picker) must resolve the configured X field scoped to the widget's OWN source. An
+  // earlier-sorting related source sharing the field id would otherwise re-anchor the panel.
+  it('resolves the X field scoped to the widget source on an id collision (finding 2.12)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        // The widget's own X field is a DATE — so Group By should be offered.
+        fields: [{ id: 'shared', label: 'Shared', type: 'date' }],
+      };
+      // Sorts before "Orders" by label; shares the 'shared' id but as a STRING.
+      (mockState.runtime.dataSources as Record<string, unknown>).aaa = {
+        id: 'aaa',
+        label: 'Aaa',
+        fields: [{ id: 'shared', label: 'Aaa Shared', type: 'string' }],
+        rows: [],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { chartType: 'bar', xField: 'shared' },
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // Group By renders only when the RESOLVED X field is date/datetime. With the fix, the
+      // widget-source date field is resolved → Group By shows. Before the fix, the
+      // earlier-sorting string 'aaa.shared' won the bare-id lookup → no Group By.
+      expect(screen.getAllByText('Group by').length).toBeGreaterThan(0);
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+      delete (mockState.runtime.dataSources as Record<string, unknown>).aaa;
+    }
+  });
 });
 
 // Finding 2.2: picking the X field also ADOPTS its source (the widget starts with no

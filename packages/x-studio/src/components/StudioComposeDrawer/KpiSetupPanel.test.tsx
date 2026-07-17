@@ -266,6 +266,59 @@ describe('KpiSetupPanel', () => {
       };
     }
   });
+
+  // Finding 1.7: `selectedField` (which feeds the aggregation-options derivation and the
+  // render-time repair effect) must resolve the value field scoped to the widget's OWN
+  // source. A reachable related source that sorts EARLIER by label ("Aaa" < "Orders") and
+  // shares the 'total' field id — but as a STRING — would otherwise win the bare-id lookup,
+  // make the stored numeric 'sum' aggregation look invalid, and trigger a non-undoable
+  // doc rewrite merely on opening the drawer.
+  it('resolves the value field scoped to the widget source, avoiding a spurious aggregation repair (finding 1.7)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousSources = mockState.runtime.dataSources;
+    const previousRels = mockState.doc.relationships;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources = {
+        // Sorts before "Orders" by label; shares the 'total' id but as a string.
+        aaa: {
+          id: 'aaa',
+          label: 'Aaa',
+          fields: [{ id: 'total', label: 'Aaa Total', type: 'string' }],
+          rows: [],
+        },
+        ...previousSources,
+      } as typeof previousSources;
+      // Make 'aaa' reachable from the widget's source so it enters `reachableFields`.
+      mockState.doc.relationships = [
+        {
+          sourceId: 'orders',
+          targetId: 'aaa',
+          type: 'many-to-one',
+          sourceField: 'total',
+          targetField: 'total',
+        },
+      ] as typeof previousRels;
+      // Widget's own numeric 'total' with a valid 'sum' aggregation.
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { kpiValueField: 'total', kpiAggregation: 'sum' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      // 'sum' stays valid for the widget's own numeric field → the repair effect never
+      // fires. Before the fix, the string 'aaa.total' won the lookup and forced a
+      // non-undoable `{ kpiAggregation: 'count' }` write-back.
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources = previousSources;
+      mockState.doc.relationships = previousRels;
+    }
+  });
 });
 
 // Finding 2.2: a source-switch gesture (pick a field from a different source, which also

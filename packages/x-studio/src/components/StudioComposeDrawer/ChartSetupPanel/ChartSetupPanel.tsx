@@ -99,8 +99,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const chartConfig = rawConfig as StudioChartWidgetConfig;
   const widgetSourceId = widget?.sourceId;
 
-  // selectedXField is used to conditionally show the Group By control below
-  const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
+  // selectedXField is used to conditionally show the Group By control below, and its
+  // `sourceId` anchors `reachableFields` for every other picker. Resolve it scoped to the
+  // widget's OWN source first (finding 2.12): `buildFieldCatalog` sorts by source label, so a
+  // bare-id lookup across the multi-source catalog can match a related source that shares the
+  // field id and sorts earlier — re-anchoring the whole panel on the wrong source and hiding
+  // the widget's own valid fields. Fall back to the unscoped lookup only when the widget has
+  // no source yet (the X pick will then adopt one).
+  const selectedXField =
+    (widgetSourceId
+      ? allFields.find((f) => f.id === config.xField && f.sourceId === widgetSourceId)
+      : undefined) ??
+    allFields.find((f) => f.id === config.xField) ??
+    null;
   const supportSourceId = selectedXField?.sourceId;
 
   // Once the X field anchors a source, restrict all other pickers to reachable sources.
@@ -270,6 +281,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   const analyzeCombination = React.useCallback(
     (overrides: {
+      // Anchor the support check on a DIFFERENT source than the widget's current one. Used
+      // by the X-field picker to validate an unrelated-source candidate against the source it
+      // would ADOPT on selection, instead of the current (old) source (finding 2.9).
+      sourceId?: string | undefined;
       xField?: string | undefined;
       yFields?: string[];
       seriesField?: string | undefined;
@@ -278,7 +293,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       extraFields?: (string | undefined)[];
     }) =>
       analyzeChartSupport(
-        widgetSourceId ?? supportSourceId,
+        overrides.sourceId ?? widgetSourceId ?? supportSourceId,
         overrides.xField ?? config.xField,
         overrides.yFields ?? nativeYFieldIds,
         overrides.seriesField ?? config.seriesField,
@@ -562,6 +577,24 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             getOptionDisabled={(option) => {
               if (option.id === config.xField) {
                 return false;
+              }
+              // A chart has no separate source picker — the X field IS how it adopts a
+              // source. When the candidate belongs to an unrelated source, selecting it
+              // adopts that source (see onChange), so validate the candidate against its OWN
+              // source as anchor. Anchoring on the current (old) source reports every
+              // unrelated-source field `field_not_found_or_not_direct` and would disable the
+              // panel's own adoption path forever (finding 2.9). The candidate's X field is
+              // validated alone; the post-adoption Y/split-by validity surfaces via the
+              // panel's support warning, where the user re-points those fields.
+              const currentAnchor = widgetSourceId ?? supportSourceId;
+              if (option.sourceId !== currentAnchor) {
+                return !analyzeCombination({
+                  sourceId: option.sourceId,
+                  xField: option.id,
+                  yFields: [],
+                  seriesField: undefined,
+                  extraFields: [],
+                }).supported;
               }
               return !analyzeCombination({ xField: option.id }).supported;
             }}

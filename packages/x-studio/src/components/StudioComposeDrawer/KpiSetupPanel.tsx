@@ -120,9 +120,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     return allFields.filter((f) => reachableIds.has(f.sourceId));
   }, [allFields, widget?.sourceId, relationships]);
 
-  const selectedField =
-    reachableFields.find((f) => f.id === config.kpiValueField) ??
-    allFields.find((f) => f.id === config.kpiValueField);
+  // Resolve the configured value field scoped to the widget's OWN source first (finding
+  // 1.7). `buildFieldCatalog` sorts by source label, so a bare-id lookup across the
+  // multi-source catalog can match a reachable related source that shares the field id and
+  // sorts earlier — feeding the wrong field's `type` into the aggregation-options derivation,
+  // whose render-time self-repair effect below would then non-undoably rewrite a valid
+  // `kpiAggregation` in the doc. The KPI value field always belongs to the widget's own
+  // source (a cross-source pick adopts that source), so scope to `widget.sourceId`; fall back
+  // to the unscoped lookup only when the widget has no source yet.
+  const selectedField = widget?.sourceId
+    ? reachableFields.find((f) => f.id === config.kpiValueField && f.sourceId === widget.sourceId)
+    : allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 
   // With no value field, "Count" (a row tally) is the only meaningful aggregation —

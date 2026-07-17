@@ -116,7 +116,72 @@ describe('FilterSetupPanel', () => {
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
       filterWidgetType: 'date-range',
       filterWidgetField: undefined,
+      // The now-orphaned source id is dropped alongside the field (finding 3.13).
+      filterWidgetSourceId: undefined,
     });
+  });
+
+  // Finding 3.13: clearing the field must store `undefined` for the source id, not the `''`
+  // the empty `newSourceId` would otherwise persist (a lingering empty-string source id is
+  // stale doc garbage no lookup resolves).
+  it('stores undefined (not empty string) for the source id when the field is cleared (finding 3.13)', async () => {
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Clear field'));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetField: undefined,
+      filterWidgetSourceId: undefined,
+    });
+    expect(controller.clearInteractiveFilter).toHaveBeenCalledWith('widget-1');
+  });
+
+  // Finding 3.14: the type-switch compatibility check must resolve the configured field
+  // scoped to its own source. An earlier-sorting unrelated source sharing the field id (but
+  // a different type) must not decide whether the field is wiped on a control-type switch.
+  it('resolves the configured field scoped to its source when deciding type-switch compatibility (finding 3.14)', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousSources = mockState.runtime.dataSources;
+
+    try {
+      mockState.runtime.dataSources = {
+        // Sorts before "Orders"; shares the 'shared' id but as a STRING (date-range-incompatible).
+        aaa: {
+          id: 'aaa',
+          label: 'Aaa',
+          fields: [{ id: 'shared', label: 'Aaa Shared', type: 'string' }],
+          rows: [],
+        },
+        orders: {
+          id: 'orders',
+          label: 'Orders',
+          fields: [{ id: 'shared', label: 'Shared', type: 'date' }],
+          rows: [],
+        },
+      } as typeof previousSources;
+      // Widget's own 'shared' field is the DATE one — compatible with date-range.
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { filterWidgetType: 'multi-select', filterWidgetField: 'shared' },
+      };
+
+      const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+      await user.click(screen.getByText('Multi-select'));
+      const dateRangeOption = await screen.findByRole('option', { name: /^Date range/ });
+      await user.click(dateRangeOption);
+
+      // The widget-source date field is compatible → the field is PRESERVED (only the type
+      // changes). Before the fix, the earlier-sorting string 'aaa.shared' won the bare-id
+      // lookup and the field was wrongly wiped.
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        filterWidgetType: 'date-range',
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources = previousSources;
+    }
   });
 
   it('shows the slider range inputs only when the control type is slider', () => {

@@ -17,12 +17,15 @@ import {
   selectWidgets,
   selectDataSources,
   selectExpressionFields,
+  selectFilters,
+  selectRelationships,
   useStudioLocaleText,
 } from '../../context';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import type { StudioWidgetConfigForKind } from '../../models';
-import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
+import { buildFieldCatalog, buildSourceFieldEntries } from '../../internals/fieldCatalog';
+import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 interface PivotSetupPanelProps {
   widgetId: string;
@@ -33,6 +36,8 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const allFilters = useStudioSelector(selectFilters);
+  const relationships = useStudioSelector(selectRelationships);
   const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
   // `widget` comes from a broad selector, so its `config` is the cross-kind union.
@@ -80,6 +85,13 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     [allFields],
   );
 
+  // Full cross-source field catalog, used to detect widget-scoped filters that no longer
+  // resolve after the pivot adopts a source (finding 1.6) — mirrors the sibling setup panels.
+  const fieldCatalog = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
+
   /** Adopt sourceId from the first field selected when no source is set yet. */
   function handleFieldChange(
     fieldKey: 'pivotRowField' | 'pivotColField' | 'pivotValueField',
@@ -94,10 +106,28 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       return;
     }
     if (!widget.sourceId) {
-      controller.updateWidget(widgetId, {
-        sourceId,
-        config: { ...config, [fieldKey]: fieldId },
-      });
+      // Adopt the picked field's source. Fold in the removal of any widget-scoped filter
+      // that no longer resolves against the adopted source (finding 1.6): a filter added to
+      // this source-less pivot keeps matching by `widgetId`, and once its field is absent
+      // from the new source's rows the `filterUtils.ts` branches exclude every row, silently
+      // blanking the pivot. Every other source-adopting setup panel folds this into the same
+      // commit.
+      controller.updateWidget(
+        widgetId,
+        {
+          sourceId,
+          config: { ...config, [fieldKey]: fieldId },
+        },
+        {
+          removeFilterIds: collectStaleWidgetFilterIds(
+            allFilters,
+            widgetId,
+            sourceId,
+            fieldCatalog,
+            relationships,
+          ),
+        },
+      );
     } else {
       controller.updateWidgetConfig(widgetId, { [fieldKey]: fieldId });
     }

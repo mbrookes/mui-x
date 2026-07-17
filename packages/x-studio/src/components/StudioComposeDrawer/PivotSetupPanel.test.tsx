@@ -30,6 +30,7 @@ const mockState = {
     },
     relationships: [],
     expressionFields: [] as StudioExpressionField[],
+    filters: [] as any[],
   },
   runtime: {
     dataSources: {
@@ -76,6 +77,7 @@ describe('PivotSetupPanel', () => {
         pivotAggregation: 'sum',
       } as StudioWidgetConfig,
     };
+    mockState.doc.filters = [];
     controller.updateWidgetConfig.mockClear();
     controller.updateWidget.mockClear();
     configureStudioContextMock({ getState: () => mockState, controller });
@@ -146,10 +148,52 @@ describe('PivotSetupPanel', () => {
     const segmentOption = await screen.findByRole('option', { name: /Segment$/ });
     await user.click(segmentOption);
 
-    expect(controller.updateWidget).toHaveBeenCalledWith('widget-1', {
-      sourceId: 'customers',
-      config: { pivotRowField: 'segment' },
-    });
+    expect(controller.updateWidget).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        sourceId: 'customers',
+        config: { pivotRowField: 'segment' },
+      },
+      // No widget-scoped filters in this fixture, so nothing to fold in (finding 1.6).
+      { removeFilterIds: [] },
+    );
+  });
+
+  // ─── Finding 1.6 ────────────────────────────────────────────────────────────
+  it('folds removal of a now-stale widget-scoped filter into the source-adoption commit', async () => {
+    // Source-less pivot with a widget-scoped filter on source A's ('orders') field. Adopting
+    // an unrelated source B ('customers') via a field picker leaves that A-scoped filter
+    // matching by widgetId, so its field never resolves against B and every row is excluded —
+    // a silently blank pivot. The adoption commit must remove the stale filter (finding 1.6).
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'pivot',
+      sourceId: undefined,
+      config: {} as StudioWidgetConfig,
+    };
+    mockState.doc.filters = [
+      {
+        id: 'f-stale',
+        scope: { kind: 'widget', widgetId: 'widget-1' },
+        field: 'total',
+      },
+    ];
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
+
+    const rowInput = screen.getByLabelText('Row field', { exact: false });
+    await user.click(rowInput);
+    const segmentOption = await screen.findByRole('option', { name: /Segment$/ });
+    await user.click(segmentOption);
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(
+      'widget-1',
+      expect.objectContaining({ sourceId: 'customers' }),
+      { removeFilterIds: ['f-stale'] },
+    );
+
+    mockState.doc.filters = [];
   });
 
   // Pinning tests for the migration onto the shared `fieldCatalog.ts` helpers

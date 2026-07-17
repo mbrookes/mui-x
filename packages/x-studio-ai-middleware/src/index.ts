@@ -36,7 +36,7 @@ export type {
   CreateWidgetRequest,
   CreateWidgetResponse,
 } from './handleGenerateInsight';
-export type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
+export type { StudioAIRequest, StudioAISSEEvent, ApprovalEffectsSummary } from './models/protocol';
 // StudioAISkill is defined here (server-side skill with execute function).
 // SerializableSkill, StateMutation, StudioAIToolName are protocol types defined
 // locally (mirrored in @mui/x-studio for UI consumers).

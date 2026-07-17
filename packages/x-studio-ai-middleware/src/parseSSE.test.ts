@@ -80,9 +80,22 @@ describe('parseSSE', () => {
     expect(result).toEqual([]);
   });
 
-  it('does not emit a trailing data: line that lacks a newline terminator', async () => {
-    // The final line stays in the buffer because it is never newline-terminated.
+  // Regression for T3-4a: a stream that ends WITHOUT a trailing newline leaves its final
+  // `data:` line sitting in the buffer. The parser must flush that remaining buffer after
+  // the read loop, otherwise the last event (possibly the `usage` record or the closing
+  // delta) is silently dropped.
+  it('flushes a trailing data: line that lacks a newline terminator', async () => {
     const result = await collect(fakeResponse(['data: {"a":1}\n', 'data: {"b":2}']));
+    expect(result).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  it('honors the [DONE] sentinel when it is the final unterminated line', async () => {
+    const result = await collect(fakeResponse(['data: {"a":1}\n', 'data: [DONE]']));
+    expect(result).toEqual([{ a: 1 }]);
+  });
+
+  it('does not emit a malformed trailing line on flush', async () => {
+    const result = await collect(fakeResponse(['data: {"a":1}\n', 'data: not-json']));
     expect(result).toEqual([{ a: 1 }]);
   });
 

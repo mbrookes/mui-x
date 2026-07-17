@@ -288,6 +288,16 @@ describe('executeToolOnState: set_dashboard_title', () => {
     const result = executeToolOnState('set_dashboard_title', { title: 'New Title' }, state);
     expect(result.nextState.doc.dashboard.title).toBe('New Title');
   });
+
+  // Regression for T3-3: a model-supplied title is re-interpolated into <dashboard_state>
+  // on every future request, so an unbounded title is a persistent token bomb. It must be
+  // capped at the write source (200 chars) so the oversized string never lands in state.
+  it('caps an oversized dashboard title at the write source', () => {
+    const state = makeState();
+    const huge = 'x'.repeat(5000);
+    const result = executeToolOnState('set_dashboard_title', { title: huge }, state);
+    expect(result.nextState.doc.dashboard.title.length).toBe(200);
+  });
 });
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
@@ -680,6 +690,29 @@ describe('executeToolOnState: update_widget', () => {
     expect(nextConfig.chartType).toBe('gauge');
     expect(nextConfig.gaugeMin).toBe(0);
   });
+
+  // Regression for T3-1: JSON `config: null` is not `undefined`, so it used to slip past
+  // the `!== undefined` gate into the config-key validators, whose `Object.keys(null)` /
+  // `Object.hasOwn(null, …)` throw a raw `TypeError: Cannot convert undefined or null to
+  // object` — surfaced to the model as an opaque, unactionable error. It must now be
+  // treated as absent (like every sibling path), so the update succeeds without a config
+  // patch and never throws.
+  it('treats config: null as absent instead of throwing a raw TypeError', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', title: 'Renamed', config: null },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toBeUndefined();
+    expect(out.success).toBe(true);
+    // config: null is absent, so no config patch reaches the mutation and the config is untouched.
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    expect(Object.hasOwn(args, 'config')).toBe(false);
+    expect(result.nextState.doc.widgets['widget-1'].title).toBe('Renamed');
+    expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
 });
 
 describe('executeToolOnState: remove_widget', () => {
@@ -873,6 +906,61 @@ describe('executeToolOnState: set_widget_width', () => {
     const out = parseOutput(result.output);
     expect(out.success).toBe(true);
     expect(out.columns).toBe(12);
+  });
+
+  // Regression for T2-3: a non-numeric `columns` string used to survive the bare cast and
+  // reach the reducer's `clampSpan`, which treats any non-finite input as MIN_SPAN (6) —
+  // silently committing the minimum width and reporting `{ success: true, columns: 6 }`. It
+  // must now be rejected at the write source with an actionable 6-24 error and commit nothing.
+  it('rejects a non-numeric string columns value with an actionable error (no silent minimum)', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: 'wide' },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/6 and 24/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  // A NUMERIC string ("12") is coerced to its number (12) rather than silently collapsing
+  // to the reducer's minimum, mirroring `set_widget_forecast.periods`.
+  it('coerces a numeric string columns value to its number', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: '12' },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.columns).toBe(12);
+  });
+
+  it('truncates a numeric-but-fractional columns value before handing it to the reducer', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: 12.9 },
+      state,
+    );
+    const mut = result.mutation as { args: { columns: number } };
+    expect(mut.args.columns).toBe(12);
+  });
+
+  it('accepts null as a reset (clears the span) without erroring', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_width',
+      { widgetId: 'widget-1', columns: null },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    expect(out.columns).toBeNull();
   });
 });
 
@@ -1243,6 +1331,35 @@ describe('executeToolOnState: apply_bulk_update', () => {
     const args = (result.mutation as { args: Record<string, unknown> }).args;
     expect(Object.hasOwn(args, 'widgetColSpans')).toBe(true);
     expect(Object.hasOwn(args, 'widgetRows')).toBe(false);
+  });
+
+  // Regression for T2-1 (residual lost-update): a colSpans-ONLY batch must ship ONLY the
+  // span entries it actually accepted, NOT the full turn-start snapshot of every widget's
+  // span. Shipping the whole snapshot re-asserts stale spans through the reducer's merge,
+  // reverting a concurrent client-side resize of a DIFFERENT widget the batch never named.
+  it('ships only the changed colSpan entries (not the full snapshot) for a colSpans-only batch', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'Page 1',
+            widgetRows: [['widget-1', 'widget-2']],
+            widgetColSpans: { 'widget-1': 12, 'widget-2': 12 },
+          },
+        },
+        widgets: {
+          'widget-1': { id: 'widget-1', kind: 'chart', title: 'A', config: { chartType: 'bar' } },
+          'widget-2': { id: 'widget-2', kind: 'chart', title: 'B', config: { chartType: 'bar' } },
+        },
+      },
+    });
+    const result = executeToolOnState('apply_bulk_update', { colSpans: { 'widget-1': 8 } }, state);
+    const args = (result.mutation as { args: Record<string, unknown> }).args;
+    // Only widget-1's changed span ships; widget-2's untouched snapshot span must NOT,
+    // so the reducer's merge preserves any concurrent resize of widget-2.
+    expect(args.widgetColSpans).toEqual({ 'widget-1': 8 });
   });
 
   // T3-A: a colSpans ref that is an `Object.prototype` member name and matches

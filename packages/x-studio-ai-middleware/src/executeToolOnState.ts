@@ -51,6 +51,21 @@ export interface ToolExecutionResult {
 const MAX_DISTINCT_VALUES_IN_STATE_OUTPUT = 20;
 
 /**
+ * Max length of a model-supplied stored title (dashboard / page / widget). These
+ * strings are re-interpolated into `<dashboard_state>` on EVERY future request, so an
+ * unbounded title is a persistent token bomb (finding T3-3) — `sanitizeForPrompt`
+ * neutralizes markup but not size. Capped at the write source so the oversized string
+ * never lands in state. Larger than `rename_thread`'s 40-char cap because dashboard and
+ * widget titles are legitimately longer than a chat-thread label, but still bounded.
+ */
+const MAX_TITLE_LENGTH = 200;
+
+/** Cap a model-supplied title to {@link MAX_TITLE_LENGTH} (see the constant's rationale). */
+function capTitle(title: string): string {
+  return title.length > MAX_TITLE_LENGTH ? title.slice(0, MAX_TITLE_LENGTH) : title;
+}
+
+/**
  * Project a `StudioDataSource` down to AI-safe metadata for `get_dashboard_state`.
  *
  * Strips `rows` (raw live table data — an exfiltration / token-bomb path that also
@@ -442,12 +457,12 @@ void ALL_BUILTIN_KINDS_LISTED;
  * config carries a key that belongs to a different widget kind — fail-closed, so
  * an invalid cross-kind key can never be committed to state.
  */
-function buildWidgetFromArgs(
+export function buildWidgetFromArgs(
   args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
   customWidgets?: StudioCustomWidgetDef[],
 ): { widget: StudioWidget } | { error: string } {
   const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
-  const title = String(args.title ?? '');
+  const title = capTitle(String(args.title ?? ''));
   const sourceId = args.sourceId ? String(args.sourceId) : undefined;
   const aiConfig = (args.config ?? {}) as StudioWidget['config'];
   // Validate `kind` against the CLOSED, locally-knowable set (built-in kinds ∪
@@ -579,7 +594,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   add_page: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const title = String(args.title ?? 'New Page');
+      const title = capTitle(String(args.title ?? 'New Page'));
       const id = createPageId();
       const mutation: StateMutation = { type: 'addPage', args: { id, title } };
       return {
@@ -593,7 +608,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   set_dashboard_title: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const title = String(args.title ?? '');
+      const title = capTitle(String(args.title ?? ''));
       const mutation: StateMutation = { type: 'setDashboardTitle', args: { title } };
       return {
         output: JSON.stringify({ success: true, title }),
@@ -646,12 +661,20 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
 
-      if (args.config !== undefined) {
-        const error = invalidConfigKeyError(widget.kind, args.config as Record<string, unknown>);
+      // Treat `config: null` as absent (T3-1): JSON `null` is not `undefined`, so it
+      // would slip past an `!== undefined` gate straight into the config-key validators,
+      // whose `Object.keys(null)` / `Object.hasOwn(null, …)` throw a raw
+      // `TypeError: Cannot convert undefined or null to object` — surfaced to the model as
+      // an opaque, unactionable error. Every sibling path already tolerates a nullish
+      // config (`buildWidgetFromArgs` uses `?? {}`; the bulk loop gates on truthiness; the
+      // reducer treats a non-record config as absent), so normalize to `undefined` here.
+      const configArg = args.config == null ? undefined : args.config;
+      if (configArg !== undefined) {
+        const error = invalidConfigKeyError(widget.kind, configArg as Record<string, unknown>);
         if (error) {
           return { output: JSON.stringify({ error }), nextState: state };
         }
-        const valueError = invalidConfigValueError(args.config as Record<string, unknown>);
+        const valueError = invalidConfigValueError(configArg as Record<string, unknown>);
         if (valueError) {
           return { output: JSON.stringify({ error: valueError }), nextState: state };
         }
@@ -664,7 +687,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             ? widget.config.chartType
             : undefined;
           const chartError = invalidChartConfigKeyError(
-            args.config as Record<string, unknown>,
+            configArg as Record<string, unknown>,
             existingChartType,
           );
           if (chartError) {
@@ -675,7 +698,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       const changes: Partial<Omit<StudioWidget, 'id'>> = {};
       if (args.title !== undefined) {
-        changes.title = String(args.title);
+        changes.title = capTitle(String(args.title));
       }
       if (args.sourceId !== undefined) {
         changes.sourceId = String(args.sourceId);
@@ -690,14 +713,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // for `apply_bulk_update` and `set_widget_forecast` (finding 2-1). The reducer
       // key-by-key merges the raw patch onto the LIVE widget, so untouched keys survive.
       const mergedConfig =
-        args.config !== undefined
+        configArg !== undefined
           ? ({
               ...widget.config,
-              ...(args.config as StudioWidget['config']),
+              ...(configArg as StudioWidget['config']),
             } as StudioWidget['config'])
           : undefined;
       const configPatch =
-        args.config !== undefined ? (args.config as StudioWidget['config']) : undefined;
+        configArg !== undefined ? (configArg as StudioWidget['config']) : undefined;
 
       // Validate the model-supplied clear arrays before handing them to the reducer
       // (mirrors `set_widget_layout`'s shape validation): malformed model output must
@@ -872,12 +895,34 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   set_widget_width: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const { widgetId, columns } = args as { widgetId: string; columns: number | null };
+      const { widgetId, columns } = args as { widgetId: string; columns: unknown };
       if (typeof widgetId !== 'string') {
         return {
           output: JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' }),
           nextState: state,
         };
+      }
+      // Coerce/validate `columns` at the write source (T2-3), mirroring
+      // `set_widget_forecast.periods`. `null` is the documented reset (clears the span).
+      // The tool schema declares a number, but the value is untrusted: a string like
+      // "12" would survive the bare cast and reach the reducer's `clampSpan`, which
+      // treats any non-finite input as `MIN_SPAN` (6) — silently committing the minimum
+      // width and reporting `{ success: true, columns: 6 }`, contradicting the request.
+      // Fail closed on a non-numeric value with an actionable error naming the 6–24 range.
+      let normalizedColumns: number | null = null;
+      if (columns != null) {
+        const n = Number(columns);
+        if (!Number.isFinite(n)) {
+          return {
+            output: JSON.stringify({
+              error: `set_widget_width 'columns' must be a number between 6 and 24 (or null to reset); received ${JSON.stringify(
+                columns,
+              )}.`,
+            }),
+            nextState: state,
+          };
+        }
+        normalizedColumns = Math.trunc(n);
       }
       // Existence check BEFORE touching layout: without it a nonexistent id falls
       // through to the `[widgetId]` fallback below and emits a `setWidgetColSpan`
@@ -920,7 +965,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const rowWidgetIds = currentRow ?? [widgetId];
       const mutation: StateMutation = {
         type: 'setWidgetColSpan',
-        args: { widgetId, columns, rowWidgetIds, pageId: activePageId },
+        args: { widgetId, columns: normalizedColumns, rowWidgetIds, pageId: activePageId },
       };
       const nextState = applyMutation(state, mutation);
       // Report the value that ACTUALLY landed in state, not the raw model input:
@@ -941,7 +986,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
     effect: 'pure',
     plan: (args, { state }) => {
       const pageId = String(args.pageId ?? '');
-      const title = String(args.title ?? '');
+      const title = capTitle(String(args.title ?? ''));
       const page = getPage(state, pageId);
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
@@ -1157,6 +1202,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       let widgetRows = (activePage.widgetRows ?? []).map((row) => [...row]);
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
+      // T2-1 (residual lost-update): `colSpans` is a plan-time snapshot of EVERY widget's
+      // span. The `rowsChanged` branch legitimately ships that whole snapshot (rows were
+      // re-placed, so the snapshot IS the intended full map), but the colSpans-ONLY branch
+      // must ship ONLY the entries this batch actually accepted — otherwise the reducer's
+      // merge re-asserts the stale snapshot spans of widgets this batch never touched,
+      // reverting a concurrent client-side resize of a DIFFERENT widget. Track accepted
+      // entries separately so the colSpans-only payload carries just the real changes.
+      const changedSpans: Record<string, number> = {};
 
       // The mutation carries only DELTAS (remove/add/update), applied by the reducer
       // against the receiver's CURRENT `state.doc.widgets` — never a snapshot of the
@@ -1547,6 +1600,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
         if (typeof span === 'number' && span >= 6 && span <= 24) {
           colSpans[wid] = span;
+          changedSpans[wid] = span;
           applied.colSpans += 1;
         } else {
           skipped.push(
@@ -1585,7 +1639,10 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (rowsChanged) {
         layoutFields = { widgetRows, widgetColSpans: colSpans };
       } else if (colSpansOnly) {
-        layoutFields = { widgetColSpans: colSpans };
+        // T2-1: ship ONLY the spans this batch changed, not the full turn-start snapshot.
+        // The reducer merges these onto the receiver's current spans, so a concurrent
+        // client-side resize of an untouched widget survives.
+        layoutFields = { widgetColSpans: changedSpans };
       } else {
         layoutFields = {};
       }

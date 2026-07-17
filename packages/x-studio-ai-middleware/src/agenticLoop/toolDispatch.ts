@@ -8,8 +8,13 @@
 import { createMutationEnvelope } from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from '../models/studioTypes';
 import type { SerializableSkill, StudioAISkill, StudioAIDataConfig } from '../models/aiTypes';
-import { consultToolPolicyArgsOnly, executeToolWithPolicy, type ToolPolicy } from '../toolPolicy';
-import type { StudioAISSEEvent } from '../models/protocol';
+import {
+  consultToolPolicyArgsOnly,
+  executeToolWithPolicy,
+  type ToolPolicy,
+  type ToolEffectSummary,
+} from '../toolPolicy';
+import type { StudioAISSEEvent, ApprovalEffectsSummary } from '../models/protocol';
 import { createDataToolHandlers } from '../mcp/dataTools';
 import type { AccumulatedToolCall } from './openaiWire';
 
@@ -186,6 +191,59 @@ export function buildApprovalDisplayInput(
   return toolInput;
 }
 
+/**
+ * Builds the OPTIONAL, state-derived `effects` summary attached to a
+ * `tool-approval-request` event (finding T2-2). The chat channel historically shipped
+ * only `{toolName,input}`, so a human approving an orphaning `set_widget_layout` or bulk
+ * `layout` op saw an opaque id matrix — while the MCP transport already forwards the
+ * structural `effects` to its host `approvalHandler`. This closes that gap: it turns the
+ * policy's `ToolEffectSummary` (id lists) into a human-readable summary, resolving each
+ * removed/orphaned entity to its CURRENT title from the pre-mutation state (removed and
+ * orphaned widgets still exist in `state.doc.widgets` at approval time).
+ *
+ * Returns `undefined` when there are no structural effects to report (e.g. an args-only
+ * gate with no proposed mutation, or a mutation that removes/orphans nothing), so the
+ * event's `effects` key is omitted rather than emitted empty.
+ */
+export function buildApprovalEffectsSummary(
+  effects: ToolEffectSummary | undefined,
+  state: StudioState,
+): ApprovalEffectsSummary | undefined {
+  if (!effects) {
+    return undefined;
+  }
+  const widgetTitle = (id: string): string =>
+    (Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id]?.title : undefined) ??
+    '(unknown widget)';
+  const pageTitle = (id: string): string =>
+    (Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id]?.title : undefined) ??
+    '(unknown page)';
+
+  const summary: ApprovalEffectsSummary = {};
+  if (effects.removedWidgetIds.length > 0) {
+    summary.willRemoveWidgets = effects.removedWidgetIds.map((id) => ({
+      id,
+      title: widgetTitle(id),
+    }));
+  }
+  if (effects.removedPageIds.length > 0) {
+    summary.willRemovePages = effects.removedPageIds.map((id) => ({ id, title: pageTitle(id) }));
+  }
+  if (effects.removedFilterIds.length > 0) {
+    summary.willRemoveFilters = [...effects.removedFilterIds];
+  }
+  if (effects.orphanedWidgetIds.length > 0) {
+    summary.willOrphanWidgets = effects.orphanedWidgetIds.map((id) => ({
+      id,
+      title: widgetTitle(id),
+    }));
+  }
+  if (effects.updatedWidgetIds.length > 0) {
+    summary.updatedWidgetCount = effects.updatedWidgetIds.length;
+  }
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
 /** Result of the shared human-in-the-loop approval pause. */
 type ApprovalFlowResult =
   | { kind: 'aborted' }
@@ -210,6 +268,7 @@ async function* runApprovalFlow(
   toolCallId: string,
   toolName: string,
   displayInput: unknown,
+  effectsSummary: ApprovalEffectsSummary | undefined,
   ctx: ToolDispatchContext,
 ): AsyncGenerator<StudioAISSEEvent, ApprovalFlowResult> {
   if (!ctx.approvalPending) {
@@ -239,6 +298,7 @@ async function* runApprovalFlow(
     toolCallId,
     toolName,
     input: displayInput,
+    ...(effectsSummary ? { effects: effectsSummary } : {}),
   };
   const outcome = await waitForApproval(
     toolCallId,
@@ -329,7 +389,9 @@ export async function* dispatchToolCall(
     }
     if (gate.kind === 'needs-approval') {
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
-      const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+      // No structural effects to summarize here: a server-tool skill is gated args-only
+      // (no pure dry-run), so no `ToolEffectSummary` is available before it runs.
+      const approval = yield* runApprovalFlow(tc.id, name, displayInput, undefined, ctx);
       if (approval.kind === 'aborted') {
         return { kind: 'aborted' };
       }
@@ -370,7 +432,9 @@ export async function* dispatchToolCall(
     }
     if (gate.kind === 'needs-approval') {
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
-      const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+      // `query_data_source` never mutates dashboard state, so there are no structural
+      // effects to summarize.
+      const approval = yield* runApprovalFlow(tc.id, name, displayInput, undefined, ctx);
       if (approval.kind === 'aborted') {
         return { kind: 'aborted' };
       }
@@ -454,7 +518,11 @@ export async function* dispatchToolCall(
     // not a title the (possibly prompt-injected) model chose. See
     // `buildApprovalDisplayInput`.
     const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
-    const approval = yield* runApprovalFlow(tc.id, name, displayInput, ctx);
+    // T2-2: attach a state-derived structural-effects summary (which widgets/pages/filters
+    // get removed, which widgets get orphaned) so the human isn't approving a layout op
+    // blind. `outcome.effects` is always present on the built-in needs-approval path.
+    const effectsSummary = buildApprovalEffectsSummary(outcome.effects, currentState);
+    const approval = yield* runApprovalFlow(tc.id, name, displayInput, effectsSummary, ctx);
     if (approval.kind === 'aborted') {
       return { kind: 'aborted' };
     }

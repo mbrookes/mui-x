@@ -353,6 +353,109 @@ describe('runAgenticLoop — rate limiting', () => {
     expect(usageEvent?.outputTokens).toBe(50 + 40);
     expect(usageEvent?.iterations).toBe(2);
   });
+
+  // Regression for T3-4b: a gateway that repeats a CUMULATIVE usage on EVERY chunk (rather
+  // than the OpenAI contract of a single final usage chunk) must not be summed per chunk —
+  // that would multiply the real count by the chunk count and trip maxTokensPerRequest far
+  // too early. The per-turn total is captured from the last usage-bearing chunk, not `+=`.
+  it('does not over-count when a gateway repeats cumulative usage on every chunk', async () => {
+    const perChunkCumulativeUsage = makeSseResponse([
+      {
+        choices: [{ delta: { content: 'a' }, finish_reason: null }],
+        usage: { prompt_tokens: 150, completion_tokens: 10 },
+      },
+      {
+        choices: [{ delta: { content: 'b' }, finish_reason: null }],
+        usage: { prompt_tokens: 150, completion_tokens: 20 },
+      },
+      {
+        choices: [{ delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 150, completion_tokens: 30 },
+      },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(perChunkCumulativeUsage);
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const usageEvent = events.find((ev) => (ev as { type: string }).type === 'usage') as
+      | { inputTokens: number; outputTokens: number }
+      | undefined;
+
+    // Last-seen, not summed: 150/30 — NOT 450 (3×150) / 60 (10+20+30).
+    expect(usageEvent?.inputTokens).toBe(150);
+    expect(usageEvent?.outputTokens).toBe(30);
+  });
+});
+
+describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Regression for T3-5: when a provider omits tool-call ids, two calls in one turn used to
+  // both address as the empty string, so the second was wrongly refused by the approval
+  // duplicate guard. The loop must mint a distinct synthetic id per call so each is
+  // independently addressable.
+  it('mints distinct non-empty ids for two id-less tool calls in one turn', async () => {
+    const twoIdlessCalls = makeSseResponse([
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { name: 'get_dashboard_state', arguments: '{}' } },
+                { index: 1, function: { name: 'get_dashboard_state', arguments: '{}' } },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(twoIdlessCalls)
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Go')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const startIds = events
+      .filter(
+        (ev): ev is { type: string; phase: string; toolCallId: string } =>
+          (ev as { type?: string }).type === 'tool-activity' &&
+          (ev as { phase?: string }).phase === 'start',
+      )
+      .map((ev) => ev.toolCallId);
+
+    expect(startIds).toHaveLength(2);
+    expect(startIds.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(new Set(startIds).size).toBe(2);
+  });
 });
 
 describe('runAgenticLoop — built-in tool gating', () => {

@@ -70,9 +70,11 @@ export const TOOL_TITLES: Record<McpToolName, string> = {
  *
  * `destructiveHint` prefers `mcpDestructiveOverride` when the registry entry
  * sets one (e.g. `remove_page_filter`/`remove_widget_filter` are marked
- * destructive here even though they aren't chat-approval-gated, because MCP
- * clients have no separate confirmation step and the tool permanently deletes
- * an entity), else falls back to `destructive`.
+ * destructive here so MCP clients — which surface `destructiveHint` in their own
+ * confirmation UI — flag the permanent deletion; the composed chat default policy
+ * now ALSO gates these via the effects-aware `removedFilterIds` check, so the
+ * override no longer implies the op is chat-unguarded), else falls back to
+ * `destructive`.
  */
 function annotationsFromFacts(facts: StudioAIToolFacts): ToolAnnotations {
   const annotations: ToolAnnotations = {};

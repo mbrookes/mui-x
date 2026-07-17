@@ -6,6 +6,7 @@
 
 import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
 import { sanitizeForPrompt } from './buildAISystemPrompt';
+import { buildWidgetFromArgs } from './executeToolOnState';
 
 export interface GenerateInsightOptions {
   /** LLM endpoint (OpenAI-compatible, e.g. `https://api.openai.com/v1/chat/completions`) */
@@ -267,5 +268,24 @@ export async function handleCreateWidget(
   }
 
   assertValidCreateWidgetResponse(parsed);
+
+  // Shape validation alone (kind/title non-empty, config an object) is NOT enough
+  // (finding T3-6): `handleCreateWidget` is exported publicly, so a hostile or
+  // hallucinated LLM response could name an unknown `kind` or smuggle a config key that
+  // belongs to a different widget kind (or a chart config key invalid for its chartType)
+  // straight into a client that trusts the middleware. Run the parsed response through
+  // `buildWidgetFromArgs` — the SAME kind-allow-list + config-key + config-value +
+  // chart-config-key validators every server-side widget path (`add_widget`,
+  // `apply_bulk_update`) already runs — and fail closed on any rejection. Custom kinds
+  // aren't registered on this path, so only the built-in kinds pass, matching the
+  // system prompt's advertised kinds.
+  const built = buildWidgetFromArgs(parsed);
+  if ('error' in built) {
+    throw new Error(
+      `MUI X Studio: The AI widget-creation response failed validation: ${built.error} ` +
+        'This prevents an invalid or cross-kind widget definition from reaching the client. ' +
+        'Ensure the model returns a supported "kind" and a "config" whose keys match that kind.',
+    );
+  }
   return parsed;
 }

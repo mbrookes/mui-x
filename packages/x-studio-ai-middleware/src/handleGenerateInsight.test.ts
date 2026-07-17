@@ -217,6 +217,35 @@ describe('handleCreateWidget', () => {
     });
   });
 
+  // Regression for T3-6: shape validation alone is not enough — `handleCreateWidget` is
+  // exported publicly, so the LLM output must run through the SAME kind-allow-list +
+  // config-key validators every other untrusted-widget path uses, and fail closed.
+  describe('kind/config allow-list validation (T3-6)', () => {
+    it('rejects an unknown widget kind', async () => {
+      stubFetch(JSON.stringify({ kind: 'frobnicate', title: 'Bad Widget' }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
+        /MUI X Studio:.*failed validation.*unknown widget kind/i,
+      );
+    });
+
+    it('rejects a config key that does not belong to the widget kind', async () => {
+      // `chartType` is a chart-only key; on a `grid` widget it must be rejected.
+      stubFetch(JSON.stringify({ kind: 'grid', title: 'A grid', config: { chartType: 'bar' } }));
+      await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
+        /MUI X Studio:.*failed validation/i,
+      );
+    });
+
+    it('accepts a well-formed chart widget with a valid config', async () => {
+      stubFetch(JSON.stringify({ kind: 'chart', title: 'Revenue', config: { chartType: 'bar' } }));
+      await expect(handleCreateWidget(request, OPTIONS)).resolves.toEqual({
+        kind: 'chart',
+        title: 'Revenue',
+        config: { chartType: 'bar' },
+      });
+    });
+  });
+
   // Regression for T2-1: source labels/ids and field ids/types/labels are state-derived
   // and attacker-influenceable, so they must be sanitized before landing in the system
   // prompt and be wrapped in a tagged data region — mirroring the chat prompt builder.

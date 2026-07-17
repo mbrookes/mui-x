@@ -406,6 +406,16 @@ export async function* runAgenticLoop(
     const acc = createToolCallAccumulator();
     let finishReason: string | null = null;
 
+    // Per-TURN usage, captured from the LAST usage-bearing chunk of this response rather
+    // than summed across chunks (finding T3-4b). The OpenAI wire contract emits usage once
+    // (in the final chunk under `stream_options: include_usage`), but some gateways repeat
+    // a CUMULATIVE usage on every chunk; summing those would multiply the real token count
+    // by the chunk count and trip `maxTokensPerRequest` far too early. Assign-from-last-seen
+    // is correct for both shapes: a single final chunk and a repeated-cumulative stream both
+    // leave the true per-turn total in these locals, which we fold into `usage` once below.
+    let turnInputTokens = 0;
+    let turnOutputTokens = 0;
+
     // eslint-disable-next-line no-await-in-loop -- sequential SSE streaming; cannot be parallelized
     for await (const chunk of parseSSE(response)) {
       if (signal?.aborted) {
@@ -430,8 +440,8 @@ export async function* runAgenticLoop(
         | { prompt_tokens?: number; completion_tokens?: number }
         | undefined;
       if (chunkUsage) {
-        usage.inputTokens += chunkUsage.prompt_tokens ?? 0;
-        usage.outputTokens += chunkUsage.completion_tokens ?? 0;
+        turnInputTokens = chunkUsage.prompt_tokens ?? turnInputTokens;
+        turnOutputTokens = chunkUsage.completion_tokens ?? turnOutputTokens;
       }
 
       if (!choices?.length) {
@@ -462,7 +472,22 @@ export async function* runAgenticLoop(
       }
     }
 
+    // Fold this turn's usage into the cumulative per-request total ONCE (finding T3-4b).
+    usage.inputTokens += turnInputTokens;
+    usage.outputTokens += turnOutputTokens;
+
     const toolCallEntries = Object.entries(acc.reqToolCalls);
+    // Mint a synthetic id for any tool call the provider left un-id'd (finding T3-5).
+    // The accumulator seeds `id: ''` when a delta carries no `id`; two such calls in one
+    // turn would both address as `toolCallId: ''`, so the second is wrongly rejected by the
+    // approval-dispatch duplicate guard with a misleading "duplicate across concurrent
+    // requests" message. A `call-${turn}-${idx}` id is unique per call within the request
+    // and stable across the retries of a single turn.
+    for (const [idx, tc] of toolCallEntries) {
+      if (!tc.id) {
+        tc.id = `call-${turn}-${idx}`;
+      }
+    }
     usage.iterations += 1;
 
     if (toolCallEntries.length === 0) {

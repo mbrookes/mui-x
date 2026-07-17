@@ -57,6 +57,27 @@ export interface StudioAIRequest {
 // ── SSE events ────────────────────────────────────────────────────────────────
 
 /**
+ * State-derived summary of a proposed mutation's structural consequences, attached to
+ * a `tool-approval-request` event so a human can approve a layout / removing op with the
+ * real impact in view rather than an opaque widget-id matrix (finding T2-2). Every field
+ * is optional and present only when non-empty; entities carry their CURRENT title (read
+ * from the pre-mutation state) so removed and orphaned widgets remain human-identifiable.
+ */
+export interface ApprovalEffectsSummary {
+  /** Widgets this op will delete outright. */
+  willRemoveWidgets?: Array<{ id: string; title: string }>;
+  /** Pages this op will delete outright. */
+  willRemovePages?: Array<{ id: string; title: string }>;
+  /** Filter ids this op will delete (filters have no user-facing title). */
+  willRemoveFilters?: string[];
+  /** Widgets left referenced by NO page after the op (blank cards) — the orphan case
+   *  the effects-aware policy gates on. */
+  willOrphanWidgets?: Array<{ id: string; title: string }>;
+  /** Number of widgets whose config/placement this op updates (large bulk edits). */
+  updatedWidgetCount?: number;
+}
+
+/**
  * Union of all SSE events emitted by the backend.
  * Each event is JSON-encoded and sent as `data: <JSON>\n\n`.
  */
@@ -114,10 +135,19 @@ export type StudioAISSEEvent =
    * The stream pauses until the client calls the approval endpoint.
    * The client should render approve/deny UI (the built-in ToolPart renderer
    * handles this automatically when `state === 'approval-requested'`).
+   *
+   * `effects` (finding T2-2) is an OPTIONAL, state-derived summary of the structural
+   * consequences the proposed mutation will have — which widgets/pages/filters get
+   * removed and which widgets get orphaned — so a human approving a `set_widget_layout`
+   * or bulk `layout` op sees the real impact instead of an opaque id matrix. It parallels
+   * the `effects` the MCP transport already forwards to its `approvalHandler`. Additive:
+   * existing clients ignore the unknown key; it is present only for layout-affecting /
+   * removing tools that actually carry structural effects.
    */
   | {
       type: 'tool-approval-request';
       toolCallId: string;
       toolName: string;
       input: unknown;
+      effects?: ApprovalEffectsSummary;
     };

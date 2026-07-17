@@ -8,7 +8,13 @@ import { createDefaultStudioState } from '../models/studioTypes';
 import type { StudioState } from '../models/studioTypes';
 import type { StudioAISkill } from '../models/aiTypes';
 import type { ToolPolicy } from '../toolPolicy';
-import { waitForApproval, dispatchToolCall, type ToolDispatchContext } from './toolDispatch';
+import {
+  waitForApproval,
+  dispatchToolCall,
+  buildApprovalEffectsSummary,
+  type ToolDispatchContext,
+} from './toolDispatch';
+import type { ToolEffectSummary } from '../toolPolicy';
 import type { AccumulatedToolCall } from './openaiWire';
 
 const INITIAL_STATE = createDefaultStudioState();
@@ -104,6 +110,69 @@ describe('waitForApproval', () => {
     expect(outcome.reason).toMatch(/duplicate toolCallId/);
     // The pre-existing entry must be left intact (not overwritten or deleted).
     expect(pending.get('id1')).toBe(existing);
+  });
+});
+
+// ── buildApprovalEffectsSummary (T2-2) ──────────────────────────────────────────
+
+describe('buildApprovalEffectsSummary', () => {
+  const emptyEffects = (): ToolEffectSummary => ({
+    mutationType: 'setWidgetLayout',
+    removedWidgetIds: [],
+    removedPageIds: [],
+    removedFilterIds: [],
+    orphanedWidgetIds: [],
+    addedWidgetIds: [],
+    addedPageIds: [],
+    updatedWidgetIds: [],
+    layoutChangedPageIds: [],
+  });
+
+  const stateWithEntities = createDefaultStudioState({
+    doc: {
+      dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+      pages: {
+        p1: { id: 'p1', title: 'Page One', widgetRows: [['w1', 'w2']] },
+      },
+      widgets: {
+        w1: { id: 'w1', kind: 'chart', title: 'Revenue', config: { chartType: 'bar' } },
+        w2: { id: 'w2', kind: 'chart', title: 'Orders', config: { chartType: 'bar' } },
+      },
+    },
+  });
+
+  it('returns undefined when there are no effects at all', () => {
+    expect(buildApprovalEffectsSummary(undefined, stateWithEntities)).toBeUndefined();
+  });
+
+  it('returns undefined when effects carry no structural changes', () => {
+    expect(buildApprovalEffectsSummary(emptyEffects(), stateWithEntities)).toBeUndefined();
+  });
+
+  it('resolves removed and orphaned widget ids to their current titles', () => {
+    const summary = buildApprovalEffectsSummary(
+      { ...emptyEffects(), removedWidgetIds: ['w1'], orphanedWidgetIds: ['w2'] },
+      stateWithEntities,
+    );
+    expect(summary?.willRemoveWidgets).toEqual([{ id: 'w1', title: 'Revenue' }]);
+    expect(summary?.willOrphanWidgets).toEqual([{ id: 'w2', title: 'Orders' }]);
+  });
+
+  it('resolves removed page ids to titles and passes filter ids through', () => {
+    const summary = buildApprovalEffectsSummary(
+      { ...emptyEffects(), removedPageIds: ['p1'], removedFilterIds: ['f1', 'f2'] },
+      stateWithEntities,
+    );
+    expect(summary?.willRemovePages).toEqual([{ id: 'p1', title: 'Page One' }]);
+    expect(summary?.willRemoveFilters).toEqual(['f1', 'f2']);
+  });
+
+  it('falls back to a placeholder title for an unknown widget id', () => {
+    const summary = buildApprovalEffectsSummary(
+      { ...emptyEffects(), removedWidgetIds: ['ghost'] },
+      stateWithEntities,
+    );
+    expect(summary?.willRemoveWidgets).toEqual([{ id: 'ghost', title: '(unknown widget)' }]);
   });
 });
 
@@ -353,6 +422,48 @@ describe('dispatchToolCall', () => {
       expect(execute).toHaveBeenCalledOnce();
       expect(onToolError).toHaveBeenCalledOnce();
       expect(outcome).toEqual({ kind: 'result', output: 'auto-ran', nextState: INITIAL_STATE });
+    });
+
+    // Regression for T2-2: a built-in tool that needs approval must attach a state-derived
+    // structural-effects summary to its `tool-approval-request` event, so a human isn't
+    // approving a removing/orphaning op blind.
+    it('attaches an effects summary to the approval event for a built-in removing tool', async () => {
+      const stateWithWidget = createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+          pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'My Widget', config: { chartType: 'bar' } },
+          },
+        },
+      });
+      const approvalPending = new Map<string, (approved: boolean, reason?: string) => void>();
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['remove_widget']),
+        toolPolicy: approvalPolicy,
+        approvalPending,
+      });
+
+      const gen = dispatchToolCall(
+        tc('remove_widget', JSON.stringify({ widgetId: 'w1' })),
+        { widgetId: 'w1' },
+        false,
+        stateWithWidget,
+        ctx,
+      );
+      const first = await gen.next();
+      const ev = first.value as {
+        type: string;
+        effects?: { willRemoveWidgets?: Array<{ id: string; title: string }> };
+      };
+      expect(ev.type).toBe('tool-approval-request');
+      expect(ev.effects?.willRemoveWidgets).toEqual([{ id: 'w1', title: 'My Widget' }]);
+
+      // Drain: approve so the generator completes cleanly.
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get('call_1')!(true);
+      await pendingStep;
     });
 
     it('ends with an aborted outcome when the approval is aborted mid-wait', async () => {

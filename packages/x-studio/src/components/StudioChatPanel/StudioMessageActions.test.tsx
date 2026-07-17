@@ -141,4 +141,79 @@ describe('StudioMessageActions', () => {
     const { container } = render(<StudioMessageActions messageId="assistant-1" />);
     expect(container.firstChild).to.equal(null);
   });
+
+  // Regression coverage: a rejected `regenerate` promise must not surface as an
+  // unhandled promise rejection, and the `isRegenerating` in-flight guard must
+  // still be reset so the button isn't stuck disabled forever.
+  it('resets isRegenerating and does not throw when regenerate rejects', async () => {
+    regenerateSpy.mockRejectedValue(new Error('boom'));
+    mockMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'answer' }],
+    };
+    render(<StudioMessageActions messageId="assistant-1" />);
+    const retryButton = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip,
+    });
+
+    fireEvent.click(retryButton);
+    // A real macrotask flush (rather than a fixed number of `Promise.resolve()`
+    // hops) so this isn't sensitive to exactly how many microtask ticks the
+    // try/catch/finally wrapping takes to settle.
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    // The guard was reset (button re-enabled), proving `finally` ran despite the
+    // rejection, and a second retry is allowed again.
+    fireEvent.click(retryButton);
+    expect(regenerateSpy).toHaveBeenCalledTimes(2);
+    // Flush the second click's rejection handling too, so its state update
+    // doesn't land after this test has already returned.
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+  });
+
+  // Regression coverage: a SYNCHRONOUS throw from `regenerate` (before it ever
+  // returns a promise) must not bypass the guard reset either.
+  it('resets isRegenerating and does not throw when regenerate throws synchronously', async () => {
+    regenerateSpy.mockImplementation(() => {
+      throw new Error('sync boom');
+    });
+    mockMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'answer' }],
+    };
+    render(<StudioMessageActions messageId="assistant-1" />);
+    const retryButton = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip,
+    });
+
+    fireEvent.click(retryButton);
+    // A real macrotask flush (rather than a fixed number of `Promise.resolve()`
+    // hops) so this isn't sensitive to exactly how many microtask ticks the
+    // try/catch/finally wrapping takes to settle.
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    fireEvent.click(retryButton);
+    expect(regenerateSpy).toHaveBeenCalledTimes(2);
+    // Flush the second click's error handling too, so its state update doesn't
+    // land after this test has already returned.
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+  });
 });

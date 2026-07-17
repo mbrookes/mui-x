@@ -9,8 +9,8 @@
  * repo runs vitest with `isolate: false` — see that module's doc comment).
  */
 import * as React from 'react';
-import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
@@ -70,6 +70,9 @@ const controller = {
   setState: vi.fn((next: StudioState) => {
     mockState = next;
   }),
+  // Read by `richContext.ts`'s `buildRichContext` (called whenever `privateMode` is
+  // not set) via the real `createBackendChatAdapter` these auto-submit tests exercise.
+  getRecentMutations: vi.fn(() => []),
 };
 
 const { render } = createRenderer();
@@ -215,5 +218,217 @@ describe('StudioChatPanel: basic rendering', () => {
 
     render(<StudioChatPanel aiConfig={aiConfig} />);
     expect(screen.getByText('Q3 planning')).toBeDefined();
+  });
+});
+
+// ── slotProps.chatBox.messages contract (regression: 2.8) ───────────────────
+//
+// The `StudioChatPanelSlotProps.chatBox` JSDoc documents `messages` as always set
+// by Studio and "cannot be overridden here" — a consumer-supplied `messages`/
+// `onMessagesChange` must be ignored, not honored, or the rendered ChatBox would
+// show the consumer's array while Studio's own `handleMessagesChange` keeps
+// writing stream deltas into controller thread state, silently diverging the two.
+describe('StudioChatPanel: slotProps.chatBox messages contract', () => {
+  const aiConfig: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+
+  it('ignores a consumer-supplied slotProps.chatBox.messages override', () => {
+    const consumerMessages = [
+      { id: 'fake-1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'not real' }] },
+    ];
+
+    render(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        slotProps={{ chatBox: { messages: consumerMessages } }}
+      />,
+    );
+
+    const props = chatBoxSpy.mock.calls.at(-1)?.[0] as {
+      messages?: unknown;
+    };
+    // Studio's own (empty, for a brand-new thread) messages array is used instead
+    // of the consumer's override.
+    expect(props.messages).not.toBe(consumerMessages);
+    expect(props.messages).toEqual([]);
+  });
+
+  it('ignores a consumer-supplied slotProps.chatBox.onMessagesChange override', () => {
+    const consumerOnMessagesChange = vi.fn();
+
+    render(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        slotProps={{ chatBox: { onMessagesChange: consumerOnMessagesChange } }}
+      />,
+    );
+
+    const props = chatBoxSpy.mock.calls.at(-1)?.[0] as {
+      onMessagesChange?: unknown;
+    };
+    expect(props.onMessagesChange).not.toBe(consumerOnMessagesChange);
+  });
+});
+
+// ── Auto-submit: initialPrompt / pendingMessage (regressions: 2.1, 2.2, 2.9) ────
+//
+// These exercise the real `createBackendChatAdapter` (not mocked) with a stubbed
+// `fetch` returning a minimal SSE `finish` response, so the actual composer submit
+// → adapter.sendMessage → stream-completion round trip runs, letting the
+// auto-submit queue's `isSubmitting`-gated retry (finding 2.2) and ordering
+// (finding 2.9) be observed through real request bodies.
+
+function makeFinishSseResponse() {
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(new TextEncoder().encode('data: {"type":"finish","finishReason":"stop"}\n\n'));
+        ctrl.close();
+      },
+    }),
+  };
+}
+
+async function flushAsync(rounds = 20) {
+  for (let i = 0; i < rounds; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+  }
+}
+
+describe('StudioChatPanel: auto-submit queue', () => {
+  const aiConfig: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('auto-submits initialPrompt on mount for a brand-new (empty) thread (baseline)', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeFinishSseResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<StudioChatPanel aiConfig={aiConfig} initialPrompt="Explain this widget" />);
+    await flushAsync();
+
+    expect(fetchMock).toHaveBeenCalled();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as { messages: { parts: { text: string }[] }[] };
+    expect(body.messages.at(-1)?.parts[0]?.text).toBe('Explain this widget');
+  });
+
+  it('does not auto-submit the stale initialPrompt into a new thread created after mount (regression: 2.1)', async () => {
+    // Mount with an EXISTING, non-empty conversation — `initialPrompt` is not eligible
+    // at mount (the guard requires an empty thread). Without the mount-thread pin, the
+    // guard would later re-satisfy "thread is empty" the moment the user starts a
+    // brand-new conversation, auto-submitting the stale, mount-time prompt into a
+    // thread the user never asked about.
+    mockState = createDefaultStudioState({
+      doc: {
+        ai: {
+          threads: [
+            {
+              id: 'thread-1',
+              name: 'Existing conversation',
+              createdAt: new Date().toISOString(),
+              messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as any,
+            },
+          ],
+          activeThreadId: 'thread-1',
+        },
+      },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeFinishSseResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<StudioChatPanel aiConfig={aiConfig} initialPrompt="Explain this widget" />);
+    await flushAsync(3);
+
+    // Not eligible at mount (the thread wasn't empty) — no request yet.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // User starts a brand-new (empty) conversation.
+    fireEvent.click(
+      screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatNewConversationName }),
+    );
+    await flushAsync();
+
+    // The stale, mount-time initialPrompt must never be auto-submitted into this new
+    // thread — it was only ever eligible for the thread active at mount.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('submits both a pendingMessage and an initialPrompt queued on the same mount, in order (regression: 2.9)', async () => {
+    const requestBodies: { messages: { parts: { text: string }[] }[] }[] = [];
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      requestBodies.push(JSON.parse(String(init.body)));
+      return Promise.resolve(makeFinishSseResponse());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        initialPrompt="Explain this widget"
+        pendingMessage={{ text: 'Insight please', id: 1 }}
+      />,
+    );
+    await flushAsync();
+
+    // Neither producer clobbered the other's entry — both were eventually sent.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const lastMessageTexts = requestBodies.map((body) => body.messages.at(-1)?.parts?.[0]?.text);
+    expect(lastMessageTexts).toContain('Insight please');
+    expect(lastMessageTexts).toContain('Explain this widget');
+    // `pendingMessage`'s effect runs (and thus enqueues) before the `initialPrompt`
+    // effect, so it is submitted first — the queue is FIFO.
+    expect(lastMessageTexts[0]).toBe('Insight please');
+  });
+
+  it('does not drop a pendingMessage that arrives while a previous auto-submit is still streaming (regression: 2.2)', async () => {
+    // Two separate `pendingMessage` triggers delivered close together (e.g. two
+    // rapid widget "AI insight" clicks) — the second must not be silently dropped
+    // just because the first's response is still streaming when it arrives.
+    let resolveFirst: (() => void) | undefined;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      if (!resolveFirst) {
+        // First call: hang until the test explicitly resolves it, simulating an
+        // in-flight stream.
+        return new Promise((resolve) => {
+          resolveFirst = () => resolve(makeFinishSseResponse());
+        });
+      }
+      return Promise.resolve(makeFinishSseResponse());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { rerender } = render(
+      <StudioChatPanel aiConfig={aiConfig} pendingMessage={{ text: 'First', id: 1 }} />,
+    );
+    await flushAsync(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // A second pendingMessage arrives while the first request is still in flight.
+    rerender(<StudioChatPanel aiConfig={aiConfig} pendingMessage={{ text: 'Second', id: 2 }} />);
+    await flushAsync(3);
+    // Still only one request so far — the second must not have been silently
+    // dropped, but it also must not be sent while the first is streaming.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Let the first request's stream complete.
+    resolveFirst?.();
+    await flushAsync();
+
+    // The second message is retried once streaming ends, not lost.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const secondCallBody = JSON.parse(
+      String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body),
+    ) as { messages: { parts: { text: string }[] }[] };
+    expect(secondCallBody.messages.at(-1)?.parts[0]?.text).toBe('Second');
   });
 });

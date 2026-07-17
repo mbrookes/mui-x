@@ -324,6 +324,78 @@ describe('createBackendChatAdapter: tool-activity', () => {
 
     vi.unstubAllGlobals();
   });
+
+  // Regression coverage (finding 2.6b): a malformed/unexpected `tool-activity` event
+  // shape (missing fields entirely) must degrade gracefully — coerced to safe string
+  // defaults — rather than enqueueing e.g. `toolCallId: undefined`, which would leave
+  // a tool-activity card stuck in a permanent "input-streaming" state.
+  it('coerces a malformed tool-activity event to safe defaults instead of forwarding undefined fields', async () => {
+    const sse = makeSseBody([
+      // Missing toolCallId/toolName/phase entirely.
+      { type: 'tool-activity', input: { foo: 'bar' } },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+
+    // Must not throw despite the malformed event; the stream still reaches finish.
+    const chunks = await collectChunks(stream);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
+    expect(types).toContain('finish');
+    // No `phase` matched 'start'/'complete', so no tool chunk is enqueued for it —
+    // proving the malformed event was safely coerced rather than throwing or
+    // producing chunks with `undefined` ids.
+    expect(types).not.toContain('tool-input-start');
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── usage handling ────────────────────────────────────────────────────────────
+
+describe('createBackendChatAdapter: usage', () => {
+  it('forwards well-formed numeric usage fields to onUsage', async () => {
+    const sse = makeSseBody([
+      { type: 'usage', inputTokens: 100, outputTokens: 50, iterations: 2 },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const onUsage = vi.fn();
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', onUsage };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    await collectChunks(stream);
+
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 50, iterations: 2 });
+
+    vi.unstubAllGlobals();
+  });
+
+  // Regression coverage (finding 2.6b): a malformed `usage` event (non-numeric or
+  // missing fields) must not pass unchecked garbage straight through to the
+  // consumer's `onUsage` — it degrades to safe numeric fallbacks instead.
+  it('coerces a malformed usage event to safe numeric fallbacks instead of forwarding garbage', async () => {
+    const sse = makeSseBody([
+      { type: 'usage', inputTokens: 'not-a-number', iterations: null },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const onUsage = vi.fn();
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', onUsage };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    await collectChunks(stream);
+
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 0, outputTokens: 0, iterations: 0 });
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── error handling ────────────────────────────────────────────────────────────
@@ -1117,6 +1189,51 @@ describe('createBackendChatAdapter: multi-step text parts', () => {
     const runs = [...deltaByRun.values()].map((parts) => parts.join(''));
     expect(runs).toContain('Let me check.');
     expect(runs).toContain('Here is the answer.');
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── addToolApprovalResponse: non-ok response handling (regression: 2.5) ──────
+//
+// A 4xx/5xx approval response (e.g. an expired approval id) must not resolve
+// cleanly as if the approval was delivered — the server-side loop never actually
+// resumes, and the UI would otherwise think the approval went through while the
+// conversation hangs. `addToolApprovalResponse` must throw so the caller
+// (`useChatController`) can roll back its optimistic update and surface an error.
+describe('createBackendChatAdapter: addToolApprovalResponse', () => {
+  it('resolves without throwing on a 2xx approval response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve('') }),
+    );
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+
+    await expect(
+      adapter.addToolApprovalResponse?.({ id: 'call-1', approved: true }),
+    ).resolves.toBeUndefined();
+
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when the approval endpoint returns a non-ok response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        text: () => Promise.resolve('Approval expired'),
+      }),
+    );
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+
+    await expect(
+      adapter.addToolApprovalResponse?.({ id: 'call-1', approved: true }),
+    ).rejects.toThrow('410');
 
     vi.unstubAllGlobals();
   });

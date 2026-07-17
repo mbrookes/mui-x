@@ -66,9 +66,24 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
       return;
     }
     setIsRegenerating(true);
-    Promise.resolve(regenerate(messageId)).finally(() => {
-      setIsRegenerating(false);
-    });
+    // Wrapped in a local async IIFE with try/finally (rather than
+    // `Promise.resolve(regenerate(messageId)).finally(...)`) so this catches BOTH a
+    // synchronous throw from `regenerate` (which would otherwise bypass `.finally()`
+    // entirely, leaving `isRegenerating` stuck `true` and the button disabled until
+    // remount) and a rejected promise (which would otherwise surface as an unhandled
+    // promise rejection). Either way `isRegenerating` is always reset.
+    void (async () => {
+      try {
+        await regenerate(messageId);
+      } catch {
+        // Fail silently (mirrors `handleCopy` above): any error is expected to
+        // surface through `useChat().error` instead. This catch exists only to
+        // stop a synchronous throw or a rejected promise from going unhandled —
+        // not to add a second, uncoordinated error surface.
+      } finally {
+        setIsRegenerating(false);
+      }
+    })();
   };
 
   return (

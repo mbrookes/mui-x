@@ -194,7 +194,16 @@ export async function createWidgetFromDescription(
   }
 
   const kind: StudioWidgetKind = isValidWidgetKind(data.kind) ? data.kind : 'chart';
-  const source = data.sourceId ? state.runtime.dataSources[String(data.sourceId)] : sources[0];
+  const requestedSourceId = data.sourceId ? String(data.sourceId) : undefined;
+  const requestedSource = requestedSourceId
+    ? state.runtime.dataSources[requestedSourceId]
+    : undefined;
+  // A truthy `sourceId` that doesn't resolve to a real, visible data source (e.g. the
+  // model hallucinates a label like "Sales" instead of the actual id "src1", or names a
+  // source the host deliberately hid) must not silently commit a widget with
+  // `sourceId: undefined` — fall back to the first available (non-hidden) source exactly
+  // like the no-`sourceId` case below, so both paths consistently exclude hidden sources.
+  const source = requestedSource && !requestedSource.hidden ? requestedSource : sources[0];
 
   const base = createDefaultWidget(kind);
   const rawConfig =

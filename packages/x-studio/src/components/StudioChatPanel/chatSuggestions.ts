@@ -9,7 +9,11 @@ export function generateSuggestions(
   activePageWidgetIds: string[],
   localeText: ReturnType<typeof useStudioLocaleText>,
 ): Array<{ label: string; value: string }> {
-  const sourceList = Object.values(dataSources);
+  // Hidden data sources are excluded from the AI's payload everywhere else
+  // (`createWidgetFromDescription.ts`, `richContext.ts`) — exclude them from
+  // suggestions here too, so users aren't steered toward asking about sources the
+  // host deliberately hid (which the model can't act on since its schema omits them).
+  const sourceList = Object.values(dataSources).filter((source) => !source.hidden);
   const activeWidgets = activePageWidgetIds.flatMap((id) => (widgets[id] ? [widgets[id]] : []));
   const hasWidgets = activeWidgets.length > 0;
 
@@ -89,7 +93,7 @@ export function generateSuggestions(
     // Suggest adding a date filter if not present
     const hasFilter = activeWidgets.some((w) => w?.kind === 'filter');
     if (!hasFilter) {
-      const hasDateSource = Object.values(dataSources).some((s) =>
+      const hasDateSource = sourceList.some((s) =>
         s.fields.some((f) => f.type === 'date' || f.type === 'datetime'),
       );
       if (hasDateSource) {

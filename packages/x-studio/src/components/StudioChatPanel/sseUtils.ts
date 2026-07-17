@@ -71,12 +71,43 @@ export async function parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Parses one `data: <json>` line (with any trailing newline already stripped) and
+  // forwards the event to `onEvent`. Shared by the main loop and the `done` flush
+  // below so both paths handle a trailing/partial line identically.
+  const processLine = (line: string): void | false => {
+    if (!line.startsWith('data: ')) {
+      return undefined;
+    }
+    const payload = line.slice(6).trim();
+    if (!payload) {
+      return undefined;
+    }
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(payload);
+    } catch {
+      return undefined;
+    }
+    return onEvent(event);
+  };
+
   for (;;) {
     // Sequential SSE stream: each chunk depends on the previous read, so awaiting
     // inside the loop is intentional (the reads cannot be parallelized).
     // eslint-disable-next-line no-await-in-loop
     const { done, value } = await reader.read();
     if (done) {
+      // Flush any bytes the decoder buffered for a trailing multi-byte sequence, then
+      // process whatever's left in `buffer` as a final event. The stream can end right
+      // after a complete `data: {...}` line with no trailing newline (no closing blank
+      // line) — without this, that line (and the decoder's unflushed tail) is silently
+      // discarded, which can drop a `finish` event (surfacing as a spurious "stream
+      // closed before a terminal chunk" error on an otherwise-successful message) or a
+      // `state-mutation` event (silently losing a dashboard edit).
+      buffer += decoder.decode();
+      if (buffer) {
+        processLine(buffer);
+      }
       return;
     }
 
@@ -85,20 +116,7 @@ export async function parseSSEStream(
     buffer = lines.pop() ?? '';
 
     for (const line of lines) {
-      if (!line.startsWith('data: ')) {
-        continue;
-      }
-      const payload = line.slice(6).trim();
-      if (!payload) {
-        continue;
-      }
-      let event: Record<string, unknown>;
-      try {
-        event = JSON.parse(payload);
-      } catch {
-        continue;
-      }
-      if (onEvent(event) === false) {
+      if (processLine(line) === false) {
         return;
       }
     }

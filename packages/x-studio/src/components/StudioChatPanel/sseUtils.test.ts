@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
-import { serializeDashboardState } from './sseUtils';
+import { serializeDashboardState, parseSSEStream } from './sseUtils';
 
 // ── serializeDashboardState: doc.ai trimming ─────────────────────────────────
 //
@@ -100,5 +100,133 @@ describe('serializeDashboardState', () => {
 
     expect(serialized.runtime.dataSources.src1).not.toHaveProperty('rows');
     expect(serialized.runtime.dataSources.src1).not.toHaveProperty('adapter');
+  });
+});
+
+// ── parseSSEStream: trailing event / decoder flush (regression: 2.4) ────────
+//
+// On `done`, any complete `data: {...}` line still sitting in the internal buffer
+// (not yet newline-terminated) must be processed instead of discarded — the stream
+// can end right after a final event with no trailing blank line — and the decoder
+// must be flushed so a trailing multi-byte sequence isn't silently dropped.
+
+function makeStreamResponse(chunks: Uint8Array[]): Response {
+  let index = 0;
+  return {
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (index < chunks.length) {
+            const value = chunks[index];
+            index += 1;
+            return Promise.resolve({ done: false, value });
+          }
+          return Promise.resolve({ done: true, value: undefined });
+        },
+        cancel: () => Promise.resolve(),
+        releaseLock: () => {},
+      }),
+    },
+  } as unknown as Response;
+}
+
+describe('parseSSEStream', () => {
+  it('processes a final data line with no trailing newline instead of discarding it', async () => {
+    // No trailing "\n\n" after the last event — the stream just ends right after it,
+    // which is exactly what a server closing the connection right after the final
+    // chunk looks like.
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode('data: {"type":"finish","finishReason":"stop"}');
+    const response = makeStreamResponse([chunk]);
+
+    const events: Record<string, unknown>[] = [];
+    await parseSSEStream(response, (event) => {
+      events.push(event);
+    });
+
+    expect(events).toEqual([{ type: 'finish', finishReason: 'stop' }]);
+  });
+
+  it('processes a final unterminated state-mutation event instead of losing the edit', async () => {
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode(
+      'data: {"type":"state-mutation","mutation":{"type":"setDashboardTitle","args":{"title":"New"}}}',
+    );
+    const response = makeStreamResponse([chunk]);
+
+    const events: Record<string, unknown>[] = [];
+    await parseSSEStream(response, (event) => {
+      events.push(event);
+    });
+
+    expect(events).toEqual([
+      {
+        type: 'state-mutation',
+        mutation: { type: 'setDashboardTitle', args: { title: 'New' } },
+      },
+    ]);
+  });
+
+  it('still processes normally newline-terminated events unaffected by the done-flush path', async () => {
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode(
+      'data: {"type":"text-delta","delta":"Hi"}\n\ndata: {"type":"finish","finishReason":"stop"}\n\n',
+    );
+    const response = makeStreamResponse([chunk]);
+
+    const events: Record<string, unknown>[] = [];
+    await parseSSEStream(response, (event) => {
+      events.push(event);
+    });
+
+    expect(events).toEqual([
+      { type: 'text-delta', delta: 'Hi' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+  });
+
+  it('flushes the TextDecoder (calls decode() with no arguments) when the stream ends', async () => {
+    const decodeSpy = vi.spyOn(TextDecoder.prototype, 'decode');
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode('data: {"type":"finish","finishReason":"stop"}\n\n');
+    const response = makeStreamResponse([chunk]);
+
+    await parseSSEStream(response, () => {});
+
+    // The final decode() call (the flush) is made with no arguments so any bytes the
+    // decoder is holding internally for a trailing multi-byte sequence are recovered
+    // instead of silently dropped.
+    const flushCalls = decodeSpy.mock.calls.filter((args) => args.length === 0);
+    expect(flushCalls.length).toBeGreaterThanOrEqual(1);
+
+    decodeSpy.mockRestore();
+  });
+
+  it('does not throw when the trailing unterminated buffer is not valid JSON', async () => {
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode('data: {not valid json');
+    const response = makeStreamResponse([chunk]);
+
+    const events: Record<string, unknown>[] = [];
+    await expect(
+      parseSSEStream(response, (event) => {
+        events.push(event);
+      }),
+    ).resolves.toBeUndefined();
+    expect(events).toEqual([]);
+  });
+
+  it('stops reading once onEvent returns false, even for the final flushed event', async () => {
+    const encoder = new TextEncoder();
+    const chunk = encoder.encode('data: {"type":"finish","finishReason":"stop"}');
+    const response = makeStreamResponse([chunk]);
+
+    const events: Record<string, unknown>[] = [];
+    await parseSSEStream(response, (event) => {
+      events.push(event);
+      return false;
+    });
+
+    expect(events).toEqual([{ type: 'finish', finishReason: 'stop' }]);
   });
 });

@@ -258,6 +258,98 @@ describe('createWidgetFromDescription: server config validation', () => {
   });
 });
 
+// ── Unresolvable sourceId (regression: 2.3) ───────────────────────────────────
+//
+// A truthy but hallucinated/mismatched `sourceId` (the model names a label like
+// "Sales" instead of the real id "src1", or names a hidden source) must not
+// silently commit a widget with `sourceId: undefined` while still reporting
+// success — it must fall back to the first available (non-hidden) source, exactly
+// like the no-`sourceId` case.
+describe('createWidgetFromDescription: unresolvable sourceId', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back to the first source when sourceId does not match any known source', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'chart',
+            // Hallucinated: a label, not the real id ("src1").
+            sourceId: 'Sales',
+            config: { chartType: 'bar' },
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('bar chart of revenue', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const widgetArg = (controller.addWidget as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    // Falls back to the first available source instead of committing sourceId: undefined.
+    expect(widgetArg.sourceId).toBe('src1');
+  });
+
+  it('falls back to the first non-hidden source when sourceId resolves to a hidden source', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'chart',
+            sourceId: 'src-hidden',
+            config: { chartType: 'bar' },
+          }),
+      }),
+    );
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          'src-hidden': {
+            id: 'src-hidden',
+            label: 'Internal',
+            hidden: true,
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+          },
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [
+              { id: 'month', label: 'Month', type: 'string' },
+              { id: 'revenue', label: 'Revenue', type: 'number' },
+            ],
+          },
+        },
+      },
+    });
+    const controller = {
+      getState: () => state,
+      addWidget: vi.fn(),
+    } as unknown as StudioController;
+
+    const result = await createWidgetFromDescription('bar chart of revenue', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const widgetArg = (controller.addWidget as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    // A hidden source must never be used directly, even via a direct id lookup —
+    // falls back to the first non-hidden source instead (consistent with the
+    // `sources[0]` fallback, which already excludes hidden sources).
+    expect(widgetArg.sourceId).toBe('src1');
+  });
+});
+
 // ── privateMode: no row values / descriptions leak (regression: 1.1) ─────────
 
 describe('createWidgetFromDescription: privateMode', () => {

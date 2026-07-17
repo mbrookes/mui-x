@@ -109,6 +109,11 @@ export interface StudioAIConfig {
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
 
+/** Coerces untrusted wire data to a finite number, falling back to `0` otherwise. */
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 /**
  * Creates a `ChatAdapter` that delegates the full AI pipeline to an
  * `x-studio-ai-middleware` server endpoint.
@@ -380,18 +385,21 @@ export function createBackendChatAdapter(
               // renders after it, and so a later (post-tool) text run starts its own
               // fresh part instead of being appended to the preamble (finding 2.23).
               endTextPart(streamController);
-              const {
-                phase,
-                toolCallId,
-                toolName,
-                input: toolInput,
-              } = event as {
-                phase: string;
-                toolCallId: string;
-                toolName: string;
-                input: unknown;
-                output?: string;
+              // Defensive coercion (matching the `tool-approval-request` branch below):
+              // a malformed/unexpected event shape must degrade gracefully rather than
+              // enqueue e.g. `toolCallId: undefined`, which would leave a tool-activity
+              // card permanently stuck in an "input-streaming" state.
+              const rawToolActivity = event as {
+                phase?: unknown;
+                toolCallId?: unknown;
+                toolName?: unknown;
+                input?: unknown;
+                output?: unknown;
               };
+              const phase = String(rawToolActivity.phase ?? '');
+              const toolCallId = String(rawToolActivity.toolCallId ?? '');
+              const toolName = String(rawToolActivity.toolName ?? '');
+              const toolInput = rawToolActivity.input;
               if (phase === 'start') {
                 streamController.enqueue({
                   type: 'tool-input-start',
@@ -422,7 +430,7 @@ export function createBackendChatAdapter(
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId,
-                  output: String((event as { output?: string }).output ?? ''),
+                  output: String(rawToolActivity.output ?? ''),
                 });
               }
             } else if (type === 'step-start') {
@@ -459,10 +467,18 @@ export function createBackendChatAdapter(
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }
             } else if (type === 'usage') {
+              // Defensive coercion (matching the `tool-approval-request` branch above): a
+              // malformed/unexpected event shape must not pass unchecked garbage (e.g.
+              // `undefined`/a string) straight through to the consumer's `onUsage`.
+              const rawUsage = event as {
+                inputTokens?: unknown;
+                outputTokens?: unknown;
+                iterations?: unknown;
+              };
               onUsage?.({
-                inputTokens: (event as { inputTokens: number }).inputTokens,
-                outputTokens: (event as { outputTokens: number }).outputTokens,
-                iterations: (event as { iterations: number }).iterations,
+                inputTokens: toFiniteNumber(rawUsage.inputTokens),
+                outputTokens: toFiniteNumber(rawUsage.outputTokens),
+                iterations: toFiniteNumber(rawUsage.iterations),
               });
             } else if (type === 'finish') {
               endReasoning(streamController);
@@ -539,11 +555,22 @@ export function createBackendChatAdapter(
       approved: boolean;
       reason?: string;
     }) {
-      await fetch(approvalUrl, {
+      const response = await fetch(approvalUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...extraHeaders },
         body: JSON.stringify({ id, approved, reason }),
       });
+      // A 4xx/5xx here (e.g. an expired approval id) must not resolve as if the
+      // approval was delivered — the server-side agentic loop never actually resumes,
+      // leaving the conversation hung in a streaming state with no error shown until
+      // the SSE connection eventually times out. Throwing surfaces through
+      // `useChatController`'s existing `addToolApprovalResponse` error handling (it
+      // rolls back the optimistic UI update and sets a user-visible error), mirroring
+      // the non-ok handling in `sendMessage` above.
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`HTTP ${response.status}: ${errText}`);
+      }
     },
   };
 }

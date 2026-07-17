@@ -33,20 +33,64 @@ import { useChatVoiceInput } from './useChatVoiceInput';
 import { StudioComposerToolbar, VoiceMicContext } from './StudioComposerToolbar';
 import { useChatThreads, StreamThreadPin } from './useChatThreads';
 
+/** A single queued auto-submission (see `AutoSubmitTrigger` below). */
+interface PendingAutoSubmit {
+  text: string;
+  seq: number;
+}
+
+/**
+ * Max number of queued auto-submissions. Only two producers ever push onto this
+ * queue (`pendingMessage` and `initialPrompt`), so 2 is enough headroom for both
+ * to be pending at once (finding 2.9) without letting the queue grow unbounded.
+ */
+const MAX_PENDING_AUTO_SUBMIT = 2;
+
+/** Appends `item` to `queue`, keeping only the most recent `MAX_PENDING_AUTO_SUBMIT` entries. */
+function enqueuePendingAutoSubmit(
+  queue: PendingAutoSubmit[],
+  item: PendingAutoSubmit,
+): PendingAutoSubmit[] {
+  return [...queue, item].slice(-MAX_PENDING_AUTO_SUBMIT);
+}
+
 // Invisible component rendered inside ChatBox (inside ChatRoot context).
-// When `pending` changes to a new seq, sets the composer value and submits.
-function AutoSubmitTrigger({ pending }: { pending: { text: string; seq: number } | null }) {
-  const { setValue, submit } = useChatComposer();
-  const seqRef = React.useRef(-1);
+// Processes `pending` as a FIFO queue: each new, not-yet-consumed entry sets the
+// composer value and submits it, one at a time.
+//
+// `submit()` (`useChatComposer`) is a silent no-op while a response is already
+// streaming. Gating on `isSubmitting` (mapped from `store.state.isStreaming`)
+// handles the common case — an auto-submit arriving while a visibly-in-flight
+// response is streaming — by simply not consuming the entry yet: `isSubmitting`
+// is an effect dependency, so this re-runs (and retries) the moment streaming
+// ends, instead of the message silently vanishing (finding 2.2).
+//
+// That still leaves one narrow gap: the send pipeline's internal `isSending`
+// guard (`sendMessageActions.ts`) clears in a `finally` block slightly AFTER
+// `store.state.isStreaming` resets (the stream's `finish` event flips
+// `isStreaming` false before the pipeline finishes its own post-stream
+// bookkeeping) — a `submit()` call landing in that gap silently no-ops even
+// though every signal here says "not streaming". Deferring the actual
+// `submit()` call by a macrotask (rather than just a microtask) gives that
+// trailing bookkeeping a beat to finish first when this entry's turn comes up
+// hot on the heels of a just-completed prior submission.
+function AutoSubmitTrigger({ pending }: { pending: PendingAutoSubmit[] }) {
+  const { setValue, submit, isSubmitting } = useChatComposer();
+  const consumedSeqsRef = React.useRef<Set<number>>(new Set());
 
   React.useEffect(() => {
-    if (!pending || pending.seq === seqRef.current) {
-      return;
+    if (isSubmitting) {
+      return undefined;
     }
-    seqRef.current = pending.seq;
-    setValue(pending.text);
-    void Promise.resolve().then(() => submit());
-  }, [pending, setValue, submit]);
+    const next = pending.find((item) => !consumedSeqsRef.current.has(item.seq));
+    if (!next) {
+      return undefined;
+    }
+    consumedSeqsRef.current.add(next.seq);
+    setValue(next.text);
+    const timeoutId = setTimeout(() => submit(), 0);
+    return () => clearTimeout(timeoutId);
+  }, [pending, isSubmitting, setValue, submit]);
 
   return null;
 }
@@ -200,10 +244,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   } = useChatThreads(controller);
 
   // ── Pending message auto-submit ──────────────────────────────────────────────
-  const [pendingAutoSubmit, setPendingAutoSubmit] = React.useState<{
-    text: string;
-    seq: number;
-  } | null>(null);
+  // A FIFO queue (not a single slot) so a `pendingMessage` and an `initialPrompt`
+  // that both become eligible on the same mount don't clobber each other — each
+  // producer below pushes its own entry rather than overwriting the other's
+  // (finding 2.9); `AutoSubmitTrigger` drains the queue one entry at a time.
+  const [pendingAutoSubmit, setPendingAutoSubmit] = React.useState<PendingAutoSubmit[]>([]);
   const pendingMessageIdRef = React.useRef<number | undefined>(undefined);
 
   React.useEffect(() => {
@@ -211,7 +256,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       return;
     }
     pendingMessageIdRef.current = pendingMessage.id;
-    setPendingAutoSubmit({ text: pendingMessage.text, seq: pendingMessage.id });
+    setPendingAutoSubmit((prev) =>
+      enqueuePendingAutoSubmit(prev, { text: pendingMessage.text, seq: pendingMessage.id }),
+    );
   }, [pendingMessage]);
 
   // ── Initial prompt auto-submit ──────────────────────────────────────────────
@@ -220,9 +267,25 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   // `autoSubmitInitialValue` is declared in its PropTypes but not implemented, so
   // route the prompt through the same `AutoSubmitTrigger` the `pendingMessage` path
   // uses. Fires at most once, and only while the conversation has no messages yet.
+  //
+  // Eligibility is pinned to the thread that was active the first time this effect
+  // runs (mount) via `mountThreadIdRef` — NOT merely "the thread is currently empty".
+  // In persistent mode the panel never remounts, so without this pin, switching to
+  // ANY later empty thread (e.g. "+ New conversation", or selecting another empty
+  // thread minutes/hours after mount) would re-satisfy the old "hasn't fired yet" +
+  // "thread is empty" guard and auto-submit the stale, mount-time `initialPrompt`
+  // into a conversation the user never asked about (finding 2.1). Once the active
+  // thread diverges from the mount-time thread, this effect permanently bails.
   const initialPromptSubmittedRef = React.useRef(false);
+  const mountThreadIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (initialPromptSubmittedRef.current) {
+      return;
+    }
+    if (mountThreadIdRef.current === null) {
+      mountThreadIdRef.current = activeThreadId;
+    }
+    if (activeThreadId !== mountThreadIdRef.current) {
       return;
     }
     const text = initialPrompt?.trim();
@@ -231,9 +294,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       // A distinct seq space from `pendingMessage.id` (small monotonic ints) so the
       // two auto-submit paths can't accidentally dedupe against each other inside
       // `AutoSubmitTrigger`.
-      setPendingAutoSubmit({ text, seq: Date.now() });
+      setPendingAutoSubmit((prev) => enqueuePendingAutoSubmit(prev, { text, seq: Date.now() }));
     }
-  }, [initialPrompt, threadMessages.length]);
+  }, [initialPrompt, threadMessages.length, activeThreadId]);
 
   // ── Abort an in-flight stream when the overlay panel is dismissed ────────────
   // In overlay mode `Grow`'s `unmountOnExit` tears down `<ChatBox>` the moment `open`
@@ -462,8 +525,14 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             adapter={adapter}
             density={density}
             variant={variant}
-            messages={slotProps?.chatBox?.messages ?? threadMessages}
-            onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
+            // `messages`/`onMessagesChange` are always Studio's own values, matching the
+            // `StudioChatPanelSlotProps.chatBox` JSDoc ("cannot be overridden here") — a
+            // consumer-supplied override would show the consumer's array in the rendered
+            // ChatBox while `handleMessagesChange` keeps writing stream deltas into
+            // controller thread state, silently diverging the two (finding 2.8). Since
+            // these are set AFTER `{...slotProps?.chatBox}` above, they always win.
+            messages={threadMessages}
+            onMessagesChange={handleMessagesChange}
             onFinish={slotProps?.chatBox?.onFinish}
             onError={slotProps?.chatBox?.onError}
             composerValue={composerValue}

@@ -151,9 +151,15 @@ describe('generateCacheKey', () => {
 describe('extractSecurityClaims', () => {
   const SECRET = 'test-secret-key';
 
+  // Injects a default, far-future `exp` when the caller's payload does not
+  // already declare one — `exp` is a required claim (a token without one is
+  // rejected rather than treated as never-expiring), and most tests below
+  // exist to exercise other claim behavior, not expiry itself. Pass an
+  // explicit `exp` in `payload` to override this default.
   function makeJwt(payload: Record<string, unknown>, secret: string): string {
+    const withExp = { exp: Math.floor(Date.now() / 1000) + 3600, ...payload };
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const body = Buffer.from(JSON.stringify(withExp)).toString('base64url');
     const sig = createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
     return `${header}.${body}.${sig}`;
   }
@@ -189,6 +195,17 @@ describe('extractSecurityClaims', () => {
     expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
       'signature verification failed',
     );
+  });
+
+  it('throws (fail closed) when the "exp" claim is missing entirely', () => {
+    // Built by hand (not via `makeJwt`) so the payload has no "exp" key at all —
+    // this used to be silently accepted forever, since the expiry check only ran
+    // when `exp` was present. A token without an expiry must now be rejected.
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const body = Buffer.from(JSON.stringify({ sub: 'u1', tenantId: 'acme' })).toString('base64url');
+    const sig = createHmac('sha256', SECRET).update(`${header}.${body}`).digest('base64url');
+    const token = `${header}.${body}.${sig}`;
+    expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/"exp"/);
   });
 
   it('throws on missing required claims', () => {
@@ -605,6 +622,54 @@ describe('handleBatchQuery — malformed request body guard', () => {
         tenancy: SINGLE_TENANT,
       }),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed batch query request/);
+  });
+
+  // Regression: a `null` (or otherwise malformed) element in `widgets` used to
+  // crash the WHOLE batch instead of producing a per-widget `{ error }` result.
+  // `processWidget`'s try block dereferences `descriptor.table` and throws a
+  // `TypeError` on a `null` descriptor — but the CATCH block then dereferences
+  // `descriptor.id` for its `{ error }` payload, throwing a SECOND `TypeError`
+  // from inside the catch, so the whole `Promise.all` rejected instead of
+  // resolving with per-widget isolation. There is no `id` to isolate the error
+  // onto, so the whole request is rejected up front instead.
+  it('rejects a null element in "widgets" with a sanitized MUI X error instead of a raw TypeError', async () => {
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: [null] } as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
+  });
+
+  it('rejects a non-object element (e.g. a string) in "widgets"', async () => {
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: ['oops'] } as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
+  });
+
+  it('rejects a widget descriptor missing "table"', async () => {
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1' }] } as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
+  });
+
+  it('reports the correct index for a malformed element among otherwise-valid widgets', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }, null] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[1\]/);
   });
 });
 

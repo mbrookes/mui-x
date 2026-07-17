@@ -78,6 +78,16 @@ export const MAX_WIDGETS_PER_BATCH = 50;
  * `widgets` field (or a batch that fans out to too many widgets) is a defect
  * in the request itself, not a single widget's data, so there is no per-widget
  * `{ error }` result to isolate it into.
+ *
+ * This also rejects a malformed ELEMENT (e.g. `widgets: [null]`) up front, for
+ * the same reason: `processWidget`'s try block dereferences `descriptor.table`
+ * to build the query, but its own catch block dereferences `descriptor.id` to
+ * report the error — so a `null`/non-object descriptor throws a SECOND,
+ * unguarded `TypeError` from inside the catch, rejecting the whole batch's
+ * `Promise.all` instead of producing that widget's isolated `{ error }`
+ * result. There is no `id` to isolate the error onto, so — like the missing/
+ * mistyped `widgets` field above — this is a defect in the request shape
+ * itself and the whole request is rejected rather than patched per-widget.
  */
 function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
   if (
@@ -98,6 +108,22 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
         `Split the widgets across multiple requests (e.g. paginate by dashboard page) so each batch stays at or below ${MAX_WIDGETS_PER_BATCH} widgets.`,
     );
   }
+  body.widgets.forEach((widget: BatchWidgetDescriptor, index: number) => {
+    if (
+      typeof widget !== 'object' ||
+      widget === null ||
+      typeof (widget as Partial<BatchWidgetDescriptor>).id !== 'string' ||
+      typeof (widget as Partial<BatchWidgetDescriptor>).table !== 'string'
+    ) {
+      throw new Error(
+        `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — expected an object with ` +
+          `string "id" and "table" fields, but received ${JSON.stringify(widget)}. ` +
+          `A null or malformed widget descriptor has no "id" to isolate a per-widget error onto, and would ` +
+          `otherwise throw a confusing internal error instead of a clean validation failure. ` +
+          `Ensure every entry in "widgets" is a BatchWidgetDescriptor with at least an "id" and "table".`,
+      );
+    }
+  });
 }
 
 /**

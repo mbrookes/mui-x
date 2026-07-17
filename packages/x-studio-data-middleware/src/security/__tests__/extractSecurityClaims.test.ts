@@ -13,14 +13,23 @@ import { extractSecurityClaims } from '../extractSecurityClaims';
 
 const SECRET = 'edge-case-secret';
 
-/** Build a signed JWT, allowing a custom header (to exercise the `alg` handling). */
+/**
+ * Build a signed JWT, allowing a custom header (to exercise the `alg` handling).
+ *
+ * Injects a default, far-future `exp` when the caller's payload does not
+ * already declare one — `exp` is now a required claim (a token without one is
+ * rejected as invalid rather than treated as never-expiring), and these tests
+ * exist to exercise OTHER payload-shape edge cases, not expiry itself. Pass an
+ * explicit `exp` (or `undefined`) in `payload` to override this default.
+ */
 function makeJwt(
   payload: Record<string, unknown>,
   secret: string,
   header: Record<string, unknown> = { alg: 'HS256', typ: 'JWT' },
 ): string {
+  const withExp = { exp: Math.floor(Date.now() / 1000) + 3600, ...payload };
   const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
-  const bodyB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const bodyB64 = Buffer.from(JSON.stringify(withExp)).toString('base64url');
   const sig = createHmac('sha256', secret).update(`${headerB64}.${bodyB64}`).digest('base64url');
   return `${headerB64}.${bodyB64}.${sig}`;
 }
@@ -52,6 +61,22 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
     const token = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET, { alg: 'none', typ: 'JWT' });
     const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
     expect(claims.tenantId).toBe('acme');
+  });
+
+  it('rejects a token whose payload omits the "exp" claim entirely (fail closed)', () => {
+    // Build the token WITHOUT going through the `makeJwt` helper's default-`exp`
+    // injection, so the payload genuinely has no "exp" key at all — this used to
+    // be silently accepted forever (the expiry check only ran when `exp` was
+    // present). A token that never expires must be rejected instead.
+    const headerB64 = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString(
+      'base64url',
+    );
+    const bodyB64 = Buffer.from(JSON.stringify({ sub: 'u1', tenantId: 'acme' })).toString(
+      'base64url',
+    );
+    const sig = createHmac('sha256', SECRET).update(`${headerB64}.${bodyB64}`).digest('base64url');
+    const token = `${headerB64}.${bodyB64}.${sig}`;
+    expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/"exp"/);
   });
 
   it('rejects an "alg:none" token whose signature is not a valid HMAC', () => {

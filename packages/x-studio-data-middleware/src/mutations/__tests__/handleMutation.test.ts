@@ -10,7 +10,7 @@
  * - Unknown operation produces per-item error (not a batch throw)
  */
 import { describe, it, expect } from 'vitest';
-import { handleMutation } from '../handleMutation';
+import { handleMutation, MAX_MUTATIONS_PER_BATCH } from '../handleMutation';
 import type { BatchMutationRequest, CacheProvider } from '../../index';
 
 // ── Mutable in-memory mock DB (same as mutationBuilder.test.ts) ───────────────
@@ -185,6 +185,83 @@ describe('handleMutation — malformed request body guard', () => {
         tenancy: SINGLE_TENANT,
       }),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed batch mutation request/);
+  });
+
+  // Regression: `body.mutations.map((m) => m.table)` (the upfront table-allowlist
+  // check) ran BEFORE any try/catch, so a `null` element threw a raw, unguarded
+  // `TypeError` immediately — exactly the failure mode this guard exists to
+  // prevent. A malformed element must now be rejected as a clean validation
+  // error instead of crashing the whole call.
+  it('rejects a null element in "mutations" with a sanitized MUI X error instead of a raw TypeError', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation({ mutations: [null] } as any, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\]/);
+  });
+
+  it('rejects a non-object element (e.g. a string) in "mutations"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation({ mutations: ['oops'] } as any, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\]/);
+  });
+
+  it('rejects a mutation descriptor missing "table"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation(
+        { mutations: [{ id: 'm1', operation: 'insert', values: { status: 'ok' } }] } as any,
+        CLAIMS,
+        { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\]/);
+  });
+
+  // Regression: the write path had no cap on batch size (unlike the read path's
+  // `MAX_WIDGETS_PER_BATCH`), protected only by a comment claiming "batch sizes
+  // are small" rather than an enforced limit.
+  it('rejects a batch exceeding MAX_MUTATIONS_PER_BATCH with a clear MUI X error', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const mutations = Array.from({ length: MAX_MUTATIONS_PER_BATCH + 1 }, (_unused, i) => ({
+      id: `m${i}`,
+      operation: 'insert' as const,
+      table: 'orders',
+      values: { status: 'ok' },
+    }));
+    await expect(
+      handleMutation({ mutations }, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(
+      new RegExp(`exceeds the maximum of ${MAX_MUTATIONS_PER_BATCH} allowed per request`),
+    );
+  });
+
+  it('still accepts a batch exactly at MAX_MUTATIONS_PER_BATCH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const mutations = Array.from({ length: MAX_MUTATIONS_PER_BATCH }, (_unused, i) => ({
+      id: `m${i}`,
+      operation: 'insert' as const,
+      table: 'orders',
+      values: { status: 'ok' },
+    }));
+    const result = await handleMutation({ mutations }, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(result.results).toHaveLength(MAX_MUTATIONS_PER_BATCH);
+    expect(result.results.every((r) => r.ok)).toBe(true);
   });
 });
 

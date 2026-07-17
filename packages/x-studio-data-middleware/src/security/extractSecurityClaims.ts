@@ -141,8 +141,18 @@ export function extractSecurityClaims(
     throw new Error('MUI X Studio Server: Failed to decode JWT payload');
   }
 
-  // Check expiry
-  if (payload.exp !== undefined && payload.exp < Math.floor(Date.now() / 1000)) {
+  // Check expiry. `exp` must be PRESENT, not merely valid when present: a
+  // token that omits `exp` entirely previously skipped this check altogether
+  // and was accepted forever. Fail closed — require every token to declare an
+  // expiry rather than treating a missing claim as "never expires".
+  if (payload.exp === undefined) {
+    throw new Error(
+      'MUI X Studio Server: JWT payload is missing the required "exp" (expiry) claim. ' +
+        'A token without an expiry never expires, which this server treats as invalid rather than as a permanent grant. ' +
+        'Ensure the token issuer sets "exp" to a Unix timestamp (in seconds) for every issued token.',
+    );
+  }
+  if (payload.exp < Math.floor(Date.now() / 1000)) {
     throw new Error('MUI X Studio Server: JWT has expired');
   }
 

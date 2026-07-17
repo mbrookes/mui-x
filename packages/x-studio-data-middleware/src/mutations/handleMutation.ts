@@ -60,6 +60,19 @@ import {
 import { getDefaultCache } from '../cache/defaultProviders';
 
 /**
+ * Hard ceiling on the number of mutations a single batch request may contain.
+ * Mirrors `handler.ts`'s `MAX_WIDGETS_PER_BATCH` (finding T3 — unbounded
+ * fan-out) for the write path: mutations run SEQUENTIALLY (not concurrently,
+ * see the loop in `handleMutation` below), so an unbounded batch does not fan
+ * out concurrent queries the way an unbounded `widgets` array does, but it is
+ * still unbounded DB write work and response-payload size driven entirely by
+ * client input — "batch sizes are small" was previously an assumption, not an
+ * enforced limit. Exceeded requests are rejected outright (see
+ * `assertValidBatchMutationRequest`) rather than silently truncated.
+ */
+export const MAX_MUTATIONS_PER_BATCH = 50;
+
+/**
  * Validate the shape of a batch mutation request body before touching it.
  *
  * A malformed body (`{}`, `null`, `{ mutations: 42 }`, ...) used to reach
@@ -67,6 +80,16 @@ import { getDefaultCache } from '../cache/defaultProviders';
  * `TypeError` (e.g. "Cannot read properties of undefined (reading 'map')")
  * instead of one of this package's own `MUI X`-prefixed, actionable errors.
  * Mirrors `handler.ts`'s `assertValidBatchQueryRequest` for the write path.
+ *
+ * This also rejects a batch that exceeds `MAX_MUTATIONS_PER_BATCH`, and a
+ * malformed ELEMENT (e.g. `mutations: [null]`) up front — `handleMutation`
+ * runs `body.mutations.map((m) => m.table)` for the upfront table-allowlist
+ * check BEFORE any try/catch, so a `null`/non-object mutation descriptor used
+ * to throw a raw, unguarded `TypeError` immediately, exactly the failure mode
+ * this function otherwise exists to prevent. There is no `id` to isolate a
+ * per-mutation error onto, so — like the missing/mistyped `mutations` field —
+ * this is a defect in the request shape itself and the whole batch is
+ * rejected rather than patched per-mutation.
  */
 function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
   if (
@@ -80,6 +103,29 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
         `Send a body shaped like { mutations: MutationDescriptor[] }.`,
     );
   }
+  if (body.mutations.length > MAX_MUTATIONS_PER_BATCH) {
+    throw new Error(
+      `MUI X Studio Server: Batch mutation request contains ${body.mutations.length} mutations, which exceeds the maximum of ${MAX_MUTATIONS_PER_BATCH} allowed per request. ` +
+        `An unbounded batch is unbounded DB write work driven entirely by client input. ` +
+        `Split the mutations across multiple requests so each batch stays at or below ${MAX_MUTATIONS_PER_BATCH} mutations.`,
+    );
+  }
+  body.mutations.forEach((mutation: MutationDescriptor, index: number) => {
+    if (
+      typeof mutation !== 'object' ||
+      mutation === null ||
+      typeof (mutation as Partial<MutationDescriptor>).id !== 'string' ||
+      typeof (mutation as Partial<MutationDescriptor>).table !== 'string'
+    ) {
+      throw new Error(
+        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — expected an object with ` +
+          `string "id" and "table" fields, but received ${JSON.stringify(mutation)}. ` +
+          `A null or malformed mutation descriptor has no "id" to isolate a per-mutation error onto, and would ` +
+          `otherwise throw a confusing internal error instead of a clean validation failure. ` +
+          `Ensure every entry in "mutations" is a MutationDescriptor with at least an "id", "operation", and "table".`,
+      );
+    }
+  });
 }
 
 /**

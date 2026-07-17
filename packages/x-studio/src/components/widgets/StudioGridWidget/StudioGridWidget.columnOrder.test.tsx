@@ -58,4 +58,23 @@ describe('computeOrderedFieldIds', () => {
 
     expect(order).toEqual(['gamma', 'id', 'alpha', 'beta']);
   });
+
+  // ─── Colliding bare field ids are de-duplicated (finding T1.2) ──────────────
+  // A cross-source column can share a bare `fieldId` with a primary one (e.g. a
+  // primary `id` plus a related `customers.id`). Emitting the id twice builds two
+  // `GridColDef`s with the same `field` (duplicate React key, undefined DataGrid
+  // behaviour). The first occurrence must win; the duplicate is dropped.
+  it('de-duplicates a bare fieldId shared by a primary and a cross-source column', () => {
+    const configColumns = [
+      { fieldId: 'id' },
+      { fieldId: 'id', sourceId: 'customers' },
+      { fieldId: 'beta' },
+    ];
+
+    const order = computeOrderedFieldIds(configColumns, allFieldIds);
+
+    expect(order).toEqual(['id', 'beta', 'alpha', 'gamma']);
+    // No duplicate field id survives.
+    expect(order.filter((f) => f === 'id')).toHaveLength(1);
+  });
 });

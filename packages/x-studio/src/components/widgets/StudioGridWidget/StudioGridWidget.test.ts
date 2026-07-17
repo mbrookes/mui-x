@@ -7,7 +7,7 @@ import type {
   StudioWidget,
 } from '../../../models';
 import { resolveRows } from '../../../internals/dataSourceGraph';
-import { evalConditionalFormat } from './StudioGridWidget';
+import { evalConditionalFormat, makeFanoutSafeAggregationFunction } from './StudioGridWidget';
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {
@@ -208,5 +208,31 @@ describe('evalConditionalFormat — numeric rules exclude empty cells', () => {
     expect(evalConditionalFormat(rule('is_empty', undefined), '')).toBe(true);
     expect(evalConditionalFormat(rule('is_empty', undefined), 0)).toBe(false);
     expect(evalConditionalFormat(rule('is_not_empty', undefined), 0)).toBe(true);
+  });
+});
+
+// ─── Custom min/max fan-out-safe aggregation is number-only (finding T3.6) ──────
+// The custom override routes every value through the shared reducer, which coerces
+// dates to `null`. Claiming `date`/`dateTime` column types made this override the
+// registered min/max for date columns, so they resolved to blank. The override must
+// only claim `number` columns (leaving date min/max to a date-aware path).
+
+describe('makeFanoutSafeAggregationFunction — min/max restrict to number columns', () => {
+  it('registers only the number column type for min and max', () => {
+    const emptyFk = new Map<string, string>();
+    expect(makeFanoutSafeAggregationFunction('min', emptyFk, ['number']).columnTypes).toEqual([
+      'number',
+    ]);
+    expect(makeFanoutSafeAggregationFunction('max', emptyFk, ['number']).columnTypes).toEqual([
+      'number',
+    ]);
+  });
+
+  it('cannot produce a date aggregate (dates coerce to null → no value)', () => {
+    const fn = makeFanoutSafeAggregationFunction('min', new Map(), ['number']);
+    const dates = ['2024-03-01', '2024-01-15', '2024-02-20'];
+    const values = dates.map((d, i) => ({ dedupeKey: `k${i}`, value: d }));
+    // The shared reducer coerces every date string to null → empty numeric set → null.
+    expect(fn.apply({ values } as any)).toBe(null);
   });
 });

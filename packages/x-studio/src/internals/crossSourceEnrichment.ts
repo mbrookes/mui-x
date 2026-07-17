@@ -147,6 +147,15 @@ export function enrichWithCrossSourceFields(
     ensureRowIdentity(row);
     let enriched: Row | null = null;
     for (const { fieldId, fkField, relatedIndex } of colMeta) {
+      // Never overwrite a value the primary row already owns under this bare id — a
+      // cross-source column can share a bare `fieldId` with a primary column (e.g. a
+      // primary `name` plus a related `customers.name`), and clobbering the own-source
+      // cell would silently replace the primary column's data with the joined value on
+      // every matched row (finding T1.2). Mirrors `dataSourceGraph.ts`'s
+      // `enrichRowsWithRelatedFields` own-field guard.
+      if (fieldId in row) {
+        continue;
+      }
       const fkValue = normalizeJoinKey(row[fkField]);
       const relatedRow = fkValue === null ? undefined : relatedIndex.get(fkValue);
       if (relatedRow && relatedRow[fieldId] !== undefined) {

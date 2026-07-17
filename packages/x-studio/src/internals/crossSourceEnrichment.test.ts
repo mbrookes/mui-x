@@ -162,6 +162,40 @@ describe('enrichWithCrossSourceColumns', () => {
     expect((original[0] as Record<string, unknown>).company).toBeUndefined(); // original unchanged
   });
 
+  it('does not overwrite a primary column value when a cross-source column shares its bare field id (finding T1.2)', () => {
+    // Both `orders` and `customers` own a `name` field. A cross-source `customers.name`
+    // column must NOT clobber the primary `orders.name` cell on every joined row.
+    const namedOrders = [
+      { id: 'o1', customerId: 'c1', name: 'Order One' },
+      { id: 'o2', customerId: 'c2', name: 'Order Two' },
+    ];
+    const namedCustomers: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'name', label: 'Name', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', name: 'Acme' },
+        { id: 'c2', name: 'Globex' },
+      ],
+    };
+    const result = enrichWithCrossSourceColumns(
+      namedOrders,
+      'orders',
+      [{ fieldId: 'name' }, { fieldId: 'name', sourceId: 'customers' }],
+      { customers: namedCustomers },
+      relationships,
+    );
+    // The primary `name` survives; each row is returned un-cloned since the guard
+    // skipped the colliding cross-source write (row object identity preserved).
+    expect(result[0]).toBe(namedOrders[0]);
+    expect(result[1]).toBe(namedOrders[1]);
+    expect(result[0].name).toBe('Order One');
+    expect(result[1].name).toBe('Order Two');
+  });
+
   it('handles a missing FK value gracefully (no match → field stays undefined)', () => {
     const rowsWithBadFk = [{ id: 'o99', customerId: 'unknown', total: 0 }];
     const columns = [{ fieldId: 'company', sourceId: 'customers' }];

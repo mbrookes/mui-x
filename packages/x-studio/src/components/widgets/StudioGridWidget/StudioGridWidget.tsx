@@ -180,15 +180,27 @@ export function makeFanoutSafeAggregationFunction(
  * data-source field order — configured fields first (in their stored order),
  * then any remaining fields not yet added to `config.columns`. (Finding 1.2:
  * `config.columns` used to drive only visibility, never order.)
+ *
+ * Bare field ids are de-duplicated: two configured columns can share a bare
+ * `fieldId` when a cross-source column collides with a primary one (e.g. a primary
+ * `name` plus a related `customers.name`). Emitting the id twice would build two
+ * `GridColDef`s with the same `field` — a duplicate React key with undefined
+ * DataGridPremium behaviour (finding T1.2). The first occurrence wins, so the
+ * primary column (whose own-source cell value the enrichment guard now preserves)
+ * renders and the colliding cross-source duplicate is dropped.
  */
 export function computeOrderedFieldIds(
   configColumns: StudioWidgetConfig['columns'],
   allFieldIds: string[],
 ): string[] {
-  const configuredIds = (configColumns ?? [])
-    .map((c) => c.fieldId)
-    .filter((id) => allFieldIds.includes(id));
-  const configuredSet = new Set(configuredIds);
+  const configuredSet = new Set<string>();
+  const configuredIds: string[] = [];
+  for (const c of configColumns ?? []) {
+    if (allFieldIds.includes(c.fieldId) && !configuredSet.has(c.fieldId)) {
+      configuredSet.add(c.fieldId);
+      configuredIds.push(c.fieldId);
+    }
+  }
   const remaining = allFieldIds.filter((id) => !configuredSet.has(id));
   return [...configuredIds, ...remaining];
 }
@@ -505,16 +517,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     () => ({
       sum: makeFanoutSafeAggregationFunction('sum', crossSourceFkFields, ['number']),
       avg: makeFanoutSafeAggregationFunction('avg', crossSourceFkFields, ['number']),
-      min: makeFanoutSafeAggregationFunction('min', crossSourceFkFields, [
-        'number',
-        'date',
-        'dateTime',
-      ]),
-      max: makeFanoutSafeAggregationFunction('max', crossSourceFkFields, [
-        'number',
-        'date',
-        'dateTime',
-      ]),
+      // `number` only — the shared reducer routes every value through
+      // `coerceAggregateValue`, which maps a `Date`/date-string to `null` (finding
+      // T3.6). Claiming `date`/`dateTime` here made this fan-out-safe override the
+      // registered function for those columns, so an AI-/host-configured date
+      // min/max resolved to a blank cell instead of the min/max date. The fan-out
+      // dedup is irrelevant for dates (they never coerce), so restrict to `number`.
+      min: makeFanoutSafeAggregationFunction('min', crossSourceFkFields, ['number']),
+      max: makeFanoutSafeAggregationFunction('max', crossSourceFkFields, ['number']),
       // `toGridAggFn` maps our 'count' to the DataGridPremium built-in name 'size'.
       size: makeFanoutSafeAggregationFunction('count', crossSourceFkFields),
       // Not a DataGridPremium built-in — registering it here also fixes the

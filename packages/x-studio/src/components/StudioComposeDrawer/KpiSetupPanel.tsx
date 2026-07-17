@@ -279,11 +279,22 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // references the OLD source's field; left in place it would silently exclude
           // every row of the new source (finding 1.5). Fold the removal of those now-
           // unresolvable filters into the SAME commit via `removeFilterIds`.
+          // The sparkline field is just as source-specific as the value field (finding
+          // 3, iteration 20) — left stale after a cross-source switch, `kpiSparklineField`/
+          // `kpiSparklineSourceId` keep pointing at a field the new source can't resolve,
+          // silently blanking the sparkline with no warning. Reset them the same way
+          // `kpiValueField`/`kpiAggregation` already are.
           controller.updateWidget(
             widgetId,
             {
               sourceId: nextSourceId,
-              config: { ...config, kpiValueField: '', kpiAggregation: 'count' },
+              config: {
+                ...config,
+                kpiValueField: '',
+                kpiAggregation: 'count',
+                kpiSparklineField: undefined,
+                kpiSparklineSourceId: undefined,
+              },
             },
             {
               removeFilterIds: collectStaleWidgetFilterIds(
@@ -340,11 +351,20 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           // widget-scoped filter that no longer resolves against the new source (finding
           // 1.5) so a stale date-range filter can't silently blank the KPI.
           if (fSourceId && fSourceId !== widget?.sourceId) {
+            // Same cross-source reset as the source Autocomplete above (finding 3,
+            // iteration 20): picking a value field from a different source also adopts
+            // that source, so the old source's sparkline field/source is just as stale
+            // here as it is there.
             controller.updateWidget(
               widgetId,
               {
                 sourceId: fSourceId,
-                config: { ...config, ...configUpdate },
+                config: {
+                  ...config,
+                  ...configUpdate,
+                  kpiSparklineField: undefined,
+                  kpiSparklineSourceId: undefined,
+                },
               },
               {
                 removeFilterIds: collectStaleWidgetFilterIds(

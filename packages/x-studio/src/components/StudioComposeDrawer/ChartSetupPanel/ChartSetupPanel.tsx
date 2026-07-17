@@ -342,9 +342,17 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // carry a non-default sum/avg/min/max) rather than wiping it on every series change.
   const commitYSeries = (next: typeof ySeries) => {
     const nextHasField = next.some((s) => s.fieldId);
+    // finding 2.5 (iteration 20): mirror the `nativeYFieldIds` own-source guard here too.
+    // `yField` is read back as a flat, single-source field (by `analyzeChartSupport` and the
+    // eventual SELECT/aggregation), so blindly mirroring `next[0]`'s id — which may belong to a
+    // foreign-source blended series (mixed charts) — pushes an unresolvable foreign column
+    // reference into `yField` even though `ySeries` correctly keeps the series' own `sourceId`.
+    const nextNativeFieldIds = next.flatMap((s) =>
+      s.fieldId && !(s.sourceId && s.sourceId !== widgetSourceId) ? [s.fieldId] : [],
+    );
     controller.updateWidgetConfig(widgetId, {
       ySeries: next,
-      yField: next[0]?.fieldId ?? '',
+      yField: nextNativeFieldIds[0] ?? '',
       ...(nextHasField ? {} : { yAggregation: 'count' }),
     });
   };
@@ -603,8 +611,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             required
           />
 
-          {/* Group by — shown only when x field is a date/datetime type */}
+          {/* Group by — shown only when x field is a date/datetime type. Excluded for
+              funnel and scatter (iteration 20 finding 2): neither `buildFunnelStages`
+              nor `prepareScatterData`/`prepareScatterDataGrouped` take an `xGroupBy`
+              argument, so a write here would render with no effect while
+              `FUNNEL_CHART_KEYS`/`SCATTER_CHART_KEYS` correctly omit the key — adding
+              the key to either allow-list would just move the dead-control problem
+              rather than fix it. */}
           {!isSankey &&
+            !isFunnel &&
+            !isScatter &&
             (selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
               <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
@@ -943,14 +959,21 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         />
       )}
 
-      {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey/heatmap) */}
+      {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey/heatmap/funnel).
+          Funnel excluded per iteration 20 finding 1: `StudioFunnelChart` has no reference-line
+          rendering support at all (unlike bar/line-area/mixed/scatter, the families the section
+          above is actually shared by — see `AnnotationsEditorSection`'s own config-prop comment),
+          so a write here was silently stripped by `FUNNEL_CHART_KEYS` omitting `annotations` with
+          no renderer to receive it either; hiding the control is correct rather than adding a
+          no-op allow-list entry. */}
       {features.chartAnnotations !== false &&
         chartType !== 'pie' &&
         chartType !== 'donut' &&
         chartType !== 'gauge' &&
         chartType !== 'gantt' &&
         chartType !== 'sankey' &&
-        chartType !== 'heatmap' && <AnnotationsEditorSection widgetId={widgetId} config={config} />}
+        chartType !== 'heatmap' &&
+        chartType !== 'funnel' && <AnnotationsEditorSection widgetId={widgetId} config={config} />}
       {/* Interactions — cross-filter mode */}
       <CrossFilterModeSection
         widgetId={widgetId}

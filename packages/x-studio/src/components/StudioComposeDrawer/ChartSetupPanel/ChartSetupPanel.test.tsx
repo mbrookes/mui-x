@@ -873,6 +873,209 @@ describe('ChartSetupPanel', () => {
       delete (mockState.runtime.dataSources as Record<string, unknown>).aaa;
     }
   });
+
+  // Iteration 20 finding 1: `StudioFunnelChart` has no reference-line rendering support at
+  // all, and `FUNNEL_CHART_KEYS` correctly omits `annotations` — so the Annotations editor
+  // must be hidden for funnel rather than rendering a control whose writes are silently
+  // stripped by the controller's config-key guard.
+  describe('annotations editor visibility (finding 1)', () => {
+    it('hides the Annotations editor for a funnel chart', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            { id: 'stage', label: 'Stage', type: 'string' },
+            { id: 'count', label: 'Count', type: 'number' },
+          ],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: { chartType: 'funnel', xField: 'stage', yField: 'count' },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.queryByText('Annotations')).to.equal(null);
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+
+    it('still shows the Annotations editor for a bar chart', () => {
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByText('Annotations')).toBeVisible();
+    });
+  });
+
+  // Iteration 20 finding 2: neither `buildFunnelStages` (funnel) nor
+  // `prepareScatterData`/`prepareScatterDataGrouped` (scatter) take an `xGroupBy`
+  // argument, so the Group By control must be hidden for both chart types even when the
+  // resolved X field is date/datetime-typed — a write here would otherwise be silently
+  // stripped by `FUNNEL_CHART_KEYS`/`SCATTER_CHART_KEYS` (neither lists `xGroupBy`) with
+  // no renderer to consume it regardless.
+  describe('group-by control visibility (finding 2)', () => {
+    it('hides Group By for a funnel chart even with a date x field', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [
+            { id: 'stage', label: 'Stage', type: 'date' },
+            { id: 'count', label: 'Count', type: 'number' },
+          ],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: { chartType: 'funnel', xField: 'stage', yField: 'count' },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.queryByText('Group by')).to.equal(null);
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+
+    it('hides Group By for a scatter chart even with a date x field', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          // A date field with an explicit `numeric` capability override — the scatter x-field
+          // picker only offers `numeric`-capability fields, so this is how a date-typed field
+          // can end up selected as a scatter chart's x field.
+          fields: [
+            { id: 'ts', label: 'Timestamp', type: 'date', capabilities: ['numeric'] },
+            { id: 'count', label: 'Count', type: 'number' },
+          ] as unknown as typeof mockState.runtime.dataSources.orders.fields,
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: { chartType: 'scatter', xField: 'ts', yField: 'count' },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.queryByText('Group by')).to.equal(null);
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+
+    it('still shows Group By for a bar chart with a date x field', () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+      const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+      try {
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: [{ id: 'date', label: 'Order Date', type: 'date' }],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: { chartType: 'bar', xField: 'date' },
+        };
+
+        render(<ChartSetupPanel widgetId="widget-1" />);
+
+        expect(screen.getAllByText('Group by').length).toBeGreaterThan(0);
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        mockState.runtime.dataSources.orders = {
+          ...mockState.runtime.dataSources.orders,
+          fields: previousOrdersFields,
+        };
+      }
+    });
+  });
+
+  // Iteration 20 finding 2.5: `commitYSeries` must apply the same own-source guard
+  // `handleSeriesFieldChange` already applies via `nativeYFieldIds` — a foreign-source
+  // blended series id (mixed/blended charts) must never land in the flat `yField`, which
+  // is read back as a single-source field by `analyzeChartSupport` and the eventual
+  // SELECT/aggregation.
+  it('does not mirror a foreign-source series id into yField when committing ySeries (finding 2.5)', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+    const previousCustomersFields = mockState.runtime.dataSources.customers.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+      };
+      mockState.runtime.dataSources.customers = {
+        ...mockState.runtime.dataSources.customers,
+        fields: [
+          ...previousCustomersFields,
+          { id: 'lifetimeValue', label: 'Lifetime Value', type: 'number' },
+        ],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          xField: 'id',
+          ySeries: [{ fieldId: 'total' }, { fieldId: 'lifetimeValue', sourceId: 'customers' }],
+          yField: 'total',
+        },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // Remove the NATIVE (own-source) series, leaving only the foreign-source one as
+      // `next[0]` inside `commitYSeries`.
+      const removeButtons = screen.getAllByRole('button', { name: 'Remove series' });
+      await user.click(removeButtons[0]);
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        ySeries: [{ fieldId: 'lifetimeValue', sourceId: 'customers' }],
+        // Before the fix this was 'lifetimeValue' — the foreign field id mirrored straight
+        // into the flat, own-source `yField`.
+        yField: '',
+      });
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+      mockState.runtime.dataSources.customers = {
+        ...mockState.runtime.dataSources.customers,
+        fields: previousCustomersFields,
+      };
+    }
+  });
 });
 
 // Finding 2.2: picking the X field also ADOPTS its source (the widget starts with no

@@ -197,9 +197,11 @@ describe('KpiSetupPanel', () => {
   });
 
   // Finding 2.6: the aggregation-options derivation is shared between the render path
-  // and the field `onChange`. A string value field must offer only Count (and the
-  // select is locked), proving the shared derivation is used on render.
-  it('limits the aggregation options to a locked Count for a string value field (finding 2.6)', () => {
+  // and the field `onChange`. A string value field must offer Count and Count Distinct
+  // (count_distinct is meaningful for any field type, per gridSummary.ts/GridSetupPanel's
+  // STRING_AGGREGATIONS — see finding 1), and NOT be locked to a single option, proving the
+  // shared derivation is used on render.
+  it('offers Count and Count Distinct (unlocked) for a string value field (finding 2.6)', () => {
     const previousWidget = mockState.doc.widgets['widget-1'];
     const previousFields = mockState.runtime.dataSources.orders.fields;
     controller.updateWidgetConfig.mockClear();
@@ -218,9 +220,78 @@ describe('KpiSetupPanel', () => {
 
       const combo = screen.getByText('Count', { selector: '[role="combobox"]' });
       expect(combo).toBeVisible();
-      expect(combo.getAttribute('aria-disabled')).toBe('true');
+      // Two valid options (Count, Distinct) for a string field — the select must NOT be
+      // locked/disabled the way a genuinely single-option set (e.g. no value field) is.
+      // MUI's Select only ever sets `aria-disabled="true"` when actually disabled; an
+      // enabled combobox omits the attribute entirely (`null`), it does not render "false".
+      expect(combo.getAttribute('aria-disabled')).not.toBe('true');
       // A valid stored aggregation is left untouched (no write-back).
       expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousFields,
+      };
+    }
+  });
+
+  // Finding 1 (Tier 1, non-undoable data destruction): `count_distinct` is a valid,
+  // schema-supported (`StudioKpiAggregation`) and renderer-supported (`computeAggregate`)
+  // KPI aggregation, but was previously omitted from every option list `getKpiAggregations`
+  // returned. Because `storedAggIsValid` (and thus the render-time repair effect) is keyed
+  // off that option list, a persisted `kpiAggregation: 'count_distinct'` looked invalid on
+  // every render and got silently, non-undoably rewritten to `aggregationOptions[0]` the
+  // moment the panel mounted — destroying a valid, working KPI config just by opening the
+  // compose drawer. Assert the numeric-field case (the concrete repro from the bug report,
+  // "distinct regions" — though `region` would really be a string field, the destructive
+  // path is type-independent) leaves the stored config completely untouched.
+  it('does NOT rewrite a stored count_distinct aggregation on render (finding 1)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { kpiValueField: 'total', kpiAggregation: 'count_distinct' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      // The critical assertion: no repair write-back at all — the render-time effect
+      // must recognize 'count_distinct' as valid for a numeric field and leave the doc
+      // alone (not even a no-op `{ undoable: false }` commit).
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+      // The select must actually display "Distinct" (the stored value), not a silently
+      // substituted fallback like "Sum".
+      expect(screen.getByText('Distinct', { selector: '[role="combobox"]' })).toBeVisible();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+    }
+  });
+
+  // Finding 1, string-field variant: the same non-destruction guarantee for a string
+  // value field, which is the type most likely to carry a genuine "distinct count"
+  // measure (e.g. "distinct regions").
+  it('does NOT rewrite a stored count_distinct aggregation for a string field on render (finding 1)', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousFields = mockState.runtime.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [...previousFields, { id: 'region', label: 'Region', type: 'string' }],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { kpiValueField: 'region', kpiAggregation: 'count_distinct' },
+      };
+
+      render(<KpiSetupPanel widgetId="widget-1" />);
+
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+      expect(screen.getByText('Distinct', { selector: '[role="combobox"]' })).toBeVisible();
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.runtime.dataSources.orders = {

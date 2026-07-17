@@ -341,4 +341,84 @@ describe('MapSetupPanel', () => {
       }),
     );
   });
+
+  // ─── Finding 3 (architecture review) ────────────────────────────────────────
+  // Both pickers previously offered every field from every visible source with no
+  // reachability filter — an unrelated-source pick commits fine but can never be
+  // enriched onto the widget's rows, silently blanking every region.
+  describe('reachability filtering for unrelated sources (finding 3)', () => {
+    it('disables an unrelated source field once the widget already has an anchor source', async () => {
+      // Default fixture: widget-1 is anchored on 'orders'; `relationships` is empty, so
+      // 'customers' has NO resolvable relationship to 'orders'.
+      const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+      const countryInput = screen.getByLabelText('Country field', { exact: false });
+      await user.click(countryInput);
+      const countryOptions = await screen.findAllByRole('option', { name: /Country$/ });
+
+      // Options are grouped by source in fixture order ("Orders" then "Customers"), so
+      // index 0 is the widget's own (reachable) field and index 1 is the unrelated one.
+      expect(countryOptions[0].getAttribute('aria-disabled')).toBe('false');
+      expect(countryOptions[1].getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('shows a warning when the stored country field is not reachable from the widget source', () => {
+      mockState.doc.widgets['widget-1'] = {
+        ...mockState.doc.widgets['widget-1'],
+        config: {
+          ...mockState.doc.widgets['widget-1'].config,
+          mapCountryField: 'country',
+          mapCountrySourceId: 'customers',
+        },
+      };
+
+      render(<MapSetupPanel widgetId="widget-1" />);
+
+      expect(
+        screen.getByText(
+          'This field is not from the widget source or a directly related source, so it cannot be resolved and the map will render blank.',
+        ),
+      ).toBeVisible();
+    });
+
+    it('does not disable the currently-selected (even if unreachable) option', async () => {
+      mockState.doc.widgets['widget-1'] = {
+        ...mockState.doc.widgets['widget-1'],
+        config: {
+          ...mockState.doc.widgets['widget-1'].config,
+          mapCountryField: 'country',
+          mapCountrySourceId: 'customers',
+        },
+      };
+
+      const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+      const countryInput = screen.getByLabelText('Country field', { exact: false });
+      await user.click(countryInput);
+      const countryOptions = await screen.findAllByRole('option', { name: /Country$/ });
+
+      // index 1 (customers) is the currently-stored value — it must stay enabled/selectable
+      // even though it's unreachable, so the user isn't locked out of re-confirming or
+      // re-picking it.
+      expect(countryOptions[1].getAttribute('aria-disabled')).toBe('false');
+    });
+
+    it('does not disable anything when the widget has no source yet', async () => {
+      mockState.doc.widgets['widget-1'] = {
+        id: 'widget-1',
+        kind: 'map',
+        sourceId: undefined,
+        config: {} as StudioWidgetConfig,
+      };
+
+      const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+      const countryInput = screen.getByLabelText('Country field', { exact: false });
+      await user.click(countryInput);
+      const countryOptions = await screen.findAllByRole('option', { name: /Country$/ });
+
+      expect(countryOptions[0].getAttribute('aria-disabled')).toBe('false');
+      expect(countryOptions[1].getAttribute('aria-disabled')).toBe('false');
+    });
+  });
 });

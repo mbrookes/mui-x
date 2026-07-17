@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Alert,
   FormControl,
   FormControlLabel,
   FormHelperText,
@@ -21,6 +22,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
@@ -154,6 +156,53 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     [dataSources, expressionFields],
   );
 
+  // Finding 3 (architecture review): both `allStringFields`/`numericFields` previously spanned
+  // EVERY visible source with no reachability filter at all — picking a field from a source with
+  // no resolvable relationship to the widget's anchor commits fine but can never be enriched
+  // onto the widget's rows (`useWidgetRows`' cross-source join needs a declared relationship —
+  // see `StudioMapWidget.tsx`'s `valueFkField`/`buildManyToOneRelationshipIndex`), so every
+  // region silently aggregates to nothing with no warning anywhere. Mirror
+  // `ChartSetupPanel`/`GridSetupPanel`'s pattern: once the widget has an anchor source, disable
+  // (not remove — the already-selected value must stay visible/selectable) options from a
+  // source that isn't reachable via `getReachableSourceIds`. With no anchor yet, every source is
+  // offered (the first pick establishes the anchor), matching the "country pickers show the full
+  // universe" design intent documented on `allStringFields` above.
+  const reachableSourceIds = React.useMemo(
+    () => (widget?.sourceId ? getReachableSourceIds(widget.sourceId, relationships) : null),
+    [widget?.sourceId, relationships],
+  );
+  // Disables a candidate OPTION in the dropdown — exempts the field currently stored for
+  // THIS picker (by id AND sourceId, not id alone — finding 6's lesson applies here too) so
+  // an already-selected (even if unreachable) value is never itself disabled/hidden.
+  const makeGetOptionDisabled = React.useCallback(
+    (currentFieldId: string | undefined, currentSourceId: string | undefined) =>
+      (option: DataSourceFieldEntry) => {
+        if (!reachableSourceIds) {
+          return false;
+        }
+        if (option.id === currentFieldId && option.sourceId === currentSourceId) {
+          return false;
+        }
+        return !reachableSourceIds.has(option.sourceId);
+      },
+    [reachableSourceIds],
+  );
+  // Is the CURRENTLY stored field itself unreachable? Drives the support-warning banner
+  // below — independent of the option-disabling exemption above (which must always treat
+  // the current value as "enabled" so it stays visible/selectable in the dropdown).
+  const isCurrentSelectionUnreachable = (
+    fieldId: string | undefined,
+    sourceId: string | undefined,
+  ) => !!fieldId && !!reachableSourceIds && !!sourceId && !reachableSourceIds.has(sourceId);
+  const countryFieldUnreachable = isCurrentSelectionUnreachable(
+    config.mapCountryField,
+    config.mapCountrySourceId ?? widget?.sourceId,
+  );
+  const valueFieldUnreachable = isCurrentSelectionUnreachable(
+    config.mapValueField,
+    config.mapValueSourceId ?? widget?.sourceId,
+  );
+
   function update(changes: Partial<typeof config>) {
     // Route config edits through `updateWidgetConfig` (T3.3): it shallow-merges only the changed
     // keys and runs the write-side `validateConfigKeysForKind` guard, instead of `updateWidget`
@@ -238,8 +287,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         value={config.mapCountryField ?? ''}
         valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
         fields={allStringFields}
+        getOptionDisabled={makeGetOptionDisabled(
+          config.mapCountryField,
+          config.mapCountrySourceId ?? widget?.sourceId,
+        )}
         onChange={handleCountryFieldChange}
       />
+      {countryFieldUnreachable && (
+        <Alert severity="warning">{localeText.mapSetupUnreachableFieldWarning}</Alert>
+      )}
 
       <DataSourceFieldSelect
         label={localeText.mapSetupValueFieldLabel}
@@ -247,6 +303,10 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         value={config.mapValueField ?? ''}
         valueSourceId={config.mapValueSourceId ?? widget?.sourceId}
         fields={numericFields}
+        getOptionDisabled={makeGetOptionDisabled(
+          config.mapValueField,
+          config.mapValueSourceId ?? widget?.sourceId,
+        )}
         onChange={(fieldId, sourceId) =>
           update(
             fieldId
@@ -266,6 +326,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           )
         }
       />
+      {valueFieldUnreachable && (
+        <Alert severity="warning">{localeText.mapSetupUnreachableFieldWarning}</Alert>
+      )}
 
       <FormControl size="small" fullWidth disabled={!config.mapValueField}>
         <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>

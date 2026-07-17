@@ -196,6 +196,18 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     const configUpdate: Partial<StudioWidgetConfig> = {
       filterWidgetField: newFieldId,
       filterWidgetSourceId: newSourceId !== widget.sourceId ? newSourceId : undefined,
+      // Finding 7 (architecture review): a slider's explicit min/max/step are scoped to the
+      // PREVIOUS field's value range — re-pointing the filter at a different field (e.g. a
+      // 0-1000 price slider re-pointed at a 0-1 rate field) otherwise keeps the stale bounds,
+      // rendering a useless slider (the new field's whole value range collapses to a sliver of
+      // the old scale). Reset them so `StudioFilterWidget`'s `autoMin`/`autoMax`/`autoSliderStep`
+      // (already computed from the actual row data whenever these are `undefined`) recompute
+      // sensible bounds for the NEW field instead of carrying over the old ones.
+      ...(filterType === 'slider' && {
+        filterWidgetMin: undefined,
+        filterWidgetMax: undefined,
+        filterWidgetStep: undefined,
+      }),
     };
     // When the picked field belongs to a different source, adopt that source AND write
     // the field in ONE `updateWidget` commit so the cross-source field pick is a single

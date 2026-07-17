@@ -39,23 +39,40 @@ import { KpiSparklineOptions } from './KpiSparklineOptions';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) {
+  // `count_distinct` (like `count`) is meaningful for every field type — it operates on
+  // the raw cell value regardless of type (`computeAggregate`'s `count_distinct` branch
+  // routes through `countDistinct` unconditionally, never the numeric coercion used by
+  // sum/avg/min/max) — so it's offered everywhere `count` is, mirroring `gridSummary.ts`'s
+  // "count_distinct is meaningful for any field type" policy and `GridSetupPanel`'s own
+  // NUMERIC_AGGREGATIONS/STRING_AGGREGATIONS, which both include it. Omitting it here was
+  // the root cause of finding 1: a stored `kpiAggregation: 'count_distinct'` had nowhere
+  // it counted as valid, so the render-time repair effect below silently rewrote it away.
   return {
     number: [
       { value: 'sum', label: localeText.aggFnSum },
       { value: 'avg', label: localeText.aggFnAverage },
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.aggFnMin },
       { value: 'max', label: localeText.aggFnMax },
     ],
-    string: [{ value: 'count', label: localeText.aggFnCount }],
-    boolean: [{ value: 'count', label: localeText.aggFnCount }],
+    string: [
+      { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
+    ],
+    boolean: [
+      { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
+    ],
     date: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.kpiSetupDateAggEarliest },
       { value: 'max', label: localeText.kpiSetupDateAggLatest },
     ],
     datetime: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.kpiSetupDateAggEarliest },
       { value: 'max', label: localeText.kpiSetupDateAggLatest },
     ],
@@ -326,6 +343,12 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
       <DataSourceFieldSelect
         value={config.kpiValueField ?? ''}
+        // Finding 5: the KPI value field always belongs to the widget's OWN source (a
+        // cross-source pick adopts that source — see the `selectedField` comment above),
+        // so `widget?.sourceId` is the natural, always-available disambiguator. Passing it
+        // means a same-id field from a different (merely reachable) source can never be
+        // silently displayed in its place.
+        valueSourceId={widget?.sourceId}
         onChange={(fieldId, fSourceId) => {
           const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
           const newFieldType = newField?.type ?? null;

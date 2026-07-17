@@ -1076,6 +1076,83 @@ describe('ChartSetupPanel', () => {
       };
     }
   });
+
+  // Finding 4 (architecture review): gantt hides the shared X-field picker, so
+  // `config.xField` is never set and `selectedXField` never resolves — before the fix,
+  // `supportSourceId` (which anchors `reachableFields`) stayed `undefined` forever for
+  // gantt, even after the widget's own source was already adopted by an earlier gantt
+  // field pick. `reachableFields` fell back to EVERY field on EVERY source, so
+  // `GanttFieldsSection`'s label-field picker (which was wired to the raw, unfiltered
+  // `allFields` on top of that) offered fields from completely unrelated sources.
+  describe('gantt field reachability anchors on the widget source (finding 4)', () => {
+    it('excludes a field from a source unrelated to the widget once a source is adopted', async () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+
+      try {
+        // No relationship declares this source at all — it must never be offered once
+        // the widget has an anchor source.
+        (mockState.runtime.dataSources as Record<string, unknown>).unrelated = {
+          id: 'unrelated',
+          label: 'Unrelated',
+          fields: [{ id: 'note', label: 'Note', type: 'string' }],
+          rows: [],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          sourceId: 'orders',
+          config: {
+            chartType: 'gantt',
+          },
+        };
+
+        const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+        const labelInput = screen.getByLabelText('Label field', { exact: false });
+        await user.click(labelInput);
+
+        // The widget's own field is offered...
+        expect(await screen.findByRole('option', { name: /Order ID$/ })).toBeVisible();
+        // ...but the unrelated source's field is not, now that the widget's own
+        // already-adopted `sourceId` anchors `reachableFields` for gantt too.
+        expect(screen.queryByRole('option', { name: /Note$/ })).toBeNull();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        delete (mockState.runtime.dataSources as Record<string, unknown>).unrelated;
+      }
+    });
+
+    it('offers every source when the widget has no source yet (first pick establishes the anchor)', async () => {
+      const previousWidget = mockState.doc.widgets['widget-1'];
+
+      try {
+        (mockState.runtime.dataSources as Record<string, unknown>).unrelated = {
+          id: 'unrelated',
+          label: 'Unrelated',
+          fields: [{ id: 'note', label: 'Note', type: 'string' }],
+          rows: [],
+        };
+        mockState.doc.widgets['widget-1'] = {
+          ...previousWidget,
+          config: {
+            chartType: 'gantt',
+          },
+        };
+        // No source yet — remove it rather than assign `undefined` (the fixture's inferred
+        // type requires `sourceId: string`).
+        delete (mockState.doc.widgets['widget-1'] as Record<string, unknown>).sourceId;
+
+        const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+        const labelInput = screen.getByLabelText('Label field', { exact: false });
+        await user.click(labelInput);
+
+        expect(await screen.findByRole('option', { name: /Note$/ })).toBeVisible();
+      } finally {
+        mockState.doc.widgets['widget-1'] = previousWidget;
+        delete (mockState.runtime.dataSources as Record<string, unknown>).unrelated;
+      }
+    });
+  });
 });
 
 // Finding 2.2: picking the X field also ADOPTS its source (the widget starts with no

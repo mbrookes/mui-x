@@ -112,7 +112,17 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       : undefined) ??
     allFields.find((f) => f.id === config.xField) ??
     null;
-  const supportSourceId = selectedXField?.sourceId;
+  // Finding 4 (gantt): gantt hides the X-field picker entirely (`config.xField` is never
+  // set — see `!isGauge && !isGantt` below), so `selectedXField` never resolves and
+  // `supportSourceId` stayed `undefined` forever, even after the widget's OWN source was
+  // already established by an earlier gantt field pick (`GanttFieldsSection`'s `commitField`
+  // adopts a source exactly like the X-field picker does for every other chart type). Fall
+  // back to the widget's already-adopted `sourceId` for gantt so it gets the same
+  // "anchor once a source exists" restriction every other chart type gets from its X
+  // field — without this, `reachableFields` below stayed unrestricted (every source,
+  // forever) for the one chart family with no visible field to naturally serve as anchor.
+  const supportSourceId =
+    selectedXField?.sourceId ?? (config.chartType === 'gantt' ? widgetSourceId : undefined);
 
   // Once the X field anchors a source, restrict all other pickers to reachable sources.
   const reachableFields = React.useMemo(() => {
@@ -367,7 +377,21 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     // series); a foreign-source pick stamps it (blended series). Preserving the previous
     // foreign `sourceId` after re-pointing at an own-source field made the renderer
     // aggregate the new field against the OLD source's rows → a silent all-zero series.
-    const nextSourceId = sourceId && sourceId !== widgetSourceId ? sourceId : undefined;
+    //
+    // Architecture review finding 2: `StudioChartSeries.sourceId` is documented
+    // (widgetTypes.ts) and implemented (`useBlendedSeriesRows.ts`'s `isBlended` gate) as
+    // ONLY honoured when `chartType === 'mixed'` — that's the one family that independently
+    // aggregates a foreign series in its own source and outer-joins it onto the shared x-axis.
+    // Every other chart type resolves a cross-source Y field through the anchor-based grain
+    // mechanism instead (`analyzeChartSupport`/`resolveChartRowsForAggregation`, already gating
+    // this very picker's `getOptionDisabled` below), which needs no `sourceId` stamp. Stamping
+    // it unconditionally on non-mixed types silently broke two things: `commitYSeries`'s
+    // native-only mirror wrote `yField: ''` (losing the legacy single-series field), and this
+    // panel's OWN `nativeYFieldIds` then permanently excluded the series from its future support
+    // checks. Restrict the stamp to `mixed` so a non-mixed pick commits the same sourceId-less
+    // shape the empty-list Y picker below already uses for the identical gesture.
+    const nextSourceId =
+      chartType === 'mixed' && sourceId && sourceId !== widgetSourceId ? sourceId : undefined;
     commitYSeries(
       ySeries.map((s, i) => (i === index ? { ...s, fieldId, sourceId: nextSourceId } : s)),
     );
@@ -537,6 +561,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           {/* X field */}
           <DataSourceFieldSelect
             value={config.xField ?? ''}
+            // Finding 5: `widgetSourceId` is the natural disambiguator already in scope here
+            // (mirrors `selectedXField`'s own own-source-first resolution above) — passing it
+            // stops a same-id field from a different, merely-reachable source from being
+            // silently displayed as the current X field.
+            valueSourceId={widgetSourceId}
             onChange={(fieldId, sourceId) => {
               // BL-186: picking the X field anchors the source. For a standard category
               // chart with no measure field yet, seed a fieldless row "count" so the chart
@@ -583,7 +612,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             }}
             fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
             getOptionDisabled={(option) => {
-              if (option.id === config.xField) {
+              // Finding 6: exempt the CURRENT selection from validation by id AND sourceId, not
+              // id alone — an id-only check lets an invalid unrelated-source candidate that
+              // merely shares the current X field's id (e.g. two sources both having an `id`
+              // field) slip through as "always enabled" regardless of its own validity.
+              if (option.id === config.xField && option.sourceId === selectedXField?.sourceId) {
                 return false;
               }
               // A chart has no separate source picker — the X field IS how it adopts a
@@ -771,6 +804,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                       <DataSourceFieldSelect
                         value={s.fieldId ?? ''}
+                        // Finding 5: a blended series already carries its own `sourceId` (falling
+                        // back to the widget's own source for a native series) — a natural,
+                        // already-in-scope disambiguator, so thread it through the same way
+                        // `fieldOwners`/`nativeYFieldIds` above already key off it.
+                        valueSourceId={s.sourceId ?? widgetSourceId}
                         onChange={(fieldId, sourceId) =>
                           handleSeriesFieldChange(index, fieldId, sourceId)
                         }
@@ -950,7 +988,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         <GanttFieldsSection
           widgetId={widgetId}
           config={chartConfig}
-          allFields={allFields}
+          // Finding 4: pass the reachability-filtered catalog (now correctly anchored on
+          // the widget's own source for gantt — see `supportSourceId` above), not the raw,
+          // unrestricted `allFields` — the label-field picker was the one gantt picker that
+          // bypassed the reachable-source filter entirely, offering every field from every
+          // source regardless of the widget's already-adopted source.
+          allFields={reachableFields}
           dateFields={dateFields}
           categoryFields={categoryFields}
           widgetSourceId={widgetSourceId}

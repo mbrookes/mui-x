@@ -13,15 +13,29 @@ import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceF
  * empty state — the exact bug class the buffer-then-commit-on-blur pattern elsewhere
  * exists to prevent. Buffer the displayed text locally and only parse/commit on
  * blur/Enter, mirroring `GaugeConfigSection.tsx`'s min/max inputs.
+ *
+ * Finding 8 (architecture review): the previous version parsed and committed ANY finite
+ * number — the `min`/`max` passed via `slotProps.htmlInput` only constrain the spinner
+ * BUTTONS (native browser behavior), not typed keyboard input, and there was no
+ * `minRadius <= maxRadius` cross-check at all, so typing could commit e.g.
+ * `scatterMinRadius: -5` or a min greater than max. Validate the parsed value against
+ * BOTH the advertised `[min, max]` range AND the other bound (`otherBound`/`kind`),
+ * reverting to the last-committed value on an invalid entry — mirroring
+ * `GaugeConfigSection.tsx`'s `commitMin`/`commitMax`, which reject-and-revert rather than
+ * clamp to the nearest boundary.
  */
 function RadiusInput(props: {
   value: number;
   label: string;
   min: number;
   max: number;
+  /** The sibling bound's current committed value, for a min-less-than-max cross-check. */
+  otherBound: number;
+  /** Which side of the min/max pair this input is, to pick the cross-check direction. */
+  kind: 'min' | 'max';
   onCommit: (next: number) => void;
 }) {
-  const { value, label, min, max, onCommit } = props;
+  const { value, label, min, max, otherBound, kind, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
@@ -37,16 +51,15 @@ function RadiusInput(props: {
     }
     const raw = text.trim();
     const parsed = raw === '' ? NaN : Number(raw);
-    if (!Number.isNaN(parsed)) {
-      if (parsed !== value) {
-        onCommit(parsed);
-      }
-      setText(String(parsed));
-    } else {
-      // An unparseable/emptied field reverts to the last committed value rather
-      // than silently snapping to the fallback default mid-edit.
-      setText(String(value));
+    const inRange = !Number.isNaN(parsed) && parsed >= min && parsed <= max;
+    const crossValid = kind === 'min' ? parsed < otherBound : parsed > otherBound;
+    const valid = inRange && crossValid;
+    if (valid && parsed !== value) {
+      onCommit(parsed);
     }
+    // An unparseable/emptied/out-of-range/cross-invalid entry reverts to the last
+    // committed value rather than silently clamping to a boundary or the fallback default.
+    setText(String(valid ? parsed : value));
     setDirty(false);
   };
 
@@ -136,6 +149,8 @@ export function ScatterConfigSection({
             label={localeText.chartSetupMinRadiusLabel}
             min={1}
             max={50}
+            otherBound={config.scatterMaxRadius ?? 40}
+            kind="min"
             onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMinRadius: next })}
           />
           <RadiusInput
@@ -143,6 +158,8 @@ export function ScatterConfigSection({
             label={localeText.chartSetupMaxRadiusLabel}
             min={1}
             max={100}
+            otherBound={config.scatterMinRadius ?? 4}
+            kind="max"
             onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMaxRadius: next })}
           />
         </Stack>

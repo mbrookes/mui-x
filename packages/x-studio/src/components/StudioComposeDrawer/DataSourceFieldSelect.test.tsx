@@ -168,3 +168,79 @@ describe('DataSourceFieldSelect — calculated field affordance (BL-179/180)', (
     expect(screen.getByRole('option', { name: /Unreachable Calc/i })).toBeVisible();
   });
 });
+
+// Finding 5 (architecture review): the selected-option resolution previously fell back to a
+// bare-id lookup across EVERY source whenever the scoped (`valueSourceId`) lookup missed —
+// e.g. `valueSourceId` names a source that was since removed/hidden — silently displaying a
+// same-id field from a DIFFERENT source (wrong icon/group/source label) instead of showing
+// the value as unresolved.
+describe('DataSourceFieldSelect — selected-option resolution (finding 5)', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => ({}), controller });
+  });
+
+  // Two sources share the field id 'total', with different labels/types, so a wrong-source
+  // match is observable via the displayed label.
+  const collidingFields: DataSourceFieldEntry[] = [
+    {
+      id: 'total',
+      label: 'Orders Total',
+      type: 'number',
+      sourceId: 'orders',
+      sourceLabel: 'Orders',
+    },
+    {
+      id: 'total',
+      label: 'Invoices Total',
+      type: 'string',
+      sourceId: 'invoices',
+      sourceLabel: 'Invoices',
+    },
+  ];
+
+  it('resolves strictly against the provided valueSourceId, ignoring a same-id match elsewhere', () => {
+    render(
+      <DataSourceFieldSelect
+        value="total"
+        valueSourceId="invoices"
+        onChange={() => {}}
+        fields={collidingFields}
+        label="Value field"
+      />,
+    );
+
+    expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Invoices Total');
+  });
+
+  it('shows the value as unresolved when valueSourceId does not match any field (stale source), instead of falling back to a same-id field from a different source', () => {
+    render(
+      <DataSourceFieldSelect
+        value="total"
+        valueSourceId="removed-source"
+        onChange={() => {}}
+        fields={collidingFields}
+        label="Value field"
+      />,
+    );
+
+    // Must NOT silently display either colliding field's label.
+    const input = screen.getByLabelText('Value field') as HTMLInputElement;
+    expect(input.value).toBe('');
+  });
+
+  it('falls back to the bare-id lookup only when no valueSourceId is supplied at all', () => {
+    render(
+      <DataSourceFieldSelect
+        value="total"
+        onChange={() => {}}
+        fields={collidingFields}
+        label="Value field"
+      />,
+    );
+
+    // No sourceId to disambiguate with — the first matching field in list order wins,
+    // preserving the pre-existing (documented) behavior for callers that don't have a
+    // sourceId in scope.
+    expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Orders Total');
+  });
+});

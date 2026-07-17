@@ -188,13 +188,17 @@ export function DataSourceFieldSelect({
     if (!value) {
       return null;
     }
-    return (
-      (valueSourceId
-        ? computedFields.find((f) => f.id === value && f.sourceId === valueSourceId)
-        : undefined) ??
-      computedFields.find((f) => f.id === value) ??
-      null
-    );
+    // Finding 5: when the caller passes `valueSourceId`, it is asserting which source the
+    // stored value belongs to — resolve STRICTLY against that source. Falling back to a
+    // bare-id lookup across every source when the scoped lookup misses (e.g. `valueSourceId`
+    // is stale because its source was removed/hidden) can silently match a same-id field from
+    // a DIFFERENT source, displaying that field's icon/group/source label as if it were the
+    // stored value instead of showing it as unresolved. The bare-id fallback is only safe (and
+    // only used) when the caller doesn't have a sourceId to disambiguate with in the first place.
+    if (valueSourceId) {
+      return computedFields.find((f) => f.id === value && f.sourceId === valueSourceId) ?? null;
+    }
+    return computedFields.find((f) => f.id === value) ?? null;
   }, [computedFields, value, valueSourceId]);
 
   // Only qualify a field's label with its source when two sources genuinely share

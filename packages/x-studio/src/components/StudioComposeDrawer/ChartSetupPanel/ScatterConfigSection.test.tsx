@@ -113,3 +113,59 @@ describe('ScatterConfigSection radii inputs (finding 2.3)', () => {
     });
   });
 });
+
+// Finding 8 (architecture review): typed keyboard input bypasses the native spinner-button
+// `min`/`max` constraint entirely, and there was no cross-check between the two bounds — a
+// typed value could commit e.g. a negative radius or a min greater than max.
+describe('ScatterConfigSection radii inputs reject out-of-range/cross-invalid values (finding 8)', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidgetConfig.mockClear();
+  });
+
+  it('rejects a min radius below the advertised range and reverts on blur', () => {
+    renderScatter({ scatterMinRadius: 4 });
+    const input = screen.getByLabelText('Min radius') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '-5' } });
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe('4');
+  });
+
+  it('rejects a max radius above the advertised range and reverts on blur', () => {
+    renderScatter({ scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Max radius') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '500' } });
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe('40');
+  });
+
+  it('rejects a min radius typed greater than or equal to the current max radius', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Min radius') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '45' } });
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe('4');
+  });
+
+  it('rejects a max radius typed less than or equal to the current min radius', () => {
+    renderScatter({ scatterMinRadius: 10, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Max radius') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe('40');
+  });
+
+  it('accepts a valid min radius that stays below the current max radius', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Min radius') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '20' } });
+    fireEvent.blur(input);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      scatterMinRadius: 20,
+    });
+  });
+});

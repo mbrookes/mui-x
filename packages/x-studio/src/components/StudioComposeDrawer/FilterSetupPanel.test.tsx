@@ -286,6 +286,55 @@ describe('FilterSetupPanel', () => {
 
     expect(screen.getByText('Select a field to configure the filter control.')).toBeVisible();
   });
+
+  // Finding 7 (architecture review): a slider's explicit min/max/step are scoped to the
+  // field they were set for. Re-pointing the filter at a different field (e.g. a 0-1000
+  // price slider re-pointed at a 0-1 rate field) must not keep the stale bounds — that
+  // renders a useless slider (the new field's whole range collapses to a sliver of the old
+  // scale). `StudioFilterWidget` already recomputes sensible auto min/max/step from the
+  // field's actual row data whenever these are `undefined`.
+  it('resets slider min/max/step when the field changes (finding 7)', async () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+      filterWidgetMin: 0,
+      filterWidgetMax: 1000,
+      filterWidgetStep: 50,
+    };
+
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Field', { exact: false, selector: 'input' }));
+    // "placedAt" (date) is still slider-compatible (temporal), so it's a selectable option.
+    const placedAtOption = await screen.findByRole('option', { name: /Placed At$/ });
+    await user.click(placedAtOption);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetField: 'placedAt',
+      filterWidgetSourceId: undefined,
+      filterWidgetMin: undefined,
+      filterWidgetMax: undefined,
+      filterWidgetStep: undefined,
+    });
+  });
+
+  it('does not touch min/max/step on a field change when the control type is not slider', async () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'multi-select',
+      filterWidgetField: 'status',
+    };
+
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Field', { exact: false, selector: 'input' }));
+    const amountOption = await screen.findByRole('option', { name: /Amount$/ });
+    await user.click(amountOption);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      filterWidgetField: 'amount',
+      filterWidgetSourceId: undefined,
+    });
+  });
 });
 
 // Finding 2.2: picking a filter field from a different source ADOPTS that source. That

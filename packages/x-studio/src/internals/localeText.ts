@@ -733,6 +733,8 @@ export interface StudioLocaleText {
   mapFormatLegendAlignRight: string;
   mapSetupRegionFieldLabel: string;
   mapSetupRegionFieldHelperText: string;
+  /** Warning shown when the region or value field is not reachable from the widget's source. */
+  mapSetupUnreachableFieldWarning: string;
 
   // ── Pivot setup panel ─────────────────────────────────────────────────────
   pivotSetupDescription: string;
@@ -1942,6 +1944,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupRegionFieldLabel: 'Region field',
   mapSetupRegionFieldHelperText:
     'A field containing region identifiers matching the geography feature IDs.',
+  mapSetupUnreachableFieldWarning:
+    'This field is not from the widget source or a directly related source, so it cannot be resolved and the map will render blank.',
 
   // Pivot setup panel
   pivotSetupDescription:

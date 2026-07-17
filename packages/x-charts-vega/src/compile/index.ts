@@ -22,8 +22,33 @@ import type {
   SizeLegend,
   UnitContext,
 } from './context';
+import { scaleLinear, scaleLog, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import { applyAlpha } from './colorUtils';
 import { categoryIndex, categoryKey } from './context';
+
+/**
+ * Rounds a continuous [min, max] extent to "nice" round numbers the same way
+ * Vega-Lite/d3 do (`d3.scaleLinear(domain).nice()`), so a compile-time domain
+ * we compute ourselves (see `applyOverlayDomains`) reads like the reference
+ * instead of stopping at an arbitrary padded float. symlog has no direct d3
+ * scale export here, so it falls back to a linear approximation.
+ */
+function niceContinuousDomain(
+  scaleType: string | undefined,
+  min: number,
+  max: number,
+): [number, number] {
+  const build =
+    scaleType === 'log'
+      ? scaleLog
+      : scaleType === 'pow'
+        ? scalePow
+        : scaleType === 'sqrt'
+          ? scaleSqrt
+          : scaleLinear;
+  const [niceMin, niceMax] = build([min, max], [0, 1]).nice().domain();
+  return [niceMin, niceMax];
+}
 
 export interface CompileOptions {
   data?: readonly DatasetRow[];
@@ -67,6 +92,10 @@ export interface CompiledChart {
   gradients?: CompiledGradient[];
   /** Title drawn above a heatmap's continuous color legend. */
   colorLegendTitle?: string;
+  /** `encoding.color.legend.direction` — Vega-Lite defaults a continuous/piecewise color legend to a vertical gradient bar; an explicit `"horizontal"` renders it as a wide bar instead. */
+  colorLegendDirection?: 'horizontal' | 'vertical';
+  /** `encoding.color.legend.gradientLength` — the gradient bar's length (px) along its direction. */
+  colorLegendLength?: number;
   title?: string;
   width?: number;
   height?: number;
@@ -114,7 +143,15 @@ function staticMarkOpacity(unit: {
         ? (enc as { value: number }).value
         : undefined);
   }
-  const raw = unit.mark.opacity ?? unit.mark.fillOpacity ?? encValue;
+  // Vega-Lite's default config gives `point`/`circle`/`square` marks a 0.7
+  // opacity out of the box (so overlapping scatter/bubble points stay
+  // visible) — an explicit `mark.opacity`/`fillOpacity`/`encoding.opacity`
+  // still overrides it either way.
+  const markTypeDefault =
+    unit.mark.type === 'point' || unit.mark.type === 'circle' || unit.mark.type === 'square'
+      ? 0.7
+      : undefined;
+  const raw = unit.mark.opacity ?? unit.mark.fillOpacity ?? encValue ?? markTypeDefault;
   return typeof raw === 'number' && raw >= 0 && raw < 1 ? raw : undefined;
 }
 
@@ -184,10 +221,12 @@ function seriesAxisValues(entry: CompiledSeries, axis: 'x' | 'y'): number[] {
 
 /**
  * Sizes each continuous axis to cover BOTH the series data and any overlay
- * geometry (with 5% padding), so an overlay that extends past the series range
- * (e.g. an error band above the line it wraps) is not clipped at the plot edge.
- * Runs only for axes that carry overlay values; unioning the series data in
- * means the explicit min/max can only widen the domain, never clip a series.
+ * geometry, then rounds that extent to nice round numbers (`niceContinuousDomain`),
+ * so an overlay that extends past the series range (e.g. an error band above the
+ * line it wraps) is not clipped at the plot edge AND the axis still ends on a
+ * clean tick like Vega's own nice-scaled domain, rather than an arbitrary raw
+ * float. Runs only for axes that carry overlay values; unioning the series data
+ * in means the explicit min/max can only widen the domain, never clip a series.
  * Skips discrete axes and axes that already constrain their domain.
  */
 function applyOverlayDomains(
@@ -222,17 +261,16 @@ function applyOverlayDomains(
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
       continue;
     }
-    const padding = (max - min) * 0.05;
-    let domainMin = min - padding;
-    let domainMax = max + padding;
+    let domainMin = min;
+    let domainMax = max;
     // A bar/area/line series on this axis carries Vega-Lite's `zero: true`
     // default (bars/areas also overflow below the axis without it), so the
-    // domain must include 0 (and not pad past it). Point/boxplot/errorbar marks
-    // default `zero: false` and fit their data, so they are deliberately
-    // excluded — a layered line+errorband zeros its y (the line wins), while a
-    // point+errorbar or a bare boxplot fits the data extent, matching Vega.
-    // `line` covers `area` too (an area is a `type: 'line'` series with
-    // `area: true`). Detect one whose value axis is this axis.
+    // domain must include 0. Point/boxplot/errorbar marks default `zero: false`
+    // and fit their data, so they are deliberately excluded — a layered
+    // line+errorband zeros its y (the line wins), while a point+errorbar or a
+    // bare boxplot fits the data extent, matching Vega. `line` covers `area`
+    // too (an area is a `type: 'line'` series with `area: true`). Detect one
+    // whose value axis is this axis.
     const hasBaselineSeries = series.some((entry) => {
       const type = (entry as { type?: string }).type;
       if (type !== 'bar' && type !== 'line') {
@@ -244,13 +282,9 @@ function applyOverlayDomains(
     if (hasBaselineSeries) {
       domainMin = Math.min(domainMin, 0);
       domainMax = Math.max(domainMax, 0);
-      if (min >= 0) {
-        domainMin = 0;
-      }
-      if (max <= 0) {
-        domainMax = 0;
-      }
     }
+    const scaleType = (axis.config as { scaleType?: string }).scaleType;
+    [domainMin, domainMax] = niceContinuousDomain(scaleType, domainMin, domainMax);
     config.min = domainMin;
     config.max = domainMax;
   }
@@ -293,10 +327,18 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   // tell the value axis from the category axis. So compute the flags against the
   // original encodings and hand them to `resolveAxes`.
   const preUnits = normalized.units.map((unit) => ({ unit, rows: unit.rows }));
-  const axes = resolveAxes(prepared, gaps, normalized.resolve, {
-    x: forcesDiscreteBarCategory('x', preUnits),
-    y: forcesDiscreteBarCategory('y', preUnits),
-  });
+  const configAxis = (spec.config as { axis?: { grid?: unknown } } | undefined)?.axis;
+  const configAxisGrid = typeof configAxis?.grid === 'boolean' ? configAxis.grid : undefined;
+  const axes = resolveAxes(
+    prepared,
+    gaps,
+    normalized.resolve,
+    {
+      x: forcesDiscreteBarCategory('x', preUnits),
+      y: forcesDiscreteBarCategory('y', preUnits),
+    },
+    configAxisGrid,
+  );
 
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
@@ -307,6 +349,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const hollowSeriesIds: string[] = [];
   const gradients: CompiledGradient[] = [];
   let colorLegendTitle: string | undefined;
+  let colorLegendDirection: 'horizontal' | 'vertical' | undefined;
+  let colorLegendLength: number | undefined;
   let sizeLegend: SizeLegend | undefined;
   let geo: CompiledGeo | undefined;
   let barBorderRadius: number | undefined;
@@ -363,6 +407,12 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     gradients.push(...(compiled.gradients ?? []));
     if (compiled.colorLegendTitle && colorLegendTitle === undefined) {
       colorLegendTitle = compiled.colorLegendTitle;
+    }
+    if (compiled.colorLegendDirection && colorLegendDirection === undefined) {
+      colorLegendDirection = compiled.colorLegendDirection;
+    }
+    if (compiled.colorLegendLength !== undefined && colorLegendLength === undefined) {
+      colorLegendLength = compiled.colorLegendLength;
     }
     // Bar corner radius is a chart-wide BarPlot prop, so the first layer that
     // requests one wins; a conflicting later request is reported as a gap.
@@ -514,6 +564,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     hollowSeriesIds: hollowSeriesIds.length > 0 ? hollowSeriesIds : undefined,
     gradients: gradients.length > 0 ? gradients : undefined,
     colorLegendTitle,
+    colorLegendDirection,
+    colorLegendLength,
     title: normalized.title,
     width: normalized.width,
     height: normalized.height,

@@ -121,6 +121,13 @@ export interface FacetPlan {
    * independent views, so they keep their own axes and legends.
    */
   sharedAxes?: boolean;
+  /**
+   * Left margin (px) the shared y-axis needs for its longest category label —
+   * a long variety/category name (e.g. "Wisconsin No. 38") needs more room
+   * than the fixed default, or it's truncated and the cell reads as
+   * emptier/smaller than Vega's. Only set for a shared nominal/ordinal y-axis.
+   */
+  yAxisMargin?: number;
   /** Facet-level gaps (min cell size, empty data, malformed operator, …). */
   gaps: TranslationGap[];
 }
@@ -483,14 +490,62 @@ function cellSize(
   return { width, height };
 }
 
-/** Vega-Lite's default single-view plot size (px) for a continuous cell axis. */
-const VEGA_DEFAULT_VIEW = 200;
+// Vega-Lite's `config.view.continuousWidth/Height` (200) is the default for a
+// genuinely standalone top-level view — but a *child* view inside a facet,
+// concat, or repeat composition (this module's whole domain) actually
+// compiles to 300 by default, confirmed empirically against real vega-lite
+// output for a plain continuous axis (`trellis_barley`'s x), a 2D-binned
+// axis (`concat_marginal_histograms`'s heatmap, `vconcat_weather`'s bubble
+// plot), and a shared vconcat `childHeight` — all three independently render
+// at 300, not 200. Using 200 here undersized every composed chart's
+// continuous axis by a third.
+const VEGA_DEFAULT_VIEW = 300;
 /** Vega-Lite's default band `step` (px per discrete category). */
 const VEGA_DEFAULT_STEP = 20;
 // A trellis cell's plot is `cell size − axis space`; these mirror the shell's
-// FACET_CELL_MARGIN so the cell's plot equals Vega's cell plot.
+// FACET_CELL_MARGIN so the cell's plot equals Vega's cell plot. The y-axis
+// allowance is a floor — `yAxisAllowance` below grows it for long category
+// labels (a fixed 60px truncates something like "Wisconsin No. 38" to
+// "Wisc…", which also reads as a smaller/emptier cell than Vega's).
 const CELL_Y_AXIS_ALLOWANCE = 60;
 const CELL_X_AXIS_ALLOWANCE = 40;
+const AXIS_LABEL_CHAR_PX = 7;
+const CELL_Y_AXIS_ALLOWANCE_BASE = 38;
+
+/** The longest tick-label length (chars) a shared y-axis will show, for margin estimation. */
+function longestCategoryLabelChars(
+  def: VegaChannelDef | undefined,
+  rows: readonly DatasetRow[],
+): number {
+  if (!def || !isFieldDef(def) || !def.field) {
+    return 1;
+  }
+  const fieldType = resolveFieldType(def, rows);
+  if (fieldType !== 'nominal' && fieldType !== 'ordinal') {
+    return 1;
+  }
+  return distinctValues(rows, def.field).reduce<number>(
+    (max, value) => Math.max(max, String(value).length),
+    1,
+  );
+}
+
+/** Left margin (px) a shared trellis y-axis needs for its longest category label. */
+function yAxisAllowance(def: VegaChannelDef | undefined, rows: readonly DatasetRow[]): number {
+  const chars = longestCategoryLabelChars(def, rows);
+  // Capped well below the longest real-world label (e.g. "Wisconsin No. 38",
+  // 17 chars): x-charts' own `width: 'auto'` measurement — not this margin —
+  // is what ultimately decides the axis's tick-label ellipsis, and it tops
+  // out well short of that (a wrapper limitation, not something this pixel
+  // budget can move past). Past this cap, growing the margin further just
+  // adds dead space beside the already-settled label column instead of
+  // revealing more text, so it stops short of matching every long label
+  // exactly while still comfortably fitting short-to-medium ones.
+  return Math.max(
+    CELL_Y_AXIS_ALLOWANCE,
+    CELL_Y_AXIS_ALLOWANCE_BASE + Math.min(chars, 10) * AXIS_LABEL_CHAR_PX,
+  );
+}
 
 /** Inner-cell channel defs + explicit spec sizes, used to size a cell like Vega. */
 interface CellSizing {
@@ -554,12 +609,14 @@ function vegaAxisPlotSize(
 function vegaCellSize(
   sizing: CellSizing | undefined,
   rows: readonly DatasetRow[],
-): { width: number; height: number } {
+): { width: number; height: number; yAxisMargin: number } {
   const plotWidth = vegaAxisPlotSize(sizing?.specWidth, sizing?.xDef, rows, sizing?.mark);
   const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows, sizing?.mark);
+  const yMargin = yAxisAllowance(sizing?.yDef, rows);
   return {
-    width: Math.max(MIN_CELL_WIDTH, plotWidth + CELL_Y_AXIS_ALLOWANCE),
+    width: Math.max(MIN_CELL_WIDTH, plotWidth + yMargin),
     height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
+    yAxisMargin: yMargin,
   };
 }
 
@@ -680,7 +737,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
     );
     const columns = Math.max(1, params.columns ?? defaultWrapColumns(values.length));
     const gridRows = Math.max(1, Math.ceil(values.length / columns) || 1);
-    const { width, height } = vegaCellSize(params.cellSizing, rows);
+    const { width, height, yAxisMargin } = vegaCellSize(params.cellSizing, rows);
     const cells = values.map((value, index) => ({
       key: `facet-${index}`,
       spec: makeCellSpec(rows.filter((row) => facetMatch(row, wrapField, value))),
@@ -688,7 +745,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
       width,
       height,
     }));
-    return { columns, rows: gridRows, cells, gaps, sharedAxes: true };
+    return { columns, rows: gridRows, cells, gaps, sharedAxes: true, yAxisMargin };
   }
 
   const rowValues = rowField
@@ -699,7 +756,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
     : [undefined];
   const columns = Math.max(1, colValues.length);
   const gridRows = Math.max(1, rowValues.length);
-  const { width, height } = vegaCellSize(params.cellSizing, rows);
+  const { width, height, yAxisMargin } = vegaCellSize(params.cellSizing, rows);
   const cells: FacetCell[] = [];
   rowValues.forEach((rowValue, rowIndex) => {
     colValues.forEach((colValue, colIndex) => {
@@ -724,7 +781,7 @@ function buildFacetGrid(params: GridParams): FacetPlan {
       });
     });
   });
-  return { columns, rows: gridRows, cells, gaps, sharedAxes: true };
+  return { columns, rows: gridRows, cells, gaps, sharedAxes: true, yAxisMargin };
 }
 
 /** True when the spec uses the `facet` operator (`facet` + `spec`). */

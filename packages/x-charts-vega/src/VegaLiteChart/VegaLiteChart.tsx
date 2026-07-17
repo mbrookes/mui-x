@@ -629,10 +629,15 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // plots); instead inner cells drop the absent axis's margin and their
     // width/height shrink by the same amount, so every cell's *plot* stays
     // identical while the cells sit flush against each other — matching Vega.
-    const innerLeftMargin = FACET_CELL_MARGIN.right;
-    const innerBottomMargin = FACET_CELL_MARGIN.top;
-    const leftReduction = FACET_CELL_MARGIN.left - innerLeftMargin;
-    const bottomReduction = FACET_CELL_MARGIN.bottom - innerBottomMargin;
+    // The left margin grows with the shared y-axis's longest category label
+    // (`plan.yAxisMargin`, computed alongside the cell size in facet/index.ts)
+    // instead of the fixed default, so a long name like "Wisconsin No. 38"
+    // isn't truncated.
+    const cellMargin = { ...FACET_CELL_MARGIN, left: plan.yAxisMargin ?? FACET_CELL_MARGIN.left };
+    const innerLeftMargin = cellMargin.right;
+    const innerBottomMargin = cellMargin.top;
+    const leftReduction = cellMargin.left - innerLeftMargin;
+    const bottomReduction = cellMargin.bottom - innerBottomMargin;
     const leftTrackWidth = plan.cells[0]?.width;
     const innerTrackWidth =
       leftTrackWidth !== undefined ? leftTrackWidth - leftReduction : undefined;
@@ -677,9 +682,9 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
                 hideAxisTitles: true,
                 hideLegend: true,
                 margin: {
-                  ...FACET_CELL_MARGIN,
-                  left: isLeftColumn ? FACET_CELL_MARGIN.left : innerLeftMargin,
-                  bottom: hasCellBelow ? innerBottomMargin : FACET_CELL_MARGIN.bottom,
+                  ...cellMargin,
+                  left: isLeftColumn ? cellMargin.left : innerLeftMargin,
+                  bottom: hasCellBelow ? innerBottomMargin : cellMargin.bottom,
                 },
               }
             : undefined;
@@ -862,6 +867,23 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const resolvedWidth = width ?? vegaSize.width;
   const resolvedHeight = height ?? vegaSize.height;
 
+  // A pie/arc series with no explicit `outerRadius` (`mark.outerRadius` unset
+  // in the spec) falls back to x-charts' own auto-fit, which reserves more
+  // margin than Vega-Lite's default arc view — the donut/pie renders
+  // noticeably smaller than the reference at the same surface size. Vega-Lite
+  // fits the arc to the full surface (radius = half of the smaller
+  // dimension, legend space is added beside it rather than carved out of it —
+  // matching how this wrapper already sizes the surface), so default to that
+  // when the spec leaves it unset.
+  const seriesWithPieRadius =
+    compiled.plots.includes('pie') && resolvedWidth !== undefined && resolvedHeight !== undefined
+      ? compiled.series.map((entry) =>
+          entry.type === 'pie' && (entry as { outerRadius?: number }).outerRadius === undefined
+            ? { ...entry, outerRadius: Math.min(resolvedWidth, resolvedHeight) / 2 }
+            : entry,
+        )
+      : compiled.series;
+
   // Color-legend placement from `encoding.color.legend.orient` (unset keeps the
   // default placement). Only field-based color channels carry a `legend`.
   const legendLayout = resolveLegendLayout(
@@ -894,6 +916,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
     const geoColorTitle = isFieldDef(spec.encoding?.color)
       ? spec.encoding?.color.field
       : undefined;
+    // Vega-Lite's default gradient length (config.legend.gradientLength) is
+    // 200px; x-charts' own default legend is much shorter, which reads as a
+    // squashed sliver next to a full-height choropleth. An explicit spec
+    // `gradientLength` still wins.
+    const geoColorLegend = isFieldDef(spec.encoding?.color) ? spec.encoding?.color.legend : undefined;
+    const geoGradientLength =
+      geoColorLegend && typeof geoColorLegend === 'object' && !Array.isArray(geoColorLegend)
+        ? ((geoColorLegend as { gradientLength?: unknown }).gradientLength ?? 200)
+        : 200;
     // Vega-Lite places a continuous color legend as a vertical gradient bar to
     // the top-right of the map; mirror that here.
     const withGeoLegendTitle = (legend: React.ReactNode): React.ReactNode =>
@@ -907,12 +938,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
       );
     let geoLegend: React.ReactNode;
     if (geoColorMap?.type === 'piecewise') {
-      geoLegend = withGeoLegendTitle(<PiecewiseColorLegend axisDirection="z" direction="vertical" />);
+      geoLegend = withGeoLegendTitle(
+        <PiecewiseColorLegend axisDirection="z" direction="vertical" sx={{ height: geoGradientLength }} />,
+      );
     } else if (geoColorMap) {
       geoLegend = withGeoLegendTitle(
         <ContinuousColorLegend
           axisDirection="z"
           direction="vertical"
+          sx={{ height: geoGradientLength }}
           {...(geoColorLabel ? { minLabel: geoColorLabel, maxLabel: geoColorLabel } : {})}
         />,
       );
@@ -1019,7 +1053,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
   if (cell?.legendOnly) {
     return (
       <ChartsDataProviderPremium
-        series={compiled.series}
+        series={seriesWithPieRadius}
         seriesConfig={SERIES_CONFIG as never}
         xAxis={xAxis}
         yAxis={yAxis}
@@ -1046,7 +1080,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
 
   const chart = (
     <ChartsDataProviderPremium
-      series={compiled.series}
+      series={seriesWithPieRadius}
       seriesConfig={SERIES_CONFIG as never}
       xAxis={xAxis}
       yAxis={yAxis}
@@ -1078,16 +1112,39 @@ function SingleViewChart(props: VegaLiteChartProps) {
         )}
         {/* A heatmap's cell value is encoded by a continuous/piecewise color
             scale (the zAxis colorMap), so it needs a gradient color legend
-            rather than a categorical series legend (Vega-Lite's default). */}
+            rather than a categorical series legend (Vega-Lite's default).
+            `encoding.color.legend.direction`/`gradientLength` size and orient
+            it — Vega-Lite defaults to a vertical bar unless the spec asks for
+            "horizontal" explicitly. */}
         {!cell?.hideLegend && heatmapColorMap && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              gap: 2,
+            }}
+          >
             {compiled.colorLegendTitle && (
               <span style={{ fontSize: 12, fontWeight: 600 }}>{compiled.colorLegendTitle}</span>
             )}
             {heatmapColorMap.type === 'piecewise' ? (
-              <PiecewiseColorLegend axisDirection="z" direction="vertical" />
+              <PiecewiseColorLegend
+                axisDirection="z"
+                direction={compiled.colorLegendDirection ?? 'vertical'}
+              />
             ) : (
-              <ContinuousColorLegend axisDirection="z" direction="vertical" />
+              <ContinuousColorLegend
+                axisDirection="z"
+                direction={compiled.colorLegendDirection ?? 'vertical'}
+                sx={
+                  compiled.colorLegendLength !== undefined
+                    ? compiled.colorLegendDirection === 'horizontal'
+                      ? { width: compiled.colorLegendLength }
+                      : { height: compiled.colorLegendLength }
+                    : undefined
+                }
+              />
             )}
           </div>
         )}

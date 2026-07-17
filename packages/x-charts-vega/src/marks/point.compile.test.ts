@@ -83,11 +83,13 @@ describe('compilePointMark', () => {
       color?: string;
       data: { x: number; y: number }[];
     }[];
+    // A `point` mark carries Vega-Lite's default 0.7 opacity (unopinionated
+    // markers stay visible when overlapping), baked into the resolved color.
     expect(west.label).to.equal('west');
-    expect(west.color).to.equal('#111111');
+    expect(west.color).to.equal('rgba(17, 17, 17, 0.7)');
     expect(west.data).to.deep.equal([{ x: 2, y: 2, id: 1 }]);
     expect(east.label).to.equal('east');
-    expect(east.color).to.equal('#222222');
+    expect(east.color).to.equal('rgba(34, 34, 34, 0.7)');
     expect(east.data).to.deep.equal([
       { x: 1, y: 1, id: 0 },
       { x: 3, y: 3, id: 2 },

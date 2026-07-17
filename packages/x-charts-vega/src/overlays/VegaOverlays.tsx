@@ -5,6 +5,8 @@ import { SegmentsOverlay } from './Segments';
 import { BoxPlotOverlay } from './BoxPlot';
 import { ErrorBarsOverlay } from './ErrorBars';
 import { TextMarksOverlay } from './TextMarks';
+import { RadialArcsOverlay } from './RadialArcs';
+import { RadialLabelsOverlay } from './RadialLabels';
 
 /**
  * Dispatches compiled overlay instructions to their per-kind SVG renderers.
@@ -33,6 +35,10 @@ export function VegaOverlays(props: { overlays?: CompiledOverlay[] }) {
           case 'text':
           case 'image':
             return <TextMarksOverlay key={index} overlay={overlay} />;
+          case 'radialArcs':
+            return <RadialArcsOverlay key={index} overlay={overlay} />;
+          case 'radialLabels':
+            return <RadialLabelsOverlay key={index} overlay={overlay} />;
           default:
             return null;
         }

@@ -1,11 +1,13 @@
 import type {
   AxisResolution,
   CompiledUnit,
+  OverlayRadialLabelItem,
   OverlayTextItem,
   UnitContext,
 } from '../compile/context';
 import type { DatasetRow, VegaFieldDef, VegaMarkDef } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
+import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { compileTestConditions } from '../compile/params';
 import { createValueFormatter } from '../format';
@@ -106,12 +108,152 @@ function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties
   return style;
 }
 
+const FULL_CIRCLE = 2 * Math.PI;
+
+/**
+ * A text mark with `mark.radiusOffset` and no positional `x`/`y` fields is a
+ * label layer for a `radius`-encoded arc mark ("coxcomb" chart, see
+ * arc.ts's `compileRadialArcMark`) — a separate unit sharing the same
+ * `theta`/`radius`/`color` encoding. Recomputes the identical stacked-angle
+ * math independently (same rows, same deterministic default-ascending sort)
+ * rather than threading it through from arc.ts, so each mark compiler still
+ * only touches its own unit. Returns `undefined` (falling back to the
+ * ordinary missing-axis gap) when there's no usable `theta`/`radius` pair —
+ * simpler than arc.ts's version, it doesn't honor an `order` channel, since
+ * neither gallery spec that reaches this path sets one.
+ */
+function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
+  const { unit, encoding, rows } = ctx;
+  const mark = unit.mark as VegaMarkDef & TextMarkExtras & { radiusOffset?: number };
+  if (typeof mark.radiusOffset !== 'number') {
+    return undefined;
+  }
+  const thetaDef = encoding.theta;
+  const radiusDef = encoding.radius;
+  const thetaField =
+    thetaDef && !Array.isArray(thetaDef) && isFieldDef(thetaDef) ? thetaDef.field : undefined;
+  const radiusField =
+    radiusDef && !Array.isArray(radiusDef) && isFieldDef(radiusDef) ? radiusDef.field : undefined;
+  if (!thetaField || !radiusField) {
+    return undefined;
+  }
+  const textDef = encoding.text;
+  const textField =
+    textDef && !Array.isArray(textDef) && isFieldDef(textDef) ? textDef.field : undefined;
+  if (!textField) {
+    return undefined;
+  }
+
+  const color = resolveColor(encoding, rows, ctx.gaps, unit.path);
+  interface Slice {
+    thetaValue: number;
+    radiusValue: number;
+    colorKey: string;
+    text: string;
+  }
+  const slices: Slice[] = [];
+  rows.forEach((row) => {
+    const thetaValue = toNumber(row[thetaField]);
+    const radiusValue = toNumber(row[radiusField]);
+    const rawText = row[textField];
+    if (thetaValue == null || radiusValue == null || rawText == null) {
+      return;
+    }
+    const rawKey = color.splitField ? row[color.splitField] : undefined;
+    const colorKey = rawKey != null ? String(rawKey) : '';
+    slices.push({ thetaValue, radiusValue, colorKey, text: String(rawText) });
+  });
+  if (slices.length === 0) {
+    return undefined;
+  }
+
+  const domain = color.domain?.map(String);
+  const ordered = domain
+    ? [...slices].sort((a, b) => domain.indexOf(a.colorKey) - domain.indexOf(b.colorKey))
+    : [...slices].sort((a, b) => {
+        const an = Number(a.colorKey);
+        const bn = Number(b.colorKey);
+        return Number.isFinite(an) && Number.isFinite(bn)
+          ? an - bn
+          : a.colorKey.localeCompare(b.colorKey);
+      });
+
+  const total = ordered.reduce((sum, slice) => sum + slice.thetaValue, 0);
+  if (!(total > 0)) {
+    return undefined;
+  }
+
+  const range = color.range;
+  let cursor = 0;
+  const items: OverlayRadialLabelItem[] = ordered.map((slice) => {
+    const startAngle = (cursor / total) * FULL_CIRCLE;
+    cursor += slice.thetaValue;
+    const endAngle = (cursor / total) * FULL_CIRCLE;
+    let itemColor = color.staticColor;
+    if (!itemColor && range && range.length > 0 && domain) {
+      const domainIndex = domain.indexOf(slice.colorKey);
+      itemColor = domainIndex >= 0 ? range[domainIndex % range.length] : undefined;
+    }
+    return {
+      angle: (startAngle + endAngle) / 2,
+      radiusValue: slice.radiusValue,
+      text: slice.text,
+      color: itemColor,
+    };
+  });
+
+  const radiusScaleConfig = (radiusDef as VegaFieldDef).scale as
+    { type?: string; domain?: unknown[]; zero?: boolean; rangeMin?: number } | null | undefined;
+  const scaleType =
+    radiusScaleConfig?.type === 'linear' || radiusScaleConfig?.type === 'pow'
+      ? radiusScaleConfig.type
+      : 'sqrt';
+  const explicitDomain =
+    Array.isArray(radiusScaleConfig?.domain) && radiusScaleConfig.domain.length === 2
+      ? (radiusScaleConfig.domain as [number, number])
+      : undefined;
+  const dataMax = ordered.reduce((max, slice) => Math.max(max, slice.radiusValue), 0);
+  const dataMin = ordered.reduce((min, slice) => Math.min(min, slice.radiusValue), dataMax);
+  const domainMin =
+    explicitDomain?.[0] ?? (radiusScaleConfig?.zero === false ? dataMin : Math.min(0, dataMin));
+  const domainMax = explicitDomain?.[1] ?? dataMax;
+  const radiusRangeMin =
+    typeof radiusScaleConfig?.rangeMin === 'number' ? radiusScaleConfig.rangeMin : 0;
+
+  ctx.gaps.add({
+    code: 'mark:text-radial-custom-overlay',
+    message:
+      'x-charts has no native text-mark primitive; radial labels are drawn by a custom SVG overlay instead of an x-charts series.',
+    severity: 'ignored',
+    path: unit.path,
+  });
+
+  return {
+    series: [],
+    plots: [],
+    overlays: [
+      {
+        kind: 'radialLabels',
+        items,
+        radiusScaleType: scaleType,
+        radiusDomain: [domainMin, domainMax],
+        radiusRangeMin,
+        radiusOffset: mark.radiusOffset,
+      },
+    ],
+  };
+}
+
 export function compileTextMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const path = unit.path;
   const mark = unit.mark as VegaMarkDef & TextMarkExtras;
 
   if (!ctx.x?.field || !ctx.y?.field) {
+    const polar = compilePolarTextLabels(ctx);
+    if (polar) {
+      return polar;
+    }
     gaps.add({
       code: 'mark:text-missing-axis',
       message:

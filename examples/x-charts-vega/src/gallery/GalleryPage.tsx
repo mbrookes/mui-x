@@ -101,8 +101,14 @@ function ComparisonPanel({
         sx={{
           flexGrow: 1,
           display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
+          // Plain `center` makes the *leading* (left) overflow unreachable by
+          // scrolling in Chromium once the child is wider than this box — only
+          // the trailing side scrolls, so a wide spec's y-axis labels render
+          // past the left edge with no way to scroll to them. `safe center`
+          // still centers a chart that fits, but falls back to start-alignment
+          // (fully scrollable both ways) the moment it doesn't.
+          justifyContent: 'safe center',
+          alignItems: 'safe center',
           p: 1,
           minHeight: CHART_HEIGHT + 20,
           overflowX: 'auto',

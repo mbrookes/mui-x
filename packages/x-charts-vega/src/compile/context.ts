@@ -138,7 +138,60 @@ export type CompiledOverlay =
       orientation?: 'vertical' | 'horizontal';
     }
   | { kind: 'text'; items: OverlayTextItem[] }
-  | { kind: 'image'; items: OverlayImageItem[] };
+  | { kind: 'image'; items: OverlayImageItem[] }
+  | {
+      kind: 'radialArcs';
+      items: OverlayRadialArcItem[];
+      /** `mark.innerRadius`, already in px (constant across every slice). */
+      innerRadius: number;
+      /** The `radius` encoding's scale — resolved to px at render time against the drawing area (min(width,height)/2), since that isn't known at compile time. */
+      radiusScaleType: 'linear' | 'sqrt' | 'pow';
+      radiusDomain: [number, number];
+      /** `scale.rangeMin`, in px (the innermost point of the radius scale's range). */
+      radiusRangeMin: number;
+    }
+  | {
+      kind: 'radialLabels';
+      items: OverlayRadialLabelItem[];
+      radiusScaleType: 'linear' | 'sqrt' | 'pow';
+      radiusDomain: [number, number];
+      radiusRangeMin: number;
+      /** `mark.radiusOffset` — px beyond the item's own resolved radius. */
+      radiusOffset: number;
+    };
+
+/**
+ * One label of a `radius`-encoded text mark layered over a `radialArcs`
+ * chart (arc.ts's `compileRadialArcMark`) — a separate mark/unit sharing the
+ * same `theta`/`radius`/`color` encoding, so `textMark.ts`'s
+ * `compilePolarTextLabels` recomputes the identical angle/order math
+ * independently (same rows, same deterministic algorithm, so it lines up).
+ */
+export interface OverlayRadialLabelItem {
+  /** Mid-angle of the slice this label sits beside (radians, 0 = 12 o'clock, clockwise). */
+  angle: number;
+  /** Raw `radius` field value — mapped to px by the overlay's radius scale, then offset outward by `radiusOffset`. */
+  radiusValue: number;
+  text: string;
+  color?: string;
+}
+
+/**
+ * One slice of a `radius`-encoded arc mark ("coxcomb"/polar-bar chart) — the
+ * one case a single-inner/outer-radius x-charts pie series genuinely can't
+ * express, since each slice needs its own outer radius. Angles are in
+ * radians, 0 at 12 o'clock, sweeping clockwise (d3's arc-generator
+ * convention) — the renderer builds the arc path directly with
+ * `@mui/x-charts-vendor/d3-shape`'s `arc()` rather than going through
+ * `<PiePlot />`.
+ */
+export interface OverlayRadialArcItem {
+  startAngle: number;
+  endAngle: number;
+  /** Raw `radius` field value — mapped to px by the overlay's radius scale at render time. */
+  radiusValue: number;
+  color: string;
+}
 
 export interface CompiledReferenceLine {
   axis: 'x' | 'y';
@@ -201,6 +254,10 @@ export interface CompiledUnit {
   barBorderRadius?: number;
   /** Title for a heatmap's continuous color legend (x-charts' zAxis has no title slot). */
   colorLegendTitle?: string;
+  /** `encoding.color.legend.direction` for a heatmap's continuous/piecewise color legend. */
+  colorLegendDirection?: 'horizontal' | 'vertical';
+  /** `encoding.color.legend.gradientLength` for a heatmap's continuous/piecewise color legend. */
+  colorLegendLength?: number;
   /**
    * Ids of scatter series this layer produced that should render with hollow
    * (stroke-only) markers — Vega-Lite's default for the `point` mark (and any

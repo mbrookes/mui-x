@@ -150,6 +150,16 @@ function resolveRows(
     return resolveTopojsonRows(data, gaps, path) ?? inherited;
   }
   if (Array.isArray(data.values)) {
+    // Vega-Lite wraps a bare array of primitives (`[12, 23, 47]`, as opposed
+    // to an array of row objects) into one-field records keyed `data` — e.g.
+    // `{data: 12}` — so `encoding.field: "data"` resolves against them. Mirror
+    // that instead of handing mark compilers primitive "rows" with no
+    // properties to read a field from.
+    const values = data.values as unknown[];
+    const isPrimitiveArray = values.length > 0 && values.every((value) => value === null || typeof value !== 'object');
+    if (isPrimitiveArray) {
+      return values.map((value) => ({ data: value }));
+    }
     return data.values as readonly DatasetRow[];
   }
   if (typeof data.values === 'string') {

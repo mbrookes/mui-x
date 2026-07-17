@@ -96,12 +96,15 @@ describe('compileLineAreaMark', () => {
       },
     } as never);
     // The area fill references an SVG gradient by id, and the gradient carries
-    // the spec's stops — no approximation, no gap.
+    // the spec's stops — no approximation, no gap. A literal opaque-white stop
+    // is reinterpreted as a transparent version of the other (solid) stop, so
+    // the fade reads as "fade to nothing" against any background rather than
+    // painting a literal white patch outside a plain white page.
     const gradientId = (compiled.gradients ?? [])[0]?.id;
     expect(gradientId).to.be.a('string');
     expect((compiled.series[0] as { color?: string }).color).to.equal(`url(#${gradientId})`);
     expect(compiled.gradients?.[0]?.stops).to.deep.equal([
-      { offset: 0, color: 'white' },
+      { offset: 0, color: 'rgba(0, 100, 0, 0)' },
       { offset: 1, color: 'darkgreen' },
     ]);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:gradient-fill');

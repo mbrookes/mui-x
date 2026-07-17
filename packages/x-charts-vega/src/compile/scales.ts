@@ -671,6 +671,18 @@ function resolveChannelAxis(
       ) {
         categoryGapRatio = 0;
       }
+      // A `rect` mark's discrete band scale defaults to no padding in
+      // Vega-Lite — a heatmap's cells tile edge to edge, unlike a `bar`'s band
+      // (which keeps x-charts' own default inter-bar gap). The band scale is
+      // shared by the whole view, so a text/point layer annotating the same
+      // heatmap cells (sharing this axis) shouldn't block the zero gap —
+      // only check that *some* occurrence is a rect, not all of them.
+      if (
+        categoryGapRatio === undefined &&
+        occurrences.some((occurrence) => occurrence.unit.mark.type === 'rect')
+      ) {
+        categoryGapRatio = 0;
+      }
     }
 
     // x-charts places the first discrete category at the TOP of a y-axis. That
@@ -761,9 +773,20 @@ function resolveChannelAxis(
   // Horsepower axis runs 0→240, not 46→240), unless the spec sets `zero: false`
   // or an explicit domain. Apply that default on linear scales (log/pow/sqrt/
   // symlog can't sensibly include 0, and Vega-Lite doesn't zero them either).
+  // A `stack: 'center'` (silhouette) y field renders symmetrically about 0 —
+  // x-charts' own d3-shape stacking computes genuinely negative values for the
+  // lower half — so pinning the axis min to 0 (as if the raw, pre-stack field
+  // were all-positive) would chop that negative half off outside the domain
+  // and squeeze the whole stack into the remaining half, clipping the peaks
+  // that need the full range. `zero`/`normalize` stacks keep a 0 baseline, so
+  // only `center` is exempted here.
+  const isCenterStacked = occurrences.some((occurrence) => {
+    const def = occurrence.def;
+    return isFieldDef(def) && (def as VegaFieldDef).stack === 'center';
+  });
   let zeroMin: number | undefined;
   let zeroMax: number | undefined;
-  if (scale?.zero !== false && scaleType === 'linear') {
+  if (scale?.zero !== false && scaleType === 'linear' && !isCenterStacked) {
     const extent = channelNumericExtent(occurrences);
     if (extent) {
       if (extent.min > 0 && explicitMin === undefined) {
@@ -860,6 +883,10 @@ export function resolveAxes(
   // is derived from `units` directly (correct for callers that pass un-aggregated
   // encodings, e.g. tests).
   forceDiscreteBarCategory?: { x?: boolean; y?: boolean },
+  // `spec.config.axis.grid` sets the chart-wide grid default (e.g. forcing
+  // grid lines onto an otherwise-ungridded discrete band axis); a per-field
+  // `encoding.<channel>.axis.grid` still overrides it.
+  configAxisGrid?: boolean,
 ): ResolvedAxes {
   const xOccurrences: ChannelOccurrence[] = [];
   const yOccurrences: ChannelOccurrence[] = [];
@@ -940,8 +967,8 @@ export function resolveAxes(
     const scaleType = (axis?.config as { scaleType?: string } | undefined)?.scaleType;
     return scaleType !== undefined && scaleType !== 'band' && scaleType !== 'point';
   };
-  grid.vertical = explicitXGrid ?? isContinuousAxis(x);
-  grid.horizontal = explicitYGrid ?? isContinuousAxis(y);
+  grid.vertical = explicitXGrid ?? configAxisGrid ?? isContinuousAxis(x);
+  grid.horizontal = explicitYGrid ?? configAxisGrid ?? isContinuousAxis(y);
 
   // Synthesize a one-category band axis for the perpendicular side of a mark
   // that encodes only one positional field:

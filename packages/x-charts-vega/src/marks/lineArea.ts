@@ -8,7 +8,9 @@ import type {
   PlotKind,
   UnitContext,
 } from '../compile/context';
+import { color as d3Color } from '@mui/x-charts-vendor/d3-color';
 import { resolveColor } from '../compile/color';
+import { applyAlpha } from '../compile/colorUtils';
 import { toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaFieldDef } from '../types';
 import { isFieldDef } from '../types';
@@ -309,6 +311,31 @@ function buildMarkGradient(value: unknown, path: string): CompiledGradient | und
   if (stops.length === 0) {
     return undefined;
   }
+  // Vega-Lite's own gradient examples often fade to a literal "white" stop —
+  // an aesthetic trick that only reads as "fading to nothing" against a plain
+  // white page. The wrapper renders inside themed cards (including dark
+  // mode), where that stop would instead paint an opaque white patch over
+  // whatever the fill sits on. Reinterpret a pure-white, fully-opaque stop as
+  // a transparent version of the nearest solid stop instead, so it fades
+  // to transparent — a true alpha gradient that fades correctly on any
+  // background, matching the reference's apparent intent rather than its
+  // literal (white-page-only) color value.
+  const isOpaqueWhite = (input: string): boolean => {
+    const parsed = d3Color(input);
+    return parsed !== null && parsed.opacity === 1 && parsed.formatHex() === '#ffffff';
+  };
+  const solidStops = stops.filter((stop) => !isOpaqueWhite(stop.color));
+  const adjustedStops = stops.map((stop) => {
+    if (!isOpaqueWhite(stop.color) || solidStops.length === 0) {
+      return stop;
+    }
+    const nearest = solidStops.reduce((best, candidate) =>
+      Math.abs(candidate.offset - stop.offset) < Math.abs(best.offset - stop.offset)
+        ? candidate
+        : best,
+    );
+    return { offset: stop.offset, color: applyAlpha(nearest.color, 0) };
+  });
   return {
     // A stable, SVG-id-safe id per layer so the same spec re-renders identically.
     id: `vega-grad-${path.replace(/[^a-zA-Z0-9]/g, '-')}`,
@@ -317,7 +344,7 @@ function buildMarkGradient(value: unknown, path: string): CompiledGradient | und
     y1: raw.y1 ?? 0,
     x2: raw.x2 ?? 0,
     y2: raw.y2 ?? 1,
-    stops,
+    stops: adjustedStops,
   };
 }
 

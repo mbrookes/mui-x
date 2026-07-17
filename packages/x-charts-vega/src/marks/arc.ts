@@ -142,9 +142,180 @@ function compareOrderValues(a: unknown, b: unknown): number {
 /** Vega-Lite's `mark.padAngle` is in radians; x-charts' `paddingAngle` is in degrees. */
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 
+const FULL_CIRCLE = 2 * Math.PI;
+
+/**
+ * Translates an `arc` mark with a `radius` field encoding — a "coxcomb" /
+ * polar-bar chart where each slice has its own outer radius — into a
+ * `radialArcs` overlay (see `OverlayRadialArcItem`/`RadialArcs.tsx`). Mirrors
+ * the ownership/behavior of `compileArcMark`'s standard pie path (same
+ * `order`/`color` resolution) but draws the arcs itself via
+ * `@mui/x-charts-vendor/d3-shape` instead of an x-charts pie series, since a
+ * pie series has one inner/outer radius for the whole series, not per slice.
+ * Returns `undefined` (letting the caller fall back to the standard path,
+ * which reports the usual `radius` gap) when `theta` isn't a usable numeric
+ * field — every other failure mode here reports its own gap and returns an
+ * empty compiled unit instead.
+ */
+function compileRadialArcMark(ctx: UnitContext): CompiledUnit | undefined {
+  const { encoding, rows, gaps, unit, palette } = ctx;
+  const { path, mark } = unit;
+
+  const radiusDef = encoding.radius as VegaFieldDef;
+  const radiusField = radiusDef.field as string;
+
+  const thetaDef = encoding.theta;
+  const thetaField =
+    thetaDef && !Array.isArray(thetaDef) && isFieldDef(thetaDef) ? thetaDef.field : undefined;
+  if (!thetaField) {
+    return undefined;
+  }
+
+  const color = resolveColor(encoding, rows, gaps, path);
+  const arcOrder = resolveArcOrder(encoding, gaps, path);
+
+  interface Slice {
+    thetaValue: number;
+    radiusValue: number;
+    colorKey: string;
+    rowIndex: number;
+  }
+  const slices: Slice[] = [];
+  rows.forEach((row, rowIndex) => {
+    const thetaValue = toNumber(row[thetaField]);
+    const radiusValue = toNumber(row[radiusField]);
+    if (thetaValue == null || radiusValue == null) {
+      return;
+    }
+    const rawKey = color.splitField ? row[color.splitField] : undefined;
+    const colorKey = rawKey != null ? String(rawKey) : String(rowIndex);
+    slices.push({ thetaValue, radiusValue, colorKey, rowIndex });
+  });
+
+  // No usable (theta, radius) pair — rather than committing to the radial
+  // path with our own gap, fall back to the standard pie compilation below;
+  // it has its own (more complete) theta resolution and reports the usual
+  // gaps (missing value, or `radius` as a plain unsupported channel) itself.
+  if (slices.length === 0) {
+    return undefined;
+  }
+
+  // Slice order: an explicit `order` channel wins; otherwise match Vega-Lite's
+  // default nominal/ordinal domain sort (ascending) on the color field — the
+  // same default `resolveColor` itself derives when the spec gives no
+  // `scale.domain`/explicit `sort`.
+  let ordered = slices;
+  if (arcOrder) {
+    ordered = [...slices].sort(
+      (a, b) =>
+        compareOrderValues(rows[a.rowIndex][arcOrder.field], rows[b.rowIndex][arcOrder.field]) *
+        arcOrder.direction,
+    );
+  } else if (color.domain) {
+    const domain = color.domain.map(String);
+    ordered = [...slices].sort((a, b) => domain.indexOf(a.colorKey) - domain.indexOf(b.colorKey));
+  } else {
+    ordered = [...slices].sort((a, b) => compareOrderValues(a.colorKey, b.colorKey));
+  }
+
+  const total = ordered.reduce((sum, slice) => sum + slice.thetaValue, 0);
+  if (!(total > 0)) {
+    return undefined;
+  }
+
+  const range = color.range;
+  const colorDomain = color.domain?.map(String);
+  let cursor = 0;
+  const items = ordered.map((slice, index) => {
+    const startAngle = (cursor / total) * FULL_CIRCLE;
+    cursor += slice.thetaValue;
+    const endAngle = (cursor / total) * FULL_CIRCLE;
+    let sliceColor = color.staticColor;
+    if (!sliceColor && range && range.length > 0) {
+      const domainIndex = colorDomain ? colorDomain.indexOf(slice.colorKey) : -1;
+      sliceColor = domainIndex >= 0 ? range[domainIndex % range.length] : undefined;
+    }
+    if (!sliceColor) {
+      sliceColor = palette[index % palette.length];
+    }
+    return { startAngle, endAngle, radiusValue: slice.radiusValue, color: sliceColor };
+  });
+
+  // Radius scale: Vega-Lite defaults it to `sqrt` (perceptually-even area,
+  // matching its `size` channel default) and zeroes the domain unless the
+  // spec opts out; an explicit 2-number `scale.domain` wins outright.
+  const radiusScaleConfig = radiusDef.scale as
+    { type?: string; domain?: unknown[]; zero?: boolean; rangeMin?: number } | null | undefined;
+  const scaleType =
+    radiusScaleConfig?.type === 'linear' || radiusScaleConfig?.type === 'pow'
+      ? radiusScaleConfig.type
+      : 'sqrt';
+  const explicitDomain =
+    Array.isArray(radiusScaleConfig?.domain) && radiusScaleConfig.domain.length === 2
+      ? (radiusScaleConfig.domain as [number, number])
+      : undefined;
+  const dataMax = ordered.reduce((max, slice) => Math.max(max, slice.radiusValue), 0);
+  const dataMin = ordered.reduce((min, slice) => Math.min(min, slice.radiusValue), dataMax);
+  const domainMin =
+    explicitDomain?.[0] ?? (radiusScaleConfig?.zero === false ? dataMin : Math.min(0, dataMin));
+  const domainMax = explicitDomain?.[1] ?? dataMax;
+  const radiusRangeMin =
+    typeof radiusScaleConfig?.rangeMin === 'number' ? radiusScaleConfig.rangeMin : 0;
+
+  gaps.add({
+    code: 'mark:arc-radius-custom-overlay',
+    message:
+      'x-charts has no pie-series equivalent for a per-slice `radius` (only one inner/outer radius per series); the slices are drawn by a custom SVG overlay instead.',
+    severity: 'ignored',
+    path,
+  });
+
+  const arcTextEncoding = readArcTextEncoding(encoding);
+  if (arcTextEncoding && !('unresolvable' in arcTextEncoding) && !('constant' in arcTextEncoding)) {
+    gaps.add({
+      code: 'encoding:arc-text-label',
+      message:
+        'A `text` encoding on a `radius`-encoded arc mark is not read here — label it via a separate `text` mark layer (with `mark.radiusOffset`) sharing the same `theta`/`radius`/`color` encoding instead.',
+      severity: 'partial',
+      path: `${path}.encoding.text`,
+    });
+  }
+
+  return {
+    series: [],
+    plots: ['pie'],
+    overlays: [
+      {
+        kind: 'radialArcs',
+        items,
+        innerRadius: typeof mark.innerRadius === 'number' ? mark.innerRadius : 0,
+        radiusScaleType: scaleType,
+        radiusDomain: [domainMin, domainMax],
+        radiusRangeMin,
+      },
+    ],
+  };
+}
+
 export function compileArcMark(ctx: UnitContext): CompiledUnit {
   const { encoding, rows, gaps, unit } = ctx;
   const { path, mark } = unit;
+
+  // A `radius` field encoding (alongside `theta`) is a "coxcomb"/polar-bar
+  // chart: each slice needs its OWN outer radius, which x-charts' pie series
+  // can't express (one inner/outer radius per whole series) — draw it as a
+  // custom overlay instead. `radius2`/`theta2` still have no equivalent.
+  if (
+    encoding.radius !== undefined &&
+    !Array.isArray(encoding.radius) &&
+    isFieldDef(encoding.radius) &&
+    encoding.radius.field
+  ) {
+    const radial = compileRadialArcMark(ctx);
+    if (radial) {
+      return radial;
+    }
+  }
 
   // theta2/radius/radius2 describe radial ranges/offsets that x-charts' pie
   // series (a single inner/outer radius per series) cannot express.

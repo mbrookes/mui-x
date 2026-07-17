@@ -221,6 +221,18 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
     legendTitle = valueField;
   }
 
+  // `encoding.color.legend.direction`/`gradientLength` size and orient the
+  // continuous/piecewise gradient bar — Vega-Lite defaults to a vertical bar
+  // unless a spec asks for "horizontal" explicitly.
+  const legendDirection =
+    colorDef.legend?.direction === 'horizontal' || colorDef.legend?.direction === 'vertical'
+      ? colorDef.legend.direction
+      : undefined;
+  const legendLength =
+    typeof colorDef.legend?.gradientLength === 'number'
+      ? colorDef.legend.gradientLength
+      : undefined;
+
   return {
     series,
     plots: ['heatmap'],
@@ -228,6 +240,8 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
       ? {
           zAxis: [{ id: 'vega-heatmap-color', colorMap: color.colorMap }],
           ...(legendTitle ? { colorLegendTitle: legendTitle } : {}),
+          ...(legendDirection ? { colorLegendDirection: legendDirection } : {}),
+          ...(legendLength !== undefined ? { colorLegendLength: legendLength } : {}),
         }
       : {}),
   };

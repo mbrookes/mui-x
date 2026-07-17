@@ -14,8 +14,14 @@ import type { StudioFilterState } from '../models';
  *   'no-chart-cross'— page + widget + interactive, no scope:'cross-filter' (filteredRowsNoChartCross)
  *
  * @param activePageId
- *   When undefined, cross-filter and interactive filters are included regardless
- *   of their pageId (used by the non-React StudioPipeline when no page context is available).
+ *   When undefined, there is no active-page scoping restriction AT ALL — every scope kind that
+ *   carries a `pageId` (page, cross-filter, interactive, dashboard-date-range) is included
+ *   regardless of which page it was authored on, rather than only some of them. This matters for
+ *   the non-React `StudioPipeline` (CSV export, benchmarks, unit tests), which is documented to
+ *   run `resolveWidgetRows` without an `activePageId` when there is no page-navigation context to
+ *   scope by (see `StudioPipeline.ts`'s class doc examples) — a caller in that position wants
+ *   every authored filter to apply, not an inconsistent mix where page filters are silently
+ *   dropped while cross/interactive filters from every page are silently kept (finding 5).
  *
  * @param includeWidgetRank
  *   By default a WIDGET-scoped rank (Top-N) filter is excluded from the returned set, because
@@ -58,7 +64,12 @@ export function selectFiltersForWidget(
     }
     switch (sv2.kind) {
       case 'page':
-        if (!sv2.pageId || sv2.pageId === activePageId) {
+        // `activePageId === undefined` is a wildcard here too, symmetric with the cross-filter/
+        // interactive/dashboard-date-range branches below — see the `activePageId` doc above
+        // (finding 5). Without it, a page-scoped filter with a `pageId` was silently dropped
+        // whenever there was no active-page context, while cross/interactive filters from every
+        // page were kept — an undocumented asymmetry.
+        if (!sv2.pageId || activePageId === undefined || sv2.pageId === activePageId) {
           result.push(f);
         }
         break;

@@ -8,6 +8,7 @@ import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { enrichRowsWithRelatedFields, findDirectRelationship } from './dataSourceGraph';
 import { collectKeySet, indexRowsByKey, normalizeJoinKey } from './joinKeys';
 import { applyFilters } from './filterUtils';
+import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 
 type Row = Record<string, unknown>;
 
@@ -339,7 +340,18 @@ export function resolveRowsAtGrain(
     const remoteScopedFilters = widgetFilters.filter(
       (f) => effectiveFilterSourceId(f, widgetSourceId, expressionFields) === remoteSourceId,
     );
-    const rawRemoteRows = dataSources[remoteSourceId]?.rows ?? [];
+    // Route through the same L1 date normalization the widget's own source rows already get
+    // (`useWidgetRows`'s `getCachedNormalizedDataSource`) before this branch reads them raw.
+    // Without it, a date/datetime field on the remote source stays a raw `Date`/number/non-
+    // canonical string here, and the filter engine (`filterUtils.ts`'s LOCAL-calendar-day
+    // policy) and the chart grouping engine (`@mui/x-studio-schema`'s `truncateToPeriod`, a
+    // UTC-component policy) can bucket the SAME raw value into different days for a non-UTC
+    // viewer (finding 7). Normalizing to the canonical `YYYY-MM-DD` string here closes that gap
+    // — both policies treat a canonical string identically (no `Date` construction involved).
+    const remoteDataSource = dataSources[remoteSourceId];
+    const rawRemoteRows = remoteDataSource
+      ? (getCachedNormalizedDataSource(remoteDataSource).rows ?? [])
+      : [];
     // Enrich the remote rows with their own calculated columns UNCONDITIONALLY — not only when a
     // remote-scoped filter happens to be active. A remote-owned expression column requested as a
     // chart dimension (x/series) is read straight off `remoteRowLookup` below with no other L2
@@ -368,7 +380,12 @@ export function resolveRowsAtGrain(
     // below evaluates that column as `undefined` on every junction row and empties the chart
     // (finding 1.3b). `exprFieldIdsOnSource` already covers every non-measure junction expression
     // field, so no extra field ids need threading — only the enrichment gate widens.
-    const junctionRowsRaw = dataSources[anchorSourceId]?.rows ?? [];
+    // Same L1 date normalization as `rawRemoteRows` above, applied to the junction rows
+    // (finding 7).
+    const junctionDataSource = dataSources[anchorSourceId];
+    const junctionRowsRaw = junctionDataSource
+      ? (getCachedNormalizedDataSource(junctionDataSource).rows ?? [])
+      : [];
     const needsJunctionExpressionEnrichment =
       needsExpressionEnrichment ||
       anchorScopedFilters.some((f) => f.field != null && exprFieldIdsOnSource.has(f.field));
@@ -405,7 +422,21 @@ export function resolveRowsAtGrain(
       if (remoteScopedFilters.length > 0 && remoteRow === undefined) {
         return [];
       }
-      return [{ ...widgetRow, ...(remoteRow ?? {}), ...jRow }];
+      // Merge widget → remote → junction, but a junction column may only override an
+      // already-present widget/remote value when the target field is ACTUALLY owned by the
+      // junction (anchorSourceId) per `fieldOwners` — mirrors the own-field-ownership guard in
+      // `crossSourceEnrichment.ts`/`dataSourceGraph.ts`'s `enrichRowsWithRelatedFields`. Spreading
+      // `jRow` last unconditionally let a junction column that coincidentally shares a field id
+      // with a widget- or remote-owned field (e.g. a junction `amount` allocation weight vs. the
+      // widget's own `orders.amount`) silently win, since it was applied last (finding 3).
+      const merged: Row = { ...widgetRow, ...(remoteRow ?? {}) };
+      for (const [key, value] of Object.entries(jRow)) {
+        if (key in merged && fieldOwners.get(key) !== anchorSourceId) {
+          continue;
+        }
+        merged[key] = value;
+      }
+      return [merged];
     });
   }
 
@@ -450,9 +481,14 @@ export function resolveRowsAtGrain(
   // anchor row for a surviving widget row is read straight from the (unfiltered) store,
   // resurrecting exactly the rows the filter excluded — e.g. summing all orders (paid + unpaid)
   // for a customer with >=1 paid order instead of just the paid ones (finding 1.4).
+  // Same L1 date normalization as the M:N branch's `rawRemoteRows`/`junctionRowsRaw` above,
+  // applied to the many-to-one anchor ("many"-side) rows before they're read here (finding 7).
+  const manyToOneAnchorDataSource = dataSources[anchorSourceId];
   const enrichedAnchorRows = applyFilters(
     enrichSourceRowsWithExpressions(
-      dataSources[anchorSourceId]?.rows ?? [],
+      manyToOneAnchorDataSource
+        ? (getCachedNormalizedDataSource(manyToOneAnchorDataSource).rows ?? [])
+        : [],
       anchorSourceId,
       dataSources,
       relationships,
@@ -486,7 +522,12 @@ export function resolveRowsAtGrain(
 
     const extras: Row = {};
     for (const fieldId of requestedFields) {
-      if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
+      // Skip only when the anchor source is the field's ACTUAL owner (per `fieldOwners`) — not
+      // merely because the raw anchor row happens to already carry a same-named column. A
+      // same-named anchor-source column that is NOT the field's real owner (e.g. a coincidental
+      // physical column on the anchor source sharing an id with a widget-owned field) must not
+      // silently win over the correctly-owned widget value (finding 3).
+      if (fieldOwners.get(fieldId) === anchorSourceId) {
         continue;
       }
       extras[fieldId] = widgetRow[fieldId];

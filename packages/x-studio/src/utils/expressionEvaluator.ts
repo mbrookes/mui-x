@@ -95,6 +95,56 @@ function toDateString(v: unknown): string {
 }
 
 /**
+ * True when `v` should be compared numerically by `compareOrdered` below: actual numbers,
+ * booleans (mirroring the previous `toNumber`-based behavior, where `Number(true) === 1`), and
+ * strings that parse cleanly as a number. A non-empty string that does NOT parse as a number
+ * (e.g. an ISO date string, or an arbitrary label) is deliberately excluded so it falls through
+ * to the lexicographic string comparison instead of silently coercing to `NaN`/0.
+ */
+function isNumericLike(v: unknown): boolean {
+  if (typeof v === 'number') {
+    return Number.isFinite(v);
+  }
+  if (typeof v === 'boolean') {
+    return true;
+  }
+  if (typeof v === 'string' && v.trim() !== '') {
+    return !Number.isNaN(Number(v));
+  }
+  return false;
+}
+
+/**
+ * Ordering comparator backing the `lessThan`/`greaterThan`/`lessThanOrEqual`/
+ * `greaterThanOrEqual` operators. Returns `null` when either operand is null/undefined —
+ * mirroring the filter engine's explicit `rv != null` null-guard policy (`filterUtils.ts`'s
+ * `greater_than`/`less_than`) — instead of the previous `toNumber` coercion, where
+ * `toNumber(null) === 0` silently turned "no value" into a real (and often wrong) comparison
+ * result: e.g. `lessThan(price, 10)` with `price: null` used to evaluate `true`.
+ *
+ * When both operands are numeric-like (see `isNumericLike`), compares numerically — matching
+ * the historical behavior for actual numeric fields. Otherwise falls back to a lexicographic
+ * string comparison: this also handles ISO-8601 date strings correctly (their lexicographic
+ * order matches chronological order) and arbitrary string fields sensibly, rather than both
+ * sides coercing to `NaN` → `0` and the comparison silently evaluating to a constant result for
+ * every row (e.g. `if(order_date >= '2024-01-01', 'new', 'old')` previously always took the
+ * 'new' branch).
+ */
+function compareOrdered(a: ScalarValue, b: ScalarValue): number | null {
+  if (a == null || b == null) {
+    return null;
+  }
+  if (isNumericLike(a) && isNumericLike(b)) {
+    const an = Number(a);
+    const bn = Number(b);
+    return an < bn ? -1 : an > bn ? 1 : 0;
+  }
+  const as = String(a);
+  const bs = String(b);
+  return as < bs ? -1 : as > bs ? 1 : 0;
+}
+
+/**
  * Evaluates a single expression node against a row context.
  * Returns a scalar value (number, string, boolean, null).
  */
@@ -219,14 +269,22 @@ function evaluateFunctionExpression(
     case 'notEqual':
       // eslint-disable-next-line eqeqeq
       return evalInput(0) != evalInput(1);
-    case 'lessThan':
-      return toNumber(evalInput(0)) < toNumber(evalInput(1));
-    case 'greaterThan':
-      return toNumber(evalInput(0)) > toNumber(evalInput(1));
-    case 'lessThanOrEqual':
-      return toNumber(evalInput(0)) <= toNumber(evalInput(1));
-    case 'greaterThanOrEqual':
-      return toNumber(evalInput(0)) >= toNumber(evalInput(1));
+    case 'lessThan': {
+      const cmp = compareOrdered(evalInput(0), evalInput(1));
+      return cmp === null ? null : cmp < 0;
+    }
+    case 'greaterThan': {
+      const cmp = compareOrdered(evalInput(0), evalInput(1));
+      return cmp === null ? null : cmp > 0;
+    }
+    case 'lessThanOrEqual': {
+      const cmp = compareOrdered(evalInput(0), evalInput(1));
+      return cmp === null ? null : cmp <= 0;
+    }
+    case 'greaterThanOrEqual': {
+      const cmp = compareOrdered(evalInput(0), evalInput(1));
+      return cmp === null ? null : cmp >= 0;
+    }
 
     // ── Logical ─────────────────────────────────────────────────────────────
     case 'and':
@@ -407,6 +465,36 @@ function evalMeasureExpression(
       // (finding 2.23).
       return countDistinct(rows.map((r) => r[expr.id]));
     }
+    if (aggregation === 'count') {
+      // Pre-detect whether the field is numeric-like, mirroring the chart aggregators'
+      // "treat as numeric if ANY non-null value coerces to a number" pre-detect
+      // (`aggregators.ts`'s `aggregateByField`). When the field IS numeric-like, keep the
+      // existing "count of numerically-valid values" semantics — this is deliberately pinned
+      // by the `evaluateMeasure` test "counts only the numeric rows", which skips BOTH null
+      // and non-numeric-string rows the same way `avg`/`min`/`max`'s denominator does. When
+      // the field is genuinely non-numeric (e.g. a string `status` column), fall back to the
+      // standard SQL `COUNT(col)` semantic — the non-null count of RAW values — instead of
+      // silently returning 0 for every row, which disagreed with the KPI/grid `count` over the
+      // same field (finding 4). Per `aggregate.ts`'s guidance, this counts directly from
+      // `rows`, not from a null-filtered numeric value array.
+      const isNumericField = rows.some((r) => coerceAggregateValue(r[expr.id]) !== null);
+      if (isNumericField) {
+        let numericCount = 0;
+        for (const r of rows) {
+          if (coerceAggregateValue(r[expr.id]) !== null) {
+            numericCount += 1;
+          }
+        }
+        return numericCount;
+      }
+      let nonNullCount = 0;
+      for (const r of rows) {
+        if (r[expr.id] != null) {
+          nonNullCount += 1;
+        }
+      }
+      return nonNullCount;
+    }
     // Skip null / non-numeric rows BEFORE coercing (mirrors `computeAggregate`). The
     // previous `toNumber`-then-`isNaN` guard was dead code — `toNumber` maps null and
     // unparseable values to 0, so null rows silently entered every aggregate as 0,
@@ -490,6 +578,23 @@ function evalMeasureExpression(
         return v === null ? [] : [v];
       });
       return aggregate(rowValues, 'sum');
+    }
+    case 'datediff': {
+      // A measure whose root is a bare `datediff` (e.g. "avg days-to-ship") previously fell
+      // through to the `default: return 0` case below, silently zeroing out the metric instead
+      // of erroring or computing something meaningful. Reuse the row-context `datediff`
+      // evaluation (the same `evaluateFunctionExpression` case used outside measures) per row,
+      // and skip null/invalid results (mirrors the field-expression branch's null-skip policy).
+      // Aggregate with `avg`: summing raw day-differences across an arbitrary row count has no
+      // sensible business meaning, whereas an average always does — and it matches this
+      // operator's only documented real-world use, "average days to ship" (finding 6).
+      const rowValues = rows.flatMap((row) => {
+        const v = coerceAggregateValue(
+          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
+        );
+        return v === null ? [] : [v];
+      });
+      return aggregate(rowValues, 'avg');
     }
     default:
       return 0;

@@ -1,6 +1,32 @@
 import dayjs from 'dayjs';
 import type { StudioDateRangePreset } from '../models';
 
+/**
+ * KNOWN GAP (finding 8, documented not fixed): every preset below computes its dynamic bound
+ * (`today`, "this month", "this quarter", …) from the VIEWER'S LOCAL calendar (`now.getFullYear()`
+ * / `getMonth()` / `getDate()`). Rows are compared against the resolved bound differently
+ * depending on the target column's declared type (`filterUtils.ts`):
+ *   - a `date`-typed column compares via a LOCAL-safe canonical string
+ *     (`temporalUtils.normalizeToDateOnlyString`), which agrees with this file's local "today";
+ *   - but a `datetime`-typed column compares at UTC-day granularity (`filterUtils.ts`'s
+ *     `toDayComparable`/`toComparable`, which routes a `datetime` value through
+ *     `d.toISOString()`).
+ * For a viewer at a negative UTC offset, local "today" can still be UTC "yesterday" for part of
+ * the day, so a `datetime` row timestamped "just now" can fall on the NEXT UTC day and be
+ * excluded from a `to: <local today>` bound (e.g. `ytd`) until the viewer's local calendar
+ * catches up to UTC.
+ *
+ * This wasn't force-fixed here because there is no single correct "now" for this file to use:
+ * switching to a UTC-based "today" would fix the `datetime` case but REGRESS the (more common)
+ * `date`-typed case, where the viewer's own local calendar day is the intuitively-expected
+ * "today". A correct fix needs to thread the target filter's `fieldType` into preset resolution
+ * (available one layer up, in `filterUtils.ts`'s `resolveDateRangePreset`, which already reads
+ * `filter.fieldType` for the analogous UTC-end-of-day-anchor decision) and give EVERY preset here
+ * — not just the simple `to: today` ones — a parallel UTC-mode date-arithmetic path (month/
+ * quarter-boundary presets are also "now"-sensitive), which is a broader change than this
+ * iteration's scope justifies forcing.
+ */
+
 /** Computes start/end ISO date strings for a given date range preset. */
 export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'custom'>): {
   from: string;

@@ -132,12 +132,14 @@ export function useChartWidgetData(
     // the live `selectFilters` array. During a `useDeferredValue` window the urgent render would
     // otherwise pair stale L3 rows with a freshly-resolved filter list, so `resolveRowsAtGrain`'s
     // L4 semi-join rendered the intersection of two filter states (a transient flash to empty).
-    // `resolvedFiltersNoCross` ('page' + 'widget' only) matches `filteredRowsNoCross`;
     // `resolvedFiltersAll` ('all') matches `filteredRows` (finding 2.1).
     // `resolvedFiltersNoChartCross` ('page' + 'widget' + 'interactive') matches
-    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline (finding 1.4).
+    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline (finding 1.4), AND
+    // is the correct pairing for `effectiveRows` in `'none'` mode (see `effectiveResolvedFilters`
+    // below — finding 1, tier 1). NOTE: `resolvedFiltersNoCross` ('page' + 'widget' only, pairs
+    // with `filteredRowsNoCross`) is deliberately NOT destructured here — `effectiveRows` is never
+    // `filteredRowsNoCross` in this hook, so there is no rows/filters pair it correctly matches.
     resolvedFiltersAll,
-    resolvedFiltersNoCross,
     resolvedFiltersNoChartCross,
     // The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred filter
     // snapshot the rows came from — rather than re-derived here from the live `selectFilters`
@@ -156,8 +158,16 @@ export function useChartWidgetData(
     globalCrossFilterMode ??
     (widget.config as StudioWidgetConfig)?.crossFilterMode ??
     'cross-highlight';
+  // In `'none'` mode, `effectiveRows` (from `useWidgetRows`) equals `filteredRowsNoChartCross`
+  // (page + widget + interactive filters, chart-click cross-filters only excluded) — NOT
+  // `filteredRowsNoCross` (page + widget only). The filter set passed to L4 re-anchoring
+  // (`useChartRows` below) must match whichever rows it's re-anchoring, or `resolveRowsAtGrain`
+  // re-applies the wrong `anchorScopedFilters` and resurrects rows an active interactive filter
+  // excluded (finding 1, tier 1). So this must be `resolvedFiltersNoChartCross`, matching
+  // `effectiveRows`'s actual `'none'`-mode value — not `resolvedFiltersNoCross`, which pairs with
+  // `filteredRowsNoCross` (a different, narrower row set effectiveRows is not in 'none' mode).
   const effectiveResolvedFilters =
-    chartCrossFilterMode === 'none' ? resolvedFiltersNoCross : resolvedFiltersAll;
+    chartCrossFilterMode === 'none' ? resolvedFiltersNoChartCross : resolvedFiltersAll;
 
   // When a cross-highlight ghost is active, the widget-scoped rank must be applied ONCE — to the
   // baseline (all*) aggregations, which define the rendered top-N — and the FILTERED aggregations
@@ -886,9 +896,10 @@ export function useChartWidgetData(
     allSeriesNames,
     chartSupport,
     filteredRows,
-    // The mode-appropriate primary baseline (`'none'` → filteredRowsNoCross, else filteredRows)
-    // and the pre-chart-cross baseline, exposed so the "No data" guard tests the same row set the
-    // chart actually renders from rather than the include:'all' `filteredRows` (finding 1.3).
+    // The mode-appropriate primary baseline (`'none'` → filteredRowsNoChartCross, else
+    // filteredRows) and the pre-chart-cross baseline, exposed so the "No data" guard tests the
+    // same row set the chart actually renders from rather than the include:'all' `filteredRows`
+    // (finding 1.3).
     effectiveRows,
     filteredRowsNoChartCross,
     activeYFields,

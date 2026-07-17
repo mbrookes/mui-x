@@ -1457,3 +1457,142 @@ describe('useChartWidgetData — ghost baseline excludes only chart cross-filter
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 1 (tier 1) — crossFilterMode:'none' must pair `effectiveRows` with the
+// MATCHING filter set at L4 re-anchoring, not a narrower one that drops interactive filters
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Chart widget on `customers` (x = region), y = `orders.total` — `orders` is the "many" side
+// of a many-to-one relationship, so L4 must re-anchor onto `orders` to aggregate `total`.
+// `crossFilterMode: 'none'` means `effectiveRows` (from `useWidgetRows`) is
+// `filteredRowsNoChartCross` (page + widget + INTERACTIVE filters, only chart-click cross-filters
+// dropped). Before the fix, `effectiveResolvedFilters` was `resolvedFiltersNoCross` (page + widget
+// ONLY, no interactive) — a filter-set/row-set mismatch. L3's semi-join on `filteredRowsNoChartCross`
+// already narrows `customers` to those with >=1 paid order, but L4's `resolveRowsAtGrain` re-reads
+// ALL of a surviving customer's orders from the raw store and re-applies only the anchor-scoped
+// subset of whatever `widgetFilters` it was handed. With the wrong (interactive-filter-less) set,
+// the unpaid orders are resurrected and summed in, inflating the aggregate.
+describe("useChartWidgetData — crossFilterMode:'none' L4 re-anchoring filter pairing (finding 1)", () => {
+  const customersSource: StudioDataSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string', hidden: true },
+      { id: 'region', label: 'Region', type: 'string' },
+    ],
+    rows: [
+      { id: 'c1', region: 'US' },
+      { id: 'c2', region: 'EU' },
+    ],
+  };
+
+  const ordersSourceForAnchor: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string', hidden: true },
+      { id: 'customerId', label: 'Customer ID', type: 'string', hidden: true },
+      { id: 'total', label: 'Total', type: 'number' },
+      { id: 'status', label: 'Status', type: 'string' },
+    ],
+    rows: [
+      { id: 'o1', customerId: 'c1', total: 100, status: 'paid' },
+      { id: 'o2', customerId: 'c1', total: 999, status: 'unpaid' },
+      { id: 'o3', customerId: 'c2', total: 50, status: 'paid' },
+      { id: 'o4', customerId: 'c2', total: 888, status: 'unpaid' },
+    ],
+  };
+
+  const relOrdersToCustomers: StudioRelationship = {
+    id: 'rel-orders-customers',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+    type: 'many-to-one',
+  };
+
+  function noneModeWidget(): StudioWidgetOf<'chart'> {
+    return {
+      id: 'chart-none-mode',
+      kind: 'chart',
+      title: 'Revenue by Region (paid only)',
+      sourceId: 'customers',
+      config: {
+        chartType: 'bar',
+        xField: 'region',
+        yField: 'total',
+        yAggregation: 'sum',
+        crossFilterMode: 'none',
+      } as unknown as StudioWidgetOf<'chart'>['config'],
+    };
+  }
+
+  const paidOnlyInteractiveFilter: StudioFilterState = {
+    id: 'f-interactive-paid',
+    field: 'status',
+    operator: 'equals',
+    value: 'paid',
+    filterMode: 'condition',
+    // `status` is a native (non-expression) field owned by `orders`, not by the widget's own
+    // source (`customers`) — an explicit `filterSourceId` is how a filter drawer marks a
+    // cross-source filter on a physical field (mirrors the `paidFilter`/`activeFilter` fixtures
+    // in `grainResolution.test.ts`); without it, L3 has no relationship info to route the
+    // filter and it is evaluated against `customers` rows directly (which have no `status`).
+    filterSourceId: 'orders',
+    scope: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
+  } as unknown as StudioFilterState;
+
+  it('honours an active interactive filter on the foreign anchor source instead of resurrecting excluded rows', () => {
+    const widget = noneModeWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { customers: customersSource, orders: ordersSourceForAnchor },
+      relationships: [relOrdersToCustomers],
+      filters: [paidOnlyInteractiveFilter],
+    });
+
+    const { result } = renderHook(() => useChartWidgetData(widget, customersSource, 'page-1'));
+
+    // Both customers have >=1 paid order, so L3's semi-join keeps both — the bug is NOT about
+    // which customers survive, it's about which of a surviving customer's orders get summed.
+    // `enrichedRows` is the anchor-grain (orders) row set L4 re-anchoring produced; with the fix,
+    // only the 2 paid orders should be present — the 2 unpaid ones must not be resurrected.
+    expect(result.current.enrichedRows).toHaveLength(2);
+    expect(result.current.enrichedRows.every((r) => r.status === 'paid')).toBe(true);
+
+    const data = result.current.chartData!;
+    expect(data).not.toBeNull();
+    const usTotal = data.values[data.labels.indexOf('US')];
+    const euTotal = data.values[data.labels.indexOf('EU')];
+    // Correct (fixed): only the paid order per region is summed.
+    expect(usTotal).toBe(100);
+    expect(euTotal).toBe(50);
+    // Regression guard: the bug summed ALL orders (paid + unpaid) per surviving customer,
+    // which would produce 1099 / 938 instead.
+    expect(usTotal).not.toBe(1099);
+    expect(euTotal).not.toBe(938);
+  });
+
+  it('effectiveResolvedFilters used for L4 matches effectiveRows, not the narrower no-cross set', () => {
+    // Direct check of the exposed intermediate: `effectiveRows` in 'none' mode must be
+    // `filteredRowsNoChartCross` (page+widget+interactive), and the filter set paired with it for
+    // L4 re-anchoring must be the interactive-inclusive `resolvedFiltersNoChartCross` — not
+    // `resolvedFiltersNoCross` (page+widget only, which silently drops the interactive filter).
+    const widget = noneModeWidget();
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { customers: customersSource, orders: ordersSourceForAnchor },
+      relationships: [relOrdersToCustomers],
+      filters: [paidOnlyInteractiveFilter],
+    });
+
+    const { result } = renderHook(() => useChartWidgetData(widget, customersSource, 'page-1'));
+
+    // effectiveRows must equal filteredRowsNoChartCross (both customers survive: each has a paid
+    // order), NOT drop down to some page+widget-only view.
+    expect(result.current.effectiveRows).toEqual(result.current.filteredRowsNoChartCross);
+    expect(result.current.effectiveRows).toHaveLength(2);
+  });
+});

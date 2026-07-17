@@ -934,3 +934,360 @@ describe('resolveRowsAtGrain', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 3 — M:N / many-to-one merges must not let a same-named column from the
+// wrong source silently clobber the correctly-owned field value
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveRowsAtGrain — own-field ownership guards at the merge sites (finding 3)', () => {
+  it('M:N branch: a junction column sharing a field id with a widget-owned field does not clobber it', () => {
+    // orders (widget) has `amount`; junction `order_tags` ALSO happens to have an `amount`
+    // column (an allocation weight, unrelated to orders.amount). A chart with x = tags.name,
+    // y = orders.amount must sum orders.amount, not the junction's same-named weight column.
+    // Before the fix, `{ ...widgetRow, ...(remoteRow ?? {}), ...jRow }` spread the junction row
+    // last unconditionally, so `jRow.amount` silently won over `widgetRow.amount`.
+    const orders: Row[] = [{ id: 'o1', amount: 100 }];
+    const tags: Row[] = [{ id: 't1', name: 'Priority' }];
+    const orderTags: Row[] = [{ orderId: 'o1', tagId: 't1', amount: 999 }];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+        ],
+        rows: orders,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: tags,
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'tagId', label: 'Tag', type: 'string' },
+          // Same field id as `orders.amount`, but a DIFFERENT column (allocation weight).
+          { id: 'amount', label: 'Allocation Weight', type: 'number' },
+        ],
+        rows: orderTags,
+      },
+    };
+    // `amount` is owned by the WIDGET source (orders), not by the junction.
+    const fieldOwners = new Map([
+      ['name', 'tags'],
+      ['amount', 'orders'],
+    ]);
+
+    const resolved = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'order_tags',
+      ['name', 'amount'],
+      fieldOwners,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(1);
+    // Must be the order's own amount (100), NOT the junction's same-named weight (999).
+    expect(resolved[0].amount).toBe(100);
+    expect(resolved[0].name).toBe('Priority');
+  });
+
+  it('M:N branch: a genuinely junction-owned field (no collision) still comes through', () => {
+    const products: Row[] = [{ id: 'p1', name: 'Widget' }];
+    const tags: Row[] = [{ id: 't1' }];
+    const junction: Row[] = [{ pid: 'p1', tid: 't1', weight: 42 }];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'products',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'product_tags',
+      junctionSourceField: 'pid',
+      junctionTargetField: 'tid',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      products: {
+        id: 'products',
+        label: 'Products',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: products,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [{ id: 'id', label: 'ID', type: 'string' }],
+        rows: tags,
+      },
+      product_tags: {
+        id: 'product_tags',
+        label: 'PT',
+        fields: [
+          { id: 'pid', label: 'PID', type: 'string' },
+          { id: 'tid', label: 'TID', type: 'string' },
+          { id: 'weight', label: 'Weight', type: 'number' },
+        ],
+        rows: junction,
+      },
+    };
+    const resolved = resolveRowsAtGrain(
+      products,
+      'products',
+      'product_tags',
+      ['name', 'weight'],
+      new Map([
+        ['name', 'products'],
+        ['weight', 'product_tags'],
+      ]),
+      dataSources,
+      [m2mRel],
+      [],
+    );
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].weight).toBe(42);
+    expect(resolved[0].name).toBe('Widget');
+  });
+
+  it('many-to-one branch: an anchor-source column sharing a field id with a widget-owned field does not clobber it', () => {
+    // Chart on `customers` (widget), y = `orders.total` (anchor = orders, the "many" side).
+    // x = `customers.label`. The `orders` table ALSO happens to have its own (unrelated)
+    // `label` column. Before the fix, `fieldId in anchorRow` short-circuited the copy of the
+    // widget's own `label` whenever the raw anchor row happened to already carry a same-named
+    // column — even though `label` is actually owned by the widget (customers), not by orders.
+    const customers: Row[] = [{ id: 'c1', label: 'Acme Corp' }];
+    const orders: Row[] = [
+      // Anchor's own (unrelated, coincidentally same-named) `label` column.
+      { id: 'o1', customerId: 'c1', total: 100, label: 'INTERNAL-NOTE' },
+    ];
+    const rel: StudioRelationship = {
+      id: 'r',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'label', label: 'Label', type: 'string' },
+        ],
+        rows: customers,
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'label', label: 'Internal note', type: 'string' },
+        ],
+        rows: orders,
+      },
+    };
+    // `label` is owned by the WIDGET source (customers), not by the anchor (orders).
+    const fieldOwners = new Map([
+      ['label', 'customers'],
+      ['total', 'orders'],
+    ]);
+
+    const resolved = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['label', 'total'],
+      fieldOwners,
+      dataSources,
+      [rel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(1);
+    // Must be the customer's own label, NOT the anchor row's coincidental same-named column.
+    expect(resolved[0].label).toBe('Acme Corp');
+    expect(resolved[0].total).toBe(100);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 7 — L4 anchor/remote/junction rows must go through the SAME L1 date
+// normalization the widget's own source rows already get
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `useWidgetRows` normalizes the WIDGET's own source rows via `getCachedNormalizedDataSource`
+// before L2/L3 ever see them, converting raw `Date` objects / non-canonical strings on
+// date-typed fields to a canonical `YYYY-MM-DD` string. `resolveRowsAtGrain`'s anchor/remote/
+// junction branches previously read `dataSources[...].rows` directly from the raw store,
+// bypassing that normalization — so a date-typed field on a foreign source could still be a raw
+// `Date` object here, which the filter engine and the chart-grouping engine read via DIFFERENT
+// day-bucketing policies (local calendar day vs. UTC calendar day), silently disagreeing for a
+// non-UTC viewer. Routing these reads through `getCachedNormalizedDataSource` (the same helper
+// `useWidgetRows` already uses) closes the gap: a canonical `YYYY-MM-DD` string has no
+// timezone ambiguity, so both policies agree on it.
+describe('resolveRowsAtGrain — L4 foreign rows are date-normalized like the widget source (finding 7)', () => {
+  it('many-to-one anchor: a raw Date object on the anchor source is normalized to a canonical string', () => {
+    const customers: Row[] = [{ id: 'c1', region: 'US' }];
+    // Anchor (`orders`) row carries a RAW `Date` object for a `date`-typed field — exactly what
+    // an un-normalized foreign-source read would still have, unlike the widget's own
+    // `useWidgetRows`-normalized rows.
+    const orders: Row[] = [
+      { id: 'o1', customerId: 'c1', total: 100, orderDate: new Date(2024, 0, 15) },
+    ];
+    const rel: StudioRelationship = {
+      id: 'r',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+        rows: customers,
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'orderDate', label: 'Order Date', type: 'date' },
+        ],
+        rows: orders,
+      },
+    };
+    const fieldOwners = new Map([
+      ['total', 'orders'],
+      ['orderDate', 'orders'],
+    ]);
+
+    const resolved = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['total', 'orderDate'],
+      fieldOwners,
+      dataSources,
+      [rel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(1);
+    // Canonicalized to a `YYYY-MM-DD` string (matching L1's own normalization) — NOT still a raw
+    // `Date` object, which would let the filter engine and the chart-grouping engine bucket it
+    // into different days for a non-UTC viewer.
+    expect(typeof resolved[0].orderDate).toBe('string');
+    expect(resolved[0].orderDate).toBe('2024-01-15');
+  });
+
+  it('many-to-many junction/remote rows: raw Date objects are normalized to canonical strings', () => {
+    const products: Row[] = [{ id: 'p1', name: 'Widget' }];
+    const tags: Row[] = [{ id: 't1', name: 'Priority', addedDate: new Date(2024, 5, 1) }];
+    const junction: Row[] = [
+      { pid: 'p1', tid: 't1', weight: 10, linkedDate: new Date(2024, 5, 10) },
+    ];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'products',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'product_tags',
+      junctionSourceField: 'pid',
+      junctionTargetField: 'tid',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      products: {
+        id: 'products',
+        label: 'Products',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: products,
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+          { id: 'addedDate', label: 'Added Date', type: 'date' },
+        ],
+        rows: tags,
+      },
+      product_tags: {
+        id: 'product_tags',
+        label: 'PT',
+        fields: [
+          { id: 'pid', label: 'PID', type: 'string' },
+          { id: 'tid', label: 'TID', type: 'string' },
+          { id: 'weight', label: 'Weight', type: 'number' },
+          { id: 'linkedDate', label: 'Linked Date', type: 'date' },
+        ],
+        rows: junction,
+      },
+    };
+    const fieldOwners = new Map([
+      ['name', 'tags'],
+      ['addedDate', 'tags'],
+      ['weight', 'product_tags'],
+      ['linkedDate', 'product_tags'],
+    ]);
+
+    const resolved = resolveRowsAtGrain(
+      products,
+      'products',
+      'product_tags',
+      ['name', 'weight', 'addedDate', 'linkedDate'],
+      fieldOwners,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(typeof resolved[0].addedDate).toBe('string');
+    expect(resolved[0].addedDate).toBe('2024-06-01');
+    expect(typeof resolved[0].linkedDate).toBe('string');
+    expect(resolved[0].linkedDate).toBe('2024-06-10');
+  });
+});

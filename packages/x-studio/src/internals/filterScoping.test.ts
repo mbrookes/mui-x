@@ -320,6 +320,21 @@ describe('selectFiltersForWidget — activePageId undefined', () => {
     const result = selectFiltersForWidget(filters, { ...baseOpts, activePageId: undefined });
     expect(result).toHaveLength(2);
   });
+
+  // finding 5: `activePageId === undefined` must be a wildcard for scope:'page' filters too,
+  // symmetric with cross-filter/interactive/dashboard-date-range above — otherwise a page
+  // filter with a `pageId` is silently dropped in exactly the callers (the non-React
+  // `StudioPipeline`, per its own class-doc examples) that most need every authored filter to
+  // apply when there is no page-navigation context to scope by.
+  it('includes page filters (with a pageId set) from any page when activePageId is undefined', () => {
+    const filters = [
+      makeFilter({ id: 'pf1', scope: { kind: 'page', pageId: 'p1' }, value: 'a' }),
+      makeFilter({ id: 'pf2', scope: { kind: 'page', pageId: 'p2' }, value: 'b' }),
+      makeFilter({ id: 'pf3', scope: { kind: 'page' }, value: 'c' }), // no pageId at all
+    ];
+    const result = selectFiltersForWidget(filters, { ...baseOpts, activePageId: undefined });
+    expect(result.map((f) => f.id)).toEqual(['pf1', 'pf2', 'pf3']);
+  });
 });
 
 // ── scope: typed path ───────────────────────────────────────────────────────

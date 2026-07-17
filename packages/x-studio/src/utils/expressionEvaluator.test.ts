@@ -165,6 +165,85 @@ describe('comparison operators', () => {
   });
 });
 
+// ─── Comparison — null-safety and type-aware string/date comparison (finding 2) ───────────────
+
+describe('comparison operators — null-safety (finding 2)', () => {
+  // Before the fix, `lessThan`/`greaterThan`/etc. coerced every operand through `toNumber`,
+  // where `toNumber(null) === 0` — so `lessThan(price, 10)` with `price: null` silently
+  // evaluated `0 < 10 === true`, disagreeing with the filter engine's explicit `rv != null`
+  // null-guard policy (`filterUtils.ts`'s `greater_than`/`less_than`).
+  it('lessThan returns null (not a phantom true) when the row field is null', () => {
+    expect(
+      evaluateExpression(fn('lessThan', field('price'), numVal(10)), ctx({ price: null })),
+    ).toBe(null);
+  });
+
+  it('greaterThan returns null when the row field is missing entirely', () => {
+    expect(evaluateExpression(fn('greaterThan', field('missing'), numVal(10)), ctx({}))).toBeNull();
+  });
+
+  it('lessThanOrEqual / greaterThanOrEqual return null when either operand is null', () => {
+    expect(
+      evaluateExpression(fn('lessThanOrEqual', numVal(5), field('missing')), ctx({})),
+    ).toBeNull();
+    expect(
+      evaluateExpression(fn('greaterThanOrEqual', field('missing'), numVal(5)), ctx({})),
+    ).toBeNull();
+  });
+
+  // `if(cond, then, else)` uses `toBoolean` on the condition; `toBoolean(null) === false`, so a
+  // null comparison result falls through to the else-branch rather than the old phantom `true`.
+  it('a null comparison inside `if` takes the else-branch, not a phantom true-branch', () => {
+    expect(
+      evaluateExpression(
+        fn('if', fn('lessThan', field('price'), numVal(10)), strVal('cheap'), strVal('unknown')),
+        ctx({ price: null }),
+      ),
+    ).toBe('unknown');
+  });
+});
+
+describe('comparison operators — type-aware string/date comparison (finding 2)', () => {
+  // Before the fix, both sides of a non-numeric string comparison coerced to `NaN` → `0` via
+  // `toNumber`, so the comparison silently evaluated to a CONSTANT result for every row (e.g.
+  // `>=` always true) instead of comparing the dates/strings meaningfully.
+  it('compares ISO date strings chronologically, not as NaN-coerced numbers', () => {
+    expect(
+      evaluateExpression(
+        fn('greaterThanOrEqual', strVal('2024-06-01'), strVal('2024-01-01')),
+        ctx({}),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateExpression(
+        fn('greaterThanOrEqual', strVal('2023-06-01'), strVal('2024-01-01')),
+        ctx({}),
+      ),
+    ).toBe(false);
+  });
+
+  it('a datediff-style `if` over ISO date strings picks branches per-row, not a constant result', () => {
+    const cond = fn('greaterThanOrEqual', field('order_date'), strVal('2024-01-01'));
+    const expr = fn('if', cond, strVal('new'), strVal('old'));
+    expect(evaluateExpression(expr, ctx({ order_date: '2024-03-15' }))).toBe('new');
+    expect(evaluateExpression(expr, ctx({ order_date: '2023-03-15' }))).toBe('old');
+  });
+
+  it('falls back to lexicographic comparison for arbitrary non-numeric strings', () => {
+    expect(evaluateExpression(fn('lessThan', strVal('apple'), strVal('banana')), ctx({}))).toBe(
+      true,
+    );
+    expect(evaluateExpression(fn('greaterThan', strVal('banana'), strVal('apple')), ctx({}))).toBe(
+      true,
+    );
+  });
+
+  it('still compares numeric-looking strings numerically, not lexicographically', () => {
+    // Lexicographically "9" > "10", but numerically 9 < 10 — must use the numeric reading.
+    expect(evaluateExpression(fn('lessThan', strVal('9'), strVal('10')), ctx({}))).toBe(true);
+  });
+});
+
 // ─── Logical ─────────────────────────────────────────────────────────────────
 
 describe('logical operators', () => {
@@ -902,6 +981,87 @@ describe('evaluateMeasure', () => {
     expect(evaluateMeasure(measure, rows, noFields)).toBe(
       computeAggregate(rows, 'region', 'count_distinct'),
     );
+  });
+
+  // ─── `count` over a non-numeric field counts non-null values, not 0 (finding 4) ───────────────
+
+  it('count over a non-numeric (string) field counts non-null values, not 0', () => {
+    // Before the fix, `count` built its value array via the numeric coercion used by
+    // sum/avg/min/max — every string value fails that coercion, so `count(status)` over a
+    // string column silently returned 0 for every row instead of the non-null row count.
+    const statusRows = [{ status: 'paid' }, { status: 'unpaid' }, { status: 'paid' }];
+    const measure: StudioExpressionField = {
+      id: 'countStatus',
+      label: 'Count Status',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('status', 'count'),
+    };
+    expect(evaluateMeasure(measure, statusRows, noFields)).toBe(3);
+  });
+
+  it('count over a non-numeric field excludes null/undefined rows (SQL COUNT(col) semantics)', () => {
+    const statusRows = [{ status: 'paid' }, { status: null }, { status: undefined }, {}];
+    const measure: StudioExpressionField = {
+      id: 'countStatus',
+      label: 'Count Status',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('status', 'count'),
+    };
+    expect(evaluateMeasure(measure, statusRows, noFields)).toBe(1);
+  });
+
+  it('count over a raw field matches the KPI row-count invariant for a fully-populated field', () => {
+    // The documented "KPI over a raw field and an equivalent measure expression return the
+    // same number" invariant, already enforced for avg/count_distinct — extended to `count`
+    // for the case where every row has a real (non-null) value, so KPI's `rows.length` and
+    // the measure's non-null count agree.
+    const statusRows = [{ status: 'paid' }, { status: 'unpaid' }, { status: 'paid' }];
+    const measure: StudioExpressionField = {
+      id: 'countStatus',
+      label: 'Count Status',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: field('status', 'count'),
+    };
+    expect(evaluateMeasure(measure, statusRows, noFields)).toBe(
+      computeAggregate(statusRows, 'status', 'count'),
+    );
+  });
+
+  // ─── measure with a `datediff` root (finding 6) ────────────────────────────────────────────
+
+  it('a measure whose root is `datediff` averages the per-row day difference, not 0', () => {
+    const shipRows = [
+      { order_date: '2024-01-01', ship_date: '2024-01-05' }, // 4 days
+      { order_date: '2024-02-01', ship_date: '2024-02-03' }, // 2 days
+    ];
+    const measure: StudioExpressionField = {
+      id: 'avgDaysToShip',
+      label: 'Avg Days To Ship',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: fn('datediff', strVal('day'), field('order_date'), field('ship_date')),
+    };
+    // Before the fix, an unrecognized measure root fell through to `default: return 0`.
+    expect(evaluateMeasure(measure, shipRows, noFields)).toBe((4 + 2) / 2);
+  });
+
+  it('a `datediff` measure skips rows with invalid/missing dates rather than counting them as 0', () => {
+    const shipRows = [
+      { order_date: '2024-01-01', ship_date: '2024-01-05' }, // 4 days
+      { order_date: null, ship_date: '2024-02-03' }, // invalid — skipped, not counted as 0 days
+    ];
+    const measure: StudioExpressionField = {
+      id: 'avgDaysToShip',
+      label: 'Avg Days To Ship',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: fn('datediff', strVal('day'), field('order_date'), field('ship_date')),
+    };
+    // avg over [4] = 4 — NOT (4 + 0) / 2 = 2, which counting the invalid row as 0 would give.
+    expect(evaluateMeasure(measure, shipRows, noFields)).toBe(4);
   });
 });
 

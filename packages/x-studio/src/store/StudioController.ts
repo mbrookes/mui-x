@@ -94,6 +94,19 @@ export class StudioController {
   private redoStack: StudioDoc[] = [];
   /** Compact, labeled log of recent user-driven mutations (oldest first). */
   private mutationLog: StudioAIRecentMutation[] = [];
+  // Parallel to `undoStack`/`redoStack` (finding 6): index `i` records the
+  // `mutationLog` entry (or `null` when the commit was unlabeled) that the SAME
+  // commit appended when it pushed `undoStack[i]`/`redoStack[i]`. `undo`/`redo`
+  // use this to reconcile `mutationLog` in lockstep with the doc swap — removing
+  // the paired entry on undo, restoring it on redo — instead of leaving
+  // `getRecentMutations()` (surfaced to the AI via the `get_recent_changes` tool)
+  // reporting a mutation the user has since undone. Length always mirrors its
+  // paired doc stack; entries are the SAME object reference stored in
+  // `mutationLog`, so they can be located/removed by reference equality even
+  // though `mutationLog` is capped (`MAX_MUTATION_LOG`) independently of
+  // `undoStack`/`redoStack` (`MAX_UNDO_HISTORY`) and may have already evicted it.
+  private undoMutationLog: (StudioAIRecentMutation | null)[] = [];
+  private redoMutationLog: (StudioAIRecentMutation | null)[] = [];
 
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
@@ -159,7 +172,16 @@ export class StudioController {
       this.undoStack = [];
       this.redoStack = [];
       this.mutationLog = [];
+      this.undoMutationLog = [];
+      this.redoMutationLog = [];
     } else if (nextState.doc !== current.doc) {
+      // Built once (finding 6) so the SAME object reference can be pushed onto both
+      // `mutationLog` and, when undoable, `undoMutationLog` — `undo`/`redo` locate this
+      // exact entry by reference to reconcile the log with the doc swap.
+      const logEntry: StudioAIRecentMutation | null = label
+        ? { label, at: new Date().toISOString() }
+        : null;
+
       if (undoable) {
         // The undo entry is the OLD doc, pushed only when the doc actually changed by
         // reference AND the commit is undoable. A commit that only touches
@@ -168,11 +190,14 @@ export class StudioController {
         // flag — because there is no authored-document change to revert. This is the core
         // staleness fix.
         this.undoStack.push(current.doc);
+        this.undoMutationLog.push(logEntry);
         // Any new undoable action clears the redo stack
         this.redoStack = [];
+        this.redoMutationLog = [];
 
         if (this.undoStack.length > MAX_UNDO_HISTORY) {
           this.undoStack.shift();
+          this.undoMutationLog.shift();
         }
       }
 
@@ -188,8 +213,10 @@ export class StudioController {
       // stays OUT of the `resetHistory` branch (a history reset clears the log above), and a
       // session/runtime-only commit never reaches here (guarded by `nextState.doc !==
       // current.doc`), so drawer/selection/data-refresh writes are still never logged.
-      if (label) {
-        this.mutationLog.push({ label, at: new Date().toISOString() });
+      // (A non-undoable labeled commit has no paired `undoMutationLog` entry — it can never
+      // be reached by undo/redo, so there is nothing to reconcile for it.)
+      if (logEntry) {
+        this.mutationLog.push(logEntry);
         if (this.mutationLog.length > MAX_MUTATION_LOG) {
           this.mutationLog.shift();
         }
@@ -724,6 +751,13 @@ export class StudioController {
 
   setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
     const state = this.store.state;
+    // Value-equality no-op guard (finding 4): `{ ...state.doc.dashboard, ... }` always
+    // allocates a fresh `dashboard` object, so `commitDocPatch`'s reference-equality
+    // guard can never catch a value-identical re-commit — mirrors the guard style used
+    // by `setPageStackBreakpoint`/`reorderPages` elsewhere in this file.
+    if (state.doc.dashboard.globalCrossFilterMode === mode) {
+      return;
+    }
     this.commitDocPatch(
       { dashboard: { ...state.doc.dashboard, globalCrossFilterMode: mode } },
       { undoable: false },
@@ -732,6 +766,10 @@ export class StudioController {
 
   setCrossFilterAllPages = (allPages: boolean) => {
     const state = this.store.state;
+    // Value-equality no-op guard (finding 4) — see `setGlobalCrossFilterMode` above.
+    if (state.doc.dashboard.crossFilterAllPages === allPages) {
+      return;
+    }
     this.commitDocPatch(
       { dashboard: { ...state.doc.dashboard, crossFilterAllPages: allPages } },
       { undoable: false },
@@ -896,11 +934,25 @@ export class StudioController {
     if (!source) {
       return;
     }
-    this.commitDataSourcePatch(sourceId, {
-      fields: source.fields.map((f: StudioDataField) =>
-        f.id === fieldId ? { ...f, ...updates } : f,
-      ),
+    // No-op guard (finding 4): `commitDataSourcePatch` always allocates a fresh
+    // source/`dataSources` object, so an unknown `fieldId` or a value-identical
+    // `updates` payload would otherwise still commit and churn every subscriber.
+    // `mapPreservingIdentity` plus the per-field value-equality check mirror the
+    // idiom `updateFilter` uses for the same class of doc-side write.
+    const nextFields = mapPreservingIdentity(source.fields, (f: StudioDataField) => {
+      if (f.id !== fieldId) {
+        return f;
+      }
+      const changeKeys = Object.keys(updates) as (keyof StudioDataField)[];
+      if (changeKeys.every((key) => updates[key] === f[key])) {
+        return f;
+      }
+      return { ...f, ...updates };
     });
+    if (nextFields === source.fields) {
+      return;
+    }
+    this.commitDataSourcePatch(sourceId, { fields: nextFields });
   };
 
   addExpressionField = (field: StudioExpressionField) => {
@@ -1228,13 +1280,38 @@ export class StudioController {
     if (!activePage) {
       return;
     }
+    // Existence/co-location guard: both widgets must exist and share a row on the
+    // active page, matching this file's other layout-mutating methods (e.g. the
+    // `widgetRows.findIndex(...)` check `duplicateWidget` performs before acting
+    // on a row). A stale reference (widget removed, or the row split, while a
+    // resize drag was in flight) is a clean no-op rather than committing spans
+    // for an id no longer valid in this layout.
+    if (!Object.hasOwn(state.doc.widgets, leftId) || !Object.hasOwn(state.doc.widgets, rightId)) {
+      return;
+    }
+    const widgetRows = activePage.widgetRows ?? [];
+    const sharedRow = widgetRows.find((row) => row.includes(leftId) && row.includes(rightId));
+    if (!sharedRow) {
+      return;
+    }
     // Clamp left to its min; right follows so the pair total stays constant
     const totalSpan = Math.round(leftSpan) + Math.round(rightSpan);
     const clampedLeft = Math.max(
       leftMinSpan,
       Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)),
     );
-    const clampedRight = totalSpan - clampedLeft;
+    let clampedRight = totalSpan - clampedLeft;
+    // When `totalSpan` can't satisfy both minimums (e.g. a KPI's sparkline toggled
+    // on after the layout was set, raising its min-span requirement), `clampedRight`
+    // can drop to zero or negative. Floor it at its own minimum too, mirroring how
+    // `enforceLayoutColSpans` (the reducer's shared authority for this class of
+    // constraint) resolves an unsatisfiable layout: rather than inventing a new
+    // clamping strategy, favour widening over ever committing a sub-minimum or
+    // negative span. The pair may now sum to more than `totalSpan`; that's an
+    // accepted tradeoff — an impossible constraint can't also stay proportional.
+    if (clampedRight < rightMinSpan) {
+      clampedRight = rightMinSpan;
+    }
     const currentSpans = activePage.widgetColSpans ?? {};
     const newSpans: Record<string, number> = { ...currentSpans };
     newSpans[leftId] = clampedLeft;
@@ -1927,6 +2004,15 @@ export class StudioController {
     },
   ) => {
     const state = this.store.state;
+    // No-op if the source widget no longer exists (e.g. removed while a debounced
+    // commit was pending, or by a concurrent undo/AI mutation). Mirrors the shared
+    // reducer's own `addFilter` guard (`Object.hasOwn(state.widgets, id)`) — a
+    // filter anchored to a nonexistent widget would filter its page forever, since
+    // the only cleanup path (`dropWidgetScopedFilters`) fires on widget removal and
+    // interactive/cross filters are hidden from the filters drawer UI.
+    if (!Object.hasOwn(state.doc.widgets, sourceWidgetId)) {
+      return;
+    }
     const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
         !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
@@ -1978,6 +2064,12 @@ export class StudioController {
     fieldType?: import('../models').StudioFilterState['fieldType'],
   ) => {
     const state = this.store.state;
+    // No-op if the source widget no longer exists — see the matching guard in
+    // `applyInteractiveFilter` above for the full rationale (mirrors the shared
+    // reducer's `addFilter` existence check).
+    if (!Object.hasOwn(state.doc.widgets, sourceWidgetId)) {
+      return;
+    }
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>
@@ -2360,7 +2452,15 @@ export class StudioController {
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
     const state = this.store.state;
-    const sourcePageId = state.doc.dashboard.activePageId;
+    // Resolve the widget's ACTUAL current page rather than assuming `activePageId`
+    // (finding 2): the widget may not live on the active page (not reachable from
+    // the shipped context-menu UI today, but this is a public controller method).
+    // Hardcoding `activePageId` here would make `commitWidgetMove`'s source-page
+    // rewrite a no-op fold (the widget isn't in that page's rows) while the target
+    // page's `setWidgetLayout` still appends it, leaving the widget on two pages
+    // at once. `resolveWidgetPageId` mirrors the same resolution already used by
+    // `applyInteractiveFilter`/`applyCrossFilter` above.
+    const sourcePageId = this.resolveWidgetPageId(widgetId);
     if (sourcePageId === targetPageId) {
       return;
     }
@@ -2387,9 +2487,25 @@ export class StudioController {
 
   undo = () => {
     const previousDoc = this.undoStack.pop();
+    const pairedLogEntry = this.undoMutationLog.pop() ?? null;
 
     if (previousDoc == null) {
       return false;
+    }
+
+    // Reconcile the mutation log (finding 6): the commit being undone may have appended
+    // an entry to `mutationLog` (`commitState` pairs them 1:1 via `undoMutationLog`).
+    // Remove it here — by reference, since `mutationLog` is capped independently and may
+    // have already evicted it — so `getRecentMutations()` (surfaced to the AI via
+    // `get_recent_changes`) stops describing a mutation the user just reverted. Carry the
+    // (possibly `null`) paired entry onto `redoMutationLog` so a subsequent `redo()` can
+    // restore it in lockstep with the doc.
+    this.redoMutationLog.push(pairedLogEntry);
+    if (pairedLogEntry) {
+      const idx = this.mutationLog.indexOf(pairedLogEntry);
+      if (idx !== -1) {
+        this.mutationLog.splice(idx, 1);
+      }
     }
 
     const current = this.store.state;
@@ -2412,9 +2528,21 @@ export class StudioController {
 
   redo = () => {
     const nextDoc = this.redoStack.pop();
+    const pairedLogEntry = this.redoMutationLog.pop() ?? null;
 
     if (nextDoc == null) {
       return false;
+    }
+
+    // Reconcile the mutation log (finding 6) — mirrors `undo()` above: restore the entry
+    // `undo()` pulled out (if any), in lockstep with the doc, so re-applying the mutation
+    // makes it visible to `getRecentMutations()` again.
+    this.undoMutationLog.push(pairedLogEntry);
+    if (pairedLogEntry) {
+      this.mutationLog.push(pairedLogEntry);
+      if (this.mutationLog.length > MAX_MUTATION_LOG) {
+        this.mutationLog.shift();
+      }
     }
 
     const current = this.store.state;
@@ -2533,17 +2661,38 @@ export class StudioController {
     }
     const presentState = deserializeState(presentResult.state, dataSources);
     // Mode is taken from the present snapshot only (mode is not per-history-entry).
+    // Validate against the two allowed literals (finding 5): a tampered/legacy/foreign
+    // session could carry any JSON value in `mode`, and installing it verbatim would let
+    // `session.mode` (which every mode-gated UI branch trusts as `'view' | 'edit'`) hold
+    // something else entirely. Fall back to the freshly-deserialized default (`'edit'`,
+    // per `createDefaultStudioState`/`deserializeState`) when invalid.
+    const restoredMode: StudioMode =
+      present.mode === 'edit' || present.mode === 'view' ? present.mode : presentState.session.mode;
     const presentWithMode: StudioState = {
       ...presentState,
-      session: { ...presentState.session, mode: present.mode ?? presentState.session.mode },
+      session: { ...presentState.session, mode: restoredMode },
     };
 
-    // Drop any history entries that fail to migrate rather than aborting the whole restore.
-    this.undoStack = (Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[];
-    this.redoStack = (Array.isArray(future) ? future : [])
-      .map(toDoc)
-      .filter(Boolean) as StudioDoc[];
+    // Drop any history entries that fail to migrate rather than aborting the whole restore,
+    // and cap both stacks at `MAX_UNDO_HISTORY` (finding 5) — `commitState`'s trim only
+    // shifts one entry per commit, so a tampered/legacy session with an unbounded number of
+    // entries would otherwise stay at that size forever. Both stacks are oldest-first with
+    // the entry closest to `present` at the END (`undo`/`redo` both `pop()` the tail), so
+    // truncating from the front keeps the most-recent entries, mirroring `commitState`'s
+    // `shift()` eviction of the oldest entry.
+    this.undoStack = (
+      (Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[]
+    ).slice(-MAX_UNDO_HISTORY);
+    this.redoStack = (
+      (Array.isArray(future) ? future : []).map(toDoc).filter(Boolean) as StudioDoc[]
+    ).slice(-MAX_UNDO_HISTORY);
     this.mutationLog = [];
+    // Restored history carries no known mutation-log pairing (the log itself is never
+    // persisted — see the reset just above), so pad `undoMutationLog`/`redoMutationLog`
+    // with `null` to the same length as their respective doc stacks (finding 6): `undo`/
+    // `redo` assume a 1:1 length match with `undoStack`/`redoStack`.
+    this.undoMutationLog = this.undoStack.map(() => null);
+    this.redoMutationLog = this.redoStack.map(() => null);
     this.store.setState(presentWithMode);
 
     return presentResult;

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyMutation } from '@mui/x-studio-schema';
+import type { SerializedStudioSession, SerializedStudioSnapshot } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 import type {
@@ -80,6 +81,7 @@ describe('StudioController.updateFilter', () => {
 describe('StudioController.applyCrossFilter', () => {
   it('adds a cross-filter with filterSourceId when provided', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-chart-category', { kind: 'chart' }));
 
     controller.applyCrossFilter(
       'widget-chart-category',
@@ -101,6 +103,7 @@ describe('StudioController.applyCrossFilter', () => {
 
   it('adds a cross-filter without filterSourceId when omitted', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-chart', { kind: 'chart' }));
 
     controller.applyCrossFilter('widget-chart', 'status', 'active');
 
@@ -111,6 +114,7 @@ describe('StudioController.applyCrossFilter', () => {
 
   it('replaces the existing cross-filter from the same source widget', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
 
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
     controller.applyCrossFilter('widget-a', 'category', 'Clothing', 'src-a');
@@ -127,6 +131,8 @@ describe('StudioController.applyCrossFilter', () => {
 
   it('does not remove cross-filters from other source widgets', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+    controller.addWidget(makeWidget('widget-b', { kind: 'chart' }));
 
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
     controller.applyCrossFilter('widget-b', 'region', 'EMEA', 'src-b');
@@ -145,12 +151,26 @@ describe('StudioController.applyCrossFilter', () => {
     const controller = new StudioController({
       doc: { filters: [makeFilter({ id: 'date-filter', scope: { kind: 'page' }, field: 'date' })] },
     });
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
 
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
 
     const filters = controller.getState().doc.filters;
     expect(filters.some((f) => f.id === 'date-filter')).toBe(true);
     expect(filters.some((f) => f.scope.kind === 'cross-filter')).toBe(true);
+  });
+
+  // Finding 1: a cross-filter naming a widget the doc doesn't have would filter its page
+  // forever with no clearing affordance — interactive/cross filters are hidden from the
+  // filters drawer UI, and the reducer's only cleanup path fires on widget REMOVAL, which
+  // never happens for a widget that never existed. Mirrors the reducer's own `addFilter`
+  // existence guard (`Object.hasOwn(state.widgets, id)`).
+  it('does not commit a cross-filter when the source widget does not exist', () => {
+    const controller = new StudioController();
+
+    controller.applyCrossFilter('nonexistent-widget', 'category', 'Electronics', 'src-a');
+
+    expect(controller.getState().doc.filters).toHaveLength(0);
   });
 });
 
@@ -159,6 +179,7 @@ describe('StudioController.applyCrossFilter', () => {
 describe('StudioController.clearCrossFilter', () => {
   it('removes the cross-filter from the specified source widget', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
 
     controller.clearCrossFilter('widget-a');
@@ -170,6 +191,8 @@ describe('StudioController.clearCrossFilter', () => {
 
   it('leaves cross-filters from other widgets untouched', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+    controller.addWidget(makeWidget('widget-b', { kind: 'chart' }));
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
     controller.applyCrossFilter('widget-b', 'region', 'EMEA', 'src-b');
 
@@ -191,6 +214,7 @@ describe('StudioController.clearCrossFilter', () => {
         ],
       },
     });
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
     controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
 
     controller.clearCrossFilter('widget-a');
@@ -216,6 +240,7 @@ describe('StudioController.clearCrossFilter', () => {
 describe('StudioController.applyInteractiveFilter', () => {
   it('adds an interactive filter with scope interactive', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
 
     controller.applyInteractiveFilter(
       'filter-widget-1',
@@ -240,6 +265,7 @@ describe('StudioController.applyInteractiveFilter', () => {
 
   it('stamps the active pageId on the filter', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
     const activePageId = controller.getState().doc.dashboard.activePageId;
 
     controller.applyInteractiveFilter('filter-widget-1', 'country', 'equals', 'AU');
@@ -254,6 +280,7 @@ describe('StudioController.applyInteractiveFilter', () => {
 
   it('replaces an existing interactive filter from the same widget', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
 
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Electronics']);
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books', 'Clothing']);
@@ -269,6 +296,8 @@ describe('StudioController.applyInteractiveFilter', () => {
 
   it('does not remove interactive filters from other widgets', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-a', { kind: 'filter' }));
+    controller.addWidget(makeWidget('filter-widget-b', { kind: 'filter' }));
 
     controller.applyInteractiveFilter('filter-widget-a', 'category', 'in', ['Electronics']);
     controller.applyInteractiveFilter('filter-widget-b', 'country', 'equals', 'AU');
@@ -278,6 +307,7 @@ describe('StudioController.applyInteractiveFilter', () => {
 
   it('stores filterSourceId for cross-source filtering', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
 
     controller.applyInteractiveFilter('filter-widget-1', 'segment', 'in', ['Enterprise'], {
       filterMode: 'selection',
@@ -301,6 +331,7 @@ describe('StudioController.applyInteractiveFilter', () => {
         ],
       },
     });
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
 
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
 
@@ -309,6 +340,15 @@ describe('StudioController.applyInteractiveFilter', () => {
     expect(ids).toContain('widget-f');
     expect(ids).toContain('cross-f');
   });
+
+  // Finding 1 — see the matching test in `applyCrossFilter` above for the full rationale.
+  it('does not commit an interactive filter when the source widget does not exist', () => {
+    const controller = new StudioController();
+
+    controller.applyInteractiveFilter('nonexistent-widget', 'category', 'in', ['Books']);
+
+    expect(controller.getState().doc.filters).toHaveLength(0);
+  });
 });
 
 // ─── StudioController.clearInteractiveFilter ─────────────────────────────────
@@ -316,6 +356,7 @@ describe('StudioController.applyInteractiveFilter', () => {
 describe('StudioController.clearInteractiveFilter', () => {
   it('removes the interactive filter for the specified widget', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
 
     controller.clearInteractiveFilter('filter-widget-1');
@@ -327,6 +368,8 @@ describe('StudioController.clearInteractiveFilter', () => {
 
   it('leaves interactive filters from other widgets untouched', () => {
     const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-a', { kind: 'filter' }));
+    controller.addWidget(makeWidget('filter-b', { kind: 'filter' }));
     controller.applyInteractiveFilter('filter-a', 'category', 'in', ['Books']);
     controller.applyInteractiveFilter('filter-b', 'country', 'equals', 'AU');
 
@@ -343,6 +386,7 @@ describe('StudioController.clearInteractiveFilter', () => {
     const controller = new StudioController({
       doc: { filters: [makeFilter({ id: 'page-f', scope: { kind: 'page' } })] },
     });
+    controller.addWidget(makeWidget('filter-widget-1', { kind: 'filter' }));
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
 
     controller.clearInteractiveFilter('filter-widget-1');
@@ -405,6 +449,9 @@ describe('StudioController — interactive/cross filter pageId stamping', () => 
   function twoPageController() {
     // `source-w` lives on page-2, but page-1 is the active page — mimicking a
     // debounced commit (e.g. DateRangeControl) firing after the user navigated away.
+    // `ghost-w` exists in `doc.widgets` (satisfying the reducer-mirroring existence
+    // guard — finding 1) but is not placed on ANY page's `widgetRows`, exercising
+    // `resolveWidgetPageId`'s "not in any layout" fallback below.
     return new StudioController({
       doc: {
         dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
@@ -415,6 +462,7 @@ describe('StudioController — interactive/cross filter pageId stamping', () => 
         widgets: {
           'other-w': makeWidget('other-w'),
           'source-w': makeWidget('source-w'),
+          'ghost-w': makeWidget('ghost-w'),
         },
       },
     });
@@ -1246,6 +1294,29 @@ describe('StudioController.moveWidgetToPage', () => {
     const filter = controller.getState().doc.filters.find((f) => f.id === 'f1');
     // Widget-scoped filters identify by widgetId only; they have no pageId to re-scope.
     expect(filter?.scope).toEqual({ kind: 'widget', widgetId: 'w1' });
+  });
+
+  // Finding 2: hardcoding `sourcePageId = activePageId` would make the source-page rewrite
+  // a no-op fold (the widget isn't in the ACTIVE page's rows) while the target page's
+  // `setWidgetLayout` still appends it — landing the widget on two pages at once. Resolve
+  // the widget's ACTUAL page via `resolveWidgetPageId` instead.
+  it('moves the widget from its ACTUAL page, not activePageId, when they differ', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1')); // lives on page-1
+    const page1Id = controller.getState().doc.dashboard.activePageId;
+    const page2Id = controller.addPage('Page 2');
+    controller.addPage('Page 3'); // active page is now page-3; w1 still lives on page-1
+
+    controller.moveWidgetToPage('w1', page2Id);
+
+    const state = controller.getState();
+    expect(state.doc.pages[page1Id].widgetRows.flat()).not.toContain('w1');
+    expect(state.doc.pages[page2Id].widgetRows.flat()).toContain('w1');
+    // The widget must not have landed on both its old and new page.
+    const totalPlacements = Object.values(state.doc.pages).filter((p) =>
+      p.widgetRows.flat().includes('w1'),
+    ).length;
+    expect(totalPlacements).toBe(1);
   });
 });
 
@@ -2134,6 +2205,9 @@ describe('StudioController.setActivePage', () => {
           'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
           'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
         },
+        // Present in `doc.widgets` (satisfies the existence guard — finding 1) but not
+        // placed on any page, so `resolveWidgetPageId` falls back to `activePageId`.
+        widgets: { 'widget-a': makeWidget('widget-a') },
       },
     });
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
@@ -2149,6 +2223,7 @@ describe('StudioController.setActivePage', () => {
           'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
           'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
         },
+        widgets: { 'widget-a': makeWidget('widget-a') },
       },
     });
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
@@ -2387,6 +2462,67 @@ describe('StudioController.getRecentMutations', () => {
     log.push({ label: 'tampered', at: 'now' });
     expect(controller.getRecentMutations()).toHaveLength(1);
   });
+
+  // Finding 6: `undo`/`redo` bypass `commitState` and previously never touched
+  // `mutationLog`, so the AI-surfaced `get_recent_changes` log kept describing
+  // mutations the user had since undone.
+  it('removes the corresponding log entry when its mutation is undone', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' }));
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+    ]);
+
+    controller.undo(); // reverts the addFilter:region step
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+  });
+
+  it('restores the log entry when the undone mutation is redone', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' }));
+
+    controller.undo();
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+
+    controller.redo();
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+    ]);
+  });
+
+  it('leaves the log untouched when an unlabeled/non-undoable commit is undone', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.setPageStackBreakpoint(600); // undoable but unlabeled — no log entry
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+
+    controller.undo(); // reverts the stack-breakpoint change; no paired log entry to remove
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+  });
+
+  it('does not resurrect a log entry that was evicted by the MAX_MUTATION_LOG cap', () => {
+    const controller = new StudioController();
+    // 21 labeled undoable steps: the log (capped at 20) evicts the OLDEST entry
+    // (`addFilter:field-0`), but the undo stack (capped at 100) still holds all 21.
+    for (let i = 0; i < 21; i += 1) {
+      controller.addFilter(makeFilter({ id: `f-${i}`, field: `field-${i}` }));
+    }
+    expect(controller.getRecentMutations()).toHaveLength(20);
+    expect(controller.getRecentMutations()[0].label).toBe('addFilter:field-1');
+
+    // Undo all the way back to the first step — its log entry is long gone; nothing
+    // should throw, and the log must not resurrect or duplicate anything.
+    for (let i = 0; i < 21; i += 1) {
+      controller.undo();
+    }
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
 });
 
 describe('StudioController.serializeSession / restoreSession', () => {
@@ -2454,6 +2590,55 @@ describe('StudioController.serializeSession / restoreSession', () => {
     const result = controller.restoreSession({ nope: true });
     expect(result.success).toBe(false);
     expect(controller.getState().doc.dashboard.title).toBe('Keep me');
+  });
+
+  // Finding 5: `commitState`'s trim only shifts ONE entry per commit, so a tampered/legacy
+  // session with an unbounded number of history entries would otherwise stay at that size
+  // forever. `restoreSession` must truncate to `MAX_UNDO_HISTORY` (100) itself, keeping the
+  // MOST RECENT entries (closest to `present`).
+  it('truncates a restored past stack to MAX_UNDO_HISTORY, keeping the most recent entries', () => {
+    const source = new StudioController();
+    const snapshots: SerializedStudioSnapshot[] = [];
+    for (let i = 0; i < 150; i += 1) {
+      source.setDashboardTitle(`t-${i}`);
+      snapshots.push(source.serializeSession().present);
+    }
+    const fakeSession: SerializedStudioSession = {
+      schemaVersion: source.serializeSession().schemaVersion,
+      present: snapshots[149],
+      past: snapshots, // 150 raw entries — well over MAX_UNDO_HISTORY
+      future: [],
+    };
+
+    const restored = new StudioController();
+    const result = restored.restoreSession(fakeSession);
+    expect(result.success).toBe(true);
+    expect(restored.serializeSession().past).toHaveLength(100);
+
+    // The oldest 50 entries (t-0..t-49) were evicted: 100 undos land on t-50, and the
+    // 101st has nothing left to undo.
+    for (let i = 0; i < 100; i += 1) {
+      expect(restored.undo()).toBe(true);
+    }
+    expect(restored.getState().doc.dashboard.title).toBe('t-50');
+    expect(restored.undo()).toBe(false);
+  });
+
+  // Finding 5: `present.mode` should be validated against the two allowed literals rather
+  // than installed verbatim — a tampered/legacy/foreign session could carry anything.
+  it('falls back to the default mode when the restored present.mode is invalid', () => {
+    const source = new StudioController();
+    const session = source.serializeSession();
+    const tampered = {
+      ...session,
+      present: { ...session.present, mode: 'not-a-real-mode' as never },
+    };
+
+    const restored = new StudioController();
+    const result = restored.restoreSession(tampered);
+
+    expect(result.success).toBe(true);
+    expect(['view', 'edit']).toContain(restored.getState().session.mode);
   });
 });
 
@@ -2750,6 +2935,50 @@ describe('Col-span unit system round-trip', () => {
     controller.redo();
     expect(controller.getState().doc.dashboard.title).toBe('anchor');
   });
+
+  // Finding 3: when the two widgets' minimum spans can't both fit inside the pair's
+  // current total (e.g. a KPI's sparkline toggled on after the layout was set, raising
+  // its min-span requirement), the naive `clampedRight = totalSpan - clampedLeft` can go
+  // to zero or negative. Floor `clampedRight` at its own minimum instead.
+  it('never commits a sub-minimum or negative span when the pair total cannot satisfy both minimums', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1', 'w2']]);
+    const activePageId = controller.getState().doc.dashboard.activePageId;
+
+    // totalSpan = 10, but the mins (8 + 8 = 16) can't both fit inside it.
+    controller.setAdjacentWidgetColSpans('w1', 5, 'w2', 5, 8, 8);
+
+    const spans = controller.getState().doc.pages[activePageId].widgetColSpans;
+    expect(spans!.w1).toBeGreaterThanOrEqual(8);
+    expect(spans!.w2).toBeGreaterThanOrEqual(8);
+  });
+
+  // Finding 3: both widgets must exist and share a row on the active page.
+  it('is a no-op when the two widgets do not share a row', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1'], ['w2']]);
+    const stateBefore = controller.getState();
+
+    controller.setAdjacentWidgetColSpans('w1', 16, 'w2', 8);
+
+    expect(controller.getState()).toBe(stateBefore);
+  });
+
+  it('is a no-op when either widget id is unknown', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.setWidgetLayout([['w1', 'w2']]);
+    const stateBefore = controller.getState();
+
+    controller.setAdjacentWidgetColSpans('w1', 16, 'nonexistent', 8);
+
+    expect(controller.getState()).toBe(stateBefore);
+  });
 });
 
 // ─── commitMutation delegation — signed-off behaviour changes ────────────────
@@ -2778,13 +3007,24 @@ describe('StudioController.setWidgetLayout — col-span cleanup (D2 bug fix)', (
   });
 
   it('preserves an intentional lone-widget span (does not over-prune)', () => {
-    const controller = new StudioController();
-    controller.addWidget(makeWidget('w1'));
-    controller.addWidget(makeWidget('w2'));
-    const activePageId = controller.getState().doc.dashboard.activePageId;
-    // w1 alone in row 0 with a deliberate narrow span; w2 alone in row 1.
-    controller.setWidgetLayout([['w1'], ['w2']]);
-    controller.setAdjacentWidgetColSpans('w1', 12, 'w2', 12); // writes {w1:12} via clamp pair
+    // w1 alone in row 0 with a deliberate narrow span; w2 alone in row 1. Built directly
+    // into the initial doc (rather than via `setAdjacentWidgetColSpans`, which now
+    // requires — finding 3 — that both widgets share a row before it will write anything).
+    const activePageId = 'page-1';
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId },
+        pages: {
+          [activePageId]: {
+            id: activePageId,
+            title: 'Page 1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
+      },
+    });
     // Only assert the reorder below keeps w1's already-lone span intact.
     const spansBefore = controller.getState().doc.pages[activePageId].widgetColSpans;
     // Swap the two singleton rows — neither row collapses from 2→1, so no span is stale.
@@ -2860,6 +3100,78 @@ describe('StudioController — commit*Patch routing (2.3)', () => {
     const controller = new StudioController();
     const before = controller.getState();
     controller.updateDataSourceField('nope', 'field', { label: 'X' });
+    expect(controller.getState()).toBe(before);
+  });
+
+  // Finding 4: `commitDataSourcePatch` always allocates a fresh source/`dataSources`
+  // object, so without an explicit guard an unknown `fieldId` or a value-identical
+  // `updates` payload would still commit and churn every subscriber.
+  it('updateDataSourceField on an unknown fieldId is a state-reference no-op', () => {
+    const controller = new StudioController({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Orders',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    const before = controller.getState();
+    controller.updateDataSourceField('src1', 'nonexistent-field', { label: 'X' });
+    expect(controller.getState()).toBe(before);
+  });
+
+  it('updateDataSourceField with a value-identical update is a state-reference no-op', () => {
+    const controller = new StudioController({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Orders',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    const before = controller.getState();
+    controller.updateDataSourceField('src1', 'amount', { label: 'Amount', type: 'number' });
+    expect(controller.getState()).toBe(before);
+  });
+
+  it('updateDataSourceField commits a fresh state when the update actually changes a value', () => {
+    const controller = new StudioController({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Orders',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    controller.updateDataSourceField('src1', 'amount', { label: 'Total Amount' });
+    expect(controller.getState().runtime.dataSources.src1.fields[0].label).toBe('Total Amount');
+  });
+
+  it('setGlobalCrossFilterMode is a state-reference no-op when the value is unchanged', () => {
+    const controller = new StudioController();
+    controller.setGlobalCrossFilterMode('cross-filter');
+    const before = controller.getState();
+    controller.setGlobalCrossFilterMode('cross-filter');
+    expect(controller.getState()).toBe(before);
+  });
+
+  it('setCrossFilterAllPages is a state-reference no-op when the value is unchanged', () => {
+    const controller = new StudioController();
+    controller.setCrossFilterAllPages(true);
+    const before = controller.getState();
+    controller.setCrossFilterAllPages(true);
     expect(controller.getState()).toBe(before);
   });
 

@@ -22,6 +22,7 @@ import {
 } from '../../../internals/StudioUIConfigContext';
 import { frLocaleText } from '../../../locales/fr';
 import { StudioChartWidget } from './StudioChartWidget';
+import { withAlpha } from './chartWidgetHelpers';
 
 const barChartSpy = vi.fn();
 const lineChartSpy = vi.fn();
@@ -1852,7 +1853,7 @@ describe('<StudioChartWidget />', () => {
       const active = props.series.find((s) => s.id === 'cross-filter-series');
       expect(ghost).toBeDefined();
       expect(active?.color).toBeDefined();
-      expect(ghost!.color).toBe(`${active!.color}40`);
+      expect(ghost!.color).toBe(withAlpha(active!.color!, 25));
       expect(ghost!.color).not.toBe(active!.color);
     });
 
@@ -1889,7 +1890,7 @@ describe('<StudioChartWidget />', () => {
       const active = props.series.find((s) => s.id === 'cross-filter-series');
       expect(ghost).toBeDefined();
       expect(active?.color).toBeDefined();
-      expect(ghost!.color).toBe(`${active!.color}30`);
+      expect(ghost!.color).toBe(withAlpha(active!.color!, 19));
       expect(ghost!.color).not.toBe(active!.color);
     });
 

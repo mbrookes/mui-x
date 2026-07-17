@@ -637,6 +637,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupRegionFieldLabel: 'Campo de região',
   mapSetupRegionFieldHelperText:
     'Um campo que contém identificadores de região correspondentes aos IDs dos recursos geográficos.',
+  mapSetupUnreachableFieldWarning:
+    'Este campo não vem da fonte do widget nem de uma fonte diretamente relacionada, portanto não pode ser resolvido e o mapa será exibido em branco.',
 
   // Pivot setup panel
   pivotSetupDescription:

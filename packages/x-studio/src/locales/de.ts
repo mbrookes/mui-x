@@ -645,6 +645,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   mapSetupRegionFieldLabel: 'Regionsfeld',
   mapSetupRegionFieldHelperText:
     'Ein Feld, das Regionskennungen enthält, die geografischen Ressourcen-IDs entsprechen.',
+  mapSetupUnreachableFieldWarning:
+    'Dieses Feld stammt nicht aus der Widget-Quelle oder einer direkt verknüpften Quelle und kann daher nicht aufgelöst werden. Die Karte wird leer angezeigt.',
 
   // Pivot setup panel
   pivotSetupDescription:

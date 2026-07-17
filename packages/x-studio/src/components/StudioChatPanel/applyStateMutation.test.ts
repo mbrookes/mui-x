@@ -255,9 +255,27 @@ describe('applyStateMutation: setActivePage', () => {
 
 describe('applyStateMutation: addFilter', () => {
   it('appends the filter verbatim, honouring the scope the server chose', () => {
-    const controller = makeController(); // client active page is page-1
-    // The server targeted page-7 (not the client's active page). The filter must
-    // NOT be re-stamped to the client's active page.
+    // page-7 must exist for the reducer's orphan-page-filter screening to accept
+    // it; client active page is page-1, so this also verifies the filter is NOT
+    // re-stamped to the client's active page.
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
+          'page-7': { id: 'page-7', title: 'Page 7', widgetRows: [] },
+        },
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'chart',
+            title: 'Revenue Chart',
+            sourceId: 'src1',
+            config: { chartType: 'bar' },
+          },
+        },
+      },
+    });
     const filter = {
       id: 'f-new',
       field: 'revenue',

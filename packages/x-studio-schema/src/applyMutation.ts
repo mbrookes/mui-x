@@ -987,6 +987,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             }
             continue;
           }
+          // `title`/`kind` must be a STRING (defense-in-depth, mirroring the wire
+          // boundary's `isString(widget.kind)`/`isString(widget.title)` gate in
+          // `validateWidget`): both are load-bearing with no fallback (the widget
+          // factory/renderer key off `kind`, the canvas card renders `title`), and
+          // `deserializeState` drops the ENTIRE widget on the NEXT load if either is
+          // non-string. Without this guard, a parser-bypassing `changes: { title: 42 }`
+          // or `{ kind: 42 }` would merge verbatim below and install fine now, only to
+          // silently vanish — deferred whole-widget data loss — the moment the doc is
+          // next persisted and reloaded. Reject (skip) the field rather than let bad
+          // data linger until the load boundary catches it.
+          if ((key === 'title' || key === 'kind') && typeof value !== 'string') {
+            continue;
+          }
           // Scalar field (`title`/`subtitle`/`sourceId`/`kind`/`titleMode`/
           // `subtitleMode`): only a value that differs from the current widget is a real
           // change. Re-setting a field to its current value must not rewrap the widget
@@ -1151,9 +1164,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // appear more than once — the same id twice (in one row or across rows) would
       // render the widget twice (duplicate React key) and double-count its span in the
       // overflow sum below. `dedupeLayoutRows` keeps the first occurrence and drops any
-      // row it empties.
+      // row it empties. `.filter((row): row is string[] => Array.isArray(row))` first
+      // (mirroring `normalizePersistedPages`/`applyBulkUpdate`'s identical row-array
+      // guard): `args.rows` is itself an array here, but a parser-bypassing server-built
+      // mutation can still supply a non-array ROW ENTRY (e.g. `rows: ['w1']` or `rows:
+      // [null]`), and `row.filter(...)` on a non-array row throws a `TypeError` instead
+      // of the graceful no-op every sibling row-sanitizing site provides.
       const sanitizedRows = dedupeLayoutRows(
-        args.rows.map((row) => row.filter((id) => Object.hasOwn(state.widgets, id))),
+        args.rows
+          .filter((row): row is string[] => Array.isArray(row))
+          .map((row) => row.filter((id) => Object.hasOwn(state.widgets, id))),
       );
       // Replacing a page's rows verbatim can leave the col-spans invalid: a row
       // collapsed to a sole occupant keeps its stale multi-widget span, and a row
@@ -1238,7 +1258,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // graceful degraded apply every sibling handler provides. Default to treating the
       // widget as the sole occupant of its row, mirroring the producer's own
       // `currentRow ?? [widgetId]` default (`executeToolOnState`'s `set_widget_width`).
-      const rowWidgetIds = currentRow ?? args.rowWidgetIds ?? [widgetId];
+      //
+      // `Array.isArray(args.rowWidgetIds)` guards the fallback itself (finding 2.5
+      // follow-up): the `?? [widgetId]` above only covers an ABSENT `rowWidgetIds`, but a
+      // parser-bypassing partial payload can supply a truthy NON-array value (e.g. a
+      // string), which would otherwise flow into `rowWidgetIds.filter(...)` below and
+      // throw. Treat a non-array value the same as absent — fall back to `[widgetId]` —
+      // rather than throwing mid-apply.
+      const rowWidgetIds =
+        currentRow ?? (Array.isArray(args.rowWidgetIds) ? args.rowWidgetIds : [widgetId]);
       const clamped = columns == null ? null : clampSpan(columns);
       const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
 
@@ -1432,6 +1460,24 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
         return state;
       }
+      // Reject an ORPHAN `page`-scoped filter naming a `pageId` the doc doesn't contain —
+      // the PAGE-anchor mirror of the widget-anchor orphan check just above. A `page`-scoped
+      // filter with an explicit `pageId` (the legacy "applies on every page" shape has NO
+      // `pageId` and is left alone) would otherwise filter a page that doesn't exist forever,
+      // with no clearing affordance — `removePage`'s cleanup only fires for a LIVE removal,
+      // never for a filter that named a nonexistent page from the start. The load boundary
+      // (`deserializeState`'s `scope.kind === 'page' … !Object.hasOwn(normalizedPages,
+      // scope.pageId)` screen) already drops this on the NEXT load, so accepting it here would
+      // just be dead weight until reload — screen it here so the wire/reducer boundary and the
+      // load boundary agree. `Object.hasOwn` so an untrusted `pageId` can't match a prototype
+      // member.
+      if (
+        scope.kind === 'page' &&
+        scope.pageId !== undefined &&
+        !Object.hasOwn(state.pages, scope.pageId)
+      ) {
+        return state;
+      }
       // Reject a SECOND rank-mode filter on the same page context (finding: the reducer
       // never enforced "at most one rank filter per page", even though `StudioController`
       // enforces it in FIVE separate call sites before ever calling this reducer — e.g.
@@ -1472,8 +1518,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   applyBulkUpdate: {
     apply: (state, args) => {
-      const { removedWidgetIds, addedWidgets, updatedWidgets } = args;
+      const { removedWidgetIds: rawRemovedWidgetIds, addedWidgets, updatedWidgets } = args;
       const { activePageId } = args;
+      // Require a real ARRAY `removedWidgetIds` (T2-3, defense-in-depth copy of the wire
+      // boundary's `isStringArray(args.removedWidgetIds)` check in `parseStateMutation.ts`):
+      // `new Set(str)` iterates a STRING char-by-char, so a parser-bypassing server-built
+      // mutation with `removedWidgetIds: 'w1'` would silently delete widgets literally named
+      // `'w'` and `'1'` below instead of the intended widget `'w1'`. `Array.isArray` (not
+      // `isStringArray`, which is file-private to `parseStateMutation.ts`) rejects a non-array
+      // value outright — treated the same as an absent/empty list — rather than iterating it.
+      const removedWidgetIds = Array.isArray(rawRemovedWidgetIds) ? rawRemovedWidgetIds : [];
 
       // `widgetRows`/`widgetColSpans` are typed as REQUIRED on the wire mutation, but the
       // reducer must stay TOTAL over a parser-bypassing partial payload a future middleware
@@ -1513,7 +1567,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // still lives on another page" test) and must NOT be stripped here — only the page
       // this bulk actually targets gets its rows edited.
       let layoutPages: StudioDoc['pages'] = state.pages;
-      if (pageExists && removedWidgetIds && removedWidgetIds.length > 0) {
+      if (pageExists && removedWidgetIds.length > 0) {
         const strippedActivePage = stripWidgetIdsFromPages(
           { [activePageId]: state.pages[activePageId] },
           new Set(removedWidgetIds),
@@ -1656,7 +1710,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         pages: nextPages,
         widgets: prunedWidgets,
         filters: nextFilters,
-      } = removeWidgetIds(layoutPages, state.widgets, state.filters, removedWidgetIds ?? []);
+      } = removeWidgetIds(layoutPages, state.widgets, state.filters, removedWidgetIds);
 
       // Apply the add/update deltas on top of the pruned widgets — never a turn-start
       // snapshot — so any widget the user concurrently created or edited (on this page
@@ -1764,7 +1818,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // applies. Without this, a re-delivered bulk (SSE at-least-once) carrying a
         // value-identical or field-less `{ widgetId }` update entry churns the doc and
         // pushes a spurious undo entry, breaking the reference-equality no-op contract.
-        if (update.title !== undefined && update.title !== existing.title) {
+        //
+        // `typeof update.title === 'string'` (defense-in-depth, mirroring `updateWidget`'s
+        // `changes.title`/`changes.kind` guard and the wire boundary's `isString(widget.title)`
+        // gate): `title` is typed as `string | undefined` on the wire mutation, but a
+        // parser-bypassing server-built bulk (the `executeToolOnState` pattern) can still
+        // carry a non-string value, which would install verbatim here and then be dropped
+        // — the WHOLE widget — by `deserializeState`'s non-string-title screen on the next
+        // load. Skip a non-string value instead of merging it.
+        if (
+          update.title !== undefined &&
+          typeof update.title === 'string' &&
+          update.title !== existing.title
+        ) {
           patchedWidget = { ...patchedWidget, title: update.title };
         }
         if (update.sourceId !== undefined && update.sourceId !== existing.sourceId) {

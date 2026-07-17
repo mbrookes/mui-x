@@ -542,16 +542,22 @@ describe('applyMutation', () => {
   });
 
   it('addFilter appends the filter verbatim (scope not re-stamped)', () => {
+    // `pageId: 'page-2'` (a REAL page, just not the applying side's active page
+    // 'page-1') rather than an orphan id: the orphan-page-anchor guard (mirroring the
+    // orphan-widget-anchor guard) now rejects a `page`-scoped filter naming a
+    // nonexistent page, so this test uses an existing non-active page to isolate the
+    // behavior it actually targets — that the scope is applied VERBATIM, not
+    // re-stamped with the applying side's active page.
     const state = twoPageState('page-1');
     const filter = {
       id: 'f',
       field: 'x',
       operator: 'equals' as const,
       value: 1,
-      scope: { kind: 'page' as const, pageId: 'page-9' },
+      scope: { kind: 'page' as const, pageId: 'page-2' },
     };
     const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
-    expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-9' });
+    expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-2' });
   });
 
   it('addFilter is idempotent: re-delivering the same filter id does not duplicate it', () => {
@@ -651,6 +657,65 @@ describe('applyMutation', () => {
       operator: 'equals' as const,
       value: 1,
       scope: { kind: 'widget' as const, widgetId: 'w1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
+    expect(next.filters).toHaveLength(1);
+    expect(next.filters[0].id).toBe('f-valid');
+  });
+
+  // Finding: the widget-anchor orphan check above screened `widget`/`cross-filter`/
+  // `interactive` scopes, but not a `page`-scoped filter naming a `pageId` the doc
+  // doesn't contain — an orphan the reducer can never clean up (`removePage`'s cleanup
+  // only fires on a LIVE removal, never for a filter that named a nonexistent page from
+  // the start) and one the load boundary (`deserializeState`) already drops on the next
+  // load. Reject it here so the wire/reducer boundary and the load boundary agree,
+  // mirroring the widget-anchor orphan check's structure.
+  it('addFilter drops an orphan page-scoped filter whose pageId names no existing page', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const orphan = {
+      id: 'f-orphan',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'ghost-page' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: orphan } });
+    // No-op-return the input reference (the reducer's unresolvable-target convention).
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter installs a page-scoped filter whose pageId names an existing page', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const valid = {
+      id: 'f-valid',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
+    expect(next.filters).toHaveLength(1);
+    expect(next.filters[0].id).toBe('f-valid');
+  });
+
+  it('addFilter installs a page-scoped filter with NO pageId (legacy "applies on every page" shape)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const valid = {
+      id: 'f-valid',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const },
     };
     const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
     expect(next.filters).toHaveLength(1);
@@ -3375,6 +3440,111 @@ describe('applyMutation', () => {
         } as any);
         expect(next, `rows=${JSON.stringify(rows)}`).toBe(state);
       }
+    });
+
+    // Finding: `args.rows` being an array doesn't guarantee every ROW ENTRY is one — a
+    // parser-bypassing server-built mutation can supply `rows: ['w1']` or `rows: [null]`,
+    // and the sanitizer's `.map((row) => row.filter(...))` would throw on a non-array row
+    // instead of the graceful no-op every sibling row-sanitizing site (`normalizePersistedPages`,
+    // `applyBulkUpdate`) provides. A non-array row is dropped, same as a phantom-widget row.
+    it('setWidgetLayout drops a non-array row entry instead of throwing', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'setWidgetLayout',
+          args: { rows: ['w1', null, ['w1']] as any, pageId: 'page-1' },
+        });
+      }).not.toThrow();
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
+    });
+
+    // Finding 2.5 follow-up: the `?? [widgetId]` fallback only covers an ABSENT
+    // `rowWidgetIds`. A parser-bypassing partial payload can supply a truthy NON-array
+    // value (e.g. a string), which would otherwise flow into `rowWidgetIds.filter(...)`
+    // and throw. A non-array value must be treated the same as absent.
+    it('setWidgetColSpan with a non-array rowWidgetIds falls back to [widgetId] instead of throwing', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'setWidgetColSpan',
+          args: { widgetId: 'w1', columns: 12, rowWidgetIds: 'w1' as any, pageId: 'page-1' },
+        });
+      }).not.toThrow();
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+    });
+
+    // Finding: `new Set('w1')` iterates a STRING char-by-char (`{'w','1'}`), so a
+    // parser-bypassing `removedWidgetIds: 'w1'` would silently delete widgets literally
+    // named `'w'` and `'1'` instead of the intended widget `'w1'`. A non-array value must
+    // be rejected/ignored, mirroring the wire boundary's `isStringArray` guard.
+    it('applyBulkUpdate with a non-array removedWidgetIds does not iterate it as a string', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1'), w: chartWidget('w'), '1': chartWidget('1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: 'w1' as any,
+          addedWidgets: [],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      });
+      // Neither the char-by-char-iterated 'w' nor '1' is removed, and the real 'w1' widget
+      // (which was never actually named in a real array) survives too — the malformed
+      // input is ignored wholesale rather than partially applied.
+      expect(next.widgets.w).toBeDefined();
+      expect(next.widgets['1']).toBeDefined();
+      expect(next.widgets.w1).toBeDefined();
+    });
+
+    // Finding: `title`/`kind` are load-bearing with no fallback, and `deserializeState`
+    // drops the ENTIRE widget on the next load if either is non-string. A parser-bypassing
+    // `changes: { title: 42 }`/`{ kind: 42 }` must be rejected at write time rather than
+    // merged verbatim and left to detonate on the next load.
+    it('updateWidget rejects a non-string changes.title/changes.kind instead of merging it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: 42, kind: 42 } as any },
+      });
+      expect(next.widgets.w1.title).toBe(state.widgets.w1.title);
+      expect(next.widgets.w1.kind).toBe(state.widgets.w1.kind);
+    });
+
+    // Finding: `applyBulkUpdate.updatedWidgets[].title` is typed as `string | undefined`
+    // on the wire mutation, but a parser-bypassing server-built bulk can still carry a
+    // non-string value — reject it rather than merging it verbatim (the same deferred
+    // whole-widget-loss hazard the `updateWidget.changes.title` guard above closes).
+    it('applyBulkUpdate rejects a non-string updatedWidgets[].title instead of merging it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', title: 42 as any }],
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.widgets.w1.title).toBe(state.widgets.w1.title);
     });
 
     it('addFilter with a missing filter is a no-op, not a throw', () => {

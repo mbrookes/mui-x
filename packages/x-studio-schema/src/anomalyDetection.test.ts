@@ -43,6 +43,38 @@ describe('detectAnomaliesIQR', () => {
     expect(result.size).toBe(2);
   });
 
+  // Finding: the IQR === 0 degenerate-spread fallback used a bare `value !== q1`
+  // comparison, so pure floating-point jitter (e.g. from an upstream sum/average
+  // computation) against an otherwise-constant series was flagged as an anomaly. An
+  // epsilon-relative tolerance must absorb that jitter without weakening the
+  // deliberate degenerate-spread fallback itself (still verified by the two tests
+  // above, whose "spikes" — 50, -1 — are many orders of magnitude past any reasonable
+  // epsilon).
+  it('does NOT flag floating-point jitter around a near-constant value when IQR === 0', () => {
+    const values = [100, 100, 100, 100, 100.0000001];
+    const result = detectAnomaliesIQR(values);
+    expect(result.size).toBe(0);
+  });
+
+  it('still flags a genuine near-baseline outlier when IQR === 0 (epsilon does not over-tolerate)', () => {
+    // Same degenerate-spread shape as the eight-3's-plus-50 fixture above (Q1 === Q3 ===
+    // 100), but the odd one out (100.001) differs from the baseline by far more than the
+    // epsilon tolerance (~1e-7 for a baseline of 100) while still being "near" the
+    // baseline in absolute terms — the epsilon must not swallow a real deviation.
+    const values = [100, 100, 100, 100, 100, 100, 100, 100, 100.001];
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(8)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it('applies the epsilon tolerance relative to a non-zero constant baseline, not just near zero', () => {
+    // Constant baseline is 1e6; jitter of 1e-4 relative to that magnitude must not trip
+    // the fallback (an absolute-only epsilon like 1e-9 would incorrectly flag this).
+    const values = [1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000.0001];
+    const result = detectAnomaliesIQR(values);
+    expect(result.size).toBe(0);
+  });
+
   it('detects a clear negative (low) outlier', () => {
     const values = [100, 102, 98, 101, 99, 100, 1];
     const result = detectAnomaliesIQR(values);

@@ -50,9 +50,20 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
     // `[5, 5, 5, 5, 5, 5, 5, 1000]`, where `1000` is an obvious extreme spike against
     // an otherwise-constant baseline — a false negative strictly worse than flagging
     // every value that differs from the constant.
+    //
+    // A bare `value !== q1` is too strict, though: for a series like
+    // `[100, 100, 100, 100, 100.0000001]` it flags the last value purely on
+    // floating-point jitter (e.g. from an upstream sum/average computation), even
+    // though the series is effectively constant. `epsilon` is a small tolerance
+    // RELATIVE to `q1`'s own magnitude (falling back to an absolute `1e-9` floor for
+    // `q1` at or near zero, where a relative tolerance would itself collapse to 0 and
+    // stop tolerating anything) — scaling with `q1` means the tolerance stays
+    // meaningful whether the series sits around `1e-6` or `1e6`, without being so
+    // large it would mask a genuine near-baseline outlier.
+    const epsilon = Math.max(Math.abs(q1) * 1e-9, 1e-9);
     const result = new Set<number>();
     for (const { value, index } of finite) {
-      if (value !== q1) {
+      if (Math.abs(value - q1) > epsilon) {
         result.add(index);
       }
     }

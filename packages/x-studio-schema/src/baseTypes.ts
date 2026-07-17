@@ -29,7 +29,12 @@ export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 
  *   filtered subset — communicates proportion ("what share does this selection represent?").
  * - `'cross-filter'`: redraws the chart using only the filtered rows — focuses on the subset
  *   and lets axes rescale to the filtered data.
- * - `'none'`: ignores all cross-filters and always shows the full unfiltered dataset.
+ * - `'none'`: ignores cross-filters contributed by OTHER widgets and shows the full
+ *   dataset with respect to those — but this is NOT "always show everything unfiltered":
+ *   an interactive filter-widget selection is a hard filter, not a cross-filter, and
+ *   deliberately still applies even in `'none'` mode (a documented invariant enforced
+ *   elsewhere in the pipeline — interactive filters are never dropped by cross-filter
+ *   mode, only a chart's own cross-filter CONTRIBUTION is suppressed).
  */
 export type StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none';
 

@@ -1384,6 +1384,20 @@ describe('StudioController.moveWidget', () => {
     expect(controller.canUndo()).toBe(undoBefore);
   });
 
+  it('is a whole-fold no-op when the target page no longer exists (deleted mid-drag)', () => {
+    const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
+    controller.setDashboardTitle('anchor');
+    const before = controller.getState();
+    const undoBefore = controller.canUndo();
+
+    controller.moveWidget('w1', 'page-1', 'deleted-page', [['w1']]);
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(undoBefore);
+    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1', 'w2']]);
+    expect(controller.getState().doc.widgets.w1).toBeDefined();
+  });
+
   it('logs a moveWidget label (D12)', () => {
     const controller = twoPageController(['w1', 'w2'], [['w1', 'w2']], { w1: 16, w2: 8 });
     controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);

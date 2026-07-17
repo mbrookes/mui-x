@@ -541,6 +541,34 @@ describe('docTransforms preset family', () => {
     expect(applied.dependsOn).toBeUndefined();
   });
 
+  it('saveFilterPreset does not throw on a malformed (non-array) dependsOn and drops it', () => {
+    // Defense in depth: persisted/wire-loaded state can carry a wrong-shaped `dependsOn`
+    // (e.g. a bare string) that the schema layer doesn't validate at the wire boundary.
+    // A bare truthiness check would still call `.filter()` on it and throw mid-user-gesture.
+    const malformed = { ...pageFilter('a', 'page-1'), dependsOn: 'country' as any };
+    const doc = makeDoc({ filters: [malformed] });
+    expect(() => docTransforms.saveFilterPreset(doc, 'preset-1', 'Bad')).not.toThrow();
+    const next = docTransforms.saveFilterPreset(doc, 'preset-1', 'Bad');
+    const preset = next.filterPresets!.find((p) => p.id === 'preset-1')!;
+    const saved = preset.filters.find((f) => f.id === 'preset-1-a')!;
+    expect(saved.dependsOn).toBeUndefined();
+  });
+
+  it('applyFilterPreset does not throw on a malformed (non-array) dependsOn and drops it', () => {
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [{ ...pageFilter('preset-1-a'), dependsOn: 'country' as any }],
+    };
+    const doc = makeDoc({ filterPresets: [preset] });
+    expect(() => docTransforms.applyFilterPreset(doc, 'preset-1')).not.toThrow();
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+    const applied = next.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    )!;
+    expect(applied.dependsOn).toBeUndefined();
+  });
+
   // ─── 2.2: applyFilterPreset must not land TWO rank filters in one page context ───
   // Sibling of the iter-9 `duplicateWidget` rank-uniqueness fix. A preset can carry a
   // page-scoped rank (Top-N) filter (`saveFilterPreset` applies no rank exclusion); applying it

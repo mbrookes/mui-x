@@ -2223,7 +2223,10 @@ export class StudioController {
    *
    * `targetRows` is the target page's COMPLETE desired final layout including
    * `widgetId`; the caller owns the geometry/splice math. An unknown `widgetId`
-   * (or a missing source page) is a clean no-op.
+   * (or a missing source page, or a missing target page) is a clean no-op —
+   * mirrors the target-page-exists guard `moveWidgetToPage` performs before
+   * delegating here, so a page deleted concurrently with an in-flight drag
+   * can't orphan the widget onto a nonexistent page.
    */
   private commitWidgetMove = (
     widgetId: string,
@@ -2233,7 +2236,10 @@ export class StudioController {
     options?: { label?: string | null; transform?: (next: StudioState) => StudioState },
   ) => {
     const state = this.store.state;
-    if (!Object.hasOwn(state.doc.widgets, widgetId)) {
+    if (
+      !Object.hasOwn(state.doc.widgets, widgetId) ||
+      !Object.hasOwn(state.doc.pages, targetPageId)
+    ) {
       return;
     }
     const mutations: StateMutation[] = [];

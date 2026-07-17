@@ -318,8 +318,11 @@ export function saveFilterPreset(doc: StudioDoc, id: string, name: string): Stud
     name,
     filters: pageFilters.map((f: StudioFilterState) => {
       const rekeyed = { ...f, id: `${id}-${f.id}` };
-      if (!f.dependsOn) {
-        return rekeyed;
+      // A wrong-shaped `dependsOn` (e.g. from persisted/wire-loaded state the schema layer
+      // hasn't validated) is stripped rather than carried through unchanged — `rekeyed` still
+      // has the malformed value via the spread above, so this must explicitly clear it.
+      if (!Array.isArray(f.dependsOn)) {
+        return { ...rekeyed, dependsOn: undefined };
       }
       const remappedDependsOn = f.dependsOn
         .filter((depId: string) => capturedIds.has(depId))
@@ -384,7 +387,7 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
       id: idMap.get(f.id)!,
       scope: { kind: 'page' as const, pageId: activePageId },
     };
-    if (f.dependsOn) {
+    if (Array.isArray(f.dependsOn)) {
       const remappedDependsOn = f.dependsOn
         .map((depId: string) => idMap.get(depId))
         .filter((depId: string | undefined): depId is string => depId !== undefined);
@@ -392,6 +395,10 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
         ...rematerialized,
         dependsOn: remappedDependsOn.length > 0 ? remappedDependsOn : undefined,
       };
+    } else if (f.dependsOn !== undefined) {
+      // A wrong-shaped `dependsOn` (e.g. from persisted/wire-loaded state the schema layer
+      // hasn't validated) is stripped rather than carried through unchanged via the spread above.
+      rematerialized = { ...rematerialized, dependsOn: undefined };
     }
     // Rank-filter uniqueness guard (2.2): a preset can carry a page-scoped rank (Top-N) filter
     // (`saveFilterPreset` applies no rank exclusion), and it re-materializes onto the active page.

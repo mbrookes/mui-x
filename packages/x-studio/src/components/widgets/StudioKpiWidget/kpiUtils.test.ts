@@ -126,6 +126,33 @@ describe('extractDateRange', () => {
     expect(result!.start.toISOString().slice(0, 10)).toBe('2024-06-30');
     expect(Math.abs(result!.end.getTime() - Date.now())).toBeLessThan(5000);
   });
+
+  it('bounds an "equals" ("On X") date filter to that single calendar day, not [X..today] (T1.5)', () => {
+    // `equals` keeps ONLY rows on 2024-03-15 (L3 enforces it), so the derived current period
+    // must be that single day. The old operator-blind fall-through produced
+    // `{ start: 2024-03-15, end: today }` (~open-ended), making the trend compare a one-day
+    // headline against a huge previous aggregate → always a bogus delta.
+    const result = extractDateRange(makeFilter({ operator: 'equals', value: '2024-03-15' }));
+    expect(result).not.toBeNull();
+    expect(toLocalYmd(result!.start)).toBe('2024-03-15');
+    expect(toLocalYmd(result!.end)).toBe('2024-03-15');
+    // A single calendar day, not an ~open-ended window ending today.
+    expect(result!.end.getTime() - result!.start.getTime()).toBeLessThan(24 * 60 * 60 * 1000);
+  });
+
+  it('returns null for "not_equals" so no trend badge is derived from it (T1.5)', () => {
+    // `not_equals` ("not on X") hit the same operator-blind branch as `equals` and produced a
+    // fabricated open-ended window. It defines no contiguous date range → no trend.
+    expect(
+      extractDateRange(makeFilter({ operator: 'not_equals', value: '2024-03-15' })),
+    ).toBeNull();
+  });
+
+  it('returns null for emptiness operators (is_empty / is_not_empty) (T1.5)', () => {
+    expect(
+      extractDateRange(makeFilter({ operator: 'is_not_empty', value: '2024-03-15' })),
+    ).toBeNull();
+  });
 });
 
 // ─── findDateFilter ───────────────────────────────────────────────────────────

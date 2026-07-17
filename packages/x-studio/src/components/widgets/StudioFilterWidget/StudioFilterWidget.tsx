@@ -142,6 +142,12 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   );
   const activeFilter = useStudioSelector(selectActiveFilter);
 
+  // Pending Exclude-toggle intent for the multi-select control, held locally until a
+  // selection exists to apply it to. `null` means "no pending intent — defer to the active
+  // filter's operator". Without this, toggling Exclude while nothing is selected was a silent
+  // no-op: the button couldn't reflect the user's intent and the choice was lost (finding T3.7).
+  const [pendingExclude, setPendingExclude] = React.useState<boolean | null>(null);
+
   // Compute distinct values for select/toggle controls
   const distinctValues = React.useMemo(() => {
     if (
@@ -263,12 +269,19 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'multi-select') {
     const selected = (activeFilter?.value as string[] | undefined) ?? [];
-    const exclude = activeFilter?.operator === 'not_in';
+    // The displayed Exclude state prefers a not-yet-applied pending intent (chosen while
+    // nothing was selected) over the active filter's operator, so the toggle reflects what
+    // the user clicked even before a selection exists (finding T3.7).
+    const activeExclude = activeFilter?.operator === 'not_in';
+    const exclude = pendingExclude ?? activeExclude;
     const managedOnApply = (v: string[], op: 'in' | 'not_in' = exclude ? 'not_in' : 'in') => {
       if (v.length === 0) {
         handleClear();
         return;
       }
+      // The pending intent is now realized in the applied filter's operator — stop
+      // overriding so the control tracks the store again.
+      setPendingExclude(null);
       controller.applyInteractiveFilter(widget.id, fieldId, op, v, {
         filterMode: 'selection',
         fieldType: field?.type ?? 'string',
@@ -276,9 +289,13 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       });
     };
     const managedOnExcludeChange = (nextExclude: boolean) => {
-      const op = nextExclude ? 'not_in' : 'in';
       if (selected.length > 0) {
-        managedOnApply(selected, op);
+        // A selection already exists — apply the new operator immediately.
+        managedOnApply(selected, nextExclude ? 'not_in' : 'in');
+      } else {
+        // Nothing selected yet — remember the intent so the toggle reflects it and the next
+        // selection is applied with this operator, instead of silently dropping the choice.
+        setPendingExclude(nextExclude);
       }
     };
     return (

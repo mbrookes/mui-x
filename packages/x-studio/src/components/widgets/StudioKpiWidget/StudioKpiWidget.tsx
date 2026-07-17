@@ -568,7 +568,16 @@ function useKpiValue(params: {
     const measureKey = measureExprField
       ? `measure:${measureExprField.id}:${stableStringify(measureExprField.expression)}`
       : `agg:${aggregation}`;
-    if (!dataSource?.rows || (!config.kpiValueField && !isFieldlessCount)) {
+    // Gate on whether the widget can produce a row baseline at all — NOT on the raw static
+    // `dataSource.rows`. An adapter-backed source may legitimately omit `rows` (the schema
+    // allows it when an `adapter` is provided), and the adapter path never writes fetched
+    // rows back to `dataSource.rows`; `currentRows` (from `useWidgetRows`) is populated in
+    // that case. Gating on `dataSource.rows` alone kept the headline permanently "—" (and
+    // disabled the sparkline + trend) for a valid adapter-only config (finding T2.3).
+    if (
+      (!dataSource?.rows && !dataSource?.adapter) ||
+      (!config.kpiValueField && !isFieldlessCount)
+    ) {
       return {
         displayValue: '—',
         hasData: false,

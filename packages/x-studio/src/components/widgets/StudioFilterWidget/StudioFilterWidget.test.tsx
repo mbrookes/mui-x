@@ -109,6 +109,49 @@ describe('StudioFilterWidget', () => {
       act(() => captured.onApply!(['US'], 'not_in'));
       expect(applySpy).toHaveBeenCalledWith('w1', 'country', 'not_in', ['US'], expect.any(Object));
     });
+
+    it('holds the Exclude toggle intent when nothing is selected, then applies it on selection (finding T3.7)', () => {
+      const captured: {
+        onApply?: (...args: any[]) => void;
+        onExcludeChange?: (next: boolean) => void;
+        exclude?: boolean;
+      } = {};
+      function Stub(props: {
+        onApply?: (...args: any[]) => void;
+        onExcludeChange?: (next: boolean) => void;
+        exclude?: boolean;
+      }) {
+        captured.onApply = props.onApply;
+        captured.onExcludeChange = props.onExcludeChange;
+        captured.exclude = props.exclude;
+        return <div data-testid="control" />;
+      }
+      const { controller, wrapper } = createStudioHarness();
+      const applySpy = vi.spyOn(controller, 'applyInteractiveFilter');
+      render(
+        <StudioFilterWidget
+          widget={filterWidget(config)}
+          dataSource={DATA_SOURCE}
+          pageId="page-1"
+          slots={{ multiSelectControl: Stub }}
+        />,
+        { wrapper },
+      );
+
+      // Toggling Exclude with an empty selection must NOT silently no-op the intent...
+      act(() => captured.onExcludeChange!(true));
+      expect(applySpy).not.toHaveBeenCalled();
+      // ...the toggle must visibly reflect the pending intent on the next render.
+      expect(captured.exclude).toBe(true);
+
+      // Choosing values now applies them with the held `not_in` operator.
+      act(() => captured.onApply!(['US']));
+      expect(applySpy).toHaveBeenCalledWith('w1', 'country', 'not_in', ['US'], {
+        filterMode: 'selection',
+        fieldType: 'string',
+        filterSourceId: 'orders',
+      });
+    });
   });
 
   describe('toggle', () => {

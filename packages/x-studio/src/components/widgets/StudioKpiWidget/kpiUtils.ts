@@ -209,6 +209,22 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     // Mirrors the display-side interpretation in `internals/widgetUtils.tsx`
     // ("since X" for `greater_than*`, "until X" for `less_than*`).
     const op = resolved.operator;
+    if (op === 'equals') {
+      // "On X": the filter keeps ONLY rows on the single day X, so the current period is
+      // that one calendar day — [start-of-day X, end-of-day X] — NOT the open-ended
+      // "since X" window below. Deriving `{ start: X, end: today }` here (the previous
+      // operator-blind fall-through) made the trend compare a single-day headline against
+      // an ~open-ended previous aggregate, always producing a bogus huge delta (T1.5).
+      const end = new Date(v1);
+      end.setHours(23, 59, 59, 999);
+      return { start: v1, end };
+    }
+    if (op === 'not_equals' || op === 'is_empty' || op === 'is_not_empty') {
+      // "not X" / emptiness filters define no contiguous date window at all, so no trend
+      // badge can be meaningfully derived from them — return null instead of falling through
+      // to the "since X" window, which would fabricate an ~open-ended delta (T1.5).
+      return null;
+    }
     if (op === 'less_than' || op === 'less_than_or_equal') {
       // "until X": the filter keeps rows up to (and maybe including) X, so X is
       // the END of the current period — NOT the start. Deriving `{ start: X,

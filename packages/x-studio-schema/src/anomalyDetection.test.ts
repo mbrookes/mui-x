@@ -69,4 +69,33 @@ describe('detectAnomaliesIQR', () => {
     expect(result.has(9)).toBe(true);
     expect(result.size).toBe(2);
   });
+
+  // T3-4: a single non-finite value must NOT poison `toSorted`'s comparator and silently
+  // disable detection for the whole series. Non-finite values are excluded from the quartile
+  // math (and never flagged), while the returned Set still indexes into the ORIGINAL array.
+  it('ignores a NaN without disabling detection for the whole series (T3-4)', () => {
+    // The clear high outlier (200) still sits at original index 8; the NaN at index 4 is
+    // dropped from the quartile math and is not itself reported.
+    const values = [10, 11, 12, 10, NaN, 12, 10, 11, 200];
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(8)).toBe(true);
+    expect(result.has(4)).toBe(false);
+    expect(result.size).toBe(1);
+  });
+
+  it('ignores Infinity/-Infinity and keeps original indices (T3-4)', () => {
+    // Finite subset is [100,102,98,101,99,100,1] with the low outlier (1) at original index 8.
+    const values = [100, Infinity, 102, 98, -Infinity, 101, 99, 100, 1];
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(8)).toBe(true);
+    expect(result.has(1)).toBe(false);
+    expect(result.has(4)).toBe(false);
+    expect(result.size).toBe(1);
+  });
+
+  it('returns no anomalies when fewer than 4 FINITE values remain after filtering (T3-4)', () => {
+    // Nine entries, but only three are finite — below the n < 4 guard once NaN is excluded.
+    const values = [1, NaN, 2, NaN, 3, NaN, NaN, NaN, NaN];
+    expect(detectAnomaliesIQR(values).size).toBe(0);
+  });
 });

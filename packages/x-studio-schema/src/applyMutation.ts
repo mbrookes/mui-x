@@ -252,13 +252,23 @@ function stripUnsafeConfigKeys(config: Record<string, unknown>): Record<string, 
 // mutation does `Object.keys(existing.config)` / `shallowRecordEqual(existing.config, …)`
 // and throws `Cannot convert undefined or null to object`. Neutralizing it at the add
 // site (not just the immediate normalize call) closes that deferred throw (T2-2).
-// Reference-stable when the config is already a record.
+//
+// It ALSO strips prototype-polluting own keys from a record config (T2-2), so the two ADD
+// channels (`addWidget`, `applyBulkUpdate.addedWidgets`) honor the SAME defense-in-depth key
+// screen `stripUnsafeConfigKeys` already gives the two UPDATE channels. A server-built
+// `addWidget` bypassing `parseStateMutation` (the `executeToolOnState` path — reachable for a
+// host-registered CUSTOM widget kind, whose `validateConfigKeysForKind` imposes no key
+// restriction) could otherwise install a config carrying an own `"__proto__"` key verbatim;
+// the NEXT `deserializeState` load then drops the ENTIRE widget on its config own-key screen —
+// deferred silent data loss. Reference-stable when the config is already a record with no
+// unsafe own key.
 function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   const { config } = widget;
-  if (isPlainRecord(config)) {
-    return widget;
+  if (!isPlainRecord(config)) {
+    return { ...widget, config: {} } as StudioWidget;
   }
-  return { ...widget, config: {} } as StudioWidget;
+  const safeConfig = stripUnsafeConfigKeys(config);
+  return safeConfig === config ? widget : ({ ...widget, config: safeConfig } as StudioWidget);
 }
 
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed
@@ -543,10 +553,26 @@ function removeWidgetIds(
   if (removedIds.size === 0) {
     return { pages, widgets, filters, removedIds };
   }
-  // (c) drop the removed widgets from the flat widgets record.
-  const nextWidgets = { ...widgets };
+  // (c) drop the removed widgets from the flat widgets record — but only rebuild it when at
+  // least one removed id is an OWN key of `widgets` (T2-1). A re-delivered removal bulk (SSE
+  // at-least-once) whose `removedWidgetIds` names an already-gone widget classifies it as
+  // "genuinely removed" here (no surviving page references it), yet `{ ...widgets }` + a no-op
+  // `delete` would mint a fresh, content-identical record — flipping the caller's
+  // `widgetsChanged` gate and pushing a spurious undo entry. Returning the ORIGINAL `widgets`
+  // reference when nothing was actually deleted preserves the reference-stable no-op contract.
+  let anyOwnKey = false;
   for (const id of removedIds) {
-    delete nextWidgets[id];
+    if (Object.hasOwn(widgets, id)) {
+      anyOwnKey = true;
+      break;
+    }
+  }
+  let nextWidgets = widgets;
+  if (anyOwnKey) {
+    nextWidgets = { ...widgets };
+    for (const id of removedIds) {
+      delete nextWidgets[id];
+    }
   }
   // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id.
   const nextFilters = dropWidgetScopedFilters(filters, (id) => removedIds.has(id));
@@ -601,6 +627,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addPage: {
     apply: (state, args) => {
       const { id, title } = args;
+      // Require a STRING id (T2-3). A parser-bypassing server-built `addPage` with `id`
+      // absent would otherwise pass `isSafePatchKey(undefined)` (the denylist has no
+      // `undefined` member) and mint a page keyed `"undefined"` with `id: undefined`,
+      // simultaneously setting `dashboard.activePageId` to `undefined` — strictly worse than a
+      // no-op. The wire boundary already requires a safe string id; mirror it here.
+      if (typeof id !== 'string') {
+        return state;
+      }
       // Screen the id against the shared prototype-hazard denylist before the literal
       // insert below (matching `applyBulkUpdate.addedWidgets` and the load boundary). The
       // literal `{ ...pages, [id]: … }` uses define-semantics, so there is no prototype
@@ -649,6 +683,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addWidget: {
     apply: (state, args) => {
       const { widget } = args;
+      // Require a record `widget` (T2-3). A parser-bypassing server-built `addWidget` with
+      // `widget` absent/non-record would throw on the `widget.id` read below; no-op instead,
+      // mirroring the wire boundary's `validateWidget` record check.
+      if (!isPlainRecord(widget)) {
+        return state;
+      }
       // Screen the widget id against the shared prototype-hazard denylist before the
       // literal inserts below (matching `applyBulkUpdate.addedWidgets` and the load
       // boundary). No prototype pollution risk (literal define-semantics), but a
@@ -969,6 +1009,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setWidgetLayout: {
     apply: (state, args) => {
+      // Require an array `rows` (T2-3). A parser-bypassing server-built `setWidgetLayout`
+      // with `rows` absent/non-array would throw on the `args.rows.map(...)` below; no-op
+      // instead, mirroring the wire boundary's `isStringMatrix(args.rows)` check.
+      if (!Array.isArray(args.rows)) {
+        return state;
+      }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
@@ -1237,28 +1283,36 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   addFilter: {
     apply: (state, args) => {
+      // Require a record `filter` (T2-3). A parser-bypassing server-built `addFilter` with
+      // `filter` absent/non-record would throw on the `args.filter.id` read below; no-op
+      // instead, mirroring the wire boundary's `validateFilter` record check.
+      if (!isPlainRecord(args.filter)) {
+        return state;
+      }
       // Idempotent: re-delivery of the same addFilter SSE event must not append a
       // duplicate (unlike a fresh filter, the id already exists).
       if (state.filters.some((f) => f.id === args.filter.id)) {
         return state;
       }
-      // Reject an ORPHAN cross-filter/interactive filter (finding 2.1): both scope kinds
-      // carry a `sourceWidgetId`, and the reducer's ONLY cleanup path for such filters
-      // (`dropWidgetScopedFilters`) fires when that source widget is REMOVED. A filter
-      // naming a `sourceWidgetId` that no widget in the doc ever had would therefore
-      // filter its page forever with no clearing affordance — exactly the orphan state
-      // `deserializeState` drops on load. Screen it here so the wire/reducer boundary and
-      // the load boundary agree. "Existing widget" is the reducer's own notion —
-      // `Object.hasOwn(state.widgets, id)` — matching every other id-keyed guard here
-      // (`updateWidget`/`removeWidget`), and an untrusted id can't match a prototype
-      // member. No-op-return the input `state` reference, the dominant convention for an
-      // unresolvable-target mutation in this reducer (`updateWidget`/`removePage`/
-      // `setActivePage` unknown-id cases).
+      // Reject an ORPHAN scoped filter (finding 2.1 / T3-2): the cross-filter/interactive scopes
+      // carry a `sourceWidgetId`, and the `widget` scope carries a `widgetId` — for all three,
+      // the reducer's ONLY cleanup path (`dropWidgetScopedFilters`) fires when that anchor widget
+      // is REMOVED. A filter naming an anchor widget the doc never had would therefore filter its
+      // page forever with no clearing affordance — exactly the orphan state `deserializeState`
+      // drops on load. Screen it here so the wire/reducer boundary and the load boundary agree.
+      // "Existing widget" is the reducer's own notion — `Object.hasOwn(state.widgets, id)` —
+      // matching every other id-keyed guard here (`updateWidget`/`removeWidget`), and an untrusted
+      // id can't match a prototype member. No-op-return the input `state` reference, the dominant
+      // convention for an unresolvable-target mutation in this reducer (`updateWidget`/
+      // `removePage`/`setActivePage` unknown-id cases).
       const { scope } = args.filter;
-      if (
-        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
-        !Object.hasOwn(state.widgets, scope.sourceWidgetId)
-      ) {
+      const orphanAnchorId =
+        scope.kind === 'cross-filter' || scope.kind === 'interactive'
+          ? scope.sourceWidgetId
+          : scope.kind === 'widget'
+            ? scope.widgetId
+            : undefined;
+      if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
         return state;
       }
       // Applied verbatim — the filter already carries its target scope/page
@@ -1642,7 +1696,19 @@ export function applyDocMutation(doc: StudioDoc, mutation: StateMutation): Studi
   const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
     ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
     : undefined;
-  return handler ? handler.apply(doc, mutation.args) : doc;
+  if (!handler) {
+    return doc;
+  }
+  // Every mutation's `args` is a record (each `StateMutation` variant types it as an object);
+  // the wire boundary (`parseStateMutation`) enforces that. A server-built mutation bypassing
+  // the parser (the `executeToolOnState` path) could hand a non-record `args` (`undefined`, a
+  // primitive), on which every handler's first field read (`args.rows`, `args.widget`,
+  // `args.filter`, …) throws. Gate it once here so the reducer stays TOTAL and returns the
+  // documented no-op `doc` reference (T2-3), rather than repeating the guard in each handler.
+  if (!isPlainRecord(mutation.args)) {
+    return doc;
+  }
+  return handler.apply(doc, mutation.args);
 }
 
 /**
@@ -1670,5 +1736,11 @@ export function mutationLabel(mutation: StateMutation): string {
   const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
     ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
     : undefined;
-  return handler ? handler.label(mutation.args) : (mutation as { type: string }).type;
+  // A non-record `args` (a parser-bypassing server-built mutation) would throw in the label
+  // builders that reach into it (`addWidget:${args.widget.kind}`, `addFilter:${args.filter.field}`);
+  // fall back to the raw type string, matching the unrecognized-`type` contract (T2-3).
+  if (!handler || !isPlainRecord(mutation.args)) {
+    return (mutation as { type: string }).type;
+  }
+  return handler.label(mutation.args);
 }

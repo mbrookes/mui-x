@@ -982,6 +982,108 @@ describe('deserializeState', () => {
     },
   );
 
+  // ── load-boundary own-key screen extended to the remaining channels (T2-4) ────
+  // `dashboard`/`relationships`/`expressionFields`/`ai`(+threads)/preset inner filters were
+  // previously loaded verbatim (no own-key screen), so a shared/hand-edited doc carrying an own
+  // `__proto__`/`constructor`/`prototype` DATA key round-tripped forever and could poison a later
+  // spread. The screen is now symmetric with the widgets/pages/filters channels.
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'strips an own "%s" key from the persisted dashboard, keeping the rest (T2-4)',
+    (key) => {
+      const activePageId = Object.keys(minimalSerialized.pages)[0];
+      const serialized = {
+        ...minimalSerialized,
+        dashboard: JSON.parse(
+          `{"id":"d","title":"T","activePageId":"${activePageId}","${key}":{"polluted":true}}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(Object.hasOwn(state.doc.dashboard, key)).toBe(false);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(state.doc.dashboard.title).toBe('T');
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted relationships entry carrying an own "%s" key (T2-4)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        relationships: JSON.parse(
+          `[{"id":"r1","sourceId":"a","targetId":"b"},` +
+            `{"id":"r2","sourceId":"c","targetId":"d","${key}":{"polluted":true}}]`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.relationships.map((r) => r.id)).toEqual(['r1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted expressionFields entry carrying an own "%s" key (T2-4)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        expressionFields: JSON.parse(
+          `[{"id":"ef1","name":"A","sourceId":"a"},` +
+            `{"id":"ef2","name":"B","sourceId":"b","${key}":{"polluted":true}}]`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'strips an own "%s" key from the persisted ai container, keeping its threads (T2-4)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        ai: JSON.parse(
+          `{"threads":[{"id":"t1","name":"T1"}],"activeThreadId":"t1","${key}":{"polluted":true}}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(Object.hasOwn(state.doc.ai!, key)).toBe(false);
+      expect(state.doc.ai!.threads.map((t) => t.id)).toEqual(['t1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted ai thread carrying an own "%s" key (T2-4)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        ai: JSON.parse(
+          `{"threads":[{"id":"t1","name":"T1"},{"id":"t2","name":"T2","${key}":{"polluted":true}}],"activeThreadId":"t1"}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.ai!.threads.map((t) => t.id)).toEqual(['t1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a preset inner filter carrying an own "%s" key so applyFilterPreset never rematerializes it (T2-4)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        filterPresets: JSON.parse(
+          `[{"id":"p1","name":"P","filters":[` +
+            `{"id":"f1","field":"x","operator":"equals","value":1},` +
+            `{"id":"f2","field":"y","operator":"equals","value":2,"${key}":{"polluted":true}}]}]`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.filterPresets![0].filters.map((f) => f.id)).toEqual(['f1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
   // ── symmetric filter strip on load (finding 4 / review 2.2) ──────────────────
   it('strips a hand-carried cross-filter/interactive filter on load, symmetric with serializeDoc (finding 4)', () => {
     const serialized = {
@@ -1010,6 +1112,36 @@ describe('deserializeState', () => {
     expect(state.doc.filters.some((f) => f.scope?.kind === 'cross-filter')).toBe(false);
     expect(state.doc.filters.some((f) => f.scope?.kind === 'interactive')).toBe(false);
     expect(state.doc.filters.some((f) => f.id === 'page-f')).toBe(true);
+  });
+
+  // T3-2: an orphan `widget`-scoped filter whose `widgetId` names no loaded widget is dead weight
+  // the reducer can never clean up, so it is dropped on load (symmetric with the reducer's
+  // `addFilter` guard) — while a widget-scoped filter naming a real widget is kept.
+  it('drops an orphan widget-scoped filter but keeps one whose widgetId exists (T3-2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
+      filters: [
+        {
+          id: 'kept',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'widget', widgetId: 'w1' },
+        },
+        {
+          id: 'orphan',
+          field: 'y',
+          operator: 'equals',
+          value: 2,
+          scope: { kind: 'widget', widgetId: 'ghost' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['kept']);
   });
 
   // ── total over corrupt `filters` entries, direct deserializeState call (Tier 1) ─

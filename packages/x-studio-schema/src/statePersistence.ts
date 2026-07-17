@@ -185,8 +185,34 @@ const screenRecordArray = <T>(value: unknown): T[] => {
   if (!Array.isArray(value)) {
     return [];
   }
-  const safe = value.filter((entry) => isRecord(entry));
+  // Reject non-record entries AND entries carrying a prototype-hazard OWN key (T2-4). The
+  // client spreads a relationship/expression-field on hot paths (`{ ...ef }`, `Object.assign`),
+  // so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key (as `JSON.parse` materializes
+  // it on a shared/hand-edited doc) is a pollution hazard the wire boundary would reject — drop
+  // the whole entry, matching the widgets/filters own-key screen. Reuses the SAME predicate.
+  const safe = value.filter((entry) => isRecord(entry) && !hasUnsafeOwnKeys(entry));
   return (safe.length === value.length ? value : safe) as T[];
+};
+
+/**
+ * Return `record` with any prototype-hazard OWN key ({@link UNSAFE_KEYS}) removed, reference-
+ * stable when it carries none (T2-4). Used for the persisted `dashboard`, which `deserializeState`
+ * spreads/uses verbatim: a shared/hand-edited doc can carry an own `"__proto__"`/`"constructor"`/
+ * `"prototype"` DATA key that would round-trip forever and later poison an `Object.assign`/spread
+ * of the dashboard. Drops the offending keys (the widget/filter own-key convention) while keeping
+ * the rest of the user's data.
+ */
+const stripUnsafeOwnKeys = <T extends object>(record: T): T => {
+  if (!hasUnsafeOwnKeys(record)) {
+    return record;
+  }
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (isSafeKey(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe as T;
 };
 
 /**
@@ -202,6 +228,14 @@ const screenRecordArray = <T>(value: unknown): T[] => {
  */
 const isPresetFilterSafe = (entry: unknown): boolean => {
   if (!isRecord(entry)) {
+    return false;
+  }
+  // Reject a preset inner filter carrying a prototype-hazard OWN key (T2-4). This is the
+  // sharpest asymmetry: `applyFilterPreset` rematerializes each preset filter into live
+  // `doc.filters` via `{ ...f, id: fresh, scope: page }`, so an own `"__proto__"` key would
+  // land on a LIVE filter, and the NEXT load's filter own-key screen then silently drops that
+  // whole filter. Screen it here so the two boundaries agree. Reuses the SAME predicate.
+  if (hasUnsafeOwnKeys(entry)) {
     return false;
   }
   if (typeof entry.field !== 'string') {
@@ -764,7 +798,12 @@ export function deserializeState(
   // would otherwise render a blank canvas and silently no-op every legacy mutation that
   // falls back to the active page (`addWidget`/`setWidgetLayout` without an explicit
   // `pageId`). `Object.hasOwn` (not `in`) so an untrusted id can't match a prototype member.
-  const { dashboard } = serialized;
+  // Strip prototype-hazard OWN keys from the persisted dashboard (T2-4) BEFORE it is spread
+  // into live state below. A shared/hand-edited doc can carry an own `"__proto__"`/
+  // `"constructor"`/`"prototype"` DATA key that `deserializeState` would otherwise use verbatim
+  // and round-trip forever, later poisoning an `Object.assign`/spread of the dashboard. Drop the
+  // offending keys (the widgets/filters own-key convention) rather than the whole dashboard.
+  const dashboard = stripUnsafeOwnKeys(serialized.dashboard);
   const reconciledDashboard = Object.hasOwn(normalizedPages, dashboard.activePageId)
     ? dashboard
     : { ...dashboard, activePageId: Object.keys(normalizedPages)[0] ?? '' };
@@ -778,10 +817,18 @@ export function deserializeState(
   // corruption. Drop non-record entries the SAME way the sibling `filters` per-entry screen
   // below does, rather than loading them verbatim. Reference-stable when every surviving
   // thread is already a record; the whole `ai` is dropped to `undefined` when absent/junk.
+  //
+  // Also screen the `ai` container AND each surviving thread for prototype-hazard OWN keys
+  // (T2-4): `renameAIThread` spreads both (`{ ...state.ai, threads: … }`, `{ ...t, name }`), so
+  // an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key would round-trip forever and
+  // poison a later spread. The container's unsafe keys are stripped (keeping the rest of `ai`);
+  // a thread carrying one is dropped whole, matching the sibling per-entry own-key screens.
   let normalizedAi: StudioAIState | undefined;
   if (isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)) {
-    const ai = serialized.ai as StudioAIState;
-    const safeThreads = ai.threads.filter((thread) => isRecord(thread));
+    const ai = stripUnsafeOwnKeys(serialized.ai as StudioAIState);
+    const safeThreads = ai.threads.filter(
+      (thread) => isRecord(thread) && !hasUnsafeOwnKeys(thread),
+    );
     normalizedAi = safeThreads.length === ai.threads.length ? ai : { ...ai, threads: safeThreads };
   }
 
@@ -859,6 +906,15 @@ export function deserializeState(
         // foreign doc must not install (it would permanently filter its page with no
         // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
         if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+          return false;
+        }
+        // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),
+        // symmetric with the reducer's `addFilter` guard. Its only cleanup path
+        // (`dropWidgetScopedFilters`) fires on widget REMOVAL, which never happens for a widget
+        // that was never present, so it would otherwise be permanent invisible dead weight that
+        // filters its page forever. `Object.hasOwn` so an untrusted `widgetId` can't match a
+        // prototype member.
+        if (scope.kind === 'widget' && !Object.hasOwn(normalizedWidgets, scope.widgetId)) {
           return false;
         }
         // Field-is-a-string check (T2-3), symmetric with the wire boundary at

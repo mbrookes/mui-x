@@ -21,10 +21,23 @@ function median(sorted: number[]): number {
  * Returns a Set of outlier indices into the original `values` array.
  */
 export function detectAnomaliesIQR(values: number[]): Set<number> {
-  if (values.length < 4) {
+  // Retain only the FINITE values (keeping each one's ORIGINAL index) before the quartile
+  // math. A single `NaN`/`Infinity` — row data reaching `summarise_page` can carry one —
+  // would otherwise poison `toSorted`'s comparator, making `q1`/`q3`/`iqr` and every fence
+  // `NaN`, so every `value < lower || value > upper` comparison is `false` and the function
+  // silently returns "no anomalies" for the WHOLE series. Excluding non-finite values scopes
+  // the detection to the real numbers (a `NaN` is not a meaningful outlier) while the returned
+  // Set still indexes into the caller's original `values` array.
+  const finite: { value: number; index: number }[] = [];
+  for (let i = 0; i < values.length; i += 1) {
+    if (Number.isFinite(values[i])) {
+      finite.push({ value: values[i], index: i });
+    }
+  }
+  if (finite.length < 4) {
     return new Set();
   }
-  const sorted = values.toSorted((a, b) => a - b);
+  const sorted = finite.map((entry) => entry.value).toSorted((a, b) => a - b);
   const q1 = median(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = median(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;
@@ -34,9 +47,9 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
   const lower = q1 - 1.5 * iqr;
   const upper = q3 + 1.5 * iqr;
   const result = new Set<number>();
-  for (let i = 0; i < values.length; i += 1) {
-    if (values[i] < lower || values[i] > upper) {
-      result.add(i);
+  for (const { value, index } of finite) {
+    if (value < lower || value > upper) {
+      result.add(index);
     }
   }
   return result;

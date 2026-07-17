@@ -590,6 +590,65 @@ describe('applyMutation', () => {
     expect(next.filters[0].id).toBe('f-valid');
   });
 
+  // T3-2: a `widget`-scoped filter naming a widget that does not exist is an orphan the reducer
+  // can never clean up (`dropWidgetScopedFilters` fires only on widget REMOVAL) — reject it,
+  // extending the same guard the cross-filter/interactive orphan check already applies.
+  it('addFilter drops an orphan widget-scoped filter whose widgetId names no existing widget (T3-2)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    });
+    const orphan = {
+      id: 'f-orphan',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'widget' as const, widgetId: 'ghost' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: orphan } });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter installs a widget-scoped filter whose widgetId names an existing widget (T3-2)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    });
+    const valid = {
+      id: 'f-valid',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'widget' as const, widgetId: 'w1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
+    expect(next.filters).toHaveLength(1);
+    expect(next.filters[0].id).toBe('f-valid');
+  });
+
+  // T2-2: the `addWidget` ADD channel strips unsafe own config keys (via `coerceWidgetConfig`),
+  // so a server-built widget whose config carries an own `__proto__` key survives the next load
+  // instead of being dropped wholesale by `deserializeState`'s config own-key screen.
+  it('addWidget strips an unsafe own key from config; widget survives reload (T2-2)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const config = JSON.parse('{"__proto__":{"polluted":true},"foo":"baz"}');
+    const widget = { id: 'w1', kind: 'acme-x', title: 'W', config };
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget, pageId: 'page-1' } as never,
+    });
+    expect(Object.hasOwn(next.widgets.w1.config, '__proto__')).toBe(false);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((next.widgets.w1.config as { foo: string }).foo).toBe('baz');
+    const reloaded = deserializeState(serializeDoc(next), {});
+    expect(reloaded.doc.widgets.w1).toBeDefined();
+    expect((reloaded.doc.widgets.w1.config as { foo: string }).foo).toBe('baz');
+  });
+
   it('removeFilter: unknown filterId is a no-op', () => {
     const state = twoPageState();
     const next = applyDocMutation(state, { type: 'removeFilter', args: { filterId: 'nope' } });
@@ -2219,6 +2278,68 @@ describe('applyMutation', () => {
       expect((reloaded.doc.widgets.w1.config as { foo: string }).foo).toBe('baz');
     });
 
+    // T2-2: the ADD channel (`addedWidgets`) now strips unsafe own config keys too (via
+    // `coerceWidgetConfig`), mirroring the UPDATE channels. A server-built added widget whose
+    // config carries an own `__proto__` key would otherwise install it verbatim and
+    // `deserializeState` would drop the ENTIRE widget on the next load — deferred silent data
+    // loss, reachable for a CUSTOM widget kind (no per-kind key restriction).
+    it('strips an unsafe own key from a bulk addedWidgets[].config; widget survives reload (T2-2)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const config = JSON.parse('{"__proto__":{"polluted":true},"foo":"baz"}');
+      const added = { id: 'w1', kind: 'acme-x', title: 'W', config };
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [added],
+          updatedWidgets: [],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        } as never,
+      });
+      expect(Object.hasOwn(next.widgets.w1.config, '__proto__')).toBe(false);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect((next.widgets.w1.config as { foo: string }).foo).toBe('baz');
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.widgets.w1).toBeDefined();
+      expect((reloaded.doc.widgets.w1.config as { foo: string }).foo).toBe('baz');
+    });
+
+    // T2-1: a re-delivered removal bulk (SSE at-least-once) whose `removedWidgetIds` names an
+    // already-gone widget must return the SAME doc reference — the prior code minted a fresh,
+    // content-identical `widgets` record (a no-op `{ ...widgets }` + `delete`), flipping the
+    // change gate and pushing a spurious undo entry.
+    it('re-applying a removal bulk for an already-gone widget returns the SAME doc reference (T2-1)', () => {
+      const bulk = {
+        type: 'applyBulkUpdate' as const,
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      };
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      // 1) First delivery genuinely removes w1.
+      const afterFirst = applyDocMutation(state, bulk);
+      expect(afterFirst.widgets.w1).toBeUndefined();
+      expect(afterFirst).not.toBe(state);
+      // 2) Re-delivery of the SAME envelope: w1 is already gone, so the whole bulk is a no-op
+      // and must return the SAME doc reference (no spurious undo entry).
+      const afterSecond = applyDocMutation(afterFirst, bulk);
+      expect(afterSecond).toBe(afterFirst);
+    });
+
     it('re-delivering the same bulk does not clobber a concurrent edit to an added widget (idempotent add) (1.2)', () => {
       const bulk = {
         type: 'applyBulkUpdate' as const,
@@ -2916,6 +3037,60 @@ describe('applyMutation', () => {
       // Same reference back — the doc is neither replaced nor corrupted.
       expect(next, `applyDocMutation type=${type}`).toBe(state);
     }
+  });
+
+  // T2-3: the reducer must stay TOTAL over a parser-bypassing server-built mutation with a
+  // partial/malformed `args` (the `executeToolOnState` path never runs `parseStateMutation`),
+  // returning the graceful no-op `doc` reference rather than throwing or installing junk.
+  describe('reducer totality over parser-bypassing partial payloads (T2-3)', () => {
+    it('a non-record args is a graceful no-op at the dispatch boundary', () => {
+      const state = twoPageState();
+      for (const args of [undefined, null, 42, 'x', []]) {
+        const bogus = { type: 'addWidget', args } as any;
+        let next!: StudioDoc;
+        expect(
+          () => {
+            next = applyDocMutation(state, bogus);
+          },
+          `args=${JSON.stringify(args)}`,
+        ).not.toThrow();
+        expect(next, `args=${JSON.stringify(args)}`).toBe(state);
+      }
+    });
+
+    it('addPage with a missing id does not mint an "undefined" page or unset activePageId', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, { type: 'addPage', args: { title: 'X' } } as any);
+      expect(next).toBe(state);
+      expect(Object.hasOwn(next.pages, 'undefined')).toBe(false);
+      expect(next.dashboard.activePageId).toBe('page-1');
+    });
+
+    it('addWidget with a missing widget is a no-op, not a throw', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addWidget',
+        args: { pageId: 'page-1' },
+      } as any);
+      expect(next).toBe(state);
+    });
+
+    it('setWidgetLayout with a missing/non-array rows is a no-op, not a throw', () => {
+      const state = twoPageState();
+      for (const rows of [undefined, 'not-an-array', 42]) {
+        const next = applyDocMutation(state, {
+          type: 'setWidgetLayout',
+          args: { rows, pageId: 'page-1' },
+        } as any);
+        expect(next, `rows=${JSON.stringify(rows)}`).toBe(state);
+      }
+    });
+
+    it('addFilter with a missing filter is a no-op, not a throw', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, { type: 'addFilter', args: {} } as any);
+      expect(next).toBe(state);
+    });
   });
 });
 

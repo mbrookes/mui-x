@@ -215,7 +215,11 @@ export function StudioPieChart({
     // *dimming* the filtered-out ones — when a chart-click cross-highlight ghost is genuinely
     // active. `shouldShowGhost` is true ONLY for chart-click cross-filters in 'cross-highlight'
     // mode, so hard filters (which every other widget applies) now filter the rings too.
-    const useGhostBaseline = shouldShowGhost && allEnrichedRows.length > 0;
+    // Also gated on `preserveXFieldBaseline`, mirroring the single-ring path's
+    // `isPieHighlightActive` (~line 368) — otherwise the grouped-ring ghost baseline would show
+    // regardless of the flag (finding 4).
+    const useGhostBaseline =
+      shouldShowGhost && allEnrichedRows.length > 0 && preserveXFieldBaseline;
     const baseRows = useGhostBaseline ? allEnrichedRows : enrichedRows;
 
     // Get unique category values (period-grouped xField), sorted like the single-ring path

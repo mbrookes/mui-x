@@ -20,6 +20,27 @@ import type {
 import type { StudioBarLayout } from '../../../models/baseTypes';
 
 /**
+ * Applies alpha to an arbitrary CSS color without parsing it, using `color-mix()`
+ * (already an established pattern in this repo — see `GridChartsPanelChart.tsx`).
+ *
+ * The previous approach string-concatenated a hex alpha byte directly onto the color
+ * (`` `${color}40` ``), which only produces a valid paint string when `color` happens to
+ * be a bare hex literal — it silently produces garbage (and a dropped/opaque fill) for
+ * `rgb()`/`hsl()` values or CSS variables, which hosts can legitimately supply via
+ * `chartColors`/theme defaults. `color-mix` works uniformly regardless of the input
+ * color's format (finding 3.7 in `StudioPieChart.tsx` fixed the equivalent pie-arc bug
+ * via `fill-opacity`; line/area series colors are consumed as a raw SVG `fill` string
+ * with no per-series slot to hook `fill-opacity` onto, so `color-mix` is the equivalent
+ * fix for this call site shape).
+ *
+ * @param color - Any valid CSS color (hex, `rgb()`, `hsl()`, a CSS variable, …).
+ * @param percent - Opacity as 0-100 (e.g. `25` for 25% opacity).
+ */
+export function withAlpha(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
+
+/**
  * Whether a bar chart stacks its series. Shared by the multi-Y and split-by bar
  * render paths (previously an identical inline expression at both). A `bar` layout
  * stacks only when `barLayout === 'stacked'`; the dedicated stacked/100% types always do.

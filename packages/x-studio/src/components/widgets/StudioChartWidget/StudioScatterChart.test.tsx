@@ -236,4 +236,87 @@ describe('StudioScatterChart', () => {
     expect(props.hideLegend).toBe(true);
     expect(props.series).toHaveLength(1);
   });
+
+  // ── Emptied cross-filter falls back to the ghost baseline (finding 6) ────────
+  describe('an emptied cross-filter shows the ghost baseline instead of blanking the chart', () => {
+    it('renders the ghost baseline when the filtered (ungrouped) set is empty but allScatterData has points', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={[]}
+          scatterSeries={null}
+          allScatterData={pointsA}
+          allScatterSeries={null}
+          shouldShowGhost
+          skipAnimation={false}
+        />,
+      );
+      expect(scatterSpy).toHaveBeenCalled();
+      const props = lastScatterProps();
+      // Ghost (baseline) + the highlighted series — the highlighted series still renders
+      // (with a genuinely empty `data` array, drawing nothing) since the ungrouped path builds
+      // it unconditionally from `scatterData`; only the ghost carries points here.
+      expect(props.series).toHaveLength(2);
+      expect(props.series[0].id).toBe('__all-ghost');
+      expect(props.series[0].data).toEqual(pointsA);
+      expect(props.series[1].data).toEqual([]);
+    });
+
+    it('still renders nothing when the filtered set is empty and shouldShowGhost is false', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={[]}
+          scatterSeries={null}
+          allScatterData={pointsA}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(scatterSpy).not.toHaveBeenCalled();
+    });
+
+    it('renders the ghost baseline when the filtered (grouped) series list is empty but allScatterSeries has points', () => {
+      const baseline: ScatterSeriesData[] = [
+        { id: 'a', label: 'A', data: pointsA },
+        { id: 'b', label: 'B', data: [{ id: 0, x: 5, y: 6 }] },
+      ];
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          colorField="segment"
+          // `prepareScatterDataGrouped` drops every empty category, so an emptied filter
+          // yields `[]` here — truthy, not null.
+          scatterSeries={[]}
+          scatterData={null}
+          allScatterData={null}
+          allScatterSeries={baseline}
+          shouldShowGhost
+          skipAnimation={false}
+        />,
+      );
+      expect(scatterSpy).toHaveBeenCalled();
+      const props = lastScatterProps();
+      // Only the ghost series render (baseline) — no highlighted series, since the
+      // filtered set is genuinely empty.
+      expect(props.series.map((s) => s.id)).toEqual(['a-ghost', 'b-ghost']);
+    });
+
+    it('renders nothing for a grouped chart when both the filtered and baseline series lists are empty', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          colorField="segment"
+          scatterSeries={[]}
+          scatterData={null}
+          allScatterData={null}
+          allScatterSeries={[]}
+          shouldShowGhost
+          skipAnimation={false}
+        />,
+      );
+      expect(scatterSpy).not.toHaveBeenCalled();
+    });
+  });
 });

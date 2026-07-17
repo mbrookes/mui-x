@@ -28,6 +28,7 @@ import {
   sortAggregatedTemporally,
   sortMultiSeriesTemporally,
   sortMultiYTemporally,
+  withAlpha,
 } from './chartWidgetHelpers';
 
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
@@ -231,7 +232,7 @@ export function StudioLineAreaChart({
       ? sfLineAllData.seriesNames.map((name) => ({
           id: `${String(name)}-ghost`,
           data: sfLineAllData.seriesData[name],
-          color: `${getSeriesColor(name) ?? resolvedChartColors[0]}40`,
+          color: withAlpha(getSeriesColor(name) ?? resolvedChartColors[0], 25),
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -362,7 +363,7 @@ export function StudioLineAreaChart({
       ? multiYAllData.series.map((s, i) => ({
           id: `${s.fieldId}-${i}-ghost`,
           data: s.values,
-          color: `${resolvedChartColors[i % resolvedChartColors.length]}40`,
+          color: withAlpha(resolvedChartColors[i % resolvedChartColors.length], 25),
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -452,7 +453,8 @@ export function StudioLineAreaChart({
     shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData.values : null;
 
   const isArea = chartType !== 'line';
-  const ghostAlpha = isArea ? '30' : '40';
+  // ~19% for area ghosts, 25% for line ghosts (matches the multi-Y / seriesField ghost paths).
+  const ghostAlphaPercent = isArea ? 19 : 25;
   // Forecast is single-series and line/area only (never area-stacked/area-100).
   const forecastEligible = chartType === 'line' || chartType === 'area';
   const forecastData =
@@ -512,8 +514,10 @@ export function StudioLineAreaChart({
                   // area ghost = ~19% alpha), matching the multi-Y / seriesField ghost paths.
                   // x-charts resolves `series.color ?? colors[i]`, so the explicit color must
                   // already carry the alpha — a full-opacity color here would make the ghost
-                  // indistinguishable from the active series.
-                  color: `${lineColor}${ghostAlpha}`,
+                  // indistinguishable from the active series. `withAlpha` uses `color-mix()`
+                  // instead of concatenating a hex alpha byte, so it stays correct even when
+                  // `lineColor` is an `rgb()`/`hsl()` value or a CSS variable (finding 3.7).
+                  color: withAlpha(lineColor, ghostAlphaPercent),
                   valueFormatter: seriesValueFormatter,
                 } as const,
               ]
@@ -558,21 +562,23 @@ export function StudioLineAreaChart({
                 // therefore the band WIDTH (not the absolute upper bound) — summing
                 // reconstructs the absolute upper bound at the rendered top edge. See
                 // `computeWidgetForecast` in forecastUtils.ts for how the two are derived.
+                //
+                // Order matters here and is NOT left to `stackOrder: 'ascending'` (by-sum
+                // order): `__forecast_lower__` must always be the stack base and
+                // `__forecast_upper__` (the width) must always be stacked on top of it,
+                // regardless of which series has the larger sum. `stackOrder: 'ascending'`
+                // picks the base by comparing `Σvalues`, which — once `upperBand` carries a
+                // WIDTH rather than an absolute value — is no longer reliably larger than
+                // `ΣlowerBand` (a typical "signal clearly above its noise band" series has
+                // `Σwidth < Σlower`). That flips the two bands' stacking roles: the tinted
+                // `upper` series would render as a thin strip hugging the x-axis instead of
+                // surrounding the forecast line, and the transparent `lower` series would sit
+                // on top of it — no visible confidence band at all. Listing `lower` before
+                // `upper` with `stackOrder: 'none'` (definition-order stacking, see
+                // `stackSeries.ts`'s `StackOrder.none` / d3's `stackOrderNone`) fixes the
+                // stacking role to array order, independent of either band's magnitude.
                 ...(!isArea && forecastData.upperBand
                   ? [
-                      {
-                        id: '__forecast_upper__',
-                        data: forecastData.upperBand,
-                        label: '',
-                        area: true,
-                        connectNulls: false,
-                        showMark: false,
-                        disableHighlight: true as const,
-                        color: `${lineColor}30`,
-                        stack: 'confidence',
-                        stackOrder: 'ascending' as const,
-                        valueFormatter: () => '',
-                      } as const,
                       {
                         id: '__forecast_lower__',
                         data: forecastData.lowerBand as (number | null)[],
@@ -583,7 +589,20 @@ export function StudioLineAreaChart({
                         disableHighlight: true as const,
                         color: 'transparent',
                         stack: 'confidence',
-                        stackOrder: 'ascending' as const,
+                        stackOrder: 'none' as const,
+                        valueFormatter: () => '',
+                      } as const,
+                      {
+                        id: '__forecast_upper__',
+                        data: forecastData.upperBand,
+                        label: '',
+                        area: true,
+                        connectNulls: false,
+                        showMark: false,
+                        disableHighlight: true as const,
+                        color: withAlpha(lineColor, 19),
+                        stack: 'confidence',
+                        stackOrder: 'none' as const,
                         valueFormatter: () => '',
                       } as const,
                     ]

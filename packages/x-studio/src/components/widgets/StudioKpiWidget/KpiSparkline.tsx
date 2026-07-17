@@ -45,9 +45,29 @@ export function KpiSparkline(props: KpiSparklineProps) {
 
   if (plotType === 'gauge') {
     const value = kpiValue ?? 0;
-    // Sanitize range — guard against NaN and zero-width ranges
-    const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
-    const percentValue = Math.max((value / safeMax) * 100, 0);
+    // Sanitize range — guard against NaN and zero-width ranges. The setup panel
+    // (`KpiSparklineOptions.tsx`/`GaugeConfigSection.tsx`) already rejects a `<= 0` gauge max at
+    // commit time, so this is a defensive backstop for configs set outside that UI (e.g. a
+    // programmatic API call or an imported dashboard JSON) rather than a reachable-via-UI state —
+    // matching the "guard-and-continue, warn in dev, never throw" style used elsewhere for
+    // out-of-band bad config (see `StudioController.updateWidgetConfig`'s key-stripping guards).
+    const gaugeMaxIsValid = Number.isFinite(gaugeMax) && gaugeMax > 0;
+    if (!gaugeMaxIsValid && process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: KPI gauge "gaugeMax" must be a finite number > 0 (received ${gaugeMax}). ` +
+          'Falling back to 1. Set a valid gaugeMax in the compose drawer’s gauge options.',
+      );
+    }
+    const safeMax = gaugeMaxIsValid ? gaugeMax : 1;
+    // Clamp to [0, 100] for DISPLAY: the `Gauge` component's `value` prop drives its arc angle
+    // via a plain linear interpolation between `valueMin`/`valueMax` with no clamping of its own
+    // (see `GaugeValueArc.tsx`), so an unclamped `value` above `valueMax` (e.g. the KPI exceeding
+    // its configured max) would swing the arc past the "full" sweep instead of stopping at it —
+    // and the "150%" center text (itself just `Math.round(value)` on the SAME unclamped number)
+    // would disagree with a visually-capped arc if the Gauge ever changes to clamp its own arc.
+    // Clamping here keeps the arc, the center text, and the aria-label all reading the same
+    // (correctly capped) number (finding 8).
+    const percentValue = Math.min(Math.max((value / safeMax) * 100, 0), 100);
     // Text alternative: the gauge is a visual-only SVG.
     const gaugeAriaLabel = localeText.kpiGaugeAriaLabel(
       fmt(value),

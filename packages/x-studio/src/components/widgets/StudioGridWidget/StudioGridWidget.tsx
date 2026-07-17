@@ -4,6 +4,7 @@ import { Alert } from '@mui/material';
 import {
   DataGridPremium,
   useGridApiRef,
+  GRID_ROW_GROUPING_SINGLE_GROUPING_FIELD,
   type GridColDef,
   type GridCellParams,
   type GridAggregationFunction,
@@ -685,6 +686,27 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.gridSortField, widget.config.gridSortDirection],
   );
 
+  // Commits an interactive header-click sort back into `gridSortField`/`gridSortDirection`,
+  // which then flows back down through the controlled `sortModel` above. A controlled
+  // `sortModel` with no `onSortModelChange` (the prior fix for the config->UI direction,
+  // above) makes DataGridPremium ignore header clicks entirely — clicking a column header
+  // did nothing even though headers still looked clickable (finding 2). Mirrors the same
+  // `controller.updateWidgetConfig(widgetId, { gridSortField, gridSortDirection })` pattern
+  // `GridSetupPanel` already uses for its own sort-field/direction controls, so this is just
+  // another writer of the same two config keys. DataGridPremium's default (non-multi) sort
+  // model carries at most one entry; clearing a header's sort (3-click cycle) yields `[]`,
+  // which clears both keys.
+  const handleSortModelChange = React.useCallback(
+    (model: GridSortModel) => {
+      const [first] = model;
+      controller.updateWidgetConfig(widget.id, {
+        gridSortField: first?.field,
+        gridSortDirection: first?.sort ?? undefined,
+      });
+    },
+    [controller, widget.id],
+  );
+
   // Drive column visibility externally so toggling always reflects widget config,
   // even when a field has previously been used as a group-by column.
   // Grouped columns must be hidden from the data view (DataGridPremium renders them
@@ -769,6 +791,17 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // `__row_group_by_columns_group__` field) would otherwise emit a filter on a field
       // no source owns — blanking every same-source widget (finding 1.1).
       if (params.rowNode.type !== 'leaf') {
+        return;
+      }
+      // With `gridGroupByField` set, LEAF rows ALSO render a cell in the internal grouping
+      // column (`GRID_ROW_GROUPING_SINGLE_GROUPING_FIELD`) — DataGridPremium's expand/collapse
+      // toggle + group-path cell shown at the start of every row, leaf or not. That cell
+      // passes the `type !== 'leaf'` guard above (the row node IS a leaf), so clicking it used
+      // to fall through and emit `applyCrossFilter(widget.id, '__row_group_by_columns_group__',
+      // <value>, ...)` — a field no source owns. Depending on the value, that either matches
+      // every row (loose-equality quirk for `undefined`) or matches none, blanking every
+      // same-source widget (finding 7). Exclude clicks on that column regardless of row type.
+      if (params.field === GRID_ROW_GROUPING_SINGLE_GROUPING_FIELD) {
         return;
       }
 
@@ -996,7 +1029,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           return '';
         }}
         sortModel={sortModel}
-        onSortModelChange={() => {}}
+        onSortModelChange={handleSortModelChange}
         // Use controlled layout mode so the pinned summary row uses `position: absolute`
         // rather than `position: sticky`. At very large row counts (~470k+), the total
         // content height can exceed CSS height limits in some browsers, causing sticky

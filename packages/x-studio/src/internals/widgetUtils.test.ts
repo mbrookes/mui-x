@@ -814,6 +814,147 @@ describe('exportChartToPng', () => {
 
     document.body.innerHTML = '';
   });
+
+  // Regression coverage for finding 9: MUI X Charts renders the legend as HTML (a `<ul>`,
+  // `ChartsLegend`) OUTSIDE the `<svg>`, so capturing only `chartContainer.querySelector('svg')`
+  // silently dropped the legend from every multi-series chart's exported PNG. The fix reads each
+  // legend row's swatch colour + label text + real on-screen rect from the live DOM and redraws
+  // them onto the export canvas alongside the chart image.
+  function makeRect(partial: Partial<DOMRect>): DOMRect {
+    return {
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+      ...partial,
+    } as DOMRect;
+  }
+
+  it('composites the legend (swatch colour + label text) onto the exported canvas', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-url');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const fillRect = vi.fn();
+    const fillText = vi.fn();
+    const drawImage = vi.fn();
+    const ctxMock: Record<string, unknown> = {
+      scale: vi.fn(),
+      fillRect,
+      drawImage,
+      fillText,
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      ctxMock as unknown as CanvasRenderingContext2D,
+    );
+
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <svg width="100" height="50"></svg>
+      <ul class="MuiChartsLegend-root">
+        <li>
+          <button class="MuiChartsLegend-series">
+            <div class="MuiChartsLabelMark-root"><svg><rect fill="#ff0000" /></svg></div>
+            <span class="MuiChartsLabel-root">Revenue</span>
+          </button>
+        </li>
+      </ul>
+    `;
+    document.body.appendChild(container);
+
+    const svg = container.querySelector('svg')!;
+    svg.getBoundingClientRect = () =>
+      makeRect({ left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 });
+    const markEl = container.querySelector('.MuiChartsLabelMark-root')!;
+    markEl.getBoundingClientRect = () =>
+      makeRect({ left: 5, top: 60, right: 19, bottom: 74, width: 14, height: 14 });
+    const labelEl = container.querySelector('.MuiChartsLabel-root')!;
+    labelEl.getBoundingClientRect = () =>
+      makeRect({ left: 23, top: 62, right: 63, bottom: 72, width: 40, height: 10 });
+
+    let capturedImage: HTMLImageElement | null = null;
+    const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return srcDescriptor.get!.call(this);
+      },
+      set(this: HTMLImageElement, value: string) {
+        // eslint-disable-next-line consistent-this
+        capturedImage = this;
+        srcDescriptor.set!.call(this, value);
+      },
+    });
+
+    try {
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      exportChartToPng(widget, container);
+
+      expect(capturedImage).not.toBeNull();
+      // Manually fire `onload` — jsdom never actually loads a `blob:` URL into an `<img>`
+      // (see the `onerror` test above for the same workaround).
+      capturedImage!.onload!(new Event('load'));
+
+      // The chart SVG is drawn at its own (viewport) offset within the composed canvas —
+      // here that's (0, 0) since the legend sits below/right of the SVG's origin.
+      expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0);
+
+      // The swatch is redrawn as a filled rect at the mark's real rect, in the resolved colour.
+      expect(fillRect).toHaveBeenCalledWith(5, 60, 14, 14);
+
+      // The label text is redrawn at the label's real rect (vertically centered).
+      expect(fillText).toHaveBeenCalledWith('Revenue', 23, 67);
+    } finally {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', srcDescriptor);
+    }
+
+    document.body.innerHTML = '';
+  });
+
+  it('falls back to exporting just the chart (no legend items) when no ChartsLegend is rendered', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-url');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const fillRect = vi.fn();
+    const fillText = vi.fn();
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      scale: vi.fn(),
+      fillRect,
+      drawImage,
+      fillText,
+    } as unknown as CanvasRenderingContext2D);
+
+    let capturedImage: HTMLImageElement | null = null;
+    const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return srcDescriptor.get!.call(this);
+      },
+      set(this: HTMLImageElement, value: string) {
+        // eslint-disable-next-line consistent-this
+        capturedImage = this;
+        srcDescriptor.set!.call(this, value);
+      },
+    });
+
+    try {
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      exportChartToPng(widget, makeChartContainer());
+      capturedImage!.onload!(new Event('load'));
+
+      expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0);
+      // No `.MuiChartsLegend-root` in this container → no extra draws.
+      expect(fillText).not.toHaveBeenCalled();
+      // `fillRect` is still called once for the background fill, but never for a legend swatch.
+      expect(fillRect).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', srcDescriptor);
+    }
+  });
 });
 
 // ─── Locale token tests ────────────────────────────────────────────────────────

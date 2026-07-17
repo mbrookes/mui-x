@@ -244,6 +244,59 @@ describe('StudioBarChart', () => {
       const props = lastBarProps();
       expect(props.slots?.bar).toBe(CrossFilterGhostBar);
     });
+
+    // Regression for finding 3: `effectiveMultiYData` used to ignore `preserveXFieldBaseline`
+    // entirely and always widen to the full (unfiltered) baseline whenever ghosting was active,
+    // unlike every sibling ghost path (multi-Y line/area, single-series bar, single-series line,
+    // pie). The ghost-slot invariant above is intentionally unaffected by this flag; only the
+    // x-axis EXTENT (which labels/values are rendered at all) should be.
+    it('uses only the filtered multi-Y data (not the full baseline) when preserveXFieldBaseline is false', () => {
+      const allMultiYData = {
+        labels: ['A', 'B', 'C'],
+        series: [
+          { fieldId: 'revenue', values: [10, 30, 50] },
+          { fieldId: 'cost', values: [30, 10, 20] },
+        ],
+      };
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          chartData: null,
+          multiYData,
+          allMultiYData,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: false,
+        }),
+      );
+      const props = lastBarProps();
+      // multiYData (filtered) only has labels ['A', 'B'] — the baseline's extra 'C' must not leak
+      // into the rendered axis/series when the flag is off.
+      expect(props.xAxis[0].data).toEqual(['A', 'B']);
+      expect(props.series[0].data).toEqual([10, 30]);
+    });
+
+    it('widens to the full baseline multi-Y data when preserveXFieldBaseline is true', () => {
+      const allMultiYData = {
+        labels: ['A', 'B', 'C'],
+        series: [
+          { fieldId: 'revenue', values: [10, 30, 50] },
+          { fieldId: 'cost', values: [30, 10, 20] },
+        ],
+      };
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          chartData: null,
+          multiYData,
+          allMultiYData,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      );
+      const props = lastBarProps();
+      expect(props.xAxis[0].data).toEqual(['A', 'B', 'C']);
+      expect(props.series[0].data).toEqual([10, 30, 50]);
+    });
   });
 
   // ── SeriesField (split-by) ───────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { createRenderer, screen, waitFor, act } from '@mui/internal-test-utils';
+import { createRenderer, screen, waitFor, act, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import type {
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
+  StudioWidgetConfig,
   StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
@@ -156,5 +157,59 @@ describe('StudioGridWidget — sort config takes effect after mount (not just at
     await waitFor(() => {
       expect(getRowIdsInOrder(container)).toEqual(['r1', 'r3', 'r2']);
     });
+  });
+});
+
+// ─── Interactive header-click sorting (finding 2) ────────────────────────────
+//
+// Wiring `sortModel` to `widget.config` (the fix above) requires a matching
+// `onSortModelChange` — a controlled `sortModel` with a no-op change handler makes
+// DataGridPremium ignore header clicks entirely, regressing the OTHER direction
+// (interactive sort -> config). Both directions must work together: a header click
+// commits into `gridSortField`/`gridSortDirection`, which then flows back down through
+// the same controlled `sortModel` used above.
+describe('StudioGridWidget — interactive header-click sorting commits back into config', () => {
+  it('clicking a column header sorts the grid AND writes gridSortField/gridSortDirection into the doc', async () => {
+    const { controller, widget, container } = await setup();
+
+    // `doc.widgets` is keyed by a union of every widget kind's config shape; cast to the
+    // broad `StudioWidgetConfig` (which every grid-only key is optional on) to read
+    // `gridSortField`/`gridSortDirection` back, mirroring `StudioController.test.ts`'s
+    // existing pattern for the same union-narrowing issue.
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
+    expect(widget.config.gridSortField).toBeUndefined();
+
+    const amountHeader = container.querySelector('[role="columnheader"][data-field="amount"]')!;
+    expect(amountHeader).not.toBeNull();
+
+    fireEvent.click(amountHeader);
+
+    // First click sorts ascending and commits the config.
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r2', 'r3', 'r1']);
+    });
+    expect(gridConfig().gridSortField).toBe('amount');
+    expect(gridConfig().gridSortDirection).toBe('asc');
+
+    fireEvent.click(amountHeader);
+
+    // Second click flips to descending.
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r1', 'r3', 'r2']);
+    });
+    expect(gridConfig().gridSortDirection).toBe('desc');
+
+    fireEvent.click(amountHeader);
+
+    // Third click clears the sort (DataGridPremium's default asc -> desc -> none cycle) —
+    // both config keys must be cleared, not left stale.
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
+    });
+    expect(gridConfig().gridSortField).toBeUndefined();
+    expect(gridConfig().gridSortDirection).toBeUndefined();
   });
 });

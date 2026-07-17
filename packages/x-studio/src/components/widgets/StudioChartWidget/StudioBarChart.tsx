@@ -250,8 +250,13 @@ export function StudioBarChart({
   // ── Multi-Y-field bar chart: each y-field is its own series ──
   if (barMultiYData && barMultiYData.labels.length > 0) {
     // When cross-filtering with ghost, use all-data as the basis so ghost bars show full extent
+    // — but only when `preserveXFieldBaseline` opts into it (matching every sibling ghost path:
+    // multi-Y line/area, single-series bar, single-series line, pie), otherwise the ghost baseline
+    // is shown unconditionally regardless of the flag (finding 3).
     const effectiveMultiYData =
-      shouldShowGhost && allBarMultiYData ? allBarMultiYData : barMultiYData;
+      shouldShowGhost && allBarMultiYData && preserveXFieldBaseline
+        ? allBarMultiYData
+        : barMultiYData;
     const xAxisData = effectiveMultiYData.labels;
     const selectedDataIndices = getSelectedDataIndices(effectiveMultiYData.labels);
     const isStacked = isBarStacked(chartType, barLayout);
@@ -292,7 +297,10 @@ export function StudioBarChart({
           },
         ];
 
-    // Build per-series filtered values (aligned to all-data labels) for ghost context
+    // Build per-series filtered values (aligned to all-data labels) for ghost context.
+    // Deliberately gated ONLY on `shouldShowGhost` (not `preserveXFieldBaseline`) — the
+    // within-bar-position ghost overlay is independent of whether the x-axis extent widens to
+    // the baseline label set; see the "gated ONLY on shouldShowGhost" invariant test.
     const multiYBarContext =
       shouldShowGhost && allBarMultiYData
         ? buildGhostBarContext(

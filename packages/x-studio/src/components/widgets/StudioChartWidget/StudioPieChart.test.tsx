@@ -415,6 +415,35 @@ describe('StudioPieChart', () => {
       expect(enterprise!.color).toBe('#111');
       expect(props.slots?.pieArc).toBeDefined();
     });
+
+    // Regression for finding 4: `useGhostBaseline` used to ignore `preserveXFieldBaseline`
+    // entirely, unlike the single-ring path's `isPieHighlightActive` (same file, ~line 368),
+    // which DOES gate on it. A chart-click ghost with `preserveXFieldBaseline: false` must fall
+    // back to the filtered rows (no baseline, no dimming) — mirroring the single-ring behaviour.
+    it('falls back to the filtered rows (no baseline, no dimming) when preserveXFieldBaseline is false, even with a ghost active', () => {
+      const baseline = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'North', segment: 'Enterprise', total: 7 },
+      ];
+      const filtered = [{ region: 'North', segment: 'SMB', total: 5 }];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: filtered,
+          allEnrichedRows: baseline,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: false,
+          resolvedChartColors: ['#111', '#222', '#333', '#444'],
+          chartData: { labels: ['North'], values: [5] },
+        }),
+      );
+      const props = lastPieProps();
+      // Only the filtered (SMB) slice renders — the baseline's Enterprise slice must not leak in.
+      expect(props.series[0].data).toHaveLength(1);
+      expect(props.series[0].data[0].value).toBe(5);
+    });
   });
 
   // ── Stable category colours + union legend (finding 1.3) ───────────────────

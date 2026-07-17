@@ -776,6 +776,66 @@ function resolveOpaqueBackground(el: HTMLElement | null): string | undefined {
   return undefined;
 }
 
+/** One rendered row of the built-in `ChartsLegend`, captured from the live DOM. */
+interface ExportLegendItem {
+  /** The swatch's real on-screen rect (used both for positioning and drawing a proxy shape). */
+  markRect: DOMRect;
+  /** The label text's real on-screen rect (used for positioning the redrawn text). */
+  labelRect: DOMRect;
+  /** Swatch fill colour, read from the mark's SVG shape (`fill`/`stroke` attribute). */
+  color: string;
+  label: string;
+  font: string;
+  labelColor: string;
+  /** `0.5` for a toggled-off series (`legendClasses.hidden`), `1` otherwise. */
+  opacity: number;
+}
+
+/**
+ * Reads the built-in `ChartsLegend`'s rendered rows directly from the live DOM: each row's
+ * swatch colour + label text, PLUS their own real on-screen rects. Positioning the redraw from
+ * each item's actual `getBoundingClientRect()` (rather than reimplementing the legend's flex
+ * layout) reproduces whatever arrangement the legend is actually using — row/column, above/
+ * below/beside the chart, wrapped onto multiple lines — for free.
+ *
+ * Returns `[]` when no `ChartsLegend` is rendered (`hideLegend`, or a widget-specific custom
+ * legend that isn't the built-in `ChartsLegend` component, e.g. `StudioPieChart`'s
+ * `pieLegendBelow` custom percentage legend) — callers fall back to exporting the chart alone.
+ */
+function readLegendItems(chartContainer: HTMLElement): ExportLegendItem[] {
+  const legendEl = chartContainer.querySelector('.MuiChartsLegend-root');
+  if (!legendEl) {
+    return [];
+  }
+  const items: ExportLegendItem[] = [];
+  legendEl.querySelectorAll('.MuiChartsLegend-series').forEach((seriesEl) => {
+    if (!(seriesEl instanceof HTMLElement)) {
+      return;
+    }
+    const markEl = seriesEl.querySelector('.MuiChartsLabelMark-root');
+    const labelEl = seriesEl.querySelector('.MuiChartsLabel-root');
+    const label = labelEl?.textContent?.trim();
+    if (!markEl || !labelEl || !label) {
+      return;
+    }
+    // `ChartsLabelMark` colours its swatch via the `fill` (square/circle) or `stroke` (line)
+    // attribute of an inner SVG shape — not a CSS background — so read the colour from there.
+    const shapeEl = markEl.querySelector('rect, circle, path');
+    const color = shapeEl?.getAttribute('fill') || shapeEl?.getAttribute('stroke') || '#999999';
+    const labelStyle = window.getComputedStyle(labelEl);
+    items.push({
+      markRect: markEl.getBoundingClientRect(),
+      labelRect: labelEl.getBoundingClientRect(),
+      color: color === 'none' ? '#999999' : color,
+      label,
+      font: `${labelStyle.fontWeight} ${labelStyle.fontSize} ${labelStyle.fontFamily}`,
+      labelColor: labelStyle.color || '#000000',
+      opacity: Number(window.getComputedStyle(seriesEl).opacity) || 1,
+    });
+  });
+  return items;
+}
+
 export function exportChartToPng(
   widget: StudioWidget,
   chartContainer: HTMLElement | null,
@@ -804,11 +864,41 @@ export function exportChartToPng(
   const serializer = new XMLSerializer();
   const svgString = serializer.serializeToString(clonedSvg);
 
+  // MUI X Charts renders the legend as HTML (a `<ul>`, `ChartsLegend`) OUTSIDE the `<svg>` — the
+  // `<svg>` alone (captured above) never includes it, so a multi-series chart's exported PNG
+  // silently dropped its legend entirely (finding 9). Rasterizing arbitrary HTML through the
+  // `<img>`-of-serialized-SVG pipeline above (e.g. wrapping the legend in an SVG
+  // `<foreignObject>`) is a known cross-browser-fragile technique (notably unreliable in
+  // Safari), so instead each legend row's colour/text/position is read straight from the live
+  // DOM and redrawn with plain Canvas 2D primitives once the chart SVG has loaded — composited
+  // alongside it based on their REAL on-screen rects (works regardless of legend position/
+  // direction/wrapping). The swatch is redrawn as a plain filled rounded square regardless of
+  // the legend's actual mark shape (square/circle/line) — a deliberate simplification to keep
+  // this fix scoped; the colour and label text are exact.
+  const legendItems = readLegendItems(chartContainer);
+
+  // The composed canvas must cover both the chart SVG and every legend item's real rect —
+  // pick the tightest bounding box in VIEWPORT coordinates (both `svg` and the legend live in
+  // the same document, so their `getBoundingClientRect()`s are directly comparable) so nothing
+  // is clipped regardless of whether the legend sits above/below/beside the chart.
+  let left = svgRect.left;
+  let top = svgRect.top;
+  let right = svgRect.right;
+  let bottom = svgRect.bottom;
+  for (const item of legendItems) {
+    left = Math.min(left, item.markRect.left, item.labelRect.left);
+    top = Math.min(top, item.markRect.top, item.labelRect.top);
+    right = Math.max(right, item.markRect.right, item.labelRect.right);
+    bottom = Math.max(bottom, item.markRect.bottom, item.labelRect.bottom);
+  }
+  const exportWidth = right - left;
+  const exportHeight = bottom - top;
+
   // Create a canvas
   const canvas = document.createElement('canvas');
   const scale = 2; // Higher resolution
-  canvas.width = svgRect.width * scale;
-  canvas.height = svgRect.height * scale;
+  canvas.width = exportWidth * scale;
+  canvas.height = exportHeight * scale;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) {
@@ -830,7 +920,31 @@ export function exportChartToPng(
   const url = URL.createObjectURL(svgBlob);
 
   img.onload = () => {
-    ctx.drawImage(img, 0, 0);
+    // Offset by the chart SVG's own position within the composed canvas — this is (0, 0)
+    // whenever the legend sits at or after the SVG's top-left (the common case), and only
+    // shifts when a legend item extends further left/up than the chart itself.
+    ctx.drawImage(img, svgRect.left - left, svgRect.top - top);
+
+    for (const item of legendItems) {
+      ctx.globalAlpha = item.opacity;
+      ctx.fillStyle = item.color;
+      ctx.fillRect(
+        item.markRect.left - left,
+        item.markRect.top - top,
+        item.markRect.width,
+        item.markRect.height,
+      );
+      ctx.font = item.font;
+      ctx.fillStyle = item.labelColor;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        item.label,
+        item.labelRect.left - left,
+        item.labelRect.top - top + item.labelRect.height / 2,
+      );
+      ctx.globalAlpha = 1;
+    }
+
     URL.revokeObjectURL(url);
 
     // Download the PNG

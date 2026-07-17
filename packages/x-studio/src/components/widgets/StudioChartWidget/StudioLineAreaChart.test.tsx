@@ -115,7 +115,7 @@ describe('StudioLineAreaChart', () => {
     expect(props.series[0].area).toBe(true);
   });
 
-  it('renders a faded ghost line at alpha 40 and gives the active series the cross-highlight formatter', () => {
+  it('renders a faded ghost line at 25% alpha and gives the active series the cross-highlight formatter', () => {
     renderChart(
       baseProps({
         chartType: 'line',
@@ -131,15 +131,16 @@ describe('StudioLineAreaChart', () => {
     expect(ghost).toBeDefined();
     // Ghost renders the full baseline (all-data) values.
     expect(ghost!.data).toEqual([10, 20, 30]);
-    expect(ghost!.color).toBe('#11111140');
-    expect(ghost!.color).toBe(`${active!.color}40`);
+    // Alpha is applied via `color-mix()` (finding 3.7's fix, mirrored from StudioPieChart) so
+    // it stays correct regardless of the input color's format — not a hex-alpha string suffix.
+    expect(ghost!.color).toBe(`color-mix(in srgb, ${active!.color} 25%, transparent)`);
     // The active series formatter is the cross-highlight ("filtered / total") formatter, which
     // compares against the baseline value at the hovered index rather than echoing the value.
     const formatted = active!.valueFormatter!(4, { dataIndex: 0 });
     expect(formatted).toContain('/');
   });
 
-  it('renders a faded ghost area at alpha 30', () => {
+  it('renders a faded ghost area at ~19% alpha', () => {
     renderChart(
       baseProps({
         chartType: 'area',
@@ -153,8 +154,25 @@ describe('StudioLineAreaChart', () => {
     const ghost = props.series.find((s) => s.id === 'cross-filter-series-ghost');
     const active = props.series.find((s) => s.id === 'cross-filter-series');
     expect(ghost).toBeDefined();
-    expect(ghost!.color).toBe('#11111130');
-    expect(ghost!.color).toBe(`${active!.color}30`);
+    expect(ghost!.color).toBe(`color-mix(in srgb, ${active!.color} 19%, transparent)`);
+  });
+
+  it('applies ghost alpha via color-mix so a non-hex color (e.g. rgb()) still fades correctly', () => {
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: { labels: ['A', 'B'], values: [4, 6] },
+        allChartData: { labels: ['A', 'B', 'C'], values: [10, 20, 30] },
+        shouldShowGhost: true,
+        preserveXFieldBaseline: true,
+        resolvedChartColors: ['rgb(10, 20, 30)', '#222222', '#333333', '#444444'],
+      }),
+    );
+    const props = lastLineProps();
+    const ghost = props.series.find((s) => s.id === 'cross-filter-series-ghost');
+    // String concatenation (`rgb(10, 20, 30)40`) would be an invalid paint string; color-mix
+    // wraps the color value instead so it is always valid regardless of format.
+    expect(ghost!.color).toBe('color-mix(in srgb, rgb(10, 20, 30) 25%, transparent)');
   });
 
   it('suppresses the single-series ghost when preserveXFieldBaseline is false', () => {
@@ -188,12 +206,47 @@ describe('StudioLineAreaChart', () => {
     const upper = props.series.find((s) => s.id === '__forecast_upper__')!;
     const lower = props.series.find((s) => s.id === '__forecast_lower__')!;
     expect(upper.stack).toBe('confidence');
-    expect(upper.stackOrder).toBe('ascending');
     expect(lower.stack).toBe('confidence');
     expect(lower.color).toBe('transparent');
     const trend = props.series.find((s) => s.id === '__forecast__')!;
     expect(trend.label).toBe('Forecast');
     expect(trend.area).toBe(false);
+  });
+
+  // Regression for finding 1 (Tier 1): a prior fix made `__forecast_upper__` carry the band
+  // WIDTH (relative to the ~0 connection point) rather than the absolute upper bound, relying
+  // on d3-stack's `offset: 'none'` to SUM `lower + width` back into the absolute top edge. But
+  // both series kept `stackOrder: 'ascending'` (by-sum order), which decides which series is the
+  // stack BASE by comparing `Σvalues` — and once `upper` carries a small width instead of a large
+  // absolute value, a typical "signal clearly above its noise band" series has `Σwidth < Σlower`,
+  // which flips `ascending` order to put the (tinted) width series at the bottom and the
+  // (transparent) lower-bound series on top: the confidence band collapses to a thin strip
+  // hugging the x-axis with no visible tint around the forecast line. The fix pins the stacking
+  // role to array order (`lower` first, `stackOrder: 'none'`) instead of leaving it to the
+  // data-dependent by-sum comparison. See the "forecast confidence band stacking geometry"
+  // describe block below for a numeric proof this now produces the correct rendered top edge in
+  // both the signal > noise and signal < noise cases.
+  it('lists __forecast_lower__ before __forecast_upper__ with stackOrder "none" so the stacking role never depends on which series has the larger sum', () => {
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: { labels: ['A', 'B', 'C'], values: [10, 20, 30] },
+        forecast: { enabled: true, periods: 2, showConfidenceBands: true },
+      }),
+    );
+    const props = lastLineProps();
+    const ids = props.series.map((s) => s.id);
+    const upperIndex = ids.indexOf('__forecast_upper__');
+    const lowerIndex = ids.indexOf('__forecast_lower__');
+    expect(lowerIndex).toBeGreaterThanOrEqual(0);
+    expect(upperIndex).toBeGreaterThan(lowerIndex);
+
+    const upper = props.series.find((s) => s.id === '__forecast_upper__')!;
+    const lower = props.series.find((s) => s.id === '__forecast_lower__')!;
+    // `stackOrder: 'none'` = d3's `stackOrderNone` = definition-order stacking, independent
+    // of either series' sum — NOT `'ascending'` (by-sum order), which is what regressed.
+    expect(lower.stackOrder).toBe('none');
+    expect(upper.stackOrder).toBe('none');
   });
 
   it('adds a forecast trend line but no confidence bands for area charts', () => {
@@ -244,7 +297,7 @@ describe('StudioLineAreaChart', () => {
     expect(ids).toContain('cross-filter-series-ghost');
   });
 
-  it('renders one line per split-by category, with ghost series at alpha 40 when active', () => {
+  it('renders one line per split-by category, with ghost series at 25% alpha when active', () => {
     const seriesFieldData = {
       labels: ['Q1', 'Q2'],
       seriesNames: ['North', 'South'],
@@ -270,7 +323,7 @@ describe('StudioLineAreaChart', () => {
     const ghostIds = props.series.filter((s) => s.id.endsWith('-ghost')).map((s) => s.id);
     expect(ghostIds).toEqual(['North-ghost', 'South-ghost']);
     const northGhost = props.series.find((s) => s.id === 'North-ghost')!;
-    expect(northGhost.color).toBe('#aaaaaa40');
+    expect(northGhost.color).toBe('color-mix(in srgb, #aaaaaa 25%, transparent)');
     // Active (non-ghost) series exist for each category.
     expect(props.series.filter((s) => !s.id.endsWith('-ghost')).map((s) => s.id)).toEqual([
       'North',
@@ -528,5 +581,119 @@ describe('StudioLineAreaChart', () => {
       seriesId: 'cross-filter-series',
       dataIndex: 1,
     });
+  });
+});
+
+// ── Finding 1 (Tier 1) regression: confidence-band stacking geometry ──
+//
+// `StudioLineAreaChart` mocks away `LineChart` entirely (see the top of this file), so the
+// series-order/`stackOrder` assertions above can prove the PROPS passed to the chart are correct,
+// but not that x-charts actually renders the right geometry from them. This block closes that gap
+// by reimplementing the exact stacking math `@mui/x-charts` applies (confirmed by reading
+// `packages/x-charts/src/internals/stacking/stackSeries.ts` and
+// `packages/x-charts/src/internals/processLineLikeSeries.ts`):
+//
+//   - `stack: 'confidence'` groups `__forecast_lower__`/`__forecast_upper__` into one d3-stack
+//     group, keyed in ARRAY-DEFINITION order (`d3.stack().keys(ids)`, `ids` built by pushing in
+//     `seriesOrder` iteration order — i.e. the order the series appear in the `series` array).
+//   - `stackOffset: 'none'` (the line/area default strategy) is d3's `stackOffsetNone`: each
+//     series in stacking order gets `y0 = <running cumulative total>`, `y1 = y0 + value` — a
+//     plain cumulative sum, order-dependent.
+//   - `stackOrder: 'none'` is d3's `stackOrderNone`: the stacking order is simply the key order
+//     above (identity), unlike `'ascending'`, which reorders by comparing each series' `Σvalues`.
+//
+// `computeWidgetForecast` (`forecastUtils.ts`) makes `__forecast_lower__` carry the absolute
+// lower bound and `__forecast_upper__` carry the band WIDTH (`upperBound - lowerBound`), relying
+// on the chart to sum them back into the absolute upper bound at the rendered top edge. That
+// summation is only correct if `lower` stacks first (bottom) and `upper` (width) stacks on top —
+// which is exactly what listing `lower` before `upper` with `stackOrder: 'none'` guarantees,
+// regardless of either series' magnitude.
+describe('forecast confidence band stacking geometry (finding 1)', () => {
+  /** Cumulative-sum stack matching d3's `stackOffsetNone`, applied in the given series order. */
+  function stackOffsetNone(
+    seriesValues: number[][],
+    order: number[],
+  ): { y0: number; y1: number }[][] {
+    const pointCount = seriesValues[0].length;
+    const result: { y0: number; y1: number }[][] = seriesValues.map(() =>
+      Array.from({ length: pointCount }, () => ({ y0: 0, y1: 0 })),
+    );
+    for (let point = 0; point < pointCount; point += 1) {
+      let running = 0;
+      for (const seriesIndex of order) {
+        const value = seriesValues[seriesIndex][point];
+        result[seriesIndex][point] = { y0: running, y1: running + value };
+        running += value;
+      }
+    }
+    return result;
+  }
+
+  /** `d3.stackOrderNone`: identity permutation over the series' definition order. */
+  function stackOrderNone(seriesCount: number): number[] {
+    return Array.from({ length: seriesCount }, (_, i) => i);
+  }
+
+  /** `d3.stackOrderAscending`: series with the smaller `Σvalues` sort first (bottom). */
+  function stackOrderAscending(seriesValues: number[][]): number[] {
+    const sums = seriesValues.map((values) => values.reduce((a, b) => a + b, 0));
+    return sums
+      .map((sum, index) => ({ sum, index }))
+      .sort((a, b) => a.sum - b.sum)
+      .map((entry) => entry.index);
+  }
+
+  // Two concrete numeric scenarios, mirroring `computeWidgetForecast`'s output shape at a single
+  // forecast point (`lowerBand` = absolute lower bound, `upperBand` = width = upper - lower):
+  const signalGreaterThanNoise = {
+    // A clear upward trend (forecast ≈ 100) with modest noise (stdError = 5).
+    lowerBand: [95],
+    upperBand: [10], // width = upperBound(105) - lowerBound(95)
+    absoluteUpperBound: 105,
+  };
+  const signalLessThanNoise = {
+    // A near-zero/noisy series (forecast ≈ 5) with large relative noise (stdError = 50).
+    lowerBand: [-45],
+    upperBand: [100], // width = upperBound(55) - lowerBound(-45)
+    absoluteUpperBound: 55,
+  };
+
+  it.each([
+    ['signal > noise (Σwidth < Σlower)', signalGreaterThanNoise],
+    ['signal < noise (Σwidth > Σlower)', signalLessThanNoise],
+  ])(
+    'renders the correct absolute top-of-band edge for %s under the fixed stacking',
+    (_label, scenario) => {
+      // Fixed array order: `__forecast_lower__` (index 0) before `__forecast_upper__` (index 1),
+      // `stackOrder: 'none'` — exactly what `StudioLineAreaChart` now emits.
+      const seriesValues = [scenario.lowerBand, scenario.upperBand];
+      const order = stackOrderNone(seriesValues.length);
+      const stacked = stackOffsetNone(seriesValues, order);
+
+      const lowerStack = stacked[0][0];
+      const upperStack = stacked[1][0];
+      // The lower band's own layer spans exactly its own value (it is the stack base).
+      expect(lowerStack).toEqual({ y0: 0, y1: scenario.lowerBand[0] });
+      // The upper (width) layer's top edge — what actually paints as the top of the tinted
+      // confidence-band area — must equal the absolute upper bound, in BOTH scenarios.
+      expect(upperStack.y1).toBe(scenario.absoluteUpperBound);
+    },
+  );
+
+  it('demonstrates the regression: `stackOrder: ascending` (the reverted config) produces the WRONG top edge whenever Σwidth < Σlower', () => {
+    // This reproduces the exact bug the prior iteration introduced, to document why
+    // `stackOrder: 'none'` (order-independent) is required instead of `'ascending'`
+    // (by-sum order) — using the "signal > noise" scenario, the common real-data case.
+    const { lowerBand, upperBand, absoluteUpperBound } = signalGreaterThanNoise;
+    const seriesValues = [upperBand, lowerBand]; // upper listed first, as the reverted code had it
+    const ascendingOrder = stackOrderAscending(seriesValues);
+    // Σwidth (10) < Σlower (95) ⇒ ascending puts the WIDTH series at the bottom (index 0 here).
+    expect(ascendingOrder).toEqual([0, 1]);
+    const stacked = stackOffsetNone(seriesValues, ascendingOrder);
+    const upperLayerTop = stacked[0][0].y1; // the tinted `__forecast_upper__` layer's top edge
+    // The regression: the tinted band's visible top edge is just the width, hugging the
+    // x-axis — nowhere near the real confidence bound — because it got stacked at the bottom.
+    expect(upperLayerTop).toBe(upperBand[0]);
+    expect(upperLayerTop).not.toBe(absoluteUpperBound);
   });
 });

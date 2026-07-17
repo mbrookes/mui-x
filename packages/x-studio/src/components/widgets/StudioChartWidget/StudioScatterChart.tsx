@@ -68,9 +68,25 @@ export function StudioScatterChart({
 
   // Colour-by is only active when both a field is configured and grouped series exist.
   const colorSeries = colorField && scatterSeries ? scatterSeries : null;
-  const hasData = colorSeries
+  const hasFilteredData = colorSeries
     ? colorSeries.some((s) => s.data.length > 0)
     : scatterData != null && scatterData.length > 0;
+  // An emptied cross-filter (the filtered set has zero points) must not blank the chart when a
+  // ghost baseline (the widget's own un-cross-filtered all-data) is available to render instead.
+  // Bar/line/pie get this bypass from their `chartTypeDefs.tsx` dispatcher entry (`hasGhostData`);
+  // scatter's dispatcher entry has no such bypass and always renders `StudioScatterChart`
+  // unconditionally, so this component owns its own empty-state decision entirely and needs the
+  // equivalent gate here (finding 6). `prepareScatterDataGrouped` drops empty categories
+  // entirely, so an emptied filter yields `scatterSeries: []` (truthy, not null) — checking
+  // `allScatterSeries` the same way (rather than falling through to the single-series
+  // `allScatterData` branch) keeps this consistent with the colour-by ghost path below.
+  const hasGhostBaseline = Boolean(
+    shouldShowGhost &&
+    (colorField
+      ? allScatterSeries && allScatterSeries.some((s) => s.data.length > 0)
+      : allScatterData != null && allScatterData.length > 0),
+  );
+  const hasData = hasFilteredData || hasGhostBaseline;
 
   if (!hasData) {
     return (

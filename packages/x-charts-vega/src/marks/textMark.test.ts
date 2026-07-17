@@ -272,4 +272,13 @@ describe('compileTextMark', () => {
     expect(yConfig.min).to.equal(0);
     expect(yConfig.max).to.be.greaterThan(42);
   });
+
+  it('reports an ignored x-charts-origin gap noting the custom-overlay rendering', () => {
+    // x-charts has no text-mark primitive — always a custom overlay, a
+    // legitimate x-charts limitation that must surface via onGaps.
+    const compiled = compileSpec(baseSpec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:text-custom-overlay');
+    expect(gap?.severity).to.equal('ignored');
+    expect(gap?.origin).to.equal('x-charts');
+  });
 });

@@ -335,6 +335,15 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     const tickStyle = buildTickStyle(unit.mark);
     const candidates = resolveCandidates(ctx, colorRes.splitField, undefined);
     const items = buildTickItems(ctx, candidates, colorRes, tickStyle);
+    if (items.length > 0) {
+      gaps.add({
+        code: 'mark:tick-custom-overlay',
+        message:
+          'x-charts has no native tick-mark primitive; short perpendicular line segments are drawn by a custom SVG overlay instead of an x-charts series.',
+        severity: 'ignored',
+        path,
+      });
+    }
     return {
       series: [],
       plots: [],

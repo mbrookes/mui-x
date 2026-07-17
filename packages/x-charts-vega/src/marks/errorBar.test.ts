@@ -349,4 +349,27 @@ describe('compileErrorBarMark', () => {
     expect(yMax).to.not.equal(undefined);
     expect(yMax).to.be.at.least(bandUpper);
   });
+
+  it('reports an ignored x-charts-origin gap noting the errorbar custom-overlay rendering', () => {
+    // x-charts has no errorbar series primitive — always a custom overlay, a
+    // legitimate x-charts limitation that must surface via onGaps.
+    const compiled = compileSpec(baseSpec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:errorbar-custom-overlay');
+    expect(gap?.severity).to.equal('ignored');
+    expect(gap?.origin).to.equal('x-charts');
+  });
+
+  it('reports an ignored x-charts-origin gap noting the errorband custom-overlay rendering', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'errorband',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+      },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:errorband-custom-overlay');
+    expect(gap?.severity).to.equal('ignored');
+    expect(gap?.origin).to.equal('x-charts');
+  });
 });

@@ -136,5 +136,13 @@ export function compileImageMark(ctx: UnitContext): CompiledUnit {
     items.push({ x, y, url, width, height, ...(stretch ? { aspect: false } : {}) });
   });
 
+  gaps.add({
+    code: 'mark:image-custom-overlay',
+    message:
+      'x-charts has no native image-mark primitive; images are drawn by a custom SVG overlay instead of an x-charts series.',
+    severity: 'ignored',
+    path,
+  });
+
   return { series: [], plots: [], overlays: [{ kind: 'image', items }] };
 }

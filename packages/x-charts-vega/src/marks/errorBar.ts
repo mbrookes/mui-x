@@ -195,6 +195,20 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
     return { series: [], plots: [] };
   }
 
+  /** x-charts has no errorbar/errorband series primitive — always drawn by a custom overlay. */
+  const addOverlayGap = (): void => {
+    gaps.add({
+      code:
+        markType === 'errorbar' ? 'mark:errorbar-custom-overlay' : 'mark:errorband-custom-overlay',
+      message:
+        markType === 'errorbar'
+          ? 'x-charts has no native errorbar primitive; the interval whiskers are drawn by a custom SVG overlay instead of an x-charts series.'
+          : 'x-charts has no native errorband primitive; the interval band is drawn by a custom SVG overlay instead of an x-charts series.',
+      severity: 'ignored',
+      path,
+    });
+  };
+
   const extent = resolveExtent(mark, gaps, path);
   if (extent === 'ci') {
     gaps.add({
@@ -294,6 +308,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
       });
       return { series: [], plots: [] };
     }
+    addOverlayGap();
     const overlay: CompiledOverlay = { kind: 'errorBars', orientation, items };
     return {
       series: [],
@@ -355,6 +370,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
       });
       return { series: [], plots: [] };
     }
+    addOverlayGap();
     return {
       series: [],
       plots: [],
@@ -381,5 +397,6 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
     opacity: 0.3,
     ...(horizontal ? { orientation: 'horizontal' as const } : {}),
   };
+  addOverlayGap();
   return { series: [], plots: [], overlays: [overlay] };
 }

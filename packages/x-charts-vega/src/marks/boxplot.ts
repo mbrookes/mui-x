@@ -364,6 +364,14 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
+  gaps.add({
+    code: 'mark:boxplot-custom-overlay',
+    message:
+      'x-charts has no native boxplot primitive; the quartile box, whiskers, and outliers are drawn by a custom SVG overlay instead of an x-charts series.',
+    severity: 'ignored',
+    path: unit.path,
+  });
+
   return {
     series: [],
     plots: [],

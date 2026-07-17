@@ -102,6 +102,13 @@ describe('compileRuleMark', () => {
       { x1: 1, x2: 5, y1: 2, y2: 2, style: undefined },
       { x1: 2, x2: 3, y1: 4, y2: 4, style: undefined },
     ]);
+    // x-charts has no span-rule primitive — this must still surface as an
+    // ignored, x-charts-origin gap, not read as a silently-native render.
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:rule-segment-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+    expect(overlayGap?.origin).to.equal('x-charts');
   });
 
   it('builds a y/y2 segments overlay anchored at `xOffset` when there is no `x` encoding', () => {

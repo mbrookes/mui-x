@@ -430,6 +430,14 @@ describe('compileLineAreaMark', () => {
     // Points are x-sorted before connecting: (1,2)→(2,4)→(3,9) = two segments.
     expect(segments.items).to.have.length(2);
     expect(segments.items[0]).to.include({ x1: 1, y1: 2, x2: 2, y2: 4 });
+    // x-charts has no line series over a continuous x axis — this must still
+    // surface as an ignored, x-charts-origin gap (a real limitation, not a
+    // silently-native render), even though the layer isn't dropped.
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:line-continuous-x-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+    expect(overlayGap?.origin).to.equal('x-charts');
   });
 
   it('renders an area mark over a continuous quantitative x axis as a band overlay', () => {
@@ -464,6 +472,13 @@ describe('compileLineAreaMark', () => {
       { x: 2, lower: 0, upper: 4 },
       { x: 3, lower: 0, upper: 9 },
     ]);
+    // x-charts has no area series over a continuous x axis — this must still
+    // surface as an ignored, x-charts-origin gap.
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:area-continuous-x-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+    expect(overlayGap?.origin).to.equal('x-charts');
   });
 
   it('splits a continuous-x area into one band overlay per color group', () => {

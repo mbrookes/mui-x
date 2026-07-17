@@ -406,4 +406,28 @@ describe('compileBoxplotMark', () => {
     });
     expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:boxplot-missing-axes');
   });
+
+  it('reports an ignored x-charts-origin gap noting the custom-overlay rendering', () => {
+    // x-charts has no boxplot series primitive — the mark always renders through
+    // the custom overlay pipeline, which is a legitimate x-charts limitation
+    // (not a Vega-Lite coverage gap), so it must surface via onGaps rather than
+    // silently reading as "rendered natively".
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { group: 'A', value: 1 },
+          { group: 'A', value: 2 },
+          { group: 'A', value: 3 },
+        ],
+      },
+      mark: 'boxplot',
+      encoding: {
+        x: { field: 'group', type: 'nominal' },
+        y: { field: 'value', type: 'quantitative' },
+      },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:boxplot-custom-overlay');
+    expect(gap?.severity).to.equal('ignored');
+    expect(gap?.origin).to.equal('x-charts');
+  });
 });

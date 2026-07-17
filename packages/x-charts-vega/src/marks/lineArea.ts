@@ -302,7 +302,10 @@ function buildMarkGradient(value: unknown, path: string): CompiledGradient | und
   };
   const stops = raw.stops
     .filter((stop) => typeof stop.color === 'string')
-    .map((stop) => ({ offset: typeof stop.offset === 'number' ? stop.offset : 0, color: stop.color as string }));
+    .map((stop) => ({
+      offset: typeof stop.offset === 'number' ? stop.offset : 0,
+      color: stop.color as string,
+    }));
   if (stops.length === 0) {
     return undefined;
   }
@@ -435,12 +438,26 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     if ((markType === 'line' || markType === 'trail') && contXField && yField) {
       const overlay = buildContinuousLineOverlay(ctx, contXField, yField);
       if (overlay) {
+        gaps.add({
+          code: 'mark:line-continuous-x-custom-overlay',
+          message:
+            'x-charts has no line/trail series over a continuous quantitative x axis; the polyline is drawn by a custom SVG overlay instead.',
+          severity: 'ignored',
+          path,
+        });
         return { series: [], plots: [], overlays: [overlay] };
       }
     }
     if (markType === 'area' && contXField && yField) {
       const overlays = buildContinuousAreaOverlay(ctx, contXField, yField);
       if (overlays.length > 0) {
+        gaps.add({
+          code: 'mark:area-continuous-x-custom-overlay',
+          message:
+            'x-charts has no area series over a continuous quantitative x axis; the filled band is drawn by a custom SVG overlay instead.',
+          severity: 'ignored',
+          path,
+        });
         return { series: [], plots: [], overlays };
       }
     }
@@ -610,7 +627,10 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     };
     const colorRange = colorRes.range;
     colorRes.domain?.forEach((value, index) =>
-      addGroup(value, colorRange && colorRange.length > 0 ? colorRange[index % colorRange.length] : undefined),
+      addGroup(
+        value,
+        colorRange && colorRange.length > 0 ? colorRange[index % colorRange.length] : undefined,
+      ),
     );
     for (const row of rows) {
       const value = row[splitField];
@@ -633,9 +653,7 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       ? `url(#${gradient.id})`
       : (colorRes.staticColor ??
         resolveMarkColor(
-          markType === 'area'
-            ? areaFillValue
-            : (mark.stroke ?? mark.color ?? mark.fill),
+          markType === 'area' ? areaFillValue : (mark.stroke ?? mark.color ?? mark.fill),
           gaps,
           path,
         ));

@@ -224,5 +224,13 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
     });
   });
 
+  gaps.add({
+    code: 'mark:text-custom-overlay',
+    message:
+      'x-charts has no native text-mark primitive; labels are drawn by a custom SVG overlay instead of an x-charts series.',
+    severity: 'ignored',
+    path,
+  });
+
   return { series: [], plots: [], overlays: [{ kind: 'text', items }] };
 }

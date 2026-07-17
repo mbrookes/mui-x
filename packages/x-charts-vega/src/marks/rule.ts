@@ -471,6 +471,16 @@ export function compileRuleMark(ctx: UnitContext): CompiledUnit {
     addReferenceLines('x', encoding.x, rows, gaps, path, lineStyle, referenceLines);
   }
 
+  if (segmentItems.length > 0) {
+    gaps.add({
+      code: 'mark:rule-segment-custom-overlay',
+      message:
+        'x-charts has no native span-rule primitive; `x`→`x2`/`y`→`y2` segments are drawn by a custom SVG overlay instead of an x-charts series.',
+      severity: 'ignored',
+      path,
+    });
+  }
+
   return {
     series: [],
     plots: [],

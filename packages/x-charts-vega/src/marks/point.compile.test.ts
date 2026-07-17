@@ -228,6 +228,11 @@ describe('compilePointMark', () => {
       expect(item.x1).to.equal(item.x2);
       expect(item.y1).to.equal(item.y2);
     });
+    // x-charts has no tick-mark primitive — this must still surface as an
+    // ignored, x-charts-origin gap, not read as a silently-native render.
+    const overlayGap = compiled.gaps.find((entry) => entry.code === 'mark:tick-custom-overlay');
+    expect(overlayGap?.severity).to.equal('ignored');
+    expect(overlayGap?.origin).to.equal('x-charts');
   });
 
   it('renders a 1D strip plot (tick with only x) over a synthetic perpendicular band', () => {

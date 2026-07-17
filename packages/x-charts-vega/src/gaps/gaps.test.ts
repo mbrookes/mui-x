@@ -7,6 +7,20 @@ describe('gap origin', () => {
     expect(gapOrigin('resolve:independent-scale')).to.equal('x-charts');
   });
 
+  it('classifies a custom-overlay mark (no native x-charts primitive) as `x-charts`', () => {
+    // These marks render correctly, just not through a native x-charts series —
+    // that's still an x-charts limitation, not a Vega-Lite coverage gap.
+    expect(gapOrigin('mark:boxplot-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:errorbar-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:errorband-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:image-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:text-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:line-continuous-x-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:area-continuous-x-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:tick-custom-overlay')).to.equal('x-charts');
+    expect(gapOrigin('mark:rule-segment-custom-overlay')).to.equal('x-charts');
+  });
+
   it('classifies an unsupported Vega-Lite feature as `vega-lite`', () => {
     expect(gapOrigin('composition:repeat')).to.equal('vega-lite');
     expect(gapOrigin('data:url')).to.equal('vega-lite');

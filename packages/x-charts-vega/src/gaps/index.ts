@@ -74,6 +74,19 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'encoding:color-legend-config-ignored',
   // x-charts draws one shared axis pair, not per-layer independent scales.
   'resolve:independent-scale',
+  // Marks with no x-charts series/plot equivalent, rendered by the custom SVG
+  // overlay pipeline (src/overlays) instead — see GAPS.md's "custom overlay"
+  // column. The overlay reproduces the mark correctly; there's just no native
+  // x-charts primitive backing it.
+  'mark:boxplot-custom-overlay',
+  'mark:errorbar-custom-overlay',
+  'mark:errorband-custom-overlay',
+  'mark:image-custom-overlay',
+  'mark:text-custom-overlay',
+  'mark:line-continuous-x-custom-overlay',
+  'mark:area-continuous-x-custom-overlay',
+  'mark:tick-custom-overlay',
+  'mark:rule-segment-custom-overlay',
 ]);
 
 /** Classify a gap `code`'s origin (see `X_CHARTS_LIMITATION_CODES`). */

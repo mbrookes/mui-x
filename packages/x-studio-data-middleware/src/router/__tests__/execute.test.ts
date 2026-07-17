@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import Knex from 'knex';
-import { executeForTier } from '../execute';
+import { executeForTier, MAX_RESULT_ROWS } from '../execute';
 import { validateQueryPlan } from '../../security/validateQueryPlan';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
@@ -202,6 +202,70 @@ describe('executeForTier — "client"/"server" tiers', () => {
       { tenancy: SINGLE_TENANT },
     );
     expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
+});
+
+// Regression (finding T2 — Tier 2): `limit` used to be fully optional and
+// entirely client-controlled — an omitted `limit` meant NO `.limit()` call at
+// all, so a widget query against a multi-million-row table could attempt an
+// uncapped SELECT and OOM the server process. A hard server-side ceiling
+// (`MAX_RESULT_ROWS`) must now always be applied, regardless of what `limit`
+// the client requests (or omits).
+describe('executeForTier — server-side result cap (finding T2)', () => {
+  it('applies MAX_RESULT_ROWS as the limit when the client omits "limit" entirely (client/server tier)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(db, BASE_CLAIMS, descriptor({ columns: ['category'] }), 'server', {
+      tenancy: SINGLE_TENANT,
+    });
+    expect(calls).toContainEqual({ method: 'limit', args: [MAX_RESULT_ROWS] });
+  });
+
+  it('caps a client-requested limit that exceeds MAX_RESULT_ROWS (client/server tier)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ columns: ['category'], limit: MAX_RESULT_ROWS * 10 }),
+      'client',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(calls).toContainEqual({ method: 'limit', args: [MAX_RESULT_ROWS] });
+  });
+
+  it('leaves a client-requested limit below MAX_RESULT_ROWS unchanged (client/server tier)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ columns: ['category'], limit: 25 }),
+      'server',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(calls).toContainEqual({ method: 'limit', args: [25] });
+  });
+
+  it('applies MAX_RESULT_ROWS for a non-aggregation descriptor with no limit routed to the db tier', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(db, BASE_CLAIMS, descriptor({ columns: ['category'] }), 'db', {
+      tenancy: SINGLE_TENANT,
+    });
+    expect(calls).toContainEqual({ method: 'limit', args: [MAX_RESULT_ROWS] });
+  });
+
+  it('caps an oversized limit for an aggregation descriptor on the db tier', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        limit: MAX_RESULT_ROWS + 1,
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(calls).toContainEqual({ method: 'limit', args: [MAX_RESULT_ROWS] });
   });
 });
 

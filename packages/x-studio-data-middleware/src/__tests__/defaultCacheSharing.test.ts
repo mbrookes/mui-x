@@ -65,6 +65,13 @@ function createSharedMutableDb(initialRows: Record<string, unknown>[]) {
         countAlias = parts[1]?.trim() ?? 'count';
         return qb;
       },
+      // `executeForTier` now applies an effective LIMIT unconditionally (a
+      // server-side cap regardless of whether the descriptor specifies one).
+      // This mock doesn't exercise limit/pagination behavior, so it's a no-op —
+      // just needs to exist so the chained `.limit()` call doesn't throw.
+      limit() {
+        return qb;
+      },
       async first() {
         tables[table] ??= [];
         const rows = tables[table].filter((r) => predicates.every((p) => p(r)));

@@ -60,6 +60,29 @@ import {
 import { getDefaultCache } from '../cache/defaultProviders';
 
 /**
+ * Validate the shape of a batch mutation request body before touching it.
+ *
+ * A malformed body (`{}`, `null`, `{ mutations: 42 }`, ...) used to reach
+ * `body.mutations.map(...)` directly below and throw a raw, unsanitized
+ * `TypeError` (e.g. "Cannot read properties of undefined (reading 'map')")
+ * instead of one of this package's own `MUI X`-prefixed, actionable errors.
+ * Mirrors `handler.ts`'s `assertValidBatchQueryRequest` for the write path.
+ */
+function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !Array.isArray((body as Partial<BatchMutationRequest>).mutations)
+  ) {
+    throw new Error(
+      `MUI X Studio Server: Malformed batch mutation request — expected an object with a "mutations" array. ` +
+        `A missing or non-array "mutations" field cannot be turned into mutation results, and would otherwise throw a confusing internal error. ` +
+        `Send a body shaped like { mutations: MutationDescriptor[] }.`,
+    );
+  }
+}
+
+/**
  * Handle a batch of mutation operations from a Studio client.
  *
  * @param body - Parsed request body (BatchMutationRequest)
@@ -71,6 +94,7 @@ export async function handleMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
 ): Promise<BatchMutationResponse> {
+  assertValidBatchMutationRequest(body);
   const { schemaAllowlist, tenancy, securityColumns, columnAllowlist } = options;
 
   // ── Compile the row-level-security policy ONCE for the whole batch ─────────

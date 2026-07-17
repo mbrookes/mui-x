@@ -153,6 +153,41 @@ describe('handleMutation — table allowlist', () => {
   });
 });
 
+// Regression: a malformed body used to reach `body.mutations.map(...)` directly
+// and throw a raw, unsanitized `TypeError` (e.g. "Cannot read properties of
+// undefined (reading 'map')") instead of one of this package's own
+// `MUI X`-prefixed, actionable errors.
+describe('handleMutation — malformed request body guard', () => {
+  it('rejects an empty object body with a sanitized MUI X error instead of a raw TypeError', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation({} as any, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch mutation request/);
+  });
+
+  it('rejects a null body', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation(null as any, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch mutation request/);
+  });
+
+  it('rejects a body whose "mutations" is not an array', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    await expect(
+      handleMutation({ mutations: 42 } as any, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch mutation request/);
+  });
+});
+
 // ── Successful mutations ──────────────────────────────────────────────────────
 
 describe('handleMutation — successful operations', () => {

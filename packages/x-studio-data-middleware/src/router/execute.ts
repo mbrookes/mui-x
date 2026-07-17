@@ -24,6 +24,29 @@ import {
 type RoutingTier = 'client' | 'server' | 'db';
 
 /**
+ * Hard server-side ceiling on the number of rows a single widget query may
+ * return, applied REGARDLESS of what `limit` the client requests (finding T2 —
+ * Tier 2). Before this cap, `limit` was fully optional and entirely
+ * client-controlled: a widget descriptor with no `limit` (or an enormous one)
+ * against a multi-million-row table could attempt an uncapped SELECT and OOM
+ * the server process. The effective limit applied to every executed query is
+ * always `min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS)` — see
+ * `effectiveLimit()` below.
+ */
+export const MAX_RESULT_ROWS = 100_000;
+
+/**
+ * Resolve the LIMIT actually applied to a query: the client's requested
+ * `limit`, capped at `MAX_RESULT_ROWS`, defaulting to `MAX_RESULT_ROWS` when
+ * the client omits `limit` entirely. `limit: 0` (a legitimate "return zero
+ * rows" request, finding 3.1) is preserved — `??` only substitutes on
+ * `undefined`, never on `0`.
+ */
+function effectiveLimit(clientLimit: number | undefined): number {
+  return Math.min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS);
+}
+
+/**
  * Build and execute the query for the determined tier.
  *
  * - 'client': return raw rows (client filters in-browser)
@@ -91,11 +114,10 @@ export async function executeForTier(
       // as-is (matches the db tier).
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
-    // `!== undefined` (not truthiness) — `limit: 0` is a legitimate "return zero
-    // rows" request and must not be treated the same as "no limit" (finding 3.1).
-    if (queryPlan.limit !== undefined) {
-      query.limit(queryPlan.limit);
-    }
+    // Always apply an effective limit — `limit: 0` is a legitimate "return zero
+    // rows" request (finding 3.1), and an omitted or excessive client `limit` is
+    // capped at `MAX_RESULT_ROWS` (finding T2) rather than left unbounded.
+    query.limit(effectiveLimit(queryPlan.limit));
     return query as Promise<Record<string, unknown>[]>;
   }
 
@@ -117,10 +139,8 @@ export async function executeForTier(
     for (const ob of queryPlan.orderBy) {
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
-    // `!== undefined` (not truthiness) — see finding 3.1 above.
-    if (queryPlan.limit !== undefined) {
-      query.limit(queryPlan.limit);
-    }
+    // Always apply an effective limit — see finding 3.1 / finding T2 above.
+    query.limit(effectiveLimit(queryPlan.limit));
     return query as Promise<Record<string, unknown>[]>;
   }
 
@@ -191,10 +211,8 @@ export async function executeForTier(
     // fall back to it as-is.
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
-  // `!== undefined` (not truthiness) — see finding 3.1 above.
-  if (queryPlan.limit !== undefined) {
-    query.limit(queryPlan.limit);
-  }
+  // Always apply an effective limit — see finding 3.1 / finding T2 above.
+  query.limit(effectiveLimit(queryPlan.limit));
 
   return query as Promise<Record<string, unknown>[]>;
 }

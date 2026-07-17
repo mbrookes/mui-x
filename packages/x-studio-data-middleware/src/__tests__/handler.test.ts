@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { handleBatchQuery } from '../handler';
+import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
 import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
@@ -569,6 +569,78 @@ describe('handleBatchQuery — TEXT-typed region column matches a numeric region
 });
 
 // ─── handleBatchQuery — allowlist ─────────────────────────────────────────────
+
+// Regression: a malformed body used to reach `body.widgets.map(...)` directly
+// and throw a raw, unsanitized `TypeError` (e.g. "Cannot read properties of
+// undefined (reading 'map')") instead of one of this package's own
+// `MUI X`-prefixed, actionable errors. These are whole-request rejections
+// (not a per-widget `{ error }` result) — a malformed body has no widgets to
+// isolate the failure into.
+describe('handleBatchQuery — malformed request body guard', () => {
+  it('rejects an empty object body with a sanitized MUI X error instead of a raw TypeError', async () => {
+    await expect(
+      handleBatchQuery({} as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch query request/);
+  });
+
+  it('rejects a null body', async () => {
+    await expect(
+      handleBatchQuery(null as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch query request/);
+  });
+
+  it('rejects a body whose "widgets" is not an array', async () => {
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: 42 } as any, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed batch query request/);
+  });
+});
+
+// Regression (finding T3 — unbounded widget fan-out): a batch request used to
+// let `Promise.all` fan out one concurrent query per widget with no cap at
+// all, so an arbitrarily large `widgets` array could overload the database.
+describe('handleBatchQuery — widget fan-out cap (finding T3)', () => {
+  it('rejects a batch exceeding MAX_WIDGETS_PER_BATCH with a clear MUI X error', async () => {
+    const widgets = Array.from({ length: MAX_WIDGETS_PER_BATCH + 1 }, (_unused, i) => ({
+      id: `w${i}`,
+      table: 'sales',
+    }));
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets }, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(
+      new RegExp(`exceeds the maximum of ${MAX_WIDGETS_PER_BATCH} allowed per request`),
+    );
+  });
+
+  it('still accepts a batch exactly at MAX_WIDGETS_PER_BATCH', async () => {
+    const widgets = Array.from({ length: MAX_WIDGETS_PER_BATCH }, (_unused, i) => ({
+      id: `w${i}`,
+      table: 'sales',
+    }));
+    const result = await handleBatchQuery({ pageId: 'p1', widgets }, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+    });
+    expect(result.results).toHaveLength(MAX_WIDGETS_PER_BATCH);
+  });
+});
 
 describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper

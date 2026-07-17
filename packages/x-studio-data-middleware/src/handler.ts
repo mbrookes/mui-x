@@ -57,6 +57,50 @@ import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
 
 /**
+ * Hard ceiling on the number of widgets a single batch request may contain
+ * (finding T3 — unbounded widget fan-out). Each widget triggers its own
+ * preflight COUNT(*) plus query, all run concurrently via `Promise.all` below —
+ * with no cap, a single request could fan out an arbitrary number of
+ * concurrent database queries. Exceeded requests are rejected outright (see
+ * `assertValidBatchQueryRequest`) rather than silently truncated, so a caller
+ * gets a clear signal instead of a partial, unexplained response.
+ */
+export const MAX_WIDGETS_PER_BATCH = 50;
+
+/**
+ * Validate the shape of a batch query request body before touching it.
+ *
+ * A malformed body (`{}`, `null`, `{ widgets: 42 }`, ...) used to reach
+ * `body.widgets.map(...)` directly below and throw a raw, unsanitized
+ * `TypeError` (e.g. "Cannot read properties of undefined (reading 'map')")
+ * instead of one of this package's own `MUI X`-prefixed, actionable errors.
+ * This throws up front for the request as a whole — a missing/mistyped
+ * `widgets` field (or a batch that fans out to too many widgets) is a defect
+ * in the request itself, not a single widget's data, so there is no per-widget
+ * `{ error }` result to isolate it into.
+ */
+function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !Array.isArray((body as Partial<BatchQueryRequest>).widgets)
+  ) {
+    throw new Error(
+      `MUI X Studio Server: Malformed batch query request — expected an object with a "widgets" array. ` +
+        `A missing or non-array "widgets" field cannot be turned into query results, and would otherwise throw a confusing internal error. ` +
+        `Send a body shaped like { pageId: string, widgets: BatchWidgetDescriptor[] }.`,
+    );
+  }
+  if (body.widgets.length > MAX_WIDGETS_PER_BATCH) {
+    throw new Error(
+      `MUI X Studio Server: Batch query request contains ${body.widgets.length} widgets, which exceeds the maximum of ${MAX_WIDGETS_PER_BATCH} allowed per request. ` +
+        `Each widget runs its own database query concurrently, so an unbounded batch can fan out an unbounded number of simultaneous queries and overload the database. ` +
+        `Split the widgets across multiple requests (e.g. paginate by dashboard page) so each batch stays at or below ${MAX_WIDGETS_PER_BATCH} widgets.`,
+    );
+  }
+}
+
+/**
  * Handle a batch query request from a Studio dashboard.
  *
  * @param body - Parsed request body (BatchQueryRequest)
@@ -68,6 +112,7 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
+  assertValidBatchQueryRequest(body);
   const { db, schemaAllowlist, columnAllowlist, thresholds, tenancy, securityColumns, cacheScope } =
     options;
   // ── Compile the row-level-security policy ONCE for the whole request ───────

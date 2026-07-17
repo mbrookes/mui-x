@@ -66,7 +66,9 @@ describe('StudioGanttChart geometry (finding 1.10)', () => {
     const { wrapper } = createStudioHarness();
     const { container } = render(<StudioGanttChart items={items} height={200} />, { wrapper });
 
+    // eslint-disable-next-line testing-library/no-container -- asserting computed `left` style via custom data-gantt-* attributes, no accessible role/text to query by
     const gridline = container.querySelector(`[data-gantt-gridline="${coincidingTick}"]`);
+    // eslint-disable-next-line testing-library/no-container -- asserting computed `left` style via custom data-gantt-* attributes, no accessible role/text to query by
     const bar = container.querySelector('[data-gantt-bar="Midpoint start"]');
     expect(gridline).not.toBeNull();
     expect(bar).not.toBeNull();
@@ -82,6 +84,7 @@ describe('StudioGanttChart geometry (finding 1.10)', () => {
     const { wrapper } = createStudioHarness();
     const { container } = render(<StudioGanttChart items={items} height={200} />, { wrapper });
 
+    // eslint-disable-next-line testing-library/no-container -- asserting computed `left` style via a custom data-gantt-bar attribute, no accessible role/text to query by
     const bar = container.querySelector('[data-gantt-bar="Late"]');
     expect(bar).not.toBeNull();
     expect(getComputedStyle(bar as Element).left).toBe('100%');

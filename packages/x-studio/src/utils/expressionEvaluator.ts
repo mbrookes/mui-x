@@ -137,11 +137,17 @@ function compareOrdered(a: ScalarValue, b: ScalarValue): number | null {
   if (isNumericLike(a) && isNumericLike(b)) {
     const an = Number(a);
     const bn = Number(b);
-    return an < bn ? -1 : an > bn ? 1 : 0;
+    if (an < bn) {
+      return -1;
+    }
+    return an > bn ? 1 : 0;
   }
   const as = String(a);
   const bs = String(b);
-  return as < bs ? -1 : as > bs ? 1 : 0;
+  if (as < bs) {
+    return -1;
+  }
+  return as > bs ? 1 : 0;
 }
 
 /**

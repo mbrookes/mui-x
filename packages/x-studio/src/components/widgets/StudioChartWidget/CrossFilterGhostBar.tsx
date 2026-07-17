@@ -28,6 +28,7 @@ export function CrossFilterGhostBar(props: BarProps) {
     layout,
     ownerState,
     onClick,
+    /* eslint-disable-next-line @typescript-eslint/naming-convention -- omit skipAnimation via rest (not a valid <rect> attribute) */
     skipAnimation: _skipAnimation,
     ...rest
   } = props;

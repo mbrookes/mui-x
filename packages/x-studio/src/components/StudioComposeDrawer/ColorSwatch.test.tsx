@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { ColorSwatch } from './ColorSwatch';
 
@@ -22,8 +22,8 @@ const { render } = createRenderer();
 describe('ColorSwatch (finding 2.9)', () => {
   it('does not call onChange for intermediate drag frames (native "input" events)', () => {
     const onChange = vi.fn();
-    const { container } = render(<ColorSwatch value="#ff0000" onChange={onChange} />);
-    const input = container.querySelector('input[type="color"]') as HTMLInputElement;
+    render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    const input = screen.getByLabelText('Color picker') as HTMLInputElement;
 
     fireEvent.input(input, { target: { value: '#ff1100' } });
     fireEvent.input(input, { target: { value: '#ff2200' } });
@@ -34,8 +34,8 @@ describe('ColorSwatch (finding 2.9)', () => {
 
   it('calls onChange exactly once with the final value on the native "change" event (drag end / picker close)', () => {
     const onChange = vi.fn();
-    const { container } = render(<ColorSwatch value="#ff0000" onChange={onChange} />);
-    const input = container.querySelector('input[type="color"]') as HTMLInputElement;
+    render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    const input = screen.getByLabelText('Color picker') as HTMLInputElement;
 
     // Several live drag frames…
     fireEvent.input(input, { target: { value: '#ff1100' } });
@@ -49,8 +49,8 @@ describe('ColorSwatch (finding 2.9)', () => {
 
   it('resyncs the buffered value when the external value prop changes (undo/redo)', () => {
     const onChange = vi.fn();
-    const { container, setProps } = render(<ColorSwatch value="#ff0000" onChange={onChange} />);
-    const getInput = () => container.querySelector('input[type="color"]') as HTMLInputElement;
+    const { setProps } = render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    const getInput = () => screen.getByLabelText('Color picker') as HTMLInputElement;
 
     fireEvent.input(getInput(), { target: { value: '#123456' } });
     setProps({ value: '#abcdef' });

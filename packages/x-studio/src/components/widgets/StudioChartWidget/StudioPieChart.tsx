@@ -340,6 +340,7 @@ export function StudioPieChart({
     pieMaxSlices,
     otherBucketLabel,
     localeText,
+    preserveXFieldBaseline,
   ]);
 
   // Per-slice dim state for the grouped-ring `RingDimmedPieArc` slot, keyed by

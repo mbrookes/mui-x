@@ -55,7 +55,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     if (!gaugeMaxIsValid && process.env.NODE_ENV !== 'production') {
       console.warn(
         `MUI X Studio: KPI gauge "gaugeMax" must be a finite number > 0 (received ${gaugeMax}). ` +
-          'Falling back to 1. Set a valid gaugeMax in the compose drawer’s gauge options.',
+          "Falling back to 1. Set a valid gaugeMax in the compose drawer's gauge options.",
       );
     }
     const safeMax = gaugeMaxIsValid ? gaugeMax : 1;

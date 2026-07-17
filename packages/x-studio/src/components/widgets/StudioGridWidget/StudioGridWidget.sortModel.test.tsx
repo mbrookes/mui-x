@@ -182,7 +182,7 @@ describe('StudioGridWidget — interactive header-click sorting commits back int
     expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
     expect(widget.config.gridSortField).toBeUndefined();
 
-    const amountHeader = container.querySelector('[role="columnheader"][data-field="amount"]')!;
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
     expect(amountHeader).not.toBeNull();
 
     fireEvent.click(amountHeader);

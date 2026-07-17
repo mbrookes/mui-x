@@ -208,6 +208,31 @@ describe('createWidgetFromDescription: server config validation', () => {
     expect(config.xField).toBe('month');
   });
 
+  it('falls back to "chart" when the server returns an unrecognized widget kind', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            kind: 'evil-injected-kind',
+            sourceId: 'src1',
+            config: { chartType: 'bar', xField: 'month' },
+          }),
+      }),
+    );
+    const controller = makeController();
+    const result = await createWidgetFromDescription('a widget', AI_CONFIG, controller);
+
+    expect(result.success).toBe(true);
+    const widgetArg = (controller.addWidget as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(widgetArg.kind).toBe('chart');
+  });
+
   it('ignores a non-object config from the server', async () => {
     vi.stubGlobal(
       'fetch',

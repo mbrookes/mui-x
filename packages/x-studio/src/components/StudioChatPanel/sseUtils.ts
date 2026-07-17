@@ -9,6 +9,15 @@ import type { StudioState } from '../../models';
  * can push the request body into tens of megabytes, exceeding server body-size
  * limits, and `adapter` instances aren't JSON-serializable at all.
  *
+ * `doc.ai` is trimmed the same way: the server-side handler only ever reads
+ * `activeThreadId` off of it (`executeToolOnState.ts`'s `rename_thread` tool and
+ * its `projectStateForAI` snapshot both key off that field alone — the live
+ * conversation itself already travels separately as the request's `messages`
+ * array). Shipping the full `threads` array would mean every chat/widget request
+ * re-sends the transcript of EVERY thread, not just the active one — unbounded
+ * and redundant. This does not change what's stored in `doc.ai` client-side,
+ * only the subset serialized for network transport.
+ *
  * Shared by `studioBackendAdapter.ts` (main chat panel) and
  * `StudioTextWidget/useTextWidgetAI.ts` (per-widget AI text generation) — both
  * need to send a sanitized snapshot of state to the same kind of AI endpoint.
@@ -16,6 +25,10 @@ import type { StudioState } from '../../models';
 export function serializeDashboardState(state: StudioState): StudioState {
   return {
     ...state,
+    doc: {
+      ...state.doc,
+      ...(state.doc.ai ? { ai: { activeThreadId: state.doc.ai.activeThreadId, threads: [] } } : {}),
+    },
     runtime: {
       ...state.runtime,
       dataSources: Object.fromEntries(

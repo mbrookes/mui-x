@@ -22,6 +22,7 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
   const { regenerate, isStreaming } = useChat();
   const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
+  const [isRegenerating, setIsRegenerating] = React.useState(false);
 
   if (!message || isStreaming) {
     return null;
@@ -54,7 +55,20 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
     // `sendMessage` instead would append a duplicate user turn + a second answer,
     // letting the thread accumulate duplicate questions rather than replacing the
     // failed answer.
-    regenerate(messageId);
+    //
+    // Guard against double-apply: if the prior response already applied some
+    // mutations before erroring/being interrupted, a regenerate replays the whole
+    // flow and could re-apply them. Wiring up full envelope-id dedup is out of
+    // scope here, so this is a proportionate client-side guard — while a regenerate
+    // for THIS message is in flight, drop further triggers instead of queuing or
+    // replaying them, so a user can't fire the same regenerate twice concurrently.
+    if (isRegenerating) {
+      return;
+    }
+    setIsRegenerating(true);
+    Promise.resolve(regenerate(messageId)).finally(() => {
+      setIsRegenerating(false);
+    });
   };
 
   return (
@@ -75,6 +89,7 @@ export const StudioMessageActions = React.memo(function StudioMessageActions({
           <IconButton
             size="small"
             onClick={handleRetry}
+            disabled={isRegenerating}
             aria-label={localeText.chatMessageRetryTooltip}
           >
             <RefreshIcon />

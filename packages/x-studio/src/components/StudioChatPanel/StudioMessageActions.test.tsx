@@ -9,14 +9,14 @@
  * ChatBox/provider tree.
  */
 import * as React from 'react';
-import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
+import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
 import { StudioMessageActions } from './StudioMessageActions';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const regenerateSpy = vi.fn();
+const regenerateSpy = vi.fn().mockResolvedValue(undefined);
 const sendMessageSpy = vi.fn();
 
 let mockMessage: { id: string; role: string; parts: { type: string; text: string }[] } | null;
@@ -47,11 +47,12 @@ describe('StudioMessageActions', () => {
 
   beforeEach(() => {
     regenerateSpy.mockClear();
+    regenerateSpy.mockResolvedValue(undefined);
     sendMessageSpy.mockClear();
     mockIsStreaming = false;
   });
 
-  it('regenerates the assistant reply in place on retry (regression: 2.10)', () => {
+  it('regenerates the assistant reply in place on retry (regression: 2.10)', async () => {
     mockMessage = {
       id: 'assistant-1',
       role: 'assistant',
@@ -59,15 +60,62 @@ describe('StudioMessageActions', () => {
     };
     render(<StudioMessageActions messageId="assistant-1" />);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip }),
+      );
+      // Flush the microtask queue so the in-flight guard's `finally` (which
+      // resolves after `regenerateSpy`'s promise) settles within this `act`.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     // Regenerate is targeted at THIS assistant message; sendMessage is never used
     // (using it would append a duplicate user turn + answer).
     expect(regenerateSpy).toHaveBeenCalledTimes(1);
     expect(regenerateSpy).toHaveBeenCalledWith('assistant-1');
     expect(sendMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it('drops a concurrent duplicate retry click on the same message (double-apply guard)', async () => {
+    // Regression coverage: retrying a response that already partially applied
+    // mutations must not let a second, concurrent click re-trigger regenerate
+    // for the same message before the first call has settled.
+    let resolveRegenerate: () => void = () => {};
+    regenerateSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRegenerate = resolve;
+        }),
+    );
+    mockMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'answer' }],
+    };
+    render(<StudioMessageActions messageId="assistant-1" />);
+    const retryButton = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.chatMessageRetryTooltip,
+    });
+
+    // `fireEvent.click` auto-wraps each dispatch in `act`, so these three calls
+    // re-render between clicks (unlike batching all three inside one manual
+    // `act()`), letting the `isRegenerating` guard actually take effect between them.
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+
+    expect(regenerateSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRegenerate();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Once the in-flight regenerate settles, a fresh retry is allowed again.
+    fireEvent.click(retryButton);
+    expect(regenerateSpy).toHaveBeenCalledTimes(2);
   });
 
   it('does not render a retry button on user messages', () => {

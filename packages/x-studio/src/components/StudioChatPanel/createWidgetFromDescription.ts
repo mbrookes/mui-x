@@ -4,7 +4,12 @@ import {
   isStudioChartType,
 } from '@mui/x-studio-schema';
 import type { StudioController } from '../../store/StudioController';
-import type { StudioChartType, StudioWidget, StudioWidgetKind } from '../../models';
+import type {
+  BuiltinStudioWidgetKind,
+  StudioChartType,
+  StudioWidget,
+  StudioWidgetKind,
+} from '../../models';
 import { createDefaultWidget } from '../../internals/widgetUtils';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type { StudioLocaleText } from '../../internals/localeText';
@@ -13,6 +18,27 @@ import type { StudioAIConfig } from './studioBackendAdapter';
 export interface CreateWidgetResult {
   success: boolean;
   error?: string;
+}
+
+/** The finite, enumerable set of built-in widget kinds (`BuiltinStudioWidgetKind`). */
+const VALID_WIDGET_KINDS: readonly BuiltinStudioWidgetKind[] = [
+  'grid',
+  'chart',
+  'kpi',
+  'text',
+  'filter',
+  'pivot',
+  'map',
+];
+
+/**
+ * Whether `value` is a recognized built-in widget kind. `data.kind` comes back
+ * from the `/widget` endpoint's JSON response — server-side validation may not
+ * cover every field, so this closes the gap client-side rather than trusting
+ * whatever string the AI response contains.
+ */
+function isValidWidgetKind(value: unknown): value is BuiltinStudioWidgetKind {
+  return typeof value === 'string' && (VALID_WIDGET_KINDS as readonly string[]).includes(value);
 }
 
 /**
@@ -167,7 +193,7 @@ export async function createWidgetFromDescription(
     return { success: false, error: localeText.aiCreateWidgetInvalidResponse };
   }
 
-  const kind = String(data.kind ?? 'chart') as StudioWidgetKind;
+  const kind: StudioWidgetKind = isValidWidgetKind(data.kind) ? data.kind : 'chart';
   const source = data.sourceId ? state.runtime.dataSources[String(data.sourceId)] : sources[0];
 
   const base = createDefaultWidget(kind);

@@ -12,6 +12,32 @@ import GalleryPage from './gallery/GalleryPage';
 
 const theme = createTheme();
 
+const GALLERY_TAB = 1;
+
+/** The tab implied by the current URL (`?tab=gallery`), so a reload — or a
+ * shared link — reopens on the same tab instead of always resetting to the
+ * first one. */
+function tabFromLocation(): number {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  return new URLSearchParams(window.location.search).get('tab') === 'gallery' ? GALLERY_TAB : 0;
+}
+
+/** Mirrors the active tab into the URL's `tab` query param via `replaceState`
+ * (no new history entry per click, and no navigation/scroll side effects). */
+function writeTabToLocation(tab: number): void {
+  const params = new URLSearchParams(window.location.search);
+  if (tab === GALLERY_TAB) {
+    params.set('tab', 'gallery');
+  } else {
+    params.delete('tab');
+  }
+  const query = params.toString();
+  const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+  window.history.replaceState(null, '', url);
+}
+
 function CuratedDemos() {
   return (
     <React.Fragment>
@@ -42,7 +68,13 @@ function CuratedDemos() {
 }
 
 export default function App() {
-  const [tab, setTab] = React.useState(0);
+  const [tab, setTab] = React.useState(tabFromLocation);
+
+  const handleTabChange = (_event: React.SyntheticEvent, value: number) => {
+    setTab(value);
+    writeTabToLocation(value);
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -50,7 +82,7 @@ export default function App() {
         <Typography variant="h4" component="h1" gutterBottom>
           @mui/x-charts-vega demo
         </Typography>
-        <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 3 }}>
+        <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 3 }}>
           <Tab label="Curated demos" />
           <Tab label="Vega-Lite gallery" />
         </Tabs>

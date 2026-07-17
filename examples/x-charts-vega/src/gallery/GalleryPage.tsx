@@ -44,6 +44,10 @@ const examples: GalleryExample[] = Object.entries(specModules)
   })
   .sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
 
+// Stable (module-scope) id list, in the same order as rendered — the scroll
+// spy's "current section" is the first id in this order still in view.
+const exampleIds = examples.map((example) => example.name);
+
 const SEVERITY_COLOR: Record<TranslationGap['severity'], 'error' | 'warning' | 'default'> = {
   unsupported: 'error',
   partial: 'warning',
@@ -121,7 +125,7 @@ function GalleryCard({ example }: { example: GalleryExample }) {
       <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flexGrow: 1 }}>
         <Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-            <Typography variant="h6" component="h2">
+            <Typography variant="h6" component="h2" id={example.name} sx={{ scrollMarginTop: 16 }}>
               {example.title}
             </Typography>
             {example.category && <Chip size="small" variant="outlined" label={example.category} />}
@@ -263,7 +267,84 @@ function GalleryCard({ example }: { example: GalleryExample }) {
   );
 }
 
+// How far from the top of the viewport a section title has to scroll before
+// it's considered "current" — matches roughly where a reader's eye lands.
+const SCROLL_SPY_ACTIVATION_LINE = 96;
+
+/**
+ * Keeps the URL hash pointed at whichever example is currently in view, so
+ * scrolling through the gallery is shareable/bookmarkable/back-button-able
+ * without an explicit click on an anchor. On every (rAF-throttled) scroll,
+ * walks the section titles (see the `id={example.name}` on `GalleryCard`'s
+ * heading) in document order and takes the last one that has scrolled up to
+ * or past the activation line — i.e. the most recent heading the reader has
+ * scrolled past, not merely whatever overlaps the (tall) viewport. Unlike an
+ * `IntersectionObserver` band, this can't land in a gap between two distant
+ * headings and momentarily lose the "current" id. `history.replaceState` is
+ * used rather than `location.hash` so updating it doesn't itself trigger a
+ * scroll or push a new (back-button) history entry per section.
+ */
+function useScrollSpyHash(ids: readonly string[]): void {
+  React.useEffect(() => {
+    if (ids.length === 0) {
+      return undefined;
+    }
+    let current = '';
+    let ticking = false;
+
+    const computeCurrent = () => {
+      ticking = false;
+      let next = '';
+      // `ids` is in document order, so the first heading still below the
+      // activation line means every later one is too — stop there.
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el || el.getBoundingClientRect().top > SCROLL_SPY_ACTIVATION_LINE) {
+          break;
+        }
+        next = id;
+      }
+      if (next === current) {
+        return;
+      }
+      current = next;
+      const { pathname, search } = window.location;
+      window.history.replaceState(
+        null,
+        '',
+        next ? `${pathname}${search}#${next}` : `${pathname}${search}`,
+      );
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(computeCurrent);
+      }
+    };
+
+    // A hash present on mount (a shared/bookmarked deep link) needs an
+    // explicit scroll: the browser's own "scroll to the fragment" pass runs
+    // once, before this client-rendered SPA has mounted anything to scroll
+    // to, so it silently does nothing. Honor it here instead, and seed
+    // `current` so the scroll listener doesn't immediately overwrite it
+    // before the browser has caught up with the jump.
+    const initialId = window.location.hash.slice(1);
+    const initialEl =
+      initialId && ids.includes(initialId) ? document.getElementById(initialId) : null;
+    if (initialEl) {
+      initialEl.scrollIntoView({ block: 'start' });
+      current = initialId;
+    } else {
+      computeCurrent();
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [ids]);
+}
+
 export default function GalleryPage() {
+  useScrollSpyHash(exampleIds);
   return (
     <React.Fragment>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 820 }}>

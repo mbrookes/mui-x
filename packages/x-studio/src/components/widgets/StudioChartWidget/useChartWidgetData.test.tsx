@@ -11,6 +11,7 @@
  * Context is mocked via vi.mock so useStudioSelector resolves against a mutable
  * `mockState` — matching the pattern used by the other widget/hook tests.
  */
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@mui/internal-test-utils';
 import { blueberryTwilightPalette } from '@mui/x-charts/colorPalettes';
@@ -24,6 +25,10 @@ import type {
   StudioWidgetOf,
 } from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -697,6 +702,46 @@ describe('useChartWidgetData — cross-filter ghost baseline memos', () => {
     expect(all.seriesData.US[jan]).toBe(20);
     expect(all.seriesData.EU[feb]).toBe(15);
     expect(all.seriesData.US[feb]).toBe(25);
+  });
+
+  // Regression for finding 6: `seriesFieldData`/`allSeriesFieldData` (built via
+  // `aggregateByTwoFields`, which buckets a null/undefined seriesField value into its own
+  // "(empty)" series rather than dropping the row — unlike the xField, see
+  // `chartAggregation.test.ts`'s "T3.2" coverage) previously called `aggregateByTwoFields`
+  // without `localeText`, so a null `region` always surfaced the hardcoded English
+  // `'(empty)'` literal regardless of the consumer's locale — unlike `StudioPieChart`'s own
+  // ring/sliceField aggregation, which already threads `localeText` through.
+  it('threads localeText through so a null seriesField value renders the localized empty-category label', () => {
+    const widget = seriesFieldWidget();
+    const salesWithEmptyRegion: StudioDataSource = {
+      ...salesSource,
+      rows: [...salesSource.rows, { id: 's5', month: 'Jan', region: null, value: 5 }],
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { sales: salesWithEmptyRegion },
+      filters: [],
+    });
+    function wrapper({ children }: { children?: React.ReactNode }) {
+      return (
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, chartEmptyCategoryLabel: '(vide)' },
+          }}
+        >
+          {children}
+        </StudioUIConfigContext.Provider>
+      );
+    }
+    const { result } = renderHook(
+      () => useChartWidgetData(widget, salesWithEmptyRegion, 'page-1'),
+      { wrapper },
+    );
+
+    expect(result.current.seriesFieldData!.seriesNames).toContain('(vide)');
+    expect(result.current.seriesFieldData!.seriesNames).not.toContain('(empty)');
   });
 
   it('ghost memos are null when there is no incoming cross-filter (shouldShowGhost false)', () => {

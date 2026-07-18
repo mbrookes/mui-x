@@ -11,6 +11,7 @@ import type {
 } from '../../../internals/chartAggregation';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import {
+  alignFilteredToAllLabels,
   buildGhostBarContext,
   CHART_LEGEND_SLOT_PROPS,
   computeControlledHighlight,
@@ -301,14 +302,31 @@ export function StudioBarChart({
     // Deliberately gated ONLY on `shouldShowGhost` (not `preserveXFieldBaseline`) — the
     // within-bar-position ghost overlay is independent of whether the x-axis extent widens to
     // the baseline label set; see the "gated ONLY on shouldShowGhost" invariant test.
+    //
+    // The bars are rendered against `effectiveMultiYData.labels` — the BASELINE labels when
+    // `preserveXFieldBaseline` is true, but the FILTERED labels themselves when it's false (the
+    // x-axis intentionally does NOT widen in that case). `CrossFilterGhostBar` looks up both
+    // `allValuesBySeriesId` and `filteredValuesBySeriesId` by the rendered bar's `dataIndex`, so
+    // BOTH arrays must be aligned to that same `effectiveMultiYData.labels` basis — not
+    // unconditionally to `allBarMultiYData.labels`, which only coincides with it when
+    // `preserveXFieldBaseline` is true. Passing `allSeries.values` through unaligned (its natural
+    // order matches `allBarMultiYData.labels`, not `effectiveMultiYData.labels`) misindexed the
+    // ghost baseline/ratio against the rendered bar in a multi-Y chart whenever the two label sets
+    // differ in order or membership, e.g. after a cross-filter narrows one label set (Tier 2
+    // finding 3). `alignFilteredToAllLabels` re-projects by LABEL (not position), so it's correct
+    // even when the two label arrays differ in length or ordering.
     const multiYBarContext =
       shouldShowGhost && allBarMultiYData
         ? buildGhostBarContext(
-            allBarMultiYData.labels,
+            effectiveMultiYData.labels,
             barMultiYData.labels,
             allBarMultiYData.series.map((allSeries, i) => ({
               seriesId: `${allSeries.fieldId}-${i}`,
-              allValues: allSeries.values,
+              allValues: alignFilteredToAllLabels(
+                effectiveMultiYData.labels,
+                allBarMultiYData.labels,
+                allSeries.values,
+              ),
               filteredValues: barMultiYData.series[i]?.values ?? null,
             })),
           )
@@ -692,13 +710,15 @@ export function StudioBarChart({
   // Filtered values for the ghost bar context, aligned to the display order. The synthetic
   // "Other" bucket sums the filtered values of every folded-away label (mirroring the display
   // baseline), while kept labels absent from the filtered set stay null → "(filtered out)".
-  const ghostActive = Boolean(
-    shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline,
-  );
+  // Deliberately NOT gated on `chartData` being truthy: a cross-filter that empties every row for
+  // this widget makes `chartData` null while `allBarChartData` (the baseline) stays populated —
+  // the ghost must still render (fully dimmed, no foreground bar for any label) instead of
+  // silently reverting to an undimmed baseline render (Tier 2 finding).
+  const ghostActive = Boolean(shouldShowGhost && allBarChartData && preserveXFieldBaseline);
   let singleSeriesFilteredValues: (number | null)[] | null = null;
-  if (ghostActive && chartData) {
+  if (ghostActive) {
     const filteredValueByLabel = new Map<string, number | null>(
-      chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
+      chartData ? chartData.labels.map((l, i) => [String(l), chartData.values[i]]) : [],
     );
     const keepSet = new Set(
       displayXAxisData

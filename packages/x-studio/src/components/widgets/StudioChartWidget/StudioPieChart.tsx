@@ -628,9 +628,15 @@ export function StudioPieChart({
   const localPieValueFormatter = valueFormatter;
 
   // When cross-highlight is active: build filtered values parallel to displayLabels
-  // (handles "Other" grouping by summing filtered values of ungrouped labels)
+  // (handles "Other" grouping by summing filtered values of ungrouped labels).
+  // Deliberately NOT gated on `pieFilteredValueByLabel.size > 0`: a cross-filter that empties
+  // every row for this widget makes `chartData` null/empty, so the map is legitimately empty —
+  // but the highlight is still active and every slice must render fully dimmed (ratio 0) rather
+  // than falling through to the `: allValue` fallback below, which rendered the ghost at full
+  // (undimmed) opacity instead of the "filtered out" treatment (Tier 2 finding). `.get(...) ?? 0`
+  // below already handles an empty map correctly (every label resolves to 0 = fully filtered out).
   let filteredDisplayValues: number[] | null = null;
-  if (isPieHighlightActive && pieFilteredValueByLabel.size > 0) {
+  if (isPieHighlightActive) {
     const keepSet = new Set(
       displayLabels.filter((l) => String(l) !== otherBucketLabel).map(String),
     );

@@ -11,6 +11,7 @@ import type {
   MultiYSeriesData,
 } from '../../../internals/chartAggregation';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildMultiYLineSeries } from './lineSeries';
 import {
   alignFilteredToAllLabels,
@@ -145,6 +146,7 @@ export function StudioLineAreaChart({
   slotProps,
   children,
 }: StudioLineAreaChartProps) {
+  const localeText = useStudioLocaleText();
   const createLineXAxis = (labels: (string | number)[], axisId?: string) =>
     createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId);
 
@@ -477,11 +479,20 @@ export function StudioLineAreaChart({
     mainSeriesData = forecastData.historicalSeries;
   } else if (ghostLineValues && allChartData) {
     effectiveLabels = allChartData.labels;
-    mainSeriesData = alignFilteredToAllLabels(
-      allChartData.labels,
-      singleChartData!.labels,
-      singleChartData!.values,
-    );
+    // `singleChartData` (== `chartData`) is null whenever a cross-filter empties every row for
+    // this widget — `ghostLineValues` is derived from `allChartData` alone, so it stays truthy in
+    // that case and this branch is still entered. Dereferencing `singleChartData!` unconditionally
+    // crashed with a TypeError (Tier 1 finding). Mirror `StudioBarChart`'s/`StudioPieChart`'s
+    // null-safe ghost handling: with no filtered data at all, the foreground series is entirely
+    // null (`connectNulls`/`showMark: false` mean nothing renders), leaving only the dimmed ghost —
+    // the same "fully filtered out" treatment those sibling charts fall back to.
+    mainSeriesData = singleChartData
+      ? alignFilteredToAllLabels(
+          allChartData.labels,
+          singleChartData.labels,
+          singleChartData.values,
+        )
+      : allChartData.labels.map(() => null);
   } else {
     effectiveLabels = singleChartData!.labels;
     mainSeriesData = singleChartData!.values;
@@ -535,7 +546,11 @@ export function StudioLineAreaChart({
             // (pre-existing asymmetry, preserved as-is).
             valueFormatter:
               !isArea && ghostLineValues
-                ? makeCrossHighlightLineFormatter(ghostLineValues, seriesValueFormatter)
+                ? makeCrossHighlightLineFormatter(
+                    ghostLineValues,
+                    seriesValueFormatter,
+                    localeText.chartCrossFilterFilteredOutLabel,
+                  )
                 : seriesValueFormatter,
           },
           // Forecast trend line (dashed, no marks, excluded from legend)

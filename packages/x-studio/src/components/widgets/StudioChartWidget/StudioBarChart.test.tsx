@@ -297,6 +297,99 @@ describe('StudioBarChart', () => {
       expect(props.xAxis[0].data).toEqual(['A', 'B', 'C']);
       expect(props.series[0].data).toEqual([10, 30, 50]);
     });
+
+    // Regression for Tier 2 finding 3: `multiYBarContext`'s ghost values used to align to
+    // `allBarMultiYData.labels` UNCONDITIONALLY, even when `preserveXFieldBaseline` is false and
+    // the bars are actually rendered against `barMultiYData.labels` (the FILTERED, un-widened
+    // label set) instead. Since the baseline label order/membership can legitimately differ from
+    // the filtered one (e.g. a cross-filter drops a category or reorders it), the ghost
+    // `allValuesBySeriesId`/`filteredValuesBySeriesId` arrays were indexed against the WRONG
+    // label basis relative to each rendered bar's `dataIndex`, misaligning the ghost overlay with
+    // 2+ Y-series and asymmetric filtering. Fixtures below are self-contained (not the shared
+    // `multiYData` above) so the expected numbers are unambiguous.
+    it('aligns the multi-Y ghost context to the rendered (filtered) label basis when preserveXFieldBaseline is false, even with reordered baseline labels', () => {
+      // Filtered (rendered) data: labels ['A', 'B'].
+      const filteredMultiYData = {
+        labels: ['A', 'B'],
+        series: [
+          { fieldId: 'revenue', values: [10, 20] },
+          { fieldId: 'cost', values: [100, 200] },
+        ],
+      };
+      // Baseline label order deliberately differs from (and is a superset of) the filtered
+      // labels — a positional (non-label-aware) alignment would pair the wrong baseline value
+      // with each rendered bar.
+      const allMultiYData = {
+        labels: ['C', 'A', 'B'],
+        series: [
+          { fieldId: 'revenue', values: [999, 11, 21] },
+          { fieldId: 'cost', values: [888, 111, 211] },
+        ],
+      };
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          chartData: null,
+          multiYData: filteredMultiYData,
+          allMultiYData,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: false,
+        }),
+      );
+      const props = lastBarProps();
+      // Rendered against the FILTERED label order (preserveXFieldBaseline is false).
+      expect(props.xAxis[0].data).toEqual(['A', 'B']);
+      expect(props.series[0].data).toEqual([10, 20]);
+      // Ghost baseline values must align BY LABEL to the rendered ['A', 'B'] order — 'A'→11,
+      // 'B'→21 for revenue (not the baseline's own positional first two entries [999, 11],
+      // which would incorrectly pair bar 0 ('A') with 'C's baseline value of 999).
+      expect(capturedBarCtx!.allValuesBySeriesId['revenue-0']).toEqual([11, 21]);
+      expect(capturedBarCtx!.allValuesBySeriesId['cost-1']).toEqual([111, 211]);
+      // The filtered values (already natively aligned to the filtered label order) must also
+      // line up 1:1 with the same rendered bars.
+      expect(capturedBarCtx!.filteredValuesBySeriesId['revenue-0']).toEqual([10, 20]);
+      expect(capturedBarCtx!.filteredValuesBySeriesId['cost-1']).toEqual([100, 200]);
+    });
+
+    // Same asymmetric/reordered-baseline scenario, but with `preserveXFieldBaseline: true` — the
+    // bars widen to the baseline label set, so the ghost context's alignment basis
+    // (`effectiveMultiYData.labels`) now equals `allMultiYData.labels` itself, and the filtered
+    // (narrower) data must be re-projected onto it by label.
+    it('aligns the multi-Y ghost context to the baseline label basis when preserveXFieldBaseline is true, even with reordered/asymmetric labels', () => {
+      const filteredMultiYData = {
+        labels: ['A', 'B'],
+        series: [
+          { fieldId: 'revenue', values: [10, 20] },
+          { fieldId: 'cost', values: [100, 200] },
+        ],
+      };
+      const allMultiYData = {
+        labels: ['C', 'A', 'B'],
+        series: [
+          { fieldId: 'revenue', values: [999, 11, 21] },
+          { fieldId: 'cost', values: [888, 111, 211] },
+        ],
+      };
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          chartData: null,
+          multiYData: filteredMultiYData,
+          allMultiYData,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      );
+      const props = lastBarProps();
+      // Rendered against the BASELINE label order (preserveXFieldBaseline is true).
+      expect(props.xAxis[0].data).toEqual(['C', 'A', 'B']);
+      expect(capturedBarCtx!.allValuesBySeriesId['revenue-0']).toEqual([999, 11, 21]);
+      expect(capturedBarCtx!.allValuesBySeriesId['cost-1']).toEqual([888, 111, 211]);
+      // Filtered data (labels ['A', 'B']) re-projected by label onto ['C', 'A', 'B'] — 'C' has no
+      // filtered value (null → "filtered out"), 'A'/'B' keep their filtered values.
+      expect(capturedBarCtx!.filteredValuesBySeriesId['revenue-0']).toEqual([null, 10, 20]);
+      expect(capturedBarCtx!.filteredValuesBySeriesId['cost-1']).toEqual([null, 100, 200]);
+    });
   });
 
   // ── SeriesField (split-by) ───────────────────────────────────────────────────
@@ -428,6 +521,30 @@ describe('StudioBarChart', () => {
       barChartSpy.mockClear();
       renderChart(baseProps({ ...withGhost, preserveXFieldBaseline: false }));
       expect(lastBarProps().slots?.bar).toBeUndefined();
+    });
+
+    // Regression for Tier 2 finding 2: a cross-filter that empties EVERY row for this widget
+    // makes `chartData` null while `allBarChartData` (the baseline) stays populated. `ghostActive`
+    // used to require `chartData` to be truthy, so this case built no ghost context at all — the
+    // bars rendered via the plain (non-ghost) `<rect>` path at FULL opacity instead of the dimmed
+    // "filtered out" treatment every other ghost bar gets.
+    it('still ghosts (dimmed, no foreground) via CrossFilterGhostBar when chartData is null but allChartData is populated', () => {
+      renderChart(
+        baseProps({
+          chartData: null,
+          allChartData: { labels: ['A', 'B', 'C'], values: [10, 20, 30] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      );
+      const props = lastBarProps();
+      // The ghost slot must still be wired up (not the full-opacity default rect path).
+      expect(props.slots?.bar).toBe(CrossFilterGhostBar);
+      // Every label is "filtered out" (null) — no foreground bar renders for any of them, only
+      // the dimmed baseline ghost.
+      const filtered = capturedBarCtx!.filteredValuesBySeriesId['cross-filter-series'];
+      expect(filtered).toEqual([null, null, null]);
+      expect(capturedBarCtx!.allValuesBySeriesId['cross-filter-series']).toEqual([10, 20, 30]);
     });
 
     it('groups all but the top N−1 categories into an "Other" bar', () => {

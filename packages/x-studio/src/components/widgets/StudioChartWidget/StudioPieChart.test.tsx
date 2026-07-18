@@ -298,6 +298,32 @@ describe('StudioPieChart', () => {
     expect(capturedCtx!.isActive).toBe(true);
   });
 
+  // Regression for Tier 2 finding 2: a cross-filter that empties EVERY row for this widget makes
+  // `chartData` null/empty, so `pieFilteredValueByLabel` is legitimately an empty Map. The old
+  // `pieFilteredValueByLabel.size > 0` gate then skipped building `filteredDisplayValues`
+  // entirely, and `pieDisplayCtxValue`'s ratio computation fell back to `filteredValue = allValue`
+  // for every slice — rendering the ghost at FULL (undimmed) opacity instead of the
+  // fully-"filtered out" treatment (ratio 0) every slice should get here.
+  it('dims every slice to ratio 0 (fully filtered out) when a cross-filter empties every row', () => {
+    const chartData: AggregatedData = { labels: [], values: [] };
+    const allChartData: AggregatedData = { labels: ['A', 'B', 'C'], values: [10, 20, 30] };
+    renderPie(
+      baseProps({
+        chartData,
+        allChartData,
+        shouldShowGhost: true,
+        preserveXFieldBaseline: true,
+      }),
+    );
+    expect(capturedCtx).not.toBeNull();
+    expect(capturedCtx!.isActive).toBe(true);
+    // Every rendered arc (one per baseline label) must be fully dimmed, not left at ratio 1
+    // (undimmed) via the stale `: allValue` fallback.
+    expect(capturedCtx!.ratioByIndex.get(0)).toBe(0);
+    expect(capturedCtx!.ratioByIndex.get(1)).toBe(0);
+    expect(capturedCtx!.ratioByIndex.get(2)).toBe(0);
+  });
+
   it('renders the custom below-chart legend with percentages when pieLegendBelow is set', () => {
     const { container } = renderPie(
       baseProps({ chartData: { labels: ['A', 'B'], values: [25, 75] }, pieLegendBelow: true }),

@@ -3,6 +3,10 @@ import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioDataSource, StudioExpressionField } from '../../../models';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 
 const lineChartSpy = vi.fn();
 
@@ -93,6 +97,30 @@ describe('StudioLineAreaChart', () => {
       </ThemeProvider>,
     );
 
+  // Renders with a StudioUIConfigContext override, mirroring StudioBarChart.test.tsx's/
+  // StudioPieChart.test.tsx's localization tests — used to pin the "filtered out" label to the
+  // localeText value rather than the English literal (finding 5).
+  const renderChartWithFilteredOutLabel = (
+    props: StudioLineAreaChartProps,
+    filteredOutLabel: string,
+  ) =>
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: {
+              ...DEFAULT_STUDIO_LOCALE_TEXT,
+              chartCrossFilterFilteredOutLabel: filteredOutLabel,
+            },
+          }}
+        >
+          <StudioLineAreaChart {...props} />
+        </StudioUIConfigContext.Provider>
+      </ThemeProvider>,
+    );
+
   beforeEach(() => {
     lineChartSpy.mockClear();
   });
@@ -140,6 +168,32 @@ describe('StudioLineAreaChart', () => {
     expect(formatted).toContain('/');
   });
 
+  // Regression for finding 5: the "filtered out" label shown for a ghosted (null) data point
+  // was passed to `makeCrossHighlightLineFormatter` without a third argument, so it always fell
+  // back to the English literal ('filtered out') regardless of locale — unlike every other
+  // user-facing string in this file, which reads from `localeText`.
+  it('localizes the "filtered out" label via localeText.chartCrossFilterFilteredOutLabel', () => {
+    // 'B' has no filtered value at all (dropped by the cross-filter) → its main-series data
+    // point is null, which is exactly when `makeCrossHighlightLineFormatter` emits the
+    // "(filtered out)" suffix.
+    renderChartWithFilteredOutLabel(
+      baseProps({
+        chartType: 'line',
+        chartData: { labels: ['A'], values: [4] },
+        allChartData: { labels: ['A', 'B'], values: [10, 20] },
+        shouldShowGhost: true,
+        preserveXFieldBaseline: true,
+      }),
+      'filtré',
+    );
+    const props = lastLineProps();
+    const active = props.series.find((s) => s.id === 'cross-filter-series')!;
+    expect(active.data).toEqual([4, null]);
+    const formatted = active.valueFormatter!(null, { dataIndex: 1 });
+    expect(formatted).toContain('filtré');
+    expect(formatted).not.toContain('filtered out');
+  });
+
   it('renders a faded ghost area at ~19% alpha', () => {
     renderChart(
       baseProps({
@@ -173,6 +227,52 @@ describe('StudioLineAreaChart', () => {
     // String concatenation (`rgb(10, 20, 30)40`) would be an invalid paint string; color-mix
     // wraps the color value instead so it is always valid regardless of format.
     expect(ghost!.color).toBe('color-mix(in srgb, rgb(10, 20, 30) 25%, transparent)');
+  });
+
+  // Regression for finding 1 (Tier 1): a cross-filter that empties every row for this widget
+  // makes the filtered `chartData` (and therefore `singleChartData` inside the component) null,
+  // while `ghostLineValues` (derived from `allChartData` alone) stays truthy — so the ghost
+  // branch is still entered. The component used to dereference `singleChartData!.labels` /
+  // `singleChartData!.values` unconditionally there, crashing with a TypeError instead of
+  // rendering the dimmed ghost with no foreground line. This must render without throwing.
+  it('does not crash when a cross-filter empties every row for a single-series line chart (Tier 1 crash fix)', () => {
+    expect(() =>
+      renderChart(
+        baseProps({
+          chartType: 'line',
+          chartData: null,
+          allChartData: { labels: ['A', 'B', 'C'], values: [10, 20, 30] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      ),
+    ).not.toThrow();
+    const props = lastLineProps();
+    const ghost = props.series.find((s) => s.id === 'cross-filter-series-ghost');
+    const active = props.series.find((s) => s.id === 'cross-filter-series');
+    // Ghost still shows the full baseline.
+    expect(ghost!.data).toEqual([10, 20, 30]);
+    // No filtered data at all → the foreground series is entirely null (nothing renders on top
+    // of the dimmed ghost), rather than crashing or falling back to stale/incorrect values.
+    expect(active!.data).toEqual([null, null, null]);
+  });
+
+  // Same crash scenario, but for the area variant (isArea branch shares the same code path).
+  it('does not crash when a cross-filter empties every row for a single-series area chart (Tier 1 crash fix)', () => {
+    expect(() =>
+      renderChart(
+        baseProps({
+          chartType: 'area',
+          chartData: null,
+          allChartData: { labels: ['A', 'B', 'C'], values: [10, 20, 30] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      ),
+    ).not.toThrow();
+    const props = lastLineProps();
+    const active = props.series.find((s) => s.id === 'cross-filter-series');
+    expect(active!.data).toEqual([null, null, null]);
   });
 
   it('suppresses the single-series ghost when preserveXFieldBaseline is false', () => {

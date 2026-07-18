@@ -337,11 +337,7 @@ async function* runApprovalFlow(
       kind: 'denied',
       output: JSON.stringify({
         denied: true,
-        reason:
-          `"${toolName}" requires approval` +
-          (policyReason ? ` (${policyReason})` : '') +
-          ' but no approvalPending map is configured. ' +
-          `Wire an approval channel (pass approvalPending) or set approvalFallback: 'allow'.`,
+        reason: `"${toolName}" requires approval${policyReason ? ` (${policyReason})` : ''} but no approvalPending map is configured. Wire an approval channel (pass approvalPending) or set approvalFallback: 'allow'.`,
       }),
     };
   }

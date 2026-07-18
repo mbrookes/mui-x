@@ -110,11 +110,11 @@ describe('moveWidgetInLayout', () => {
         ['w', 'x'],
       ];
       const MAX_PER_ROW = 4;
-      (['up', 'down', 'left', 'right'] as const).forEach((direction) => {
-        const next = moveWidgetInLayout(rows, 'w', direction);
-        if (next) {
-          next.forEach((row) => expect(row.length).toBeLessThanOrEqual(MAX_PER_ROW));
-        }
+      const nonNullResults = (['up', 'down', 'left', 'right'] as const)
+        .map((direction) => moveWidgetInLayout(rows, 'w', direction))
+        .filter((next): next is NonNullable<typeof next> => next !== null);
+      nonNullResults.forEach((next) => {
+        next.forEach((row) => expect(row.length).toBeLessThanOrEqual(MAX_PER_ROW));
       });
     });
   });

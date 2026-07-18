@@ -142,7 +142,9 @@ describe('compilePointMark', () => {
       max?: number;
       sizeMap?: { type: string; size: [number, number]; interpolator?: string };
     };
-    expect(zAxis.min).to.equal(5);
+    // Vega-Lite defaults `zero: true` for the size scale: the domain starts
+    // at 0, not the data minimum (5), unless `scale.zero: false` opts out.
+    expect(zAxis.min).to.equal(0);
     expect(zAxis.max).to.equal(15);
     expect(zAxis.sizeMap?.type).to.equal('continuous');
     // Radius range matching Vega-Lite's default point size (area up to 361 →

@@ -444,6 +444,55 @@ function buildContinuousAreaOverlay(
   return overlays;
 }
 
+/**
+ * Builds a single closed, filled polygon overlay for a `line`/`trail` mark
+ * whose `interpolate` is `"linear-closed"` — Vega-Lite's convention for a
+ * hand-drawn filled shape (e.g. a ternary plot's background wedges), as
+ * opposed to an ordinary polyline. Points are kept in row order and the path
+ * always closes back to the first point; unlike the plain continuous-x line
+ * overlay above, they must NOT be sorted by x — the row order IS the polygon's
+ * vertex order. Returns `null` when fewer than 3 numeric points survive
+ * (nothing to fill).
+ */
+function buildClosedPolygonOverlay(
+  ctx: UnitContext,
+  xField: string,
+  yField: string,
+): CompiledOverlay | null {
+  const mark = ctx.unit.mark;
+  const points: Array<{ x: number; y: number }> = [];
+  ctx.rows.forEach((row) => {
+    const xv = toNumber(row[xField]);
+    const yv = toNumber(row[yField]);
+    if (xv == null || yv == null || Number.isNaN(xv) || Number.isNaN(yv)) {
+      return;
+    }
+    points.push({ x: xv, y: yv });
+  });
+  if (points.length < 3) {
+    return null;
+  }
+
+  const fill = resolveMarkColor(mark.fill ?? mark.color, ctx.gaps, ctx.unit.path);
+  const stroke = resolveMarkColor(mark.stroke ?? mark.color, ctx.gaps, ctx.unit.path) ?? fill;
+  const markFillOpacity = (mark as { fillOpacity?: unknown }).fillOpacity;
+  let fillOpacity = 1;
+  if (typeof markFillOpacity === 'number') {
+    fillOpacity = markFillOpacity;
+  } else if (typeof mark.opacity === 'number') {
+    fillOpacity = mark.opacity;
+  }
+
+  return {
+    kind: 'polygon',
+    points,
+    fill,
+    fillOpacity,
+    stroke,
+    strokeWidth: typeof mark.strokeWidth === 'number' ? mark.strokeWidth : 1,
+  };
+}
+
 export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const { unit, rows, encoding, x, gaps } = ctx;
   const path = unit.path;
@@ -453,6 +502,20 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const yDef = isFieldDef(encoding.y) ? (encoding.y as VegaFieldDef) : undefined;
   const yField = yDef?.field;
   const xField = x?.field;
+
+  if ((markType === 'line' || markType === 'trail') && mark.interpolate === 'linear-closed') {
+    const overlay = xField && yField ? buildClosedPolygonOverlay(ctx, xField, yField) : null;
+    if (overlay) {
+      gaps.add({
+        code: 'mark:line-closed-polygon-custom-overlay',
+        message:
+          'A `line`/`trail` mark with `interpolate: "linear-closed"` draws a closed, filled polygon in Vega-Lite; x-charts has no such series, so this wrapper draws it via a custom SVG overlay instead.',
+        severity: 'ignored',
+        path,
+      });
+      return { series: [], plots: [], overlays: [overlay] };
+    }
+  }
 
   if (!x || !x.categories || !x.categoryKeys) {
     // Continuous *quantitative* x has no index-aligned category domain for an

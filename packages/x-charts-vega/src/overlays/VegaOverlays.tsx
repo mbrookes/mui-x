@@ -2,6 +2,7 @@
 import * as React from 'react';
 import type { CompiledOverlay } from '../compile/context';
 import { SegmentsOverlay } from './Segments';
+import { PolygonOverlay } from './Polygon';
 import { BoxPlotOverlay } from './BoxPlot';
 import { ErrorBarsOverlay } from './ErrorBars';
 import { TextMarksOverlay } from './TextMarks';
@@ -27,6 +28,8 @@ export function VegaOverlays(props: { overlays?: CompiledOverlay[] }) {
         switch (overlay.kind) {
           case 'segments':
             return <SegmentsOverlay key={index} overlay={overlay} />;
+          case 'polygon':
+            return <PolygonOverlay key={index} overlay={overlay} />;
           case 'boxes':
             return <BoxPlotOverlay key={index} overlay={overlay} />;
           case 'errorBars':

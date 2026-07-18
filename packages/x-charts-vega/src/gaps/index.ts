@@ -85,6 +85,7 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'mark:text-custom-overlay',
   'mark:line-continuous-x-custom-overlay',
   'mark:area-continuous-x-custom-overlay',
+  'mark:line-closed-polygon-custom-overlay',
   'mark:tick-custom-overlay',
   'mark:rule-segment-custom-overlay',
 ]);

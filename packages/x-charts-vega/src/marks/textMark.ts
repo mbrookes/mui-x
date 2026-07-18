@@ -11,6 +11,7 @@ import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { compileTestConditions } from '../compile/params';
 import { createValueFormatter } from '../format';
+import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
 
 /*
  * OWNERSHIP: the "text/image marks" work unit owns this file.
@@ -32,8 +33,8 @@ import { createValueFormatter } from '../format';
 
 /** Extra `text` mark properties Vega-Lite supports but `VegaMarkDef` doesn't declare by name (`color` is already on the base type). */
 interface TextMarkExtras {
-  dx?: number;
-  dy?: number;
+  dx?: number | { expr: string };
+  dy?: number | { expr: string };
   fontSize?: number;
   font?: string;
   fontWeight?: string | number;
@@ -106,6 +107,46 @@ function buildTextStyle(mark: VegaMarkDef & TextMarkExtras): React.CSSProperties
     typeof mark.baseline === 'string' ? BASELINE_TO_DOMINANT[mark.baseline] : undefined;
   style.dominantBaseline = (baseline ?? 'middle') as React.CSSProperties['dominantBaseline'];
   return style;
+}
+
+/**
+ * Resolves a `mark.dx`/`mark.dy` offset, which Vega-Lite allows to be either a
+ * constant number or a per-row signal expression (`{expr: 'datum.someField'}`
+ * — e.g. computed by an earlier `calculate` transform). Returns a function
+ * reading the (possibly per-row) offset, or `undefined` when the property is
+ * absent or its expression could not be parsed (reported as a gap).
+ */
+function resolveOffsetProperty(
+  value: number | { expr: string } | undefined,
+  gaps: UnitContext['gaps'],
+  path: string,
+  propName: 'dx' | 'dy',
+): ((row: DatasetRow) => number | undefined) | undefined {
+  if (typeof value === 'number') {
+    return () => value;
+  }
+  if (value && typeof value === 'object' && typeof value.expr === 'string') {
+    let evaluate: (datum: DatasetRow) => unknown;
+    try {
+      evaluate = compileExpression(value.expr);
+    } catch (err) {
+      if (!(err instanceof UnsupportedExpressionError)) {
+        throw err;
+      }
+      gaps.add({
+        code: 'mark:text-offset-expr',
+        message: `The text mark's \`${propName}\` expression "${value.expr}" could not be parsed (${err.message}); no ${propName} offset is applied.`,
+        severity: 'partial',
+        path: `${path}.mark.${propName}`,
+      });
+      return undefined;
+    }
+    return (row) => {
+      const result = evaluate(row);
+      return typeof result === 'number' && Number.isFinite(result) ? result : undefined;
+    };
+  }
+  return undefined;
 }
 
 const FULL_CIRCLE = 2 * Math.PI;
@@ -372,8 +413,8 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
   }
 
   const style = buildTextStyle(mark);
-  const dx = typeof mark.dx === 'number' ? mark.dx : undefined;
-  const dy = typeof mark.dy === 'number' ? mark.dy : undefined;
+  const dxResolver = resolveOffsetProperty(mark.dx, gaps, path, 'dx');
+  const dyResolver = resolveOffsetProperty(mark.dy, gaps, path, 'dy');
 
   const items: OverlayTextItem[] = [];
   rows.forEach((row) => {
@@ -405,6 +446,9 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
       ? ((colorConditionResolver(row) as string | undefined) ?? baseColor)
       : baseColor;
     const itemStyle = fill !== undefined ? { ...style, fill } : style;
+
+    const dx = dxResolver?.(row);
+    const dy = dyResolver?.(row);
 
     items.push({
       x,

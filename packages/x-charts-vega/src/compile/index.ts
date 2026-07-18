@@ -88,6 +88,13 @@ export interface CompiledChart {
    * feeds these to a custom scatter marker slot.
    */
   hollowSeriesIds?: string[];
+  /**
+   * A stroke override (color + width) for solid-filled scatter markers, keyed
+   * by series id — a `point`/`circle` mark with an explicit `mark.stroke`
+   * alongside a fill. The shell feeds these to the same custom scatter
+   * marker slot as `hollowSeriesIds`.
+   */
+  markerStroke?: Record<string, { color: string; width?: number }>;
   /** SVG linear-gradient fills (from gradient area marks); rendered as `<defs>`. */
   gradients?: CompiledGradient[];
   /** Title drawn above a heatmap's continuous color legend. */
@@ -347,6 +354,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
   const hollowSeriesIds: string[] = [];
+  const markerStroke: Record<string, { color: string; width?: number }> = {};
   const gradients: CompiledGradient[] = [];
   let colorLegendTitle: string | undefined;
   let colorLegendDirection: 'horizontal' | 'vertical' | undefined;
@@ -404,6 +412,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
     zAxis.push(...(compiled.zAxis ?? []));
     hollowSeriesIds.push(...(compiled.hollowSeriesIds ?? []));
+    Object.assign(markerStroke, compiled.markerStroke);
     gradients.push(...(compiled.gradients ?? []));
     if (compiled.colorLegendTitle && colorLegendTitle === undefined) {
       colorLegendTitle = compiled.colorLegendTitle;
@@ -562,6 +571,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     hasLegend,
     colors: palette,
     hollowSeriesIds: hollowSeriesIds.length > 0 ? hollowSeriesIds : undefined,
+    markerStroke: Object.keys(markerStroke).length > 0 ? markerStroke : undefined,
     gradients: gradients.length > 0 ? gradients : undefined,
     colorLegendTitle,
     colorLegendDirection,

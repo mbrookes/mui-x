@@ -110,6 +110,21 @@ export interface OverlayImageItem {
 export type CompiledOverlay =
   | { kind: 'segments'; items: OverlaySegment[] }
   | {
+      /**
+       * A single closed, filled polygon (a `line`/`trail` mark with
+       * `interpolate: "linear-closed"` — Vega-Lite draws these as a filled
+       * shape, not a plain polyline). Points are drawn in row order (NOT
+       * sorted by x, unlike the continuous line/area overlays above) and the
+       * path is always closed back to the first point.
+       */
+      kind: 'polygon';
+      points: Array<{ x: number; y: number }>;
+      fill?: string;
+      fillOpacity?: number;
+      stroke?: string;
+      strokeWidth?: number;
+    }
+  | {
       kind: 'boxes';
       orientation: 'vertical' | 'horizontal';
       items: OverlayBoxItem[];
@@ -265,6 +280,14 @@ export interface CompiledUnit {
    * scatter marker slot; unlisted series keep the default solid-filled marker.
    */
   hollowSeriesIds?: string[];
+  /**
+   * A stroke override (color + width) for solid-filled scatter markers this
+   * layer produced, keyed by series id — for a `point`/`circle` mark with an
+   * explicit `mark.stroke` alongside a fill (a filled circle with a distinct
+   * outline, as opposed to the hollow stroke-only style above). The shell
+   * feeds these to the same custom scatter marker slot.
+   */
+  markerStroke?: Record<string, { color: string; width?: number }>;
   /**
    * SVG linear-gradient fills contributed by this layer (a Vega-Lite gradient
    * `mark.color`/`fill`). x-charts fills are a single color, so the shell emits

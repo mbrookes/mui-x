@@ -63,6 +63,13 @@ export interface ColorResolution {
   range?: string[];
   /** A single static color for all marks of the layer. */
   staticColor?: string;
+  /**
+   * `true` when the color field has an explicit `scale: null` ("identity"
+   * encoding): `splitField`'s raw row values ARE the literal color to use —
+   * callers should read each group's own value as its color directly rather
+   * than indexing into `range`/the chart palette.
+   */
+  identity?: boolean;
   /** Whether a legend is meaningful (a field is color-encoded). */
   hasLegend: boolean;
   /**
@@ -580,6 +587,15 @@ export function resolveColor(
 
   if (isFieldDef(def)) {
     const fieldDef = def as VegaFieldDef;
+    // `scale: null` is Vega-Lite's "identity" escape hatch: the field's raw
+    // row values (typically pre-computed CSS/hex color strings from a
+    // `calculate` transform) are used directly as the visual color, with no
+    // scale/domain/legend involved at all. Handled before the quantitative/
+    // categorical branches below, which would otherwise treat every distinct
+    // raw value as its own domain entry needing a palette-assigned color.
+    if (fieldDef.scale === null) {
+      return { splitField: fieldDef.field, identity: true, hasLegend: false };
+    }
     const { type } = fieldDef;
     if (type === 'quantitative' || type === 'temporal') {
       const colorMap = resolveContinuousColorMap(fieldDef, rows, gaps, path, options);

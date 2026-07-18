@@ -174,7 +174,8 @@ function resolveRows(
     // that instead of handing mark compilers primitive "rows" with no
     // properties to read a field from.
     const values = data.values as unknown[];
-    const isPrimitiveArray = values.length > 0 && values.every((value) => value === null || typeof value !== 'object');
+    const isPrimitiveArray =
+      values.length > 0 && values.every((value) => value === null || typeof value !== 'object');
     if (isPrimitiveArray) {
       return values.map((value) => ({ data: value }));
     }
@@ -264,12 +265,17 @@ export function titleText(title: VegaUnitSpec['title']): string | undefined {
   if (typeof title === 'string') {
     return title;
   }
-  if (
-    title &&
-    typeof title === 'object' &&
-    typeof (title as { text?: unknown }).text === 'string'
-  ) {
-    return (title as { text: string }).text;
+  if (title && typeof title === 'object') {
+    // Vega-Lite's multi-line title form (`text: string[]`, one array entry per
+    // rendered line) — joined with a newline; the shell's title element
+    // preserves it via `white-space: pre-line`.
+    const { text } = title as { text?: unknown };
+    if (typeof text === 'string') {
+      return text;
+    }
+    if (Array.isArray(text) && text.every((line) => typeof line === 'string')) {
+      return (text as string[]).join('\n');
+    }
   }
   return undefined;
 }
@@ -286,7 +292,9 @@ function numericSize(
   // (`step × categoryCount`), so it is intentionally left for that stage rather
   // than reported here. Only a genuinely unrecognized object form is gapped.
   const isStep =
-    value != null && typeof value === 'object' && typeof (value as { step?: unknown }).step === 'number';
+    value != null &&
+    typeof value === 'object' &&
+    typeof (value as { step?: unknown }).step === 'number';
   if (value !== undefined && value !== 'container' && !isStep) {
     gaps.add({
       code: `size:${prop}-step`,

@@ -41,7 +41,7 @@ import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
 import { SizeLegend } from './SizeLegend';
 import { VegaTooltip, resolveTooltipFields } from './VegaTooltip';
-import { createHollowScatterMarker } from './HollowScatterMarker';
+import { createScatterMarkerOverrides } from './HollowScatterMarker';
 
 type LegendLayout = { position: Position; direction: 'horizontal' | 'vertical' };
 
@@ -258,7 +258,9 @@ function resolveVegaViewSize(
     const units = Array.isArray(spec.layer) ? spec.layer : [spec];
     const hasOffset =
       (spec as { encoding?: Record<string, unknown> }).encoding?.[offsetKey] != null ||
-      units.some((unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[offsetKey] != null);
+      units.some(
+        (unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[offsetKey] != null,
+      );
     const seriesCount = compiled.series?.length ?? 1;
     return hasOffset && seriesCount > 1 ? seriesCount : 1;
   };
@@ -283,7 +285,9 @@ function resolveVegaViewSize(
       return true;
     }
     const units = Array.isArray(spec.layer) ? spec.layer : [];
-    return units.some((unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[channel] != null);
+    return units.some(
+      (unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[channel] != null,
+    );
   };
   const plotSize = (
     size: VegaLiteSpec['width'],
@@ -296,7 +300,9 @@ function resolveVegaViewSize(
     }
     const scaleType = axis?.config.scaleType;
     const isDiscrete =
-      (scaleType === 'band' || scaleType === 'point') && !isBinned(channel) && channelEncoded(channel);
+      (scaleType === 'band' || scaleType === 'point') &&
+      !isBinned(channel) &&
+      channelEncoded(channel);
     const count = axis?.config.data?.length ?? 0;
     if (isDiscrete && count > 0) {
       const step =
@@ -308,7 +314,12 @@ function resolveVegaViewSize(
     return fallback;
   };
   const width = plotSize(spec.width, compiled.xAxis, fallbackWidth, 'x');
-  const height = plotSize(spec.height as VegaLiteSpec['width'], compiled.yAxis, fallbackHeight, 'y');
+  const height = plotSize(
+    spec.height as VegaLiteSpec['width'],
+    compiled.yAxis,
+    fallbackHeight,
+    'y',
+  );
   // Only pad when the perpendicular axis is both present AND actually drawn —
   // `axis: null` (`position: 'none'`) still compiles a yAxis/xAxis config (for
   // its scale/domain), but draws no ticks/labels, so reserving label-width
@@ -391,7 +402,12 @@ function PlotBorder({ stroke }: { stroke: string }) {
 /** Resolve the view-border stroke: honor `config.view.stroke`, else Vega's default. */
 function resolveViewStroke(spec: VegaLiteSpec): string | undefined {
   const viewStroke = (spec as { config?: { view?: { stroke?: unknown } } }).config?.view?.stroke;
-  if (viewStroke === null || viewStroke === false || viewStroke === 'transparent' || viewStroke === '') {
+  if (
+    viewStroke === null ||
+    viewStroke === false ||
+    viewStroke === 'transparent' ||
+    viewStroke === ''
+  ) {
     return undefined;
   }
   return typeof viewStroke === 'string' ? viewStroke : VEGA_VIEW_STROKE;
@@ -690,10 +706,8 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
             : undefined;
           // Shrink inner cells by exactly the margin they dropped so their plot
           // area matches the labeled edge cells' plots.
-          const cellWidth =
-            shared && !isLeftColumn ? cell.width - leftReduction : cell.width;
-          const cellHeight =
-            shared && hasCellBelow ? cell.height - bottomReduction : cell.height;
+          const cellWidth = shared && !isLeftColumn ? cell.width - leftReduction : cell.width;
+          const cellHeight = shared && hasCellBelow ? cell.height - bottomReduction : cell.height;
           return (
             <div key={cell.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               {cell.header != null && (
@@ -823,16 +837,25 @@ function SingleViewChart(props: VegaLiteChartProps) {
     [spec, data, datasets, colors, paramValues],
   );
 
-  // A custom scatter marker slot that draws hollow (stroke-only) circles for the
-  // `point`-mark / `filled: false` series the compiler flagged, matching
-  // Vega-Lite's default point style. Kept stable across renders so x-charts does
-  // not remount every marker; unset when no series need it.
+  // A custom scatter marker slot that draws hollow (stroke-only) circles for
+  // the `point`-mark / `filled: false` series the compiler flagged (matching
+  // Vega-Lite's default point style), and/or a distinct outline color for
+  // solid-filled series with an explicit `mark.stroke`. Kept stable across
+  // renders so x-charts does not remount every marker; unset when no series
+  // need either override.
   const scatterSlots = React.useMemo(() => {
-    if (!compiled.hollowSeriesIds || compiled.hollowSeriesIds.length === 0) {
+    const hollowIds = compiled.hollowSeriesIds;
+    const strokeOverrides = compiled.markerStroke;
+    if ((!hollowIds || hollowIds.length === 0) && !strokeOverrides) {
       return undefined;
     }
-    return { marker: createHollowScatterMarker(new Set(compiled.hollowSeriesIds)) };
-  }, [compiled.hollowSeriesIds]);
+    return {
+      marker: createScatterMarkerOverrides({
+        hollowIds: hollowIds ? new Set(hollowIds) : undefined,
+        strokeOverrides: strokeOverrides ? new Map(Object.entries(strokeOverrides)) : undefined,
+      }),
+    };
+  }, [compiled.hollowSeriesIds, compiled.markerStroke]);
 
   const clipId = useId();
 
@@ -913,14 +936,14 @@ function SingleViewChart(props: VegaLiteChartProps) {
       ? ({ value }: { value: number | Date }) => geoColorFormat(value)
       : undefined;
     // The color field name titles the legend (Vega-Lite's default), e.g. "rate".
-    const geoColorTitle = isFieldDef(spec.encoding?.color)
-      ? spec.encoding?.color.field
-      : undefined;
+    const geoColorTitle = isFieldDef(spec.encoding?.color) ? spec.encoding?.color.field : undefined;
     // Vega-Lite's default gradient length (config.legend.gradientLength) is
     // 200px; x-charts' own default legend is much shorter, which reads as a
     // squashed sliver next to a full-height choropleth. An explicit spec
     // `gradientLength` still wins.
-    const geoColorLegend = isFieldDef(spec.encoding?.color) ? spec.encoding?.color.legend : undefined;
+    const geoColorLegend = isFieldDef(spec.encoding?.color)
+      ? spec.encoding?.color.legend
+      : undefined;
     const geoGradientLength =
       geoColorLegend && typeof geoColorLegend === 'object' && !Array.isArray(geoColorLegend)
         ? ((geoColorLegend as { gradientLength?: unknown }).gradientLength ?? 200)
@@ -939,7 +962,11 @@ function SingleViewChart(props: VegaLiteChartProps) {
     let geoLegend: React.ReactNode;
     if (geoColorMap?.type === 'piecewise') {
       geoLegend = withGeoLegendTitle(
-        <PiecewiseColorLegend axisDirection="z" direction="vertical" sx={{ height: geoGradientLength }} />,
+        <PiecewiseColorLegend
+          axisDirection="z"
+          direction="vertical"
+          sx={{ height: geoGradientLength }}
+        />,
       );
     } else if (geoColorMap) {
       geoLegend = withGeoLegendTitle(
@@ -1020,7 +1047,9 @@ function SingleViewChart(props: VegaLiteChartProps) {
         ),
       ]
     : undefined;
-  const yAxis = compiled.yAxis ? [dropAutoSize(compiled.yAxis.config, cell?.margin?.left)] : undefined;
+  const yAxis = compiled.yAxis
+    ? [dropAutoSize(compiled.yAxis.config, cell?.margin?.left)]
+    : undefined;
 
   // Scale-bound interval selections enable gesture zoom/pan (the axis configs
   // carry `zoom: true`, read by the Premium provider). Clip the plotting area
@@ -1243,7 +1272,16 @@ function SingleViewChart(props: VegaLiteChartProps) {
   if (compiled.title && !cell) {
     return (
       <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'rgb(0, 0, 0)', padding: '0 0 4px' }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'rgb(0, 0, 0)',
+            padding: '0 0 4px',
+            whiteSpace: 'pre-line',
+            textAlign: 'center',
+          }}
+        >
           {compiled.title}
         </div>
         {chartWithLegend}

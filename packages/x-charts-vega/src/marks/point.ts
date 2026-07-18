@@ -1,6 +1,6 @@
 import type { ScatterValueType } from '@mui/x-charts/models';
 import { isFieldDef } from '../types';
-import type { DatasetRow, VegaEncoding } from '../types';
+import type { DatasetRow, VegaEncoding, VegaFieldDef } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -306,7 +306,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   // (stroke-only), while `circle`/`square` are solid. An explicit `filled`
   // overrides either way. Hollow markers render through the shell's custom
   // scatter marker slot (keyed by the series ids collected below).
-  const hollow = !isTick && (unit.mark.filled ?? markType !== 'point') === false;
+  //
+  // An explicit `fill` channel/mark property (rather than relying on `color`)
+  // always wins over the mark-type default, though: specifying `fill`
+  // directly means the mark IS filled with that value regardless of a
+  // `point` mark's usual hollow default (Vega-Lite's `filled` flag only
+  // governs where an unspecified `color` lands — fill or stroke — not
+  // whether an explicitly-given `fill` paints anything).
+  const explicitFillChannel = encoding.fill !== undefined || typeof unit.mark.fill === 'string';
+  const hollow =
+    !isTick && !explicitFillChannel && (unit.mark.filled ?? markType !== 'point') === false;
 
   // "filled"/opacity styling only applies to genuine circular markers — tick
   // segments have their own stroke-based styling via buildTickStyle instead.
@@ -417,6 +426,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       // itself needs no approximation gap (unlike the static `mark.size`
       // case above, which has no scale to lean on).
       //
+      // Vega-Lite defaults `zero: true` for non-positional continuous scales
+      // (size, opacity, …): the domain starts at 0, not the data minimum,
+      // unless the spec opts out with an explicit `scale.zero: false`.
+      // Anchoring at the data minimum instead would shrink the smallest
+      // bubble toward radius 0 whenever the data doesn't already start near
+      // zero (e.g. population/count totals in the hundreds).
+      const sizeScale = isFieldDef(encoding.size)
+        ? (encoding.size as VegaFieldDef).scale
+        : undefined;
+      const domainMin = sizeScale?.zero === false ? min : 0;
       // NOTE: heatmap cells (marks/rect.ts) also push a `zAxis` entry (for
       // `colorMap`) without an explicit `id`, so both fall back to the same
       // compiler-assigned `defaultized-z-axis-<index>` id scheme. A spec
@@ -426,7 +445,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       // (`zAxisIds[0]`) wins as the scatter series' default size axis.
       zAxis = [
         {
-          min,
+          min: domainMin,
           max,
           // `size` is the marker *radius* and the `sqrt` interpolator makes area
           // proportional to the value (Vega-Lite's `size` semantics). Match
@@ -436,7 +455,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
           sizeMap: { type: 'continuous', size: [0, 11], interpolator: 'sqrt' },
         },
       ];
-      sizeLegend = buildSizeLegend(min, max, encoding.size);
+      sizeLegend = buildSizeLegend(domainMin, max, encoding.size);
     }
   }
 
@@ -462,12 +481,20 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       if (!group || group.points.length === 0) {
         return;
       }
+      // An identity (`scale: null`) color field's raw row value IS the color
+      // to draw — no palette/range lookup, unlike an ordinary categorical split.
+      let color: string | undefined;
+      if (colorRes.identity) {
+        color = typeof value === 'string' ? value : undefined;
+      } else {
+        color = colorRes.range?.[groupIndex % colorRes.range.length];
+      }
       series.push(
         makeScatterSeries({
           id: `${baseId}:${key}`,
           data: group.points,
           label: colorRes.hasLegend ? String(value) : undefined,
-          color: colorRes.range?.[groupIndex % colorRes.range.length],
+          color,
           markerSize,
         }),
       );
@@ -519,6 +546,26 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     }
   }
 
+  // A static `mark.stroke` alongside a solid (non-hollow) fill draws a
+  // distinct outline color around the marker — e.g. a filled circle whose
+  // color comes from a `fill` field but with a constant black border. This is
+  // independent of the hollow (stroke-only, no fill) styling above.
+  const markerStrokeColor = typeof unit.mark.stroke === 'string' ? unit.mark.stroke : undefined;
+  const markerStroke =
+    !hollow && markerStrokeColor && series.length > 0
+      ? Object.fromEntries(
+          series.map((entry) => [
+            String(entry.id),
+            {
+              color: markerStrokeColor,
+              ...(typeof unit.mark.strokeWidth === 'number'
+                ? { width: unit.mark.strokeWidth }
+                : {}),
+            },
+          ]),
+        )
+      : undefined;
+
   return {
     series,
     plots: series.length > 0 ? ['scatter'] : [],
@@ -527,6 +574,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     ...(hollow && series.length > 0
       ? { hollowSeriesIds: series.map((entry) => String(entry.id)) }
       : {}),
+    ...(markerStroke ? { markerStroke } : {}),
   };
 }
 

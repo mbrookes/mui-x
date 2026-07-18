@@ -7,6 +7,8 @@
 import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
 import { sanitizeForPrompt } from './buildAISystemPrompt';
 import { buildWidgetFromArgs } from './executeToolOnState';
+import { withTimeout } from './mcp/helpers';
+import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 
 export interface GenerateInsightOptions {
   /** LLM endpoint (OpenAI-compatible, e.g. `https://api.openai.com/v1/chat/completions`) */
@@ -77,29 +79,38 @@ export async function handleGenerateTitle(
 ): Promise<{ title: string; description: string }> {
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 100 } = options;
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Generate a short title (max 6 words) and a one-sentence description for a ' +
-            "dashboard analytics chat session based on the user's first message. " +
-            'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
-        },
-        { role: 'user', content: firstMessage },
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.3,
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
+  // at all, unlike the main chat loop) — a hung/overloaded gateway that never
+  // resolves would otherwise hang this call indefinitely. Reuses the SAME
+  // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
+  // fetch, rather than reimplementing a second timeout scheme.
+  const response = await withTimeout(
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Generate a short title (max 6 words) and a one-sentence description for a ' +
+              "dashboard analytics chat session based on the user's first message. " +
+              'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
+          },
+          { role: 'user', content: firstMessage },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.3,
+      }),
     }),
-  });
+    LLM_FETCH_TIMEOUT_MS,
+    'MUI X Studio: Title generation request',
+  );
 
   if (!response.ok) {
     throw new Error(`Title generation failed: ${response.status}`);
@@ -248,23 +259,32 @@ export async function handleCreateWidget(
     `<data_sources>\n${sourceLines || '  (none yet)'}\n</data_sources>\n\n` +
     'Pick sensible field selections. Prefer numeric fields for values/Y-axis and categorical/date fields for grouping/X-axis.';
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: description },
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.2,
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
+  // at all, unlike the main chat loop) — a hung/overloaded gateway that never
+  // resolves would otherwise hang this call indefinitely. Reuses the SAME
+  // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
+  // fetch, rather than reimplementing a second timeout scheme.
+  const response = await withTimeout(
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: description },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.2,
+      }),
     }),
-  });
+    LLM_FETCH_TIMEOUT_MS,
+    'MUI X Studio: Widget creation request',
+  );
 
   if (!response.ok) {
     throw new Error(`Widget creation failed: ${response.status}`);

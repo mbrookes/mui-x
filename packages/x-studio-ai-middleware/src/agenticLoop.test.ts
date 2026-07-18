@@ -28,6 +28,24 @@ function makeSseResponse(chunks: unknown[]): Response {
   return new Response(stream, { status: 200 });
 }
 
+/**
+ * A response that delivers `chunks` and then goes silent — never closes, never
+ * enqueues anything further. Simulates a provider that stalls mid-stream (sends
+ * some bytes, then the connection hangs) rather than one that never responds at
+ * all (which `makeSseResponse`'s never-resolving `fetch` mock already covers via
+ * the time-to-headers timeout).
+ */
+function makeStallingSseResponse(chunks: unknown[]): Response {
+  const body = chunks.map(sseChunk).join('');
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+      // Deliberately never closes or enqueues again.
+    },
+  });
+  return new Response(stream, { status: 200 });
+}
+
 /** A single-turn "text only" LLM response ending with a usage chunk. */
 function textResponse(text: string, promptTokens: number, completionTokens: number): Response {
   return makeSseResponse([
@@ -590,6 +608,65 @@ describe('runAgenticLoop — provider fetch timeout', () => {
       | undefined;
     expect(errorEvent).toBeDefined();
     expect(errorEvent!.message).toMatch(/LLM provider request timed out after 120000ms/);
+  });
+});
+
+describe('runAgenticLoop — mid-stream stall (SSE idle timeout)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Finding (Tier 2 #1): the time-to-headers timeout only bounds the wait for the
+  // initial `fetch()` response — once the stream starts, it has already resolved
+  // and can never fire again. A provider that sends some bytes then goes silent
+  // mid-stream previously hung the SSE connection forever. The idle timeout inside
+  // `parseSSE` (wired through `agenticLoop.ts`'s `parseSSE(response, { idleTimeoutMs
+  // })` call) must catch this distinct failure mode.
+  it('surfaces a clear error and ends the stream when the provider stalls after sending partial data', async () => {
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      makeStallingSseResponse([
+        { choices: [{ delta: { content: 'partial' }, finish_reason: null }] },
+      ]),
+    );
+
+    const eventsPromise = collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // The first chunk is read immediately (partial text delta); the idle timeout
+    // (60s, reset per chunk) then starts counting from there since no more chunks
+    // ever arrive.
+    await vi.advanceTimersByTimeAsync(60_000);
+    const events = await eventsPromise;
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as
+      | { message?: string }
+      | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.message).toMatch(
+      /MUI X Studio: LLM response stream \(no data received\) timed out after 60000ms/,
+    );
+
+    // The partial text delta streamed before the stall must still have reached the
+    // caller — a stall must not retroactively erase progress already made.
+    const textDelta = events.find((ev) => (ev as { type: string }).type === 'text-delta') as
+      | { delta?: string }
+      | undefined;
+    expect(textDelta?.delta).toBe('partial');
   });
 });
 

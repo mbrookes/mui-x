@@ -48,8 +48,27 @@ import {
  * scoped operations, sized to the same order of magnitude as the approval-wait
  * timeout (`approvalTimeoutMs`, default 120_000ms) since a legitimate multi-turn
  * tool-calling response can take a while to stream.
+ *
+ * Exported so `handleGenerateInsight.ts` and `generateFieldDescriptions.ts` can
+ * apply the SAME fetch-timeout mechanism (`withTimeout`) and value to their own
+ * (non-streaming) LLM fetch calls, rather than each hand-rolling — or omitting —
+ * a timeout.
  */
-const LLM_FETCH_TIMEOUT_MS = 120_000;
+export const LLM_FETCH_TIMEOUT_MS = 120_000;
+
+/**
+ * Idle-timeout (ms) for the SSE read loop, forwarded to `parseSSE`. Bounds how
+ * long the stream may go WITHOUT a new chunk before it's considered stalled —
+ * distinct from `LLM_FETCH_TIMEOUT_MS` above, which only bounds the wait for
+ * the initial response (headers) to arrive. Once the stream starts, that
+ * fetch-level timeout has already resolved and can never fire again, so a
+ * provider that sends some bytes then goes silent would otherwise hang the
+ * connection forever (finding: mid-stream stall). Sized shorter than
+ * `LLM_FETCH_TIMEOUT_MS` since a healthy stream should keep producing chunks
+ * continuously — an idle gap this long between chunks is itself a signal
+ * something is wrong, even if the overall response is expected to take longer.
+ */
+const LLM_STREAM_IDLE_TIMEOUT_MS = 60_000;
 
 /**
  * Default cap on total tool calls (mutating or read-only) dispatched across a
@@ -487,64 +506,85 @@ export async function* runAgenticLoop(
     let turnInputTokens = 0;
     let turnOutputTokens = 0;
 
-    // eslint-disable-next-line no-await-in-loop -- sequential SSE streaming; cannot be parallelized
-    for await (const chunk of parseSSE(response)) {
-      if (signal?.aborted) {
+    // try/catch (finding: a mid-stream stall — or any other read error — must not
+    // propagate as an uncaught rejection out of this generator). `runAgenticLoop` is
+    // a public export consumers may drive directly (see index.ts: "Re-exported for
+    // consumers who want to build custom loops"), not only through `handleAIChat`'s
+    // outer try/catch, so every failure here must surface the same way the
+    // fetch-level timeout above does: a `{ type: 'error' }` event, not a thrown
+    // exception. `parseSSE`'s idle timeout (reset per chunk) is what actually
+    // catches a provider that sends some bytes then goes silent — the fetch-level
+    // timeout above only bounds the wait for the response to START and has already
+    // resolved by the time this loop runs.
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential SSE streaming; cannot be parallelized
+      for await (const chunk of parseSSE(response, { idleTimeoutMs: LLM_STREAM_IDLE_TIMEOUT_MS })) {
+        if (signal?.aborted) {
+          return;
+        }
+
+        const choices = chunk.choices as Array<{
+          delta?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              index: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+              extra_content?: unknown;
+            }>;
+          };
+          finish_reason?: string | null;
+        }>;
+
+        // Accumulate token usage from the final usage chunk (stream_options: include_usage)
+        const chunkUsage = chunk.usage as
+          | { prompt_tokens?: number; completion_tokens?: number }
+          | undefined;
+        if (chunkUsage) {
+          turnInputTokens = chunkUsage.prompt_tokens ?? turnInputTokens;
+          turnOutputTokens = chunkUsage.completion_tokens ?? turnOutputTokens;
+        }
+
+        if (!choices?.length) {
+          continue;
+        }
+
+        const choice = choices[0];
+        // A finish-reason-only chunk (real behavior for some OpenAI-compatible gateways) may
+        // omit `delta` entirely — default to `{}` so the checks below degrade gracefully
+        // instead of throwing on `undefined.content`.
+        const delta = choice.delta ?? {};
+        if (choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
+        // NOTE: `StudioAISSEEvent` (`models/protocol.ts`) declares `reasoning-start` /
+        // `reasoning-delta` / `reasoning-end` events for provider-emitted chain-of-thought,
+        // but this loop never yields them: the `delta` type above (and every provider this
+        // package has been run against) carries only `content`/`tool_calls`, with no
+        // `reasoning`/`reasoning_content` streaming field to map from. A future provider
+        // integration that streams reasoning tokens over an OpenAI-compatible wire format
+        // (e.g. a `delta.reasoning_content`) should inspect it here and yield
+        // `reasoning-start`/`reasoning-delta`/`reasoning-end` around it, mirroring the
+        // `text-delta` handling below.
+        if (delta.content) {
+          yield { type: 'text-delta', delta: delta.content };
+          turnTextBuffer += delta.content;
+        }
+
+        if (delta.tool_calls) {
+          accumulateToolCallDeltas(delta.tool_calls, acc);
+        }
+      }
+    } catch (err) {
+      // Mirrors the fetch-level catch above: end the stream silently on an external
+      // abort, otherwise surface a clear `{ type: 'error' }` event (this is what
+      // `parseSSE`'s idle-timeout rejection — a mid-stream stall — surfaces as).
+      if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
-
-      const choices = chunk.choices as Array<{
-        delta?: {
-          content?: string | null;
-          tool_calls?: Array<{
-            index: number;
-            id?: string;
-            function?: { name?: string; arguments?: string };
-            extra_content?: unknown;
-          }>;
-        };
-        finish_reason?: string | null;
-      }>;
-
-      // Accumulate token usage from the final usage chunk (stream_options: include_usage)
-      const chunkUsage = chunk.usage as
-        | { prompt_tokens?: number; completion_tokens?: number }
-        | undefined;
-      if (chunkUsage) {
-        turnInputTokens = chunkUsage.prompt_tokens ?? turnInputTokens;
-        turnOutputTokens = chunkUsage.completion_tokens ?? turnOutputTokens;
-      }
-
-      if (!choices?.length) {
-        continue;
-      }
-
-      const choice = choices[0];
-      // A finish-reason-only chunk (real behavior for some OpenAI-compatible gateways) may
-      // omit `delta` entirely — default to `{}` so the checks below degrade gracefully
-      // instead of throwing on `undefined.content`.
-      const delta = choice.delta ?? {};
-      if (choice.finish_reason) {
-        finishReason = choice.finish_reason;
-      }
-
-      // NOTE: `StudioAISSEEvent` (`models/protocol.ts`) declares `reasoning-start` /
-      // `reasoning-delta` / `reasoning-end` events for provider-emitted chain-of-thought,
-      // but this loop never yields them: the `delta` type above (and every provider this
-      // package has been run against) carries only `content`/`tool_calls`, with no
-      // `reasoning`/`reasoning_content` streaming field to map from. A future provider
-      // integration that streams reasoning tokens over an OpenAI-compatible wire format
-      // (e.g. a `delta.reasoning_content`) should inspect it here and yield
-      // `reasoning-start`/`reasoning-delta`/`reasoning-end` around it, mirroring the
-      // `text-delta` handling below.
-      if (delta.content) {
-        yield { type: 'text-delta', delta: delta.content };
-        turnTextBuffer += delta.content;
-      }
-
-      if (delta.tool_calls) {
-        accumulateToolCallDeltas(delta.tool_calls, acc);
-      }
+      yield { type: 'error', message: err instanceof Error ? err.message : String(err) };
+      return;
     }
 
     // Fold this turn's usage into the cumulative per-request total ONCE (finding T3-4b).

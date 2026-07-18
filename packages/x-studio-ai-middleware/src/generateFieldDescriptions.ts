@@ -11,6 +11,8 @@
  */
 import type { GenerateInsightOptions } from './handleGenerateInsight';
 import { sanitizeForPrompt } from './buildAISystemPrompt';
+import { withTimeout } from './mcp/helpers';
+import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 
 /**
  * Hard length cap applied to each interpolated sample value before it reaches the
@@ -129,24 +131,33 @@ export async function generateFieldDescriptions(
     `<fields>\n${fieldList}\n</fields>\n\n` +
     'Return a JSON array with one entry per field.';
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userContent },
-      ],
-      max_tokens: Math.min(200 * fields.length, 4096),
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
+  // at all, unlike the main chat loop) — a hung/overloaded gateway that never
+  // resolves would otherwise hang this call indefinitely. Reuses the SAME
+  // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
+  // fetch, rather than reimplementing a second timeout scheme.
+  const response = await withTimeout(
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        max_tokens: Math.min(200 * fields.length, 4096),
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+      }),
     }),
-  });
+    LLM_FETCH_TIMEOUT_MS,
+    'MUI X Studio: Field description generation request',
+  );
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);

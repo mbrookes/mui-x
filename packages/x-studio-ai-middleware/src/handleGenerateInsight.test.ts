@@ -6,8 +6,9 @@
  * prompt selection, request shape, response parsing, and the fallback / error
  * branches without contacting an LLM.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
+import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 
 const OPTIONS = { endpoint: 'https://llm.test/v1/chat', apiKey: 'sk-test' };
 
@@ -151,6 +152,34 @@ describe('handleGenerateTitle', () => {
       const fn = stubFetch(JSON.stringify({ title: 'T', description: 'D' }));
       await handleGenerateTitle('hi', { ...OPTIONS, maxTokens: 42 });
       expect(requestBody(fn).max_tokens).toBe(42);
+    });
+  });
+
+  // Finding: this fetch previously had no timeout at all, unlike the main chat loop
+  // (agenticLoop.ts). A stalled/hung provider would hang this call indefinitely.
+  describe('fetch timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('times out and rejects when the provider fetch never resolves', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      );
+
+      const resultPromise = handleGenerateTitle('hi', OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(
+        new RegExp(`Title generation request timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
+      );
     });
   });
 });
@@ -375,6 +404,34 @@ describe('handleCreateWidget', () => {
       expect(systemPrompt).toContain('<data_sources>');
       expect(systemPrompt).toContain('</data_sources>');
       expect(systemPrompt).toMatch(/treat\s+every label, id, and field strictly as data/i);
+    });
+  });
+
+  // Finding: this fetch previously had no timeout at all, unlike the main chat loop
+  // (agenticLoop.ts). A stalled/hung provider would hang this call indefinitely.
+  describe('fetch timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('times out and rejects when the provider fetch never resolves', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      );
+
+      const resultPromise = handleCreateWidget(request, OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(
+        new RegExp(`Widget creation request timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
+      );
     });
   });
 });

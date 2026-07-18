@@ -1,6 +1,6 @@
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioWidgetConfig } from '../../models';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import type { StudioFilterState, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -14,6 +14,7 @@ const controller = {
 
 const mockState = {
   doc: {
+    dashboard: { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' },
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -23,7 +24,7 @@ const mockState = {
         config: { kpiSparklinePlotType: 'gauge', kpiSparklineGaugeMax: 100 } as StudioWidgetConfig,
       },
     },
-    filters: [],
+    filters: [] as StudioFilterState[],
     relationships: [],
     expressionFields: [],
   },
@@ -143,5 +144,71 @@ describe('KpiSparklineOptions date-field derivation (finding 2.8)', () => {
     await user.click(picker);
     // Name includes the field-type icon's aria-label prefix (e.g. "Date Created at").
     expect(await screen.findByRole('option', { name: /Created at$/ })).toBeVisible();
+  });
+});
+
+// Finding 3: the auto-detected date filter must be scoped through the SAME authority
+// (`selectFiltersForWidget`) the KPI widget itself uses to resolve its effective date
+// filter at render time — not a raw, unscoped scan — so this setup-panel preview never
+// claims a date filter is driving the sparkline when the widget itself wouldn't see it
+// (and vice versa).
+describe('KpiSparklineOptions auto-date-filter scoping (finding 3)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.dashboard = { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' };
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: {} as StudioWidgetConfig,
+    };
+  });
+
+  afterEach(() => {
+    mockState.doc.filters = [];
+  });
+
+  it('falls back to the manual Time-field picker for a date filter scoped to a DIFFERENT page', () => {
+    const otherPageFilter: StudioFilterState = {
+      id: 'f-1',
+      field: 'createdAt',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-2' },
+      operator: 'between',
+      value: { from: '2026-01-01', to: '2026-01-31' },
+    } as unknown as StudioFilterState;
+    mockState.doc.filters = [otherPageFilter];
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    render(
+      <KpiSparklineOptions widgetId="widget-1" config={mockState.doc.widgets['widget-1'].config} />,
+    );
+
+    // The widget itself is mounted on page-1 and would never see page-2's date filter
+    // (`selectFiltersForWidget` excludes it), so this preview must not claim it is
+    // auto-driving the sparkline either.
+    expect(screen.getByLabelText('Time field')).not.toBe(null);
+    expect(screen.queryByText(/Using date filter/)).toBe(null);
+  });
+
+  it("treats a date filter scoped to the KPI's own active page as auto-detected", () => {
+    const ownPageFilter: StudioFilterState = {
+      id: 'f-2',
+      field: 'createdAt',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'between',
+      value: { from: '2026-01-01', to: '2026-01-31' },
+    } as unknown as StudioFilterState;
+    mockState.doc.filters = [ownPageFilter];
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    render(
+      <KpiSparklineOptions widgetId="widget-1" config={mockState.doc.widgets['widget-1'].config} />,
+    );
+
+    expect(screen.getByText(/Using date filter/)).not.toBe(null);
+    expect(screen.queryByLabelText('Time field')).toBe(null);
   });
 });

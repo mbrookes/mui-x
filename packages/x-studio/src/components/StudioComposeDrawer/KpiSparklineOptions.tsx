@@ -18,10 +18,14 @@ import {
   selectExpressionFields,
   selectFilters,
   selectRelationships,
+  selectActivePageId,
+  selectGlobalCrossFilterMode,
+  selectCrossFilterAllPages,
   useStudioLocaleText,
 } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
+import { selectFiltersForWidget } from '../../internals/filterScoping';
 import type { StudioDataSource, StudioWidgetConfig } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
@@ -52,6 +56,19 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const sourceId = widget?.sourceId;
   const source = sourceId ? dataSources[sourceId] : undefined;
   const relationships = useStudioSelector(selectRelationships);
+
+  // Scoping inputs mirroring the KPI widget's own effective-date-filter resolution
+  // (`useKpiSparkline` in `StudioKpiWidget.tsx`), so this setup-panel preview never
+  // disagrees with what actually renders (finding 3). The compose drawer only ever
+  // edits a widget that is selected on the currently active page, so `selectActivePageId`
+  // is the same `pageId` `StudioKpiWidget` is mounted with.
+  const activePageId = useStudioSelector(selectActivePageId);
+  const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
+  const crossFilterModeRaw =
+    globalCrossFilterMode ?? (widget?.config as StudioWidgetConfig | undefined)?.crossFilterMode;
+  const crossFilterMode =
+    crossFilterModeRaw === 'cross-highlight' ? 'cross-filter' : (crossFilterModeRaw ?? 'none');
 
   // Collect date fields from primary source + all directly related sources.
   // Built on the shared `buildSourceFieldEntries` catalog helper (architecture
@@ -96,12 +113,21 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
     if (!sourceId) {
       return null;
     }
-    const relevant = filters.filter(
-      (f) =>
-        f.scope.kind === 'page' ||
-        f.scope.kind === 'dashboard-date-range' ||
-        (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
-    );
+    // Scope through the SAME authority the KPI widget itself uses to resolve its effective
+    // date filter (`selectFiltersForWidget`, matching `useKpiSparkline`'s `scopedFilters`)
+    // instead of a raw, unscoped `filters` scan. The previous page/dashboard-date-range/widget
+    // scope-kind check had no `pageId`, `disabled`, or cross-filter-mode enforcement, so it
+    // could match a date filter scoped to a DIFFERENT page or widget than the one actually in
+    // effect for this KPI at render time — wrongly reporting an auto-detected date filter (and
+    // hiding the manual Time-field picker) when the widget itself would show no such filter, or
+    // vice versa (finding 3).
+    const relevant = selectFiltersForWidget(filters, {
+      widgetId,
+      widgetSourceId: sourceId,
+      activePageId,
+      include: crossFilterMode === 'none' ? 'no-cross' : 'all',
+      crossFilterAllPages,
+    });
     return (
       relevant.find((f) => {
         return allDateFieldsWithJoined.some(
@@ -109,7 +135,15 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
         );
       }) ?? null
     );
-  }, [filters, sourceId, widgetId, allDateFieldsWithJoined]);
+  }, [
+    filters,
+    sourceId,
+    widgetId,
+    allDateFieldsWithJoined,
+    activePageId,
+    crossFilterMode,
+    crossFilterAllPages,
+  ]);
 
   const autoFieldLabel = autoDateFilter
     ? allDateFieldsWithJoined.find((f) => f.id === autoDateFilter.field)?.label

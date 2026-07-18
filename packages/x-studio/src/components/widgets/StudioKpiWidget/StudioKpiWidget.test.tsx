@@ -565,6 +565,83 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
     expect(trend!.previousValue).toBe(200);
     expect(trend!.delta).toBeCloseTo(0.5);
   });
+
+  it('filter-based trend re-applies an active Top-N rank filter to the previous period (finding 1)', () => {
+    // Full dataset spans both the current and previous window, across two reps.
+    // Current window: rep A totals 150 (100 + 50), rep B totals 30 — rep A ranks #1.
+    // Previous window: rep A totals 20, rep B totals 300 (200 + 100) — rep B ranks #1.
+    // A correct Top-1-by-rep rank filter therefore selects a DIFFERENT rep in each
+    // window, so the previous-period value must be computed by re-applying the rank
+    // reduction to the previous window's OWN rows, not by reusing the current window's
+    // winning rep or dropping the rank filter entirely.
+    const salesWithRep = {
+      id: 'sales',
+      label: 'Sales',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+        { id: 'saleDate', label: 'Date', type: 'date' },
+        { id: 'rep', label: 'Rep', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', rep: 'A', amount: 100, saleDate: '2026-07-01' },
+        { id: 'c2', rep: 'A', amount: 50, saleDate: '2026-07-02' },
+        { id: 'c3', rep: 'B', amount: 30, saleDate: '2026-07-03' },
+        { id: 'p1', rep: 'A', amount: 20, saleDate: '2026-05-20' },
+        { id: 'p2', rep: 'B', amount: 200, saleDate: '2026-05-21' },
+        { id: 'p3', rep: 'B', amount: 100, saleDate: '2026-05-22' },
+      ],
+    } as unknown as StudioDataSource;
+
+    // The current-period rows the real L3 pipeline would produce: the date filter keeps
+    // only the current-window rows, and the rank filter then keeps only rep A's rows
+    // (150 > 30) — mirrored here since `useWidgetRows` is mocked.
+    rowsHolder.current = [
+      { id: 'c1', rep: 'A', amount: 100, saleDate: '2026-07-01' },
+      { id: 'c2', rep: 'A', amount: 50, saleDate: '2026-07-02' },
+    ];
+
+    const dateFilter: StudioFilterState = {
+      id: 'f-date',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'widget', widgetId: 'kpi-1' },
+      operator: 'between',
+      value: { from: '2026-06-07', to: '2026-07-07' },
+    } as unknown as StudioFilterState;
+    const rankFilter: StudioFilterState = {
+      id: 'f-rank',
+      field: 'rep',
+      fieldType: 'string',
+      scope: { kind: 'widget', widgetId: 'kpi-1' },
+      filterMode: 'rank',
+      rankDirection: 'top',
+      rankByField: 'amount',
+      value: 1,
+    } as unknown as StudioFilterState;
+
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiTrend: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesWithRep },
+      filters: [dateFilter, rankFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesWithRep);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    // Headline (current window, rank-filtered to rep A) = 150.
+    expect(lastValue()).toBe('150');
+    // Previous period, independently rank-filtered to its own #1 rep (rep B) = 300 —
+    // NOT 320 (both reps, unranked) and NOT 20 (rep A carried over from the current window).
+    expect(trend!.previousValue).toBe(300);
+    expect(trend!.delta).toBeCloseTo((150 - 300) / 300);
+  });
 });
 
 // ─── finding 2.5: sparkline + filter tooltip must use widget-scoped filters ──────

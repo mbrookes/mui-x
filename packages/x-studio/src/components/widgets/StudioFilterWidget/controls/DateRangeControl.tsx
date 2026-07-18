@@ -88,6 +88,22 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     });
   };
 
+  // Cancel any pending debounced `onApply` before clearing (finding 2). Without this, a
+  // date pick followed by a clear within the 300ms debounce window still fires the STALE
+  // scheduled `onApply(value)` after `onClear()` has already reset the filter — silently
+  // resurrecting the just-cleared date range moments later. Also reset the local buffered
+  // state immediately rather than waiting for the sync effect's round-trip through
+  // `currentValue`, so the pickers visually clear in the same tick as the click.
+  const handleClear = () => {
+    if (pendingApply.current !== null) {
+      clearTimeout(pendingApply.current);
+      pendingApply.current = null;
+    }
+    setFrom(null);
+    setTo(null);
+    onClear();
+  };
+
   const isActive = !!(currentValue?.from || currentValue?.to);
 
   return (
@@ -98,7 +114,7 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
             <IconButton
               size="small"
               aria-label={localeText.filterWidgetClearAriaLabel}
-              onClick={onClear}
+              onClick={handleClear}
               sx={{ color: 'text.secondary', p: 0.5 }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />

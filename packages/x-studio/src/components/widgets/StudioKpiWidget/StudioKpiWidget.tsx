@@ -275,12 +275,24 @@ function computeFilterBasedTrend(params: {
   // `include` mirrors the row-scope the headline actually renders:
   //   'none' → currentRows = filteredRowsNoCross → page + widget only ('no-cross')
   //   else   → currentRows = effectiveRows        → all active scopes ('all')
+  //
+  // `includeWidgetRank: true` is REQUIRED here for the same reason `useWidgetRows`
+  // passes it when producing `currentRows` (see its `includeWidgetRank` derivation):
+  // `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by
+  // default (it assumes the chart post-aggregation re-rank path). A KPI has no such
+  // path, so omitting this flag here silently dropped the Top-N/Bottom-N rank filter
+  // from `scopedFilters` — the current-period headline (via `currentRows`) stayed
+  // correctly rank-filtered while the previous-period value derived below from
+  // `prevFilters` (built from this `scopedFilters`) was computed against the FULL,
+  // unranked row set. Comparing a ranked current total against an unranked previous
+  // total produced a bogus trend delta (finding 1).
   const scopedFilters = selectFiltersForWidget(filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
     activePageId: pageId,
     include: crossFilterMode === 'none' ? 'no-cross' : 'all',
     crossFilterAllPages,
+    includeWidgetRank: true,
   });
   const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
   if (!dateFilter) {
@@ -305,6 +317,16 @@ function computeFilterBasedTrend(params: {
   for (const f of scopedFilters) {
     if (f.field) {
       kpiUsedFieldIds.add(f.field);
+    }
+    // Mirror `useWidgetRows`'s `usedFieldIds` construction (finding 2.5): a rank-by-measure
+    // filter (e.g. "top 5 regions by revenue") reduces on `rankByField`, which need not
+    // otherwise appear in the widget's config or in `f.field` (the group-by/dimension
+    // column). Now that `scopedFilters` includes the widget rank filter (see above), its
+    // `rankByField` must also enter enrichment scope here — otherwise the aggregate-rank
+    // reduction inside `resolveRows`/`applyFilters` reads an un-enriched (possibly
+    // expression-derived) column when computing the previous period's Top-N groups.
+    if (f.rankByField) {
+      kpiUsedFieldIds.add(f.rankByField);
     }
   }
   const preEnrichedRows = getCachedEnrichedRows(

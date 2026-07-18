@@ -95,13 +95,21 @@ function scaleOf(def: VegaChannelDef | undefined) {
   return def && isFieldDef(def) ? def.scale : undefined;
 }
 
-function axisTitle(def: VegaChannelDef | undefined): string | undefined {
+function axisTitle(
+  def: VegaChannelDef | undefined,
+  configAxisDisable?: boolean,
+): string | undefined {
   if (!def || !isFieldDef(def)) {
     return undefined;
   }
   // `axis: null` removes the axis entirely — including its title.
   const axis = def.axis;
   if (axis === null) {
+    return undefined;
+  }
+  // `config.axis.disable` is a chart-wide default to hide every axis; a
+  // channel's own explicit `axis` config (even `{}`) still wins over it.
+  if (axis === undefined && configAxisDisable) {
     return undefined;
   }
   // An explicit `axis.title` (including `null` to suppress it) wins over the
@@ -151,6 +159,7 @@ function buildAxisExtras(
   fieldType: VegaFieldType,
   gaps: GapCollector,
   path: string,
+  configAxisDisable?: boolean,
 ): AxisExtras {
   const extras: AxisExtras = {};
   if (!def || !isFieldDef(def)) {
@@ -163,6 +172,12 @@ function buildAxisExtras(
     return extras;
   }
   if (!axis) {
+    // `config.axis.disable` is a chart-wide default to hide every axis
+    // (line, ticks, labels, title); a channel's own explicit `axis` config
+    // still wins over it, matching `axis: null`'s per-channel behavior.
+    if (configAxisDisable) {
+      extras.position = 'none';
+    }
     return extras;
   }
   if (typeof axis.tickCount === 'number') {
@@ -443,6 +458,8 @@ function resolveChannelAxis(
   // Forces a quantitative axis onto a discrete band (a bar's category axis —
   // see `forcesDiscreteBarCategory`); ignored for non-quantitative types.
   forceDiscrete = false,
+  // `spec.config.axis.disable` — see `buildAxisExtras`/`axisTitle`.
+  configAxisDisable = false,
 ): AxisResolution | undefined {
   const first = occurrences[0];
   if (!first) {
@@ -464,12 +481,12 @@ function resolveChannelAxis(
 
   const field = fieldOf(def);
   const scale = scaleOf(def);
-  const extras = buildAxisExtras(def, channel, fieldType, gaps, first.unit.path);
+  const extras = buildAxisExtras(def, channel, fieldType, gaps, first.unit.path, configAxisDisable);
   // Axis props shared by the discrete and quantitative branches — assembled in
   // one place so new props cannot drift between the two.
   const commonConfig = {
     id: `vega-${channel}`,
-    label: axisTitle(def),
+    label: axisTitle(def, configAxisDisable),
     reverse: scale?.reverse === true || undefined,
     tickNumber: extras.tickNumber,
     tickInterval: extras.tickInterval,
@@ -906,6 +923,9 @@ export function resolveAxes(
   // grid lines onto an otherwise-ungridded discrete band axis); a per-field
   // `encoding.<channel>.axis.grid` still overrides it.
   configAxisGrid?: boolean,
+  // `spec.config.axis.disable` hides every axis by default (line, ticks,
+  // labels, title); a channel's own explicit `axis` config still overrides it.
+  configAxisDisable?: boolean,
 ): ResolvedAxes {
   const xOccurrences: ChannelOccurrence[] = [];
   const yOccurrences: ChannelOccurrence[] = [];
@@ -975,8 +995,10 @@ export function resolveAxes(
 
   const forceX = forceDiscreteBarCategory?.x ?? forcesDiscreteBarCategory('x', units);
   const forceY = forceDiscreteBarCategory?.y ?? forcesDiscreteBarCategory('y', units);
-  let x = resolveChannelAxis('x', xOccurrences, gaps, forceX) as AxisResolution<XAxis> | undefined;
-  let y = resolveChannelAxis('y', yOccurrences, gaps, forceY) as AxisResolution<YAxis> | undefined;
+  let x = resolveChannelAxis('x', xOccurrences, gaps, forceX, configAxisDisable) as
+    AxisResolution<XAxis> | undefined;
+  let y = resolveChannelAxis('y', yOccurrences, gaps, forceY, configAxisDisable) as
+    AxisResolution<YAxis> | undefined;
 
   // Vega-Lite draws grid lines on continuous (quantitative/temporal) axes by
   // default and omits them on discrete band/point axes; an explicit `axis.grid`
@@ -986,8 +1008,11 @@ export function resolveAxes(
     const scaleType = (axis?.config as { scaleType?: string } | undefined)?.scaleType;
     return scaleType !== undefined && scaleType !== 'band' && scaleType !== 'point';
   };
-  grid.vertical = explicitXGrid ?? configAxisGrid ?? isContinuousAxis(x);
-  grid.horizontal = explicitYGrid ?? configAxisGrid ?? isContinuousAxis(y);
+  // A chart-wide `config.axis.disable` implies no grid either — there's no
+  // axis guide left to draw one from — unless an explicit `axis.grid` still
+  // asks for it (handled by `explicitXGrid`/`explicitYGrid` above).
+  grid.vertical = explicitXGrid ?? configAxisGrid ?? (!configAxisDisable && isContinuousAxis(x));
+  grid.horizontal = explicitYGrid ?? configAxisGrid ?? (!configAxisDisable && isContinuousAxis(y));
 
   // Synthesize a one-category band axis for the perpendicular side of a mark
   // that encodes only one positional field:

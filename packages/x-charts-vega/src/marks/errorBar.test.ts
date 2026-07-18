@@ -321,8 +321,12 @@ describe('compileErrorBarMark', () => {
     });
     expect(compiled.plots).to.deep.equal(['line']);
     expect(compiled.series).to.have.length(1);
-    expect(compiled.overlays).to.have.length(1);
-    expect(compiled.overlays[0].kind).to.equal('band');
+    // The errorband is the first layer (drawn under the line that follows
+    // it), so it lands in `backgroundOverlays` (rendered before the native
+    // plot) rather than the ordinary post-plot `overlays` list.
+    expect(compiled.overlays).to.have.length(0);
+    expect(compiled.backgroundOverlays).to.have.length(1);
+    expect(compiled.backgroundOverlays[0].kind).to.equal('band');
     expect(compiled.xAxis?.categories).to.deep.equal(['Mon', 'Tue']);
   });
 
@@ -338,7 +342,9 @@ describe('compileErrorBarMark', () => {
         { mark: 'line', encoding: { y: { field: 'temp', aggregate: 'mean' } } },
       ],
     });
-    const band = compiled.overlays.find((overlay) => overlay.kind === 'band');
+    // The errorband is layer[0], drawn under the line that follows it, so it
+    // lands in `backgroundOverlays` rather than the post-plot `overlays` list.
+    const band = compiled.backgroundOverlays.find((overlay) => overlay.kind === 'band');
     if (!band || band.kind !== 'band') {
       throw new Error('expected a band overlay');
     }

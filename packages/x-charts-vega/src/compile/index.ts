@@ -73,8 +73,16 @@ export interface CompiledChart {
   background?: string;
   plots: PlotKind[];
   referenceLines: CompiledReferenceLine[];
-  /** Custom-drawn output for marks with no x-charts series equivalent. */
+  /** Custom-drawn output for marks with no x-charts series equivalent, drawn AFTER the native plots. */
   overlays: CompiledOverlay[];
+  /**
+   * Custom-drawn output produced entirely before any series-contributing
+   * layer, drawn BEFORE the native plots — so an early background mark
+   * (e.g. the ternary chart's filled wedges) doesn't paint over a later
+   * layer's markers. The shell can only stack overlays as one group before
+   * the plots and one after; see the split logic in `compileSpec`.
+   */
+  backgroundOverlays: CompiledOverlay[];
   /** Custom legend swatches for color-split overlays (dodged box plots). */
   overlayLegend: OverlayLegendItem[];
   /** Bubble-size legend for a scatter layer with a quantitative `size` field. */
@@ -334,8 +342,10 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   // tell the value axis from the category axis. So compute the flags against the
   // original encodings and hand them to `resolveAxes`.
   const preUnits = normalized.units.map((unit) => ({ unit, rows: unit.rows }));
-  const configAxis = (spec.config as { axis?: { grid?: unknown } } | undefined)?.axis;
+  const configAxis = (spec.config as { axis?: { grid?: unknown; disable?: unknown } } | undefined)
+    ?.axis;
   const configAxisGrid = typeof configAxis?.grid === 'boolean' ? configAxis.grid : undefined;
+  const configAxisDisable = configAxis?.disable === true;
   const axes = resolveAxes(
     prepared,
     gaps,
@@ -345,12 +355,33 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       y: forcesDiscreteBarCategory('y', preUnits),
     },
     configAxisGrid,
+    configAxisDisable,
   );
 
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
+  // Overlays are custom SVG, not native x-charts plot components, so the
+  // shell can only stack them as one group before the plots and one group
+  // after (see `backgroundOverlays` below) — it cannot interleave per-layer
+  // like a real z-order would. `overlays` holds every overlay produced by a
+  // layer at or after the first layer that contributes a native series
+  // (drawn AFTER the plots — the common case: value labels over bars, a
+  // boxplot's decorations, …).
   const overlays: CompiledOverlay[] = [];
+  // Overlays produced entirely before any series-contributing layer (drawn
+  // BEFORE the plots) — e.g. the ternary chart's filled background wedges,
+  // which must sit under its later point-mark layer's markers rather than
+  // painting over them.
+  const backgroundOverlays: CompiledOverlay[] = [];
+  // Buffers overlays seen before the FIRST series-producing layer, since we
+  // can't know in advance whether one exists later in the spec. Flushed into
+  // `backgroundOverlays` the moment a series does appear; if the whole spec
+  // never produces a series (a standalone text/boxplot/errorbar chart), it's
+  // flushed into the ordinary `overlays` list instead — there's no later
+  // series geometry to protect, so these keep behaving exactly as before.
+  const pendingOverlays: CompiledOverlay[] = [];
+  let seenSeries = false;
   const overlayLegend: OverlayLegendItem[] = [];
   const zAxis: CompiledZAxis[] = [];
   const hollowSeriesIds: string[] = [];
@@ -404,7 +435,18 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));
-    overlays.push(...(compiled.overlays ?? []));
+    if (compiled.series.length > 0 && !seenSeries) {
+      // First series-producing layer: everything buffered so far sits
+      // strictly earlier in the spec and must render behind it.
+      backgroundOverlays.push(...pendingOverlays);
+      pendingOverlays.length = 0;
+      seenSeries = true;
+    }
+    if (seenSeries) {
+      overlays.push(...(compiled.overlays ?? []));
+    } else {
+      pendingOverlays.push(...(compiled.overlays ?? []));
+    }
     overlayLegend.push(...(compiled.overlayLegend ?? []));
     // First layer with a bubble-size legend wins (one size scale per chart).
     if (compiled.sizeLegend && !sizeLegend) {
@@ -453,6 +495,12 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       }
     }
   }
+  // No series ever appeared: there's no later series geometry to protect
+  // these overlays from, so they behave exactly as before (one flat,
+  // post-plot `overlays` list) rather than being misclassified as background.
+  if (!seenSeries) {
+    overlays.push(...pendingOverlays);
+  }
 
   // Assign palette colors to series that didn't get an explicit color. Pie
   // slices color themselves per-datum; heatmap cells are colored by the
@@ -493,8 +541,8 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   // collapse to a degenerate domain, and an overlay layered over a series (an
   // error band above its line) would otherwise be clipped where it extends past
   // the series range. Unioning the series data in keeps series from clipping.
-  if (overlays.length > 0) {
-    applyOverlayDomains(overlays, series, axes.x, axes.y);
+  if (overlays.length > 0 || backgroundOverlays.length > 0) {
+    applyOverlayDomains([...overlays, ...backgroundOverlays], series, axes.x, axes.y);
   }
 
   // Point-selection params map onto x-charts' controlled item highlighting;
@@ -565,6 +613,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     plots: Array.from(plots),
     referenceLines,
     overlays,
+    backgroundOverlays,
     overlayLegend,
     sizeLegend,
     grid: axes.grid,

@@ -1078,6 +1078,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
           ))}
         </defs>
       )}
+      <VegaOverlays overlays={compiled.backgroundOverlays} />
       {compiled.plots.includes('heatmap') && <HeatmapPlot />}
       {compiled.plots.includes('bar') && <BarPlot borderRadius={compiled.barBorderRadius} />}
       {compiled.plots.includes('rangeBar') && (

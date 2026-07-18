@@ -172,6 +172,97 @@ describe('StudioController.applyCrossFilter', () => {
 
     expect(controller.getState().doc.filters).toHaveLength(0);
   });
+
+  // ─── crossFilterMode: 'none' must suppress EMISSION (architecture review iteration 22,
+  // Tier 2 finding 2) ────────────────────────────────────────────────────────────────
+  //
+  // Every widget kind's click handler (chart, grid, map, and any future kind) funnels
+  // through this single method, so gating here is the one place that can guarantee the
+  // invariant holds everywhere instead of being duplicated (and, for chart/grid,
+  // previously omitted) in each widget's own click handler.
+
+  it("does not commit a cross-filter when the source widget's own crossFilterMode is 'none'", () => {
+    const controller = new StudioController();
+    controller.addWidget(
+      makeWidget('widget-none', { kind: 'chart', config: { crossFilterMode: 'none' } }),
+    );
+
+    controller.applyCrossFilter('widget-none', 'category', 'Electronics', 'src-a');
+
+    expect(controller.getState().doc.filters).toHaveLength(0);
+  });
+
+  it("still commits a cross-filter when the source widget's crossFilterMode is 'cross-highlight' or 'cross-filter'", () => {
+    const controller = new StudioController();
+    controller.addWidget(
+      makeWidget('widget-highlight', {
+        kind: 'chart',
+        config: { crossFilterMode: 'cross-highlight' },
+      }),
+    );
+    controller.addWidget(
+      makeWidget('widget-filter-mode', {
+        kind: 'chart',
+        config: { crossFilterMode: 'cross-filter' },
+      }),
+    );
+
+    controller.applyCrossFilter('widget-highlight', 'category', 'Electronics', 'src-a');
+    controller.applyCrossFilter('widget-filter-mode', 'region', 'EMEA', 'src-b');
+
+    expect(controller.getState().doc.filters).toHaveLength(2);
+  });
+
+  it("still commits a cross-filter when crossFilterMode is unset (defaults to 'cross-highlight', not 'none')", () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-default', { kind: 'chart', config: {} }));
+
+    controller.applyCrossFilter('widget-default', 'category', 'Electronics', 'src-a');
+
+    // Default mode is 'cross-highlight', so this SHOULD commit — guards against an
+    // over-eager gate that treats "unset" the same as "none".
+    expect(controller.getState().doc.filters).toHaveLength(1);
+  });
+
+  it("does not commit a cross-filter when the dashboard-wide globalCrossFilterMode override is 'none', even if the widget's own mode is 'cross-highlight'", () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: {
+          id: 'dashboard-1',
+          title: 'Untitled Dashboard',
+          activePageId: 'page-1',
+          globalCrossFilterMode: 'none',
+        },
+      },
+    });
+    controller.addWidget(
+      makeWidget('widget-a', { kind: 'chart', config: { crossFilterMode: 'cross-highlight' } }),
+    );
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    expect(controller.getState().doc.filters).toHaveLength(0);
+  });
+
+  it("commits a cross-filter when globalCrossFilterMode overrides a widget's own 'none' mode to 'cross-filter'", () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: {
+          id: 'dashboard-1',
+          title: 'Untitled Dashboard',
+          activePageId: 'page-1',
+          globalCrossFilterMode: 'cross-filter',
+        },
+      },
+    });
+    controller.addWidget(
+      makeWidget('widget-a', { kind: 'chart', config: { crossFilterMode: 'none' } }),
+    );
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    expect(controller.getState().doc.filters).toHaveLength(1);
+  });
 });
 
 // ─── StudioController.clearCrossFilter ───────────────────────────────────────

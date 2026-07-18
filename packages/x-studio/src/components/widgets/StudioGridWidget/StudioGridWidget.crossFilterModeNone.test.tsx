@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type {
   CreateDefaultStudioStateOverrides,
@@ -66,6 +66,22 @@ function crossFilterFromSibling() {
       scope: {
         kind: 'cross-filter' as const,
         sourceWidgetId: 'other-widget',
+        pageId: 'page-1',
+      },
+    },
+  ];
+}
+
+function interactiveFilterFromFilterWidget() {
+  return [
+    {
+      id: 'int-1',
+      field: 'region',
+      operator: 'equals' as const,
+      value: 'EU',
+      scope: {
+        kind: 'interactive' as const,
+        sourceWidgetId: 'filter-widget-1',
         pageId: 'page-1',
       },
     },
@@ -176,5 +192,103 @@ describe('StudioGridWidget — dashboard-wide globalCrossFilterMode override', (
 
     const euRow = container.querySelector('[data-id="o1"]');
     expect(euRow!.className).not.toMatch(/StudioGrid-dimmed/);
+  });
+});
+
+// ─── crossFilterMode: 'none' must not conflate cross-filters with filter-widget
+// selections — architecture review iteration 22, Tier 2 finding 1 ─────────────
+//
+// `crossFilterMode` governs widget-to-widget CROSS-filtering only. An explicit
+// page/widget-scoped selection from a Filter widget (`scope.kind: 'interactive'`)
+// must still hard-filter the grid's rows regardless of this grid's own
+// `crossFilterMode` — a dashboard author turning off a grid's reaction to sibling
+// chart clicks should not also silently break its dedicated Filter widget. The grid
+// used to resolve its 'none'-mode baseline as `filteredRowsNoCross` (page + widget
+// only), which ALSO stripped interactive filters — the correct baseline (matching
+// `useWidgetRows`'s own `effectiveRows` resolution) is `filteredRowsNoChartCross`
+// (page + widget + interactive, cross-filter excluded).
+describe('StudioGridWidget — crossFilterMode: "none" still respects an interactive filter-widget selection', () => {
+  it('drops non-matching rows for an interactive (Filter widget) selection even when crossFilterMode is "none"', () => {
+    const widget = makeWidget('none');
+    const initialState: CreateDefaultStudioStateOverrides = {
+      doc: {
+        widgets: { [widget.id]: widget },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+        filters: interactiveFilterFromFilterWidget(),
+      },
+      runtime: { dataSources: { orders: makeSource() } },
+    };
+    const { container } = setup(initialState, widget);
+
+    // The Filter widget's EU selection must still hard-filter: only o1/o3 (EU) rows.
+    expect(container.querySelector('[data-id="o1"]')).not.toBe(null);
+    expect(container.querySelector('[data-id="o3"]')).not.toBe(null);
+    // Regression guard: the bug conflated this with a cross-filter and left the US
+    // row in (or, depending on baseline, dropped everything) — it must be excluded.
+    expect(container.querySelector('[data-id="o2"]')).toBe(null);
+  });
+
+  it('still ignores a sibling cross-filter (scope.kind: "cross-filter") in the same "none" mode', () => {
+    const widget = makeWidget('none');
+    const initialState: CreateDefaultStudioStateOverrides = {
+      doc: {
+        widgets: { [widget.id]: widget },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+        filters: [...crossFilterFromSibling(), ...interactiveFilterFromFilterWidget()],
+      },
+      runtime: { dataSources: { orders: makeSource() } },
+    };
+    const { container } = setup(initialState, widget);
+
+    // Both filters target the same field/value here, so this mainly guards that mixing
+    // an ignored cross-filter with a respected interactive filter doesn't throw/misbehave.
+    expect(container.querySelector('[data-id="o1"]')).not.toBe(null);
+    expect(container.querySelector('[data-id="o3"]')).not.toBe(null);
+    expect(container.querySelector('[data-id="o2"]')).toBe(null);
+  });
+});
+
+// ─── crossFilterMode: 'none' must suppress cross-filter EMISSION too ──────────
+// architecture review iteration 22, Tier 2 finding 2 — see the matching test file
+// `StudioChartWidget.crossFilterModeNone.test.tsx` for the full rationale. The fix
+// centralizes the "don't emit when mode is 'none'" gate inside
+// `StudioController.applyCrossFilter` itself, so it's exercised here through the
+// REAL controller (via `createStudioHarness`), not a mocked one.
+describe('StudioGridWidget — crossFilterMode: "none" suppresses cross-filter emission', () => {
+  it('clicking a cell does NOT apply a cross-filter when the grid mode is "none"', () => {
+    const widget = makeWidget('none');
+    const initialState: CreateDefaultStudioStateOverrides = {
+      doc: {
+        widgets: { [widget.id]: widget },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+      },
+      runtime: { dataSources: { orders: makeSource() } },
+    };
+    const { controller, container } = setup(initialState, widget);
+
+    const cell = container.querySelector('[data-id="o1"] [data-field="region"]');
+    expect(cell).not.toBe(null);
+    fireEvent.click(cell!);
+
+    const filters = controller.getState().doc.filters;
+    expect(filters.some((f) => f.scope.kind === 'cross-filter')).toBe(false);
+  });
+
+  it('sanity check: the same click DOES apply a cross-filter in the default (cross-highlight) mode', () => {
+    const widget = makeWidget();
+    const initialState: CreateDefaultStudioStateOverrides = {
+      doc: {
+        widgets: { [widget.id]: widget },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
+      },
+      runtime: { dataSources: { orders: makeSource() } },
+    };
+    const { controller, container } = setup(initialState, widget);
+
+    const cell = container.querySelector('[data-id="o1"] [data-field="region"]');
+    fireEvent.click(cell!);
+
+    const filters = controller.getState().doc.filters;
+    expect(filters.some((f) => f.scope.kind === 'cross-filter' && f.field === 'region')).toBe(true);
   });
 });

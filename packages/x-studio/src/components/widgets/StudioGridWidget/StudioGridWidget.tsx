@@ -580,7 +580,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const {
     filteredRows,
-    filteredRowsNoCross,
     filteredRowsNoChartCross,
     hasChartCrossFilters,
     isLoading,
@@ -602,14 +601,20 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     (widget.config as StudioWidgetConfig).crossFilterMode ??
     'cross-highlight';
 
-  // In 'none' mode, cross-filters (chart-click and dashboard-wide) must be fully
-  // ignored — use the baseline with no cross-filters applied at all, matching
-  // `useWidgetRows`'s `effectiveRows` resolution. In cross-highlight mode, show all
-  // baseline rows (hard-filtered by page/widget/interactive) and dim the
-  // non-matching ones. In cross-filter mode, use the fully filtered rows.
+  // In 'none' mode, only chart-click CROSS-FILTERS must be ignored — matching
+  // `useWidgetRows`'s `effectiveRows` resolution (`filteredRowsNoChartCross`).
+  // `crossFilterMode` governs widget-to-widget cross-filtering only; it must NOT
+  // suppress page/widget filters or an explicit Filter-widget (interactive) selection,
+  // which always hard-filter regardless of this widget's cross-filter mode (BI norm —
+  // see `filteredRowsNoChartCross`'s doc in useWidgetRows.ts). Using `filteredRowsNoCross`
+  // here was a bug: it additionally stripped interactive filter-widget filters, so setting
+  // a dashboard's/widget's crossFilterMode to 'none' wrongly made the grid ignore an
+  // explicit Filter-widget selection too (Tier 2 finding — architecture review iteration 22).
+  // In cross-highlight mode, show all baseline rows (hard-filtered by page/widget/interactive)
+  // and dim the non-matching ones. In cross-filter mode, use the fully filtered rows.
   let baseRows: typeof filteredRows;
   if (crossFilterMode === 'none') {
-    baseRows = filteredRowsNoCross;
+    baseRows = filteredRowsNoChartCross;
   } else if (hasChartCrossFilters && crossFilterMode === 'cross-highlight') {
     baseRows = filteredRowsNoChartCross;
   } else {

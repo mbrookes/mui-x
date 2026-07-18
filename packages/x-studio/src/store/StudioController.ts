@@ -2070,6 +2070,28 @@ export class StudioController {
     if (!Object.hasOwn(state.doc.widgets, sourceWidgetId)) {
       return;
     }
+    // Single enforcement point for the "don't emit a cross-filter when the source
+    // widget's crossFilterMode is 'none'" invariant (architecture review iteration 22,
+    // Tier 2 finding 2). `crossFilterMode` governs whether a widget participates in
+    // widget-to-widget cross-filtering at all — 'none' must suppress EMITTING a
+    // cross-filter on click, just as it already suppresses REACTING to one (see
+    // `useWidgetRows`'s `effectiveRows`/`filteredRowsNoChartCross` resolution and
+    // `StudioGridWidget`'s `baseRows` branch above). Every widget's click handler
+    // (chart, grid, map, and any future kind) previously had to duplicate this check —
+    // and two of them (chart, grid) simply never did, letting 'none'-mode widgets keep
+    // emitting cross-filters. Centralizing it here means the invariant holds for every
+    // caller, present and future, with a single source of truth. Precedence mirrors
+    // `useWidgetRows`/`StudioGridWidget`: the dashboard-wide `globalCrossFilterMode`
+    // override wins over the emitting widget's own config.
+    const sourceWidget = state.doc.widgets[sourceWidgetId];
+    const effectiveCrossFilterMode =
+      state.doc.dashboard.globalCrossFilterMode ??
+      (sourceWidget.config as import('../models').StudioWidgetConfig | undefined)
+        ?.crossFilterMode ??
+      'cross-highlight';
+    if (effectiveCrossFilterMode === 'none') {
+      return;
+    }
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.doc.filters.filter(
       (f: StudioFilterState) =>

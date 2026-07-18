@@ -70,15 +70,48 @@ describe('applyFilterTransform / field predicates', () => {
     expect(result).to.deep.equal([rows[1], rows[2]]);
   });
 
-  it('records a partial gap for timeUnit-qualified predicates but still filters on the raw field', () => {
+  it('filters exactly on a timeUnit year range, truncating the field instead of comparing raw values', () => {
     const gaps = createGapCollector();
     const result = applyFilterTransform(
       rows,
-      { filter: { field: 'v', timeUnit: 'year', gt: 5 } },
+      { filter: { field: 'd', timeUnit: 'year', range: [2024, 2024] } },
       gaps,
       '$',
     );
-    expect(result).to.deep.equal([rows[2]]);
+    expect(result).to.deep.equal([rows[0], rows[1], rows[2]]);
+    expect(gaps.list()).to.have.length(0);
+
+    const excluded = applyFilterTransform(
+      rows,
+      { filter: { field: 'd', timeUnit: 'year', range: [2025, 2026] } },
+      createGapCollector(),
+      '$',
+    );
+    expect(excluded).to.deep.equal([]);
+  });
+
+  it('filters exactly on a timeUnit month oneOf (1-based, Vega-Lite convention)', () => {
+    const gaps = createGapCollector();
+    // rows[0].d is January, rows[1].d is June, rows[2].d is December.
+    const result = applyFilterTransform(
+      rows,
+      { filter: { field: 'd', timeUnit: 'month', oneOf: [1, 12] } },
+      gaps,
+      '$',
+    );
+    expect(result).to.deep.equal([rows[0], rows[2]]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('records a partial gap and falls back to a raw comparison for a composite timeUnit', () => {
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      rows,
+      { filter: { field: 'd', timeUnit: 'yearmonth', gt: 5 } },
+      gaps,
+      '$',
+    );
+    expect(result).to.deep.equal([rows[0], rows[1], rows[2]]);
     const gap = gaps.list().find((entry) => entry.code === 'filter:timeUnit-predicate');
     expect(gap?.severity).to.equal('partial');
   });

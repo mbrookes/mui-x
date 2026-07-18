@@ -1,4 +1,4 @@
-import type { DatasetRow, VegaFilterTransform } from '../types';
+import type { DatasetRow, VegaFilterTransform, VegaTimeUnit } from '../types';
 import type { GapCollector } from '../gaps';
 import {
   compileExpression,
@@ -7,6 +7,8 @@ import {
   looseEquals,
   UnsupportedExpressionError,
 } from './calculate';
+import { resolveTimeUnit, unitValueToDate } from './timeUnit';
+import { toDate } from '../compile/fieldTypes';
 
 /*
  * OWNERSHIP: the "transforms" work unit owns this file.
@@ -15,8 +17,13 @@ import {
  *  - a Vega expression string (e.g. "datum.x > 5") — evaluated via the
  *    shared safe evaluator in calculate.ts (never eval()/new Function()).
  *  - a field predicate `{field, equal|lt|lte|gt|gte|oneOf|range|valid}`,
- *    optionally `timeUnit`-qualified (compared against the raw field value,
- *    reported as a 'partial' gap since the value isn't actually truncated).
+ *    optionally `timeUnit`-qualified: the field is truncated via
+ *    `resolveTimeUnit` and each comparator value is converted to the
+ *    equivalent synthetic date via `unitValueToDate`, matching how Vega-Lite
+ *    itself compiles this predicate (`compileTimeUnitFieldPredicate`). Falls
+ *    back to comparing the raw field value (with a 'partial' gap) only for
+ *    comparator shapes `unitValueToDate` can't build a date from — a
+ *    composite unit, `day`/`dayofyear`/`week`, or `valid`.
  *  - logical composition `{and: [...]}`, `{or: [...]}`, `{not: ...}`.
  *  - anything else (selection/param predicates, malformed predicates) is
  *    reported as an 'unsupported' gap and treated as UNKNOWN (fail open —
@@ -53,15 +60,111 @@ function isFieldPredicate(value: unknown): value is FieldPredicate {
 
 const COMPARATOR_KEYS = ['equal', 'lt', 'lte', 'gt', 'gte', 'range', 'oneOf', 'valid'] as const;
 
-function compileFieldPredicate(pred: FieldPredicate, gaps: GapCollector, path: string): Predicate {
-  if (pred.timeUnit !== undefined) {
-    gaps.add({
-      code: 'filter:timeUnit-predicate',
-      message: `The \`timeUnit\`-qualified filter predicate on "${pred.field}" is compared against the raw field value (it is not truncated first), which may over- or under-match.`,
-      severity: 'partial',
-      path,
-    });
+/**
+ * Compiles a `timeUnit`-qualified comparator into an exact predicate: the
+ * field is truncated via `resolveTimeUnit` (the same truncation the
+ * `timeUnit` transform/encoding path uses) and each comparator value is
+ * converted to the equivalent synthetic date via `unitValueToDate`
+ * (mirroring how Vega-Lite itself compiles this predicate — both sides
+ * become a `timeUnit`-truncated timestamp, not a raw-value comparison).
+ * Returns `null` when a comparator value can't be converted this way (a
+ * composite unit, `day`/`dayofyear`/`week`, or a non-numeric comparator like
+ * `valid`), so the caller falls back to the raw comparison with its existing
+ * `partial` gap.
+ */
+function compileTimeUnitFieldPredicate(
+  pred: FieldPredicate,
+  gaps: GapCollector,
+  path: string,
+): Predicate | null {
+  if (pred.valid !== undefined) {
+    return null;
   }
+  const unit = pred.timeUnit as VegaTimeUnit;
+  const convert = (value: unknown): Date | null => unitValueToDate(unit, value);
+
+  const equal = pred.equal !== undefined ? convert(pred.equal) : undefined;
+  if (pred.equal !== undefined && equal === null) {
+    return null;
+  }
+  const lt = pred.lt !== undefined ? convert(pred.lt) : undefined;
+  if (pred.lt !== undefined && lt === null) {
+    return null;
+  }
+  const lte = pred.lte !== undefined ? convert(pred.lte) : undefined;
+  if (pred.lte !== undefined && lte === null) {
+    return null;
+  }
+  const gt = pred.gt !== undefined ? convert(pred.gt) : undefined;
+  if (pred.gt !== undefined && gt === null) {
+    return null;
+  }
+  const gte = pred.gte !== undefined ? convert(pred.gte) : undefined;
+  if (pred.gte !== undefined && gte === null) {
+    return null;
+  }
+
+  let rangeLo: Date | null | undefined;
+  let rangeHi: Date | null | undefined;
+  if (pred.range !== undefined) {
+    const [lo, hi] = pred.range;
+    rangeLo = lo == null ? null : convert(lo);
+    if (lo != null && rangeLo === null) {
+      return null;
+    }
+    rangeHi = hi == null ? null : convert(hi);
+    if (hi != null && rangeHi === null) {
+      return null;
+    }
+  }
+
+  let oneOf: Array<Date | null> | undefined;
+  if (pred.oneOf !== undefined) {
+    oneOf = pred.oneOf.map(convert);
+    if (oneOf.some((d) => d === null)) {
+      return null;
+    }
+  }
+
+  const { field } = pred;
+  return (row) => {
+    const date = toDate(row[field]);
+    if (date == null) {
+      return false;
+    }
+    const truncated = resolveTimeUnit(date, unit, gaps, path);
+    if (truncated == null) {
+      return 'unknown';
+    }
+    const t = truncated.getTime();
+    if (equal != null) {
+      return t === equal.getTime();
+    }
+    if (oneOf !== undefined) {
+      return oneOf.some((d) => d !== null && t === d.getTime());
+    }
+    if (lt != null) {
+      return t < lt.getTime();
+    }
+    if (lte != null) {
+      return t <= lte.getTime();
+    }
+    if (gt != null) {
+      return t > gt.getTime();
+    }
+    if (gte != null) {
+      return t >= gte.getTime();
+    }
+    if (pred.range !== undefined) {
+      const loOk = rangeLo == null || t >= rangeLo.getTime();
+      const hiOk = rangeHi == null || t <= rangeHi.getTime();
+      return loOk && hiOk;
+    }
+    return true;
+  };
+}
+
+function compileFieldPredicate(pred: FieldPredicate, gaps: GapCollector, path: string): Predicate {
   if (!COMPARATOR_KEYS.some((key) => pred[key] !== undefined)) {
     gaps.add({
       code: 'filter:empty-predicate',
@@ -70,6 +173,18 @@ function compileFieldPredicate(pred: FieldPredicate, gaps: GapCollector, path: s
       path,
     });
     return () => 'unknown';
+  }
+  if (pred.timeUnit !== undefined) {
+    const exact = compileTimeUnitFieldPredicate(pred, gaps, path);
+    if (exact) {
+      return exact;
+    }
+    gaps.add({
+      code: 'filter:timeUnit-predicate',
+      message: `The \`timeUnit\`-qualified filter predicate on "${pred.field}" is compared against the raw field value (it is not truncated first), which may over- or under-match.`,
+      severity: 'partial',
+      path,
+    });
   }
   const { field } = pred;
   return (row) => {

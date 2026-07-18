@@ -1,5 +1,10 @@
 import { createGapCollector } from '../gaps';
-import { applyInlineTimeUnit, applyTimeUnitTransform, resolveTimeUnit } from './timeUnit';
+import {
+  applyInlineTimeUnit,
+  applyTimeUnitTransform,
+  resolveTimeUnit,
+  unitValueToDate,
+} from './timeUnit';
 
 const d = new Date(2024, 5, 15, 13, 45, 30, 250); // June 15, 2024, 13:45:30.250 (a Saturday)
 
@@ -220,5 +225,31 @@ describe('applyTimeUnitTransform / unsupported units', () => {
     expect(result).to.deep.equal([{ ts: d }]);
     const gap = gaps.list().find((entry) => entry.code === 'timeUnit:bogus-unit');
     expect(gap?.severity).to.equal('unsupported');
+  });
+});
+
+describe('unitValueToDate', () => {
+  it('uses a `year` value directly instead of the 2012 reference year', () => {
+    expect(unitValueToDate('year', 2006)).to.deep.equal(new Date(2006, 0, 1));
+  });
+
+  it("accepts Vega-Lite's 1-based `month`/`quarter` numbering against the 2012 reference year", () => {
+    expect(unitValueToDate('month', 1)).to.deep.equal(new Date(2012, 0, 1));
+    expect(unitValueToDate('month', 12)).to.deep.equal(new Date(2012, 11, 1));
+    expect(unitValueToDate('quarter', 1)).to.deep.equal(new Date(2012, 0, 1));
+    expect(unitValueToDate('quarter', 4)).to.deep.equal(new Date(2012, 9, 1));
+  });
+
+  it('respects a `utc` prefix', () => {
+    expect(unitValueToDate('utcyear', 2006)).to.deep.equal(new Date(Date.UTC(2006, 0, 1)));
+  });
+
+  it('returns null for a composite unit (no single field to build from)', () => {
+    expect(unitValueToDate('yearmonth', 2006)).to.equal(null);
+  });
+
+  it('returns null for a non-numeric value', () => {
+    expect(unitValueToDate('year', '2006')).to.equal(null);
+    expect(unitValueToDate('year', new Date(2006, 0, 1))).to.equal(null);
   });
 });

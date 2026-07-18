@@ -29,15 +29,7 @@ import { toDate } from '../compile/fieldTypes';
  */
 
 type Granularity =
-  | 'year'
-  | 'quarter'
-  | 'month'
-  | 'week'
-  | 'date'
-  | 'hours'
-  | 'minutes'
-  | 'seconds'
-  | 'milliseconds';
+  'year' | 'quarter' | 'month' | 'week' | 'date' | 'hours' | 'minutes' | 'seconds' | 'milliseconds';
 
 const UNIT_GRANULARITY: Partial<Record<string, Granularity>> = {
   year: 'year',
@@ -321,6 +313,43 @@ export function resolveTimeUnit(
     return null;
   }
   return utc ? truncateUTC(date, granularity) : truncate(date, granularity);
+}
+
+/**
+ * Builds the synthetic date a plain numeric predicate value (e.g. the `2006`
+ * in a filter's `{field, timeUnit: 'year', range: [2006, 2007]}`) represents
+ * once compared against a `unit`-truncated field — mirroring Vega-Lite's own
+ * `dateTimeToExpr({[unit]: value})` convention (see `predicate.js`/
+ * `channeldef.js` `valueExpr` in the `vega-lite` package): every calendar
+ * field the base unit doesn't itself carry takes the same reference base as
+ * `resolveTimeUnit` (year 2012, January 1st, midnight), except `year` itself,
+ * which uses the literal value directly rather than the reference year.
+ * `quarter`/`month` are accepted as Vega-Lite's 1-based numbering (quarter
+ * 1-4, month 1-12). Returns `null` for a composite unit or one of the cyclic
+ * `day`/`dayofyear`/`week` units, whose predicate values aren't a single
+ * plain field number, so the caller can fall back to a raw comparison.
+ */
+export function unitValueToDate(unit: VegaTimeUnit, value: unknown): Date | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const { utc, base } = splitUtc(unit);
+  const fields = UNIT_FIELDS[base];
+  if (!fields || fields.length !== 1) {
+    return null;
+  }
+  const out = { year: REFERENCE_YEAR, month: 0, date: 1, hours: 0, minutes: 0, seconds: 0 };
+  const [field] = fields;
+  if (field === 'quarter') {
+    out.month = (value - 1) * 3;
+  } else if (field === 'month') {
+    out.month = value - 1;
+  } else {
+    out[field] = value;
+  }
+  return utc
+    ? new Date(Date.UTC(out.year, out.month, out.date, out.hours, out.minutes, out.seconds, 0))
+    : new Date(out.year, out.month, out.date, out.hours, out.minutes, out.seconds, 0);
 }
 
 /** Shared by the inline and top-level paths: truncate `field` into `outKey` on every row. */

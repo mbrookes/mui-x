@@ -715,7 +715,7 @@ describe('useChartWidgetData — cross-filter ghost baseline memos', () => {
     const widget = seriesFieldWidget();
     const salesWithEmptyRegion: StudioDataSource = {
       ...salesSource,
-      rows: [...salesSource.rows, { id: 's5', month: 'Jan', region: null, value: 5 }],
+      rows: [...salesSource.rows!, { id: 's5', month: 'Jan', region: null, value: 5 }],
     };
     mockState = createState({
       widgets: { [widget.id]: widget },

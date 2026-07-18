@@ -1303,6 +1303,7 @@ describe('<StudioMapWidget /> geography loader staleness & error recovery', () =
 
     // eslint-disable-next-line testing-library/prefer-screen-queries -- consistent with the alert lookup above
     const retryButton = view.getByRole('button');
+    // eslint-disable-next-line testing-library/no-unnecessary-act -- the retry promise resolves (setGeography) on a later microtask outside fireEvent's own act() batching, so this await needs its own act() wrapper
     await act(async () => {
       fireEvent.click(retryButton);
       await Promise.resolve();

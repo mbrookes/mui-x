@@ -10,6 +10,8 @@ import type {
   StudioExpressionField,
   StudioRelationship,
 } from '../../models';
+import { computeDateRangePreset } from '../../internals/dateRangeUtils';
+import { computePreviousPeriodRange, toLocalYmd } from '../widgets/StudioKpiWidget/kpiUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +166,70 @@ describe('buildWidgetDataSummary', () => {
 
       const result = buildWidgetDataSummary(widget, state);
       expect(result).toContain('Gauge range: 0 – 100');
+    });
+
+    // ─── Previous-period window not corrupted by the current-period preset ────
+    //
+    // The current-period date filter carries a `dateRangePreset` (e.g. 'last_3_months')
+    // with a stale/null `value` — normal for a dashboard/widget date-range picker, which
+    // relies on `resolveDateRangePreset` to fill in `value` fresh at query time. Building
+    // the previous-period filter used to spread `...dateFilter` (carrying that SAME
+    // `dateRangePreset`) and only override `value`/`value2` to the previous window's
+    // bounds. But `resolveDateRangePresets` (invoked inside `resolveWidgetRows`) treats
+    // ANY non-'custom' `dateRangePreset` as a signal to recompute `value` fresh from the
+    // preset — clobbering the explicit previous-period bounds right back to the CURRENT
+    // period's window (as an object shape the `greater_than_or_equal`/`less_than_or_equal`
+    // operators below don't even expect), so every previous-period row was silently
+    // excluded and the previous-period aggregate came out as 0. This test's previous-period
+    // row falls squarely inside the real computed previous window and must be picked up.
+    it('computes the previous-period window independently of the current-period preset', () => {
+      const preset = 'last_3_months' as const;
+      const { from, to } = computeDateRangePreset(preset);
+      const parseLocal = (ymd: string) => {
+        const [y, m, d] = ymd.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const currentStart = parseLocal(from);
+      const currentEnd = parseLocal(to);
+      const prevRange = computePreviousPeriodRange(currentStart, currentEnd, 'previous-period');
+
+      const fields = [
+        { id: 'orderDate', label: 'Order Date', type: 'date' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        // Current period: right at the resolved preset's end bound.
+        { orderDate: to, amount: 300 },
+        // Previous period: right at the (independently computed) previous window's
+        // start bound — must survive the previous-period pass, not be silently zeroed.
+        { orderDate: toLocalYmd(prevRange.start), amount: 50 },
+      ];
+      const source = makeSource({ fields, rows });
+      const dateFilter: StudioFilterState = {
+        id: 'f-date',
+        field: 'orderDate',
+        fieldType: 'date',
+        operator: 'between',
+        // Stale/null value — the normal shape for a preset-driven filter; the concrete
+        // bounds are resolved fresh from `dateRangePreset` at query time.
+        value: null,
+        dateRangePreset: preset,
+        scope: { kind: 'page' },
+      };
+      const state = makeState({ dataSources: { orders: source }, filters: [dateFilter] });
+      const widget = makeWidget({
+        kind: 'kpi',
+        config: { kpiValueField: 'amount', kpiAggregation: 'sum', kpiTrend: true },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: this always read "Previous period (...): 0" with no Trend line, no matter
+      // where the previous-period row actually fell — the corrupted filter matched no rows.
+      expect(result).not.toMatch(/Previous period \([^)]+\): 0$/m);
+      expect(result).toContain('Previous period');
+      expect(result).toMatch(/Previous period \([^)]+\): 50/);
+      expect(result).toContain('Trend:');
     });
   });
 

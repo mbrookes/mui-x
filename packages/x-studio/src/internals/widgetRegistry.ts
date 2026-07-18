@@ -44,7 +44,9 @@ import type {
 export interface StudioWidgetRenderProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
-  /** ID of the page the widget belongs to. Required by every built-in kind except `text`/`filter`. */
+  /** ID of the page the widget belongs to. Required by every built-in kind, including
+   * `text` (scopes its AI snapshot to its own page rather than the dashboard's active
+   * page) and `filter` (scopes its active interactive-filter lookup). */
   pageId: string;
   /** Chart only: pixel height of the rendered chart area. */
   height?: number;

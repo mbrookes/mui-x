@@ -9,6 +9,10 @@ import { resolveTextFontFamily } from '../../../internals/textFontFamily';
 
 export interface StudioTextWidgetProps {
   widget: StudioWidgetOf<'text'>;
+  /** ID of the page this widget belongs to. Used to scope the AI snapshot to the
+   * widget's own page rather than whichever page happens to be active (finding 2.x) —
+   * required, matching every other built-in widget kind's `pageId` prop. */
+  pageId: string;
   /** Ref that receives the AI refresh function when AI mode is active. */
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }
@@ -17,13 +21,16 @@ export interface StudioTextWidgetProps {
 
 function TextWidgetAIContent({
   widget,
+  pageId,
   aiRefreshRef,
 }: {
   widget: StudioWidgetOf<'text'>;
+  pageId: string;
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const { markdown, loading, error, refresh } = useTextWidgetAI(
     widget.id,
+    pageId,
     widget.config.textBody ?? '',
   );
 
@@ -88,11 +95,11 @@ function TextWidgetAIContent({
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export const StudioTextWidget = React.memo(function StudioTextWidget(props: StudioTextWidgetProps) {
-  const { widget, aiRefreshRef } = props;
+  const { widget, pageId, aiRefreshRef } = props;
   const { config } = widget;
 
   if (config.textAiEnabled && config.textBody?.trim()) {
-    return <TextWidgetAIContent widget={widget} aiRefreshRef={aiRefreshRef} />;
+    return <TextWidgetAIContent widget={widget} pageId={pageId} aiRefreshRef={aiRefreshRef} />;
   }
 
   const subtitle = config.textSubtitle?.trim();

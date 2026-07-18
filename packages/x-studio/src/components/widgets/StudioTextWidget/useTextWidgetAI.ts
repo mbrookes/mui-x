@@ -4,7 +4,7 @@ import type { StudioState, StudioWidget } from '../../../models';
 import {
   useStudioController,
   useStudioSelector,
-  selectActivePage,
+  selectPages,
   selectDashboard,
   selectWidgets,
   selectDataSources,
@@ -128,12 +128,12 @@ function evictOldestEntries(): void {
   }
 }
 
-function buildPageSnapshot(widgetId: string, state: StudioState): string {
-  const activePage = state.doc.pages[state.doc.dashboard.activePageId];
-  if (!activePage) {
+function buildPageSnapshot(widgetId: string, pageId: string, state: StudioState): string {
+  const page = state.doc.pages[pageId];
+  if (!page) {
     return '';
   }
-  const widgetIds = activePage.widgetRows.flat().sort();
+  const widgetIds = page.widgetRows.flat().sort();
   return widgetIds
     .filter((id) => {
       const w = state.doc.widgets[id];
@@ -157,7 +157,11 @@ export interface TextWidgetAIResult {
   refresh: () => void;
 }
 
-export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIResult {
+export function useTextWidgetAI(
+  widgetId: string,
+  pageId: string,
+  prompt: string,
+): TextWidgetAIResult {
   const { aiConfig } = useStudioUIConfig();
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
@@ -169,12 +173,20 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
   // and the full serialized `dashboardState` is never sent; only the prompt goes out,
   // with `privateMode` forwarded so the server can additionally refuse to comply.
   const privateMode = aiConfig?.privateMode === true;
-  const activePage = useStudioSelector(selectActivePage);
+  // Subscribed by `pageId` — this widget's OWN page — NOT `dashboard.activePageId`.
+  // The snapshot must describe the page this widget actually lives on, which is
+  // stable for the widget's lifetime. Keying off the dashboard-wide active page
+  // instead meant: (1) a widget on a non-active page snapshotted the WRONG page's
+  // data, and (2) switching pages changed `activePageId` for every text widget on
+  // every page at once, so N sibling text widgets across different pages all
+  // recomputed (and re-fetched) in response to one page switch, even though only
+  // one page's data actually changed for any of them (finding 2.x).
+  const pages = useStudioSelector(selectPages);
   const dashboard = useStudioSelector(selectDashboard);
   // `buildPageSnapshot` (via `buildWidgetDataSummary`) reads sibling widget configs
   // from `doc.widgets`, row data from `runtime.dataSources`, and — through the data
   // pipeline (L2 enrichment, L3 scoped filters) — `doc.filters`, `doc.expressionFields`,
-  // and `doc.relationships`. None of these change `activePage`/`dashboard` identity
+  // and `doc.relationships`. None of these change `pages`/`dashboard` identity
   // (finding 1.5 / 3.15), and filters/expression-fields/relationships each live in
   // their own `doc` partition, so all must be subscribed to directly. Otherwise adding
   // or editing a page filter (or a computed field, or a relationship) would leave this
@@ -190,9 +202,9 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     const state = controller.getState();
     // In private mode the page snapshot (sampled sibling row values) is never built,
     // so it also never contributes to the cache key.
-    const snap = privateMode ? '' : buildPageSnapshot(widgetId, state);
+    const snap = privateMode ? '' : buildPageSnapshot(widgetId, pageId, state);
     const h = djb2Hash(`${prompt}\n${snap}`);
-    const key = `${CACHE_PREFIX}:${dashboard.id}:${dashboard.activePageId}:${widgetId}:${h}`;
+    const key = `${CACHE_PREFIX}:${dashboard.id}:${pageId}:${widgetId}:${h}`;
     return { snapshot: snap, hash: h, cacheKey: key };
     // `widgets`/`dataSources`/`filters`/`expressionFields`/`relationships` are read
     // only to force recomputation when the state `buildPageSnapshot` reads changes
@@ -200,9 +212,10 @@ export function useTextWidgetAI(widgetId: string, prompt: string): TextWidgetAIR
     // rather than from these values directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- widgets/dataSources/filters/expressionFields/relationships are used as reactive triggers only, see comment above
   }, [
-    activePage,
+    pages,
     dashboard,
     widgetId,
+    pageId,
     controller,
     prompt,
     widgets,

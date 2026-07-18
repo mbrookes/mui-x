@@ -98,8 +98,11 @@ function KpiWidgetRender(props: StudioWidgetRenderProps) {
 function TextWidgetRender(props: StudioWidgetRenderProps) {
   return React.createElement(StudioTextWidget, {
     widget: props.widget as StudioWidgetOf<'text'>,
+    pageId: props.pageId,
     aiRefreshRef: props.aiRefreshRef,
-    ...(props.extraProps as Partial<Omit<StudioTextWidgetProps, 'widget' | 'aiRefreshRef'>>),
+    ...(props.extraProps as Partial<
+      Omit<StudioTextWidgetProps, 'widget' | 'pageId' | 'aiRefreshRef'>
+    >),
   });
 }
 

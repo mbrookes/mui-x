@@ -152,7 +152,7 @@ describe('useTextWidgetAI', () => {
       },
     });
 
-    renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), { wrapper });
+    renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'), { wrapper });
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
@@ -179,7 +179,9 @@ describe('useTextWidgetAI', () => {
     );
     const wrapper = setup();
 
-    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.markdown).toBe('Hello world');
@@ -197,7 +199,9 @@ describe('useTextWidgetAI', () => {
     );
     const wrapper = setup();
 
-    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.error).toBe('Something broke');
@@ -211,7 +215,9 @@ describe('useTextWidgetAI', () => {
     mockFetch(makeSseBody([{ type: 'text-delta', delta: 'Hello' }, { type: 'finish' }]));
     const wrapper = setup();
 
-    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.markdown).toBe('Hello');
@@ -242,7 +248,9 @@ describe('useTextWidgetAI', () => {
     mockFetch(makeSseBody([{ type: 'text-delta', delta: 'Fresh' }, { type: 'finish' }]));
     const wrapper = setup();
 
-    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.markdown).toBe('Fresh');
@@ -301,9 +309,12 @@ describe('useTextWidgetAI', () => {
       makeSseBody([{ type: 'text-delta', delta: 'ThirdViaRefresh' }, { type: 'finish' }]),
     ]);
 
-    const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
-      wrapper,
-    });
+    const { result } = renderHook(
+      () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+      {
+        wrapper,
+      },
+    );
 
     // 1. Initial fetch at cacheKey A (title "Original Title").
     await waitFor(() => {
@@ -400,9 +411,12 @@ describe('useTextWidgetAI', () => {
         makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
       ]);
 
-      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
-        wrapper,
-      });
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+        {
+          wrapper,
+        },
+      );
 
       await waitFor(() => {
         expect(result.current.markdown).toBe('First');
@@ -457,9 +471,12 @@ describe('useTextWidgetAI', () => {
         makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
       ]);
 
-      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
-        wrapper,
-      });
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+        {
+          wrapper,
+        },
+      );
 
       await waitFor(() => {
         expect(result.current.markdown).toBe('First');
@@ -523,9 +540,12 @@ describe('useTextWidgetAI', () => {
         makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
       ]);
 
-      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), {
-        wrapper,
-      });
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+        {
+          wrapper,
+        },
+      );
 
       await waitFor(() => {
         expect(result.current.markdown).toBe('First');
@@ -560,6 +580,130 @@ describe('useTextWidgetAI', () => {
       expect(secondBody.pageSnapshot).toContain('100');
       expect(secondBody.pageSnapshot).not.toContain('999');
       expect(secondBody.pageSnapshot).not.toBe(firstBody.pageSnapshot);
+    });
+  });
+
+  // ─── Page scoping: widget's own page, not the dashboard's active page (finding 2.x) ──
+  //
+  // `buildPageSnapshot` used to read `dashboard.activePageId` — the dashboard-wide
+  // active page — instead of the text widget's OWN page. On a multi-page dashboard
+  // this meant: (1) a widget living on a non-active page snapshotted the WRONG
+  // page's sibling-widget data, and (2) every text widget across every page shared
+  // the same `activePageId` dependency, so switching pages recomputed (and
+  // re-fetched) ALL of them at once instead of only the widget(s) on the newly
+  // active page. These tests set up two pages with distinguishing sibling data and
+  // assert the hook always describes the page passed in as `pageId`, regardless of
+  // which page is dashboard-active.
+  describe('page scoping', () => {
+    it('snapshots the widget-own page even when a different page is dashboard-active', async () => {
+      const { wrapper } = setupWithController({
+        doc: {
+          // No `dashboard` override needed — `page-1` is already the harness default
+          // `activePageId`, which is exactly the point: it stays dashboard-active while
+          // `text-1` lives on `page-2`.
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['grid-active']] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['grid-own', 'text-1']] },
+          },
+          widgets: {
+            'grid-active': makeGridWidget('Active Page Grid'),
+            'grid-own': { ...makeGridWidget('Own Page Grid'), id: 'grid-own', sourceId: 'src2' },
+          },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Src1',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 111 }],
+            },
+            src2: {
+              id: 'src2',
+              label: 'Src2',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 222 }],
+            },
+          },
+        },
+      });
+
+      const fetchMock = mockFetchSequence([
+        makeSseBody([{ type: 'text-delta', delta: 'Done' }, { type: 'finish' }]),
+      ]);
+
+      // `text-1` lives on `page-2`, but `page-1` is dashboard-active.
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-1', 'page-2', 'Summarize this page'),
+        { wrapper },
+      );
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Done');
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as {
+        pageSnapshot?: string;
+      };
+      // Describes the widget's OWN page (page-2 / grid-own / 222) ...
+      expect(body.pageSnapshot).toContain('Own Page Grid');
+      expect(body.pageSnapshot).toContain('222');
+      // ... never the dashboard-active page (page-1 / grid-active / 111).
+      expect(body.pageSnapshot).not.toContain('Active Page Grid');
+      expect(body.pageSnapshot).not.toContain('111');
+    });
+
+    it('does not refetch when the dashboard-active page changes but the widget-own page does not', async () => {
+      const { controller, wrapper } = setupWithController({
+        doc: {
+          // No `dashboard` override needed — `page-1` is already the harness default
+          // `activePageId`, which is exactly the point: it stays dashboard-active while
+          // `text-1` lives on `page-2`.
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['grid-own', 'text-1']] },
+          },
+          widgets: {
+            'grid-own': { ...makeGridWidget('Own Page Grid'), id: 'grid-own' },
+          },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Src1',
+              fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+              rows: [{ amount: 222 }],
+            },
+          },
+        },
+      });
+
+      const fetchMock = mockFetchSequence([
+        makeSseBody([{ type: 'text-delta', delta: 'Done' }, { type: 'finish' }]),
+      ]);
+
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-1', 'page-2', 'Summarize this page'),
+        { wrapper },
+      );
+
+      await waitFor(() => {
+        expect(result.current.markdown).toBe('Done');
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Switching the dashboard's active page must not, by itself, trigger a
+      // recompute/refetch for a widget whose OWN page hasn't changed — this is
+      // exactly the "N redundant LLM calls on every page switch" symptom the fix
+      // eliminates.
+      act(() => {
+        controller.setActivePage('page-1');
+      });
+
+      // Give any (incorrect) effect a chance to fire before asserting it didn't.
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -598,7 +742,9 @@ describe('useTextWidgetAI', () => {
       );
       const wrapper = setup();
 
-      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+        wrapper,
+      });
 
       await waitFor(() => {
         expect(result.current.markdown).toBe('Done');
@@ -638,7 +784,9 @@ describe('useTextWidgetAI', () => {
       );
       const wrapper = setup();
 
-      const { result } = renderHook(() => useTextWidgetAI('text-1', 'Say hello'), { wrapper });
+      const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+        wrapper,
+      });
 
       await waitFor(() => {
         expect(result.current.markdown).toBe('Done');
@@ -713,7 +861,7 @@ describe('useTextWidgetAI', () => {
         endpoint: 'https://fake.test/api/ai',
       });
 
-      renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), { wrapper });
+      renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'), { wrapper });
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalled();
@@ -742,7 +890,7 @@ describe('useTextWidgetAI', () => {
         privateMode: true,
       });
 
-      renderHook(() => useTextWidgetAI('text-1', 'Summarize this page'), { wrapper });
+      renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'), { wrapper });
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalled();

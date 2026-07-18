@@ -309,8 +309,15 @@ function buildKpiWidgetSummary(
   }
 
   const value = computeAggregate(filteredRows, valueField ?? '', agg as StudioKpiAggregation);
+  // Look up through the own-source + own-source-expression-fields merge (not just
+  // `source.fields`) so a calculated-field (expression field) KPI value shows its
+  // configured display label instead of its raw field id/expression (finding 2.x) —
+  // mirrors the same `sourceFieldsWithExpressions` lookup used for `Stats:` below and
+  // the widget-level render path's own-source-then-expression-field resolution.
   const fieldLabel = valueField
-    ? (source.fields.find((f) => f.id === valueField)?.label ?? valueField)
+    ? (sourceFieldsWithExpressions(source, state.doc.expressionFields).find(
+        (f) => f.id === valueField,
+      )?.label ?? valueField)
     : 'rows';
 
   const lines: string[] = [
@@ -334,6 +341,16 @@ function buildKpiWidgetSummary(
       );
       const prevDateFilter: StudioFilterState = {
         ...dateFilter,
+        // `dateFilter.dateRangePreset` (e.g. 'last_3_months') must NOT survive onto the
+        // previous-period filter as-is: `resolveDateRangePresets` (run inside
+        // `resolveWidgetRows` via `selectFiltersForWidget`) treats ANY non-'custom'
+        // `dateRangePreset` as a signal to recompute `value` fresh from the preset using
+        // TODAY — clobbering the explicit previous-period `value`/`value2` below right back
+        // to the CURRENT period's window (an object shape the `operator`/`operator2` below
+        // don't even expect), which silently zeroed every previous-period row and produced
+        // "Previous period: 0" (finding 2.x). Marking this filter `'custom'` is what tells
+        // that resolver to leave the explicit previous-period bounds alone.
+        dateRangePreset: 'custom',
         operator: 'greater_than_or_equal',
         // `computePreviousPeriodRange` builds LOCAL-time boundaries, so serialize their local
         // calendar components — `toISOString().slice(0, 10)` round-trips through UTC and
@@ -352,7 +369,16 @@ function buildKpiWidgetSummary(
         widget.sourceId as string,
         source.rows as Record<string, unknown>[],
         state.doc.dashboard.activePageId,
-        { widgetCrossFilterMode: cfg.crossFilterMode },
+        {
+          widgetCrossFilterMode: cfg.crossFilterMode,
+          // Match the current-period `filteredRows` baseline's rank handling (built via
+          // `buildWidgetDataSummary`'s own `resolveWidgetRows` call with
+          // `includeWidgetRank: widget.kind !== 'chart'`, i.e. `true` for `kpi`) — without
+          // this the previous-period row set silently dropped/kept a widget-scoped Top-N rank
+          // filter inconsistently with the current period, comparing a ranked current value
+          // against an unranked previous one (finding 3.x).
+          includeWidgetRank: widget.kind !== 'chart',
+        },
       );
       const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
       const label = comparisonMode === 'year-over-year' ? 'YoY' : 'vs previous period';
@@ -719,8 +745,13 @@ function buildMapWidgetSummary(
 
   const total = result.labels.length;
   const slice = result.labels.slice(0, maxRows);
+  // Look up through the own-source + own-source-expression-fields merge (not just
+  // `source.fields`) so a calculated-field (expression field) map value shows its
+  // configured display label instead of its raw field id/expression (finding 2.x).
   const valueLabel = valueField
-    ? (source.fields.find((f) => f.id === valueField)?.label ?? valueField)
+    ? (sourceFieldsWithExpressions(source, state.doc.expressionFields).find(
+        (f) => f.id === valueField,
+      )?.label ?? valueField)
     : 'count';
 
   const lines: string[] = [
